@@ -129,7 +129,7 @@ A **step** is a typed analysis operation executed within a session. The target-s
 | `compare` | Atomic | Compute a typed delta between two compatible observations |
 | `decompose` | Atomic | Allocate a scalar delta across a semantic dimension using a typed attribution method |
 | `correlate` | Atomic | Estimate association between two aligned time-series observations |
-| `detect` | Atomic | Scan a bounded time range and return ranked anomaly candidates |
+| `detect` | Atomic | Scan a committed metric_frame or delta_frame artifact and return a candidate_set |
 | `forecast` | Atomic | Project a bounded time-series observation into future buckets |
 | `attribute` | Derived | Expand `observe -> compare -> decompose` into a deterministic attribution bundle |
 | `diagnose` | Derived | Expand `detect -> compare -> decompose` into a deterministic diagnosis bundle |

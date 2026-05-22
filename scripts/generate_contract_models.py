@@ -199,6 +199,15 @@ def _patch_aoi_optional_non_null_fields(output: Path) -> None:
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
+    if "class CandidateSetArtifact(" not in text:
+        marker = "\n\nclass DeltaFrameArtifact(BaseModel):"
+        candidate_set_model = (
+            "\n\nclass CandidateSetArtifact(\n"
+            "    RootModel[PointAnomalyCandidateSetArtifact | PeriodShiftCandidateSetArtifact]\n"
+            "):\n"
+            "    root: PointAnomalyCandidateSetArtifact | PeriodShiftCandidateSetArtifact\n"
+        )
+        text = text.replace(marker, f"{candidate_set_model}{marker}", 1)
     text = re.sub(
         r"    filter: Expression \| None = Field\(\n        None,\n(?P<body>(?:        .+\n)+?)    \)",
         "    filter: Expression = Field(  # type: ignore[assignment]\n"
@@ -364,7 +373,7 @@ def _validate_aoi_examples(*, generated_root: Path | None = None) -> None:
     )
     detect_model = _find_model_with_fields(
         aoi_models,
-        {"metric", "time_scope", "granularity", "filter", "strategy"},
+        {"source_artifact_id", "sensitivity", "limit"},
     )
     detect_model.model_rebuild(_types_namespace=vars(aoi_models))
 

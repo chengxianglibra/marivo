@@ -37,6 +37,15 @@ class Decompose(BaseModel):
     compare_artifact_id: str = Field(..., min_length=1)
 
 
+class Detect(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source_artifact_id: str = Field(..., min_length=1)
+    sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive"
+    limit: int = Field(None, ge=1)  # type: ignore[assignment]
+
+
 class Forecast(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -170,6 +179,16 @@ class Expression(BaseModel):
     dialects: list[Dialect] = Field(..., min_length=1)
 
 
+class CandidateSetMeasure(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Literal["score", "value", "baseline_value", "delta_abs", "delta_pct"]
+    value_type: Literal["number"]
+    nullable: bool
+    unit: str | None = None
+
+
 class DeltaFrameScope(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -179,6 +198,63 @@ class DeltaFrameScope(BaseModel):
     delta_abs: float | None
     delta_pct: float | None
     direction: Literal["increase", "decrease", "flat", "undefined"]
+
+
+class PeriodShiftCandidateScanSubject(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["candidate_scan"]
+    metric_ref: str = Field(..., min_length=1)
+    source_artifact_id: str = Field(..., min_length=1)
+    source_artifact_family: Literal["delta_frame"]
+    source_shape: Literal["time_series_delta", "panel_delta"]
+
+
+class PeriodShiftCandidateSetLineage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation: Literal["detect"]
+    source_artifact_ids: list[SourceArtifactId] = Field(..., min_length=1)
+    strategy: Literal["period_shift"]
+
+
+class ScanSummary(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scanned_series_count: int = Field(..., ge=0)
+    total_candidate_count: int = Field(..., ge=0)
+
+
+class Truncation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    returned_candidate_count: int = Field(..., ge=0)
+    total_candidate_count: int = Field(..., ge=0)
+    truncated: bool
+
+
+class PointAnomalyCandidateScanSubject(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["candidate_scan"]
+    metric_ref: str = Field(..., min_length=1)
+    source_artifact_id: str = Field(..., min_length=1)
+    source_artifact_family: Literal["metric_frame"]
+    source_shape: Literal["time_series", "panel"]
+
+
+class PointAnomalyCandidateSetLineage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation: Literal["detect"]
+    source_artifact_ids: list[SourceArtifactId] = Field(..., min_length=1)
+    strategy: Literal["point_anomaly"]
 
 
 class AttributionPoint(BaseModel):
@@ -191,6 +267,26 @@ class AttributionPoint(BaseModel):
     baseline_value: float | None = None
     presence: Literal["both", "current_only", "baseline_only"] | None = None
     rank: int = Field(..., ge=1)
+
+
+class CandidateQualityIssue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    code: str = Field(..., min_length=1)
+    severity: Literal["warning", "error"]
+    message: str = Field(..., min_length=1)
+
+
+class FramePointRef(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., min_length=1)
+    series_index: int = Field(..., ge=0)
+    point_index: int = Field(..., ge=0)
+    series_keys: dict[str, str]
+    point_key: str = Field(..., min_length=1)
 
 
 class MetricFrameWindow(BaseModel):
@@ -276,17 +372,6 @@ class TimeScope(BaseModel):
     end: AwareDatetime
 
 
-class AnomalyCandidate(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    item_id: str = Field(..., min_length=1)
-    bucket_start: AwareDatetime
-    value: float
-    score: float = Field(..., ge=0.0)
-    series_keys: dict[str, str] | None
-
-
 class AttributionFrameQuality(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -338,6 +423,14 @@ class AttributionSubjectScope(BaseModel):
     )
 
 
+class Quality(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Literal["detectable", "needs_attention"]
+    issues: list[CandidateQualityIssue]
+
+
 class SubjectScopeRef(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -363,6 +456,7 @@ class DeltaFramePoint(BaseModel):
         extra="forbid",
     )
     window: MetricFrameWindow = None  # type: ignore[assignment]
+    baseline_window: MetricFrameWindow | None = None
     current_value: float | None
     baseline_value: float | None
     delta_abs: float | None
@@ -377,6 +471,39 @@ class MetricFramePoint(BaseModel):
     )
     window: MetricFrameWindow = None  # type: ignore[assignment]
     value: float | None
+
+
+class PeriodShiftCandidateItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    item_id: str = Field(..., min_length=1)
+    window: MetricFrameWindow
+    baseline_window: MetricFrameWindow | None = None
+    keys: dict[str, str] | None
+    value: float | None
+    baseline_value: float | None = None
+    delta_abs: float | None = None
+    delta_pct: float | None = None
+    score: float = Field(..., ge=0.0)
+    direction: Literal["increase", "decrease", "unknown"]
+    source_delta_point_ref: FramePointRef
+
+
+class PointAnomalyCandidateItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    item_id: str = Field(..., min_length=1)
+    window: MetricFrameWindow
+    keys: dict[str, str] | None
+    value: float | None
+    baseline_value: float | None = None
+    delta_abs: float | None = None
+    delta_pct: float | None = None
+    score: float = Field(..., ge=0.0)
+    direction: Literal["increase", "decrease", "unknown"]
+    source_point_ref: FramePointRef
 
 
 class Diagnose(BaseModel):
@@ -428,20 +555,6 @@ class Diagnose(BaseModel):
     )
 
 
-class Detect(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    metric: str = Field(..., min_length=1)
-    time_scope: TimeScope
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"]
-    filter: Expression = None  # type: ignore[assignment]
-    dimension: str = Field(None, min_length=1)  # type: ignore[assignment]
-    strategy: Literal["point_anomaly", "period_shift"]
-    sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive"
-    limit: int = Field(None, ge=1)  # type: ignore[assignment]
-
-
 class Observe(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -451,13 +564,6 @@ class Observe(BaseModel):
     filter: Expression = None  # type: ignore[assignment]
     granularity: Literal["hour", "day", "week", "month", "quarter", "year"] = None  # type: ignore[assignment]
     dimensions: list[Dimension] = Field(None, min_length=1)  # type: ignore[arg-type]
-
-
-class AnomalyCandidatesResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    items: list[AnomalyCandidate]
 
 
 class AssociationResult(BaseModel):
@@ -545,6 +651,26 @@ class MetricFrameSeries(BaseModel):
     points: list[MetricFramePoint]
 
 
+class PeriodShiftCandidateSetPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[PeriodShiftCandidateItem]
+    scan_summary: ScanSummary
+    truncation: Truncation
+    quality: Quality
+
+
+class PointAnomalyCandidateSetPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[PointAnomalyCandidateItem]
+    scan_summary: ScanSummary
+    truncation: Truncation
+    quality: Quality
+
+
 class AttributionFrameArtifact(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -610,6 +736,42 @@ class MetricFramePayload(BaseModel):
     series: list[MetricFrameSeries]
 
 
+class PeriodShiftCandidateSetArtifact(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., min_length=1)
+    artifact_family: Literal["candidate_set"]
+    axes: list[MetricFrameAxis4 | MetricFrameAxis5]
+    measures: list[CandidateSetMeasure]
+    capabilities: list[Literal["filterable"]]
+    shape: Literal["period_shift_candidates"]
+    subject: PeriodShiftCandidateScanSubject
+    lineage: PeriodShiftCandidateSetLineage
+    payload: PeriodShiftCandidateSetPayload
+
+
+class PointAnomalyCandidateSetArtifact(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., min_length=1)
+    artifact_family: Literal["candidate_set"]
+    axes: list[MetricFrameAxis4 | MetricFrameAxis5]
+    measures: list[CandidateSetMeasure]
+    capabilities: list[Literal["filterable"]]
+    shape: Literal["point_anomaly_candidates"]
+    subject: PointAnomalyCandidateScanSubject
+    lineage: PointAnomalyCandidateSetLineage
+    payload: PointAnomalyCandidateSetPayload
+
+
+class CandidateSetArtifact(
+    RootModel[PointAnomalyCandidateSetArtifact | PeriodShiftCandidateSetArtifact]
+):
+    root: PointAnomalyCandidateSetArtifact | PeriodShiftCandidateSetArtifact
+
+
 class DeltaFrameArtifact(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -644,10 +806,11 @@ class Artifact1(BaseModel):
     result: (
         DeltaFrameArtifact
         | AttributionFrameArtifact
-        | AnomalyCandidatesResult
         | AssociationResult
         | HypothesisTestResult
         | ForecastSeriesResult
+        | PointAnomalyCandidateSetArtifact
+        | PeriodShiftCandidateSetArtifact
     )
     failure: AnalysisFailure | None = None
 
@@ -660,10 +823,11 @@ class Artifact2(BaseModel):
     result: (
         DeltaFrameArtifact
         | AttributionFrameArtifact
-        | AnomalyCandidatesResult
         | AssociationResult
         | HypothesisTestResult
         | ForecastSeriesResult
+        | PointAnomalyCandidateSetArtifact
+        | PeriodShiftCandidateSetArtifact
         | None
     ) = None
     failure: AnalysisFailure
@@ -686,6 +850,8 @@ class AoiV02(
         | AttributionFrameArtifact
         | Artifact1
         | Artifact2
+        | PointAnomalyCandidateSetArtifact
+        | PeriodShiftCandidateSetArtifact
     ]
 ):
     root: (
@@ -704,6 +870,8 @@ class AoiV02(
         | AttributionFrameArtifact
         | Artifact1
         | Artifact2
+        | PointAnomalyCandidateSetArtifact
+        | PeriodShiftCandidateSetArtifact
     ) = Field(
         ...,
         description="Analysis Operation Interface v0.2 canonical schema.",

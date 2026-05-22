@@ -53,16 +53,16 @@ class CorrelateResponse(_EnvelopeBase):
     result: _CorrelateArtifact | _CorrelateFailureArtifact
 
 
-class _DetectArtifact(aoi.Artifact1):
-    result: aoi.AnomalyCandidatesResult
-
-
 class _DetectFailureArtifact(aoi.Artifact2):
-    result: aoi.AnomalyCandidatesResult | None = None
+    result: None = None
 
 
 class DetectResponse(_EnvelopeBase):
-    result: _DetectArtifact | _DetectFailureArtifact
+    result: (
+        aoi.PointAnomalyCandidateSetArtifact
+        | aoi.PeriodShiftCandidateSetArtifact
+        | _DetectFailureArtifact
+    )
 
 
 class _ForecastArtifact(aoi.Artifact1):
@@ -97,6 +97,8 @@ class DerivedBundleResult(BaseModel):
         aoi.MetricFrameArtifact
         | aoi.DeltaFrameArtifact
         | aoi.AttributionFrameArtifact
+        | aoi.PointAnomalyCandidateSetArtifact
+        | aoi.PeriodShiftCandidateSetArtifact
         | aoi.Artifact1
         | aoi.Artifact2
     ]

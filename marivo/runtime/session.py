@@ -430,7 +430,7 @@ def get_artifact_runtime_status(
     - ``attempt_id``, ``last_failure_reason``, and ``last_failure_at``
       are always ``null`` in v1.
 
-    D4-allows-empty artifact types (``observation``, ``anomaly_candidates``)
+    D4-allows-empty artifact types (``observation``, ``candidate_set``)
     always return ``"findings_committed"`` because zero findings is a valid
     committed outcome.
 

@@ -91,9 +91,9 @@ v1 支持的输入形态如下：
 
 - `metric` 必须解析到已发布的 semantic metric。
 - `time_scope` 必须使用 `detect` 的 `{field, start, end}` 时间范围契约，且必须提供顶层 `granularity`。
-- `filter` 若提供，会同时应用到内部 detect 与后续 observe/compare/decompose。
+- `filter` 若提供，会应用到 diagnose 构造 source artifact 的 observe 步骤与后续 observe/compare/decompose。
 - `scan_dimension` 可选；若提供，只能是单个 semantic dimension。省略表示扫描整体指标序列。
-- `strategy` 必填，并传递给内部 `detect`。
+- `strategy` 必填，用于决定 diagnose 先构造 `metric_frame` 还是 `delta_frame` source artifact；内部 atomic `detect` 不接收请求级 `strategy`。
 - `sensitivity` 继承 `detect` 的三档枚举，省略时默认 `aggressive`。
 - `dimensions` 必须是非空的单维度名称列表，且去重后仍非空；它控制候选发现后的归因拆解维度，与 `scan_dimension` 相互独立。
 - `candidate_limit` 控制实际进入 compare/decompose follow-up 的异常候选数，省略时为 `3`。
@@ -174,9 +174,12 @@ projection 类型：`diagnose_projection`
 
 固定展开如下：
 
-1. `detect(metric, time_scope, filter, scan_dimension, strategy, sensitivity, limit=candidate_limit)`
-2. 读取 detect artifact 中按既定排序返回的 candidates
-3. 对前 `candidate_limit` 个 candidate 逐个展开：
+1. 构造 detect source artifact：
+   - `point_anomaly`：`observe(metric, time_scope, filter, scan_dimension?) -> metric_frame`
+   - `period_shift`：`observe(current) + observe(baseline) + compare(...) -> delta_frame`
+2. `detect(source_artifact_id, sensitivity, limit=candidate_limit)`
+3. 读取 `candidate_set.payload.items[]` 中按既定排序返回的 candidates
+4. 对前 `candidate_limit` 个 candidate 逐个展开：
    - 令 `current_window = candidate.window`
    - 用固定策略推导 `baseline_window`
    - 将请求 `filter` 与 `candidate.slice` 组合成 current/baseline 的共享 non-time scope

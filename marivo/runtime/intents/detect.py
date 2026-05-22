@@ -2,37 +2,24 @@ from __future__ import annotations
 
 import contextlib
 import math
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
-from marivo.core.intent.primitives import make_provenance, new_step_id
-from marivo.core.semantic.ir import AnalysisStepIR
-from marivo.core.semantic.step_metadata import build_step_semantic_metadata
-from marivo.runtime.evidence.ref_boundary import assert_no_canonical_refs_in_semantic_payload
-from marivo.runtime.intents._helpers import aoi_filter_to_scope
-from marivo.runtime.intents.normalization import (
-    normalize_metric_ref,
-    validate_granularity,
+from marivo.core.intent.primitives import new_step_id
+from marivo.runtime.intents._helpers import commit_aoi_artifact_result
+from marivo.runtime.intents.metric_frame import (
+    FramePoint,
+    is_delta_frame_artifact,
+    is_metric_frame_artifact,
+    iter_frame_points,
+    read_delta_frame_shape,
+    read_metric_frame_metric_ref,
+    read_metric_frame_shape,
 )
-from marivo.runtime.semantic.executor import execute_compiled
-from marivo.time_contracts import (
-    TimeGrain,
-    bucket_window,
-    normalize_hour_boundary,
-    previous_adjacent_window,
-    recommended_minimum_window,
-)
-from marivo.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
     from marivo.runtime.runtime import MarivoRuntime
-
-
-def _build_step_metadata(compiled_queries: Any) -> dict[str, Any] | None:
-    result = build_step_semantic_metadata(compiled_queries)
-    if result is not None:
-        assert_no_canonical_refs_in_semantic_payload(result, surface="step_semantic_metadata")
-    return result
 
 
 _SENSITIVITY_THRESHOLD: dict[str, float] = {
@@ -48,21 +35,9 @@ _PERIOD_SHIFT_THRESHOLD: dict[str, float] = {
 }
 
 _MIN_POINTS_FOR_DETECTION = 3
-_DEFAULT_MAX_SERIES = 20
-_VALID_STRATEGIES: frozenset[str] = frozenset({"point_anomaly", "period_shift"})
-_AOI_PARAM_KEYS: frozenset[str] = frozenset(
-    {
-        "metric",
-        "time_scope",
-        "granularity",
-        "filter",
-        "dimension",
-        "strategy",
-        "sensitivity",
-        "limit",
-    }
-)
-_AOI_TIME_SCOPE_KEYS: frozenset[str] = frozenset({"field", "start", "end"})
+_AOI_PARAM_KEYS: frozenset[str] = frozenset({"source_artifact_id", "sensitivity", "limit"})
+_METRIC_FRAME_SCAN_SHAPES: frozenset[str] = frozenset({"time_series", "panel"})
+_DELTA_FRAME_SCAN_SHAPES: frozenset[str] = frozenset({"time_series_delta", "panel_delta"})
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -72,235 +47,203 @@ def _coerce_float(value: Any) -> float | None:
     return None
 
 
-def _slice_sort_key(candidate_slice: dict[str, Any] | None) -> str:
-    if not candidate_slice:
-        return ""
-    return "|".join(f"{key}={candidate_slice[key]}" for key in sorted(candidate_slice))
+def _candidate_item_id(prefix: str, point: FramePoint) -> str:
+    return f"{prefix}:series_{point.series_index}:{point.ref['point_key']}"
 
 
-def _detect_series_candidates(
-    series: list[dict[str, Any]],
+def _direction_from_delta(delta: float | None) -> str:
+    if delta is None:
+        return "unknown"
+    if delta > 0:
+        return "increase"
+    if delta < 0:
+        return "decrease"
+    return "unknown"
+
+
+def _source_keys(point: FramePoint) -> dict[str, str] | None:
+    return dict(point.series_keys) if point.series_keys else None
+
+
+def _score_metric_frame_series(
+    points: list[FramePoint],
     *,
-    candidate_slice: dict[str, Any] | None,
     threshold: float,
 ) -> list[dict[str, Any]]:
-    numeric_values = [s["value"] for s in series if s["value"] is not None]
-    n_points = len(numeric_values)
-    if n_points < _MIN_POINTS_FOR_DETECTION:
+    numeric_points: list[tuple[FramePoint, float]] = []
+    for point in points:
+        value = _coerce_float(point.value("value"))
+        if value is not None:
+            numeric_points.append((point, value))
+
+    if len(numeric_points) < _MIN_POINTS_FOR_DETECTION:
         return []
 
-    mean = sum(numeric_values) / n_points
-    variance = sum((v - mean) ** 2 for v in numeric_values) / n_points
+    numeric_values = [value for _, value in numeric_points]
+    mean = sum(numeric_values) / len(numeric_values)
+    variance = sum((value - mean) ** 2 for value in numeric_values) / len(numeric_values)
     std = math.sqrt(variance) if variance > 0 else 0.0
+    if std == 0:
+        return []
 
     candidates: list[dict[str, Any]] = []
-    for bucket in series:
-        val = bucket["value"]
-        if val is None:
+    for point, value in numeric_points:
+        window = point.window
+        if window is None:
             continue
-        z = (val - mean) / std if std > 0 else 0.0
-        abs_z = abs(z)
-        if abs_z <= threshold:
+        delta_abs = value - mean
+        score = abs(delta_abs / std)
+        if score <= threshold:
             continue
-
-        deviation_abs: float = val - mean
-        deviation_pct: float | None = (deviation_abs / abs(mean)) if mean != 0 else None
-
-        if deviation_abs > 0:
-            direction = "up"
-        elif deviation_abs < 0:
-            direction = "down"
-        else:
-            direction = "flat"
-
-        flag_level = "high" if abs_z > 3.0 else ("medium" if abs_z > 2.0 else "low")
         candidates.append(
             {
-                "candidate_type": "point_anomaly",
-                "window": bucket["window"],
-                "slice": dict(candidate_slice) if candidate_slice else None,
-                "current_value": val,
+                "item_id": _candidate_item_id("point_anomaly", point),
+                "window": window,
+                "keys": _source_keys(point),
+                "value": value,
                 "baseline_value": mean,
-                "deviation_abs": deviation_abs,
-                "deviation_pct": deviation_pct,
-                "candidate_score": abs_z,
-                "flag_level": flag_level,
-                "direction": direction,
+                "delta_abs": delta_abs,
+                "delta_pct": delta_abs / abs(mean) if mean != 0 else None,
+                "score": score,
+                "direction": _direction_from_delta(delta_abs),
+                "source_point_ref": dict(point.ref),
             }
         )
     return candidates
 
 
-def _resolve_strategy(raw_strategy: Any) -> str:
-    strategy = str(raw_strategy or "").strip().lower()
-    if strategy not in _VALID_STRATEGIES:
-        raise ValueError(
-            f"detect: INVALID_ARGUMENT - strategy='{strategy}' is not valid. "
-            f"Must be one of: {sorted(_VALID_STRATEGIES)}"
-        )
-    return strategy
+def _delta_direction(point: FramePoint, delta_abs: float | None) -> str:
+    direction_raw = point.value("direction")
+    if direction_raw in {"increase", "decrease"}:
+        return str(direction_raw)
+    return _direction_from_delta(delta_abs)
 
 
-def _flag_level_for_period_shift(score: float) -> str:
-    if score >= 0.50:
-        return "high"
-    if score >= 0.30:
-        return "medium"
-    return "low"
-
-
-def _table_has_column(
-    runtime: MarivoRuntime,
+def _score_delta_frame_points(
+    points: Iterable[FramePoint],
     *,
-    engine: Any,
-    engine_type: str,
-    table_name: str,
-    column_name: str,
-) -> bool:
-    compiled_query = runtime.compile_step(
-        AnalysisStepIR(
-            index=0,
-            step_type="profile_table_columns",
-            params={"table_name": table_name},
-        ),
-        engine_type=engine_type,
-    )
-    rows = list(execute_compiled(engine, compiled_query).rows)
-    return column_name in {str(row.get("column_name") or "") for row in rows}
-
-
-def _query_scalar_window_values(
-    runtime: MarivoRuntime,
-    *,
-    session_id: str,
-    engine: Any,
-    engine_type: str,
-    table: str,
-    qualified_table: str,
-    metric_ref: str,
-    metric_sql: str,
-    all_dimensions: list[str],
-    execution_context: Any,
-    scope_raw: Any,
-    time_scope_field: str,
-    start: str,
-    end: str,
-    granularity: str,
-    dimension: str | None,
-    dimension_expr: str | None,
-) -> dict[str, dict[str, Any]]:
-    mq_params: dict[str, Any] = {
-        "table": table,
-        "metric": metric_ref,
-        "time_scope": {
-            "mode": "single_window",
-            "grain": granularity,
-            "current": {"start": start, "end": end},
-        },
-    }
-    if scope_raw:
-        mq_params["scope"] = scope_raw
-    mq_params["time_scope_field"] = time_scope_field
-    resolved = normalize_metric_query_request(mq_params)
-    runtime.resolve_windowed_query_time_axis(
-        resolved,
-        engine_type=engine_type,
-        metric_name=metric_ref,
-        fallback_columns=all_dimensions,
-    )
-    scoped_query = runtime.build_scoped_query(session_id, resolved, engine_type=engine_type)
-
-    group_by: list[str] = []
-    order: str | None = None
-    if dimension is not None:
-        if dimension_expr is None:
-            raise ValueError(
-                f"detect: INVALID_ARGUMENT - dimension '{dimension}' did not resolve to a physical column"
-            )
-        group_by.append(f"{dimension_expr} AS split_value")
-        order = "split_value"
-
-    compiled_query = runtime.compile_step(
-        AnalysisStepIR(
-            index=0,
-            step_type="aggregate_query",
-            params={
-                "table": qualified_table,
-                "measures": [{"expr": metric_sql, "as": "value"}],
-                "group_by": group_by,
-                "order": order,
-                "scoped_query": scoped_query,
-                "limit": 10000,
-            },
-        ),
-        engine_type=engine_type,
-        semantic_context={"metric_execution_context": execution_context},
-    )
-    result: dict[str, dict[str, Any]] = {}
-    for row in execute_compiled(engine, compiled_query, session_id=session_id).rows:
-        value = _coerce_float(row.get("value"))
-        if dimension is None:
-            result["__overall__"] = {"slice": None, "value": value}
-        else:
-            split_value = row.get("split_value")
-            result[str(split_value)] = {
-                "slice": {dimension: split_value},
-                "value": value,
-            }
-    if dimension is None and "__overall__" not in result:
-        result["__overall__"] = {"slice": None, "value": None}
-    return result
-
-
-def _detect_period_shift_candidates(
-    *,
-    current_values: dict[str, dict[str, Any]],
-    baseline_values: dict[str, dict[str, Any]],
-    current_window: dict[str, str],
-    baseline_window: dict[str, str],
     threshold: float,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
-    for key, current_item in current_values.items():
-        current_value = current_item.get("value")
-        baseline_item = baseline_values.get(key)
-        if baseline_item is None:
+    for point in points:
+        window = point.window
+        if window is None:
             continue
-        baseline_value = baseline_item.get("value")
-        if current_value is None or baseline_value is None:
-            continue
-        deviation_abs = current_value - baseline_value
-        if baseline_value != 0:
-            deviation_pct_value = deviation_abs / abs(baseline_value)
-            deviation_pct: float | None = deviation_pct_value
-            candidate_score = abs(deviation_pct_value)
+        current_value = _coerce_float(point.value("current_value"))
+        baseline_value = _coerce_float(point.value("baseline_value"))
+        delta_abs = _coerce_float(point.value("delta_abs"))
+        delta_pct = _coerce_float(point.value("delta_pct"))
+        if delta_abs is None and current_value is not None and baseline_value is not None:
+            delta_abs = current_value - baseline_value
+        if (
+            delta_pct is None
+            and delta_abs is not None
+            and baseline_value is not None
+            and baseline_value != 0
+        ):
+            delta_pct = delta_abs / abs(baseline_value)
+
+        if delta_pct is not None:
+            score = abs(delta_pct)
+        elif delta_abs is not None:
+            score = abs(delta_abs)
         else:
-            deviation_pct = None
-            candidate_score = abs(deviation_abs)
-        if candidate_score < threshold:
             continue
-        if deviation_abs > 0:
-            direction = "up"
-        elif deviation_abs < 0:
-            direction = "down"
-        else:
-            direction = "flat"
+        if score < threshold:
+            continue
+
         candidates.append(
             {
-                "candidate_type": "period_shift",
-                "window": dict(current_window),
-                "baseline_window": dict(baseline_window),
-                "slice": current_item.get("slice"),
-                "current_value": current_value,
+                "item_id": _candidate_item_id("period_shift", point),
+                "window": window,
+                **(
+                    {"baseline_window": dict(point.value("baseline_window"))}
+                    if isinstance(point.value("baseline_window"), dict)
+                    else {}
+                ),
+                "keys": _source_keys(point),
+                "value": current_value,
                 "baseline_value": baseline_value,
-                "deviation_abs": deviation_abs,
-                "deviation_pct": deviation_pct,
-                "candidate_score": candidate_score,
-                "flag_level": _flag_level_for_period_shift(candidate_score),
-                "direction": direction,
+                "delta_abs": delta_abs,
+                "delta_pct": delta_pct,
+                "score": score,
+                "direction": _delta_direction(point, delta_abs),
+                "source_delta_point_ref": dict(point.ref),
             }
         )
     return candidates
+
+
+def _read_delta_metric_ref(source_artifact: dict[str, Any]) -> str:
+    subject = source_artifact.get("subject")
+    metric_ref = subject.get("metric_ref") if isinstance(subject, dict) else None
+    if not isinstance(metric_ref, str) or not metric_ref.strip():
+        metric_ref = source_artifact.get("metric_ref")
+    if not isinstance(metric_ref, str) or not metric_ref.strip():
+        raise ValueError("detect: INVALID_ARGUMENT - source delta_frame missing metric_ref")
+    return metric_ref.strip()
+
+
+def _validate_sensitivity(raw_sensitivity: Any) -> str:
+    sensitivity = str(raw_sensitivity or "aggressive").lower()
+    if sensitivity not in _SENSITIVITY_THRESHOLD:
+        raise ValueError(
+            f"detect: INVALID_ARGUMENT - sensitivity='{sensitivity}' is not valid. "
+            f"Must be one of: {sorted(_SENSITIVITY_THRESHOLD)}"
+        )
+    return sensitivity
+
+
+def _validate_limit(raw_limit: Any) -> int | None:
+    if raw_limit is None:
+        return None
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("detect: INVALID_ARGUMENT - limit must be an integer") from exc
+    if limit <= 0:
+        raise ValueError("detect: INVALID_ARGUMENT - limit must be > 0")
+    return limit
+
+
+def _scanned_series_count(points: list[FramePoint]) -> int:
+    return len({point.series_index for point in points})
+
+
+def _candidate_sort_key(candidate: dict[str, Any]) -> tuple[float, str, str]:
+    window = candidate.get("window")
+    window_start = str(window.get("start") or "") if isinstance(window, dict) else ""
+    return (-float(candidate["score"]), window_start, str(candidate.get("item_id") or ""))
+
+
+def _metric_frame_quality(points: list[FramePoint]) -> dict[str, Any]:
+    numeric_counts_by_series: dict[int, int] = {}
+    for point in points:
+        numeric_counts_by_series.setdefault(point.series_index, 0)
+        if _coerce_float(point.value("value")) is not None:
+            numeric_counts_by_series[point.series_index] += 1
+
+    max_series_numeric_points = max(numeric_counts_by_series.values(), default=0)
+    eligible_series_count = sum(
+        1 for count in numeric_counts_by_series.values() if count >= _MIN_POINTS_FOR_DETECTION
+    )
+    if eligible_series_count > 0:
+        return {"status": "detectable", "issues": []}
+
+    return {
+        "status": "needs_attention",
+        "issues": [
+            {
+                "code": "insufficient_points",
+                "severity": "warning",
+                "message": (
+                    "No scanned series has enough numeric points for point anomaly scanning; "
+                    f"maximum per-series numeric points is {max_series_numeric_points}, "
+                    f"minimum {_MIN_POINTS_FOR_DETECTION} required."
+                ),
+            }
+        ],
+    }
 
 
 def run_detect_intent(
@@ -309,531 +252,150 @@ def run_detect_intent(
     params: dict[str, Any] | None,
     reasoning: str | None = None,
 ) -> dict[str, Any]:
-    """Execute a `detect` intent: scan a metric time range for anomaly candidates.
-
-    Applies the requested strategy to flag anomaly candidates.
-
-    time_scope must use the observe-aligned range shape plus top-level granularity.
-    Empty semantics: total_candidate_count = 0 is a valid success outcome —
-    the artifact is committed even when no candidates are found.
-    """
+    """Execute detect by scanning a committed metric_frame or delta_frame artifact."""
     p = params or {}
     extra_keys = sorted(set(p) - _AOI_PARAM_KEYS)
     if extra_keys:
         raise ValueError(
             "detect: INVALID_ARGUMENT - unsupported parameter(s): "
-            f"{extra_keys}; detect accepts only AOI request fields"
+            f"{extra_keys}; detect accepts only source_artifact_id, sensitivity, and limit"
         )
 
-    metric_ref = normalize_metric_ref(p.get("metric"))
-    metric_ref = runtime.core.normalize_intent_metric_ref(metric_ref)
-    metric_name = runtime.core.metric_name_from_ref(metric_ref)
-
-    time_scope_raw = p.get("time_scope")
-    if not isinstance(time_scope_raw, dict):
-        raise ValueError("detect intent requires 'time_scope'")
-
-    # ── Validate and parse time_scope ────────────────────────────────────────
-    extra_time_scope_keys = sorted(set(time_scope_raw) - _AOI_TIME_SCOPE_KEYS)
-    if extra_time_scope_keys:
-        raise ValueError(
-            "detect: INVALID_ARGUMENT - unsupported time_scope field(s): "
-            f"{extra_time_scope_keys}; time_scope must contain only field, start, and end"
-        )
-    time_scope_field: str | None = str(time_scope_raw.get("field") or "").strip() or None
-    if time_scope_field is None:
-        raise ValueError("detect: INVALID_ARGUMENT - time_scope.field is required")
-
-    granularity_input = p.get("granularity")
-    if granularity_input is not None:
-        granularity_input = str(granularity_input).lower()
-    granularity_raw = validate_granularity(granularity_input)
-    if granularity_raw is None:
-        raise ValueError("detect intent requires 'granularity'")
-    granularity: str = granularity_raw
-    granularity_typed = cast("TimeGrain", granularity)
-
-    start_str: str = str(time_scope_raw.get("start") or "").strip()
-    end_str: str = str(time_scope_raw.get("end") or "").strip()
-    if not start_str or not end_str:
-        raise ValueError("detect: time_scope requires 'start' and 'end'")
-    if granularity_typed == "hour":
-        start_str = normalize_hour_boundary(start_str, label="time_scope.start")
-        end_str = normalize_hour_boundary(end_str, label="time_scope.end")
-        if datetime.fromisoformat(start_str) >= datetime.fromisoformat(end_str):
-            raise ValueError(
-                f"detect: INVALID_ARGUMENT - time_scope.start ('{start_str}') "
-                f"must be before end ('{end_str}')"
-            )
-    elif start_str >= end_str:
-        raise ValueError(
-            f"detect: INVALID_ARGUMENT - time_scope.start ('{start_str}') "
-            f"must be before end ('{end_str}')"
-        )
-
-    resolved_time_scope: dict[str, Any] = {
-        "field": time_scope_field,
-        "start": start_str,
-        "end": end_str,
-    }
-
-    # ── Validate sensitivity ───────────────────────────────────────────────────
-    sensitivity: str = str(p.get("sensitivity") or "aggressive").lower()
-    if sensitivity not in _SENSITIVITY_THRESHOLD:
-        raise ValueError(
-            f"detect sensitivity='{sensitivity}' is not valid. "
-            f"Must be one of: {sorted(_SENSITIVITY_THRESHOLD)}"
-        )
-
-    # ── Validate strategy ─────────────────────────────────────────────────────
-    strategy = _resolve_strategy(p.get("strategy"))
-
-    # ── Read dimension ────────────────────────────────────────────────────────
-    dimension_raw = p.get("dimension")
-    dimension: str | None = None
-    if dimension_raw is not None and not isinstance(dimension_raw, str):
-        raise ValueError("detect: INVALID_ARGUMENT - dimension must be a string")
-    if isinstance(dimension_raw, str):
-        dimension = dimension_raw.strip() or None
-
-    # ── Internal fan-out guard ────────────────────────────────────────────────
-    max_series: int | None = _DEFAULT_MAX_SERIES if dimension is not None else None
-
-    # ── Read and validate limit ───────────────────────────────────────────────
-    limit_raw = p.get("limit")
-    limit: int | None = None
-    if limit_raw is not None:
-        limit = int(limit_raw)
-        if limit <= 0:
-            raise ValueError("detect: INVALID_ARGUMENT - limit must be > 0")
-
-    # ── AOI filter conversion ─────────────────────────────────────────────────
-    try:
-        scope_raw = aoi_filter_to_scope(p.get("filter"), label="filter")
-    except ValueError as exc:
-        raise ValueError(f"detect: INVALID_ARGUMENT - {exc}") from exc
-
-    # ── Resolve metric ─────────────────────────────────────────────────────────
-    execution_context = runtime.resolve_metric_execution_context(metric_ref, session_id=session_id)
-    table = execution_context.table_name
-
-    all_dimensions = runtime.resolve_metric_dimensions(metric_ref)
-    engine_resolution = runtime.resolve_engine_for_session(session_id, [table])
-    if not isinstance(engine_resolution, tuple) or len(engine_resolution) != 3:
-        engine_resolution = runtime.resolve_engine([table])
-    engine, engine_type, qualified = engine_resolution
-    metric_sql = runtime.resolve_metric_sql_for_execution(
-        metric_ref,
-        execution_context,
-        engine_type=engine_type,
+    source_artifact_id_raw = p.get("source_artifact_id")
+    source_artifact_id = (
+        source_artifact_id_raw.strip() if isinstance(source_artifact_id_raw, str) else ""
     )
-    if all_dimensions is None:
-        raise ValueError(f"Metric '{metric_name}' not found or not published")
-    dimension_expr: str | None = None
-    if dimension is not None:
-        if dimension not in all_dimensions:
+    if not source_artifact_id:
+        raise ValueError("detect: INVALID_ARGUMENT - source_artifact_id is required")
+
+    sensitivity = _validate_sensitivity(p.get("sensitivity"))
+    limit = _validate_limit(p.get("limit"))
+
+    resolved = runtime.resolve_artifact_with_step_by_id(session_id, source_artifact_id)
+    if resolved is None:
+        raise ValueError(
+            "detect: ARTIFACT_NOT_FOUND - no committed artifact for "
+            f"source_artifact_id '{source_artifact_id}'"
+        )
+    _source_step_id, source_artifact = resolved
+
+    if is_metric_frame_artifact(source_artifact):
+        source_family = "metric_frame"
+        source_shape = read_metric_frame_shape(source_artifact)
+        if source_shape not in _METRIC_FRAME_SCAN_SHAPES:
             raise ValueError(
-                f"detect: INVALID_ARGUMENT - dimension '{dimension}' is not available "
-                f"for metric '{metric_name}'"
+                f"detect: INVALID_ARGUMENT - metric_frame shape '{source_shape}' is not supported"
             )
-        try:
-            dimension_expr = runtime.resolve_scope_constraint_column(
-                dimension,
-                metric_ref=metric_ref,
-                table_name=table,
+        strategy = "point_anomaly"
+        output_shape = "point_anomaly_candidates"
+        metric_ref = read_metric_frame_metric_ref(source_artifact)
+        source_points = iter_frame_points(source_artifact_id, source_artifact)
+        by_series: dict[int, list[FramePoint]] = {}
+        for point in source_points:
+            by_series.setdefault(point.series_index, []).append(point)
+        raw_candidates = [
+            candidate
+            for series_points in by_series.values()
+            for candidate in _score_metric_frame_series(
+                series_points,
+                threshold=_SENSITIVITY_THRESHOLD[sensitivity],
             )
-        except ValueError:
-            fallback_column = dimension.removeprefix("dimension.")
-            if not _table_has_column(
-                runtime,
-                engine=engine,
-                engine_type=engine_type,
-                table_name=qualified.get(table, table),
-                column_name=fallback_column,
-            ):
-                raise ValueError(
-                    f"detect: INVALID_ARGUMENT - dimension '{dimension}' did not resolve "
-                    "to an executable physical column"
-                ) from None
-            dimension_expr = fallback_column
-
-    # ── Build time-series query ────────────────────────────────────────────────
-    mq_params: dict[str, Any] = {
-        "table": table,
-        "metric": metric_ref,
-        "time_scope": {
-            "mode": "single_window",
-            "grain": granularity,
-            "current": {"start": start_str, "end": end_str},
-        },
-    }
-    if scope_raw:
-        mq_params["scope"] = scope_raw
-    if time_scope_field:
-        mq_params["time_scope_field"] = time_scope_field
-
-    resolved = normalize_metric_query_request(mq_params)
-    runtime.resolve_windowed_query_time_axis(
-        resolved,
-        engine_type=engine_type,
-        metric_name=metric_ref,
-        fallback_columns=all_dimensions,
-    )
-    scoped_query = runtime.build_scoped_query(session_id, resolved, engine_type=engine_type)
-    qualified_table = qualified.get(table, table)
-
-    time_col = resolved.resolved_time_axis.analysis_time_expr
-    bucket_expr = f"DATE_TRUNC('{granularity}', {time_col})"
-    group_by = [f"{bucket_expr} AS bucket_start"]
-    order = "bucket_start"
-    if dimension is not None:
-        if dimension_expr is None:
+        ]
+    elif is_delta_frame_artifact(source_artifact):
+        source_family = "delta_frame"
+        source_shape = read_delta_frame_shape(source_artifact)
+        if source_shape not in _DELTA_FRAME_SCAN_SHAPES:
             raise ValueError(
-                f"detect: INVALID_ARGUMENT - dimension '{dimension}' did not resolve to a physical column"
+                f"detect: INVALID_ARGUMENT - delta_frame shape '{source_shape}' is not supported"
             )
-        group_by.append(f"{dimension_expr} AS split_value")
-        order = "split_value, bucket_start"
+        strategy = "period_shift"
+        output_shape = "period_shift_candidates"
+        metric_ref = _read_delta_metric_ref(source_artifact)
+        source_points = iter_frame_points(source_artifact_id, source_artifact)
+        raw_candidates = _score_delta_frame_points(
+            source_points,
+            threshold=_PERIOD_SHIFT_THRESHOLD[sensitivity],
+        )
+    else:
+        family = source_artifact.get("artifact_family") or source_artifact.get("artifact_type")
+        raise ValueError(
+            f"detect: INVALID_ARGUMENT - source artifact family '{family}' is not supported"
+        )
+
+    raw_candidates.sort(key=_candidate_sort_key)
+    total_candidate_count = len(raw_candidates)
+    returned_candidates = raw_candidates[:limit] if limit is not None else raw_candidates
+    returned_candidate_count = len(returned_candidates)
+    truncated = returned_candidate_count < total_candidate_count
+
+    if source_family == "metric_frame":
+        quality = _metric_frame_quality(source_points)
+    else:
+        quality = {"status": "detectable", "issues": []}
 
     step_id = new_step_id()
-    compiled_query = runtime.compile_step(
-        AnalysisStepIR(
-            index=0,
-            step_type="aggregate_query",
-            params={
-                "table": qualified_table,
-                "measures": [{"expr": metric_sql, "as": "value"}],
-                "group_by": group_by,
-                "order": order,
-                "scoped_query": scoped_query,
-                "limit": 10000,
-            },
-        ),
-        engine_type=engine_type,
-        semantic_context={
-            "metric_execution_context": execution_context,
-        },
-    )
-
-    now = datetime.now(UTC).isoformat()
-    _exec_result = execute_compiled(engine, compiled_query, session_id=session_id)
-    rows = list(_exec_result.rows)
-    _elapsed_ms = _exec_result.metadata.get("elapsed_ms")
-    provenance = make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
-
-    # ── Build one or more series from query rows ──────────────────────────────
-    series_by_key: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        bucket_raw = row.get("bucket_start")
-        val = _coerce_float(row.get("value"))
-        if bucket_raw is None:
-            continue
-        try:
-            window = bucket_window(bucket_raw, granularity_typed)
-        except (ValueError, TypeError):
-            bucket_str = str(bucket_raw)
-            window = {"start": bucket_str, "end": bucket_str}
-        if dimension is None:
-            series_key = "__overall__"
-            candidate_slice = None
-        else:
-            split_value = row.get("split_value")
-            series_key = str(split_value)
-            candidate_slice = {dimension: split_value}
-        series_entry = series_by_key.setdefault(
-            series_key,
-            {"slice": candidate_slice, "series": [], "numeric_count": 0},
-        )
-        series_entry["series"].append({"window": window, "value": val})
-        if val is not None:
-            series_entry["numeric_count"] += 1
-
-    if dimension is None:
-        selected_series = list(series_by_key.values()) or [
-            {"slice": None, "series": [], "numeric_count": 0}
-        ]
-        eligible_series_count = 1
-        scanned_series_count = 1
-    else:
-        eligible_series = sorted(
-            series_by_key.values(),
-            key=lambda item: (
-                -int(item["numeric_count"]),
-                _slice_sort_key(cast("dict[str, Any] | None", item["slice"])),
-            ),
-        )
-        eligible_series_count = len(eligible_series)
-        assert max_series is not None
-        selected_series = eligible_series[:max_series]
-        scanned_series_count = len(selected_series)
-    excluded_series_count = max(eligible_series_count - scanned_series_count, 0)
-
-    # ── Detectability assessment ───────────────────────────────────────────────
-    detectability_issues: list[dict[str, Any]] = []
-    scanned_numeric_counts = [int(item["numeric_count"]) for item in selected_series]
-    n_points = max(scanned_numeric_counts, default=0)
-
-    if n_points < _MIN_POINTS_FOR_DETECTION:
-        guidance = {
-            "reason": "insufficient_points",
-            "observed_points": n_points,
-            "minimum_points_required": _MIN_POINTS_FOR_DETECTION,
-            "minimum_window_buckets": _MIN_POINTS_FOR_DETECTION,
-            "recommended_next_action": "expand_scan_window",
-            "recommended_current_window": recommended_minimum_window(
-                end_str, grain=granularity_typed, bucket_count=_MIN_POINTS_FOR_DETECTION
-            ),
-            "fallback_path": {
-                "kind": "compare_plus_decompose",
-                "message": (
-                    "If you already have a suspected abnormal window, run observe(current) + "
-                    "observe(previous_adjacent_equal_length) + compare + decompose."
-                ),
-            },
-        }
-        detectability_issues.append(
-            {
-                "code": "insufficient_points",
-                "severity": "warning",
-                "message": (
-                    f"Only {n_points} numeric point(s) found in the scan window; "
-                    f"minimum {_MIN_POINTS_FOR_DETECTION} required for reliable detection."
-                ),
-            }
-        )
-        detectability_status = "needs_attention"
-    else:
-        guidance = None
-        detectability_status = "detectable"
-    if excluded_series_count > 0:
-        detectability_issues.append(
-            {
-                "code": "series_limit_applied",
-                "severity": "warning",
-                "message": (
-                    f"Scanned {scanned_series_count} of {eligible_series_count} eligible "
-                    f"series because max_series={max_series}."
-                ),
-            }
-        )
-
-    # ── Candidate detection ───────────────────────────────────────────────────
-    _raw_candidates: list[dict[str, Any]] = []
-    threshold = _SENSITIVITY_THRESHOLD[sensitivity]
-
-    if strategy == "point_anomaly":
-        for item in selected_series:
-            _raw_candidates.extend(
-                _detect_series_candidates(
-                    cast("list[dict[str, Any]]", item["series"]),
-                    candidate_slice=cast("dict[str, Any] | None", item["slice"]),
-                    threshold=threshold,
-                )
-            )
-
-    if strategy == "period_shift":
-        baseline_window = previous_adjacent_window(start_str, end_str, grain=granularity_typed)
-        current_window = {"start": start_str, "end": end_str}
-        current_values = _query_scalar_window_values(
-            runtime,
-            session_id=session_id,
-            engine=engine,
-            engine_type=engine_type,
-            table=table,
-            qualified_table=qualified_table,
-            metric_ref=metric_ref,
-            metric_sql=metric_sql,
-            all_dimensions=all_dimensions,
-            execution_context=execution_context,
-            scope_raw=scope_raw,
-            time_scope_field=time_scope_field,
-            start=start_str,
-            end=end_str,
-            granularity=granularity,
-            dimension=dimension,
-            dimension_expr=dimension_expr,
-        )
-        baseline_values = _query_scalar_window_values(
-            runtime,
-            session_id=session_id,
-            engine=engine,
-            engine_type=engine_type,
-            table=table,
-            qualified_table=qualified_table,
-            metric_ref=metric_ref,
-            metric_sql=metric_sql,
-            all_dimensions=all_dimensions,
-            execution_context=execution_context,
-            scope_raw=scope_raw,
-            time_scope_field=time_scope_field,
-            start=baseline_window["start"],
-            end=baseline_window["end"],
-            granularity=granularity,
-            dimension=dimension,
-            dimension_expr=dimension_expr,
-        )
-        _raw_candidates.extend(
-            _detect_period_shift_candidates(
-                current_values=current_values,
-                baseline_values=baseline_values,
-                current_window=current_window,
-                baseline_window=baseline_window,
-                threshold=_PERIOD_SHIFT_THRESHOLD[sensitivity],
-            )
-        )
-
-    # ── Canonical ranking ──────────────────────────────────────────────────────
-    _raw_candidates.sort(
-        key=lambda c: (
-            -c["candidate_score"],
-            -(abs(c["deviation_abs"]) if c["deviation_abs"] is not None else 0.0),
-            c["window"]["start"],
-            c.get("candidate_type") or "",
-            _slice_sort_key(c["slice"]),
-        )
-    )
-
-    # ── Assign candidate_refs ──────────────────────────────────────────────────
-    # (artifact_id filled post-insert; step_id is stable)
-    all_candidates: list[dict[str, Any]] = []
-    for i, c in enumerate(_raw_candidates):
-        all_candidates.append(
-            {
-                "candidate_ref": {
-                    "artifact_ref": {
-                        "session_id": session_id,
-                        "step_id": step_id,
-                        "step_type": "detect",
-                        "artifact_id": None,  # patched after _insert_artifact
-                    },
-                    "item_ref": {"collection": "candidates", "index": i, "key": None},
-                },
-                **{k: c[k] for k in c if k != "candidate_ref"},
-            }
-        )
-
-    total_candidate_count = len(all_candidates)
-
-    # ── Apply limit truncation ─────────────────────────────────────────────────
-    if limit is not None and total_candidate_count > limit:
-        returned_candidates = all_candidates[:limit]
-        truncated = True
-    else:
-        returned_candidates = all_candidates
-        truncated = False
-    returned_candidate_count = len(returned_candidates)
-
-    # ── Build artifact ─────────────────────────────────────────────────────────
     artifact: dict[str, Any] = {
-        "artifact_type": "anomaly_candidates",
-        "artifact_schema_version": "v1",
-        "metric": metric_name,
-        "time_scope": resolved_time_scope,
-        "granularity": granularity,
-        "scope": scope_raw,
-        "dimension": dimension,
-        "strategy": strategy,
-        "sensitivity": sensitivity,
-        "detectability": {
-            "status": detectability_status,
-            "issues": detectability_issues,
-            "guidance": guidance,
+        "artifact_id": "art_placeholder",
+        "artifact_family": "candidate_set",
+        "shape": output_shape,
+        "subject": {
+            "kind": "candidate_scan",
+            "metric_ref": metric_ref,
+            "source_artifact_id": source_artifact_id,
+            "source_artifact_family": source_family,
+            "source_shape": source_shape,
         },
-        "scan_summary": {
-            "scanned_series_count": scanned_series_count,
-            "eligible_series_count": eligible_series_count,
-            "excluded_series_count": excluded_series_count,
-            "total_candidate_count": total_candidate_count,
+        "axes": source_artifact.get("axes") or [],
+        "measures": [
+            {"id": "score", "value_type": "number", "nullable": False},
+            {"id": "value", "value_type": "number", "nullable": True},
+            {"id": "baseline_value", "value_type": "number", "nullable": True},
+            {"id": "delta_abs", "value_type": "number", "nullable": True},
+            {"id": "delta_pct", "value_type": "number", "nullable": True},
+        ],
+        "capabilities": ["filterable"],
+        "lineage": {
+            "operation": "detect",
+            "source_artifact_ids": [source_artifact_id],
+            "strategy": strategy,
         },
-        "candidates": returned_candidates,
-        "truncation": {
-            "returned_candidate_count": returned_candidate_count,
-            "total_candidate_count": total_candidate_count,
-            "truncated": truncated,
-        },
-        "analytical_metadata": {
-            "timezone": None,
-            "data_complete": None,
-            "baseline_method": {
-                "strategy": strategy,
-                "methods": {
-                    "point_anomaly": "scan_window_zscore",
-                    "period_shift": "previous_adjacent_equal_length",
-                },
+        "payload": {
+            "items": returned_candidates,
+            "scan_summary": {
+                "scanned_series_count": _scanned_series_count(source_points),
+                "total_candidate_count": total_candidate_count,
             },
-        },
-        "provenance": {
-            "artifact_ref": {
-                "session_id": session_id,
-                "step_id": step_id,
-                "step_type": "detect",
-                "artifact_id": None,  # patched after _insert_artifact
+            "truncation": {
+                "returned_candidate_count": returned_candidate_count,
+                "total_candidate_count": total_candidate_count,
+                "truncated": truncated,
             },
-            "source_metric_ref": metric_ref,
-            "detector_version": "1.2",
-            "projection_ref": None,
-        },
-        "execution_metadata": {
-            "query_hash": provenance.get("query_hash", ""),
-            "engine": engine_type,
-            "executed_at": now,
+            "quality": quality,
         },
     }
 
-    artifact_name = f"{metric_name}_detect_candidates"
-    candidate_noun = "candidate" if total_candidate_count == 1 else "candidates"
-    summary = (
-        f"detect {metric_name} [{start_str} → {end_str}] "
-        f"sensitivity={sensitivity}: {total_candidate_count} {candidate_noun}"
-    )
-
-    artifact_id = runtime.commit_artifact_with_extraction(
+    provenance = {
+        "source_artifact_id": source_artifact_id,
+        "source_artifact_family": source_family,
+        "source_shape": source_shape,
+        "strategy": strategy,
+        "detector_version": "2.0",
+        "executed_at": datetime.now(UTC).isoformat(),
+    }
+    artifact_name = f"{metric_ref.removeprefix('metric.')}_candidate_set"
+    summary = f"detect {metric_ref} from {source_artifact_id}: {total_candidate_count} candidate(s)"
+    envelope = commit_aoi_artifact_result(
+        runtime,
         session_id,
         step_id,
-        "anomaly_candidates",
+        "detect",
+        "candidate_set",
         artifact_name,
         artifact,
-        step_type="detect",
-    )
-
-    # Patch artifact_id now that it is known.
-    # NOTE: Cannot use commit_step_result() here because the artifact
-    # must be patched with the artifact_id between commit and step insert.
-    artifact["artifact_id"] = artifact_id
-    artifact["provenance"]["artifact_ref"]["artifact_id"] = artifact_id
-    for c in artifact["candidates"]:
-        c["candidate_ref"]["artifact_ref"]["artifact_id"] = artifact_id
-
-    result: dict[str, Any] = {
-        "intent_type": "detect",
-        "step_type": "detect",
-        "step_ref": {
-            "session_id": session_id,
-            "step_id": step_id,
-            "step_type": "detect",
-        },
-        "artifact_id": artifact_id,
-        "result": artifact,
-        "provenance": provenance,
-        "product_metadata": None,
-    }
-
-    _sql_entry: dict[str, str | float] = {
-        "sql": compiled_query.sql,
-        "engine_type": engine_type,
-        "label": "main_query",
-    }
-    if _elapsed_ms is not None:
-        _sql_entry["elapsed_ms"] = _elapsed_ms
-    sql_texts = [_sql_entry]
-    runtime.insert_step(
-        step_id,
-        session_id,
-        "detect",
         summary,
-        result,
         provenance=provenance,
         reasoning=reasoning,
-        semantic_metadata=_build_step_metadata(compiled_query),
-        sql_texts=sql_texts,
+        semantic_metadata=None,
+        sql_texts=[],
     )
-    return result
+    return envelope.model_dump()

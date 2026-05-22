@@ -202,46 +202,41 @@ def _extract_artifact_summary(payload: dict[str, Any]) -> dict[str, Any]:
     content = payload.get("result") or payload.get("content")
     content_dict = content if isinstance(content, dict) else None
 
-    # Detect/anomaly_candidates: extract scan summary and top candidate metadata
+    # Detect/candidate_set: extract scan summary and top candidate metadata
     detect_payload = None
-    if payload.get("artifact_type") == "anomaly_candidates":
+    if payload.get("artifact_family") == "candidate_set":
         detect_payload = payload
-    elif content_dict and content_dict.get("artifact_type") == "anomaly_candidates":
+    elif content_dict and content_dict.get("artifact_family") == "candidate_set":
         detect_payload = content_dict
 
     if detect_payload is not None:
-        scan = detect_payload.get("scan_summary") or {}
+        payload_body = detect_payload.get("payload") or {}
+        scan = payload_body.get("scan_summary") or {}
+        truncation = payload_body.get("truncation") or {}
         if scan.get("total_candidate_count") is not None:
             summary["candidate_count_total"] = scan["total_candidate_count"]
-        if scan.get("returned_candidate_count") is not None:
-            summary["candidate_count_returned"] = scan["returned_candidate_count"]
-        if scan.get("eligible_series_count") is not None:
-            summary["eligible_series_count"] = scan["eligible_series_count"]
-        candidates = detect_payload.get("candidates") or []
-        if candidates:
-            top = candidates[0]
+        if truncation.get("returned_candidate_count") is not None:
+            summary["candidate_count_returned"] = truncation["returned_candidate_count"]
+        if scan.get("scanned_series_count") is not None:
+            summary["scanned_series_count"] = scan["scanned_series_count"]
+        items = payload_body.get("items") or []
+        if items:
+            top = items[0]
             win = top.get("window")
             if isinstance(win, dict) and win.get("start"):
                 summary["top_candidate_period"] = win["start"]
-            if top.get("candidate_score") is not None:
-                summary["top_candidate_score"] = top["candidate_score"]
-            if top.get("deviation_pct") is not None:
-                summary["top_candidate_deviation_pct"] = top["deviation_pct"]
+            if top.get("score") is not None:
+                summary["top_candidate_score"] = top["score"]
+            if top.get("delta_pct") is not None:
+                summary["top_candidate_deviation_pct"] = top["delta_pct"]
             if top.get("direction"):
                 summary["top_candidate_direction"] = top["direction"]
-            if top.get("flag_level"):
-                summary["top_candidate_flag_level"] = top["flag_level"]
-            if top.get("candidate_type"):
-                summary["top_candidate_type"] = top["candidate_type"]
-            slice_info = top.get("slice")
-            if isinstance(slice_info, dict):
-                summary["top_candidate_slice"] = ", ".join(
-                    f"{k}={v}" for k, v in slice_info.items()
-                )
-        for key in ("strategy", "sensitivity", "granularity"):
-            val = detect_payload.get(key)
-            if val is not None:
-                summary[key] = val
+            keys = top.get("keys")
+            if isinstance(keys, dict):
+                summary["top_candidate_slice"] = ", ".join(f"{k}={v}" for k, v in keys.items())
+        lineage = detect_payload.get("lineage") or {}
+        if lineage.get("strategy") is not None:
+            summary["strategy"] = lineage["strategy"]
 
     # Comparison: extract only metadata (value keys are rendered in the
     # custom comparison table, so we skip them to avoid duplication)

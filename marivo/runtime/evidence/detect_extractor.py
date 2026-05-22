@@ -1,62 +1,4 @@
-# DEPRECATED: Pure extraction logic extracted to app.core.evidence.finding_extraction.extract_detect_findings.
-
-"""detect artifact → anomaly_candidate finding extractor (Phase 4d-2).
-
-Registered via ``_bootstrap_finding_extractors()`` in
-``finding_extractor_registry.py`` — same bootstrap pattern as 4d-1.
-
-Artifact type: ``"anomaly_candidates"``   Schema version: ``"v1"``   Family: ``"detect"``
-
-Maps each candidate item in the ``candidates`` list to one
-:class:`AnomalyCandidateFinding`:
-
-- ``candidates`` non-empty → 1 finding per candidate
-- ``candidates`` empty     → 0 findings (success-empty, D4 allows for ``detect``)
-
-Canonical item key
-------------------
-Uses ``window.start`` as the stable candidate key when available (each time
-bucket appears at most once in the v1 single-series z-score scan).
-
-For segment candidates (non-null ``slice``, no ``window``), the stable key is
-derived from ``candidate.slice`` using the same percent-encoded ``k=v|k=v``
-format as the observe extractor.  This ensures segment anomaly findings are
-stable under re-extraction even if the artifact's candidate list order changes.
-
-Falls back to the contract-backed canonical ``index`` (candidates are sorted by
-score desc, deviation desc, window.start before being written to the artifact)
-when neither ``window.start`` nor ``candidate.slice`` is available.
-
-analysis_axis derivation
-------------------------
-- Candidate has ``window`` key (time-bucket anomaly)  → ``"time"``
-- Candidate has non-null ``slice`` but no window       → ``"segment"``
-- Otherwise                                            → ``"scalar"``
-
-subject.slice derivation
-------------------------
-- For time-bucket and scalar candidates the artifact-level ``scope`` is used.
-- For segment candidates the candidate's own ``slice`` keys are used (they
-  identify *which segment* is anomalous); the artifact-level ``scope`` is
-  intentionally excluded from ``subject.slice`` for segment findings so that
-  the subject accurately reflects the atomic item boundary.
-
-subject.grain derivation
-------------------------
-Extracted from ``artifact_payload["granularity"]`` when present.
-This is non-null for v1 time-bucket detect artifacts (the detect runner
-always embeds the scan grain in the artifact payload).
-
-Artifact-embedded candidate_ref
---------------------------------
-The v1 detect runner embeds a ``candidate_ref`` sub-object inside each
-candidate dict (holding an index-based ``item_ref``).  The extractor
-**ignores this field entirely** and reconstructs the canonical
-``ArtifactItemRefRef`` from the stable key / index chosen by D2 priority
-rules.  The runner-embedded ref uses a bare index and an ``artifact_id: null``
-placeholder (filled post-insert); trusting it would produce an unstable or
-null-artifact_id ref.
-"""
+"""candidate_set artifact -> anomaly_candidate finding extractor."""
 
 from __future__ import annotations
 
@@ -76,12 +18,8 @@ from marivo.core.evidence.canonical_finding import (
 )
 from marivo.runtime.evidence.finding_extractor_registry import FindingExtractor
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-_VALID_FLAG_LEVELS = frozenset({"high", "medium", "low"})
 _VALID_GRAINS = frozenset({"hour", "day", "week", "month"})
+_VALID_DIRECTIONS = frozenset({"increase", "decrease", "unknown"})
 
 
 def _to_float_or_none(v: Any) -> float | None:
@@ -94,41 +32,26 @@ def _to_float_or_none(v: Any) -> float | None:
 
 
 def _escape_seg_component(s: str) -> str:
-    """Percent-encode segment key separators to prevent key collisions.
-
-    Uses the same encoding as observe_extractor._escape_seg_component:
-    the stable segment key format is ``k=v|k=v``; values containing ``|``
-    or ``=`` must be escaped to avoid collisions between distinct segments.
-    """
     return s.replace("%", "%25").replace("|", "%7C").replace("=", "%3D")
 
 
-def _segment_stable_key(slice_dict: dict[str, Any]) -> str:
-    """Derive a stable key from a candidate's slice dict.
-
-    Mirrors the observe extractor's segment key derivation: sorted dimension
-    KV pairs joined by ``|``, with each component percent-encoded.
-    """
+def _segment_stable_key(keys: dict[str, Any]) -> str:
     return "|".join(
         f"{_escape_seg_component(str(k))}={_escape_seg_component(str(v))}"
-        for k, v in sorted(slice_dict.items())
+        for k, v in sorted(keys.items())
     )
 
 
-def _derive_analysis_axis(candidate: dict[str, Any]) -> str:
-    """Choose FindingSubject.analysis_axis from the candidate's shape.
-
-    Rules (artifact-finding-generation-rules.md § detect):
-    - time-bucket candidate (has ``window``)        → ``"time"``
-    - segment candidate (non-null ``slice``, no window) → ``"segment"``
-    - scalar / unknown                               → ``"scalar"``
-    """
-    window = candidate.get("window")
-    if candidate.get("slice") is not None:
-        return "segment"
-    if isinstance(window, dict) and window:
-        return "time"
-    return "scalar"
+def _extract_grain(artifact_payload: dict[str, Any]) -> str | None:
+    axes = artifact_payload.get("axes")
+    if not isinstance(axes, list):
+        return None
+    for axis in axes:
+        if not isinstance(axis, dict) or axis.get("kind") != "time":
+            continue
+        grain = axis.get("grain")
+        return grain if grain in _VALID_GRAINS else None
+    return None
 
 
 def _empty_quality() -> FindingQuality:
@@ -142,18 +65,13 @@ def _empty_quality() -> FindingQuality:
     )
 
 
-# ---------------------------------------------------------------------------
-# Extractor
-# ---------------------------------------------------------------------------
-
-
 class DetectArtifactExtractor(FindingExtractor):
-    """Extract :class:`AnomalyCandidateFinding`\\s from ``anomaly_candidates`` artifacts."""
+    """Extract anomaly_candidate findings from candidate_set artifacts."""
 
-    artifact_type = "anomaly_candidates"
-    artifact_schema_version = "v1"
+    artifact_type = "candidate_set"
+    artifact_schema_version = None
     family = "detect"
-    extractor_name = "detect_artifact_v1"
+    extractor_name = "detect_candidate_set_v1"
     extractor_version = "1.0.0"
     finding_schema_version = "v1"
 
@@ -164,90 +82,53 @@ class DetectArtifactExtractor(FindingExtractor):
         step_ref: StepRef,
         session_id: str,
     ) -> FindingExtractionResult:
-        metric: str | None = artifact_payload.get("metric")
-        scope: dict[str, Any] = artifact_payload.get("scope") or {}
-        candidates: list[dict[str, Any]] = artifact_payload.get("candidates") or []
-
-        # Granularity is embedded by the detect runner for all v1
-        # time-bucket artifacts (e.g. "day", "week").  Null when absent.
-        grain_raw: str | None = artifact_payload.get("granularity")
-        grain = grain_raw if grain_raw in _VALID_GRAINS else None
+        subject = artifact_payload.get("subject") or {}
+        payload = artifact_payload.get("payload") or {}
+        items: list[dict[str, Any]] = payload.get("items") or []
+        metric: str | None = subject.get("metric_ref")
+        grain = _extract_grain(artifact_payload)
 
         findings: list[AnomalyCandidateFinding] = []
-        for i, candidate in enumerate(candidates):
-            window = candidate.get("window") or {}
-            window_start: str = str(window.get("start", "")).strip()
-            window_end: str = str(window.get("end", "")).strip()
-            candidate_slice: dict[str, Any] | None = candidate.get("slice")
+        for i, item in enumerate(items):
+            item_id = str(item.get("item_id") or "").strip()
+            window = item.get("window") or {}
+            window_start = str(window.get("start", "")).strip()
+            window_end = str(window.get("end", "")).strip()
+            keys = item.get("keys") if isinstance(item.get("keys"), dict) else None
 
-            analysis_axis = _derive_analysis_axis(candidate)
-
-            # ── Stable canonical item key + item ref (D2 priority) ──────────
-            # Priority 1: window.start (time-bucket candidates)
-            # Priority 2: segment slice key (segment candidates)
-            # Priority 3: contract-backed index (candidates sorted canonically)
-            #
-            # Note: the artifact also embeds a ``candidate_ref`` sub-object
-            # inside each candidate dict (runner-side index-based ref with
-            # ``artifact_id: null``).  We do NOT read that field — we always
-            # reconstruct the canonical ref from the D2-priority key so that
-            # the ref is stable and carries the correct artifact_id.
-            if window_start and analysis_axis == "segment" and candidate_slice:
-                stable_key = f"{window_start}|{_segment_stable_key(candidate_slice)}"
-                canonical_item_key, item_ref = make_item_identity("candidates", key=stable_key)
+            if item_id:
+                canonical_item_key, item_ref = make_item_identity("candidates", key=item_id)
+            elif window_start and keys:
+                canonical_item_key, item_ref = make_item_identity(
+                    "candidates", key=f"{window_start}|{_segment_stable_key(keys)}"
+                )
             elif window_start:
                 canonical_item_key, item_ref = make_item_identity("candidates", key=window_start)
-            elif analysis_axis == "segment" and candidate_slice:
-                stable_key = _segment_stable_key(candidate_slice)
-                canonical_item_key, item_ref = make_item_identity("candidates", key=stable_key)
             else:
                 canonical_item_key, item_ref = make_item_identity("candidates", index=i)
 
-            finding_id = make_finding_id(artifact_id, "anomaly_candidate", canonical_item_key)
-
-            # candidate_ref points back to this artifact item using the D2-stable ref.
             candidate_ref = ArtifactItemRefRef(
                 artifact_id=artifact_id,
                 item_ref=item_ref,
             )
-
-            flag_raw = candidate.get("flag_level")
-            flag_level = flag_raw if flag_raw in _VALID_FLAG_LEVELS else None
-
+            analysis_axis = (
+                "panel" if keys and window_start else ("time" if window_start else "scalar")
+            )
+            subject_slice = dict(keys or {})
             observed_window = (
-                {
-                    "field": str(
-                        (artifact_payload.get("time_scope") or {}).get("field") or "time"
-                    ).strip()
-                    or "time",
-                    "start": window_start,
-                    "end": window_end,
-                }
+                {"field": "time", "start": window_start, "end": window_end}
                 if window_start and window_end
                 else None
             )
-
-            # subject.slice: for segment candidates use the candidate's own
-            # slice keys (they identify *which segment* is anomalous).
-            # For time-bucket and scalar candidates use the artifact-level scope.
-            subject_slice: dict[str, Any] = (
-                dict(candidate_slice)
-                if analysis_axis == "segment" and candidate_slice
-                else dict(scope)
-            )
-
-            provenance = FindingProvenance(
-                source_step_type=step_ref["step_type"],
-                extractor_name=self.extractor_name,
-                extractor_version=self.extractor_version,
-                artifact_schema_version=self.artifact_schema_version,
-                canonical_item_key=canonical_item_key,
-                artifact_item_ref=item_ref,
-                projection_ref=None,
-            )
+            direction_raw = item.get("direction")
+            direction = direction_raw if direction_raw in _VALID_DIRECTIONS else None
 
             finding = AnomalyCandidateFinding(
-                finding_id=finding_id,
+                finding_id=make_finding_id(
+                    artifact_id,
+                    "anomaly_candidate",
+                    canonical_item_key,
+                ),
                 finding_type="anomaly_candidate",
                 artifact_id=artifact_id,
                 step_ref=step_ref,
@@ -260,15 +141,26 @@ class DetectArtifactExtractor(FindingExtractor):
                 ),
                 observed_window=observed_window,  # type: ignore[typeddict-item]
                 quality=_empty_quality(),
-                provenance=provenance,
+                provenance=FindingProvenance(
+                    source_step_type=step_ref["step_type"],
+                    extractor_name=self.extractor_name,
+                    extractor_version=self.extractor_version,
+                    artifact_schema_version=self.artifact_schema_version,
+                    canonical_item_key=canonical_item_key,
+                    artifact_item_ref=item_ref,
+                    projection_ref=None,
+                ),
                 payload=AnomalyCandidatePayload(
                     candidate_ref=candidate_ref,
-                    score=_to_float_or_none(candidate.get("candidate_score")),
-                    flag_level=flag_level,
-                    current_value=_to_float_or_none(candidate.get("current_value")),
-                    baseline_value=_to_float_or_none(candidate.get("baseline_value")),
-                    deviation_absolute=_to_float_or_none(candidate.get("deviation_abs")),
-                    deviation_relative=_to_float_or_none(candidate.get("deviation_pct")),
+                    source_point_ref=item.get("source_point_ref"),
+                    source_delta_point_ref=item.get("source_delta_point_ref"),
+                    score=_to_float_or_none(item.get("score")),
+                    flag_level=None,
+                    current_value=_to_float_or_none(item.get("value")),
+                    baseline_value=_to_float_or_none(item.get("baseline_value")),
+                    deviation_absolute=_to_float_or_none(item.get("delta_abs")),
+                    deviation_relative=_to_float_or_none(item.get("delta_pct")),
+                    direction=direction,
                 ),
             )
             findings.append(finding)

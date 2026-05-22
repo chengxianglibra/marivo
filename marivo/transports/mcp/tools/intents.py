@@ -165,24 +165,14 @@ def to_aoi_correlate_request(
 
 
 def to_aoi_detect_request(
-    metric: str,
-    time_scope: McpTimeScope,
-    granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
-    strategy: Literal["point_anomaly", "period_shift"],
-    filter_expression: McpExpression | dict[str, Any] | None = None,
-    dimension: str | None = None,
+    source_artifact_id: str,
     sensitivity: Literal["conservative", "balanced", "aggressive"] = "aggressive",
     limit: int | None = None,
 ) -> aoi.Detect:
     return aoi.Detect.model_validate(
         _omit_none(
             {
-                "metric": metric,
-                "time_scope": time_scope.model_dump(),
-                "granularity": granularity,
-                "filter": _dump_expression(filter_expression),
-                "dimension": dimension,
-                "strategy": strategy,
+                "source_artifact_id": source_artifact_id,
                 "sensitivity": sensitivity,
                 "limit": limit,
             }
@@ -467,8 +457,9 @@ def register_decompose(server: Any, runtime: Any) -> None:
 def register_detect(server: Any, runtime: Any) -> None:
     @server.tool(  # type: ignore
         description=(
-            "Detect anomaly candidates for one semantic metric over an AOI time_scope at a "
-            "required time granularity."
+            "Detect anomaly candidates from a committed AOI artifact. The input must be a "
+            "metric_frame or delta_frame artifact ID; Marivo infers point_anomaly for "
+            "metric_frame sources and period_shift for delta_frame sources."
         )
     )
     async def detect(
@@ -476,43 +467,16 @@ def register_detect(server: Any, runtime: Any) -> None:
             str,
             Field(description="Marivo analysis session ID that owns this intent call."),
         ],
-        metric: Annotated[
+        source_artifact_id: Annotated[
             str,
             Field(
                 min_length=1,
-                description="Semantic metric identifier, e.g. 'total_query_count'.",
-            ),
-        ],
-        time_scope: Annotated[
-            McpTimeScope,
-            Field(description="AOI TimeScope for the metric data slice."),
-        ],
-        granularity: Annotated[
-            Literal["hour", "day", "week", "month", "quarter", "year"],
-            Field(description="Required AOI time bucket granularity for anomaly scanning."),
-        ],
-        strategy: Annotated[
-            Literal["point_anomaly", "period_shift"],
-            Field(description="Detection strategy: point anomalies or period shifts."),
-        ],
-        filter_expression: Annotated[
-            McpExpression | None,
-            Field(
                 description=(
-                    "Optional AOI Expression filter object, e.g. "
-                    "{'dialects': [{'dialect': 'ANSI_SQL', 'expression': \"region = 'US'\"}]}."
-                )
-            ),
-        ] = None,
-        dimension: Annotated[
-            str | None,
-            Field(
-                description=(
-                    "Optional single dimension that splits the scan into independent series; "
-                    "omit to scan the overall metric series."
+                    "Committed AOI artifact ID from this session. Use a metric_frame to infer "
+                    "point_anomaly or a delta_frame to infer period_shift."
                 ),
             ),
-        ] = None,
+        ],
         sensitivity: Annotated[
             Literal["conservative", "balanced", "aggressive"],
             Field(description="Detection sensitivity preset. Defaults to aggressive."),
@@ -527,12 +491,7 @@ def register_detect(server: Any, runtime: Any) -> None:
         reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_detect_request(
-            metric=metric,
-            time_scope=time_scope,
-            granularity=granularity,
-            filter_expression=filter_expression,
-            dimension=dimension,
-            strategy=strategy,
+            source_artifact_id=source_artifact_id,
             sensitivity=sensitivity,
             limit=limit,
         )

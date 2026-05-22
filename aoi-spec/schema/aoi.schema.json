@@ -46,6 +46,9 @@
     },
     {
       "$ref": "#/$defs/artifacts/AttributionFrameArtifact"
+    },
+    {
+      "$ref": "#/$defs/artifacts/CandidateSetArtifact"
     }
   ],
   "$defs": {
@@ -336,35 +339,12 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "metric",
-          "time_scope",
-          "granularity",
-          "strategy"
+          "source_artifact_id"
         ],
         "properties": {
-          "metric": {
+          "source_artifact_id": {
             "type": "string",
             "minLength": 1
-          },
-          "time_scope": {
-            "$ref": "#/$defs/primitives/TimeScope"
-          },
-          "granularity": {
-            "$ref": "#/$defs/primitives/TimeGranularity"
-          },
-          "filter": {
-            "$ref": "#/$defs/primitives/Expression"
-          },
-          "dimension": {
-            "type": "string",
-            "minLength": 1
-          },
-          "strategy": {
-            "type": "string",
-            "enum": [
-              "point_anomaly",
-              "period_shift"
-            ]
           },
           "sensitivity": {
             "type": "string",
@@ -612,7 +592,7 @@
                 "$ref": "#/$defs/artifacts/AttributionFrameArtifact"
               },
               {
-                "$ref": "#/$defs/artifacts/AnomalyCandidatesResult"
+                "$ref": "#/$defs/artifacts/CandidateSetArtifact"
               },
               {
                 "$ref": "#/$defs/artifacts/AssociationResult"
@@ -973,21 +953,6 @@
                 "type": "null"
               }
             ]
-          }
-        }
-      },
-      "AnomalyCandidatesResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "items"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/artifacts/AnomalyCandidate"
-            }
           }
         }
       },
@@ -1374,6 +1339,16 @@
           "window": {
             "$ref": "#/$defs/artifacts/MetricFrameWindow"
           },
+          "baseline_window": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/artifacts/MetricFrameWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "current_value": {
             "type": [
               "number",
@@ -1535,43 +1510,6 @@
             "type": [
               "string",
               "null"
-            ]
-          }
-        }
-      },
-      "AnomalyCandidate": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "item_id",
-          "bucket_start",
-          "value",
-          "score",
-          "series_keys"
-        ],
-        "properties": {
-          "item_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "bucket_start": {
-            "$ref": "#/$defs/primitives/ISO8601"
-          },
-          "value": {
-            "type": "number"
-          },
-          "score": {
-            "type": "number",
-            "minimum": 0
-          },
-          "series_keys": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/primitives/DimensionKeyMap"
-              },
-              {
-                "type": "null"
-              }
             ]
           }
         }
@@ -1930,6 +1868,773 @@
           },
           "payload": {
             "$ref": "#/$defs/artifacts/AttributionFramePayload"
+          }
+        }
+      },
+      "FramePointRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "series_index",
+          "point_index",
+          "series_keys",
+          "point_key"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "series_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "point_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "series_keys": {
+            "$ref": "#/$defs/primitives/DimensionKeyMap"
+          },
+          "point_key": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "CandidateScanSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "metric_ref",
+          "source_artifact_id",
+          "source_artifact_family",
+          "source_shape"
+        ],
+        "properties": {
+          "kind": {
+            "const": "candidate_scan"
+          },
+          "metric_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_artifact_family": {
+            "type": "string",
+            "enum": [
+              "metric_frame",
+              "delta_frame"
+            ]
+          },
+          "source_shape": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "CandidateSetLineage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "source_artifact_ids",
+          "strategy"
+        ],
+        "properties": {
+          "operation": {
+            "const": "detect"
+          },
+          "source_artifact_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "point_anomaly",
+              "period_shift"
+            ]
+          }
+        }
+      },
+      "CandidateQualityIssue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "warning",
+              "error"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "CandidateSetMeasure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "value_type",
+          "nullable"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "score",
+              "value",
+              "baseline_value",
+              "delta_abs",
+              "delta_pct"
+            ]
+          },
+          "value_type": {
+            "const": "number"
+          },
+          "nullable": {
+            "type": "boolean"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "CandidateItem": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/artifacts/PointAnomalyCandidateItem"
+          },
+          {
+            "$ref": "#/$defs/artifacts/PeriodShiftCandidateItem"
+          }
+        ]
+      },
+      "CandidateSetArtifact": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/artifacts/PointAnomalyCandidateSetArtifact"
+          },
+          {
+            "$ref": "#/$defs/artifacts/PeriodShiftCandidateSetArtifact"
+          }
+        ]
+      },
+      "PointAnomalyCandidateItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "window",
+          "keys",
+          "value",
+          "score",
+          "direction",
+          "source_point_ref"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "window": {
+            "$ref": "#/$defs/artifacts/MetricFrameWindow"
+          },
+          "keys": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/DimensionKeyMap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "baseline_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delta_abs": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delta_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "increase",
+              "decrease",
+              "unknown"
+            ]
+          },
+          "source_point_ref": {
+            "$ref": "#/$defs/artifacts/FramePointRef"
+          }
+        }
+      },
+      "PeriodShiftCandidateItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "window",
+          "keys",
+          "value",
+          "score",
+          "direction",
+          "source_delta_point_ref"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "window": {
+            "$ref": "#/$defs/artifacts/MetricFrameWindow"
+          },
+          "baseline_window": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/artifacts/MetricFrameWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "keys": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/primitives/DimensionKeyMap"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "baseline_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delta_abs": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delta_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "increase",
+              "decrease",
+              "unknown"
+            ]
+          },
+          "source_delta_point_ref": {
+            "$ref": "#/$defs/artifacts/FramePointRef"
+          }
+        }
+      },
+      "PointAnomalyCandidateScanSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "metric_ref",
+          "source_artifact_id",
+          "source_artifact_family",
+          "source_shape"
+        ],
+        "properties": {
+          "kind": {
+            "const": "candidate_scan"
+          },
+          "metric_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_artifact_family": {
+            "const": "metric_frame"
+          },
+          "source_shape": {
+            "type": "string",
+            "enum": [
+              "time_series",
+              "panel"
+            ]
+          }
+        }
+      },
+      "PeriodShiftCandidateScanSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "metric_ref",
+          "source_artifact_id",
+          "source_artifact_family",
+          "source_shape"
+        ],
+        "properties": {
+          "kind": {
+            "const": "candidate_scan"
+          },
+          "metric_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_artifact_family": {
+            "const": "delta_frame"
+          },
+          "source_shape": {
+            "type": "string",
+            "enum": [
+              "time_series_delta",
+              "panel_delta"
+            ]
+          }
+        }
+      },
+      "PointAnomalyCandidateSetLineage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "source_artifact_ids",
+          "strategy"
+        ],
+        "properties": {
+          "operation": {
+            "const": "detect"
+          },
+          "source_artifact_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "strategy": {
+            "const": "point_anomaly"
+          }
+        }
+      },
+      "PeriodShiftCandidateSetLineage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "source_artifact_ids",
+          "strategy"
+        ],
+        "properties": {
+          "operation": {
+            "const": "detect"
+          },
+          "source_artifact_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "strategy": {
+            "const": "period_shift"
+          }
+        }
+      },
+      "PointAnomalyCandidateSetPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "scan_summary",
+          "truncation",
+          "quality"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/PointAnomalyCandidateItem"
+            }
+          },
+          "scan_summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scanned_series_count",
+              "total_candidate_count"
+            ],
+            "properties": {
+              "scanned_series_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total_candidate_count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "truncation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "returned_candidate_count",
+              "total_candidate_count",
+              "truncated"
+            ],
+            "properties": {
+              "returned_candidate_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total_candidate_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
+          },
+          "quality": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "issues"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "detectable",
+                  "needs_attention"
+                ]
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/artifacts/CandidateQualityIssue"
+                }
+              }
+            }
+          }
+        }
+      },
+      "PeriodShiftCandidateSetPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "scan_summary",
+          "truncation",
+          "quality"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/PeriodShiftCandidateItem"
+            }
+          },
+          "scan_summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scanned_series_count",
+              "total_candidate_count"
+            ],
+            "properties": {
+              "scanned_series_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total_candidate_count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "truncation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "returned_candidate_count",
+              "total_candidate_count",
+              "truncated"
+            ],
+            "properties": {
+              "returned_candidate_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total_candidate_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
+          },
+          "quality": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "issues"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "detectable",
+                  "needs_attention"
+                ]
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/artifacts/CandidateQualityIssue"
+                }
+              }
+            }
+          }
+        }
+      },
+      "CandidateSetPayload": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/artifacts/PointAnomalyCandidateSetPayload"
+          },
+          {
+            "$ref": "#/$defs/artifacts/PeriodShiftCandidateSetPayload"
+          }
+        ]
+      },
+      "PointAnomalyCandidateSetArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "artifact_family",
+          "shape",
+          "subject",
+          "axes",
+          "measures",
+          "capabilities",
+          "lineage",
+          "payload"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_family": {
+            "const": "candidate_set"
+          },
+          "axes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/MetricFrameAxis"
+            }
+          },
+          "measures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/CandidateSetMeasure"
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "filterable"
+              ]
+            }
+          },
+          "shape": {
+            "const": "point_anomaly_candidates"
+          },
+          "subject": {
+            "$ref": "#/$defs/artifacts/PointAnomalyCandidateScanSubject"
+          },
+          "lineage": {
+            "$ref": "#/$defs/artifacts/PointAnomalyCandidateSetLineage"
+          },
+          "payload": {
+            "$ref": "#/$defs/artifacts/PointAnomalyCandidateSetPayload"
+          }
+        }
+      },
+      "PeriodShiftCandidateSetArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "artifact_family",
+          "shape",
+          "subject",
+          "axes",
+          "measures",
+          "capabilities",
+          "lineage",
+          "payload"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_family": {
+            "const": "candidate_set"
+          },
+          "axes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/MetricFrameAxis"
+            }
+          },
+          "measures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/CandidateSetMeasure"
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "filterable"
+              ]
+            }
+          },
+          "shape": {
+            "const": "period_shift_candidates"
+          },
+          "subject": {
+            "$ref": "#/$defs/artifacts/PeriodShiftCandidateScanSubject"
+          },
+          "lineage": {
+            "$ref": "#/$defs/artifacts/PeriodShiftCandidateSetLineage"
+          },
+          "payload": {
+            "$ref": "#/$defs/artifacts/PeriodShiftCandidateSetPayload"
           }
         }
       }

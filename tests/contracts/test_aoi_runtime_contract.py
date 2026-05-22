@@ -383,6 +383,42 @@ def test_validate_aoi_artifact_accepts_metric_frame_artifact() -> None:
     assert artifact.subject.scope == {}
 
 
+def test_validate_aoi_artifact_accepts_candidate_set_artifact() -> None:
+    artifact = validate_aoi_artifact(
+        {
+            "artifact_id": "artifact_candidates",
+            "artifact_family": "candidate_set",
+            "shape": "point_anomaly_candidates",
+            "subject": {
+                "kind": "candidate_scan",
+                "metric_ref": "metric.revenue",
+                "source_artifact_id": "artifact_source",
+                "source_artifact_family": "metric_frame",
+                "source_shape": "time_series",
+            },
+            "axes": [{"kind": "time", "grain": "day"}],
+            "measures": [{"id": "score", "value_type": "number", "nullable": False}],
+            "capabilities": ["filterable"],
+            "lineage": {
+                "operation": "detect",
+                "source_artifact_ids": ["artifact_source"],
+                "strategy": "point_anomaly",
+            },
+            "payload": {
+                "items": [],
+                "scan_summary": {"scanned_series_count": 1, "total_candidate_count": 0},
+                "truncation": {
+                    "returned_candidate_count": 0,
+                    "total_candidate_count": 0,
+                    "truncated": False,
+                },
+                "quality": {"status": "detectable", "issues": []},
+            },
+        }
+    )
+    assert artifact.model_dump(mode="json")["artifact_family"] == "candidate_set"
+
+
 def test_artifact_to_envelope_result_keeps_metric_frame_top_level() -> None:
     artifact = validate_aoi_artifact(_metric_frame_payload("time_series"))
     result = artifact_to_envelope_result(artifact)

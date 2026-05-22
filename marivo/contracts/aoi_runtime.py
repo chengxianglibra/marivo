@@ -18,6 +18,7 @@ AoiArtifact = (
     aoi.MetricFrameArtifact
     | aoi.DeltaFrameArtifact
     | aoi.AttributionFrameArtifact
+    | aoi.CandidateSetArtifact
     | aoi.Artifact1
     | aoi.Artifact2
 )
@@ -108,6 +109,7 @@ def validate_aoi_artifact(value: Any) -> AoiArtifact:
             aoi.MetricFrameArtifact,
             aoi.DeltaFrameArtifact,
             aoi.AttributionFrameArtifact,
+            aoi.CandidateSetArtifact,
             aoi.Artifact1,
             aoi.Artifact2,
         ),
@@ -126,6 +128,8 @@ def validate_aoi_artifact(value: Any) -> AoiArtifact:
         return aoi.DeltaFrameArtifact.model_validate(value)
     if value.get("artifact_family") == "attribution_frame":
         return aoi.AttributionFrameArtifact.model_validate(value)
+    if value.get("artifact_family") == "candidate_set":
+        return aoi.CandidateSetArtifact.model_validate(value)
     if "result" in value and "failure" not in value:
         _CanonicalSuccessArtifactShape.model_validate(value)
         return aoi.Artifact1.model_validate(value)
@@ -147,7 +151,7 @@ def validate_aoi_artifact(value: Any) -> AoiArtifact:
 
 def artifact_to_envelope_result(artifact: AoiArtifact) -> dict[str, Any]:
     data = artifact.model_dump(mode="json")
-    if data.get("artifact_family") in ("metric_frame", "delta_frame"):
+    if data.get("artifact_family") in ("metric_frame", "delta_frame", "candidate_set"):
         payload = data.get("payload")
         if isinstance(payload, dict):
             for series in payload.get("series") or []:

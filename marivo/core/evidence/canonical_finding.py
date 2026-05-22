@@ -334,16 +334,28 @@ class DecompositionItemPayload(TypedDict):
 # ---------------------------------------------------------------------------
 
 FlagLevel = Literal["high", "medium", "low"]
+AnomalyDirection = Literal["increase", "decrease", "unknown"]
+
+
+class FramePointRef(TypedDict):
+    artifact_id: str
+    series_index: int
+    point_index: int
+    series_keys: dict[str, str]
+    point_key: str
 
 
 class AnomalyCandidatePayload(TypedDict):
     candidate_ref: ArtifactItemRefRef
+    source_point_ref: FramePointRef | None
+    source_delta_point_ref: FramePointRef | None
     score: float | None
     flag_level: FlagLevel | None
     current_value: float | None
     baseline_value: float | None
     deviation_absolute: float | None
     deviation_relative: float | None
+    direction: AnomalyDirection | None
 
 
 # ---------------------------------------------------------------------------
@@ -584,6 +596,7 @@ class FindingExtractionResult(TypedDict):
 __all__ = [
     "AnomalyCandidateFinding",
     "AnomalyCandidatePayload",
+    "AnomalyDirection",
     "AnyFinding",
     "ArtifactItemRef",
     # Ref types
@@ -621,6 +634,7 @@ __all__ = [
     "FlagLevel",
     "ForecastPointFinding",
     "ForecastPointPayload",
+    "FramePointRef",
     # Concrete finding subtypes (Phase 4a-4)
     "ObservationFinding",
     "ObservationPayload",

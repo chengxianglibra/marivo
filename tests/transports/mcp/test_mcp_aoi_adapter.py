@@ -182,86 +182,30 @@ def test_to_aoi_decompose_request_omits_absent_optional_fields() -> None:
     }
 
 
-def test_to_aoi_detect_request_builds_detect_model() -> None:
+def test_to_aoi_detect_request_builds_artifact_input_model() -> None:
     request = to_aoi_detect_request(
-        metric="view_time",
-        time_scope=McpTimeScope(
-            field="log_time",
-            start="2026-05-01T00:00:00Z",
-            end="2026-05-08T00:00:00Z",
-        ),
-        granularity="day",
-        filter_expression={"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
-        dimension="region",
-        strategy="period_shift",
+        source_artifact_id="artifact_source",
         sensitivity="balanced",
         limit=5,
     )
 
     assert isinstance(request, aoi.Detect)
-    assert request.metric == "view_time"
-    assert request.time_scope.field == "log_time"
-    assert request.granularity == "day"
-    assert request.filter is not None
-    assert request.filter.model_dump(exclude_none=True) == {
-        "dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]
-    }
-    assert request.dimension == "region"
-    assert request.strategy == "period_shift"
+    assert request.source_artifact_id == "artifact_source"
     assert request.sensitivity == "balanced"
     assert request.limit == 5
 
 
 def test_to_aoi_detect_request_omits_absent_optional_fields() -> None:
     request = to_aoi_detect_request(
-        metric="view_time",
-        time_scope=McpTimeScope(
-            field="log_time",
-            start="2026-05-01T00:00:00Z",
-            end="2026-05-08T00:00:00Z",
-        ),
-        granularity="day",
-        strategy="point_anomaly",
+        source_artifact_id="artifact_source",
     )
 
     dumped = request.model_dump(exclude_none=True)
-    assert "filter" not in dumped
-    assert "dimension" not in dumped
+    assert dumped == {
+        "source_artifact_id": "artifact_source",
+        "sensitivity": "aggressive",
+    }
     assert "limit" not in dumped
-
-
-def test_to_aoi_detect_request_accepts_naive_mcp_time_scope() -> None:
-    request = to_aoi_detect_request(
-        metric="view_time",
-        time_scope=McpTimeScope(
-            field="log_time",
-            start="2026-05-01T00:00:00",
-            end="2026-05-08T00:00:00",
-        ),
-        granularity="day",
-        strategy="point_anomaly",
-    )
-
-    assert isinstance(request, aoi.Detect)
-    assert request.time_scope.start == _local_datetime("2026-05-01T00:00:00")
-    assert request.time_scope.end == _local_datetime("2026-05-08T00:00:00")
-
-
-def test_to_aoi_detect_request_accepts_date_only_mcp_time_scope() -> None:
-    request = to_aoi_detect_request(
-        metric="view_time",
-        time_scope=McpTimeScope(
-            field="log_time",
-            start="2026-05-01",
-            end="2026-05-08",
-        ),
-        granularity="day",
-        strategy="point_anomaly",
-    )
-
-    assert isinstance(request, aoi.Detect)
-    assert request.time_scope.start == _local_datetime("2026-05-01T00:00:00")
-    assert request.time_scope.end == _local_datetime("2026-05-08T00:00:00")
 
 
 def test_to_aoi_forecast_request_builds_forecast_model() -> None:

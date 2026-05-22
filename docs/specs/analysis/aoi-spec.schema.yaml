@@ -502,12 +502,24 @@ artifact_registry:
 
     candidate_set:
       shapes:
-        ranked_candidates:
-          required_axes: [candidate]
+        point_anomaly_candidates:
+          required_axes: [time]
           measures: [score, value]
           capabilities: [sliceable]
           transforms: [slice]
           consumers: [diagnose]
+          source: metric_frame(time_series | panel)
+          item_ref: source_point_ref
+
+        period_shift_candidates:
+          required_axes: [time]
+          measures: [score, value, baseline_value, delta_abs, delta_pct]
+          capabilities: [sliceable]
+          transforms: [slice]
+          consumers: [diagnose]
+          source: delta_frame(time_series_delta | panel_delta)
+          item_ref: source_delta_point_ref
+          optional_fields: [baseline_window]
 
     attribution_frame:
       shapes:
@@ -595,7 +607,9 @@ artifact_registry:
       output_family: association_result
 
     detect:
-      accepts: effective scan-ready metric_frame(time_series) or metric_frame(panel), plus source-style convenience input.
+      accepts:
+        - metric_frame(time_series | panel) -> point_anomaly
+        - delta_frame(time_series_delta | panel_delta) -> period_shift
       output_family: candidate_set
 
     test:
@@ -689,21 +703,16 @@ requests:
   detect:
     operation: detect
 
-    # Preferred v0.3 artifact-DAG input.
-    source: artifact_input
+    # Required: committed source metric_frame or delta_frame artifact.
+    source_artifact_id: string
 
-    # Source-style convenience input, lowered to an observe/detect logical DAG.
-    metric: string
-    time_scope: time_scope
-    granularity: time_granularities
-    filter: expression
-    dimension: string
-
-    strategy: detect_strategies
+    # Optional: detection sensitivity preset. Omitted means aggressive.
     sensitivity: detect_sensitivities
+
+    # Optional: maximum number of anomaly candidates to return.
     limit: integer
 
-    # Output: candidate_set(ranked_candidates).
+    # Output: candidate_set(point_anomaly_candidates | period_shift_candidates).
     output: artifact_envelope
 
   test:

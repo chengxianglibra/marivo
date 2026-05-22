@@ -1,7 +1,7 @@
 """Diagnose derived intent runner (Phase 3c-2).
 
 Deterministically expands to:
-  detect(metric, time_scope, ..., limit=candidate_limit)
+  observe/compare source artifact → detect(source_artifact_id, limit=candidate_limit)
   → for each top-candidate_limit candidate:
       observe(current_window) + observe(baseline_window)
       + compare(current_ref, baseline_ref, mode="scalar")
@@ -118,6 +118,101 @@ def _normalize_strategy(raw_strategy: Any) -> str:
     return strategy
 
 
+def _detect_source_observe_params(
+    *,
+    metric_ref: str,
+    time_scope: dict[str, Any],
+    granularity: str,
+    scope: dict[str, Any] | None,
+    scan_dimension: str | None,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "metric": metric_ref,
+        "time_scope": time_scope,
+        "granularity": granularity,
+    }
+    if scope:
+        params["scope"] = scope
+    if scan_dimension:
+        params["dimensions"] = [scan_dimension]
+    return params
+
+
+def _candidate_set_item_to_diagnose_candidate(
+    item: dict[str, Any],
+    *,
+    idx: int,
+    candidate_type: str,
+    grain: str,
+) -> dict[str, Any]:
+    return {
+        "candidate_ref": {"item_ref": {"collection": "items", "key": item.get("item_id")}},
+        "candidate_type": candidate_type,
+        "window": _candidate_followup_window(item.get("window"), grain=grain),
+        "baseline_window": _candidate_followup_window(item.get("baseline_window"), grain=grain),
+        "slice": item.get("keys"),
+        "current_value": item.get("value"),
+        "baseline_value": item.get("baseline_value"),
+        "deviation_abs": item.get("delta_abs"),
+        "deviation_pct": item.get("delta_pct"),
+        "candidate_score": item.get("score"),
+        "flag_level": "high" if float(item.get("score") or 0.0) >= 3.0 else "medium",
+        "direction": item.get("direction"),
+        "candidate_index": idx,
+    }
+
+
+def _candidate_followup_window(raw_window: Any, *, grain: str) -> Any:
+    if grain == "hour" or not isinstance(raw_window, dict):
+        return raw_window
+
+    def _date_if_midnight(value: Any) -> Any:
+        text = str(value or "")
+        if text.endswith("T00:00:00Z"):
+            return text.removesuffix("T00:00:00Z")
+        if text.endswith("T00:00:00+00:00"):
+            return text.removesuffix("T00:00:00+00:00")
+        return value
+
+    return {
+        **raw_window,
+        "start": _date_if_midnight(raw_window.get("start")),
+        "end": _date_if_midnight(raw_window.get("end")),
+    }
+
+
+def _candidate_set_payload_parts(
+    artifact: dict[str, Any],
+    *,
+    grain: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    payload = artifact.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("diagnose: DETECT_FAILED - detect did not return candidate_set payload")
+
+    lineage_raw = artifact.get("lineage")
+    lineage: dict[str, Any] = lineage_raw if isinstance(lineage_raw, dict) else {}
+    strategy = str(lineage.get("strategy") or "point_anomaly")
+    candidate_type = "period_shift" if strategy == "period_shift" else "point_anomaly"
+    candidates = [
+        _candidate_set_item_to_diagnose_candidate(
+            item,
+            idx=idx,
+            candidate_type=candidate_type,
+            grain=grain,
+        )
+        for idx, item in enumerate(payload.get("items") or [])
+        if isinstance(item, dict)
+    ]
+    scan_summary_raw = payload.get("scan_summary")
+    scan_summary: dict[str, Any] = scan_summary_raw if isinstance(scan_summary_raw, dict) else {}
+    truncation_raw = payload.get("truncation")
+    truncation: dict[str, Any] = truncation_raw if isinstance(truncation_raw, dict) else {}
+    quality_raw = payload.get("quality")
+    quality: dict[str, Any] = quality_raw if isinstance(quality_raw, dict) else {}
+    return candidates, scan_summary, truncation, quality
+
+
 def run_diagnose_intent(
     runtime: MarivoRuntime,
     session_id: str,
@@ -210,18 +305,59 @@ def run_diagnose_intent(
         granularity=ts_granularity,
         label="time_scope",
     )
+    source_artifact_id: str
+    source_observe_params = _detect_source_observe_params(
+        metric_ref=metric_ref,
+        time_scope=resolved_time_scope,
+        granularity=granularity,
+        scope=scope,
+        scan_dimension=scan_dimension,
+    )
+    try:
+        if strategy == "period_shift":
+            baseline_window = previous_adjacent_window(
+                resolved_time_scope["start"],
+                resolved_time_scope["end"],
+                grain=ts_granularity,
+            )
+            baseline_time_scope = {
+                "start": baseline_window["start"],
+                "end": baseline_window["end"],
+                **(
+                    {"field": resolved_time_scope["field"]}
+                    if resolved_time_scope.get("field")
+                    else {}
+                ),
+            }
+            current_obs = run_observe_intent(runtime, session_id, source_observe_params)
+            baseline_obs = run_observe_intent(
+                runtime,
+                session_id,
+                {
+                    **source_observe_params,
+                    "time_scope": baseline_time_scope,
+                },
+            )
+            compare_result = run_compare_intent(
+                runtime,
+                session_id,
+                {
+                    "current_artifact_id": current_obs["artifact_id"],
+                    "baseline_artifact_id": baseline_obs["artifact_id"],
+                },
+            )
+            source_artifact_id = str(compare_result["artifact_id"])
+        else:
+            source_obs = run_observe_intent(runtime, session_id, source_observe_params)
+            source_artifact_id = str(source_obs["artifact_id"])
+    except Exception as exc:
+        raise ValueError(f"diagnose: SOURCE_ARTIFACT_FAILED - {exc}") from exc
+
     detect_params: dict[str, Any] = {
-        "metric": metric_ref,
-        "time_scope": resolved_time_scope,
-        "granularity": granularity,
+        "source_artifact_id": source_artifact_id,
         "sensitivity": sensitivity,
-        "strategy": strategy,
+        "limit": candidate_limit,
     }
-    if p.get("filter") is not None:
-        detect_params["filter"] = p.get("filter")
-    if scan_dimension:
-        detect_params["dimension"] = scan_dimension
-    detect_params["limit"] = candidate_limit
 
     try:
         detect_result = run_detect_intent(
@@ -240,10 +376,17 @@ def run_diagnose_intent(
         "artifact_id": detect_result["artifact_id"],
     }
     detect_artifact: dict[str, Any] = detect_result.get("result") or detect_result
-    detectability: dict[str, Any] = detect_artifact.get("detectability") or {}
-    validation_guidance = detectability.get("guidance")
-    if detectability.get("status") == "needs_attention":
-        for iss in detectability.get("issues") or []:
+    if detect_artifact.get("artifact_family") != "candidate_set":
+        raise ValueError("diagnose: DETECT_FAILED - detect did not return candidate_set artifact")
+    all_candidates, scan_summary, detect_truncation, detect_quality = _candidate_set_payload_parts(
+        detect_artifact,
+        grain=ts_granularity,
+    )
+    validation_guidance = detect_quality.get("guidance")
+    if detect_quality.get("status") == "needs_attention":
+        if validation_guidance is None:
+            validation_guidance = {"recommended_next_action": "expand_scan_window"}
+        for iss in detect_quality.get("issues") or []:
             top_level_issues.append(
                 {
                     "code": "detect_needs_attention",
@@ -252,10 +395,8 @@ def run_diagnose_intent(
                 }
             )
 
-    all_candidates: list[dict[str, Any]] = detect_artifact.get("candidates") or []
-    detect_truncation: dict[str, Any] = detect_artifact.get("truncation") or {}
     total_candidate_count: int = (
-        (detect_artifact.get("scan_summary") or {}).get("total_candidate_count")
+        scan_summary.get("total_candidate_count")
         or detect_truncation.get("total_candidate_count")
         or 0
     )

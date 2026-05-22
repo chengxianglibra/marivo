@@ -234,6 +234,67 @@ def test_commit_aoi_artifact_result_returns_envelope_and_inserts_nested_result()
     assert insert_args[0][4]["result"]["artifact_family"] == "metric_frame"
 
 
+def test_commit_aoi_artifact_result_keeps_candidate_set_top_level():
+    mock_runtime = MagicMock()
+    mock_runtime.commit_artifact_with_extraction.side_effect = lambda *args, **kwargs: kwargs[
+        "artifact_id"
+    ]
+    payload = {
+        "artifact_id": "placeholder-candidates",
+        "artifact_family": "candidate_set",
+        "shape": "point_anomaly_candidates",
+        "subject": {
+            "kind": "candidate_scan",
+            "metric_ref": "metric.revenue",
+            "source_artifact_id": "artifact_source",
+            "source_artifact_family": "metric_frame",
+            "source_shape": "time_series",
+        },
+        "axes": [{"kind": "time", "grain": "day"}],
+        "measures": [{"id": "score", "value_type": "number", "nullable": False}],
+        "capabilities": ["filterable"],
+        "lineage": {
+            "operation": "detect",
+            "source_artifact_ids": ["artifact_source"],
+            "strategy": "point_anomaly",
+        },
+        "payload": {
+            "items": [],
+            "scan_summary": {"scanned_series_count": 1, "total_candidate_count": 0},
+            "truncation": {
+                "returned_candidate_count": 0,
+                "total_candidate_count": 0,
+                "truncated": False,
+            },
+            "quality": {"status": "detectable", "issues": []},
+        },
+    }
+
+    envelope = commit_aoi_artifact_result(
+        runtime=mock_runtime,
+        session_id="sess-aoi",
+        step_id="step-detect",
+        step_type="detect",
+        artifact_type="candidate_set",
+        artifact_name="revenue_candidates",
+        artifact_payload=payload,
+        summary="Detected candidates",
+    )
+
+    assert envelope.result["artifact_id"] == envelope.artifact_id
+    assert envelope.result["artifact_family"] == "candidate_set"
+    assert "result" not in envelope.result
+
+    committed_payload = mock_runtime.commit_artifact_with_extraction.call_args[0][4]
+    assert committed_payload["artifact_id"] == envelope.artifact_id
+    assert committed_payload["artifact_family"] == "candidate_set"
+    assert "result" not in committed_payload
+
+    inserted_envelope = mock_runtime.insert_step.call_args[0][4]
+    assert inserted_envelope["result"]["artifact_family"] == "candidate_set"
+    assert "result" not in inserted_envelope["result"]
+
+
 def test_commit_aoi_artifact_result_rejects_non_aoi_payload_before_insert():
     mock_runtime = MagicMock()
 

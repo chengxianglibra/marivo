@@ -348,23 +348,9 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
         ).model_dump(mode="json")
 
     if intent_type == "detect":
-        return aoi.AnomalyCandidatesResult(
-            items=[
-                aoi.AnomalyCandidate(
-                    item_id=str(
-                        ((candidate.get("candidate_ref") or {}).get("item_ref") or {}).get("key")
-                        or f"candidate_{idx}"
-                    ),
-                    bucket_start=_as_aoi_datetime((candidate.get("window") or {}).get("start")),
-                    value=float(candidate.get("current_value") or 0.0),
-                    score=float(candidate.get("candidate_score") or 0.0),
-                    series_keys=_string_keys(candidate.get("slice"))
-                    if candidate.get("slice") is not None
-                    else None,
-                )
-                for idx, candidate in enumerate(payload.get("candidates") or [])
-            ]
-        ).model_dump(mode="json")
+        if payload.get("artifact_family") == "candidate_set":
+            return artifact_to_envelope_result(validate_aoi_artifact(payload))
+        raise ValueError("detect AOI projection requires a candidate_set artifact")
 
     if intent_type == "forecast":
         return aoi.ForecastSeriesResult(
@@ -413,6 +399,12 @@ def project_aoi_artifact(
         and raw.get("artifact_family") == "delta_frame"
     ):
         return project_aoi_artifact_result("compare", raw)
+    if (
+        intent_type == "detect"
+        and isinstance(raw, dict)
+        and raw.get("artifact_family") == "candidate_set"
+    ):
+        return artifact_to_envelope_result(validate_aoi_artifact(raw))
     if isinstance(raw, dict) and raw.get("artifact_id") and ("result" in raw or "failure" in raw):
         try:
             return artifact_to_envelope_result(validate_aoi_artifact(raw))
@@ -461,7 +453,7 @@ def _infer_intent_type(payload: dict[str, Any]) -> str:
     artifact_type = payload.get("artifact_type")
     observation_type = payload.get("observation_type")
 
-    if artifact_type == "anomaly_candidates" or "candidates" in payload:
+    if payload.get("artifact_family") == "candidate_set":
         return "detect"
     if artifact_type == "delta_frame" or payload.get("artifact_family") == "delta_frame":
         return "compare"

@@ -365,11 +365,12 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
         payload = r.json()
         self.assertEqual(payload["error"]["code"], "request_validation_error")
         self.assertIn("/openapi/schemas/", payload["guidance"]["schema_url"])
-        example_time_scope = payload["guidance"]["examples"][0]["payload"]["time_scope"]
-        self.assertEqual(example_time_scope["field"], "event_time")
-        self.assertEqual(set(example_time_scope), {"field", "start", "end"})
-        self.assertEqual(payload["guidance"]["examples"][0]["payload"]["granularity"], "day")
-        self.assertEqual(payload["guidance"]["examples"][0]["payload"]["strategy"], "point_anomaly")
+        example_payload = payload["guidance"]["examples"][0]["payload"]
+        self.assertEqual(example_payload["source_artifact_id"], "art_metric_frame_123")
+        self.assertEqual(example_payload["sensitivity"], "aggressive")
+        self.assertNotIn("metric", example_payload)
+        self.assertNotIn("time_scope", example_payload)
+        self.assertNotIn("strategy", example_payload)
 
     def test_compare_nonexistent_ref_returns_422(self) -> None:
         r = self.client.post(
@@ -393,21 +394,13 @@ class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest
         self.assertEqual(r.status_code, 422)
         self.assertIn("ARTIFACT_NOT_FOUND", r.json()["detail"])
 
-    def test_detect_unregistered_metric_returns_422(self) -> None:
+    def test_detect_nonexistent_source_artifact_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
-            json={
-                "metric": _metric_ref("dau"),
-                "time_scope": {
-                    "field": "event_time",
-                    "start": "2024-01-01T00:00:00Z",
-                    "end": "2024-01-08T00:00:00Z",
-                },
-                "granularity": "day",
-                "strategy": "point_anomaly",
-            },
+            json={"source_artifact_id": "art_does_not_exist"},
         )
         self.assertEqual(r.status_code, 422)
+        self.assertIn("ARTIFACT_NOT_FOUND", r.json()["detail"])
 
     def test_forecast_rejects_missing_horizon(self) -> None:
         r = self.client.post(
@@ -564,16 +557,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
     def test_detect_on_closed_session_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
-            json={
-                "metric": _metric_ref("dau"),
-                "time_scope": {
-                    "field": "event_time",
-                    "start": "2024-01-01T00:00:00Z",
-                    "end": "2024-01-08T00:00:00Z",
-                },
-                "granularity": "day",
-                "strategy": "point_anomaly",
-            },
+            json={"source_artifact_id": "artifact_source"},
         )
         self.assertEqual(r.status_code, 422)
         self.assertIn("not open", r.json()["detail"])

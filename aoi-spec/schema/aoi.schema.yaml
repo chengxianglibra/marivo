@@ -50,11 +50,6 @@ correlation_methods:
   - pearson   # Linear correlation coefficient.
   - spearman  # Rank correlation coefficient.
 
-# Supported anomaly detection strategies.
-detect_strategies:
-  - point_anomaly  # Detect anomalous buckets within the scan window.
-  - period_shift   # Detect whole-period level shifts against the previous adjacent window.
-
 # Supported anomaly detection sensitivity presets.
 detect_sensitivities:
   - conservative  # Stricter candidate inclusion.
@@ -176,25 +171,10 @@ correlate:
   # Optional: minimum aligned numeric pair count required to run, range [1, +infinity).
   min_pairs: integer
 
-# Detect anomalous buckets or segments for a metric.
+# Detect anomaly candidates from a committed frame artifact.
 detect:
-  # Required: metric identifier to inspect.
-  metric: string
-
-  # Required: analysis time range.
-  time_scope: time_scope
-
-  # Required: bucket size for anomaly detection, one of time_granularities.
-  granularity: time_granularities
-
-  # Optional: filter expression. Omit when there is no filter.
-  filter: expression
-
-  # Optional: single dimension used to split independent anomaly series.
-  dimension: string
-
-  # Required: detection strategy, one of detect_strategies.
-  strategy: detect_strategies
+  # Required: artifact_id of the source metric_frame or delta_frame.
+  source_artifact_id: string
 
   # Optional: detection sensitivity preset, one of detect_sensitivities. Omitted means aggressive.
   sensitivity: detect_sensitivities
@@ -293,7 +273,7 @@ diagnose:
   dimensions: string[]
 
   # Required: detection strategy passed to the internal detect step.
-  strategy: detect_strategies
+  strategy: point_anomaly | period_shift
 
   # Optional: detection sensitivity preset passed to the internal detect step. Omitted means aggressive.
   sensitivity: detect_sensitivities
@@ -319,7 +299,7 @@ artifact:
     one_of:
       - delta_frame_artifact           # Compare delta frame artifact.
       - attribution_frame_artifact     # Ranked contribution frame for a compare result.
-      - anomaly_candidates_result      # Ranked anomalous buckets or segments.
+      - candidate_set_artifact         # Ranked anomaly candidate set artifact.
       - association_result             # Correlation/association statistics.
       - hypothesis_test_result         # Statistical hypothesis test output.
       - forecast_series_result         # Forecasted future time-series values.
@@ -459,16 +439,73 @@ attribution_frame_artifact:
       unexplained_pct: number | null
       unexplained_reason: string | null
 
-# Result for detect requests.
-anomaly_candidates_result:
-  # Required: ranked anomaly candidates.
-  items:
-    # One anomaly candidate.
-    - item_id: string                         # Required: stable row identifier.
-      bucket_start: iso8601_datetime          # Required: bucket start timestamp.
-      value: number                           # Required: observed metric value; range follows the metric domain. Higher/lower has the metric's normal business meaning.
-      score: number                           # Required: anomaly score, range [0, +infinity). Higher means more anomalous within the same implementation and scoring profile.
-      series_keys: dimension_key_map          # Required, nullable: split-series dimension values. Null means unsplit series.
+# Candidate set artifact returned by detect requests.
+candidate_set_artifact:
+  artifact_id: string
+  artifact_family: candidate_set
+  shape: point_anomaly_candidates | period_shift_candidates
+  # Coherence:
+  # - point_anomaly_candidates requires metric_frame(time_series | panel),
+  #   strategy point_anomaly, and item.source_point_ref.
+  # - period_shift_candidates requires delta_frame(time_series_delta | panel_delta),
+  #   strategy period_shift, and item.source_delta_point_ref.
+  subject:
+    kind: candidate_scan
+    metric_ref: string
+    source_artifact_id: string
+    source_artifact_family: metric_frame | delta_frame
+    source_shape: string
+  axes:
+    - kind: time | dimension
+      grain: time_granularities
+      name: string
+  measures:
+    - id: score | value | baseline_value | delta_abs | delta_pct
+      value_type: number
+      nullable: boolean
+      unit: string
+  capabilities:
+    - filterable
+  lineage:
+    operation: detect
+    source_artifact_ids: string[]
+    strategy: point_anomaly | period_shift
+  payload:
+    items:
+      - item_id: string
+        source_point_ref: frame_point_ref
+        source_delta_point_ref: frame_point_ref
+        window:
+          start: iso8601_datetime
+          end: iso8601_datetime
+        baseline_window: metric_frame_window | null
+        keys: dimension_key_map
+        value: number | null
+        baseline_value: number | null
+        delta_abs: number | null
+        delta_pct: number | null
+        score: number
+        direction: increase | decrease | unknown
+    scan_summary:
+      scanned_series_count: integer
+      total_candidate_count: integer
+    truncation:
+      returned_candidate_count: integer
+      total_candidate_count: integer
+      truncated: boolean
+    quality:
+      status: detectable | needs_attention
+      issues:
+        - code: string
+          severity: warning | error
+          message: string
+
+frame_point_ref:
+  artifact_id: string
+  series_index: integer
+  point_index: integer
+  series_keys: dimension_key_map
+  point_key: string
 
 # Result for correlate requests.
 association_result:

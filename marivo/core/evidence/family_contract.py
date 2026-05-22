@@ -38,7 +38,7 @@ FAMILY_ALLOWS_EMPTY: dict[ArtifactFamily, bool] = {
 ALLOWS_EMPTY_ARTIFACT_TYPES: frozenset[str] = frozenset(
     {
         "observation",
-        "anomaly_candidates",
+        "candidate_set",
     }
 )
 

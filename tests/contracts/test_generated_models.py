@@ -111,6 +111,198 @@ def _attribution_frame_payload() -> dict[str, Any]:
     }
 
 
+def _candidate_set_artifact_payload(shape: str = "point_anomaly_candidates") -> dict[str, Any]:
+    source_ref_key = (
+        "source_point_ref" if shape == "point_anomaly_candidates" else "source_delta_point_ref"
+    )
+    return {
+        "artifact_id": "artifact_candidates",
+        "artifact_family": "candidate_set",
+        "shape": shape,
+        "subject": {
+            "kind": "candidate_scan",
+            "metric_ref": "metric.revenue",
+            "source_artifact_id": "artifact_source",
+            "source_artifact_family": "metric_frame"
+            if shape == "point_anomaly_candidates"
+            else "delta_frame",
+            "source_shape": "time_series"
+            if shape == "point_anomaly_candidates"
+            else "time_series_delta",
+        },
+        "axes": [{"kind": "time", "grain": "day"}],
+        "measures": [{"id": "score", "value_type": "number", "nullable": False}],
+        "capabilities": ["filterable"],
+        "lineage": {
+            "operation": "detect",
+            "source_artifact_ids": ["artifact_source"],
+            "strategy": "point_anomaly" if shape == "point_anomaly_candidates" else "period_shift",
+        },
+        "payload": {
+            "items": [
+                {
+                    "item_id": "2026-01-03T00:00:00Z",
+                    source_ref_key: {
+                        "artifact_id": "artifact_source",
+                        "series_index": 0,
+                        "point_index": 2,
+                        "series_keys": {},
+                        "point_key": "2026-01-03T00:00:00Z",
+                    },
+                    "window": {
+                        "start": "2026-01-03T00:00:00Z",
+                        "end": "2026-01-04T00:00:00Z",
+                    },
+                    "keys": None,
+                    "value": 200.0,
+                    "score": 2.4,
+                    "direction": "increase",
+                }
+            ],
+            "scan_summary": {"scanned_series_count": 1, "total_candidate_count": 1},
+            "truncation": {
+                "returned_candidate_count": 1,
+                "total_candidate_count": 1,
+                "truncated": False,
+            },
+            "quality": {"status": "detectable", "issues": []},
+        },
+    }
+
+
+def _merge_patch(target: dict[str, Any], patch_value: dict[str, Any]) -> None:
+    for key, value in patch_value.items():
+        if key == "__remove__":
+            target.pop(str(value))
+            continue
+        nested = target.get(key)
+        if isinstance(value, dict) and isinstance(nested, dict):
+            _merge_patch(nested, value)
+        elif isinstance(value, list) and isinstance(nested, list):
+            for index, item_patch in enumerate(value):
+                if index >= len(nested):
+                    nested.append(item_patch)
+                    continue
+                nested_item = nested[index]
+                if isinstance(item_patch, dict) and isinstance(nested_item, dict):
+                    _merge_patch(nested_item, item_patch)
+                else:
+                    nested[index] = item_patch
+        else:
+            target[key] = value
+
+
+@pytest.mark.parametrize("shape", ["point_anomaly_candidates", "period_shift_candidates"])
+def test_aoi_candidate_set_artifact_accepts_public_shape(shape: str) -> None:
+    from marivo.contracts.generated import aoi
+
+    artifact = aoi.CandidateSetArtifact.model_validate(_candidate_set_artifact_payload(shape))
+    artifact_dump = artifact.model_dump(mode="json")
+
+    assert artifact_dump["artifact_family"] == "candidate_set"
+    assert artifact_dump["shape"] == shape
+
+
+def test_aoi_candidate_set_schema_allows_nullable_period_shift_baseline_window() -> None:
+    schema = _load_json(REPO_ROOT / "aoi-spec" / "schema" / "aoi.schema.json")
+    period_shift_item = schema["$defs"]["artifacts"]["PeriodShiftCandidateItem"]
+
+    assert period_shift_item["properties"]["baseline_window"] == {
+        "anyOf": [
+            {"$ref": "#/$defs/artifacts/MetricFrameWindow"},
+            {"type": "null"},
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {
+            "subject": {
+                "source_artifact_family": "delta_frame",
+                "source_shape": "time_series_delta",
+            },
+            "lineage": {"strategy": "period_shift"},
+        },
+        {
+            "payload": {
+                "items": [
+                    {
+                        "__remove__": "source_point_ref",
+                    }
+                ]
+            }
+        },
+    ],
+)
+def test_aoi_point_anomaly_candidate_set_rejects_incoherent_contract(
+    patch: dict[str, Any],
+) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _candidate_set_artifact_payload("point_anomaly_candidates")
+    _merge_patch(payload, patch)
+
+    with pytest.raises(ValidationError):
+        aoi.CandidateSetArtifact.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {
+            "subject": {
+                "source_artifact_family": "metric_frame",
+                "source_shape": "time_series",
+            },
+            "lineage": {"strategy": "point_anomaly"},
+        },
+        {
+            "payload": {
+                "items": [
+                    {
+                        "__remove__": "source_delta_point_ref",
+                    }
+                ]
+            }
+        },
+        {
+            "payload": {
+                "items": [
+                    {
+                        "__remove__": "source_delta_point_ref",
+                        "source_point_ref": {
+                            "artifact_id": "artifact_source",
+                            "series_index": 0,
+                            "point_index": 2,
+                            "series_keys": {},
+                            "point_key": "2026-01-03T00:00:00Z",
+                        },
+                    }
+                ]
+            }
+        },
+    ],
+)
+def test_aoi_period_shift_candidate_set_rejects_incoherent_contract(
+    patch: dict[str, Any],
+) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = _candidate_set_artifact_payload("period_shift_candidates")
+    _merge_patch(payload, patch)
+
+    with pytest.raises(ValidationError):
+        aoi.CandidateSetArtifact.model_validate(payload)
+
+
+def test_aoi_generated_models_remove_old_anomaly_candidates_result() -> None:
+    from marivo.contracts.generated import aoi
+
+    assert not hasattr(aoi, "AnomalyCandidatesResult")
+
+
 @pytest.mark.parametrize(
     ("field_name", "bad_value"),
     [
@@ -336,7 +528,7 @@ def test_aoi_observe_accepts_valid_optional_combinations(payload: dict[str, Any]
 
 
 def test_marivo_metric_extension_matches_spec() -> None:
-    from marivo.transports.http.models.marivo_extensions import MarivoMetricExtension
+    from marivo.contracts.semantic_extensions import MarivoMetricExtension
 
     assert set(MarivoMetricExtension.model_fields) == {
         "decomposition_semantics",
@@ -526,8 +718,8 @@ def test_semantic_metrics_ddl_has_component_ref_columns() -> None:
 
 def test_malformed_extension_data_rejected() -> None:
     """E9: malformed JSON in MARIVO extension data field."""
+    from marivo.contracts.semantic_extensions import MarivoDatasetExtension
     from marivo.core.semantic.extensions import extract_marivo_extension
-    from marivo.transports.http.models.marivo_extensions import MarivoDatasetExtension
 
     class FakeExt:
         vendor_name = "MARIVO"
@@ -569,14 +761,7 @@ def test_aoi_request_optional_fields_may_be_omitted() -> None:
     }
 
     aoi.Observe.model_validate({"metric": "revenue", "time_scope": time_scope})
-    aoi.Detect.model_validate(
-        {
-            "metric": "revenue",
-            "time_scope": time_scope,
-            "granularity": "day",
-            "strategy": "point_anomaly",
-        }
-    )
+    aoi.Detect.model_validate({"source_artifact_id": "artifact_source"})
     aoi.Test.model_validate(
         {
             "metric": "revenue",
@@ -837,57 +1022,32 @@ def _deep_update(target: dict[str, Any], patch_value: dict[str, Any]) -> None:
             target[key] = value
 
 
-@pytest.mark.parametrize("strategy", ["point_anomaly", "period_shift"])
 @pytest.mark.parametrize("sensitivity", ["conservative", "balanced", "aggressive"])
-@pytest.mark.parametrize("granularity", ["hour", "day", "week", "month", "quarter", "year"])
-def test_aoi_detect_accepts_all_public_options(
-    strategy: str,
-    sensitivity: str,
-    granularity: str,
-) -> None:
+def test_aoi_detect_accepts_artifact_input_only(sensitivity: str) -> None:
     from marivo.contracts.generated import aoi
 
     request = aoi.Detect.model_validate(
         {
-            "metric": "revenue",
-            "time_scope": _aoi_time_scope(),
-            "granularity": granularity,
-            "filter": {
-                "dialects": [
-                    {"dialect": "ANSI_SQL", "expression": "region = 'US'"},
-                ]
-            },
-            "dimension": "region",
-            "strategy": strategy,
+            "source_artifact_id": "artifact_source",
             "sensitivity": sensitivity,
             "limit": 10,
         }
     )
 
-    assert request.granularity == granularity
-    assert request.strategy == strategy
+    assert request.source_artifact_id == "artifact_source"
     assert request.sensitivity == sensitivity
-    assert request.filter is not None
-    assert request.dimension == "region"
     assert request.limit == 10
 
 
 def test_aoi_detect_defaults_omitted_optional_fields() -> None:
     from marivo.contracts.generated import aoi
 
-    request = aoi.Detect.model_validate(
-        {
-            "metric": "revenue",
-            "time_scope": _aoi_time_scope(),
-            "granularity": "day",
-            "strategy": "point_anomaly",
-        }
-    )
+    request = aoi.Detect.model_validate({"source_artifact_id": "artifact_source"})
 
+    assert request.source_artifact_id == "artifact_source"
     assert request.sensitivity == "aggressive"
     dumped = request.model_dump(exclude_none=True)
-    assert "filter" not in dumped
-    assert "dimension" not in dumped
+    assert dumped == {"source_artifact_id": "artifact_source", "sensitivity": "aggressive"}
     assert "limit" not in dumped
 
 
@@ -954,56 +1114,36 @@ def test_aoi_decompose_requires_public_required_fields(missing_field: str) -> No
 @pytest.mark.parametrize(
     "payload_patch",
     [
-        {"metric": ""},
-        {"granularity": "minute"},
-        {"strategy": "zscore_raw"},
+        {"source_artifact_id": ""},
         {"sensitivity": "extreme"},
         {"limit": 0},
         {"limit": -1},
+        {"metric": "revenue"},
+        {"time_scope": _aoi_time_scope()},
+        {"granularity": "day"},
+        {"filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]}},
+        {"dimension": "region"},
+        {"strategy": "point_anomaly"},
         {"dimension": ""},
-        {"scope": {"predicate": "region = 'US'"}},
-        {"split_by": ["region"]},
-        {"profile": "auto"},
-        {"max_series": 10},
-        {
-            "time_scope": {
-                "field": "time",
-                "start": "2026-05-01T00:00:00Z",
-                "end": "2026-05-08T00:00:00Z",
-                "mode": "range",
-            }
-        },
     ],
 )
-def test_aoi_detect_rejects_invalid_contract_fields(payload_patch: dict[str, Any]) -> None:
+def test_aoi_detect_rejects_invalid_or_removed_contract_fields(
+    payload_patch: dict[str, Any],
+) -> None:
     from marivo.contracts.generated import aoi
 
-    payload = {
-        "metric": "revenue",
-        "time_scope": _aoi_time_scope(),
-        "granularity": "day",
-        "strategy": "point_anomaly",
-    }
+    payload = {"source_artifact_id": "artifact_source"}
     payload.update(payload_patch)
 
     with pytest.raises(ValidationError):
         aoi.Detect.model_validate(payload)
 
 
-@pytest.mark.parametrize("missing_field", ["metric", "time_scope", "granularity", "strategy"])
-def test_aoi_detect_requires_public_required_fields(missing_field: str) -> None:
+def test_aoi_detect_requires_source_artifact_id() -> None:
     from marivo.contracts.generated import aoi
 
-    payload = {
-        "metric": "revenue",
-        "time_scope": _aoi_time_scope(),
-        "granularity": "day",
-        "strategy": "point_anomaly",
-    }
-    payload.pop(missing_field)
-
     with pytest.raises(ValidationError):
-        aoi.Detect.model_validate(payload)
+        aoi.Detect.model_validate({})
 
 
 def test_aoi_forecast_accepts_public_required_fields() -> None:
@@ -1080,15 +1220,15 @@ def test_aoi_forecast_requires_public_required_fields(missing_field: str) -> Non
         (
             "Detect",
             {
-                "metric": "revenue",
-                "time_scope": {
-                    "field": "event_time",
-                    "start": "2026-01-01T00:00:00Z",
-                    "end": "2026-01-02T00:00:00Z",
-                },
-                "granularity": "day",
-                "filter": None,
-                "strategy": "point_anomaly",
+                "source_artifact_id": "artifact_source",
+                "sensitivity": None,
+            },
+        ),
+        (
+            "Detect",
+            {
+                "source_artifact_id": "artifact_source",
+                "limit": None,
             },
         ),
         (
@@ -1602,26 +1742,6 @@ def test_aoi_diagnose_rejects_invalid_granularity() -> None:
         )
 
 
-@pytest.mark.parametrize("granularity", ["quarter", "year"])
-def test_aoi_detect_keeps_generic_time_granularities(granularity: str) -> None:
-    from marivo.contracts.generated import aoi
-
-    request = aoi.Detect.model_validate(
-        {
-            "metric": "revenue",
-            "time_scope": {
-                "field": "event_time",
-                "start": "2026-01-01T00:00:00Z",
-                "end": "2026-01-02T00:00:00Z",
-            },
-            "granularity": granularity,
-            "strategy": "point_anomaly",
-        }
-    )
-
-    assert request.granularity == granularity
-
-
 def test_aoi_result_nullable_fields_still_accept_explicit_null() -> None:
     from marivo.contracts.generated import aoi
 
@@ -1650,7 +1770,7 @@ def test_aoi_result_nullable_fields_still_accept_explicit_null() -> None:
 
 def test_component_ref_validation() -> None:
     """MetricComponentRef requires a non-empty metric string."""
-    from marivo.transports.http.models.marivo_extensions import MetricComponentRef
+    from marivo.contracts.semantic_extensions import MetricComponentRef
 
     ref = MetricComponentRef(metric="metric.revenue")
     assert ref.metric == "metric.revenue"
