@@ -95,7 +95,13 @@ def test_project_decompose_result_returns_attribution_frame_artifact() -> None:
                         ],
                     }
                 ],
-                "scope": {"delta_abs": 20.0},
+                "scope": {
+                    "current_value": 120.0,
+                    "baseline_value": 100.0,
+                    "delta_abs": 20.0,
+                    "delta_pct": 0.2,
+                    "direction": "increase",
+                },
                 "quality": {"reconciliation_status": "within_tolerance"},
             },
         },

@@ -448,49 +448,6 @@ def read_compare_scalar_point(artifact: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def read_decompose_rows_from_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
-    """Compatibility wrapper for existing derived-intent call sites.
-
-    New code should call ``read_attribution_rows_from_series`` directly.
-    """
-    if is_attribution_frame_artifact(artifact):
-        attribution_rows = read_attribution_rows_from_series(artifact)
-        for attribution_row in attribution_rows:
-            if (
-                "absolute_contribution" not in attribution_row
-                and "contribution_abs" in attribution_row
-            ):
-                attribution_row["absolute_contribution"] = attribution_row["contribution_abs"]
-            if (
-                "contribution_share" not in attribution_row
-                and "contribution_pct" in attribution_row
-            ):
-                attribution_row["contribution_share"] = attribution_row["contribution_pct"]
-        return attribution_rows
-    series_list = artifact.get("series") or []
-    if series_list:
-        axes = read_axes_from_artifact(artifact)
-        dim_names = dimension_names_from_axes(axes)
-        rows: list[dict[str, Any]] = []
-        for entry in series_list:
-            keys = entry.get("keys") or {}
-            points = entry.get("points") or []
-            for point in points:
-                row: dict[str, Any] = {}
-                # Derive the key field from keys dict using dimension axes
-                if dim_names:
-                    for dim_name in dim_names:
-                        dim_value = keys.get(dim_name)
-                        if dim_value is not None and row.get("key") is None:
-                            row["key"] = dim_value
-                row.update(keys)
-                row.update(point)
-                rows.append(row)
-        return rows
-    # v1.0 fallback
-    return artifact.get("rows") or []
-
-
 def read_attribution_rows_from_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
     if not is_attribution_frame_artifact(artifact):
         raise ValueError("attribution_frame artifact expected")

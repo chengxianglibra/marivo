@@ -1,19 +1,101 @@
 {
   "artifact_id": "decomp_revenue_yoy_region",
-  "result": {
-    "items": [
+  "artifact_family": "attribution_frame",
+  "shape": "ranked_contributions",
+  "subject": {
+    "kind": "comparison",
+    "metric_ref": "metric.revenue",
+    "current": {
+      "time_scope": {
+        "field": "order_date",
+        "start": "2024-01-01T00:00:00Z",
+        "end": "2024-04-01T00:00:00Z"
+      },
+      "scope": {}
+    },
+    "baseline": {
+      "time_scope": {
+        "field": "order_date",
+        "start": "2023-01-01T00:00:00Z",
+        "end": "2023-04-01T00:00:00Z"
+      },
+      "scope": {}
+    }
+  },
+  "axes": [
+    {
+      "kind": "dimension",
+      "name": "region"
+    }
+  ],
+  "measures": [
+    {
+      "id": "contribution_abs",
+      "value_type": "number",
+      "nullable": false
+    },
+    {
+      "id": "contribution_pct",
+      "value_type": "number",
+      "nullable": true
+    }
+  ],
+  "capabilities": [
+    "filterable"
+  ],
+  "lineage": {
+    "operation": "decompose",
+    "source_artifact_ids": [
+      "delta_revenue_yoy_q1_by_region"
+    ]
+  },
+  "payload": {
+    "series": [
       {
-        "item_id": "region_us",
-        "key": "US",
-        "contribution": 180000.25,
-        "share": 0.72
+        "keys": {
+          "region": "US"
+        },
+        "points": [
+          {
+            "contribution_abs": 180000.25,
+            "contribution_pct": 0.72,
+            "current_value": 680000.25,
+            "baseline_value": 500000.0,
+            "presence": "both",
+            "rank": 1
+          }
+        ]
       },
       {
-        "item_id": "region_eu",
-        "key": "EU",
-        "contribution": 70000.25,
-        "share": 0.28
+        "keys": {
+          "region": "EU"
+        },
+        "points": [
+          {
+            "contribution_abs": 70000.25,
+            "contribution_pct": 0.28,
+            "current_value": 270000.25,
+            "baseline_value": 200000.0,
+            "presence": "both",
+            "rank": 2
+          }
+        ]
       }
-    ]
+    ],
+    "scope": {
+      "current_value": 950000.5,
+      "baseline_value": 700000.0,
+      "delta_abs": 250000.5,
+      "delta_pct": 0.3571435714285714,
+      "direction": "increase"
+    },
+    "quality": {
+      "reconciliation_status": "reconciled",
+      "reconciliation_gap": 0.0,
+      "confidence_grade": "high",
+      "unexplained_delta_abs": 0.0,
+      "unexplained_pct": 0.0,
+      "unexplained_reason": "rounding"
+    }
   }
 }

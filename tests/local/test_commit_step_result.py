@@ -47,7 +47,7 @@ def test_commit_step_result_passes_artifact_type_and_name():
         step_type="compare",
         artifact_type="compare_artifact",
         artifact_name="revenue_compare",
-        artifact_payload={"comparison_type": "scalar_delta"},
+        artifact_payload={"shape": "scalar_delta"},
         summary="Compared revenue",
         provenance={"left_step_id": "s1", "right_step_id": "s2"},
     )
@@ -57,7 +57,7 @@ def test_commit_step_result_passes_artifact_type_and_name():
     assert call_args[0][1] == "step-2"
     assert call_args[0][2] == "compare_artifact"
     assert call_args[0][3] == "revenue_compare"
-    assert call_args[0][4] == {"comparison_type": "scalar_delta"}
+    assert call_args[0][4] == {"shape": "scalar_delta"}
     assert call_args[1].get("step_type") == "compare"
 
 

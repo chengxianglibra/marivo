@@ -60,7 +60,7 @@ _RIGHT_WIN = {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
 
 # Compare artifact content with resolved_input_summary required by T1 materializer.
 _COMPARE_ARTIFACT_CONTENT: dict[str, Any] = {
-    "comparison_type": "scalar_delta",
+    "shape": "scalar_delta",
     "metric": "dau",
     "direction": "increase",
     "resolved_input_summary": {

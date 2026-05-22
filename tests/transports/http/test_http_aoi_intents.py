@@ -197,7 +197,13 @@ class _FakeRuntime:
                             ],
                         }
                     ],
-                    "scope": {"delta_abs": 10.0},
+                    "scope": {
+                        "current_value": 110.0,
+                        "baseline_value": 100.0,
+                        "delta_abs": 10.0,
+                        "delta_pct": 0.1,
+                        "direction": "increase",
+                    },
                     "quality": {"reconciliation_status": "within_tolerance"},
                 },
             },
@@ -420,7 +426,13 @@ def _attribution_frame_result(artifact_id: str = "art_decompose_1") -> dict[str,
                     ],
                 }
             ],
-            "scope": {"delta_abs": 10.0},
+            "scope": {
+                "current_value": 110.0,
+                "baseline_value": 100.0,
+                "delta_abs": 10.0,
+                "delta_pct": 0.1,
+                "direction": "increase",
+            },
             "quality": {"reconciliation_status": "within_tolerance"},
         },
     }

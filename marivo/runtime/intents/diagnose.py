@@ -633,7 +633,6 @@ def _follow_up_candidate(
             attribution_comparison = {
                 "basis": "previous_adjacent_equal_length",
                 "shape": "scalar_delta",
-                "comparison_type": "scalar_delta",  # transition alias
                 "current_window": {"start": current_start_str, "end": current_end_str},
                 "baseline_window": {
                     "start": baseline_start_str,

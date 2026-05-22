@@ -228,7 +228,6 @@ def run_attribute_intent(
         "step_id": compare_step_id,
         "artifact_id": compare_artifact_id,
         "shape": "scalar_delta",
-        "comparison_type": "scalar_delta",  # transition alias
     }
 
     # ── Step 4: decompose × N ─────────────────────────────────────────────────
@@ -402,7 +401,6 @@ def run_attribute_intent(
     compare_point: dict[str, Any] = read_compare_scalar_point(compare_result)
     comparison: dict[str, Any] = {
         "shape": "scalar_delta",
-        "comparison_type": "scalar_delta",  # transition alias
         "current_value": compare_point.get("current_value"),
         "baseline_value": compare_point.get("baseline_value"),
         "absolute_delta": compare_point.get("delta_abs"),

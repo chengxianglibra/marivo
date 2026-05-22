@@ -233,7 +233,13 @@ def _diagnose_envelope() -> dict[str, object]:
                     ],
                 }
             ],
-            "scope": {"delta_abs": 10.0},
+            "scope": {
+                "current_value": 110.0,
+                "baseline_value": 100.0,
+                "delta_abs": 10.0,
+                "delta_pct": 0.1,
+                "direction": "increase",
+            },
             "quality": {"reconciliation_status": "within_tolerance"},
         },
     }

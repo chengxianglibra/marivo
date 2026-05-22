@@ -338,7 +338,12 @@ metric_frame_artifact:
     kind: metric
     metric_ref: string
     time_scope: time_scope
-    scope: object
+    scope:
+      current_value: number | null
+      baseline_value: number | null
+      delta_abs: number | null
+      delta_pct: number | null
+      direction: increase | decrease | flat | undefined
   axes:
     - kind: time | dimension
       grain: time_granularities

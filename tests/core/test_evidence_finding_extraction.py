@@ -288,7 +288,7 @@ def test_extract_observe_unknown_metric_frame_shape_raises() -> None:
 
 def test_extract_compare_scalar_delta() -> None:
     payload = {
-        "comparison_type": "scalar_delta",
+        "shape": "scalar_delta",
         "metric": "revenue",
         "current_value": 100,
         "baseline_value": 120,
@@ -316,10 +316,10 @@ def test_extract_compare_scalar_delta() -> None:
 
 
 def test_extract_compare_unknown_type_raises() -> None:
-    with pytest.raises(ValueError, match="Unknown comparison_type"):
+    with pytest.raises(ValueError, match="Unknown delta_frame shape"):
         extract_compare_findings(
             "art_1",
-            {"comparison_type": "unknown"},
+            {"shape": "unknown"},
             {"session_id": "s1", "step_id": "step1", "step_type": "compare"},
         )
 
@@ -370,23 +370,33 @@ def test_extract_detect_time_bucket_candidate() -> None:
 
 def test_extract_decompose_basic() -> None:
     payload = {
-        "dimension": "region",
         "metric": "revenue",
-        "compare_ref": {"artifact_id": "cmp_art_1", "comparison_type": "scalar_delta"},
-        "rows": [
-            {
-                "key": "US",
-                "absolute_contribution": 15,
-                "contribution_share": 0.75,
-                "direction": "increase",
-            },
-            {
-                "key": "EU",
-                "absolute_contribution": 5,
-                "contribution_share": 0.25,
-                "direction": "increase",
-            },
-        ],
+        "axes": [{"kind": "dimension", "name": "region"}],
+        "compare_ref": {"artifact_id": "cmp_art_1", "shape": "scalar_delta"},
+        "payload": {
+            "series": [
+                {
+                    "keys": {"region": "US"},
+                    "points": [
+                        {
+                            "contribution_abs": 15,
+                            "contribution_pct": 0.75,
+                            "direction": "increase",
+                        }
+                    ],
+                },
+                {
+                    "keys": {"region": "EU"},
+                    "points": [
+                        {
+                            "contribution_abs": 5,
+                            "contribution_pct": 0.25,
+                            "direction": "increase",
+                        }
+                    ],
+                },
+            ]
+        },
     }
     findings = extract_decompose_findings(
         "art_1",
@@ -402,7 +412,7 @@ def test_extract_decompose_basic() -> None:
 
 
 def test_extract_decompose_missing_dimension_raises() -> None:
-    with pytest.raises(ValueError, match="missing required 'dimension'"):
+    with pytest.raises(ValueError, match="missing required dimension axis"):
         extract_decompose_findings(
             "art_1",
             {"compare_ref": {"artifact_id": "a"}},

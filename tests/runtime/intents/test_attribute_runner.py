@@ -108,7 +108,6 @@ def _compare_result(
         "schema_version": "2.0",
         "artifact_family": "delta_frame",
         "shape": "scalar_delta",
-        "comparison_type": "scalar_delta",  # transition alias
         "axes": [{"kind": "comparison_side"}],
         "subject": {
             "kind": "comparison",

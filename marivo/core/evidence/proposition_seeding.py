@@ -178,7 +178,7 @@ def materialize_change_from_delta(
         direction_of_interest = "any_non_flat"
 
     # change_kind mapping — delta_kind is now derived from shape instead of
-    # comparison_type; panel_delta maps to panel_change.
+    # delta_frame shape; panel_delta maps to panel_change.
     change_kind_map = {
         "scalar_delta": "scalar_change",
         "segmented_delta": "segment_change",

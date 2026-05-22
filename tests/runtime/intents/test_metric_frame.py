@@ -15,7 +15,6 @@ from marivo.runtime.intents.metric_frame import (
     is_delta_frame_artifact,
     read_attribution_rows_from_series,
     read_compare_scalar_point,
-    read_decompose_rows_from_series,
     read_delta_frame_shape,
 )
 
@@ -357,7 +356,7 @@ def test_read_compare_scalar_point_reads_delta_frame_payload_series() -> None:
     }
 
 
-def test_read_decompose_rows_from_series_adds_aliases_for_attribution_frame() -> None:
+def test_read_attribution_rows_from_series_reads_canonical_attribution_frame() -> None:
     artifact = build_attribution_frame_artifact(
         artifact_id="art_attr",
         metric_ref="metric.revenue",
@@ -375,19 +374,23 @@ def test_read_decompose_rows_from_series_adds_aliases_for_attribution_frame() ->
                 ],
             }
         ],
-        scope={"delta_abs": 20.0},
+        scope={
+            "current_value": 120.0,
+            "baseline_value": 100.0,
+            "delta_abs": 20.0,
+            "delta_pct": 0.2,
+            "direction": "increase",
+        },
         quality={"reconciliation_status": "within_tolerance"},
         lineage={"operation": "decompose"},
     )
 
-    assert read_decompose_rows_from_series(artifact) == [
+    assert read_attribution_rows_from_series(artifact) == [
         {
             "key": "paid",
             "channel": "paid",
             "contribution_abs": 12.0,
             "contribution_pct": 0.6,
-            "absolute_contribution": 12.0,
-            "contribution_share": 0.6,
             "rank": 1,
         }
     ]

@@ -186,6 +186,13 @@ def _is_typed_schema(schema: Mapping[str, Any]) -> bool:
     return any(key in schema for key in SCHEMA_KEYS_THAT_MAKE_A_LEAF_TYPED)
 
 
+def _has_typed_tuple_items(schema: Mapping[str, Any]) -> bool:
+    prefix_items = schema.get("prefixItems")
+    if not isinstance(prefix_items, list) or not prefix_items:
+        return False
+    return all(isinstance(item, dict) and _is_typed_schema(item) for item in prefix_items)
+
+
 def _walk_schema(node: Any, pointer: str, violations: list[str]) -> None:
     if isinstance(node, list):
         if not node and pointer.endswith("/items"):
@@ -205,7 +212,8 @@ def _walk_schema(node: Any, pointer: str, violations: list[str]) -> None:
     if node.get("type") == "array":
         items = node.get("items")
         if node.get("maxItems") != 0 and (
-            not isinstance(items, dict) or not items or not _is_typed_schema(items)
+            not (isinstance(items, dict) and items and _is_typed_schema(items))
+            and not _has_typed_tuple_items(node)
         ):
             violations.append(f"{pointer}/items: array schema must declare non-empty typed items")
 
