@@ -32,7 +32,65 @@ def _bundle_product_metadata(bundle: dict[str, object]) -> dict[str, object]:
     return bundle["product_metadata"]  # type: ignore[index]
 
 
+def _attribution_frame_fixture(session_id: str) -> dict[str, object]:
+    return {
+        "artifact_id": "art_decomp_projection",
+        "artifact_family": "attribution_frame",
+        "shape": "ranked_contributions",
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": _metric_ref(_METRIC),
+            "current": {
+                "time_scope": {
+                    "field": "event_date",
+                    "start": f"{_ANOMALY_DATE}T00:00:00Z",
+                    "end": f"{_ANOMALY_DATE_END}T00:00:00Z",
+                },
+                "scope": {},
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "event_date",
+                    "start": f"{_BASELINE_DATE}T00:00:00Z",
+                    "end": f"{_BASELINE_DATE_END}T00:00:00Z",
+                },
+                "scope": {},
+            },
+        },
+        "axes": [{"kind": "dimension", "name": "channel"}],
+        "measures": [
+            {"id": "contribution_abs", "value_type": "number", "nullable": False},
+            {"id": "contribution_pct", "value_type": "number", "nullable": True},
+        ],
+        "capabilities": ["filterable"],
+        "lineage": {
+            "operation": "decompose",
+            "source_artifact_ids": ["art_compare_projection"],
+        },
+        "payload": {
+            "series": [
+                {
+                    "keys": {"channel": "A"},
+                    "points": [
+                        {
+                            "contribution_abs": 600.0,
+                            "contribution_pct": 1.0,
+                            "current_value": 700.0,
+                            "baseline_value": 100.0,
+                            "presence": "both",
+                            "rank": 1,
+                        }
+                    ],
+                }
+            ],
+            "scope": {},
+            "quality": {"reconciliation_status": "reconciled"},
+        },
+    }
+
+
 def _diagnose_envelope(session_id: str) -> dict[str, object]:
+    attribution_frame = _attribution_frame_fixture(session_id)
     return {
         "intent_type": "diagnose",
         "step_type": "diagnose",
@@ -47,10 +105,7 @@ def _diagnose_envelope(session_id: str) -> dict[str, object]:
             "aoi_artifacts": [
                 {
                     "artifact_id": "art_decomp_projection",
-                    "result": {
-                        "artifact_type": "delta_decomposition",
-                        "rows": [{"key": "A", "absolute_contribution": 600.0}],
-                    },
+                    "result": attribution_frame,
                 }
             ],
             "diagnoses": [
@@ -86,10 +141,7 @@ def _diagnose_envelope(session_id: str) -> dict[str, object]:
             "aoi_artifacts": [
                 {
                     "artifact_id": "art_decomp_projection",
-                    "result": {
-                        "artifact_type": "delta_decomposition",
-                        "rows": [{"key": "A", "absolute_contribution": 600.0}],
-                    },
+                    "result": attribution_frame,
                 }
             ]
         },

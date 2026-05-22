@@ -1,13 +1,12 @@
-# DEPRECATED: Pure extraction logic extracted to app.core.evidence.finding_extraction.extract_decompose_findings.
-
-"""delta_decomposition artifact → decomposition_item finding extractor (Phase 4d-3).
+"""attribution_frame artifact → decomposition_item finding extractor (Phase 4d-3).
 
 Registered via ``_bootstrap_finding_extractors()`` in
 ``finding_extractor_registry.py`` — same bootstrap pattern as 4d-1/4d-2.
 
-Artifact type: ``"delta_decomposition"``   Schema version: ``"v1"``   Family: ``"decompose"``
+Artifact type: ``"attribution_frame"``   Schema version: ``"v1"``   Family: ``"decompose"``
 
-Maps each contribution row in ``rows`` to one :class:`DecompositionItemFinding`.
+Maps each canonical contribution point in ``payload.series`` to one
+:class:`DecompositionItemFinding`.
 
 Empty semantics (D4):
 ---------------------
@@ -20,7 +19,7 @@ Canonical item key:
 -------------------
 Each row's stable key is ``"{dim_escaped}:{key_escaped}"``, where:
 - ``dim_escaped`` = percent-encoded dimension name
-- ``key_escaped`` = percent-encoded string representation of ``row["key"]``
+- ``key_escaped`` = percent-encoded string representation of ``row["keys"][dimension]``
 
 This binds the canonical item boundary to the (dimension, key) pair, consistent
 with the design rule ``dimension + normalized key tuple``.
@@ -38,14 +37,14 @@ therefore deterministic:
 
     delta_finding_id = make_finding_id(compare_artifact_id, "delta", key)
 
-``compare_artifact_id`` is taken from ``payload["compare_ref"]["artifact_id"]``.
-If this field is absent or empty, extraction fails with a ``ValueError`` because
-the extractor has no other means to identify the upstream delta finding.
+``compare_artifact_id`` is taken from canonical ``compare_ref`` if present, then
+from compatibility lineage/source aliases emitted by current runtimes.  If no
+upstream compare artifact id can be found, extraction fails with a ``ValueError``.
 
 Rank:
 -----
-``rows`` in the ``delta_decomposition`` artifact are already sorted canonically
-(``abs(contribution_share) desc, abs(absolute_contribution) desc, key asc``).
+``payload.series`` in the ``attribution_frame`` artifact is already sorted canonically
+(``abs(contribution_pct) desc, abs(contribution_abs) desc, key asc``).
 The extractor assigns 1-based ``rank`` from this preserved sort order.
 """
 
@@ -112,18 +111,82 @@ def _escape_component(s: str) -> str:
     return s.replace("%", "%25").replace(":", "%3A")
 
 
+def _dimension_from_axes(artifact_payload: dict[str, Any]) -> str:
+    axes = artifact_payload.get("axes") or []
+    for axis in axes:
+        if isinstance(axis, dict) and axis.get("kind") == "dimension":
+            name = axis.get("name")
+            if isinstance(name, str) and name:
+                return name
+    raise ValueError("DecomposeArtifactExtractor: attribution_frame is missing dimension axis.")
+
+
+def _iter_ranked_contribution_rows(artifact_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = artifact_payload.get("payload") or {}
+    series = payload.get("series") if isinstance(payload, dict) else None
+    if not isinstance(series, list):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for entry in series:
+        if not isinstance(entry, dict):
+            continue
+        keys = entry.get("keys") or {}
+        points = entry.get("points") or []
+        if not isinstance(points, list):
+            continue
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            rows.append({"keys": keys, **point})
+    return rows
+
+
+def _extract_artifact_id(ref: Any) -> str:
+    if not isinstance(ref, dict):
+        return ""
+    artifact_id = ref.get("artifact_id")
+    return str(artifact_id) if artifact_id else ""
+
+
+def _compare_ref_from_payload(artifact_payload: dict[str, Any]) -> dict[str, Any]:
+    compare_ref = artifact_payload.get("compare_ref")
+    if isinstance(compare_ref, dict) and compare_ref.get("artifact_id"):
+        return compare_ref
+
+    source_lineage = artifact_payload.get("source_lineage") or {}
+    if isinstance(source_lineage, dict):
+        source_compare_ref = source_lineage.get("compare_artifact")
+        if isinstance(source_compare_ref, dict) and source_compare_ref.get("artifact_id"):
+            return source_compare_ref
+
+    source_compare_ref = artifact_payload.get("source_compare_ref")
+    if isinstance(source_compare_ref, dict) and source_compare_ref.get("artifact_id"):
+        return source_compare_ref
+
+    lineage = artifact_payload.get("lineage") or {}
+    if isinstance(lineage, dict):
+        source_ids = lineage.get("source_artifact_ids") or []
+        if isinstance(source_ids, list) and source_ids:
+            source_id = source_ids[0]
+            if source_id:
+                return {"artifact_id": str(source_id)}
+
+    return {}
+
+
 # ---------------------------------------------------------------------------
 # Extractor
 # ---------------------------------------------------------------------------
 
 
 class DecomposeArtifactExtractor(FindingExtractor):
-    """Extract :class:`DecompositionItemFinding`\\s from ``delta_decomposition`` artifacts."""
+    """Extract :class:`DecompositionItemFinding`\\s from ``attribution_frame`` artifacts."""
 
-    artifact_type = "delta_decomposition"
+    artifact_type = "attribution_frame"
     artifact_schema_version = "v1"
     family = "decompose"
-    extractor_name = "decompose_artifact_v1"
+    extractor_name = "attribution_frame_v1"
     extractor_version = "1.0.0"
     finding_schema_version = "v1"
 
@@ -134,19 +197,15 @@ class DecomposeArtifactExtractor(FindingExtractor):
         step_ref: StepRef,
         session_id: str,
     ) -> FindingExtractionResult:
-        dimension: str = artifact_payload.get("dimension") or ""
-        if not dimension:
-            raise ValueError(
-                "DecomposeArtifactExtractor: artifact payload is missing required 'dimension' field."
-            )
+        dimension = _dimension_from_axes(artifact_payload)
 
-        # Resolve scope_delta_ref from compare_ref.artifact_id
-        compare_ref: dict[str, Any] = artifact_payload.get("compare_ref") or {}
-        compare_artifact_id: str = compare_ref.get("artifact_id") or ""
+        compare_ref = _compare_ref_from_payload(artifact_payload)
+        compare_artifact_id = _extract_artifact_id(compare_ref)
         if not compare_artifact_id:
             raise ValueError(
-                "DecomposeArtifactExtractor: compare_ref.artifact_id is required to compute "
-                "scope_delta_ref.finding_id but is absent or empty in the artifact payload."
+                "DecomposeArtifactExtractor: upstream compare artifact id is required to compute "
+                "scope_delta_ref.finding_id but no compare_ref, lineage.source_artifact_ids, "
+                "or source_lineage.compare_artifact id was found."
             )
 
         compare_type: str = compare_ref.get("shape") or compare_ref.get("comparison_type") or ""
@@ -166,11 +225,13 @@ class DecomposeArtifactExtractor(FindingExtractor):
         scope_delta_ref = FindingRef(session_id=session_id, finding_id=delta_finding_id)
 
         metric: str | None = artifact_payload.get("metric")
-        rows: list[dict[str, Any]] = artifact_payload.get("rows") or []
+        rows = _iter_ranked_contribution_rows(artifact_payload)
 
         findings: list[DecompositionItemFinding] = []
         for rank_0, row in enumerate(rows):
-            key: Any = row.get("key")
+            keys_raw = row.get("keys") or {}
+            keys = keys_raw if isinstance(keys_raw, dict) else {}
+            key: Any = keys.get(dimension)
             key_str: str = "" if key is None else str(key)
             # Preserve raw typed value in dicts; cast non-JSON-scalar types to str for safety.
             key_typed: str | int | float | bool | None = (
@@ -212,8 +273,8 @@ class DecomposeArtifactExtractor(FindingExtractor):
                 payload=DecompositionItemPayload(
                     dimension=dimension,
                     keys={dimension: key_typed},
-                    contribution_value=_to_float_or_none(row.get("absolute_contribution")),
-                    contribution_share=_to_float_or_none(row.get("contribution_share")),
+                    contribution_value=_to_float_or_none(row.get("contribution_abs")),
+                    contribution_share=_to_float_or_none(row.get("contribution_pct")),
                     rank=rank_0 + 1,  # 1-based, from artifact canonical sort order
                     direction=direction,  # type: ignore[typeddict-item]
                     scope_delta_ref=scope_delta_ref,

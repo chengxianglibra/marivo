@@ -9,6 +9,7 @@ from typing import Any
 from marivo.time_contracts import TimeGrain, bucket_window
 
 MetricFrameShape = str
+DeltaFrameShape = str
 
 
 def build_metric_frame_artifact(
@@ -45,6 +46,86 @@ def build_metric_frame_artifact(
     }
 
 
+def build_delta_frame_artifact(
+    *,
+    artifact_id: str,
+    shape: DeltaFrameShape,
+    metric_ref: str,
+    axes: list[dict[str, str]],
+    series: list[dict[str, Any]],
+    unit: str | None,
+    subject: dict[str, Any] | None = None,
+    lineage: dict[str, Any] | None = None,
+    scope: dict[str, Any] | None = None,
+    current_scope: dict[str, Any] | None = None,
+    baseline_scope: dict[str, Any] | None = None,
+    capabilities: list[str] | None = None,
+    analytical_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved_capabilities = capabilities or ["sliceable", "filterable", "decomposable"]
+    if shape == "scalar_delta":
+        resolved_capabilities = ["filterable", "decomposable"]
+    resolved_subject = subject or {
+        "kind": "comparison",
+        "metric_ref": metric_ref,
+        "current": current_scope or {},
+        "baseline": baseline_scope or {},
+    }
+    return {
+        "artifact_id": artifact_id,
+        "artifact_family": "delta_frame",
+        "shape": shape,
+        "subject": resolved_subject,
+        "axes": axes,
+        "measures": [
+            {
+                "id": "delta_abs",
+                "value_type": "number",
+                "nullable": True,
+                "unit": unit,
+            },
+            {
+                "id": "delta_pct",
+                "value_type": "number",
+                "nullable": True,
+            },
+        ],
+        "capabilities": resolved_capabilities,
+        "lineage": lineage or {},
+        "payload": {"series": series, "scope": scope or {}},
+        **({"analytical_metadata": analytical_metadata} if analytical_metadata else {}),
+        "metric_ref": metric_ref,
+    }
+
+
+def build_attribution_frame_artifact(
+    *,
+    artifact_id: str,
+    metric_ref: str,
+    dimension: str,
+    subject: dict[str, Any],
+    series: list[dict[str, Any]],
+    scope: dict[str, Any],
+    quality: dict[str, Any],
+    lineage: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "artifact_id": artifact_id,
+        "artifact_family": "attribution_frame",
+        "shape": "ranked_contributions",
+        "subject": subject,
+        "axes": [{"kind": "dimension", "name": dimension}],
+        "measures": [
+            {"id": "contribution_abs", "value_type": "number", "nullable": False},
+            {"id": "contribution_pct", "value_type": "number", "nullable": True},
+        ],
+        "capabilities": ["filterable"],
+        "lineage": lineage,
+        "payload": {"series": series, "scope": scope, "quality": quality},
+        "metric_ref": metric_ref,
+    }
+
+
 def is_metric_frame_artifact(artifact: dict[str, Any]) -> bool:
     return artifact.get("artifact_family") == "metric_frame"
 
@@ -53,62 +134,8 @@ def is_delta_frame_artifact(artifact: dict[str, Any]) -> bool:
     return artifact.get("artifact_family") == "delta_frame"
 
 
-def read_delta_frame_shape(artifact: dict[str, Any]) -> str:
-    shape = artifact.get("shape")
-    if not isinstance(shape, str) or not shape:
-        raise ValueError("delta_frame artifact missing shape")
-    return shape
-
-
-def read_delta_frame_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
-    payload = artifact.get("payload")
-    if not isinstance(payload, dict):
-        raise ValueError("delta_frame artifact missing payload")
-    series = payload.get("series")
-    if not isinstance(series, list):
-        raise ValueError("delta_frame artifact payload missing series")
-    return series
-
-
-def build_delta_frame_artifact(
-    *,
-    artifact_id: str,
-    shape: str,
-    metric_ref: str,
-    current_scope: dict[str, Any],
-    baseline_scope: dict[str, Any],
-    axes: list[dict[str, str]],
-    series: list[dict[str, Any]],
-    unit: str | None,
-) -> dict[str, Any]:
-    return {
-        "artifact_id": artifact_id,
-        "artifact_family": "delta_frame",
-        "shape": shape,
-        "subject": {
-            "kind": "comparison",
-            "metric_ref": metric_ref,
-            "current": current_scope,
-            "baseline": baseline_scope,
-        },
-        "axes": axes,
-        "measures": [
-            {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": unit},
-            {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
-        ],
-        "payload": {"series": series},
-    }
-
-
-def read_delta_scalar_point(artifact: dict[str, Any]) -> dict[str, Any]:
-    series_list = artifact.get("series") or []
-    if not series_list:
-        series_list = read_delta_frame_series(artifact)
-    if series_list:
-        points = series_list[0].get("points") or []
-        if points:
-            return dict(points[0])
-    raise ValueError("delta_frame artifact has no scalar delta point")
+def is_attribution_frame_artifact(artifact: dict[str, Any]) -> bool:
+    return artifact.get("artifact_family") == "attribution_frame"
 
 
 def read_metric_frame_shape(artifact: dict[str, Any]) -> str:
@@ -116,6 +143,30 @@ def read_metric_frame_shape(artifact: dict[str, Any]) -> str:
     if not isinstance(shape, str) or not shape:
         raise ValueError("metric_frame artifact missing shape")
     return shape
+
+
+def read_delta_frame_shape(artifact: dict[str, Any]) -> str:
+    if "artifact_family" in artifact and not is_delta_frame_artifact(artifact):
+        raise ValueError("delta_frame artifact expected")
+    shape = artifact.get("shape")
+    if not isinstance(shape, str) or not shape:
+        raise ValueError("delta_frame artifact missing shape")
+    return shape
+
+
+def read_delta_frame_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    if "artifact_family" in artifact and not is_delta_frame_artifact(artifact):
+        raise ValueError("delta_frame artifact expected")
+    return read_frame_payload_series(artifact)
+
+
+def read_delta_scalar_point(artifact: dict[str, Any]) -> dict[str, Any]:
+    series_list = read_delta_frame_series(artifact)
+    if series_list:
+        points = series_list[0].get("points") or []
+        if points:
+            return dict(points[0])
+    raise ValueError("delta_frame artifact has no scalar delta point")
 
 
 def metric_display_name(metric_ref: str) -> str:
@@ -161,6 +212,49 @@ def read_metric_frame_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(series, list):
         raise ValueError("metric_frame artifact payload missing series")
     return series
+
+
+def read_frame_payload_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = artifact.get("payload")
+    if isinstance(payload, dict):
+        series = payload.get("series")
+        if isinstance(series, list):
+            return series
+    series = artifact.get("series")
+    if isinstance(series, list):
+        return series
+    raise ValueError("frame artifact payload missing series")
+
+
+def _first_present(artifact: dict[str, Any], keys: list[str]) -> Any:
+    for key in keys:
+        if key in artifact:
+            return artifact[key]
+    return None
+
+
+def read_frame_payload_scope(artifact: dict[str, Any]) -> dict[str, Any]:
+    payload = artifact.get("payload")
+    if isinstance(payload, dict):
+        scope = payload.get("scope")
+        if isinstance(scope, dict):
+            return scope
+    scope = artifact.get("scope")
+    if isinstance(scope, dict):
+        return scope
+    summary = artifact.get("summary")
+    if isinstance(summary, dict):
+        return summary
+    return {
+        "current_value": _first_present(artifact, ["summary_current_value", "scope_current_value"]),
+        "baseline_value": _first_present(
+            artifact, ["summary_baseline_value", "scope_baseline_value"]
+        ),
+        "delta_abs": _first_present(artifact, ["summary_absolute_delta", "scope_absolute_delta"]),
+        "delta_pct": _first_present(artifact, ["summary_relative_delta", "scope_relative_delta"]),
+        "direction": _first_present(artifact, ["summary_direction", "scope_direction"])
+        or "undefined",
+    }
 
 
 def read_metric_frame_unit(artifact: dict[str, Any]) -> str | None:
@@ -330,18 +424,21 @@ def read_axes_from_artifact(artifact: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def read_compare_scalar_point(artifact: dict[str, Any]) -> dict[str, Any]:
-    """Read the scalar delta point from a v2.0 delta_frame artifact.
-    Returns the first point from the first series entry.
-    Tries top-level ``series`` first, then ``payload.series`` (delta_frame format).
-    """
-    series_list = artifact.get("series") or []
-    if not series_list:
-        # Try delta_frame payload.series
-        series_list = read_delta_frame_series(artifact) or []
+    """Read the scalar delta point from a compare or delta-frame artifact."""
+    try:
+        series_list = read_frame_payload_series(artifact)
+    except ValueError:
+        series_list = []
     if series_list:
         points = series_list[0].get("points") or []
         if points:
-            return dict(points[0])
+            point = dict(points[0])
+            if "delta" not in point and "delta_abs" in point:
+                point["delta"] = point["delta_abs"]
+            if "delta_pct" not in point and "relative_delta" in point:
+                point["delta_pct"] = point["relative_delta"]
+            return point
+    # v1.0 fallback: assemble from top-level aliases
     return {
         "current_value": artifact.get("current_value"),
         "baseline_value": artifact.get("baseline_value"),
@@ -352,13 +449,24 @@ def read_compare_scalar_point(artifact: dict[str, Any]) -> dict[str, Any]:
 
 
 def read_decompose_rows_from_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
-    """Read flat contribution rows from a v2.0 decompose artifact.
+    """Compatibility wrapper for existing derived-intent call sites.
 
-    Reconstructs the legacy ``rows`` shape from the axes+series format by
-    merging each series entry's keys and point fields into a flat dict.
-    The ``key`` field is derived from the dimension axes and keys dict.
-    Falls back to the backward-compatible ``rows`` alias if series is absent.
+    New code should call ``read_attribution_rows_from_series`` directly.
     """
+    if is_attribution_frame_artifact(artifact):
+        attribution_rows = read_attribution_rows_from_series(artifact)
+        for attribution_row in attribution_rows:
+            if (
+                "absolute_contribution" not in attribution_row
+                and "contribution_abs" in attribution_row
+            ):
+                attribution_row["absolute_contribution"] = attribution_row["contribution_abs"]
+            if (
+                "contribution_share" not in attribution_row
+                and "contribution_pct" in attribution_row
+            ):
+                attribution_row["contribution_share"] = attribution_row["contribution_pct"]
+        return attribution_rows
     series_list = artifact.get("series") or []
     if series_list:
         axes = read_axes_from_artifact(artifact)
@@ -381,6 +489,28 @@ def read_decompose_rows_from_series(artifact: dict[str, Any]) -> list[dict[str, 
         return rows
     # v1.0 fallback
     return artifact.get("rows") or []
+
+
+def read_attribution_rows_from_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    if not is_attribution_frame_artifact(artifact):
+        raise ValueError("attribution_frame artifact expected")
+    axes = read_axes_from_artifact(artifact)
+    dim_names = dimension_names_from_axes(axes)
+    rows: list[dict[str, Any]] = []
+    for entry in read_frame_payload_series(artifact):
+        keys = entry.get("keys") or {}
+        points = entry.get("points") or []
+        for point in points:
+            row: dict[str, Any] = {}
+            if dim_names:
+                for dim_name in dim_names:
+                    dim_value = keys.get(dim_name)
+                    if dim_value is not None and row.get("key") is None:
+                        row["key"] = dim_value
+            row.update(keys)
+            row.update(point)
+            rows.append(row)
+    return rows
 
 
 def has_time_axis(axes: list[dict[str, str]]) -> bool:

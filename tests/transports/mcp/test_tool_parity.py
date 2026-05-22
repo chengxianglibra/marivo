@@ -189,6 +189,54 @@ class RecordingDiagnoseRuntime(FakeRuntime):
 
 
 def _diagnose_envelope() -> dict[str, object]:
+    attribution_artifact = {
+        "artifact_id": "art_decomp",
+        "artifact_family": "attribution_frame",
+        "shape": "ranked_contributions",
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.view_time",
+            "current": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-05-01T00:00:00Z",
+                    "end": "2026-05-08T00:00:00Z",
+                },
+                "scope": {},
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-04-24T00:00:00Z",
+                    "end": "2026-05-01T00:00:00Z",
+                },
+                "scope": {},
+            },
+        },
+        "axes": [{"kind": "dimension", "name": "region"}],
+        "measures": [
+            {"id": "contribution_abs", "value_type": "number", "nullable": False},
+            {"id": "contribution_pct", "value_type": "number", "nullable": True},
+        ],
+        "capabilities": ["filterable"],
+        "lineage": {"operation": "decompose", "source_artifact_ids": ["art_cmp"]},
+        "payload": {
+            "series": [
+                {
+                    "keys": {"region": "A"},
+                    "points": [
+                        {
+                            "contribution_abs": 10.0,
+                            "contribution_pct": 1.0,
+                            "rank": 1,
+                        }
+                    ],
+                }
+            ],
+            "scope": {"delta_abs": 10.0},
+            "quality": {"reconciliation_status": "within_tolerance"},
+        },
+    }
     return {
         "intent_type": "diagnose",
         "step_type": "diagnose",
@@ -196,7 +244,7 @@ def _diagnose_envelope() -> dict[str, object]:
         "artifact_id": "art_diag",
         "result": {
             "bundle_type": "diagnosis_bundle",
-            "aoi_artifacts": [{"artifact_id": "art_decomp", "result": {"rows": [{"key": "A"}]}}],
+            "aoi_artifacts": [attribution_artifact],
             "diagnoses": [
                 {
                     "drivers": [
@@ -221,7 +269,7 @@ def _diagnose_envelope() -> dict[str, object]:
                 }
             ],
         },
-        "product_metadata": {"aoi_artifacts": [{"artifact_id": "art_decomp"}]},
+        "product_metadata": {"aoi_artifacts": [attribution_artifact]},
     }
 
 
@@ -538,6 +586,8 @@ def test_detect_and_decompose_tool_schemas_document_aoi_parameters() -> None:
     decompose_props = decompose.parameters["properties"]
     assert "Decompose the delta" in decompose.description
     assert "string artifact IDs" in decompose.description
+    assert "attribution_frame artifact" in decompose.description
+    assert "ranked_contributions payload" in decompose.description
     assert "owns this intent call" in decompose_props["session_id"]["description"]
     assert "compare artifact ID" in decompose_props["compare_artifact_id"]["description"]
     assert decompose_props["compare_artifact_id"]["minLength"] == 1
@@ -598,6 +648,8 @@ def test_attribute_schema_uses_aoi_slice_refs() -> None:
     assert "Baseline AOI slice" in properties["baseline"]["description"]
     _assert_aoi_slice_ref_schema_uses_filter(slice_schema)
     assert "known current-vs-baseline change" in properties["dimensions"]["description"]
+    assert "attribution_frame" in properties["dimensions"]["description"]
+    assert "ranked_contributions" in properties["dimensions"]["description"]
     assert properties["dimensions"]["minItems"] == 1
     assert properties["decomposition_method"]["default"] == "delta_share"
     assert properties["decomposition_method"]["const"] == "delta_share"
@@ -655,6 +707,8 @@ def test_diagnose_schema_documents_auto_detect_inputs() -> None:
 
     assert "auto-detect anomaly diagnosis" in diagnose.description
     assert "detects anomalous candidates" in diagnose.description
+    assert "attribution_frame artifacts" in diagnose.description
+    assert "ranked_contributions payloads" in diagnose.description
     assert "mode" not in properties
     assert "current" not in properties
     assert "baseline" not in properties

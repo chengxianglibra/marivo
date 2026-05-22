@@ -15,13 +15,14 @@ Marivo 的分析操作不应被设计成一组彼此孤立的 RPC。
 更合理的目标态是三层：
 
 1. `atomic intents`：最小分析语义原语，例如 `observe`、`compare`、`detect`。
-2. `analysis plan DSL`：把多个原子步骤组合成一次完整分析 DAG。
-3. `outcome envelope`：一次执行后返回给 agent 的完整闭包，包含 artifact、finding、assessment、follow-up selector 等信息。
+2. `analysis plan DSL`：把多个原子步骤和 transform step 组合成一次完整分析 DAG。
+3. `outcome envelope`：一次 job 执行后返回给 agent 的完整闭包，包含 target artifact、session-level finding、proposition、assessment、action proposal、follow-up selector 等信息。
 
 其中：
 
 - 原子意图负责定义语义边界。
-- Plan DSL 负责定义步骤编排。
+- Transform 操作负责重塑已有结果，使其适合后续 intent 消费。
+- Plan DSL 负责定义 intent step 与 transform step 的编排。
 - Outcome envelope 负责让 agent 少碰中间态。
 
 这三层必须分开，否则系统会很快滑向两种坏形态：
@@ -33,8 +34,9 @@ Marivo 的分析操作不应被设计成一组彼此孤立的 RPC。
 
 ```text
 business question
-  -> analysis plan DSL
-  -> atomic intent DAG
+  -> analysis session
+  -> job submitted with analysis plan DSL
+  -> atomic intent / transform DAG
   -> committed artifacts
   -> findings
   -> propositions
@@ -43,6 +45,34 @@ business question
 ```
 
 在这个链路里，Marivo 不只是“跑分析”，而是把分析变成可审计、可引用、可复现的结构化对象。
+
+## Session / Job / Step 层级
+
+对 agent 来说，一次 analysis plan DSL 不是“批处理脚本”，而是在一个分析会话中推进问题的一次原子分析动作。
+
+目标态层级应固定为：
+
+```text
+analysis session
+  -> job
+    -> step
+```
+
+其中：
+
+- `session` 是持续分析任务的容器，承载 business question、历史 jobs、已提交 artifacts、findings、propositions、assessments、action proposals 和 follow-up selectors。
+- `job` 是 agent-facing 的原子分析动作。一次 job 由 agent 提交一份 analysis plan DSL，runtime 将其编译、执行、审计并返回 outcome envelope。一个 session 可以经过多轮 job 持续推进。
+- `step` 是 job 内部 DAG 的执行节点，可以是 atomic intent step，也可以是 transform step。Step 是 runtime 编排和审计的最小执行单元，但不是 agent 主循环里的下一轮分析动作。
+
+因此 agent 主循环应是：
+
+```text
+submit job
+  -> receive outcome envelope
+  -> decide next job
+```
+
+Agent 不应在正常路径上手工围绕裸 step 编排下一轮，也不应每轮 job 后再强制调用多个读取接口拼接 session 状态。
 
 ## 核心对象
 
@@ -116,6 +146,39 @@ business question
 - 可被下游引用
 - 不吸收相邻职责
 
+### Transform 操作层
+
+Transform 操作不是新的 atomic intent。
+
+它们不从 semantic metric 重新读取数据，也不直接表达新的分析判断。它们的职责是对已有 typed artifact、frame-like output 或 selector-resolved input 做结构重写、粒度调整、统计摘要或输入适配，让后续 intent 可以消费标准输入。
+
+目标态里，transform 默认是一等 DAG step，可以被审计、引用和复用。Inline transform 只应作为语法糖存在，必须等价展开成显式 transform step；lineage、validation、materialization 和 audit 都以展开后的 step 为准。
+
+v1 transform 集合应包括：
+
+- `slice`：从 frame 中选择子空间，例如收窄时间窗、segment key 或 selector 指向的局部区域。它的语义是“取子集”，不是重新 `observe`，也不修改 semantic metric 定义。
+- `rollup`：沿时间轴或维度轴聚合 frame，例如日到周、城市到国家、segment 到 overall。它的语义是“降低粒度 / 合并分组”，必须保留 lineage 和 rollup policy。这里的 rollup policy 是 transform 的聚合声明，不等同于 compare metadata 中的 calendar `rollup_safe` 判断。
+- `sample_summary`：从 frame 或 selector-resolved population 生成 test-ready 样本摘要，例如 n、mean、stddev、rate numerator / denominator。它的语义是“统计检验输入摘要”，目标态下不再作为 `observe` 的特殊公开 result mode。
+- `select_topk`：按 value、delta、contribution、share 等排序选择 top / bottom items。它的语义是“候选收窄”，不产生 evidence 判断。
+- `normalize`：重表达 measure，例如 index、share、pct_change、per-unit、z-score。它用于让不同量级、不同曝光或不同基准的序列可比，不改变观察对象，也不伪装成新的 semantic metric。
+- `align`：显式定义多个 frame 的 bucket、sample、segment key 或 window 如何配对。它用于 `compare`、`correlate`、`test` 前的输入配对，不改变值含义，也不重定义 `compare.compare_type` 的日历业务语义。
+
+`normalize` 适合“值本身需要换一种表达方式”的场景。例如：
+
+- 百万级 DAU 与百分比指标进入 `correlate` 前转成 z-score。
+- 大小渠道进入 `detect` 前转成相对基准期 index。
+- segment 值转成 share 后再 `compare`，分析结构变化而不是绝对规模。
+- 投诉数除以订单数，转成每万订单投诉率后再分析。
+
+`align` 适合“输入样本轴不天然一一对应”的场景。例如：
+
+- 两个 time series 缺失 bucket 不同，`correlate` 前取交集或声明外连接。
+- current / baseline segment key 不一致，`compare` 前声明 inner、outer 或 left-preserving pairing。
+- anomaly candidate window 与 baseline window 需要配成同长度窗口。
+- `test` 前按 cohort key、实验桶或日期位置配对样本。
+
+Transform 输出默认不直接 seed proposition。只有下游 intent 或 artifact-finding extraction 明确支持时，它才进入 finding / proposition / assessment 链路。
+
 ### 派生意图层
 
 派生意图是把一段固定、多步、可确定展开的分析流程包装成一个稳定动作。
@@ -123,10 +186,12 @@ business question
 例如：
 
 - `attribute = observe + observe + compare + decompose`
-- `diagnose = detect + focused observe + compare + decompose`
-- `validate = paired observe + summarize + test`
+- `diagnose = detect + selector resolution + slice + observe / compare / decompose`
+- `validate = observe + sample_summary + test`
 
 派生意图不应引入新语义，只是把高频套路封装起来。
+
+派生意图可以在内部展开 transform。比如 `attribute` 在两侧 frame 粒度不一致时，可以在 `compare` 前插入 `rollup` 或 `align`；`validate` 可以把 `sample_summary` 作为 `test` 的确定性前置输入；`diagnose` 可以把异常候选解析成 selector 后，用 `slice` 做局部复看。
 
 ### Plan DSL 层
 
@@ -140,9 +205,20 @@ DSL 负责：
 - step 依赖
 - typed reference
 - selector 解析
-- inline transform
+- transform step
+- inline transform sugar 的展开
 - materialization 策略
 - return policy
+
+Plan DSL 中的 intent step 和 transform step 共同组成 DAG：
+
+- intent step 产出 canonical artifact 或 evidence result。
+- transform step 引用上游 `FrameInput`、artifact ref、step output 或 selector-resolved input，产出 typed transform output。
+- 下游 intent 只消费标准 typed input，不关心输入来自 intent 还是 transform。
+
+这意味着 transform 不需要污染 atomic intent 的请求面。`compare`、`correlate`、`test` 仍然只看自己声明的输入类型；如果输入需要先切片、汇总、归一化或配对，应由 Plan DSL 在上游显式插入 transform step。
+
+Plan DSL 的另一个职责是把 agent-facing 的多种引用形态规范化。API 层可以为了易用性接受 `step_id`、`artifact_id`、`selector_id` 或 inline spec；但进入 intent executor 前，runtime 必须先通过 reference resolver / selector resolver 把这些来源统一解析成 canonical typed input。Atomic intent 不应自己解析 step、artifact 或 selector。
 
 ### Derived intents vs command shortcuts
 
@@ -153,52 +229,59 @@ DSL 负责：
 所谓 convenience command，不应成为另一套并行语义层；它最多只是：
 
 - 派生意图的别名
-- 或编译到 `run_plan` 的快捷入口
+- 或编译到 `submit_job` 的快捷入口
 
 如果一个 shortcut 形成了稳定的语义和稳定的返回契约，它应当升级为派生意图，而不是长期停留在“方便调用但语义模糊”的中间态。
 
 ### Outcome envelope 层
 
-一次执行完成后，agent 不应该只拿到一个 artifact_id。
+一次 job 执行完成后，agent 不应该只拿到 target step 的 artifact_id。
 
-它应该拿到一个闭包，至少包含：
+它应该拿到一个闭包，包含本次 job 的目标产物，以及当前 session 到目前为止支持下一轮判断所需的 evidence closure。至少包括：
 
-- committed artifact
-- extracted findings
-- seeded propositions
+- target artifacts
+- newly committed artifacts
+- session findings
+- session propositions
 - current assessments
+- current action proposals
 - follow-up selectors
 - warnings / truncation / quality signals
 
 这层是面向 agent 的读取面，不是 artifact 本体。
 
+`session_state`、`proposition_context` 这类单独读取接口不应成为 agent 正常分析循环里的必要 plumbing。它们可以保留为辅助 projection / read API，用于 UI、调试、分页、恢复上下文或外部系统读取；但主路径应由 job outcome envelope 直接提供下一轮决策所需的当前 session closure。
+
 ## 对外接口设计
 
-### 1. `run_plan`
+### 1. `submit_job`
 
 主接口。
 
-输入是一份 JSON DSL，输出是一次完整分析执行的 outcome envelope。
+输入是一份 analysis plan DSL，输出是一次 job 的 outcome envelope。
 
 适用场景：
 
 - 一次完成多步分析
 - 需要复用中间结果
 - 需要把 evidence 结果继续衔接到后续 intent
-- 需要减少 agent 的中间态负担
+- 需要把当前 session closure 直接返回给 agent
+- 需要减少 agent 的中间态和读取接口 plumbing 负担
+
+`run_plan` 可以作为 `submit_job` 的兼容命名或低层别名存在，但目标态里规范概念应是 `job`：agent 提交 job，runtime 执行 job，session 记录 job history。
 
 ### 2. `run_intent`
 
 原子 intent 的快捷入口。
 
-它可以视为 `run_plan` 的单步特例，用于：
+它可以视为单 step job 的快捷入口，用于：
 
 - 调试
 - 回放
 - 简单单步分析
 - 与已有系统的兼容
 
-目标态里，`run_intent` 只是 `run_plan` 的单步特例，不应成为第二套语义系统。
+目标态里，`run_intent` 只是 `submit_job` 的单步特例，不应成为第二套语义系统。
 
 ### 3. Evidence selector resolver
 
@@ -224,7 +307,7 @@ evidence item -> selector role -> resolved frame spec
 type FrameInput =
   | { kind: "step_output"; step_id: string; output?: string }
   | { kind: "artifact"; artifact_id: string }
-  | { kind: "selector"; selector_id: string }
+  | { kind: "selector"; selector_id: string; role?: string }
   | { kind: "inline"; spec: MetricFrameSpec };
 ```
 
@@ -234,6 +317,30 @@ type FrameInput =
 - 旧的单步接口可以直接引用 artifact。
 - 证据类结果可以先解析成 selector，再转成 frame spec。
 - `compare`、`correlate`、`test` 不需要维护两套不同 contract。
+
+关键原则是：
+
+```text
+public API refs
+  -> reference resolver / selector resolver
+  -> canonical resolved input
+  -> intent executor
+```
+
+这里的“统一”不是把所有输入都强行变成 `metric_frame`，而是按 intent 的输入类型统一成固定 resolved envelope。例如：
+
+- `compare`、`correlate`、`detect`、`forecast` 消费 `ResolvedMetricFrameInput`。
+- `decompose` 消费 `ResolvedDeltaFrameInput`。
+- `test` 消费 `ResolvedSampleSummaryInput` 或等价的 test-ready resolved input。
+- transform step 的输出也必须先形成对应的 resolved input，才能被下游 intent 消费。
+
+Resolved input 至少应保留：
+
+- 已解析出的 artifact family / shape / axes / measures / payload 或等价 typed view。
+- 原始引用来源，例如来自 `step_output`、`artifact`、`selector` 还是 `inline`。
+- selector role、transform lineage、materialization 信息等审计所需字段。
+
+这样 API 可以保持对 agent 友好，而 runtime 的 intent executor 仍然只面对稳定、类型化、已校验的输入。
 
 ## 证据类结果如何作为后续输入
 
@@ -328,20 +435,22 @@ anomaly_candidate -> selector resolver -> decompose
 
 ## Agent-facing 最终返回什么
 
-一次分析完成后，最友好的返回不是裸 artifact。
+一次 job 完成后，最友好的返回不是裸 artifact，也不是只包含本次 DAG target 节点的结果。
 
-应该至少返回：
+应该返回本次 job 结果加当前 session closure：
 
 ```text
-artifact
-findings
-seeded propositions
-assessments
+target artifacts
+newly committed artifacts
+session findings
+session propositions
+current assessments
+current action proposals
 selectors for follow-up
 quality / truncation / warnings
 ```
 
-这样 agent 不需要自己去回读整份 artifact，也不需要自己猜下一步应该怎么接。
+这样 agent 不需要自己去回读整份 artifact，也不需要每轮 job 后再通过 `session_state`、`proposition_context` 等接口拼接当前判断上下文。
 
 ## 为什么这样设计
 
@@ -376,7 +485,7 @@ Plan DSL 只是组合这些原语，不会创造第二套黑箱执行语义。
 
 `run_intent` 适合简单任务和调试。
 
-`run_plan` 适合复杂分析和 agent 主路径。
+`submit_job` 适合复杂分析和 agent 主路径。
 
 两者共享同一套底层语义，不会分裂。
 
@@ -393,15 +502,15 @@ Plan DSL 只是组合这些原语，不会创造第二套黑箱执行语义。
 ## 推荐的目标态接口形状
 
 ```text
-run_plan(json_dsl) -> outcome_envelope
+submit_job(session_id, analysis_plan_dsl) -> outcome_envelope
 run_intent(atomic_request) -> outcome_envelope
 resolve_selector(evidence_ref, role) -> metric_frame_spec
 ```
 
 其中：
 
-- `run_plan` 是 agent 主入口。
-- `run_intent` 是兼容与调试入口。
+- `submit_job` 是 agent 主入口，代表 session 内的一次原子分析动作。
+- `run_intent` 是兼容与调试入口，可视为单 step job。
 - `resolve_selector` 是证据到分析的标准桥梁。
 
 ## 非目标
@@ -422,8 +531,8 @@ Marivo 的分析操作目标态，不是“更多 intent”，而是“更少的
 正确方向是：
 
 - 原子意图保持语义纯净。
-- Plan DSL 负责把多步分析变成一次可提交的声明式计划。
+- Plan DSL 负责把多步分析变成一次可提交的 job。
 - 证据类结果不伪装成 frame，而是通过 selector 和 finding 进入后续分析。
-- agent 拿到的不是裸 artifact，而是一份可继续行动的 outcome envelope。
+- agent 拿到的不是裸 artifact，而是本次 job 结果加当前 session closure 的 outcome envelope。
 
 这套设计的本质是：让分析动作可组合，让证据可继承，让 agent 少做 plumbing，多做判断。

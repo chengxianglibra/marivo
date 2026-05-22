@@ -15,7 +15,7 @@ Coverage:
    1. ``observe`` empty time_series / segmented → success, 0 findings in DB
    2. ``detect`` zero candidates → success, 0 findings in DB
    3. ``compare`` empty segmented rows → FamilyEmptyError, no artifact in DB
-   4. ``decompose`` empty rows → FamilyEmptyError, no artifact in DB
+   4. ``decompose`` empty attribution_frame rows → FamilyEmptyError, no artifact in DB
    5. ``correlate`` valid pairs → success, exactly 1 finding in DB
    6. ``forecast`` N buckets → success, N findings in DB
 
@@ -307,19 +307,47 @@ def _decompose_payload(rows: list[dict[str, Any]] | None = None) -> dict[str, An
     if rows is None:
         rows = [
             {
-                "key": "ios",
+                "keys": {"platform": "ios"},
                 "current_value": 600.0,
                 "baseline_value": 500.0,
-                "absolute_contribution": 100.0,
-                "contribution_share": 0.5,
+                "contribution_abs": 100.0,
+                "contribution_pct": 0.5,
                 "direction": "increase",
                 "presence": "both",
             },
         ]
+    series = [
+        {
+            "keys": row.get("keys") or {"platform": row.get("key")},
+            "points": [
+                {
+                    "current_value": row.get("current_value"),
+                    "baseline_value": row.get("baseline_value"),
+                    "contribution_abs": row.get("contribution_abs"),
+                    "contribution_pct": row.get("contribution_pct"),
+                    "direction": row.get("direction"),
+                    "presence": row.get("presence"),
+                }
+            ],
+        }
+        for row in rows
+    ]
     return {
-        "decomposition_type": "delta_decomposition",
+        "artifact_family": "attribution_frame",
+        "shape": "ranked_contributions",
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.daily_users",
+            "current": {"time_scope": {}, "scope": {}},
+            "baseline": {"time_scope": {}, "scope": {}},
+        },
+        "axes": [{"kind": "dimension", "name": "platform"}],
+        "measures": [
+            {"id": "contribution_abs", "value_type": "number", "nullable": False},
+            {"id": "contribution_pct", "value_type": "number", "nullable": True},
+        ],
+        "lineage": {"operation": "decompose", "source_artifact_ids": ["art_upstream_001"]},
         "metric": "daily_users",
-        "dimension": "platform",
         "unit": None,
         "compare_ref": {
             "step_type": "compare",
@@ -340,7 +368,24 @@ def _decompose_payload(rows: list[dict[str, Any]] | None = None) -> dict[str, An
             "step_id": "step_obs_r",
             "artifact_id": None,
         },
-        "rows": rows,
+        "payload": {
+            "series": series,
+            "scope": {
+                "current_value": 1000.0,
+                "baseline_value": 800.0,
+                "delta_abs": 200.0,
+                "delta_pct": 0.25,
+                "direction": "increase",
+            },
+            "quality": {"reconciliation_status": "exact", "reconciliation_gap": 0.0},
+        },
+        "rows": [
+            {
+                "key": "legacy-top-level-row-that-must-be-ignored",
+                "contribution_abs": 9999.0,
+                "contribution_pct": 9999.0,
+            }
+        ],
         "scope_absolute_delta": 200.0,
         "scope_relative_delta": 0.25,
         "scope_direction": "increase",
@@ -574,12 +619,12 @@ class TestCompareEmptyRejects(unittest.TestCase):
 
 
 # ===========================================================================
-# 4. Decompose — failure on empty rows
+# 4. Decompose — failure on empty attribution_frame rows
 # ===========================================================================
 
 
 class TestDecomposeEmptyRejects(unittest.TestCase):
-    """delta_decomposition with empty rows → FamilyEmptyError, no artifact in DB."""
+    """attribution_frame with empty series rows → FamilyEmptyError, no artifact in DB."""
 
     def setUp(self) -> None:
         self.store = _make_store()
@@ -589,7 +634,7 @@ class TestDecomposeEmptyRejects(unittest.TestCase):
             self.store,
             _SESSION,
             _STEP_ID,
-            "delta_decomposition",
+            "attribution_frame",
             "decomp_empty",
             _decompose_payload(rows=[]),
             step_type="decompose",
@@ -605,7 +650,7 @@ class TestDecomposeEmptyRejects(unittest.TestCase):
             self._commit_empty()
         rows = self.store.query_rows(
             "SELECT artifact_id FROM artifacts "
-            "WHERE session_id = ? AND artifact_type = 'delta_decomposition'",
+            "WHERE session_id = ? AND artifact_type = 'attribution_frame'",
             [_SESSION],
         )
         self.assertEqual(rows, [])

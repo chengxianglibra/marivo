@@ -2,11 +2,21 @@ from __future__ import annotations
 
 import unittest
 
+import pytest
+
 from marivo.runtime.intents.metric_frame import (
+    build_attribution_frame_artifact,
     build_axes,
+    build_delta_frame_artifact,
     build_scalar_series,
     build_segmented_series,
     determine_observation_type,
+    is_attribution_frame_artifact,
+    is_delta_frame_artifact,
+    read_attribution_rows_from_series,
+    read_compare_scalar_point,
+    read_decompose_rows_from_series,
+    read_delta_frame_shape,
 )
 
 
@@ -149,3 +159,235 @@ def test_read_metric_frame_shape_and_series() -> None:
     assert read_metric_frame_series(artifact) == [{"keys": {}, "points": [{"value": 1.0}]}]
     assert read_metric_frame_points(artifact) == [{"value": 1.0}]
     assert read_metric_frame_unit(artifact) == "usd"
+
+
+def test_build_delta_frame_artifact_sets_family_shape_payload_and_capabilities() -> None:
+    artifact = build_delta_frame_artifact(
+        artifact_id="art_cmp",
+        shape="scalar_delta",
+        metric_ref="metric.revenue",
+        subject={
+            "kind": "comparison",
+            "metric_ref": "metric.revenue",
+            "current": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2024-01-08",
+                    "end": "2024-01-15",
+                }
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2024-01-01",
+                    "end": "2024-01-08",
+                }
+            },
+        },
+        axes=[],
+        series=[
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "current_value": 120.0,
+                        "baseline_value": 100.0,
+                        "delta_abs": 20.0,
+                        "delta_pct": 0.2,
+                        "direction": "increase",
+                    }
+                ],
+            }
+        ],
+        unit="usd",
+        lineage={"current_source_ref": {"artifact_id": "art_current"}},
+        scope={
+            "current_value": 120.0,
+            "baseline_value": 100.0,
+            "delta_abs": 20.0,
+            "delta_pct": 0.2,
+            "direction": "increase",
+        },
+    )
+
+    assert is_delta_frame_artifact(artifact)
+    assert artifact["artifact_family"] == "delta_frame"
+    assert artifact["shape"] == "scalar_delta"
+    assert "decomposable" in artifact["capabilities"]
+    assert artifact["payload"]["series"][0]["points"][0]["delta_abs"] == 20.0
+    assert artifact["payload"]["scope"]["delta_abs"] == 20.0
+    assert read_delta_frame_shape(artifact) == "scalar_delta"
+
+
+def test_build_attribution_frame_artifact_reads_flat_rows_from_payload_series() -> None:
+    artifact = build_attribution_frame_artifact(
+        artifact_id="art_attr",
+        metric_ref="metric.revenue",
+        dimension="channel",
+        subject={
+            "kind": "comparison",
+            "metric_ref": "metric.revenue",
+            "current": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2024-01-08",
+                    "end": "2024-01-15",
+                }
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2024-01-01",
+                    "end": "2024-01-08",
+                }
+            },
+        },
+        series=[
+            {
+                "keys": {"channel": "paid"},
+                "points": [
+                    {
+                        "contribution_abs": 12.0,
+                        "contribution_pct": 0.6,
+                        "current_value": 70.0,
+                        "baseline_value": 58.0,
+                        "presence": "both",
+                        "rank": 1,
+                    }
+                ],
+            }
+        ],
+        scope={
+            "current_value": 120.0,
+            "baseline_value": 100.0,
+            "delta_abs": 20.0,
+            "delta_pct": 0.2,
+            "direction": "increase",
+        },
+        quality={
+            "reconciliation_status": "within_tolerance",
+            "unexplained_delta_abs": 0.0,
+            "unexplained_pct": 0.0,
+        },
+        lineage={"operation": "decompose", "source_artifact_ids": ["art_cmp"]},
+    )
+
+    assert is_attribution_frame_artifact(artifact)
+    assert artifact["artifact_family"] == "attribution_frame"
+    assert artifact["shape"] == "ranked_contributions"
+    assert artifact["measures"] == [
+        {"id": "contribution_abs", "value_type": "number", "nullable": False},
+        {"id": "contribution_pct", "value_type": "number", "nullable": True},
+    ]
+    assert read_attribution_rows_from_series(artifact) == [
+        {
+            "key": "paid",
+            "channel": "paid",
+            "contribution_abs": 12.0,
+            "contribution_pct": 0.6,
+            "current_value": 70.0,
+            "baseline_value": 58.0,
+            "presence": "both",
+            "rank": 1,
+        }
+    ]
+
+
+def test_read_delta_frame_shape_rejects_non_delta_artifact() -> None:
+    with pytest.raises(ValueError, match="delta_frame artifact"):
+        read_delta_frame_shape({"artifact_family": "metric_frame", "shape": "scalar"})
+
+
+def test_read_compare_scalar_point_reads_delta_frame_payload_series() -> None:
+    artifact = build_delta_frame_artifact(
+        artifact_id="art_cmp",
+        shape="scalar_delta",
+        metric_ref="metric.revenue",
+        subject={
+            "kind": "comparison",
+            "metric_ref": "metric.revenue",
+            "current": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2024-01-08",
+                    "end": "2024-01-15",
+                }
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2024-01-01",
+                    "end": "2024-01-08",
+                }
+            },
+        },
+        axes=[],
+        series=[
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "current_value": 120.0,
+                        "baseline_value": 100.0,
+                        "delta_abs": 20.0,
+                        "delta_pct": 0.2,
+                        "direction": "increase",
+                    }
+                ],
+            }
+        ],
+        unit="usd",
+        lineage={"operation": "compare"},
+        scope={
+            "current_value": 120.0,
+            "baseline_value": 100.0,
+            "delta_abs": 20.0,
+            "delta_pct": 0.2,
+            "direction": "increase",
+        },
+    )
+
+    assert read_compare_scalar_point(artifact) == {
+        "current_value": 120.0,
+        "baseline_value": 100.0,
+        "delta_abs": 20.0,
+        "delta": 20.0,
+        "delta_pct": 0.2,
+        "direction": "increase",
+    }
+
+
+def test_read_decompose_rows_from_series_adds_aliases_for_attribution_frame() -> None:
+    artifact = build_attribution_frame_artifact(
+        artifact_id="art_attr",
+        metric_ref="metric.revenue",
+        dimension="channel",
+        subject={"kind": "comparison", "metric_ref": "metric.revenue"},
+        series=[
+            {
+                "keys": {"channel": "paid"},
+                "points": [
+                    {
+                        "contribution_abs": 12.0,
+                        "contribution_pct": 0.6,
+                        "rank": 1,
+                    }
+                ],
+            }
+        ],
+        scope={"delta_abs": 20.0},
+        quality={"reconciliation_status": "within_tolerance"},
+        lineage={"operation": "decompose"},
+    )
+
+    assert read_decompose_rows_from_series(artifact) == [
+        {
+            "key": "paid",
+            "channel": "paid",
+            "contribution_abs": 12.0,
+            "contribution_pct": 0.6,
+            "absolute_contribution": 12.0,
+            "contribution_share": 0.6,
+            "rank": 1,
+        }
+    ]

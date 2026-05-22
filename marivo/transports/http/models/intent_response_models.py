@@ -43,16 +43,8 @@ class CompareResponse(_EnvelopeBase):
     result: _CompareArtifact | _CompareFailureArtifact
 
 
-class _DecomposeArtifact(aoi.Artifact1):
-    result: aoi.DeltaDecompositionResult
-
-
-class _DecomposeFailureArtifact(aoi.Artifact2):
-    result: aoi.DeltaDecompositionResult | None = None
-
-
 class DecomposeResponse(_EnvelopeBase):
-    result: _DecomposeArtifact | _DecomposeFailureArtifact
+    result: aoi.AttributionFrameArtifact | aoi.Artifact2
 
 
 class _CorrelateArtifact(aoi.Artifact1):
@@ -107,7 +99,9 @@ class DerivedBundleResult(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     bundle_type: str
-    aoi_artifacts: list[aoi.MetricFrameArtifact | aoi.Artifact1 | aoi.Artifact2]
+    aoi_artifacts: list[
+        aoi.MetricFrameArtifact | aoi.AttributionFrameArtifact | aoi.Artifact1 | aoi.Artifact2
+    ]
 
 
 class AttributeResponse(_EnvelopeBase):

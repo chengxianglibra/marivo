@@ -7,14 +7,14 @@ CompareArtifactExtractor (compare_artifact → DeltaFinding):
 - Empty segmented rows → validate_for_commit("compare", result) raises FamilyEmptyError
 - Registered in default_finding_registry under ("compare_artifact", "v1"); NULL normalisation
 
-DecomposeArtifactExtractor (delta_decomposition → DecompositionItemFinding):
+DecomposeArtifactExtractor (attribution_frame → DecompositionItemFinding):
 - N rows → N findings with correct DecompositionItemPayload fields
 - rank is 1-based and matches artifact sort order
 - scope_delta_ref.finding_id is derived deterministically from compare_artifact_id
 - session_id flows into scope_delta_ref
 - Missing compare_ref.artifact_id raises ValueError
 - Empty rows → validate_for_commit("decompose", result) raises FamilyEmptyError
-- Registered in default_finding_registry under ("delta_decomposition", "v1"); NULL normalisation
+- Registered in default_finding_registry under ("attribution_frame", "v1"); NULL normalisation
 """
 
 # ruff: noqa: I001
@@ -325,29 +325,60 @@ def _decompose_payload(
     if rows is None:
         rows = [
             {
-                "key": "ios",
+                "keys": {dimension: "ios"},
                 "current_value": 600.0,
                 "baseline_value": 500.0,
-                "absolute_contribution": 100.0,
-                "contribution_share": 0.5,
+                "contribution_abs": 100.0,
+                "contribution_pct": 0.5,
                 "direction": "increase",
                 "presence": "both",
             },
             {
-                "key": "android",
+                "keys": {dimension: "android"},
                 "current_value": 400.0,
                 "baseline_value": 300.0,
-                "absolute_contribution": 100.0,
-                "contribution_share": 0.5,
+                "contribution_abs": 100.0,
+                "contribution_pct": 0.5,
                 "direction": "increase",
                 "presence": "both",
             },
         ]
+    series = [
+        {
+            "keys": row.get("keys") or {dimension: row.get("key")},
+            "points": [
+                {
+                    "current_value": row.get("current_value"),
+                    "baseline_value": row.get("baseline_value"),
+                    "contribution_abs": row.get("contribution_abs"),
+                    "contribution_pct": row.get("contribution_pct"),
+                    "direction": row.get("direction"),
+                    "presence": row.get("presence"),
+                }
+            ],
+        }
+        for row in rows
+    ]
     return {
-        "decomposition_type": "delta_decomposition",
+        "artifact_family": "attribution_frame",
+        "shape": "ranked_contributions",
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": f"metric.{metric}",
+            "current": {"time_scope": {}, "scope": {}},
+            "baseline": {"time_scope": {}, "scope": {}},
+        },
+        "axes": [{"kind": "dimension", "name": dimension}],
+        "measures": [
+            {"id": "contribution_abs", "value_type": "number", "nullable": False},
+            {"id": "contribution_pct", "value_type": "number", "nullable": True},
+        ],
         "metric": metric,
-        "dimension": dimension,
         "unit": unit,
+        "lineage": {
+            "operation": "decompose",
+            "source_artifact_ids": [compare_artifact_id] if compare_artifact_id else [],
+        },
         "compare_ref": {
             "step_type": "compare",
             "session_id": _SESSION,
@@ -367,7 +398,29 @@ def _decompose_payload(
             "step_id": "step_obs_right",
             "artifact_id": None,
         },
-        "rows": rows,
+        "rows": [
+            {
+                "key": "legacy-top-level-row-that-must-be-ignored",
+                "contribution_abs": 9999.0,
+                "contribution_pct": 9999.0,
+                "direction": "decrease",
+            }
+        ],
+        "payload": {
+            "series": series,
+            "scope": {
+                "current_value": 1000.0,
+                "baseline_value": 800.0,
+                "delta_abs": 200.0,
+                "delta_pct": 0.25,
+                "direction": "increase",
+            },
+            "quality": {
+                "reconciliation_status": "exact",
+                "reconciliation_gap": 0.0,
+                "confidence_grade": "high",
+            },
+        },
         "scope_absolute_delta": 200.0,
         "scope_relative_delta": 0.25,
         "scope_direction": "increase",
@@ -975,11 +1028,11 @@ class TestDecomposeRows(unittest.TestCase):
     def test_keys_dict_value_matches_row_key(self) -> None:
         rows = [
             {
-                "key": "ios",
+                "keys": {"platform": "ios"},
                 "current_value": 600.0,
                 "baseline_value": 500.0,
-                "absolute_contribution": 100.0,
-                "contribution_share": 0.5,
+                "contribution_abs": 100.0,
+                "contribution_pct": 0.5,
                 "direction": "increase",
                 "presence": "both",
             },
@@ -987,14 +1040,14 @@ class TestDecomposeRows(unittest.TestCase):
         result = self._extract(dimension="platform", rows=rows)
         self.assertEqual(result["findings"][0]["payload"]["keys"], {"platform": "ios"})
 
-    def test_contribution_value_from_absolute_contribution(self) -> None:
+    def test_contribution_value_from_contribution_abs(self) -> None:
         rows = [
             {
-                "key": "ios",
+                "keys": {"platform": "ios"},
                 "current_value": 600.0,
                 "baseline_value": 500.0,
-                "absolute_contribution": 123.0,
-                "contribution_share": 0.6,
+                "contribution_abs": 123.0,
+                "contribution_pct": 0.6,
                 "direction": "increase",
                 "presence": "both",
             }
@@ -1005,11 +1058,11 @@ class TestDecomposeRows(unittest.TestCase):
     def test_contribution_share_propagated(self) -> None:
         rows = [
             {
-                "key": "ios",
+                "keys": {"platform": "ios"},
                 "current_value": 600.0,
                 "baseline_value": 500.0,
-                "absolute_contribution": 100.0,
-                "contribution_share": 0.75,
+                "contribution_abs": 100.0,
+                "contribution_pct": 0.75,
                 "direction": "increase",
                 "presence": "both",
             }
@@ -1026,20 +1079,20 @@ class TestDecomposeRows(unittest.TestCase):
         """First row in artifact gets rank 1, second gets rank 2."""
         rows = [
             {
-                "key": "android",
+                "keys": {"platform": "android"},
                 "current_value": 400.0,
                 "baseline_value": 300.0,
-                "absolute_contribution": 100.0,
-                "contribution_share": 0.5,
+                "contribution_abs": 100.0,
+                "contribution_pct": 0.5,
                 "direction": "increase",
                 "presence": "both",
             },
             {
-                "key": "ios",
+                "keys": {"platform": "ios"},
                 "current_value": 600.0,
                 "baseline_value": 500.0,
-                "absolute_contribution": 100.0,
-                "contribution_share": 0.5,
+                "contribution_abs": 100.0,
+                "contribution_pct": 0.5,
                 "direction": "increase",
                 "presence": "both",
             },
@@ -1053,11 +1106,11 @@ class TestDecomposeRows(unittest.TestCase):
     def test_direction_propagated(self) -> None:
         rows = [
             {
-                "key": "x",
+                "keys": {"platform": "x"},
                 "current_value": 1.0,
                 "baseline_value": 2.0,
-                "absolute_contribution": -1.0,
-                "contribution_share": -0.5,
+                "contribution_abs": -1.0,
+                "contribution_pct": -0.5,
                 "direction": "decrease",
                 "presence": "both",
             }
@@ -1068,11 +1121,11 @@ class TestDecomposeRows(unittest.TestCase):
     def test_invalid_direction_normalised_to_undefined(self) -> None:
         rows = [
             {
-                "key": "x",
+                "keys": {"platform": "x"},
                 "current_value": 1.0,
                 "baseline_value": 1.0,
-                "absolute_contribution": 0.0,
-                "contribution_share": 0.0,
+                "contribution_abs": 0.0,
+                "contribution_pct": 0.0,
                 "direction": "sideways",
                 "presence": "both",
             }
@@ -1116,11 +1169,11 @@ class TestDecomposeRows(unittest.TestCase):
     def test_none_key_handled_gracefully(self) -> None:
         rows = [
             {
-                "key": None,
+                "keys": {"platform": None},
                 "current_value": 100.0,
                 "baseline_value": 80.0,
-                "absolute_contribution": 20.0,
-                "contribution_share": 0.1,
+                "contribution_abs": 20.0,
+                "contribution_pct": 0.1,
                 "direction": "increase",
                 "presence": "both",
             }
@@ -1133,11 +1186,11 @@ class TestDecomposeRows(unittest.TestCase):
     def test_canonical_item_key_includes_dimension_and_key(self) -> None:
         rows = [
             {
-                "key": "ios",
+                "keys": {"platform": "ios"},
                 "current_value": 1.0,
                 "baseline_value": 1.0,
-                "absolute_contribution": 0.0,
-                "contribution_share": 0.0,
+                "contribution_abs": 0.0,
+                "contribution_pct": 0.0,
                 "direction": "flat",
                 "presence": "both",
             }
@@ -1150,7 +1203,7 @@ class TestDecomposeRows(unittest.TestCase):
 
     def test_extractor_metadata(self) -> None:
         result = self._extract()
-        self.assertEqual(result["extractor_name"], "decompose_artifact_v1")
+        self.assertEqual(result["extractor_name"], "attribution_frame_v1")
         self.assertEqual(result["extractor_version"], "1.0.0")
         self.assertEqual(result["artifact_schema_version"], "v1")
 
@@ -1238,6 +1291,47 @@ class TestDecomposeScopeDeltaRef(unittest.TestCase):
         for f in result["findings"]:
             self.assertEqual(f["payload"]["scope_delta_ref"]["session_id"], other_session)
 
+    def test_scope_delta_ref_uses_lineage_source_artifact_id_when_compare_ref_absent(self) -> None:
+        payload = _decompose_payload(compare_artifact_id="art_from_lineage")
+        payload.pop("compare_ref", None)
+        payload["lineage"] = {
+            "operation": "decompose",
+            "source_artifact_ids": ["art_from_lineage"],
+        }
+        result = _DECOMPOSE_EXTRACTOR.extract(
+            _DECOMP_ART_ID,
+            payload,
+            _DECOMP_STEP_REF,
+            _SESSION,
+        )
+        expected_key, _ = make_item_identity("result")
+        expected_fid = make_finding_id("art_from_lineage", "delta", expected_key)
+        self.assertEqual(
+            result["findings"][0]["payload"]["scope_delta_ref"]["finding_id"], expected_fid
+        )
+
+    def test_scope_delta_ref_uses_source_lineage_compare_artifact_alias(self) -> None:
+        payload = _decompose_payload(compare_artifact_id="")
+        payload.pop("compare_ref", None)
+        payload["lineage"] = {"operation": "decompose", "source_artifact_ids": []}
+        payload["source_lineage"] = {
+            "compare_artifact": {
+                "artifact_id": "art_from_source_lineage",
+                "comparison_type": "time_series_delta",
+            }
+        }
+        result = _DECOMPOSE_EXTRACTOR.extract(
+            _DECOMP_ART_ID,
+            payload,
+            _DECOMP_STEP_REF,
+            _SESSION,
+        )
+        expected_key, _ = make_item_identity("summary")
+        expected_fid = make_finding_id("art_from_source_lineage", "delta", expected_key)
+        self.assertEqual(
+            result["findings"][0]["payload"]["scope_delta_ref"]["finding_id"], expected_fid
+        )
+
 
 # ===========================================================================
 # DecomposeArtifactExtractor — error cases
@@ -1248,19 +1342,21 @@ class TestDecomposeErrorCases(unittest.TestCase):
     def test_missing_compare_artifact_id_raises(self) -> None:
         payload = _decompose_payload()
         payload["compare_ref"]["artifact_id"] = None
-        with self.assertRaises(ValueError, msg="compare_ref.artifact_id is required"):
+        payload["lineage"] = {"operation": "decompose", "source_artifact_ids": []}
+        with self.assertRaises(ValueError, msg="upstream compare artifact id is required"):
             _DECOMPOSE_EXTRACTOR.extract(_DECOMP_ART_ID, payload, _DECOMP_STEP_REF, _SESSION)
 
     def test_empty_compare_artifact_id_raises(self) -> None:
         payload = _decompose_payload()
         payload["compare_ref"]["artifact_id"] = ""
+        payload["lineage"] = {"operation": "decompose", "source_artifact_ids": []}
         with self.assertRaises(ValueError):
             _DECOMPOSE_EXTRACTOR.extract(_DECOMP_ART_ID, payload, _DECOMP_STEP_REF, _SESSION)
 
     def test_missing_dimension_raises(self) -> None:
         payload = _decompose_payload()
-        payload["dimension"] = ""
-        with self.assertRaises(ValueError, msg="dimension is required"):
+        payload["axes"] = []
+        with self.assertRaises(ValueError, msg="dimension axis is required"):
             _DECOMPOSE_EXTRACTOR.extract(_DECOMP_ART_ID, payload, _DECOMP_STEP_REF, _SESSION)
 
     def test_unknown_compare_ref_shape_raises(self) -> None:
@@ -1280,11 +1376,11 @@ class TestDecomposeErrorCases(unittest.TestCase):
         for rows_count in (1, 3, 5):
             rows = [
                 {
-                    "key": str(i),
+                    "keys": {"platform": str(i)},
                     "current_value": float(i),
                     "baseline_value": 1.0,
-                    "absolute_contribution": float(i) - 1.0,
-                    "contribution_share": None,
+                    "contribution_abs": float(i) - 1.0,
+                    "contribution_pct": None,
                     "direction": "increase",
                     "presence": "both",
                 }
@@ -1302,23 +1398,23 @@ class TestDecomposeErrorCases(unittest.TestCase):
 
 
 class TestDecomposeRegistration(unittest.TestCase):
-    def test_registered_under_delta_decomposition_v1(self) -> None:
-        extractor = default_finding_registry.find("delta_decomposition", "v1")
+    def test_registered_under_attribution_frame_v1(self) -> None:
+        extractor = default_finding_registry.find("attribution_frame", "v1")
         self.assertIsNotNone(extractor)
         self.assertIsInstance(extractor, DecomposeArtifactExtractor)
 
     def test_null_version_normalised_to_v1(self) -> None:
-        extractor = default_finding_registry.find("delta_decomposition", None)
+        extractor = default_finding_registry.find("attribution_frame", None)
         self.assertIsNotNone(extractor)
         self.assertIsInstance(extractor, DecomposeArtifactExtractor)
 
     def test_snapshot_contains_decompose_entry(self) -> None:
         entries = {e["artifact_type"]: e for e in default_finding_registry.snapshot()}
-        self.assertIn("delta_decomposition", entries)
-        entry = entries["delta_decomposition"]
+        self.assertIn("attribution_frame", entries)
+        entry = entries["attribution_frame"]
         self.assertEqual(entry["artifact_schema_version"], "v1")
         self.assertEqual(entry["family"], "decompose")
-        self.assertEqual(entry["extractor_name"], "decompose_artifact_v1")
+        self.assertEqual(entry["extractor_name"], "attribution_frame_v1")
         self.assertEqual(entry["finding_schema_version"], "v1")
 
 

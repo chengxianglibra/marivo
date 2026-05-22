@@ -5,7 +5,9 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from marivo.contracts.generated import aoi
 from marivo.runtime.intents.decompose import (
+    _attribution_series_from_rows,
     _extract_date_range,
     _normalize_decompose_compare_input,
     _run_segmented_query,
@@ -16,6 +18,129 @@ from tests.runtime.intents._runner_fixtures import (
     _SESSION,
     _make_compiled_mock,
 )
+
+
+def _comparison_subject() -> dict[str, Any]:
+    return {
+        "kind": "comparison",
+        "metric_ref": "metric.m1",
+        "current": {
+            "time_scope": {"field": "time", "start": "2024-01-01", "end": "2024-01-08"},
+            "scope": {},
+        },
+        "baseline": {
+            "time_scope": {"field": "time", "start": "2023-12-25", "end": "2024-01-01"},
+            "scope": {},
+        },
+    }
+
+
+def _scalar_delta_artifact(
+    *,
+    current_value: float = 100.0,
+    baseline_value: float = 90.0,
+    delta_abs: float = 10.0,
+    delta_pct: float | None = None,
+) -> dict[str, Any]:
+    relative_delta = delta_pct if delta_pct is not None else delta_abs / baseline_value
+    return {
+        "artifact_family": "delta_frame",
+        "shape": "scalar_delta",
+        "capabilities": ["filterable", "decomposable"],
+        "schema_version": "2.0",
+        "metric": "m1",
+        "metric_ref": "metric.m1",
+        "axes": [],
+        "payload": {
+            "series": [
+                {
+                    "keys": {},
+                    "points": [
+                        {
+                            "current_value": current_value,
+                            "baseline_value": baseline_value,
+                            "delta_abs": delta_abs,
+                            "delta_pct": relative_delta,
+                            "direction": "increase",
+                        }
+                    ],
+                }
+            ],
+            "scope": {
+                "current_value": current_value,
+                "baseline_value": baseline_value,
+                "delta_abs": delta_abs,
+                "delta_pct": relative_delta,
+                "direction": "increase",
+            },
+        },
+        "subject": _comparison_subject(),
+    }
+
+
+def _time_series_delta_artifact(
+    *,
+    points: list[dict[str, Any]],
+    analytical_metadata: dict[str, Any] | None = None,
+    scope: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if scope is None:
+        current_value = sum(float(point["current_value"]) for point in points)
+        baseline_value = sum(float(point["baseline_value"]) for point in points)
+        delta_abs = current_value - baseline_value
+        scope = {
+            "current_value": current_value,
+            "baseline_value": baseline_value,
+            "delta_abs": delta_abs,
+            "delta_pct": delta_abs / baseline_value if baseline_value else None,
+            "direction": "increase" if delta_abs > 0 else "decrease" if delta_abs < 0 else "flat",
+        }
+    return {
+        "artifact_family": "delta_frame",
+        "shape": "time_series_delta",
+        "capabilities": ["sliceable", "filterable", "decomposable"],
+        "schema_version": "2.0",
+        "metric": "m1",
+        "metric_ref": "metric.m1",
+        "axes": [{"kind": "time", "grain": "day"}],
+        "payload": {"series": [{"keys": {}, "points": points}], "scope": scope},
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.m1",
+            "current": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2024-01-01",
+                    "end": "2024-01-08",
+                },
+                "scope": {},
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2023-01-01",
+                    "end": "2023-01-08",
+                },
+                "scope": {},
+            },
+        },
+        "analytical_metadata": analytical_metadata or {},
+    }
+
+
+def _attribution_frame_canonical_subset(result: dict[str, Any]) -> dict[str, Any]:
+    canonical_keys = {
+        "artifact_id",
+        "artifact_family",
+        "shape",
+        "subject",
+        "axes",
+        "measures",
+        "capabilities",
+        "lineage",
+        "payload",
+    }
+    return {key: result[key] for key in canonical_keys}
 
 
 class DecomposeHourWindowTests(unittest.TestCase):
@@ -32,166 +157,49 @@ class DecomposeHourWindowTests(unittest.TestCase):
         )
 
     def test_scalar_delta_read_from_series_format(self) -> None:
-        normalized = _normalize_decompose_compare_input(
-            {
-                "artifact_family": "delta_frame",
-                "shape": "scalar_delta",
-                "schema_version": "2.0",
-                "metric": "m1",
-                "axes": [],
-                "payload": {
-                    "series": [
-                        {
-                            "keys": {},
-                            "points": [
-                                {
-                                    "current_value": 100.0,
-                                    "baseline_value": 90.0,
-                                    "delta_abs": 10.0,
-                                    "delta_pct": 10.0 / 90.0,
-                                    "direction": "increase",
-                                }
-                            ],
-                        }
-                    ],
-                },
-                "resolved_input_summary": {
-                    "current_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "baseline_time_scope": {
-                        "field": "time",
-                        "start": "2023-12-25",
-                        "end": "2024-01-01",
-                    },
-                },
-            }
-        )
+        normalized = _normalize_decompose_compare_input(_scalar_delta_artifact())
 
+        self.assertEqual(normalized["shape"], "scalar_delta")
         self.assertEqual(normalized["comparison_type"], "scalar_delta")
         self.assertEqual(normalized["scope_current_value"], 100.0)
         self.assertEqual(normalized["scope_baseline_value"], 90.0)
         self.assertEqual(normalized["scope_absolute_delta"], 10.0)
         self.assertEqual(normalized["source_observation_type"], "scalar")
 
-    def test_scalar_delta_fallback_to_top_level_fields(self) -> None:
+    def test_scalar_delta_reads_payload_scope(self) -> None:
         normalized = _normalize_decompose_compare_input(
-            {
-                # Legacy format: no shape, uses comparison_type fallback
-                "comparison_type": "scalar_delta",
-                "metric": "m1",
-                "current_value": 50.0,
-                "baseline_value": 40.0,
-                "absolute_delta": 10.0,
-                "relative_delta": 0.25,
-                "direction": "increase",
-                "resolved_input_summary": {
-                    "current_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "baseline_time_scope": {
-                        "field": "time",
-                        "start": "2023-12-25",
-                        "end": "2024-01-01",
-                    },
-                },
-            }
+            _scalar_delta_artifact(
+                current_value=50.0,
+                baseline_value=40.0,
+                delta_abs=10.0,
+                delta_pct=0.25,
+            )
         )
 
-        self.assertEqual(normalized["comparison_type"], "scalar_delta")
         self.assertEqual(normalized["scope_current_value"], 50.0)
         self.assertEqual(normalized["scope_baseline_value"], 40.0)
         self.assertEqual(normalized["scope_absolute_delta"], 10.0)
 
     def test_axes_determine_scalar_observation_type(self) -> None:
-        normalized = _normalize_decompose_compare_input(
-            {
-                "artifact_family": "delta_frame",
-                "shape": "scalar_delta",
-                "schema_version": "2.0",
-                "metric": "m1",
-                "axes": [],
-                "payload": {
-                    "series": [
-                        {
-                            "keys": {},
-                            "points": [
-                                {
-                                    "current_value": 100.0,
-                                    "baseline_value": 90.0,
-                                    "delta_abs": 10.0,
-                                    "delta_pct": 10.0 / 90.0,
-                                    "direction": "increase",
-                                }
-                            ],
-                        }
-                    ],
-                },
-                "resolved_input_summary": {
-                    "current_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "baseline_time_scope": {
-                        "field": "time",
-                        "start": "2023-12-25",
-                        "end": "2024-01-01",
-                    },
-                },
-            }
-        )
+        normalized = _normalize_decompose_compare_input(_scalar_delta_artifact())
 
         self.assertEqual(normalized["source_observation_type"], "scalar")
 
     def test_axes_determine_time_series_observation_type(self) -> None:
         normalized = _normalize_decompose_compare_input(
-            {
-                "artifact_family": "delta_frame",
-                "shape": "time_series_delta",
-                "schema_version": "2.0",
-                "metric": "m1",
-                "axes": [{"kind": "time", "grain": "day", "comparison_side": "both"}],
-                "payload": {
-                    "series": [
-                        {
-                            "keys": {},
-                            "points": [
-                                {
-                                    "window": {"start": "2024-01-01", "end": "2024-01-02"},
-                                    "current_value": 30.0,
-                                    "baseline_value": 23.0,
-                                    "delta_abs": 7.0,
-                                    "delta_pct": 7.0 / 23.0,
-                                    "direction": "increase",
-                                    "presence": "both",
-                                }
-                            ],
-                        }
-                    ],
-                },
-                "summary_current_value": 30.0,
-                "summary_baseline_value": 23.0,
-                "summary_absolute_delta": 7.0,
-                "summary_relative_delta": 7.0 / 23.0,
-                "summary_direction": "increase",
-                "resolved_input_summary": {
-                    "current_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "baseline_time_scope": {
-                        "field": "time",
-                        "start": "2023-01-01",
-                        "end": "2023-01-08",
-                    },
-                },
-                "analytical_metadata": {
+            _time_series_delta_artifact(
+                points=[
+                    {
+                        "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                        "current_value": 30.0,
+                        "baseline_value": 23.0,
+                        "delta_abs": 7.0,
+                        "delta_pct": 7.0 / 23.0,
+                        "direction": "increase",
+                        "presence": "both",
+                    }
+                ],
+                analytical_metadata={
                     "matched_bucket_count": 1,
                     "matched_time_scope": {
                         "field": "time",
@@ -199,59 +207,35 @@ class DecomposeHourWindowTests(unittest.TestCase):
                         "end": "2024-01-04",
                     },
                 },
-            }
+            )
         )
 
         self.assertEqual(normalized["source_observation_type"], "time_series")
 
     def test_time_series_compare_input_aggregates_from_series_points(self) -> None:
         normalized = _normalize_decompose_compare_input(
-            {
-                "artifact_family": "delta_frame",
-                "shape": "time_series_delta",
-                "schema_version": "2.0",
-                "metric": "m1",
-                "axes": [{"kind": "time", "grain": "day", "comparison_side": "both"}],
-                "payload": {
-                    "series": [
-                        {
-                            "keys": {},
-                            "points": [
-                                {
-                                    "window": {"start": "2024-01-01", "end": "2024-01-02"},
-                                    "current_value": 20.0,
-                                    "baseline_value": 15.0,
-                                    "delta_abs": 5.0,
-                                    "delta_pct": 5.0 / 15.0,
-                                    "direction": "increase",
-                                    "presence": "both",
-                                },
-                                {
-                                    "window": {"start": "2024-01-02", "end": "2024-01-03"},
-                                    "current_value": 10.0,
-                                    "baseline_value": 8.0,
-                                    "delta_abs": 2.0,
-                                    "delta_pct": 2.0 / 8.0,
-                                    "direction": "increase",
-                                    "presence": "both",
-                                },
-                            ],
-                        }
-                    ],
-                },
-                "resolved_input_summary": {
-                    "current_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
+            _time_series_delta_artifact(
+                points=[
+                    {
+                        "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                        "current_value": 20.0,
+                        "baseline_value": 15.0,
+                        "delta_abs": 5.0,
+                        "delta_pct": 5.0 / 15.0,
+                        "direction": "increase",
+                        "presence": "both",
                     },
-                    "baseline_time_scope": {
-                        "field": "time",
-                        "start": "2023-01-01",
-                        "end": "2023-01-08",
+                    {
+                        "window": {"start": "2024-01-02", "end": "2024-01-03"},
+                        "current_value": 10.0,
+                        "baseline_value": 8.0,
+                        "delta_abs": 2.0,
+                        "delta_pct": 2.0 / 8.0,
+                        "direction": "increase",
+                        "presence": "both",
                     },
-                },
-                "analytical_metadata": {
+                ],
+                analytical_metadata={
                     "matched_bucket_count": 2,
                     "matched_time_scope": {
                         "field": "time",
@@ -259,7 +243,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
                         "end": "2024-01-04",
                     },
                 },
-            }
+            )
         )
 
         self.assertEqual(normalized["comparison_type"], "time_series_delta")
@@ -276,48 +260,19 @@ class DecomposeHourWindowTests(unittest.TestCase):
 
     def test_time_series_compare_input_uses_matched_time_scope(self) -> None:
         normalized = _normalize_decompose_compare_input(
-            {
-                "artifact_family": "delta_frame",
-                "shape": "time_series_delta",
-                "schema_version": "2.0",
-                "metric": "m1",
-                "axes": [{"kind": "time", "grain": "day", "comparison_side": "both"}],
-                "payload": {
-                    "series": [
-                        {
-                            "keys": {},
-                            "points": [
-                                {
-                                    "window": {"start": "2024-01-02", "end": "2024-01-04"},
-                                    "current_value": 30.0,
-                                    "baseline_value": 23.0,
-                                    "delta_abs": 7.0,
-                                    "delta_pct": 7.0 / 23.0,
-                                    "direction": "increase",
-                                    "presence": "both",
-                                }
-                            ],
-                        }
-                    ],
-                },
-                "summary_current_value": 30.0,
-                "summary_baseline_value": 23.0,
-                "summary_absolute_delta": 7.0,
-                "summary_relative_delta": 7.0 / 23.0,
-                "summary_direction": "increase",
-                "resolved_input_summary": {
-                    "current_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "baseline_time_scope": {
-                        "field": "time",
-                        "start": "2023-01-01",
-                        "end": "2023-01-08",
-                    },
-                },
-                "analytical_metadata": {
+            _time_series_delta_artifact(
+                points=[
+                    {
+                        "window": {"start": "2024-01-02", "end": "2024-01-04"},
+                        "current_value": 30.0,
+                        "baseline_value": 23.0,
+                        "delta_abs": 7.0,
+                        "delta_pct": 7.0 / 23.0,
+                        "direction": "increase",
+                        "presence": "both",
+                    }
+                ],
+                analytical_metadata={
                     "matched_bucket_count": 2,
                     "matched_time_scope": {
                         "field": "time",
@@ -325,7 +280,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
                         "end": "2024-01-04",
                     },
                 },
-            }
+            )
         )
 
         self.assertEqual(normalized["comparison_type"], "time_series_delta")
@@ -346,48 +301,19 @@ class DecomposeHourWindowTests(unittest.TestCase):
 
     def test_time_series_compare_input_prefers_side_specific_matched_time_scopes(self) -> None:
         normalized = _normalize_decompose_compare_input(
-            {
-                "artifact_family": "delta_frame",
-                "shape": "time_series_delta",
-                "schema_version": "2.0",
-                "metric": "m1",
-                "axes": [{"kind": "time", "grain": "day", "comparison_side": "both"}],
-                "payload": {
-                    "series": [
-                        {
-                            "keys": {},
-                            "points": [
-                                {
-                                    "window": {"start": "2024-01-02", "end": "2024-01-04"},
-                                    "current_value": 30.0,
-                                    "baseline_value": 23.0,
-                                    "delta_abs": 7.0,
-                                    "delta_pct": 7.0 / 23.0,
-                                    "direction": "increase",
-                                    "presence": "both",
-                                }
-                            ],
-                        }
-                    ],
-                },
-                "summary_current_value": 30.0,
-                "summary_baseline_value": 23.0,
-                "summary_absolute_delta": 7.0,
-                "summary_relative_delta": 7.0 / 23.0,
-                "summary_direction": "increase",
-                "resolved_input_summary": {
-                    "current_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "baseline_time_scope": {
-                        "field": "time",
-                        "start": "2023-01-01",
-                        "end": "2023-01-08",
-                    },
-                },
-                "analytical_metadata": {
+            _time_series_delta_artifact(
+                points=[
+                    {
+                        "window": {"start": "2024-01-02", "end": "2024-01-04"},
+                        "current_value": 30.0,
+                        "baseline_value": 23.0,
+                        "delta_abs": 7.0,
+                        "delta_pct": 7.0 / 23.0,
+                        "direction": "increase",
+                        "presence": "both",
+                    }
+                ],
+                analytical_metadata={
                     "matched_bucket_count": 2,
                     "pairing_basis": "calendar_aligned_observation_windows",
                     "pairing_rule": "calendar_aligned_bucket_pairing",
@@ -402,7 +328,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
                         "end": "2023-01-05",
                     },
                 },
-            }
+            )
         )
 
         self.assertEqual(
@@ -420,6 +346,392 @@ class DecomposeHourWindowTests(unittest.TestCase):
         self.assertEqual(
             normalized["analytical_metadata"]["source_pairing_rule"],
             "calendar_aligned_bucket_pairing",
+        )
+
+    def test_segmented_delta_same_dimension_normalizes_fast_path_rows(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "artifact_family": "delta_frame",
+                "shape": "segmented_delta",
+                "capabilities": ["sliceable", "filterable", "decomposable"],
+                "metric_ref": "metric.revenue",
+                "axes": [{"kind": "dimension", "name": "channel"}],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {"channel": "paid"},
+                            "points": [
+                                {
+                                    "current_value": 70.0,
+                                    "baseline_value": 58.0,
+                                    "delta_abs": 12.0,
+                                    "delta_pct": 12.0 / 58.0,
+                                    "presence": "both",
+                                }
+                            ],
+                        },
+                        {
+                            "keys": {"channel": "organic"},
+                            "points": [
+                                {
+                                    "current_value": 50.0,
+                                    "baseline_value": 42.0,
+                                    "delta_abs": 8.0,
+                                    "delta_pct": 8.0 / 42.0,
+                                    "presence": "both",
+                                }
+                            ],
+                        },
+                    ],
+                    "scope": {
+                        "current_value": 120.0,
+                        "baseline_value": 100.0,
+                        "delta_abs": 20.0,
+                        "delta_pct": 0.2,
+                        "direction": "increase",
+                    },
+                },
+                "subject": {
+                    "kind": "comparison",
+                    "metric_ref": "metric.revenue",
+                    "current": {
+                        "time_scope": {
+                            "field": "time",
+                            "start": "2024-01-08",
+                            "end": "2024-01-15",
+                        },
+                        "scope": {},
+                    },
+                    "baseline": {
+                        "time_scope": {
+                            "field": "time",
+                            "start": "2024-01-01",
+                            "end": "2024-01-08",
+                        },
+                        "scope": {},
+                    },
+                },
+                "lineage": {
+                    "current_source_ref": {"step_id": "step_current"},
+                    "baseline_source_ref": {"step_id": "step_baseline"},
+                },
+                "analytical_metadata": {"series_complete": True},
+            },
+            requested_dimension="channel",
+        )
+
+        self.assertEqual(normalized["shape"], "segmented_delta")
+        self.assertEqual(normalized["fast_path_dimension"], "channel")
+        self.assertEqual(
+            normalized["fast_path_rows"],
+            [
+                {
+                    "key": "paid",
+                    "current_value": 70.0,
+                    "baseline_value": 58.0,
+                    "absolute_contribution": 12.0,
+                    "presence": "both",
+                },
+                {
+                    "key": "organic",
+                    "current_value": 50.0,
+                    "baseline_value": 42.0,
+                    "absolute_contribution": 8.0,
+                    "presence": "both",
+                },
+            ],
+        )
+
+    def test_panel_delta_same_dimension_aggregates_fast_path_rows(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "artifact_family": "delta_frame",
+                "shape": "panel_delta",
+                "capabilities": ["sliceable", "filterable", "decomposable"],
+                "metric_ref": "metric.revenue",
+                "axes": [
+                    {"kind": "time", "grain": "day"},
+                    {"kind": "dimension", "name": "channel"},
+                ],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {"channel": "paid"},
+                            "points": [
+                                {
+                                    "window": {"start": "2024-01-08", "end": "2024-01-09"},
+                                    "current_value": 30.0,
+                                    "baseline_value": 20.0,
+                                    "delta_abs": 10.0,
+                                    "presence": "both",
+                                },
+                                {
+                                    "window": {"start": "2024-01-09", "end": "2024-01-10"},
+                                    "current_value": 40.0,
+                                    "baseline_value": 38.0,
+                                    "delta_abs": 2.0,
+                                    "presence": "both",
+                                },
+                            ],
+                        },
+                        {
+                            "keys": {"channel": "organic"},
+                            "points": [
+                                {
+                                    "window": {"start": "2024-01-08", "end": "2024-01-09"},
+                                    "current_value": 25.0,
+                                    "baseline_value": 20.0,
+                                    "delta_abs": 5.0,
+                                    "presence": "both",
+                                },
+                                {
+                                    "window": {"start": "2024-01-09", "end": "2024-01-10"},
+                                    "current_value": 25.0,
+                                    "baseline_value": 22.0,
+                                    "delta_abs": 3.0,
+                                    "presence": "both",
+                                },
+                            ],
+                        },
+                    ],
+                    "scope": {
+                        "current_value": 120.0,
+                        "baseline_value": 100.0,
+                        "delta_abs": 20.0,
+                        "delta_pct": 0.2,
+                        "direction": "increase",
+                    },
+                },
+                "subject": {
+                    "kind": "comparison",
+                    "metric_ref": "metric.revenue",
+                    "current": {
+                        "time_scope": {
+                            "field": "time",
+                            "start": "2024-01-08",
+                            "end": "2024-01-10",
+                        },
+                        "scope": {},
+                    },
+                    "baseline": {
+                        "time_scope": {
+                            "field": "time",
+                            "start": "2024-01-01",
+                            "end": "2024-01-03",
+                        },
+                        "scope": {},
+                    },
+                },
+                "lineage": {
+                    "current_source_ref": {"step_id": "step_current"},
+                    "baseline_source_ref": {"step_id": "step_baseline"},
+                },
+                "analytical_metadata": {"series_complete": True, "matched_bucket_count": 2},
+            },
+            requested_dimension="channel",
+        )
+
+        self.assertEqual(normalized["shape"], "panel_delta")
+        self.assertEqual(normalized["fast_path_dimension"], "channel")
+        self.assertEqual(
+            normalized["fast_path_rows"],
+            [
+                {
+                    "key": "paid",
+                    "current_value": 70.0,
+                    "baseline_value": 58.0,
+                    "absolute_contribution": 12.0,
+                    "presence": "both",
+                },
+                {
+                    "key": "organic",
+                    "current_value": 50.0,
+                    "baseline_value": 42.0,
+                    "absolute_contribution": 8.0,
+                    "presence": "both",
+                },
+            ],
+        )
+
+    def test_segmented_delta_without_completeness_has_no_fast_path(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "artifact_family": "delta_frame",
+                "shape": "segmented_delta",
+                "capabilities": ["sliceable", "filterable", "decomposable"],
+                "metric_ref": "metric.revenue",
+                "axes": [{"kind": "dimension", "name": "channel"}],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {"channel": "paid"},
+                            "points": [
+                                {
+                                    "current_value": 70.0,
+                                    "baseline_value": 58.0,
+                                    "delta_abs": 12.0,
+                                }
+                            ],
+                        }
+                    ],
+                    "scope": {"delta_abs": 20.0},
+                },
+                "subject": {
+                    "kind": "comparison",
+                    "metric_ref": "metric.revenue",
+                    "current": {
+                        "time_scope": {
+                            "field": "time",
+                            "start": "2024-01-08",
+                            "end": "2024-01-15",
+                        },
+                        "scope": {},
+                    },
+                    "baseline": {
+                        "time_scope": {
+                            "field": "time",
+                            "start": "2024-01-01",
+                            "end": "2024-01-08",
+                        },
+                        "scope": {},
+                    },
+                },
+                "lineage": {
+                    "current_source_ref": {"step_id": "step_current"},
+                    "baseline_source_ref": {"step_id": "step_baseline"},
+                },
+                "analytical_metadata": {"series_complete": False},
+            },
+            requested_dimension="channel",
+        )
+
+        self.assertEqual(normalized["fast_path_dimension"], "channel")
+        self.assertIsNone(normalized["fast_path_rows"])
+
+    def test_segmented_delta_fast_path_infers_current_only_presence(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "artifact_family": "delta_frame",
+                "shape": "segmented_delta",
+                "capabilities": ["sliceable", "filterable", "decomposable"],
+                "metric_ref": "metric.revenue",
+                "axes": [{"kind": "dimension", "name": "channel"}],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {"channel": "paid"},
+                            "points": [
+                                {
+                                    "current_value": 70.0,
+                                    "baseline_value": None,
+                                    "delta_abs": 70.0,
+                                }
+                            ],
+                        }
+                    ],
+                    "scope": {"delta_abs": 70.0},
+                },
+                "subject": _comparison_subject(),
+                "lineage": {
+                    "current_source_ref": {"step_id": "step_current"},
+                    "baseline_source_ref": {"step_id": "step_baseline"},
+                },
+                "analytical_metadata": {"series_complete": True},
+            },
+            requested_dimension="channel",
+        )
+
+        self.assertEqual(normalized["fast_path_rows"][0]["presence"], "current_only")
+
+    def test_panel_delta_fast_path_computes_missing_delta_abs_from_values(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "artifact_family": "delta_frame",
+                "shape": "panel_delta",
+                "capabilities": ["sliceable", "filterable", "decomposable"],
+                "metric_ref": "metric.revenue",
+                "axes": [
+                    {"kind": "time", "grain": "day"},
+                    {"kind": "dimension", "name": "channel"},
+                ],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {"channel": "paid"},
+                            "points": [
+                                {
+                                    "current_value": 30.0,
+                                    "baseline_value": 20.0,
+                                }
+                            ],
+                        }
+                    ],
+                    "scope": {"delta_abs": 10.0},
+                },
+                "subject": _comparison_subject(),
+                "lineage": {
+                    "current_source_ref": {"step_id": "step_current"},
+                    "baseline_source_ref": {"step_id": "step_baseline"},
+                },
+                "analytical_metadata": {"series_complete": True},
+            },
+            requested_dimension="channel",
+        )
+
+        self.assertEqual(normalized["fast_path_rows"][0]["absolute_contribution"], 10.0)
+
+    def test_panel_delta_fast_path_infers_side_only_presence(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "artifact_family": "delta_frame",
+                "shape": "panel_delta",
+                "capabilities": ["sliceable", "filterable", "decomposable"],
+                "metric_ref": "metric.revenue",
+                "axes": [
+                    {"kind": "time", "grain": "day"},
+                    {"kind": "dimension", "name": "channel"},
+                ],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {"channel": "paid"},
+                            "points": [{"current_value": 30.0, "baseline_value": None}],
+                        },
+                        {
+                            "keys": {"channel": "organic"},
+                            "points": [{"current_value": None, "baseline_value": 22.0}],
+                        },
+                    ],
+                    "scope": {"delta_abs": 8.0},
+                },
+                "subject": _comparison_subject(),
+                "lineage": {
+                    "current_source_ref": {"step_id": "step_current"},
+                    "baseline_source_ref": {"step_id": "step_baseline"},
+                },
+                "analytical_metadata": {"series_complete": True},
+            },
+            requested_dimension="channel",
+        )
+
+        self.assertEqual(
+            normalized["fast_path_rows"],
+            [
+                {
+                    "key": "paid",
+                    "current_value": 30.0,
+                    "baseline_value": None,
+                    "absolute_contribution": None,
+                    "presence": "current_only",
+                },
+                {
+                    "key": "organic",
+                    "current_value": None,
+                    "baseline_value": 22.0,
+                    "absolute_contribution": None,
+                    "presence": "baseline_only",
+                },
+            ],
         )
 
     def test_run_segmented_query_uses_exact_window_with_datetime_boundaries(self) -> None:
@@ -575,6 +887,146 @@ class DecomposeHourWindowTests(unittest.TestCase):
         self.assertEqual(params["time_scope_field"], "log_date")
 
 
+class DecomposeDeltaFrameGuardTests(unittest.TestCase):
+    def test_decompose_rejects_non_delta_frame_source(self) -> None:
+        with self.assertRaisesRegex(ValueError, "source artifact must be delta_frame"):
+            _normalize_decompose_compare_input(
+                {
+                    "artifact_family": "metric_frame",
+                    "shape": "scalar",
+                    "capabilities": ["comparable"],
+                    "axes": [],
+                    "payload": {"series": []},
+                }
+            )
+
+    def test_decompose_rejects_delta_frame_without_decomposable_capability(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires decomposable capability"):
+            _normalize_decompose_compare_input(
+                {
+                    "artifact_family": "delta_frame",
+                    "shape": "scalar_delta",
+                    "capabilities": ["filterable"],
+                    "axes": [],
+                    "payload": {"series": []},
+                }
+            )
+
+    def test_decompose_rejects_malformed_axes_as_value_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "axes must be a list"):
+            _normalize_decompose_compare_input(
+                {
+                    **_scalar_delta_artifact(),
+                    "axes": {"kind": "time"},
+                }
+            )
+
+    def test_decompose_rejects_time_series_delta_with_two_time_axes(self) -> None:
+        with self.assertRaisesRegex(ValueError, "time_series_delta requires exactly one time axis"):
+            _normalize_decompose_compare_input(
+                {
+                    **_time_series_delta_artifact(
+                        points=[
+                            {
+                                "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                                "current_value": 30.0,
+                                "baseline_value": 23.0,
+                                "delta_abs": 7.0,
+                                "delta_pct": 7.0 / 23.0,
+                                "direction": "increase",
+                                "presence": "both",
+                            }
+                        ]
+                    ),
+                    "axes": [
+                        {"kind": "time", "grain": "day"},
+                        {"kind": "time", "grain": "week"},
+                    ],
+                }
+            )
+
+    def test_decompose_rejects_delta_frame_with_only_top_level_series(self) -> None:
+        artifact = _scalar_delta_artifact()
+        top_level_series = artifact["payload"]["series"]
+        artifact.pop("payload")
+        artifact["series"] = top_level_series
+
+        with self.assertRaisesRegex(ValueError, "payload.series"):
+            _normalize_decompose_compare_input(artifact)
+
+    def test_decompose_rejects_payload_series_entry_without_points(self) -> None:
+        with self.assertRaisesRegex(ValueError, "series entry points must be a non-empty list"):
+            _normalize_decompose_compare_input(
+                {
+                    **_scalar_delta_artifact(),
+                    "payload": {"series": [{"keys": {}}]},
+                }
+            )
+
+    def test_decompose_accepts_scalar_delta_frame_family(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "artifact_family": "delta_frame",
+                "shape": "scalar_delta",
+                "capabilities": ["filterable", "decomposable"],
+                "metric": "m1",
+                "metric_ref": "metric.m1",
+                "axes": [],
+                "payload": {
+                    "series": [
+                        {
+                            "keys": {},
+                            "points": [
+                                {
+                                    "current_value": 100.0,
+                                    "baseline_value": 80.0,
+                                    "delta_abs": 20.0,
+                                    "delta_pct": 0.25,
+                                    "direction": "increase",
+                                }
+                            ],
+                        }
+                    ],
+                    "scope": {
+                        "current_value": 100.0,
+                        "baseline_value": 80.0,
+                        "delta_abs": 20.0,
+                        "delta_pct": 0.25,
+                        "direction": "increase",
+                    },
+                },
+                "subject": {
+                    "kind": "comparison",
+                    "metric_ref": "metric.m1",
+                    "current": {
+                        "time_scope": {
+                            "field": "time",
+                            "start": "2024-01-08",
+                            "end": "2024-01-15",
+                        },
+                        "scope": {},
+                    },
+                    "baseline": {
+                        "time_scope": {
+                            "field": "time",
+                            "start": "2024-01-01",
+                            "end": "2024-01-08",
+                        },
+                        "scope": {},
+                    },
+                },
+                "lineage": {
+                    "current_source_ref": {"step_id": "step_current"},
+                    "baseline_source_ref": {"step_id": "step_baseline"},
+                },
+            }
+        )
+
+        self.assertEqual(normalized["shape"], "scalar_delta")
+        self.assertEqual(normalized["scope_absolute_delta"], 20.0)
+        self.assertEqual(normalized["current_time_scope"]["start"], "2024-01-08")
+
+
 class TestDecomposeRunnerCommitPath(unittest.TestCase):
     """run_decompose_intent must call _commit_artifact_with_extraction(step_type='decompose')."""
 
@@ -587,57 +1039,20 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         return runtime
 
     def _run_decompose(
-        self, runtime: MagicMock, compare_artifact: dict[str, Any] | None = None
+        self,
+        runtime: MagicMock,
+        compare_artifact: dict[str, Any] | None = None,
+        *,
+        dimension: str = "dim1",
     ) -> dict[str, Any]:
 
         if compare_artifact is None:
-            # v2.0 delta_frame scalar_delta format
             compare_artifact = {
-                "artifact_family": "delta_frame",
-                "shape": "scalar_delta",
-                "schema_version": "2.0",
-                "metric": "m1",
+                **_scalar_delta_artifact(),
                 "unit": None,
-                "axes": [],
-                "payload": {
-                    "series": [
-                        {
-                            "keys": {},
-                            "points": [
-                                {
-                                    "current_value": 100.0,
-                                    "baseline_value": 90.0,
-                                    "delta_abs": 10.0,
-                                    "delta_pct": 10.0 / 90.0,
-                                    "direction": "increase",
-                                }
-                            ],
-                        }
-                    ],
-                },
-                # Top-level aliases for backward compat
-                "current_value": 100.0,
-                "baseline_value": 90.0,
-                "absolute_delta": 10.0,
-                "relative_delta": 10.0 / 90.0,
-                "direction": "increase",
                 "lineage": {
                     "current_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
                     "baseline_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
-                },
-                "resolved_input_summary": {
-                    "current_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "baseline_time_scope": {
-                        "field": "time",
-                        "start": "2023-12-25",
-                        "end": "2024-01-01",
-                    },
-                    "current_scope": {},
-                    "baseline_scope": {},
                 },
             }
         runtime.resolve_artifact_by_id.return_value = compare_artifact
@@ -650,14 +1065,14 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                 "decomposition_semantics": "ratio",
             },
             "payload": {
-                "dimensions": ["dim1"],
+                "dimensions": [dimension],
             },
         }
         resolved_metric.decomposition_semantics = "ratio"
-        resolved_metric.dimensions = ["dim1"]
+        resolved_metric.dimensions = [dimension]
         resolved_metric.grain = "day"
         runtime.resolve_metric.return_value = resolved_metric
-        runtime.resolve_metric_dimensions.return_value = ["dim1"]
+        runtime.resolve_metric_dimensions.return_value = [dimension]
         runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
 
         runtime.resolve_metric_table.return_value = "src.metrics"
@@ -671,12 +1086,12 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         runtime.compile_step.return_value = _make_compiled_mock()
         runtime.build_scoped_query.return_value = None
 
-        params = {"compare_artifact_id": "art_compare", "dimension": "dim1"}
+        params = {"compare_artifact_id": "art_compare", "dimension": dimension}
         with patch("marivo.runtime.intents.decompose.execute_compiled") as mock_exec:
             # Return 1 row for both left and right segmented queries.
             # Configure metadata.get() to return None so the query_hash branch skips.
             mock_result = MagicMock()
-            mock_result.rows = [{"dim1": "segment_a", "current_value": 50.0}]
+            mock_result.rows = [{dimension: "segment_a", "current_value": 50.0}]
             mock_result.metadata.get.return_value = None
             mock_exec.return_value = mock_result
             return run_decompose_intent(runtime, _SESSION, params)
@@ -692,30 +1107,85 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         _, kwargs = runtime.commit_artifact_with_extraction.call_args
         self.assertEqual(kwargs.get("step_type"), "decompose")
 
-    def test_decompose_artifact_type_is_delta_decomposition(self) -> None:
+    def test_decompose_artifact_type_is_attribution_frame(self) -> None:
         runtime = self._make_runtime()
         self._run_decompose(runtime)
         args, _ = runtime.commit_artifact_with_extraction.call_args
-        self.assertEqual(args[2], "delta_decomposition")
+        self.assertEqual(args[2], "attribution_frame")
 
     def test_decompose_output_has_schema_version_2(self) -> None:
         runtime = self._make_runtime()
         result = self._run_decompose(runtime)
         self.assertEqual(result["schema_version"], "2.0")
 
-    def test_decompose_output_has_axes_and_series(self) -> None:
+    def test_decompose_output_is_attribution_frame(self) -> None:
         runtime = self._make_runtime()
-        result = self._run_decompose(runtime)
-        self.assertIsInstance(result["axes"], list)
-        self.assertEqual(result["axes"], [{"kind": "dimension", "name": "dim1"}])
-        self.assertIsInstance(result["series"], list)
-        # The series should have entries for the decomposed dimension
-        self.assertTrue(len(result["series"]) > 0)
-        # Each series entry should have keys and points
-        for entry in result["series"]:
-            self.assertIn("keys", entry)
-            self.assertIn("points", entry)
-            self.assertIn("dim1", entry["keys"])
+        result = self._run_decompose(runtime, dimension="channel")
+
+        self.assertEqual(result["artifact_family"], "attribution_frame")
+        self.assertEqual(result["shape"], "ranked_contributions")
+        self.assertEqual(result["axes"], [{"kind": "dimension", "name": "channel"}])
+        self.assertEqual(
+            result["measures"],
+            [
+                {"id": "contribution_abs", "value_type": "number", "nullable": False},
+                {"id": "contribution_pct", "value_type": "number", "nullable": True},
+            ],
+        )
+        self.assertEqual(result["payload"]["scope"]["delta_abs"], result["scope_absolute_delta"])
+        self.assertEqual(
+            result["payload"]["series"][0]["points"][0]["contribution_abs"],
+            result["rows"][0]["absolute_contribution"],
+        )
+        self.assertEqual(
+            result["payload"]["series"][0]["points"][0]["contribution_pct"],
+            result["rows"][0]["contribution_share"],
+        )
+        self.assertTrue(result["artifact_id"])
+
+    def test_decompose_output_canonical_subset_validates_as_attribution_frame(self) -> None:
+        runtime = self._make_runtime()
+        compare_artifact = {
+            **_scalar_delta_artifact(),
+            "subject": {
+                "kind": "comparison",
+                "metric_ref": "metric.m1",
+                "current": {
+                    "time_scope": {
+                        "field": "time",
+                        "start": "2024-01-01T00:00:00Z",
+                        "end": "2024-01-08T00:00:00Z",
+                    },
+                    "scope": {},
+                },
+                "baseline": {
+                    "time_scope": {
+                        "field": "time",
+                        "start": "2023-12-25T00:00:00Z",
+                        "end": "2024-01-01T00:00:00Z",
+                    },
+                    "scope": {},
+                },
+            },
+            "unit": None,
+            "lineage": {
+                "current_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
+                "baseline_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
+            },
+        }
+
+        result = self._run_decompose(runtime, compare_artifact, dimension="channel")
+
+        canonical_subset = _attribution_frame_canonical_subset(result)
+        self.assertNotIn("metric_ref", result)
+        self.assertEqual(
+            canonical_subset["lineage"],
+            {"operation": "decompose", "source_artifact_ids": ["art_compare"]},
+        )
+        self.assertIn("compare_artifact", result["source_lineage"])
+        self.assertIn("current_artifact", result["source_lineage"])
+        self.assertIn("baseline_artifact", result["source_lineage"])
+        aoi.AttributionFrameArtifact.model_validate(canonical_subset)
 
     def test_decompose_output_has_rows_backward_compat_alias(self) -> None:
         runtime = self._make_runtime()
@@ -740,100 +1210,77 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         self.assertIn("scope_relative_delta", result)
         self.assertIn("scope_direction", result)
 
-    def test_decompose_time_series_delta_commits_summary_delta_decomposition(self) -> None:
+    def test_decompose_time_series_delta_commits_summary_attribution_frame(self) -> None:
         runtime = self._make_runtime()
         result = self._run_decompose(
             runtime,
             {
-                "artifact_family": "delta_frame",
-                "shape": "time_series_delta",
-                "schema_version": "2.0",
-                "metric": "m1",
-                "unit": None,
-                "axes": [{"kind": "time", "grain": "day", "comparison_side": "both"}],
-                "payload": {
-                    "series": [
+                **_time_series_delta_artifact(
+                    points=[
                         {
-                            "keys": {},
-                            "points": [
-                                {
-                                    "window": {"start": "2024-01-01", "end": "2024-01-02"},
-                                    "current_value": 60.0,
-                                    "baseline_value": 45.0,
-                                    "delta_abs": 15.0,
-                                    "delta_pct": 15.0 / 45.0,
-                                    "direction": "increase",
-                                    "presence": "both",
-                                },
-                                {
-                                    "window": {"start": "2024-01-02", "end": "2024-01-03"},
-                                    "current_value": 60.0,
-                                    "baseline_value": 45.0,
-                                    "delta_abs": 15.0,
-                                    "delta_pct": 15.0 / 45.0,
-                                    "direction": "increase",
-                                    "presence": "both",
-                                },
-                            ],
-                        }
+                            "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                            "current_value": 60.0,
+                            "baseline_value": 45.0,
+                            "delta_abs": 15.0,
+                            "delta_pct": 15.0 / 45.0,
+                            "direction": "increase",
+                            "presence": "both",
+                        },
+                        {
+                            "window": {"start": "2024-01-02", "end": "2024-01-03"},
+                            "current_value": 60.0,
+                            "baseline_value": 45.0,
+                            "delta_abs": 15.0,
+                            "delta_pct": 15.0 / 45.0,
+                            "direction": "increase",
+                            "presence": "both",
+                        },
                     ],
-                },
-                "summary_current_value": 120.0,
-                "summary_baseline_value": 90.0,
-                "summary_absolute_delta": 30.0,
-                "summary_relative_delta": 0.333,
-                "summary_direction": "increase",
+                    scope={
+                        "current_value": 120.0,
+                        "baseline_value": 90.0,
+                        "delta_abs": 30.0,
+                        "delta_pct": 0.333,
+                        "direction": "increase",
+                    },
+                    analytical_metadata={
+                        "pairing_basis": "calendar_aligned_observation_windows",
+                        "pairing_rule": "calendar_aligned_bucket_pairing",
+                        "matched_bucket_count": 7,
+                        "dropped_current_buckets": 0,
+                        "dropped_baseline_buckets": 0,
+                        "matched_time_scope": {
+                            "field": "time",
+                            "start": "2024-01-01",
+                            "end": "2024-01-08",
+                        },
+                        "matched_current_time_scope": {
+                            "field": "time",
+                            "start": "2024-01-01",
+                            "end": "2024-01-08",
+                        },
+                        "matched_baseline_time_scope": {
+                            "field": "time",
+                            "start": "2023-01-01",
+                            "end": "2023-01-08",
+                        },
+                    },
+                ),
+                "unit": None,
                 "lineage": {
                     "current_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
                     "baseline_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
-                },
-                "resolved_input_summary": {
-                    "current_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "baseline_time_scope": {
-                        "field": "time",
-                        "start": "2023-01-01",
-                        "end": "2023-01-08",
-                    },
-                    "current_scope": {},
-                    "baseline_scope": {},
-                },
-                "analytical_metadata": {
-                    "pairing_basis": "calendar_aligned_observation_windows",
-                    "pairing_rule": "calendar_aligned_bucket_pairing",
-                    "matched_bucket_count": 7,
-                    "dropped_current_buckets": 0,
-                    "dropped_baseline_buckets": 0,
-                    "matched_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "matched_current_time_scope": {
-                        "field": "time",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    },
-                    "matched_baseline_time_scope": {
-                        "field": "time",
-                        "start": "2023-01-01",
-                        "end": "2023-01-08",
-                    },
                 },
             },
         )
 
         self.assertEqual(result["compare_ref"]["comparison_type"], "time_series_delta")
-        self.assertEqual(result["compare_ref"]["shape"], "time_series_delta")
         self.assertEqual(result["current_ref"]["observation_type"], "time_series")
         self.assertEqual(result["baseline_ref"]["observation_type"], "time_series")
         self.assertEqual(result["scope_absolute_delta"], 30.0)
         self.assertEqual(result["schema_version"], "2.0")
         self.assertIsInstance(result["axes"], list)
-        self.assertIsInstance(result["series"], list)
+        self.assertIsInstance(result["payload"]["series"], list)
         self.assertEqual(
             result["analytical_metadata"]["decomposition_source"],
             "time_series_summary_delta",
@@ -843,6 +1290,133 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
             result["analytical_metadata"]["source_pairing_basis"],
             "calendar_aligned_observation_windows",
         )
+
+    def test_decompose_segmented_delta_fast_path_skips_segmented_queries(self) -> None:
+        runtime = self._make_runtime()
+        compare_artifact = {
+            "artifact_family": "delta_frame",
+            "shape": "segmented_delta",
+            "capabilities": ["sliceable", "filterable", "decomposable"],
+            "schema_version": "2.0",
+            "metric": "m1",
+            "metric_ref": "metric.m1",
+            "axes": [{"kind": "dimension", "name": "dim1"}],
+            "payload": {
+                "series": [
+                    {
+                        "keys": {"dim1": "paid"},
+                        "points": [
+                            {
+                                "current_value": 70.0,
+                                "baseline_value": 58.0,
+                                "delta_abs": 12.0,
+                                "presence": "both",
+                            }
+                        ],
+                    },
+                    {
+                        "keys": {"dim1": "organic"},
+                        "points": [
+                            {
+                                "current_value": 50.0,
+                                "baseline_value": 42.0,
+                                "delta_abs": 8.0,
+                                "presence": "both",
+                            }
+                        ],
+                    },
+                ],
+                "scope": {
+                    "current_value": 120.0,
+                    "baseline_value": 100.0,
+                    "delta_abs": 20.0,
+                    "delta_pct": 0.2,
+                    "direction": "increase",
+                },
+            },
+            "subject": _comparison_subject(),
+            "lineage": {
+                "current_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
+                "baseline_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
+            },
+            "analytical_metadata": {"series_complete": True},
+        }
+        runtime.resolve_artifact_by_id.return_value = compare_artifact
+        runtime.resolve_artifact_id_for_step.return_value = "art_fake_ref001"
+
+        resolved_metric = MagicMock()
+        resolved_metric.semantic_object = {"header": {"decomposition_semantics": "sum"}}
+        resolved_metric.allowed_dimensions = ["dim1"]
+        resolved_metric.dimensions = ["dim1"]
+        runtime.resolve_metric.return_value = resolved_metric
+        runtime.resolve_metric_dimensions.return_value = ["dim1"]
+        runtime.resolve_metric_table.return_value = "src.metrics"
+        runtime.resolve_engine_for_session.return_value = (
+            MagicMock(),
+            "duckdb",
+            {"src.metrics": "src.metrics"},
+        )
+        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+
+        with patch("marivo.runtime.intents.decompose._run_segmented_query") as mock_query:
+            result = run_decompose_intent(
+                runtime,
+                _SESSION,
+                {"compare_artifact_id": "art_compare", "dimension": "dim1"},
+            )
+
+        mock_query.assert_not_called()
+        self.assertEqual(
+            result["rows"],
+            [
+                {
+                    "key": "paid",
+                    "current_value": 70.0,
+                    "baseline_value": 58.0,
+                    "absolute_contribution": 12.0,
+                    "contribution_share": 0.6,
+                    "direction": "increase",
+                    "presence": "both",
+                },
+                {
+                    "key": "organic",
+                    "current_value": 50.0,
+                    "baseline_value": 42.0,
+                    "absolute_contribution": 8.0,
+                    "contribution_share": 0.4,
+                    "direction": "increase",
+                    "presence": "both",
+                },
+            ],
+        )
+
+
+class DecomposeAttributionSeriesTests(unittest.TestCase):
+    def test_attribution_series_requires_absolute_contribution(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "absolute_contribution",
+        ):
+            _attribution_series_from_rows(
+                [{"key": "paid", "absolute_contribution": None}],
+                dimension="channel",
+            )
+
+    def test_attribution_series_omits_invalid_presence(self) -> None:
+        series = _attribution_series_from_rows(
+            [
+                {
+                    "key": "paid",
+                    "absolute_contribution": 12.0,
+                    "contribution_share": 0.6,
+                    "presence": "undefined",
+                }
+            ],
+            dimension="channel",
+        )
+
+        point = series[0]["points"][0]
+        self.assertNotIn("presence", point)
 
 
 # -- detect --------------------------------------------------------------------

@@ -223,6 +223,10 @@ The request contract is per-intent. Every atomic request is either **source-type
 | `decompose` | ref             | `compare_artifact_id: string`, `dimension`, `limit?`                                                                                          |
 | `correlate` | ref             | `left_artifact_id: string`, `right_artifact_id: string` (both time_series), `method?`, `min_pairs?`                                              |
 
+`decompose` returns an `attribution_frame` artifact with shape
+`ranked_contributions`. Each payload point carries `contribution_abs` and
+`contribution_pct`; these are attribution measures, not delta-frame measures.
+
 `test` is source-type with a *paired* slice spec: it embeds two slices directly rather than referencing upstream observations. Sample-summary statistics (count, mean, std_dev) are computed inside `test` from the underlying data at the required `grain` — they are not exposed as a separate AOI artifact. This keeps the standard from carrying a primitive whose only consumer is `test`.
 
 #### 4.1.2 `observe` output mode inference
@@ -301,7 +305,7 @@ metric_frame_artifact
 scalar_delta_result
 time_series_delta_result
 segmented_delta_result
-delta_decomposition_result
+attribution_frame_artifact
 anomaly_candidates_result
 association_result
 hypothesis_test_result
@@ -357,11 +361,35 @@ result: { "rows": [ { "item_id": string,
                       "delta": number | null } ],
           "matched_time_scope": TimeScope | null }
 
-// delta_decomposition_result
-result: { "items": [ { "item_id": string,
-                       "key": /* dim value */,
-                       "contribution": number,
-                       "share": number } ] }
+// attribution_frame_artifact
+artifact: { "artifact_id": string,
+            "artifact_family": "attribution_frame",
+            "shape": "ranked_contributions",
+            "subject": { "kind": "comparison",
+                         "metric_ref": string,
+                         "current": { "time_scope": TimeScope,
+                                      "scope": object },
+                         "baseline": { "time_scope": TimeScope,
+                                       "scope": object } },
+            "axes": [ { "kind": "dimension", "name": string } ],
+            "measures": [ { "id": "contribution_abs",
+                            "value_type": "number",
+                            "nullable": false },
+                          { "id": "contribution_pct",
+                            "value_type": "number",
+                            "nullable": true } ],
+            "capabilities": [ "filterable" ],
+            "lineage": { "operation": "decompose",
+                         "source_artifact_ids": [ string ] },
+            "payload": { "series": [ { "keys": DimensionKeyMap,
+                                        "points": [ { "contribution_abs": number,
+                                                      "contribution_pct": number | null,
+                                                      "current_value": number | null,
+                                                      "baseline_value": number | null,
+                                                      "presence": "both" | "current_only" | "baseline_only",
+                                                      "rank": integer } ] } ],
+                         "scope": object,
+                         "quality": object } }
 
 // anomaly_candidates_result
 result: { "items": [ { "item_id": string,
@@ -397,8 +425,8 @@ Numeric result semantics:
 | --- | --- | --- |
 | Observation `value`, anomaly candidate `value`, forecast `value`, and compare `current_value` / `baseline_value` | Metric domain; nullable fields use `null` only for absent observations. | Higher/lower follows the metric definition. AOI does not encode whether high is good or bad. |
 | Compare `delta` | Metric-domain difference, nullable when not computable. | Positive means left/current is higher than right/baseline; negative means lower; larger absolute value means a larger change. |
-| `delta_decomposition_result.items[].contribution` | Signed metric-domain contribution; finite number with no fixed schema bound. | Positive increases the compared delta; negative offsets it; larger absolute value means a stronger driver. |
-| `delta_decomposition_result.items[].share` | Signed ratio to total delta; finite number with no fixed schema bound because offsetting contributors may produce negative or greater-than-1 shares. | Same sign as the total delta reinforces the change; opposite sign offsets it; larger absolute value means higher relative importance. |
+| `attribution_frame_artifact.payload.series[].points[].contribution_abs` | Signed metric-domain contribution; finite number with no fixed schema bound. | Positive increases the compared delta; negative offsets it; larger absolute value means a stronger driver. |
+| `attribution_frame_artifact.payload.series[].points[].contribution_pct` | Signed ratio to total delta or `null` when not computable. | Same sign as the total delta reinforces the change; opposite sign offsets it; larger absolute value means higher relative importance. |
 | `anomaly_candidates_result.items[].score` | Non-negative number, `[0, +infinity)`. | Higher means more anomalous within the same implementation and scoring profile. Scores are not portable severity labels. |
 | `association_result.coefficient` | `[-1, 1]`. | Higher positive values mean stronger positive association; values near `0` mean weak/no association under the chosen method; lower negative values mean stronger inverse association. |
 | `p_value` fields | `[0, 1]`. | Lower means stronger evidence against the relevant null model; higher means weaker evidence. |
@@ -410,7 +438,7 @@ Non-blocking caveat fields are narrow and intent-specific. `matched_time_scope` 
 
 #### 4.2.4 List-with-items strict constraint
 
-Every row in `*_observation.rows[]`, `*_delta.rows[]`, `delta_decomposition.items[]`, and `anomaly_candidates.items[]` must carry an `item_id`. Consumers use `item_id` for stable row addressing within list-shaped artifacts.
+Every row in `*_observation.rows[]`, `*_delta.rows[]`, attribution frame payload points, and `anomaly_candidates.items[]` must carry stable row addressing. Compare and anomaly rows use `item_id`; attribution frame points use their ranked position within a keyed series.
 
 #### 4.2.5 Forecast is not an observation
 
@@ -460,9 +488,9 @@ Current Marivo row-level candidates remain outside AOI v0.2:
 | Calendar bucket-pairing rows (`bucket_pairing[]`, `pairing_reason`, `strictness_level`, `is_reused_baseline_bucket`) | Do not include | These explain how an implementation resolved a comparison, but consumers can consume the resulting `*_delta` values without them. `compare_type` on the producing step is sufficient to prevent mode mixing; detailed pairing is operator/debug audit data outside AOI v0.2. |
 | Matched bucket counts and coverage ratios on time-series rows | Do not include | Partial overlap is represented portably by result-level `matched_time_scope` where the successful analytical result needs that caveat. Per-row coverage ratios create a second warning surface and are not required to interpret `value: null`, `current_value`, `baseline_value`, or `delta`. |
 | Detect candidate display labels (`flag_level`, row severity labels) | Do not include | Core `anomaly_candidates.items[].score` is the machine-readable contract. Labels are thresholded presentation choices and can be derived by UI/SDK layers without changing the artifact. |
-| Compare/decompose row `direction` and `presence` | Do not include | `direction` is derivable from the sign of `delta` or `contribution`; `presence` is derivable from the left/right null pattern. Shipping both would allow disagreement with core numeric fields. |
+| Compare row `direction` and decompose point `direction` | Do not include | `direction` is derivable from the sign of `delta` or `contribution_abs`. Shipping both would allow disagreement with core numeric fields. |
 | Row `unit` echoes | Do not include | Unit belongs to the OSI metric definition, not to each AOI row. Repeating it per row increases drift risk and is unnecessary for consumers that can resolve metric metadata. |
-| Additivity or dimension-policy annotations on contribution rows | Do not include | Successful `delta_decomposition.items[]` already carries `contribution` and `share`. If additivity prevents a valid decomposition, that is a blocking failure with `failure.message`, not row metadata on a successful artifact. |
+| Additivity or dimension-policy annotations on contribution points | Do not include | Successful `attribution_frame` points carry `contribution_abs` and `contribution_pct`. If additivity prevents a valid decomposition, that is a blocking failure with `failure.message`, not point metadata on a successful artifact. |
 | Projection/pagination row counts (`returned_row_count`, `total_row_count`, `is_truncated`) | Do not include | AOI request limits define the bounded result. Pagination, UI projection, or "more rows existed" signals belong outside AOI v0.2 unless a future AOI revision defines a concrete transport/projection contract. |
 
 ### 5.2 Failure-detail data
@@ -623,7 +651,7 @@ Concrete evidence of consolidation. This table is also the input list for Marivo
 |-----------------------|----------|
 | 9 distinct ready-keywords (`comparable`, `attributable`, `aligned`, `detectable`, `valid`, `validated`, `forecastable`, `diagnosable`, `ready`) | **Removed from AOI artifacts.** AOI v0.2 has no artifact status vocabulary on the wire: presence of `result` means success, presence of `failure` means blocked. No "needs_attention" middle state in AOI artifacts. |
 | `direction: increase\|decrease\|flat\|undefined` (most intents) vs `up\|down\|flat\|undefined` (detect) | **`Direction` removed from spec.** Direction is `sign(value)`, derivable by consumers; "flat" requires an epsilon the spec never defined. Result bodies expose values; consumers classify direction locally. |
-| `presence: both\|current_only\|baseline_only` on compare delta rows and decompose contribution rows | **`Presence` removed from spec.** Presence is `null pattern` of (current_value, baseline_value); derivable. Spec stipulates instead: `value: null` means "no observation on that side"; one-sided rows must be retained. |
+| `presence: both\|current_only\|baseline_only` on compare delta rows vs attribution frame points | **Compare-row presence is removed.** Attribution frame points retain `presence` as interpretive metadata for current/baseline membership. It is not a delta measure, not a readiness/status flag, and does not replace the `current_value` / `baseline_value` null pattern. |
 | `unit` echoed on Observation, delta, contribution rows | **Removed from artifacts.** Unit is a metric-definition property in OSI; consumers retrieve unit through OSI metric metadata, not through AOI artifacts. |
 | `decision.reject_null: boolean\|null` (atomic test) vs `"reject_null"\|"fail_to_reject"\|"undetermined"` (validate) | AOI standardizes the `validate` and `attribute` request contracts only; derived response bundles remain implementation-owned. Atomic `test` retains `boolean\|null`. |
 | 18 `ComparabilityIssue` codes (half calendar-specific, mostly warnings) | Core enumerates only blocking codes (typically 4–6); non-blocking caveats are encoded in the result body (e.g. `compare.matched_time_scope`). Calendar-specific blockers use portable core failure codes. |
@@ -681,7 +709,7 @@ Section 5 explains why implementation-private metadata stays outside AOI v0.2. T
 | `flag_level` and similar row display labels | **Not included**; UI/SDK layers may derive labels from core `score`. |
 | Calendar-specific blocking issue codes | Portable core `failure.code` plus `failure.message`. |
 | `pairing_basis` / `pairing_rule` single-value literals | **Deleted** (single-value literals are not contracts). |
-| `gate`, `status`, `needs_attention`, `direction`, `presence`, `unit`, sample-summary observations, derived-intent bundles | **Not AOI artifact fields**; they are either derivable, presentation-only, folded into core result/failure fields, or private product-layer concepts. |
+| `gate`, `status`, `needs_attention`, `direction`, compare-row `presence`, `unit`, sample-summary observations, derived-intent bundles | **Not AOI artifact fields**; they are either derivable, presentation-only, folded into core result/failure fields, or private product-layer concepts. Attribution frame point `presence` is retained separately as current/baseline membership metadata, not as readiness/status. |
 
 ### 8.8 `observe.result_mode`, `forecast_series_result`, and sample-summary relocation
 
@@ -709,7 +737,7 @@ Section 5 explains why implementation-private metadata stays outside AOI v0.2. T
 | Distinct version field names | 11 | 0 in AOI artifacts | -100% |
 | Distinct ready-status keywords | 9 | 0 (no status field on wire; result-vs-failure is the signal) | -100% |
 | Direction enum variants | 2 (4 + 4 values) | 0 (removed; derived by consumer) | -100% |
-| Presence enum on delta / contribution rows | 1 (3 values) | 0 (removed; derived by consumer from null pattern) | -100% |
+| Presence enum on compare delta rows | 1 (3 values) | 0 (removed; derived by consumer from null pattern). Attribution frame point `presence` is retained as membership metadata, not as a delta measure or readiness/status flag. | -100% for compare rows |
 | `unit` field echoed on artifacts | per-artifact, every observation/delta/row | 0 (unit lives in OSI metric definition, not AOI artifact) | -100% |
 | Comparability issue codes | 18 | typically 4–6 blocking codes; warnings encoded in result body | -67%+ |
 | Test validation issue codes | 19 | typically 4–6 blocking codes; assumption signals in result body | -68%+ |
@@ -717,7 +745,7 @@ Section 5 explains why implementation-private metadata stays outside AOI v0.2. T
 | Top-level intent surface | 7 atomic + 3 derived | 7 atomic + validate + attribute + diagnose derived requests | 0% |
 | Result schema catalog | 13 (incl. numeric/rate sample summaries) | 11 (sample summaries folded into `test`) | -15% |
 | Observe result shape variants | 5 | 4 `metric_frame` shapes (scalar / time_series / segmented / panel; sample summaries removed) | -20% |
-| Result-body fields duplicating request | metric / time_scope / filter / unit / direction / presence echoed in every observation and delta artifact | 0 (request and response contracts separated; implementation resolves producing-step context outside the artifact body) | full lift |
+| Result-body fields duplicating request | metric / time_scope / filter / unit / direction / compare-row presence echoed in every observation and delta artifact | 0 (request and response contracts separated; implementation resolves producing-step context outside the artifact body). Attribution frame point `presence` is retained only as current/baseline membership metadata. | full lift |
 | Calendar / additivity fields in atomic core | dozens, inline | `compare_type` promoted to core; detailed calendar/additivity metadata removed from v0.2 artifacts | focused lift |
 | Validation envelopes (`Gate`, `Status`, `Truncation`, `Provenance`) | 4 multi-field structures, every artifact | 1 (`AnalysisFailure`, optional, mutually exclusive with `result`) | -75% structural, plus most artifacts no longer carry it |
 
@@ -761,6 +789,6 @@ foundation primitives package
 + 3 derived requests (validate, attribute, diagnose)
 ```
 
-That is the entire standard. No derived requests beyond `validate`, `attribute`, and `diagnose`, no composition recipes, no transport binding, no governance ceremony, no private metadata envelope, no per-artifact provenance, no truncation envelope, no artifact status vocabulary, no Direction or Presence enum, no unit echo. Consolidation against current Marivo schemas eliminates all 11 version fields from AOI artifacts, all artifact status keywords (replaced by a result-vs-failure invariant), all derived enums whose values can be computed from data (`Direction`, `Presence`), and the four heavy validation envelopes (`Gate`, `Status`, `Truncation`, `Provenance` collapse into a single optional `AnalysisFailure`). `observe` returns a top-level `metric_frame` artifact whose shape is derived from optional top-level selectors: neither selector produces `scalar`, `granularity` alone produces `time_series`, `dimensions` alone produces `segmented`, and both together produce `panel`. Comparison mode is core via `compare_type`; detailed calendar/additivity audit metadata stays out of AOI artifacts, and blocked-execution diagnostics use `failure.message`. Filter expressions reuse OSI's multi-dialect `Expression` shape directly.
+That is the entire standard. No derived requests beyond `validate`, `attribute`, and `diagnose`, no composition recipes, no transport binding, no governance ceremony, no private metadata envelope, no per-artifact provenance, no truncation envelope, no artifact status vocabulary, no Direction enum, no unit echo. Consolidation against current Marivo schemas eliminates all 11 version fields from AOI artifacts, all artifact status keywords (replaced by a result-vs-failure invariant), all derived direction/status enums whose values can be computed from data, and the four heavy validation envelopes (`Gate`, `Status`, `Truncation`, `Provenance` collapse into a single optional `AnalysisFailure`). Attribution frame points retain optional `presence` as current/baseline membership metadata; it is not a status, readiness flag, or delta measure. `observe` returns a top-level `metric_frame` artifact whose shape is derived from optional top-level selectors: neither selector produces `scalar`, `granularity` alone produces `time_series`, `dimensions` alone produces `segmented`, and both together produce `panel`. Comparison mode is core via `compare_type`; detailed calendar/additivity audit metadata stays out of AOI artifacts, and blocked-execution diagnostics use `failure.message`. Filter expressions reuse OSI's multi-dialect `Expression` shape directly.
 
 The result is a small, consolidated, defensible v0.2 that can be published independently of any implementation refactor.

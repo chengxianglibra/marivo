@@ -369,6 +369,55 @@ artifact_envelope:
     capabilities: forbidden
     payload: forbidden
 
+attribution_frame_artifact:
+  artifact_id: string
+  artifact_family: attribution_frame
+  shape: ranked_contributions
+  subject:
+    kind: comparison
+    metric_ref: string
+    current:
+      time_scope: time_scope
+      scope: object
+    baseline:
+      time_scope: time_scope
+      scope: object
+  axes:
+    - kind: dimension
+      name: string
+  measures:
+    - id: contribution_abs
+      value_type: number
+      nullable: false
+    - id: contribution_pct
+      value_type: number
+      nullable: true
+  capabilities:
+    - filterable
+  lineage:
+    operation: decompose
+    source_artifact_ids: string[]
+  payload:
+    series:
+      - keys: dimension_key_map
+        points:
+          - contribution_abs: number
+            contribution_pct: number | null
+            current_value: number | null
+            baseline_value: number | null
+            # Optional interpretive metadata for current/baseline membership;
+            # not a delta measure or readiness/status flag.
+            presence: both | current_only | baseline_only
+            rank: integer
+    scope: object
+    quality:
+      reconciliation_status: string | null
+      reconciliation_gap: number | null
+      confidence_grade: string | null
+      unexplained_delta_abs: number | null
+      unexplained_pct: number | null
+      unexplained_reason: string | null
+
 # Registry summary
 
 artifact_registry:

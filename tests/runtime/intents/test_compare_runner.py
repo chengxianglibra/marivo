@@ -167,6 +167,23 @@ def test_compare_type_non_normal_rejects_non_time_series_observations(
         _run_compare(runtime, _compare_params("weekday_aligned"))
 
 
+def test_compare_scalar_commits_scalar_delta() -> None:
+    runtime = _make_runtime(
+        _scalar_observation_v2("m1", value=42.0),
+        _scalar_observation_v2("m1", value=40.0),
+    )
+
+    result = _run_compare(runtime)
+
+    assert result["artifact_id"] == _FAKE_ARTIFACT_ID
+    assert result["comparison_type"] == "scalar_delta"
+    assert result["artifact_family"] == "delta_frame"
+    assert result["shape"] == "scalar_delta"
+    assert "decomposable" in result["capabilities"]
+    assert result["payload"]["scope"]["delta_abs"] == result["summary_absolute_delta"]
+    assert result["payload"]["series"][0]["points"][0]["delta_abs"] == result["absolute_delta"]
+
+
 def test_compare_time_series_commits_time_series_delta() -> None:
     runtime = _make_runtime(
         _time_series_observation_v2("m1"),
@@ -181,7 +198,15 @@ def test_compare_time_series_commits_time_series_delta() -> None:
 
     result = _run_compare(runtime)
 
+    assert result["comparison_type"] == "time_series_delta"
+    assert result["artifact_family"] == "delta_frame"
     assert result["shape"] == "time_series_delta"
+    assert "decomposable" in result["capabilities"]
+    assert result["payload"]["scope"]["delta_abs"] == result["summary_absolute_delta"]
+    assert (
+        result["payload"]["series"][0]["points"][0]["delta_abs"]
+        == result["series"][0]["points"][0]["delta_abs"]
+    )
     assert result["axes"] == [{"kind": "time", "grain": "day"}, {"kind": "comparison_side"}]
     points = result["payload"]["series"][0]["points"]
     assert len(points) == 2
@@ -319,7 +344,15 @@ def test_compare_segmented_commits_segmented_delta() -> None:
 
     result = _run_compare(runtime)
 
+    assert result["comparison_type"] == "segmented_delta"
+    assert result["artifact_family"] == "delta_frame"
     assert result["shape"] == "segmented_delta"
+    assert "decomposable" in result["capabilities"]
+    assert result["payload"]["scope"]["delta_abs"] == result["scope_absolute_delta"]
+    assert (
+        result["payload"]["series"][0]["points"][0]["delta_abs"]
+        == result["series"][0]["points"][0]["delta_abs"]
+    )
     assert "coverage" not in result
     assert result["scope_absolute_delta"] == 40.0
     assert result["lineage"]["compare_type"] == "normal"

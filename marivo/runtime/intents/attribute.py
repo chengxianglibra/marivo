@@ -21,8 +21,8 @@ from marivo.runtime.intents.derived_envelopes import (
     build_derived_bundle_envelope,
 )
 from marivo.runtime.intents.metric_frame import (
+    read_attribution_rows_from_series,
     read_compare_scalar_point,
-    read_decompose_rows_from_series,
     read_metric_frame_scope,
     read_metric_frame_shape,
     read_metric_frame_time_scope,
@@ -259,7 +259,8 @@ def run_attribute_intent(
             "session_id": session_id,
             "step_id": decompose_step_id,
             "artifact_id": decompose_artifact_id,
-            "decomposition_type": "delta_decomposition",
+            "artifact_family": "attribution_frame",
+            "shape": "ranked_contributions",
         }
 
         attribution: dict[str, Any] = decompose_result.get("attribution") or {}
@@ -274,7 +275,10 @@ def run_attribute_intent(
         for issue in remapped_decompose_issues:
             validation_issues.append(issue)
 
-        all_rows: list[dict[str, Any]] = read_decompose_rows_from_series(decompose_result)
+        all_rows: list[dict[str, Any]] = _read_derived_attribution_rows(
+            decompose_result,
+            dimension=dimension,
+        )
         total_row_count: int = len(all_rows)
         # Truncate to decomposition_limit (decompose runner does not apply this limit)
         returned_rows: list[dict[str, Any]] = [dict(row) for row in all_rows[:decomposition_limit]]
@@ -305,7 +309,7 @@ def run_attribute_intent(
                 tail_abs_sum += rv
             if all_have_abs:
                 others_abs = tail_abs_sum
-                scope_delta = decompose_result.get("scope_absolute_delta")
+                scope_delta = _read_scope_absolute_delta(decompose_result)
                 if scope_delta is not None and scope_delta != 0:
                     others_share = others_abs / scope_delta
                 else:
@@ -499,6 +503,34 @@ def _inline_observe_metric_frame(result: dict[str, Any], *, label: str) -> dict[
             f"attribute: INVALID_ARGUMENT - {label} observe returned no metric_frame result"
         )
     return artifact
+
+
+def _read_derived_attribution_rows(
+    artifact: dict[str, Any],
+    *,
+    dimension: str,
+) -> list[dict[str, Any]]:
+    rows = read_attribution_rows_from_series(artifact)
+    normalized_rows: list[dict[str, Any]] = []
+    for row in rows:
+        normalized = dict(row)
+        if "absolute_contribution" not in normalized and "contribution_abs" in normalized:
+            normalized["absolute_contribution"] = normalized["contribution_abs"]
+        if "contribution_share" not in normalized and "contribution_pct" in normalized:
+            normalized["contribution_share"] = normalized["contribution_pct"]
+        if normalized.get("key") is None and normalized.get(dimension) is not None:
+            normalized["key"] = normalized[dimension]
+        normalized_rows.append(normalized)
+    return normalized_rows
+
+
+def _read_scope_absolute_delta(artifact: dict[str, Any]) -> Any:
+    payload = artifact.get("payload")
+    if isinstance(payload, dict):
+        scope = payload.get("scope")
+        if isinstance(scope, dict) and "delta_abs" in scope:
+            return scope.get("delta_abs")
+    return artifact.get("scope_absolute_delta")
 
 
 # ── Request shape validation ──────────────────────────────────────────────────

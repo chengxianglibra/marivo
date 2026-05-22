@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from marivo.contracts.aoi_projection import project_aoi_artifact_result
 from marivo.contracts.generated import aoi
 from marivo.runtime import intent_execution
 
@@ -45,6 +46,64 @@ def _decompose_request() -> aoi.Decompose:
         dimension="region",
         limit=5,
     )
+
+
+def test_project_decompose_result_returns_attribution_frame_artifact() -> None:
+    projected = project_aoi_artifact_result(
+        "decompose",
+        {
+            "artifact_id": "art_attr",
+            "artifact_family": "attribution_frame",
+            "shape": "ranked_contributions",
+            "subject": {
+                "kind": "comparison",
+                "metric_ref": "metric.revenue",
+                "current": {
+                    "time_scope": {
+                        "field": "time",
+                        "start": "2024-01-08T00:00:00Z",
+                        "end": "2024-01-15T00:00:00Z",
+                    },
+                    "scope": {},
+                },
+                "baseline": {
+                    "time_scope": {
+                        "field": "time",
+                        "start": "2024-01-01T00:00:00Z",
+                        "end": "2024-01-08T00:00:00Z",
+                    },
+                    "scope": {},
+                },
+            },
+            "axes": [{"kind": "dimension", "name": "channel"}],
+            "measures": [
+                {"id": "contribution_abs", "value_type": "number", "nullable": False},
+                {"id": "contribution_pct", "value_type": "number", "nullable": True},
+            ],
+            "capabilities": ["filterable"],
+            "lineage": {"operation": "decompose", "source_artifact_ids": ["art_cmp"]},
+            "payload": {
+                "series": [
+                    {
+                        "keys": {"channel": "paid"},
+                        "points": [
+                            {
+                                "contribution_abs": 12.0,
+                                "contribution_pct": 0.6,
+                                "rank": 1,
+                            }
+                        ],
+                    }
+                ],
+                "scope": {"delta_abs": 20.0},
+                "quality": {"reconciliation_status": "within_tolerance"},
+            },
+        },
+    )
+
+    assert projected["artifact_family"] == "attribution_frame"
+    assert projected["shape"] == "ranked_contributions"
+    assert projected["payload"]["series"][0]["points"][0]["contribution_abs"] == 12.0
 
 
 def _validate_request() -> aoi.Validate:
