@@ -28,8 +28,8 @@ from marivo.runtime.intents.derived_envelopes import (
 )
 from marivo.runtime.intents.detect import run_detect_intent
 from marivo.runtime.intents.metric_frame import (
+    read_attribution_rows_from_series,
     read_compare_scalar_point,
-    read_decompose_rows_from_series,
 )
 from marivo.runtime.intents.normalization import (
     normalize_dimensions,
@@ -802,6 +802,8 @@ def _decompose_for_dimension(
             "step_id": decompose_step_id,
             "step_type": "decompose",
             "artifact_id": decompose_artifact_id,
+            "artifact_family": "attribution_frame",
+            "shape": "ranked_contributions",
         }
 
         attrib: dict[str, Any] = decompose_result.get("attribution") or {}
@@ -819,7 +821,10 @@ def _decompose_for_dimension(
                 }
             )
 
-        all_rows: list[dict[str, Any]] = read_decompose_rows_from_series(decompose_result)
+        all_rows: list[dict[str, Any]] = _read_derived_attribution_rows(
+            decompose_result,
+            dimension=dimension,
+        )
         total_row_count = len(all_rows)
         returned_rows = all_rows[:decomposition_limit]
         returned_row_count = len(returned_rows)
@@ -837,7 +842,7 @@ def _decompose_for_dimension(
                 "presence": first_row.get("presence"),
             }
 
-        scope_delta = decompose_result.get("scope_absolute_delta")
+        scope_delta = _read_scope_absolute_delta(decompose_result)
         if all_rows:
             contribution_sum: float = 0.0
             all_have_contribution = True
@@ -929,6 +934,34 @@ def _combine_scope(
     if base_scope and base_scope.get("predicate") is not None:
         result["predicate"] = base_scope["predicate"]
     return result
+
+
+def _read_derived_attribution_rows(
+    artifact: dict[str, Any],
+    *,
+    dimension: str,
+) -> list[dict[str, Any]]:
+    rows = read_attribution_rows_from_series(artifact)
+    normalized_rows: list[dict[str, Any]] = []
+    for row in rows:
+        normalized = dict(row)
+        if "absolute_contribution" not in normalized and "contribution_abs" in normalized:
+            normalized["absolute_contribution"] = normalized["contribution_abs"]
+        if "contribution_share" not in normalized and "contribution_pct" in normalized:
+            normalized["contribution_share"] = normalized["contribution_pct"]
+        if normalized.get("key") is None and normalized.get(dimension) is not None:
+            normalized["key"] = normalized[dimension]
+        normalized_rows.append(normalized)
+    return normalized_rows
+
+
+def _read_scope_absolute_delta(artifact: dict[str, Any]) -> Any:
+    payload = artifact.get("payload")
+    if isinstance(payload, dict):
+        scope = payload.get("scope")
+        if isinstance(scope, dict) and "delta_abs" in scope:
+            return scope.get("delta_abs")
+    return artifact.get("scope_absolute_delta")
 
 
 def _collect_diagnose_aoi_artifacts(

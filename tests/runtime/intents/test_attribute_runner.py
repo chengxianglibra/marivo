@@ -7,7 +7,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from marivo.runtime.intents.attribute import run_attribute_intent
-from marivo.runtime.intents.metric_frame import build_metric_frame_artifact
+from marivo.runtime.intents.metric_frame import (
+    build_attribution_frame_artifact,
+    build_metric_frame_artifact,
+)
 
 
 def _make_runtime() -> MagicMock:
@@ -136,11 +139,10 @@ def _decompose_result(
     unexplained_reason: str | None = None,
 ) -> dict[str, Any]:
     default_rows = [
-        {dimension: "A", "absolute_contribution": 12.0, "contribution_share": 0.6},
-        {dimension: "B", "absolute_contribution": 8.0, "contribution_share": 0.4},
+        {dimension: "A", "contribution_abs": 12.0, "contribution_pct": 0.6},
+        {dimension: "B", "contribution_abs": 8.0, "contribution_pct": 0.4},
     ]
     flat_rows = rows if rows is not None else default_rows
-    # Build v2.0 series from flat rows
     series_entries = [
         {
             "keys": {dimension: row[dimension]},
@@ -148,7 +150,28 @@ def _decompose_result(
         }
         for row in flat_rows
     ]
+    artifact = build_attribution_frame_artifact(
+        artifact_id=f"art_decompose_{dimension}",
+        metric_ref="metric.revenue",
+        dimension=dimension,
+        subject={"kind": "comparison", "metric_ref": "metric.revenue"},
+        series=series_entries,
+        scope={
+            "current_value": 120.0,
+            "baseline_value": 100.0,
+            "delta_abs": scope_absolute_delta,
+            "delta_pct": 0.2,
+            "direction": "increase",
+        },
+        quality={
+            "reconciliation_status": "within_tolerance",
+            "unexplained_delta_abs": 0.0,
+            "unexplained_pct": 0.0,
+        },
+        lineage={"operation": "decompose", "source_artifact_ids": ["art_compare"]},
+    )
     result: dict[str, Any] = {
+        **artifact,
         "artifact_id": f"art_decompose_{dimension}",
         "step_ref": {
             "session_id": "sess_attr",
@@ -156,12 +179,7 @@ def _decompose_result(
             "step_type": "decompose",
         },
         "schema_version": "2.0",
-        "axes": [{"kind": "dimension", "name": dimension}],
-        "series": series_entries,
-        # Backward-compatible rows alias
-        "rows": flat_rows,
         "attribution": attribution or {"status": "attributable", "issues": []},
-        "scope_absolute_delta": scope_absolute_delta,
     }
     if unexplained_reason is not None:
         result["unexplained_reason"] = unexplained_reason
@@ -234,6 +252,10 @@ def test_attribute_expands_child_runners_and_commits_bundle_in_request_order() -
     assert result["product_metadata"]["status"] == "succeeded"
     assert result["result"]["dimensions"] == ["channel", "region"]
     assert [driver["dimension"] for driver in result["result"]["drivers"]] == ["channel", "region"]
+    first_ref = result["result"]["drivers"][0]["decompose_ref"]
+    assert first_ref["artifact_family"] == "attribution_frame"
+    assert first_ref["shape"] == "ranked_contributions"
+    assert "decomposition_type" not in first_ref
 
 
 def test_attribute_defaults_to_delta_share_and_limit_five() -> None:
@@ -277,10 +299,10 @@ def test_attribute_truncates_driver_rows_and_computes_others_bucket() -> None:
     params["dimensions"] = ["channel"]
     params["decomposition_limit"] = 2
     rows = [
-        {"channel": "A", "absolute_contribution": 10.0, "contribution_share": 0.5},
-        {"channel": "B", "absolute_contribution": 6.0, "contribution_share": 0.3},
-        {"channel": "C", "absolute_contribution": 3.0, "contribution_share": 0.15},
-        {"channel": "D", "absolute_contribution": 1.0, "contribution_share": 0.05},
+        {"channel": "A", "contribution_abs": 10.0, "contribution_pct": 0.5},
+        {"channel": "B", "contribution_abs": 6.0, "contribution_pct": 0.3},
+        {"channel": "C", "contribution_abs": 3.0, "contribution_pct": 0.15},
+        {"channel": "D", "contribution_abs": 1.0, "contribution_pct": 0.05},
     ]
 
     result, _, _, _, _ = _run_with_patched_children(
@@ -295,6 +317,8 @@ def test_attribute_truncates_driver_rows_and_computes_others_bucket() -> None:
     assert driver["others_absolute_contribution"] == 4.0
     assert driver["others_contribution_share"] == pytest.approx(0.2)
     assert [row["channel"] for row in driver["rows"]] == ["A", "B"]
+    assert [row["absolute_contribution"] for row in driver["rows"]] == [10.0, 6.0]
+    assert [row["contribution_share"] for row in driver["rows"]] == [0.5, 0.3]
     assert [issue["code"] for issue in driver["issues"]] == ["driver_truncated"]
 
 

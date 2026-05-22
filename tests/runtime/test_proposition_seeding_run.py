@@ -894,7 +894,7 @@ class _T245Base(_Base):
         _insert_artifact(
             self.store,
             "art_decompose_001",
-            artifact_type="delta_decomposition",
+            artifact_type="attribution_frame",
             content={
                 "dimension": "country",
                 "metric": "dau",

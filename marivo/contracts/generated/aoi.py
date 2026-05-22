@@ -49,6 +49,26 @@ class PValue(RootModel[float]):
     root: float = Field(..., ge=0.0, le=1.0)
 
 
+class AttributionFrameAxis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["dimension"]
+    name: str = Field(..., min_length=1)
+
+
+class SourceArtifactId(RootModel[str]):
+    root: str = Field(..., min_length=1)
+
+
+class AttributionFrameLineage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation: Literal["decompose"]
+    source_artifact_ids: list[SourceArtifactId] = Field(..., min_length=1)
+
+
 class DeltaFrameMeasure(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -132,14 +152,34 @@ class Expression(BaseModel):
     dialects: list[Dialect] = Field(..., min_length=1)
 
 
-class DecompositionItem(BaseModel):
+class AttributionFrameContributionAbsMeasure(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    item_id: str = Field(..., min_length=1)
-    key: str | float | bool | None
-    contribution: float
-    share: float
+    id: Literal["contribution_abs"]
+    value_type: Literal["number"]
+    nullable: Literal[False]
+
+
+class AttributionFrameContributionPctMeasure(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Literal["contribution_pct"]
+    value_type: Literal["number"]
+    nullable: Literal[True]
+
+
+class AttributionPoint(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    contribution_abs: float
+    contribution_pct: float | None
+    current_value: float | None = None
+    baseline_value: float | None = None
+    presence: Literal["both", "current_only", "baseline_only"] | None = None
+    rank: int = Field(..., ge=1)
 
 
 class MetricFrameWindow(BaseModel):
@@ -172,13 +212,6 @@ class Correlate(BaseModel):
     left_artifact_id: str = Field(..., min_length=1)
     right_artifact_id: str = Field(..., min_length=1)
     min_pairs: int = Field(None, ge=1)  # type: ignore[assignment]
-
-
-class DeltaDecompositionResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    items: list[DecompositionItem]
 
 
 class Point(BaseModel):
@@ -241,6 +274,46 @@ class AnomalyCandidate(BaseModel):
     value: float
     score: float = Field(..., ge=0.0)
     series_keys: dict[str, str] | None
+
+
+class AttributionFrameQuality(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    reconciliation_status: str | None = None
+    reconciliation_gap: float | None = None
+    confidence_grade: str | None = None
+    unexplained_delta_abs: float | None = None
+    unexplained_pct: float | None = None
+    unexplained_reason: str | None = None
+
+
+class AttributionSeriesEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    keys: dict[str, str]
+    points: list[AttributionPoint]
+
+
+class AttributionSubjectScope(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    time_scope: TimeScope
+    scope: dict[str, Any] = Field(
+        ...,
+        json_schema_extra={
+            "additionalProperties": {
+                "anyOf": [
+                    {"type": "string"},
+                    {"type": "number"},
+                    {"type": "boolean"},
+                    {"type": "null"},
+                ]
+            }
+        },
+    )
 
 
 class DeltaPoint(BaseModel):
@@ -396,6 +469,37 @@ class AssociationResult(BaseModel):
     matched_time_scope: TimeScope | None
 
 
+class AttributionComparisonSubject(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["comparison"]
+    metric_ref: str = Field(..., min_length=1)
+    current: AttributionSubjectScope
+    baseline: AttributionSubjectScope
+
+
+class AttributionFramePayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    series: list[AttributionSeriesEntry]
+    scope: dict[str, Any] = Field(
+        ...,
+        json_schema_extra={
+            "additionalProperties": {
+                "anyOf": [
+                    {"type": "string"},
+                    {"type": "number"},
+                    {"type": "boolean"},
+                    {"type": "null"},
+                ]
+            }
+        },
+    )
+    quality: AttributionFrameQuality
+
+
 class ComparisonSubject(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -478,41 +582,21 @@ class MetricFrameSeries(BaseModel):
     points: list[MetricFramePoint]
 
 
-class Artifact1(BaseModel):
+class AttributionFrameArtifact(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     artifact_id: str = Field(..., min_length=1)
-    result: (
-        ScalarDeltaResult
-        | TimeSeriesDeltaResult
-        | SegmentedDeltaResult
-        | DeltaDecompositionResult
-        | AnomalyCandidatesResult
-        | AssociationResult
-        | HypothesisTestResult
-        | ForecastSeriesResult
-    )
-    failure: AnalysisFailure | None = None
-
-
-class Artifact2(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    artifact_id: str = Field(..., min_length=1)
-    result: (
-        ScalarDeltaResult
-        | TimeSeriesDeltaResult
-        | SegmentedDeltaResult
-        | DeltaDecompositionResult
-        | AnomalyCandidatesResult
-        | AssociationResult
-        | HypothesisTestResult
-        | ForecastSeriesResult
-        | None
-    ) = None
-    failure: AnalysisFailure
+    artifact_family: Literal["attribution_frame"]
+    shape: Literal["ranked_contributions"]
+    subject: AttributionComparisonSubject
+    axes: list[AttributionFrameAxis] = Field(..., max_length=1, min_length=1)
+    measures: list[
+        AttributionFrameContributionAbsMeasure | AttributionFrameContributionPctMeasure
+    ] = Field(..., max_length=2, min_length=2)
+    capabilities: list[Literal["filterable"]] = Field(..., max_length=1, min_length=1)
+    lineage: AttributionFrameLineage
+    payload: AttributionFramePayload
 
 
 class Attribute(BaseModel):
@@ -564,6 +648,43 @@ class MetricFramePayload(BaseModel):
     series: list[MetricFrameSeries]
 
 
+class Artifact1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., min_length=1)
+    result: (
+        ScalarDeltaResult
+        | TimeSeriesDeltaResult
+        | SegmentedDeltaResult
+        | AttributionFrameArtifact
+        | AnomalyCandidatesResult
+        | AssociationResult
+        | HypothesisTestResult
+        | ForecastSeriesResult
+    )
+    failure: AnalysisFailure | None = None
+
+
+class Artifact2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., min_length=1)
+    result: (
+        ScalarDeltaResult
+        | TimeSeriesDeltaResult
+        | SegmentedDeltaResult
+        | AttributionFrameArtifact
+        | AnomalyCandidatesResult
+        | AssociationResult
+        | HypothesisTestResult
+        | ForecastSeriesResult
+        | None
+    ) = None
+    failure: AnalysisFailure
+
+
 class DeltaFrameArtifact(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -604,6 +725,7 @@ class AoiV02(
         | Diagnose
         | MetricFrameArtifact
         | DeltaFrameArtifact
+        | AttributionFrameArtifact
         | Artifact1
         | Artifact2
     ]
@@ -621,6 +743,7 @@ class AoiV02(
         | Diagnose
         | MetricFrameArtifact
         | DeltaFrameArtifact
+        | AttributionFrameArtifact
         | Artifact1
         | Artifact2
     ) = Field(

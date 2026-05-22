@@ -13,6 +13,7 @@ from marivo.core.semantic.calendar import (
 )
 from marivo.runtime.intents._helpers import commit_step_result
 from marivo.runtime.intents.metric_frame import (
+    build_delta_frame_artifact,
     dimension_names_from_axes,
     has_dimension_axis,
     has_time_axis,
@@ -246,6 +247,11 @@ def _time_series_coverage_signature(
     series = _read_time_series_points(artifact)
     missing_indexes = tuple(index for index, row in enumerate(series) if row.get("value") is None)
     return (grain, len(series), len(series) - len(missing_indexes), missing_indexes)
+
+
+def _remove_pending_artifact_id(artifact: dict[str, Any]) -> dict[str, Any]:
+    artifact.pop("artifact_id", None)
+    return artifact
 
 
 def _require_mapping(value: Any, *, label: str) -> Mapping[str, Any]:
@@ -732,9 +738,68 @@ def run_compare_intent(
         abs_delta = _compute_absolute_delta(current_value, baseline_value)
         rel_delta = _compute_relative_delta(abs_delta, baseline_value)
         direction = _compute_direction(abs_delta, rel_delta, flat_tolerance_relative)
+        scalar_axes: list[dict[str, str]] = []
+        scalar_series: list[dict[str, Any]] = [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "current_value": current_value,
+                        "baseline_value": baseline_value,
+                        "delta": abs_delta,
+                        "delta_pct": rel_delta,
+                        "direction": direction,
+                    }
+                ],
+            }
+        ]
+        scalar_delta_series: list[dict[str, Any]] = [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "current_value": current_value,
+                        "baseline_value": baseline_value,
+                        "delta_abs": abs_delta,
+                        "delta_pct": rel_delta,
+                        "direction": direction,
+                    }
+                ],
+            }
+        ]
+        scalar_scope = {
+            "current_value": current_value,
+            "baseline_value": baseline_value,
+            "delta_abs": abs_delta,
+            "delta_pct": rel_delta,
+            "direction": direction,
+        }
+        scalar_delta_artifact = _remove_pending_artifact_id(
+            build_delta_frame_artifact(
+                artifact_id="",
+                shape="scalar_delta",
+                metric_ref=left_metric,
+                subject=_comparison_subject(
+                    metric_ref=left_metric,
+                    current_time_scope=_read_time_scope(left_artifact),
+                    baseline_time_scope=_read_time_scope(right_artifact),
+                    current_scope=_read_scope(left_artifact),
+                    baseline_scope=_read_scope(right_artifact),
+                ),
+                axes=scalar_axes,
+                series=scalar_delta_series,
+                unit=left_unit,
+                lineage=lineage,
+                scope=scalar_scope,
+                capabilities=["filterable", "decomposable"],
+                analytical_metadata=analytical_metadata,
+            )
+        )
         artifact = {
+            **scalar_delta_artifact,
             **base,
             "shape": "scalar_delta",
+            "comparison_type": "scalar_delta",
             "axes": [{"kind": "comparison_side"}],
             "measures": [
                 {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
@@ -755,7 +820,14 @@ def run_compare_intent(
                         ],
                     }
                 ],
+                "scope": scalar_scope,
             },
+            "series": scalar_series,
+            "current_value": current_value,
+            "baseline_value": baseline_value,
+            "absolute_delta": abs_delta,
+            "relative_delta": rel_delta,
+            "direction": direction,
             "summary_current_value": current_value,
             "summary_baseline_value": baseline_value,
             "summary_absolute_delta": abs_delta,
@@ -770,6 +842,10 @@ def run_compare_intent(
 
     elif left_effective_type == "time_series":
         granularity = time_grain_from_axes(left_axes)
+        if granularity is None:
+            raise ValueError(
+                "compare: INVALID_ARGUMENT - time_series metric_frame requires non-null granularity"
+            )
         left_series: list[dict[str, Any]] = _read_time_series_points(left_artifact)
         right_series: list[dict[str, Any]] = _read_time_series_points(right_artifact)
         pairing_basis = _resolve_time_series_pairing_basis(
@@ -913,6 +989,8 @@ def run_compare_intent(
                 )
             }
 
+        current_subject_time_scope = matched_current_time_scope or left_time_scope
+        baseline_subject_time_scope = matched_baseline_time_scope or right_time_scope
         data_coverage_summary = None
         calendar_alignment = resolved_input_summary.get("calendar_alignment")
         if isinstance(calendar_alignment, dict):
@@ -956,15 +1034,60 @@ def run_compare_intent(
                     }
                 )
 
+        time_delta_series = [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        **row,
+                        "delta_abs": row["delta_abs"],
+                        "delta_pct": row["delta_pct"],
+                    }
+                    for row in time_series_rows
+                ],
+            }
+        ]
+        time_scope = {
+            "current_value": summary_current_value,
+            "baseline_value": summary_baseline_value,
+            "delta_abs": summary_abs,
+            "delta_pct": summary_rel,
+            "direction": summary_dir,
+        }
+        time_axes: list[dict[str, str]] = [{"kind": "time", "grain": granularity}]
+        time_delta_artifact = _remove_pending_artifact_id(
+            build_delta_frame_artifact(
+                artifact_id="",
+                shape="time_series_delta",
+                metric_ref=left_metric,
+                subject=_comparison_subject(
+                    metric_ref=left_metric,
+                    current_time_scope=current_subject_time_scope,
+                    baseline_time_scope=baseline_subject_time_scope,
+                    current_scope=_read_scope(left_artifact),
+                    baseline_scope=_read_scope(right_artifact),
+                ),
+                axes=time_axes,
+                series=time_delta_series,
+                unit=left_unit,
+                lineage=lineage,
+                scope=time_scope,
+                capabilities=["sliceable", "filterable", "decomposable"],
+                analytical_metadata=analytical_metadata,
+            )
+        )
         artifact = {
+            **time_delta_artifact,
             **base,
             "shape": "time_series_delta",
+            "comparison_type": "time_series_delta",
             "axes": [{"kind": "time", "grain": granularity}, {"kind": "comparison_side"}],
             "measures": [
                 {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
                 {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
             ],
-            "payload": {"series": [{"keys": {}, "points": time_series_rows}]},
+            "payload": {"series": [{"keys": {}, "points": time_series_rows}], "scope": time_scope},
+            "series": [{"keys": {}, "points": time_series_rows}],
             "coverage": coverage,
             "summary_current_value": summary_current_value,
             "summary_baseline_value": summary_baseline_value,
@@ -1038,10 +1161,19 @@ def run_compare_intent(
 
                     anchor = left_ts_map.get(bucket_key) or right_ts_map.get(bucket_key) or {}
                     window = dict(anchor.get("window") or {})
-                    current_value = _coerce_numeric_or_none(l_point.get("value")) if l_point else None
-                    baseline_value = _coerce_numeric_or_none(r_point.get("value")) if r_point else None
+                    current_value = (
+                        _coerce_numeric_or_none(l_point.get("value")) if l_point else None
+                    )
+                    baseline_value = (
+                        _coerce_numeric_or_none(r_point.get("value")) if r_point else None
+                    )
 
-                    if l_point and r_point and current_value is not None and baseline_value is not None:
+                    if (
+                        l_point
+                        and r_point
+                        and current_value is not None
+                        and baseline_value is not None
+                    ):
                         presence = "both"
                         row_abs = _compute_absolute_delta(current_value, baseline_value)
                         row_rel = _compute_relative_delta(row_abs, baseline_value)
@@ -1062,15 +1194,17 @@ def run_compare_intent(
                         row_rel = None
                         row_dir = "undefined"
 
-                    series_delta_points.append({
-                        "window": window,
-                        "current_value": current_value,
-                        "baseline_value": baseline_value,
-                        "delta_abs": row_abs,
-                        "delta_pct": row_rel,
-                        "direction": row_dir,
-                        "presence": presence,
-                    })
+                    series_delta_points.append(
+                        {
+                            "window": window,
+                            "current_value": current_value,
+                            "baseline_value": baseline_value,
+                            "delta_abs": row_abs,
+                            "delta_pct": row_rel,
+                            "direction": row_dir,
+                            "presence": presence,
+                        }
+                    )
 
                 panel_series.append({"keys": p_keys_dict, "points": series_delta_points})
             elif l_entry:
@@ -1128,7 +1262,9 @@ def run_compare_intent(
                     p_matched_baseline_values.append(point["baseline_value"])
 
         summary_current_value = sum(p_matched_current_values) if p_matched_current_values else None
-        summary_baseline_value = sum(p_matched_baseline_values) if p_matched_baseline_values else None
+        summary_baseline_value = (
+            sum(p_matched_baseline_values) if p_matched_baseline_values else None
+        )
         summary_abs = _compute_absolute_delta(summary_current_value, summary_baseline_value)
         summary_rel = _compute_relative_delta(summary_abs, summary_baseline_value)
         summary_dir = _compute_direction(summary_abs, summary_rel, flat_tolerance_relative)
@@ -1264,18 +1400,63 @@ def run_compare_intent(
         scope_rel = _compute_relative_delta(scope_abs, scope_rv)
         scope_dir = _compute_direction(scope_abs, scope_rel, flat_tolerance_relative)
 
-        seg_axes: list[dict[str, str]] = [{"kind": "dimension", "name": d} for d in dims] + [
-            {"kind": "comparison_side"}
+        seg_axes: list[dict[str, str]] = [{"kind": "dimension", "name": d} for d in dims]
+        segmented_delta_series = [
+            {
+                **entry,
+                "points": [
+                    {
+                        **point,
+                        "delta_abs": point.get("delta_abs", point.get("delta")),
+                        "delta_pct": point["delta_pct"],
+                    }
+                    for point in entry["points"]
+                ],
+            }
+            for entry in segmented_series
         ]
+        segmented_scope = {
+            "current_value": scope_lv,
+            "baseline_value": scope_rv,
+            "delta_abs": scope_abs,
+            "delta_pct": scope_rel,
+            "direction": scope_dir,
+        }
+        segmented_analytical_metadata = {**analytical_metadata, "series_complete": True}
+        segmented_base = {**base, "analytical_metadata": segmented_analytical_metadata}
+        segmented_delta_artifact = _remove_pending_artifact_id(
+            build_delta_frame_artifact(
+                artifact_id="",
+                shape="segmented_delta",
+                metric_ref=left_metric,
+                subject=_comparison_subject(
+                    metric_ref=left_metric,
+                    current_time_scope=_read_time_scope(left_artifact),
+                    baseline_time_scope=_read_time_scope(right_artifact),
+                    current_scope=_read_scope(left_artifact),
+                    baseline_scope=_read_scope(right_artifact),
+                ),
+                axes=seg_axes,
+                series=segmented_delta_series,
+                unit=left_unit,
+                lineage=lineage,
+                scope=segmented_scope,
+                capabilities=["sliceable", "filterable", "decomposable"],
+                analytical_metadata=segmented_analytical_metadata,
+            )
+        )
         artifact = {
-            **base,
+            **segmented_delta_artifact,
+            **segmented_base,
             "shape": "segmented_delta",
-            "axes": seg_axes,
+            "comparison_type": "segmented_delta",
+            "axes": [*seg_axes, {"kind": "comparison_side"}],
             "measures": [
                 {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
                 {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
             ],
-            "payload": {"series": segmented_series},
+            "payload": {"series": segmented_delta_series, "scope": segmented_scope},
+            "series": segmented_series,
             "scope_current_value": scope_lv,
             "scope_baseline_value": scope_rv,
             "scope_absolute_delta": scope_abs,
@@ -1340,3 +1521,19 @@ def _compute_direction(
     if relative_delta is not None and abs(relative_delta) <= flat_tolerance_relative:
         return "flat"
     return "increase" if absolute_delta > 0 else "decrease"
+
+
+def _comparison_subject(
+    *,
+    metric_ref: str,
+    current_time_scope: dict[str, Any],
+    baseline_time_scope: dict[str, Any],
+    current_scope: dict[str, Any],
+    baseline_scope: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "kind": "comparison",
+        "metric_ref": metric_ref,
+        "current": {"time_scope": current_time_scope, "scope": current_scope},
+        "baseline": {"time_scope": baseline_time_scope, "scope": baseline_scope},
+    }

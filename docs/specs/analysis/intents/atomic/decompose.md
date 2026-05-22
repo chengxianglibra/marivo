@@ -32,7 +32,7 @@ v1 明确不支持：
 
 ## 工件标识（Artifact Identity）与谱系（Lineage）
 
-`delta_decomposition` 是不可变规范工件（immutable canonical artifact）。
+`attribution_frame(ranked_contributions)` 是不可变规范工件（immutable canonical artifact）。
 
 标识边界（identity boundary）绑定以下输入：
 
@@ -53,7 +53,7 @@ v1 明确不支持：
 
 - 重读同一 artifact：同一 identity，同一 lineage
 - 重新执行同一请求：可产生新的 execution record，但若 compare lineage 与 derivation version 未变，则不产生新的 canonical artifact identity
-- compare source lineage、artifact schema version 或 derivation version 变化：必须产生新的 `delta_decomposition` artifact
+- compare source lineage、artifact schema version 或 derivation version 变化：必须产生新的 `attribution_frame` artifact
 
 v1 默认：
 
@@ -119,19 +119,18 @@ type DecomposeRequest = {
 v1 支持的输入形态如下：
 
 - `compare_artifact_id` 必须解析到已完成的 `compare` artifact
-- 被引用的 compare 输出必须是 `scalar_delta` 或 `time_series_delta`
+- 被引用的 compare 输出必须是 `delta_frame`，支持 `scalar_delta`、`time_series_delta`、`segmented_delta` 与 `panel_delta`
 - 被比较的 metric 的 `additive_dimensions` 必须非空（即 metric 支持至少一个维度的分解）
 - 该 metric 必须声明自己可按所请求的 `dimension` 做分解（普通列表要求 `dimension` 在 `additive_dimensions` 内；`["__all"]` 允许所有已声明维度）
 - `limit` 省略时返回实现默认的完整排序结果；提供时必须为正整数
 
-输出类型：`delta_decomposition`
+输出类型：`attribution_frame`，shape 固定为 `ranked_contributions`
 
 ## v1 不支持的输入
 
 - 直接传 `scope`
 - 直接传 `metric + current_scope + baseline_scope`
 - 引用对象或 `method`
-- 以 `segmented_delta` 作为主输入契约
 - 多个 dimensions
 - interaction-effect decomposition
 - `additive_dimensions` 为空的 metrics（不支持分解）
@@ -232,7 +231,7 @@ v1 将 `delta_share` 限制在 `additive_dimensions` 非空的 metrics 上；`ad
 ## Response Shape
 
 ```ts
-type DecomposeResponse = DeltaDecomposition;
+type DecomposeResponse = AttributionFrameArtifact;
 
 type DeltaAttributionIssue = {
   code:
@@ -281,50 +280,44 @@ type ExecutionMetadata = {
   executed_at: string;
 };
 
-type DeltaDecompositionRow = {
-  key: string | number | boolean | null;
-  current_value: number | null;
-  baseline_value: number | null;
-  absolute_contribution: number | null;
-  contribution_share: number | null;
-  direction: "increase" | "decrease" | "flat" | "undefined";
-  presence: "both" | "current_only" | "baseline_only";
+type AttributionPoint = {
+  contribution_abs: number;
+  contribution_pct: number | null;
+  current_value?: number | null;
+  baseline_value?: number | null;
+  presence?: "both" | "current_only" | "baseline_only" | null;
+  rank: number;
 };
 
-type DeltaDecomposition = {
-  decomposition_type: "delta_decomposition";
+type AttributionFrameArtifact = {
   artifact_id: string;
-  metric: string;
-  compare_ref: CompareArtifactRef;
-  current_ref: ObservationArtifactRef;
-  baseline_ref: ObservationArtifactRef;
-  dimension: string;
-  method: "delta_share";
-  unit: string | null;
-  current_time_scope: ResolvedTimeScope;
-  baseline_time_scope: ResolvedTimeScope;
-  resolved_scopes: {
-    left: Scope;
-    right: Scope;
+  artifact_family: "attribution_frame";
+  shape: "ranked_contributions";
+  subject: {
+    kind: "comparison";
+    metric_ref: string;
+    current: { time_scope: ResolvedTimeScope; scope: Scope };
+    baseline: { time_scope: ResolvedTimeScope; scope: Scope };
   };
-  scope_current_value: number | null;
-  scope_baseline_value: number | null;
-  scope_absolute_delta: number | null;
-  scope_relative_delta: number | null;
-  scope_direction: "increase" | "decrease" | "flat" | "undefined";
-  attribution: AttributionMetadata;
-  rows: DeltaDecompositionRow[];
-  unexplained_absolute_delta: number | null;
-  unexplained_share: number | null;
-  unexplained_reason:
-    | "data_incomplete"
-    | "scope_recomputation_failed"
-    | "rounding"
-    | null;
-  analytical_metadata: DecomposeAnalyticalMetadata;
-  version_metadata: CanonicalVersionMetadata;
-  source_lineage: SourceLineageMetadata;
-  execution_metadata: ExecutionMetadata;
+  axes: [{ kind: "dimension"; name: string }];
+  measures: [
+    { id: "contribution_abs"; value_type: "number"; nullable: false },
+    { id: "contribution_pct"; value_type: "number"; nullable: true }
+  ];
+  capabilities: ["filterable"];
+  lineage: { operation: "decompose"; source_artifact_ids: string[] };
+  payload: {
+    series: Array<{ keys: Record<string, string>; points: AttributionPoint[] }>;
+    scope: Scope;
+    quality: {
+      reconciliation_status?: string | null;
+      reconciliation_gap?: number | null;
+      confidence_grade?: string | null;
+      unexplained_delta_abs?: number | null;
+      unexplained_pct?: number | null;
+      unexplained_reason?: string | null;
+    };
+  };
 };
 ```
 
@@ -365,8 +358,8 @@ empty semantics：
 - `row.key = null`：source dimension value 本身为 null bucket，不表示 unknown
 - `row.current_value = null`：仅在 `presence = baseline_only` 时合法，语义为该侧不存在该 segment，`not_applicable`
 - `row.baseline_value = null`：仅在 `presence = current_only` 时合法，语义为该侧不存在该 segment，`not_applicable`
-- `absolute_contribution = null`：当前行 contribution 无法可靠计算，语义为 `not_yet_resolved`
-- `contribution_share = null`：share 不可定义，例如 `scope_absolute_delta = 0` 或 null，语义为 `not_applicable`
+- `contribution_abs` 必须为 number；无法形成 contribution 的行不得进入成功 artifact
+- `contribution_pct = null`：share 不可定义，例如 scope delta 为 `0` 或 null，语义为 `not_applicable`
 - `left_row_count` / `right_row_count = null`：该侧 canonical row count 当前不可得，语义为 `not_yet_resolved`
 - `unexplained_absolute_delta = null`：剩余未归因量当前无法可靠解析，语义为 `not_yet_resolved`
 - `unexplained_share = null`：未归因 share 不可定义或尚未解析完成
@@ -386,7 +379,7 @@ empty semantics：
 - metric 的 `additive_dimensions` 必须非空，且被请求的 `dimension` 必须被该策略允许；普通列表要求成员匹配，`["__all"]` 允许所有已声明维度；`additive_dimensions` 为空的 metric 在 v1 中必须拒绝
 - one-sided rows 必须显式保留，并通过 `presence` 标记
 - 成功 artifact 必须至少包含一条 contribution row；若当前请求无法形成任何 canonical contribution row，请求必须失败
-- 当 `scope_absolute_delta` 为 `0` 或 `null` 时，`contribution_share` 必须为 `null`
+- 当 scope delta 为 `0` 或 `null` 时，`contribution_pct` 必须为 `null`
 - `unexplained_*` 只表示“未归因”的剩余部分，且非零时必须给出 `unexplained_reason`
 - 若 `reconciliation_expected = true`（即 `decomposition_semantics = "sum"` 且 `additive_dimensions` 非空），则返回行与 `unexplained_*` 应能与 scope delta 对账
 - projection 参数不得改变 canonical artifact identity
@@ -411,13 +404,12 @@ agent 可稳定消费以下查询轴：
 - `metric`
 - `dimension`
 - `attribution.status`
-- `rows[].presence`
-- `rows[].direction`
+- `payload.series[].points[].presence`
 
 artifact 默认排序固定为：
 
-1. `abs(contribution_share) desc`，nulls last
-2. `abs(absolute_contribution) desc`，nulls last
+1. `abs(contribution_pct) desc`，nulls last
+2. `abs(contribution_abs) desc`
 3. `key` lexical order
 
 最小闭包读取要求：
@@ -439,7 +431,7 @@ projection 是从 artifact 确定性压缩得到的 bounded view。
 ```ts
 type DecomposeProjectionRequest = {
   artifact_ref: {
-    artifact_type: "delta_decomposition";
+    artifact_type: "attribution_frame";
     session_id: string;
     artifact_id: string;
   };
@@ -448,14 +440,14 @@ type DecomposeProjectionRequest = {
 
 type DecomposeProjection = {
   artifact_ref: {
-    artifact_type: "delta_decomposition";
+    artifact_type: "attribution_frame";
     session_id: string;
     artifact_id: string;
   };
   returned_row_count: number;
   total_row_count: number;
   is_truncated: boolean;
-  rows: DeltaDecompositionRow[];
+  rows: AttributionPoint[];
   others_absolute_contribution: number | null;
   others_contribution_share: number | null;
 };

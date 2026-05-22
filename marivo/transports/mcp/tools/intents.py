@@ -420,7 +420,8 @@ def register_decompose(server: Any, runtime: Any) -> None:
         description=(
             "Decompose the delta from a committed compare artifact by one dimension. "
             "Inputs are string artifact IDs from the same session; the method is fixed "
-            "to delta_share."
+            "to delta_share. Returns an attribution_frame artifact with ranked_contributions "
+            "payload."
         )
     )
     async def decompose(
@@ -619,7 +620,10 @@ def register_forecast(server: Any, runtime: Any) -> None:
 
 def register_attribute(server: Any, runtime: Any) -> None:
     @server.tool(  # type: ignore
-        description=("Attribute a known current-vs-baseline metric change.")
+        description=(
+            "Attribute a known current-vs-baseline metric change. Decompose results are "
+            "attribution_frame artifacts with ranked_contributions payloads."
+        )
     )
     async def attribute(
         session_id: Annotated[
@@ -647,7 +651,8 @@ def register_attribute(server: Any, runtime: Any) -> None:
                 min_length=1,
                 description=(
                     "Attribution dimensions used to explain the known current-vs-baseline "
-                    "change. Each dimension produces an independent decompose result."
+                    "change. Each dimension produces an independent attribution_frame "
+                    "artifact with ranked_contributions payload."
                 ),
             ),
         ],
@@ -688,7 +693,8 @@ def register_diagnose(server: Any, runtime: Any) -> None:
         description=(
             "Run bounded auto-detect anomaly diagnosis. The tool first detects anomalous "
             "candidates in time_scope at granularity, then follows up with compare and "
-            "decompose across the requested dimensions."
+            "decompose across the requested dimensions. Decompose results are "
+            "attribution_frame artifacts with ranked_contributions payloads."
         )
     )
     async def diagnose(

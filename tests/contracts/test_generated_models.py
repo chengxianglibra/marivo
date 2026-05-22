@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,114 @@ def test_aoi_example_validates(aoi_example: dict[str, Any]) -> None:
     from marivo.contracts.generated.aoi import AoiV02
 
     AoiV02.model_validate(aoi_example)
+
+
+def test_aoi_generated_models_include_attribution_frame_artifact() -> None:
+    from marivo.contracts.generated import aoi
+
+    artifact = aoi.AttributionFrameArtifact.model_validate(_attribution_frame_payload())
+
+    assert artifact.artifact_family == "attribution_frame"
+    assert artifact.shape == "ranked_contributions"
+
+
+def _attribution_frame_payload() -> dict[str, Any]:
+    return {
+        "artifact_id": "art_attr",
+        "artifact_family": "attribution_frame",
+        "shape": "ranked_contributions",
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.revenue",
+            "current": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2024-01-08T00:00:00Z",
+                    "end": "2024-01-15T00:00:00Z",
+                },
+                "scope": {},
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2024-01-01T00:00:00Z",
+                    "end": "2024-01-08T00:00:00Z",
+                },
+                "scope": {},
+            },
+        },
+        "axes": [{"kind": "dimension", "name": "channel"}],
+        "measures": [
+            {"id": "contribution_abs", "value_type": "number", "nullable": False},
+            {"id": "contribution_pct", "value_type": "number", "nullable": True},
+        ],
+        "capabilities": ["filterable"],
+        "lineage": {"operation": "decompose", "source_artifact_ids": ["art_cmp"]},
+        "payload": {
+            "series": [
+                {
+                    "keys": {"channel": "paid"},
+                    "points": [{"contribution_abs": 12.0, "contribution_pct": 0.6, "rank": 1}],
+                }
+            ],
+            "scope": {"delta_abs": 20.0},
+            "quality": {"reconciliation_status": "within_tolerance"},
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bad_value"),
+    [
+        ("axes", [{"kind": "time", "grain": "day"}]),
+        (
+            "axes",
+            [
+                {"kind": "dimension", "name": "channel"},
+                {"kind": "dimension", "name": "region"},
+            ],
+        ),
+        (
+            "measures",
+            [
+                {"id": "contribution_abs", "value_type": "number", "nullable": False},
+            ],
+        ),
+        (
+            "measures",
+            [
+                {"id": "contribution_abs", "value_type": "number", "nullable": False},
+                {"id": "unknown", "value_type": "number", "nullable": False},
+            ],
+        ),
+        ("capabilities", []),
+        ("subject", {}),
+        ("lineage", {"operation": "decompose"}),
+    ],
+)
+def test_aoi_attribution_frame_artifact_rejects_invalid_contract_shapes(
+    field_name: str, bad_value: Any
+) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = deepcopy(_attribution_frame_payload())
+    payload[field_name] = bad_value
+
+    with pytest.raises(ValidationError):
+        aoi.AttributionFrameArtifact.model_validate(payload)
+
+
+def test_aoi_attribution_frame_artifact_rejects_unknown_quality_fields() -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = deepcopy(_attribution_frame_payload())
+    payload["payload"]["quality"] = {
+        "reconciliation_status": "within_tolerance",
+        "unexpected_quality_flag": True,
+    }
+
+    with pytest.raises(ValidationError):
+        aoi.AttributionFrameArtifact.model_validate(payload)
 
 
 def test_version_constants_exist() -> None:

@@ -406,7 +406,7 @@ class TestRegistrySnapshotCompleteness(unittest.TestCase):
             "metric_frame",
             "anomaly_candidates",
             "compare_artifact",
-            "delta_decomposition",
+            "attribution_frame",
             "pairwise_time_series_association",
             "forecast_series",
         }

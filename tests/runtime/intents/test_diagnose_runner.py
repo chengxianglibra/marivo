@@ -12,7 +12,10 @@ from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
 from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
 from marivo.runtime.intents.diagnose import run_diagnose_intent
 from marivo.runtime.intents.diagnose_projection import compact_diagnose_envelope
-from marivo.runtime.intents.metric_frame import build_metric_frame_artifact
+from marivo.runtime.intents.metric_frame import (
+    build_attribution_frame_artifact,
+    build_metric_frame_artifact,
+)
 from tests.semantic_test_helpers import (
     build_semantic_layer_service,
     ensure_published_typed_metric,
@@ -297,6 +300,8 @@ def test_compact_projection_elides_details_and_preserves_driver_summary(
         compact_driver["decompose_ref"]["artifact_id"]
         == full_driver["decompose_ref"]["artifact_id"]
     )
+    assert compact_driver["decompose_ref"]["artifact_family"] == "attribution_frame"
+    assert compact_driver["decompose_ref"]["shape"] == "ranked_contributions"
     assert compact_driver["top_segment"] == full_driver["top_segment"]
     assert compact_driver["total_contribution"] == full_driver["total_contribution"]
     assert compact_driver["total_contribution_share"] == full_driver["total_contribution_share"]
@@ -703,6 +708,34 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
         "comparability": {"status": "comparable", "issues": []},
     }
     decompose_result = {
+        **build_attribution_frame_artifact(
+            artifact_id="art_decompose",
+            metric_ref="metric.trino_elapsed_seconds_p95",
+            dimension="trino_resource_group",
+            subject={
+                "kind": "comparison",
+                "metric_ref": "metric.trino_elapsed_seconds_p95",
+            },
+            series=[
+                {
+                    "keys": {"trino_resource_group": "rg_a"},
+                    "points": [{"contribution_abs": 26.0}],
+                }
+            ],
+            scope={
+                "current_value": 29.0,
+                "baseline_value": 3.0,
+                "delta_abs": 26.0,
+                "delta_pct": 8.6,
+                "direction": "up",
+            },
+            quality={
+                "reconciliation_status": "within_tolerance",
+                "unexplained_delta_abs": 0.0,
+                "unexplained_pct": 0.0,
+            },
+            lineage={"operation": "decompose", "source_artifact_ids": ["art_compare"]},
+        ),
         "step_ref": {
             "session_id": "sess_diag_hour",
             "step_id": "step_decompose",
@@ -710,15 +743,6 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
         },
         "artifact_id": "art_decompose",
         "schema_version": "2.0",
-        "axes": [{"kind": "dimension", "name": "trino_resource_group"}],
-        "series": [
-            {
-                "keys": {"trino_resource_group": "rg_a"},
-                "points": [{"absolute_contribution": 26.0}],
-            }
-        ],
-        # Backward-compatible rows alias
-        "rows": [{"key": "rg_a", "absolute_contribution": 26.0}],
         "attribution": {"status": "attributable", "issues": []},
     }
 
@@ -753,6 +777,9 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
 
     assert _product(bundle)["validation"]["status"] == "diagnosable"
     assert _result(bundle)["diagnoses"][0]["status"] == "diagnosed"
+    driver = _result(bundle)["diagnoses"][0]["drivers"][0]
+    assert driver["rows"][0]["absolute_contribution"] == 26.0
+    assert driver["top_segment"]["absolute_contribution"] == 26.0
     assert observe.call_args_list[0].args[2]["time_scope"] == {
         "start": "2026-04-09T14:00:00",
         "end": "2026-04-09T15:00:00",

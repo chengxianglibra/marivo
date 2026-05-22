@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from marivo.contracts.generated import aoi
-from marivo.transports.http.models import DiagnoseResponse, ObserveResponse, ValidateResponse
+from marivo.transports.http.models import (
+    DecomposeResponse,
+    DiagnoseResponse,
+    ObserveResponse,
+    ValidateResponse,
+)
 from marivo.transports.http.sessions import router
 
 
@@ -104,15 +109,50 @@ class _FakeRuntime:
             "artifact_id": "art_decompose_1",
             "result": {
                 "artifact_id": "art_decompose_1",
-                "result": {
-                    "items": [
+                "artifact_family": "attribution_frame",
+                "shape": "ranked_contributions",
+                "subject": {
+                    "kind": "comparison",
+                    "metric_ref": "metric.revenue",
+                    "current": {
+                        "time_scope": {
+                            "field": "event_time",
+                            "start": "2026-01-08T00:00:00Z",
+                            "end": "2026-01-15T00:00:00Z",
+                        },
+                        "scope": {},
+                    },
+                    "baseline": {
+                        "time_scope": {
+                            "field": "event_time",
+                            "start": "2026-01-01T00:00:00Z",
+                            "end": "2026-01-08T00:00:00Z",
+                        },
+                        "scope": {},
+                    },
+                },
+                "axes": [{"kind": "dimension", "name": "region"}],
+                "measures": [
+                    {"id": "contribution_abs", "value_type": "number", "nullable": False},
+                    {"id": "contribution_pct", "value_type": "number", "nullable": True},
+                ],
+                "capabilities": ["filterable"],
+                "lineage": {"operation": "decompose", "source_artifact_ids": ["art_compare_1"]},
+                "payload": {
+                    "series": [
                         {
-                            "item_id": "item_1",
-                            "key": "US",
-                            "contribution": 7.0,
-                            "share": 0.7,
+                            "keys": {"region": "US"},
+                            "points": [
+                                {
+                                    "contribution_abs": 7.0,
+                                    "contribution_pct": 0.7,
+                                    "rank": 1,
+                                }
+                            ],
                         }
                     ],
+                    "scope": {"delta_abs": 10.0},
+                    "quality": {"reconciliation_status": "within_tolerance"},
                 },
             },
             "provenance": {"mocked": True},
@@ -297,6 +337,57 @@ def _metric_frame_result(artifact_id: str = "art_observe_1") -> dict[str, Any]:
     }
 
 
+def _attribution_frame_result(artifact_id: str = "art_decompose_1") -> dict[str, Any]:
+    return {
+        "artifact_id": artifact_id,
+        "artifact_family": "attribution_frame",
+        "shape": "ranked_contributions",
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.revenue",
+            "current": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-08T00:00:00Z",
+                    "end": "2026-01-15T00:00:00Z",
+                },
+                "scope": {},
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-08T00:00:00Z",
+                },
+                "scope": {},
+            },
+        },
+        "axes": [{"kind": "dimension", "name": "region"}],
+        "measures": [
+            {"id": "contribution_abs", "value_type": "number", "nullable": False},
+            {"id": "contribution_pct", "value_type": "number", "nullable": True},
+        ],
+        "capabilities": ["filterable"],
+        "lineage": {"operation": "decompose", "source_artifact_ids": ["art_compare_1"]},
+        "payload": {
+            "series": [
+                {
+                    "keys": {"region": "US"},
+                    "points": [
+                        {
+                            "contribution_abs": 7.0,
+                            "contribution_pct": 0.7,
+                            "rank": 1,
+                        }
+                    ],
+                }
+            ],
+            "scope": {"delta_abs": 10.0},
+            "quality": {"reconciliation_status": "within_tolerance"},
+        },
+    }
+
+
 def test_atomic_response_model_accepts_aoi_artifact_wrapper() -> None:
     response = ObserveResponse.model_validate(
         {
@@ -310,6 +401,40 @@ def test_atomic_response_model_accepts_aoi_artifact_wrapper() -> None:
 
     assert isinstance(response.result, aoi.MetricFrameArtifact)
     assert response.result.payload.series[0].points[0].value == 42.0
+
+
+def test_decompose_response_model_accepts_attribution_frame_artifact() -> None:
+    response = DecomposeResponse.model_validate(
+        {
+            "intent_type": "decompose",
+            "step_type": "decompose",
+            "step_ref": _step_ref("decompose"),
+            "artifact_id": "art_decompose_1",
+            "result": _attribution_frame_result(),
+        }
+    )
+
+    assert response.result.artifact_family == "attribution_frame"
+    assert response.result.shape == "ranked_contributions"
+    point = response.result.payload.series[0].points[0]
+    assert point.contribution_abs == 7.0
+    assert point.contribution_pct == 0.7
+
+
+def test_decompose_response_model_rejects_loose_attribution_frame_artifact() -> None:
+    loose_artifact = _attribution_frame_result()
+    loose_artifact["axes"].append({"kind": "dimension", "name": "country"})
+
+    with pytest.raises(ValidationError):
+        DecomposeResponse.model_validate(
+            {
+                "intent_type": "decompose",
+                "step_type": "decompose",
+                "step_ref": _step_ref("decompose"),
+                "artifact_id": "art_decompose_1",
+                "result": loose_artifact,
+            }
+        )
 
 
 def test_observe_response_model_accepts_failure_artifact_without_result() -> None:
@@ -601,6 +726,13 @@ def test_decompose_accepts_aoi_request_with_limit() -> None:
     assert runtime.decompose_payload.compare_artifact_id == "artifact_compare"
     assert runtime.decompose_payload.dimension == "region"
     assert runtime.decompose_payload.limit == 5
+    body = response.json()
+    assert body["result"]["artifact_family"] == "attribution_frame"
+    assert body["result"]["shape"] == "ranked_contributions"
+    point = body["result"]["payload"]["series"][0]["points"][0]
+    assert point["contribution_abs"] == 7.0
+    assert point["contribution_pct"] == 0.7
+    assert "items" not in body["result"]
 
 
 def _valid_test_request() -> dict[str, Any]:

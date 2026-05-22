@@ -74,6 +74,133 @@ def _metric_frame_point(point: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _default_time_scope() -> dict[str, str]:
+    return {
+        "field": "time",
+        "start": "1970-01-01T00:00:00Z",
+        "end": "1970-01-02T00:00:00Z",
+    }
+
+
+def _attribution_time_scope(value: Any) -> Any:
+    if isinstance(value, dict) and value.get("start") is not None and value.get("end") is not None:
+        return {
+            "field": str(value.get("field") or "time"),
+            "start": value.get("start"),
+            "end": value.get("end"),
+        }
+    return _default_time_scope()
+
+
+def _attribution_scope(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _attribution_subject(payload: dict[str, Any]) -> dict[str, Any]:
+    subject = payload.get("subject")
+    if isinstance(subject, dict):
+        return subject
+    resolved_scopes_raw = payload.get("resolved_scopes")
+    resolved_scopes: dict[str, Any] = (
+        resolved_scopes_raw if isinstance(resolved_scopes_raw, dict) else {}
+    )
+    metric_ref = str(payload.get("metric_ref") or payload.get("metric") or "unknown")
+    if not metric_ref.startswith("metric."):
+        metric_ref = f"metric.{metric_ref}"
+    return {
+        "kind": "comparison",
+        "metric_ref": metric_ref,
+        "current": {
+            "time_scope": _attribution_time_scope(payload.get("current_time_scope")),
+            "scope": _attribution_scope(resolved_scopes.get("current")),
+        },
+        "baseline": {
+            "time_scope": _attribution_time_scope(payload.get("baseline_time_scope")),
+            "scope": _attribution_scope(resolved_scopes.get("baseline")),
+        },
+    }
+
+
+def _attribution_lineage(payload: dict[str, Any]) -> dict[str, Any]:
+    lineage = payload.get("lineage")
+    if isinstance(lineage, dict):
+        return lineage
+    compare_ref_raw = payload.get("compare_ref")
+    compare_ref: dict[str, Any] = compare_ref_raw if isinstance(compare_ref_raw, dict) else {}
+    return {
+        "operation": "decompose",
+        "source_artifact_ids": [str(compare_ref.get("artifact_id") or "unknown")],
+    }
+
+
+def _attribution_series_from_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    dimension = str(payload.get("dimension") or "dimension")
+    series = []
+    for idx, row in enumerate(payload.get("rows") or []):
+        if not isinstance(row, dict):
+            continue
+        key = row.get("key") if "key" in row else row.get("dimension_value")
+        point = {
+            "contribution_abs": row.get("contribution_abs")
+            if "contribution_abs" in row
+            else row.get("absolute_contribution", 0.0),
+            "contribution_pct": row.get("contribution_pct")
+            if "contribution_pct" in row
+            else row.get("contribution_share", 0.0),
+            "rank": row.get("rank") or idx + 1,
+        }
+        if "current_value" in row:
+            point["current_value"] = row.get("current_value")
+        if "baseline_value" in row:
+            point["baseline_value"] = row.get("baseline_value")
+        if "presence" in row:
+            point["presence"] = row.get("presence")
+        series.append({"keys": {dimension: str(key or f"item_{idx}")}, "points": [point]})
+    return series
+
+
+def _project_decompose_attribution_frame(payload: dict[str, Any]) -> dict[str, Any]:
+    if payload.get("artifact_family") == "attribution_frame":
+        return aoi.AttributionFrameArtifact.model_validate(payload).model_dump(
+            mode="json", exclude_none=True
+        )
+
+    artifact_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    if not artifact_payload:
+        contribution_summary_raw = payload.get("contribution_summary")
+        contribution_summary: dict[str, Any] = (
+            contribution_summary_raw if isinstance(contribution_summary_raw, dict) else {}
+        )
+        artifact_payload = {
+            "series": _attribution_series_from_rows(payload),
+            "scope": {
+                "delta_abs": payload.get("delta_abs") or contribution_summary.get("delta_abs")
+            },
+            "quality": {"reconciliation_status": "unknown"},
+        }
+        if artifact_payload["scope"]["delta_abs"] is None:
+            artifact_payload["scope"] = {}
+
+    artifact = aoi.AttributionFrameArtifact.model_validate(
+        {
+            "artifact_id": str(payload.get("artifact_id") or "artifact_decompose"),
+            "artifact_family": "attribution_frame",
+            "shape": "ranked_contributions",
+            "subject": _attribution_subject(payload),
+            "axes": payload.get("axes")
+            or [{"kind": "dimension", "name": payload.get("dimension") or "dimension"}],
+            "measures": [
+                {"id": "contribution_abs", "value_type": "number", "nullable": False},
+                {"id": "contribution_pct", "value_type": "number", "nullable": True},
+            ],
+            "capabilities": ["filterable"],
+            "lineage": _attribution_lineage(payload),
+            "payload": artifact_payload,
+        }
+    )
+    return artifact.model_dump(mode="json", exclude_none=True)
+
+
 def _metric_frame_subject(payload: dict[str, Any]) -> aoi.MetricFrameSubject:
     raw_time_scope = (
         payload.get("time_scope")
@@ -244,22 +371,7 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
         return compare_result.model_dump(mode="json")
 
     if intent_type == "decompose":
-        return aoi.DeltaDecompositionResult(
-            items=[
-                aoi.DecompositionItem(
-                    item_id=str(
-                        row.get("item_id")
-                        or row.get("key")
-                        or row.get("dimension_value")
-                        or f"item_{idx}"
-                    ),
-                    key=row.get("key") if "key" in row else row.get("dimension_value"),
-                    contribution=row.get("absolute_contribution") or 0.0,
-                    share=row.get("contribution_share") or 0.0,
-                )
-                for idx, row in enumerate(payload.get("rows") or [])
-            ]
-        ).model_dump(mode="json")
+        return _project_decompose_attribution_frame(payload)
 
     if intent_type == "correlate":
         statistic = payload.get("statistic") or {}
@@ -357,6 +469,18 @@ def project_aoi_artifact(
         return artifact_to_envelope_result(
             validate_aoi_artifact(_project_observe_metric_frame(artifact_id, projected_payload))
         )
+    if intent_type == "decompose":
+        if isinstance(raw, dict) and raw.get("artifact_id") and "failure" in raw:
+            return artifact_to_envelope_result(validate_aoi_artifact(raw))
+        projected_payload = payload
+        if isinstance(raw, dict):
+            raw_result = raw.get("result")
+            if isinstance(raw_result, dict):
+                projected_payload = raw_result
+            elif not (raw.get("artifact_id") and ("result" in raw or "failure" in raw)):
+                projected_payload = raw
+        projected_payload.setdefault("artifact_id", artifact_id)
+        return project_aoi_artifact_result("decompose", projected_payload)
     return artifact_to_envelope_result(
         validate_aoi_artifact(
             {
@@ -380,7 +504,9 @@ def _infer_intent_type(payload: dict[str, Any]) -> str:
         return "compare"
     if payload.get("shape") in ("scalar_delta", "time_series_delta", "segmented_delta", "panel_delta"):
         return "compare"
-    if artifact_type == "delta_decomposition" or "contribution_summary" in payload:
+    if payload.get("artifact_family") == "attribution_frame" or "contribution_summary" in payload:
+        return "decompose"
+    if artifact_type == "delta_decomposition":
         return "decompose"
     if artifact_type == "pairwise_time_series_association":
         return "correlate"

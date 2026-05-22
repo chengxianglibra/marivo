@@ -43,6 +43,9 @@
     },
     {
       "$ref": "#/$defs/artifacts/DeltaFrameArtifact"
+    },
+    {
+      "$ref": "#/$defs/artifacts/AttributionFrameArtifact"
     }
   ],
   "$defs": {
@@ -612,7 +615,7 @@
                 "$ref": "#/$defs/artifacts/SegmentedDeltaResult"
               },
               {
-                "$ref": "#/$defs/artifacts/DeltaDecompositionResult"
+                "$ref": "#/$defs/artifacts/AttributionFrameArtifact"
               },
               {
                 "$ref": "#/$defs/artifacts/AnomalyCandidatesResult"
@@ -976,21 +979,6 @@
                 "type": "null"
               }
             ]
-          }
-        }
-      },
-      "DeltaDecompositionResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "items"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/artifacts/DecompositionItem"
-            }
           }
         }
       },
@@ -1541,6 +1529,323 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "AttributionFrameMeasure": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/artifacts/AttributionFrameContributionAbsMeasure"
+          },
+          {
+            "$ref": "#/$defs/artifacts/AttributionFrameContributionPctMeasure"
+          }
+        ]
+      },
+      "AttributionFrameQuality": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reconciliation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reconciliation_gap": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "confidence_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unexplained_delta_abs": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "unexplained_pct": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "unexplained_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "AttributionFrameContributionAbsMeasure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "value_type",
+          "nullable"
+        ],
+        "properties": {
+          "id": {
+            "const": "contribution_abs"
+          },
+          "value_type": {
+            "const": "number"
+          },
+          "nullable": {
+            "const": false
+          }
+        }
+      },
+      "AttributionFrameContributionPctMeasure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "value_type",
+          "nullable"
+        ],
+        "properties": {
+          "id": {
+            "const": "contribution_pct"
+          },
+          "value_type": {
+            "const": "number"
+          },
+          "nullable": {
+            "const": true
+          }
+        }
+      },
+      "AttributionFrameAxis": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "kind": {
+            "const": "dimension"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "AttributionSubjectScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "time_scope",
+          "scope"
+        ],
+        "properties": {
+          "time_scope": {
+            "$ref": "#/$defs/primitives/TimeScope"
+          },
+          "scope": {
+            "type": "object"
+          }
+        }
+      },
+      "AttributionComparisonSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "metric_ref",
+          "current",
+          "baseline"
+        ],
+        "properties": {
+          "kind": {
+            "const": "comparison"
+          },
+          "metric_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "current": {
+            "$ref": "#/$defs/artifacts/AttributionSubjectScope"
+          },
+          "baseline": {
+            "$ref": "#/$defs/artifacts/AttributionSubjectScope"
+          }
+        }
+      },
+      "AttributionFrameLineage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "source_artifact_ids"
+        ],
+        "properties": {
+          "operation": {
+            "const": "decompose"
+          },
+          "source_artifact_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "AttributionPoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contribution_abs",
+          "contribution_pct",
+          "rank"
+        ],
+        "properties": {
+          "contribution_abs": {
+            "type": "number"
+          },
+          "contribution_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current_value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "baseline_value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "presence": {
+            "enum": [
+              "both",
+              "current_only",
+              "baseline_only"
+            ]
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "AttributionSeriesEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "keys",
+          "points"
+        ],
+        "properties": {
+          "keys": {
+            "$ref": "#/$defs/primitives/DimensionKeyMap"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/AttributionPoint"
+            }
+          }
+        }
+      },
+      "AttributionFramePayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "series",
+          "scope",
+          "quality"
+        ],
+        "properties": {
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/AttributionSeriesEntry"
+            }
+          },
+          "scope": {
+            "type": "object"
+          },
+          "quality": {
+            "$ref": "#/$defs/artifacts/AttributionFrameQuality"
+          }
+        }
+      },
+      "AttributionFrameArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "artifact_family",
+          "shape",
+          "subject",
+          "axes",
+          "measures",
+          "capabilities",
+          "lineage",
+          "payload"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_family": {
+            "const": "attribution_frame"
+          },
+          "shape": {
+            "const": "ranked_contributions"
+          },
+          "subject": {
+            "$ref": "#/$defs/artifacts/AttributionComparisonSubject"
+          },
+          "axes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/AttributionFrameAxis"
+            },
+            "minItems": 1,
+            "maxItems": 1
+          },
+          "measures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/artifacts/AttributionFrameMeasure"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "const": "filterable"
+            },
+            "minItems": 1,
+            "maxItems": 1
+          },
+          "lineage": {
+            "$ref": "#/$defs/artifacts/AttributionFrameLineage"
+          },
+          "payload": {
+            "$ref": "#/$defs/artifacts/AttributionFramePayload"
           }
         }
       }

@@ -166,7 +166,7 @@ class McpArtifactRef(BaseModel):
 
 
 class McpCompareArtifactRef(McpArtifactRef):
-    """MCP-visible ref for decompose inputs; step_type must be compare."""
+    """MCP-visible ref for decompose inputs; output is an attribution_frame artifact."""
 
     step_type: Literal["compare"] = Field(
         description='Required literal "compare"; decompose consumes compare step refs.',

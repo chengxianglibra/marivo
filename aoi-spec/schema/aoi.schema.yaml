@@ -320,7 +320,7 @@ artifact:
       - scalar_delta_result            # Scalar comparison delta.
       - time_series_delta_result       # Time-bucketed comparison deltas.
       - segmented_delta_result         # Dimension-segmented comparison deltas.
-      - delta_decomposition_result     # Contribution breakdown for a compare result.
+      - attribution_frame_artifact     # Ranked contribution frame for a compare result.
       - anomaly_candidates_result      # Ranked anomalous buckets or segments.
       - association_result             # Correlation/association statistics.
       - hypothesis_test_result         # Statistical hypothesis test output.
@@ -405,15 +405,55 @@ segmented_delta_result:
 
 # Decompose, detect, correlate, test, and forecast results
 
-# Result for decompose requests.
-delta_decomposition_result:
-  # Required: ranked contribution rows.
-  items:
-    # One contribution row.
-    - item_id: string                              # Required: stable row identifier.
-      key: dimension_value                        # Required, nullable: dimension value for this contribution.
-      contribution: number                         # Required: signed contribution in metric units; finite number with no fixed bound. Positive increases the compared delta; negative offsets it; larger absolute value means a stronger driver.
-      share: number                                # Required: signed contribution ratio to the total delta; finite number with no fixed bound because offsetting contributors may produce negative or greater-than-1 shares. Larger absolute value means higher relative importance.
+# Artifact returned by decompose requests.
+attribution_frame_artifact:
+  artifact_id: string
+  artifact_family: attribution_frame
+  shape: ranked_contributions
+  subject:
+    kind: comparison
+    metric_ref: string
+    current:
+      time_scope: time_scope
+      scope: object
+    baseline:
+      time_scope: time_scope
+      scope: object
+  axes:
+    - kind: dimension
+      name: string
+  measures:
+    - id: contribution_abs
+      value_type: number
+      nullable: false
+    - id: contribution_pct
+      value_type: number
+      nullable: true
+  capabilities:
+    - filterable
+  lineage:
+    operation: decompose
+    source_artifact_ids: string[]
+  payload:
+    series:
+      - keys: dimension_key_map
+        points:
+          - contribution_abs: number
+            contribution_pct: number | null
+            current_value: number | null
+            baseline_value: number | null
+            # Optional interpretive metadata for current/baseline membership;
+            # not a delta measure or readiness/status flag.
+            presence: both | current_only | baseline_only
+            rank: integer
+    scope: object
+    quality:
+      reconciliation_status: string | null
+      reconciliation_gap: number | null
+      confidence_grade: string | null
+      unexplained_delta_abs: number | null
+      unexplained_pct: number | null
+      unexplained_reason: string | null
 
 # Result for detect requests.
 anomaly_candidates_result:

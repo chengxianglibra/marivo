@@ -1478,19 +1478,32 @@ interface SegmentedDeltaRow {
 ```typescript
 interface DecomposeArtifact {
   artifact_id: string;
-  result: DeltaDecompositionResult;
+  result: AttributionFrameArtifact;
   failure: AnalysisFailure | null;
 }
 
-interface DeltaDecompositionResult {
-  items: DecompositionItem[];
-}
-
-interface DecompositionItem {
-  item_id: string;
-  key: string;                             // 维度值，如 "jscs-ai-offline"
-  contribution: number;                    // 该维度值的差值 (left - right)
-  share: number;                           // 对总差异的贡献占比（0~1）
+interface AttributionFrameArtifact {
+  artifact_id: string;
+  artifact_family: "attribution_frame";
+  shape: "ranked_contributions";
+  axes: [{ kind: "dimension"; name: string }];
+  measures: [
+    { id: "contribution_abs"; value_type: "number"; nullable: false },
+    { id: "contribution_pct"; value_type: "number"; nullable: true }
+  ];
+  payload: {
+    series: Array<{
+      keys: Record<string, string>;
+      points: Array<{
+        contribution_abs: number;
+        contribution_pct: number | null;
+        current_value?: number | null;
+        baseline_value?: number | null;
+        presence?: "both" | "current_only" | "baseline_only" | null;
+        rank: number;
+      }>;
+    }>;
+  };
 }
 ```
 
@@ -1512,10 +1525,26 @@ interface DecompositionItem {
   "data": {
     "artifact_id": "art_decompose_1",
     "result": {
-      "items": [
-        { "item_id": "item_0", "key": "jscs-ai-offline", "contribution": 29770, "share": 0.83 },
-        { "item_id": "item_1", "key": "jscs-ai-online", "contribution": 6090, "share": 0.17 }
-      ]
+      "artifact_id": "art_decompose_1",
+      "artifact_family": "attribution_frame",
+      "shape": "ranked_contributions",
+      "axes": [{ "kind": "dimension", "name": "cluster" }],
+      "measures": [
+        { "id": "contribution_abs", "value_type": "number", "nullable": false },
+        { "id": "contribution_pct", "value_type": "number", "nullable": true }
+      ],
+      "payload": {
+        "series": [
+          {
+            "keys": { "cluster": "jscs-ai-offline" },
+            "points": [{ "contribution_abs": 29770, "contribution_pct": 0.83, "rank": 1 }]
+          },
+          {
+            "keys": { "cluster": "jscs-ai-online" },
+            "points": [{ "contribution_abs": 6090, "contribution_pct": 0.17, "rank": 2 }]
+          }
+        ]
+      }
     },
     "failure": null
   },
@@ -1551,7 +1580,7 @@ interface DecompositionItem {
 ```typescript
 interface AttributeArtifact {
   artifact_id: string;
-  result: DeltaDecompositionResult;        // 结构同 decompose 输出
+  result: AttributeBundle;                 // 内含 decompose attribution_frame 工件引用与 driver 摘要
   failure: AnalysisFailure | null;
 }
 ```
