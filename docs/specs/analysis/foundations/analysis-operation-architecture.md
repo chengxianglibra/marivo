@@ -158,7 +158,7 @@ v1 transform 集合应包括：
 
 - `slice`：从 frame 中选择子空间，例如收窄时间窗、segment key 或 selector 指向的局部区域。它的语义是“取子集”，不是重新 `observe`，也不修改 semantic metric 定义。
 - `rollup`：沿时间轴或维度轴聚合 frame，例如日到周、城市到国家、segment 到 overall。它的语义是“降低粒度 / 合并分组”，必须保留 lineage 和 rollup policy。这里的 rollup policy 是 transform 的聚合声明，不等同于 compare metadata 中的 calendar `rollup_safe` 判断。
-- `sample_summary`：从 frame 或 selector-resolved population 生成 test-ready 样本摘要，例如 n、mean、stddev、rate numerator / denominator。它的语义是“统计检验输入摘要”，目标态下不再作为 `observe` 的特殊公开 result mode。
+- `sample_summary`：从 frame 或 selector-resolved population 生成 test-ready `sample_frame`，例如 n、mean、stddev、rate numerator / denominator。`sample_summary` 是 transform 名，`sample_frame` 是它产出的 typed output / artifact family。它的语义是“统计检验输入摘要”，目标态下不再作为 `observe` 的特殊公开 result mode，也不应藏在 `test` intent 内部作为私有逻辑。
 - `select_topk`：按 value、delta、contribution、share 等排序选择 top / bottom items。它的语义是“候选收窄”，不产生 evidence 判断。
 - `normalize`：重表达 measure，例如 index、share、pct_change、per-unit、z-score。它用于让不同量级、不同曝光或不同基准的序列可比，不改变观察对象，也不伪装成新的 semantic metric。
 - `align`：显式定义多个 frame 的 bucket、sample、segment key 或 window 如何配对。它用于 `compare`、`correlate`、`test` 前的输入配对，不改变值含义，也不重定义 `compare.compare_type` 的日历业务语义。
@@ -178,6 +178,8 @@ v1 transform 集合应包括：
 - `test` 前按 cohort key、实验桶或日期位置配对样本。
 
 Transform 输出默认不直接 seed proposition。只有下游 intent 或 artifact-finding extraction 明确支持时，它才进入 finding / proposition / assessment 链路。
+
+`sample_summary` 是一个特殊但重要的 transform：它应作为 job DAG 中可审计、可引用、可复用的一等 step。它的产物是 `sample_frame`，例如 `sample_frame(numeric_summary)`、`sample_frame(rate_summary)`、`sample_frame(paired_numeric_summary)` 或 `sample_frame(paired_rate_summary)`。`test` 的 canonical runtime input 是 `ResolvedSampleFrameInput` 或等价的 test-ready resolved input；若 API 为了易用性允许 `test` 直接接收 `metric_frame`，runtime 必须把它编译为显式 `sample_summary` transform step，再执行 `test`。这样 `sample_summary` 的 null 处理、rate numerator / denominator、sample size、pairing、trim / filter 等方法细节都能进入 lineage，而不是被埋在 `test_result` 内部。
 
 ### 派生意图层
 
@@ -249,6 +251,23 @@ Plan DSL 的另一个职责是把 agent-facing 的多种引用形态规范化。
 - warnings / truncation / quality signals
 
 这层是面向 agent 的读取面，不是 artifact 本体。
+
+需要区分三种面：
+
+1. Authoritative store：保存完整 canonical chain，包括 artifact、finding、proposition、assessment、action proposal、edge、provenance 和 audit trace，用于审计、回放、调试和 UI 展开。
+2. Job outcome envelope：返回 agent 下一步决策需要的投影，不是全量 evidence graph dump。
+3. Drill-down read / projection API：按 ref 展开 artifact、finding、proposition context、assessment trace 等细节，用于查证、分页、恢复上下文或外部系统读取。
+
+因此 outcome envelope 的默认形态应是 decision-oriented projection，而不是按存储链条全量返回所有对象。它应该回答：
+
+- 本次 job 改变了什么。
+- 当前最重要的 proposition / assessment 是什么。
+- 哪些 evidence 支持或反对当前判断。
+- 当前有哪些 blocker、gap 或 caveat。
+- 下一步建议执行什么 action。
+- 需要细查时应该读取哪些 refs。
+
+默认返回应采用 summaries + refs，而不是完整对象。大 artifact、长 finding 列表、完整 proof trace 和历史 proposition 图谱应保留在 authoritative store 中，通过 drill-down API 按需读取。
 
 `session_state`、`proposition_context` 这类单独读取接口不应成为 agent 正常分析循环里的必要 plumbing。它们可以保留为辅助 projection / read API，用于 UI、调试、分页、恢复上下文或外部系统读取；但主路径应由 job outcome envelope 直接提供下一轮决策所需的当前 session closure。
 
@@ -331,7 +350,7 @@ public API refs
 
 - `compare`、`correlate`、`detect`、`forecast` 消费 `ResolvedMetricFrameInput`。
 - `decompose` 消费 `ResolvedDeltaFrameInput`。
-- `test` 消费 `ResolvedSampleSummaryInput` 或等价的 test-ready resolved input。
+- `test` 消费 `ResolvedSampleFrameInput` 或等价的 test-ready resolved input。
 - transform step 的输出也必须先形成对应的 resolved input，才能被下游 intent 消费。
 
 Resolved input 至少应保留：
@@ -393,6 +412,28 @@ anomaly_candidate -> selector resolver -> decompose
 
 `test` 的结果是假设检验结果，不是 frame。
 
+`test` 的 canonical 输入不是裸 `metric_frame`，而是 `sample_summary` transform 产出的 `sample_frame`，经 resolver 形成的 `ResolvedSampleFrameInput` 或等价 test-ready input。
+
+Agent-facing API 可以允许：
+
+```text
+test(metric_frame_current, metric_frame_baseline)
+```
+
+但这只是 convenience syntax。Runtime 必须等价展开为：
+
+```text
+sample_summary_current = sample_summary(metric_frame_current)
+sample_summary_baseline = sample_summary(metric_frame_baseline)
+test(sample_summary_current, sample_summary_baseline)
+```
+
+这种边界把“如何生成可检验样本摘要”和“如何检验假设”分开：
+
+- `sample_summary` 负责样本统计、rate 分子分母、null 处理、pairing 与方法输入准备，并产出 `sample_frame`。
+- `test` 负责在明确 hypothesis 下消费 `ResolvedSampleFrameInput`，产出 `test_result`。
+- `test_result` 的 provenance 必须能追溯到 `sample_summary` step 及其输入 frame。
+
 它的下游通常是：
 
 - 进入 proposition / assessment
@@ -437,20 +478,30 @@ anomaly_candidate -> selector resolver -> decompose
 
 一次 job 完成后，最友好的返回不是裸 artifact，也不是只包含本次 DAG target 节点的结果。
 
-应该返回本次 job 结果加当前 session closure：
+应该返回本次 job 结果加当前 session closure 的决策投影：
 
 ```text
-target artifacts
-newly committed artifacts
-session findings
-session propositions
-current assessments
-current action proposals
-selectors for follow-up
-quality / truncation / warnings
+job status
+target artifact summaries + refs
+changes from this job
+focused propositions
+assessment summaries
+recommended action proposals
+key supporting / opposing evidence refs
+follow-up selectors
+warnings / quality / truncation
+read-more refs
 ```
 
 这样 agent 不需要自己去回读整份 artifact，也不需要每轮 job 后再通过 `session_state`、`proposition_context` 等接口拼接当前判断上下文。
+
+其中：
+
+- `changes from this job` 只描述本轮新增或更新的 findings、propositions、assessments、action proposals。
+- `focused propositions` 是当前 session 中与下一步决策最相关的工作集，不是所有历史 propositions。
+- `assessment summaries` 给出 status、main reasons、blocking gaps、last source job 等摘要，不默认返回完整 proof trace。
+- `recommended action proposals` 是最 agent-facing 的下一步候选，应包含 action kind、rationale、proposed job / intent request、priority、expected information gain 和 caveats。
+- `read-more refs` 允许 agent 在需要查证时展开完整 artifact、finding、proposition context 或 assessment trace。
 
 ## 为什么这样设计
 
