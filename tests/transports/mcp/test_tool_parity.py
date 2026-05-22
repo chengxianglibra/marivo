@@ -506,26 +506,23 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
     assert "aggressive=0.10" in significance_schema["description"]
 
 
-def test_observe_and_detect_filter_schemas_expose_aoi_expression() -> None:
+def test_observe_filter_schema_exposes_aoi_expression() -> None:
     server = FastMCP("test")
     register_tools(server, FakeRuntime(), transport="stdio")
     tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
 
-    for tool_name in ("observe", "detect"):
-        parameters = tools[tool_name].parameters
-        filter_schema = parameters["properties"]["filter_expression"]
-        expression_schema = parameters["$defs"]["McpExpression"]
-        dialect_schema = parameters["$defs"]["McpDialect"]
+    parameters = tools["observe"].parameters
+    filter_schema = parameters["properties"]["filter_expression"]
+    expression_schema = parameters["$defs"]["McpExpression"]
+    dialect_schema = parameters["$defs"]["McpDialect"]
 
-        assert filter_schema["anyOf"][0] == {"$ref": "#/$defs/McpExpression"}
-        assert "AOI Expression" in filter_schema["description"]
-        assert expression_schema["additionalProperties"] is False
-        assert expression_schema["required"] == ["dialects"]
-        assert expression_schema["properties"]["dialects"]["items"] == {
-            "$ref": "#/$defs/McpDialect"
-        }
-        assert dialect_schema["required"] == ["expression"]
-        assert dialect_schema["properties"]["dialect"]["default"] == "ANSI_SQL"
+    assert filter_schema["anyOf"][0] == {"$ref": "#/$defs/McpExpression"}
+    assert "AOI Expression" in filter_schema["description"]
+    assert expression_schema["additionalProperties"] is False
+    assert expression_schema["required"] == ["dialects"]
+    assert expression_schema["properties"]["dialects"]["items"] == {"$ref": "#/$defs/McpDialect"}
+    assert dialect_schema["required"] == ["expression"]
+    assert dialect_schema["properties"]["dialect"]["default"] == "ANSI_SQL"
 
     observe_props = tools["observe"].parameters["properties"]
     assert "owns this intent call" in observe_props["session_id"]["description"]
@@ -576,13 +573,15 @@ def test_detect_and_decompose_tool_schemas_document_aoi_parameters() -> None:
 
     detect = tools["detect"]
     detect_props = detect.parameters["properties"]
-    assert "Detect anomaly candidates" in detect.description
+    assert "Detect anomaly candidates from a committed AOI artifact" in detect.description
     assert "owns this intent call" in detect_props["session_id"]["description"]
-    assert "Semantic metric identifier" in detect_props["metric"]["description"]
-    assert "AOI TimeScope" in detect_props["time_scope"]["description"]
-    assert "time bucket granularity" in detect_props["granularity"]["description"]
-    assert "Detection strategy" in detect_props["strategy"]["description"]
-    assert "single dimension" in detect_props["dimension"]["description"]
+    assert "source_artifact_id" in detect_props
+    assert "metric" not in detect_props
+    assert "time_scope" not in detect_props
+    assert "granularity" not in detect_props
+    assert "strategy" not in detect_props
+    assert "filter_expression" not in detect_props
+    assert "dimension" not in detect_props
     assert "Detection sensitivity" in detect_props["sensitivity"]["description"]
     assert detect_props["sensitivity"]["default"] == "aggressive"
     assert "Maximum anomaly candidates" in detect_props["limit"]["description"]

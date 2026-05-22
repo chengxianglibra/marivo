@@ -1276,46 +1276,49 @@ interface AnalysisFailure {
 
 ### 3.6 detect
 
-检测指标时间序列中的异常窗口。
+扫描已提交 AOI artifact 中的异常候选。
 
 **输入参数**：
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
-| metric | string | 是 | 语义指标名称 |
-| time_scope | McpTimeScope | 是 | 时间范围定义 |
-| granularity | `"hour"` \| `"day"` \| `"week"` \| `"month"` \| `"quarter"` \| `"year"` | 是 | 时间粒度 |
-| strategy | `"point_anomaly"` \| `"period_shift"` | 是 | 检测策略 |
+| source_artifact_id | string | 是 | 要扫描的已提交 `metric_frame` 或 `delta_frame` artifact ID |
 
 可选参数：
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| filter_expression | McpExpression | 否 | 省略 | AOI 过滤表达式对象；不用时省略，不传 `null` |
-| dimension | string | 否 | 省略 | 按单个维度拆成独立序列扫描，如 `"cluster"` |
 | sensitivity | `"conservative"` \| `"balanced"` \| `"aggressive"` | 否 | `"aggressive"` | 检测灵敏度档位 |
 | limit | integer | 否 | 省略 | 返回异常点数量上限；不用时省略，不传 `null` |
 
-**输出 — DetectArtifact**：
+策略由输入 artifact 推导：
+
+- `metric_frame(time_series|panel)` → `point_anomaly_candidates`
+- `delta_frame(time_series_delta|panel_delta)` → `period_shift_candidates`
+
+**输出 — CandidateSetArtifact**：
 
 ```typescript
-interface DetectArtifact {
+interface CandidateSetArtifact {
   artifact_id: string;
-  result: AnomalyCandidatesResult;
-  failure: AnalysisFailure | null;
+  artifact_family: "candidate_set";
+  shape: "point_anomaly_candidates" | "period_shift_candidates";
+  payload: {
+    items: CandidateItem[];
+  };
 }
 
-interface AnomalyCandidatesResult {
-  items: AnomalyCandidate[];
-}
-
-interface AnomalyCandidate {
+interface CandidateItem {
   item_id: string;
-  bucket_start: string;                    // 异常发生的时间桶，ISO-8601
-  value: number | null;                    // 实际观测值
-  score: number;                           // 异常偏离评分
-  series_keys: object | null;              // dimension 维度的键值对
+  window: { start: string; end: string };
+  keys: Record<string, string> | null;
+  value: number | null;
+  baseline_value?: number | null;
+  delta_abs?: number | null;
+  delta_pct?: number | null;
+  score: number;
+  direction: "increase" | "decrease" | "unknown";
 }
 ```
 
@@ -1324,14 +1327,7 @@ interface AnomalyCandidate {
 ```json
 {
   "session_id": "ses_abc123",
-  "metric": "total_query_count",
-  "time_scope": {
-    "field": "create_time",
-    "start": "2025-03-01",
-    "end": "2025-03-08"
-  },
-  "granularity": "day",
-  "strategy": "point_anomaly",
+  "source_artifact_id": "art_metric_frame_123",
   "sensitivity": "aggressive"
 }
 ```
@@ -1342,12 +1338,20 @@ interface AnomalyCandidate {
 {
   "data": {
     "artifact_id": "art_detect_1",
-    "result": {
+    "artifact_family": "candidate_set",
+    "shape": "point_anomaly_candidates",
+    "payload": {
       "items": [
-        { "item_id": "item_0", "bucket_start": "2025-03-05T00:00:00Z", "value": 45000, "score": 3.2, "series_keys": null }
+        {
+          "item_id": "point_anomaly:series_0:2025-03-05T00:00:00Z",
+          "window": { "start": "2025-03-05T00:00:00Z", "end": "2025-03-06T00:00:00Z" },
+          "keys": null,
+          "value": 45000,
+          "score": 3.2,
+          "direction": "increase"
+        }
       ]
-    },
-    "failure": null
+    }
   },
   "error": null
 }
@@ -1657,7 +1661,7 @@ interface AttributeArtifact {
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| filter_expression | McpExpression \| null | 否 | null | AOI 过滤表达式，作用于 detect 和后续归因 |
+| filter_expression | McpExpression \| null | 否 | null | AOI 过滤表达式，作用于 diagnose 的源 artifact 构建和后续归因 |
 | scan_dimension | string \| null | 否 | null | detect 阶段的单维扫描拆分轴；只影响异常候选发现，不影响归因拆解维度 |
 | sensitivity | `"conservative"` \| `"balanced"` \| `"aggressive"` | 否 | `"aggressive"` | detect 阶段的灵敏度 |
 | candidate_limit | integer \| null | 否 | 3 | 最多端到端诊断的异常候选数量；不控制 driver rows |
@@ -2288,7 +2292,7 @@ interface McpAoiSliceRef {
 }
 ```
 
-注意：`McpAoiSliceRef` 内部只支持 `filter`，不支持 `filter_expression`。`filter_expression` 只用于 `observe`、`detect`、`diagnose` 的顶层参数。
+注意：`McpAoiSliceRef` 内部只支持 `filter`，不支持 `filter_expression`。`filter_expression` 只用于 `observe`、`diagnose` 的顶层参数。
 
 **示例**：
 
@@ -2301,7 +2305,7 @@ interface McpAoiSliceRef {
 
 ### 4.4 McpExpression
 
-AOI 过滤表达式对象。用于 `observe.filter_expression`、`detect.filter_expression` 和 `McpAoiSliceRef.filter`。
+AOI 过滤表达式对象。用于 `observe.filter_expression`、`diagnose.filter_expression` 和 `McpAoiSliceRef.filter`。
 
 ```typescript
 interface McpExpression {
@@ -2379,7 +2383,7 @@ interface AnalysisFailure {
 - 非可加指标可省略 MARIVO metric `custom_extension` 或声明 `additive_dimensions: []`
 - `compare`、`decompose`、`correlate`、`forecast` 使用 artifact ID 字符串引用，非结构化引用对象
 - `holiday_aligned` / `holiday_and_weekday_aligned` compare 前先检查 calendar rows；缺失时不得编造节假日数据
-- `observe`/`detect` 的 `filter_expression` 必须为 `McpExpression` 结构化对象，不接受 JSON 字符串
+- `observe` 的 `filter_expression` 必须为 `McpExpression` 结构化对象，不接受 JSON 字符串；atomic `detect` 不接受 `filter_expression`，只扫描已提交 artifact
 - `test_intent` 在 MCP 层不暴露固定的 `kind` 或 `hypothesis.family`；适配层内部固定为 AOI `kind="numeric"` 和 `hypothesis.family="two_sample_mean"`，要求 `grain` 为 `hour`、`day`、`week`、`month`、`quarter` 或 `year`，使用 `hypothesis.significance` 选择显著性档位，无 `method`、`hypothesis.alpha` 或 `hypothesis.label` 参数
 - `test_intent.current/baseline` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 `filter_expression` 或 derived intent 的 `scope`
 - `validate.current/baseline` 使用 `McpAoiSliceRef`，支持 `filter`，不支持 `filter_expression` 或 derived intent 的 `scope`；`grain` 必填并传给底层假设检验，进入 runtime 前会构造 generated AOI `Validate` 模型；`validate.hypothesis` 不暴露 `family`，不支持 `alpha`、`label` 或 `method`

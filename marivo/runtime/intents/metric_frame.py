@@ -4,12 +4,43 @@ from __future__ import annotations
 
 import contextlib
 from collections import OrderedDict
-from typing import Any
+from copy import deepcopy
+from dataclasses import dataclass
+from typing import Any, TypedDict
 
 from marivo.time_contracts import TimeGrain, bucket_window
 
 MetricFrameShape = str
 DeltaFrameShape = str
+
+
+class FramePointRef(TypedDict):
+    artifact_id: str
+    series_index: int
+    point_index: int
+    series_keys: dict[str, str]
+    point_key: str
+
+
+@dataclass(frozen=True)
+class FramePoint:
+    artifact_id: str
+    series_index: int
+    point_index: int
+    series_keys: dict[str, str]
+    point: dict[str, Any]
+    ref: FramePointRef
+
+    @property
+    def window(self) -> dict[str, Any] | None:
+        window = self.point.get("window")
+        if not isinstance(window, dict):
+            return None
+        copied_window: dict[str, Any] = deepcopy(window)
+        return copied_window
+
+    def value(self, field: str) -> Any:
+        return self.point.get(field)
 
 
 def build_metric_frame_artifact(
@@ -224,6 +255,62 @@ def read_frame_payload_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(series, list):
         return series
     raise ValueError("frame artifact payload missing series")
+
+
+def _string_series_keys(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): str(raw) for key, raw in value.items()}
+
+
+def _copy_dict(value: dict[str, Any]) -> dict[str, Any]:
+    copied_value: dict[str, Any] = deepcopy(value)
+    return copied_value
+
+
+def _point_key(point: dict[str, Any], point_index: int) -> str:
+    window = point.get("window")
+    if isinstance(window, dict):
+        start = str(window.get("start") or "").strip()
+        if start:
+            return start
+    for key in ("item_id", "row_id", "bucket_start", "start"):
+        raw = point.get(key)
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+    return f"point_{point_index}"
+
+
+def iter_frame_points(artifact_id: str, artifact: dict[str, Any]) -> list[FramePoint]:
+    series_list = read_frame_payload_series(artifact)
+    frame_points: list[FramePoint] = []
+    for series_index, series in enumerate(series_list):
+        if not isinstance(series, dict):
+            continue
+        series_keys = _string_series_keys(series.get("keys"))
+        raw_points = series.get("points") or []
+        for point_index, point in enumerate(raw_points):
+            if not isinstance(point, dict):
+                continue
+            point_key = _point_key(point, point_index)
+            point_ref: FramePointRef = {
+                "artifact_id": artifact_id,
+                "series_index": series_index,
+                "point_index": point_index,
+                "series_keys": dict(series_keys),
+                "point_key": point_key,
+            }
+            frame_points.append(
+                FramePoint(
+                    artifact_id=artifact_id,
+                    series_index=series_index,
+                    point_index=point_index,
+                    series_keys=dict(series_keys),
+                    point=_copy_dict(point),
+                    ref=point_ref,
+                )
+            )
+    return frame_points
 
 
 def _first_present(artifact: dict[str, Any], keys: list[str]) -> Any:

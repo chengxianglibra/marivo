@@ -363,14 +363,8 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
             "summary": "Minimal detect payload",
             "complexity": "minimal",
             "payload": {
-                "metric": "metric.watch_time",
-                "time_scope": {
-                    "field": "event_time",
-                    "start": "2026-04-01T00:00:00Z",
-                    "end": "2026-04-08T00:00:00Z",
-                },
-                "granularity": "day",
-                "strategy": "point_anomaly",
+                "source_artifact_id": "art_metric_frame_123",
+                "sensitivity": "aggressive",
             },
         }
     ],

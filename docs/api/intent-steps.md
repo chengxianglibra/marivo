@@ -187,19 +187,15 @@ POST /sessions/{session_id}/intents/detect
 
 ```json
 {
-  "metric": "order_revenue",
-  "time_scope": {
-    "field": "order_date",
-    "start": "2026-01-01T00:00:00Z",
-    "end": "2026-02-01T00:00:00Z"
-  },
-  "granularity": "day",
-  "dimension": "country",
-  "strategy": "point_anomaly",
+  "source_artifact_id": "art_metric_or_delta_frame",
   "sensitivity": "aggressive",
   "limit": 20
 }
 ```
+
+`metric_frame(time_series|panel)` sources produce `point_anomaly_candidates`.
+`delta_frame(time_series_delta|panel_delta)` sources produce `period_shift_candidates`.
+`detect` returns a top-level `candidate_set` artifact.
 
 ### Forecast
 

@@ -140,7 +140,7 @@ type SessionRuntimeStatus = {
 - `blocked_reason` is always `"none"` in v1 for the same reason.
 - `backpressured_propositions` and `failed_items` are always `0` in v1; no backpressure or per-item failure tracking is implemented.
 - `updated_at` reflects the session row's `updated_at` column (set at creation time and on any session root update). It does not yet reflect the freshest write across downstream pipeline objects.
-- `queued_artifacts` excludes D4-allows-empty artifact types (`observation`, `anomaly_candidates`). In the v1 synchronous pipeline, zero findings is a committed outcome for those families and is indistinguishable from an unprocessed artifact without an extraction-status column.
+- `queued_artifacts` excludes D4-allows-empty artifact types (`observation`, `candidate_set`). In the v1 synchronous pipeline, zero findings is a committed outcome for those families and is indistinguishable from an unprocessed artifact without an extraction-status column.
 
 ### Artifact-level status
 

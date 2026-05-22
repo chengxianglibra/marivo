@@ -243,18 +243,32 @@ def _detect_payload(candidates: list[dict[str, Any]] | None = None) -> dict[str,
     if candidates is None:
         candidates = []
     return {
-        "artifact_type": "anomaly_candidates",
-        "artifact_schema_version": "v1",
-        "metric": "daily_users",
-        "scope": {},
-        "time_scope": {
-            "mode": "single_window",
-            "grain": "day",
-            "current": {"start": "2024-01-01", "end": "2024-01-08"},
+        "artifact_family": "candidate_set",
+        "shape": "point_anomaly_candidates",
+        "subject": {
+            "kind": "candidate_scan",
+            "metric_ref": "metric.daily_users",
+            "source_artifact_id": "art_source_001",
+            "source_artifact_family": "metric_frame",
+            "source_shape": "time_series",
         },
-        "candidates": candidates,
-        "scan_summary": {"total_candidate_count": len(candidates)},
-        "analytical_metadata": {"baseline_method": "zscore"},
+        "axes": [{"kind": "time", "grain": "day"}],
+        "measures": [{"id": "score", "value_type": "number", "nullable": False}],
+        "lineage": {
+            "operation": "detect",
+            "source_artifact_ids": ["art_source_001"],
+            "strategy": "point_anomaly",
+        },
+        "payload": {
+            "items": candidates,
+            "scan_summary": {"scanned_series_count": 1, "total_candidate_count": len(candidates)},
+            "truncation": {
+                "returned_candidate_count": len(candidates),
+                "total_candidate_count": len(candidates),
+                "truncated": False,
+            },
+            "quality": {"status": "detectable", "issues": []},
+        },
     }
 
 
@@ -573,7 +587,7 @@ class TestDetectEmptyCommit(unittest.TestCase):
             self.store,
             _SESSION,
             _STEP_ID,
-            "anomaly_candidates",
+            "candidate_set",
             "detect_empty",
             _detect_payload(candidates=[]),
             step_type="detect",

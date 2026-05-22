@@ -205,42 +205,45 @@ def test_extract_artifact_summary_segmented():
 
 def test_extract_artifact_summary_detect():
     payload = {
-        "artifact_type": "anomaly_candidates",
-        "strategy": "period_shift",
-        "sensitivity": "aggressive",
-        "granularity": "day",
-        "scan_summary": {
-            "total_candidate_count": 12,
-            "returned_candidate_count": 5,
-            "eligible_series_count": 8,
+        "artifact_family": "candidate_set",
+        "shape": "period_shift_candidates",
+        "lineage": {
+            "operation": "detect",
+            "source_artifact_ids": ["art_delta_001"],
+            "strategy": "period_shift",
         },
-        "candidates": [
-            {
-                "window": {"start": "2026-04-27", "end": "2026-05-20"},
-                "slice": {"cluster": "k8sbi-bi1"},
-                "candidate_type": "period_shift",
-                "candidate_score": 2.46,
-                "deviation_pct": 2.46,
-                "direction": "up",
-                "flag_level": "high",
-                "current_value": 443986,
-                "baseline_value": 128342,
+        "payload": {
+            "scan_summary": {
+                "scanned_series_count": 8,
+                "total_candidate_count": 12,
             },
-        ],
+            "truncation": {
+                "returned_candidate_count": 5,
+                "total_candidate_count": 12,
+                "truncated": True,
+            },
+            "items": [
+                {
+                    "window": {"start": "2026-04-27", "end": "2026-05-20"},
+                    "keys": {"cluster": "k8sbi-bi1"},
+                    "score": 2.46,
+                    "delta_pct": 2.46,
+                    "direction": "increase",
+                    "value": 443986,
+                    "baseline_value": 128342,
+                },
+            ],
+        },
     }
     summary = _extract_artifact_summary(payload)
     assert summary["candidate_count_total"] == 12
     assert summary["candidate_count_returned"] == 5
-    assert summary["eligible_series_count"] == 8
+    assert summary["scanned_series_count"] == 8
     assert summary["top_candidate_period"] == "2026-04-27"
     assert summary["top_candidate_slice"] == "cluster=k8sbi-bi1"
     assert summary["top_candidate_score"] == 2.46
-    assert summary["top_candidate_direction"] == "up"
-    assert summary["top_candidate_flag_level"] == "high"
-    assert summary["top_candidate_type"] == "period_shift"
+    assert summary["top_candidate_direction"] == "increase"
     assert summary["strategy"] == "period_shift"
-    assert summary["sensitivity"] == "aggressive"
-    assert summary["granularity"] == "day"
     # value keys excluded
     assert "current_value" not in summary
     assert "baseline_value" not in summary

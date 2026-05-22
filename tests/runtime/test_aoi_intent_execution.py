@@ -23,18 +23,7 @@ def _observe_request() -> aoi.Observe:
 
 def _detect_request() -> aoi.Detect:
     return aoi.Detect(
-        metric="view_time",
-        time_scope=aoi.TimeScope(
-            field="event_time",
-            start=datetime(2026, 5, 1, tzinfo=UTC),
-            end=datetime(2026, 5, 8, tzinfo=UTC),
-        ),
-        granularity="day",
-        filter=aoi.Expression(
-            dialects=[aoi.Dialect(dialect="ANSI_SQL", expression="region = 'US'")]
-        ),
-        dimension="region",
-        strategy="period_shift",
+        source_artifact_id="artifact-source",
         sensitivity="balanced",
         limit=5,
     )
@@ -232,16 +221,7 @@ def test_detect_accepts_aoi_request_and_dispatches_lowered_params(monkeypatch) -
             runtime,
             "s1",
             {
-                "metric": "view_time",
-                "time_scope": {
-                    "field": "event_time",
-                    "start": "2026-05-01T00:00:00Z",
-                    "end": "2026-05-08T00:00:00Z",
-                },
-                "granularity": "day",
-                "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'US'"}]},
-                "dimension": "region",
-                "strategy": "period_shift",
+                "source_artifact_id": "artifact-source",
                 "sensitivity": "balanced",
                 "limit": 5,
             },

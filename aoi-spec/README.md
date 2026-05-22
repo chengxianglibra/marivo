@@ -55,7 +55,7 @@ Included:
 - Foundation primitives: `Expression`, `TimeScope`, `TimeGranularity`, `CompareType`, `AnalysisFailure`, `Hypothesis`
 - Atomic requests: `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`
 - Derived requests: `validate`, `attribute`, `diagnose`
-- Artifact types: `metric_frame`, `scalar_delta`, `time_series_delta`, `segmented_delta`, `attribution_frame`, `anomaly_candidates`, `association_result`, `hypothesis_test_result`, `forecast_series`
+- Artifact types: `metric_frame`, `scalar_delta`, `time_series_delta`, `segmented_delta`, `attribution_frame`, `candidate_set`, `association_result`, `hypothesis_test_result`, `forecast_series`
 
 Excluded from v0.2:
 

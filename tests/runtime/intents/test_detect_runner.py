@@ -1,688 +1,413 @@
-"""Tests for the `detect` atomic intent runner (Phase 3b-4).
-
-Covers:
-  - run_detect_intent: empty result (uniform data → no candidates)
-  - run_detect_intent: spike data → candidate detected
-  - run_detect_intent: sensitivity threshold differences
-  - run_detect_intent: candidate ranking (score desc)
-  - run_detect_intent: insufficient points → detectability needs_attention
-  - run_detect_intent: artifact schema required fields present
-  - run_detect_intent: limit truncation
-  - run_detect_intent: dimension scans independent series
-  - run_detect_intent: strategy echoed in response
-  - run_detect_intent: invalid sensitivity → ValueError
-  - run_detect_intent: invalid granularity → ValueError
-  - run_detect_intent: invalid strategy → ValueError
-"""
-
 from __future__ import annotations
 
-import tempfile
-import unittest
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from marivo.adapters.local.duckdb_analytics import DuckDBAnalyticsEngine
-from marivo.adapters.local.sqlite_metadata import SQLiteMetadataStore
+import pytest
+
+from marivo.contracts.aoi_runtime import validate_aoi_artifact
 from marivo.runtime.intents.detect import run_detect_intent
-from tests.runtime.intents._runner_fixtures import (
-    _FAKE_ARTIFACT_ID,
-    _SESSION,
-    _make_compiled_mock,
+from marivo.runtime.intents.metric_frame import (
+    build_delta_frame_artifact,
+    build_metric_frame_artifact,
 )
-from tests.semantic_test_helpers import (
-    build_runtime,
-    ensure_published_typed_metric,
-    ensure_published_typed_metric_binding,
-    seed_duckdb_source_object,
-)
-from tests.shared_fixtures import get_named_seeded_duckdb_path
+from tests.runtime.intents._runner_fixtures import _SESSION
+
+_SOURCE_STEP_ID = "step_source"
+_METRIC_ARTIFACT_ID = "artifact_metric"
+_DELTA_ARTIFACT_ID = "artifact_delta"
 
 
-def _metric_ref(name: str) -> str:
-    return f"metric.{name}"
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-
-def _seed_detect_tables(db_path: Path) -> None:
-    """Copy the cached detect_intent template with spike/uniform data."""
-    get_named_seeded_duckdb_path(db_path, "detect_intent")
-
-
-def _seed_metadata(
-    meta: SQLiteMetadataStore,
+def _metric_frame_source(
     *,
-    db_path: str | Path | None = None,
-    src_suffix: str = "01",
-    metric_name: str = "detect_event_count",
-    table_fqn: str = "analytics.detect_events",
-    native_name: str = "detect_events",
-    binding_role: str = "primary",
-    measure_type: str | None = None,
-    dimensions: list[str] | None = None,
-) -> str:
-    """Insert minimal metadata records so detect can resolve metric → table."""
-    now = datetime.now(UTC).isoformat()
-    src_id = f"ds_detecttest{src_suffix}"
-    obj_id = f"obj_detecttest{src_suffix}"
-    seed_duckdb_source_object(
-        meta,
-        source_id=src_id,
-        object_id=obj_id,
-        display_name="Detect Test Source",
-        table_name=native_name,
-        table_fqn=table_fqn,
-        now=now,
-        db_path=db_path,
-    )
-    ensure_published_typed_metric(
-        meta,
-        metric_name=metric_name,
-        display_name=metric_name,
-        grain="day",
-        dimensions=dimensions or ["event_date"],
-        definition_sql="COUNT(*)",
-        measure_type=measure_type,
-    )
-    ensure_published_typed_metric_binding(
-        meta,
-        metric_name=metric_name,
-        carrier_locator=table_fqn,
-        source_object_ref=obj_id,
-        binding_role=binding_role,
-        dimension_names=dimensions or ["event_date"],
-    )
-    return metric_name
-
-
-# ── Direct-service tests ──────────────────────────────────────────────────────
-
-
-class DetectRunnerServiceTests(unittest.TestCase):
-    """Tests that call run_detect_intent through SemanticLayerService directly."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "detect_svc.duckdb"
-        meta_path = Path(cls.temp_dir.name) / "detect_svc.meta.sqlite"
-
-        cls.analytics = DuckDBAnalyticsEngine(str(db_path))
-        cls.metadata = SQLiteMetadataStore(str(meta_path))
-        cls.metadata.initialize()
-        cls.analytics.initialize()
-
-        _seed_detect_tables(db_path)
-
-        # Spike metric: detect_event_count → analytics.detect_events
-        cls.spike_metric = _seed_metadata(
-            cls.metadata,
-            db_path=db_path,
-            src_suffix="01",
-            metric_name="detect_event_count",
-            table_fqn="analytics.detect_events",
-            native_name="detect_events",
-            dimensions=["event_date", "dimension.cluster"],
-        )
-        # Uniform metric: uniform_event_count → analytics.uniform_events
-        cls.uniform_metric = _seed_metadata(
-            cls.metadata,
-            db_path=db_path,
-            src_suffix="02",
-            metric_name="uniform_event_count",
-            table_fqn="analytics.uniform_events",
-            native_name="uniform_events",
-            dimensions=["event_date", "dimension.cluster"],
-        )
-
-        cls.service = build_runtime(cls.metadata, cls.analytics)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
-
-    def _make_session(self) -> str:
-        r = self.service.create_session("detect test session")
-        if isinstance(r, dict):
-            return str(r["session_id"])
-        return str(r.session_id)
-
-    def _detect(
-        self,
-        session_id: str,
-        metric: str,
-        start: str = "2026-01-01",
-        end: str = "2026-01-15",
-        sensitivity: str | None = None,
-        **extra: object,
-    ) -> dict:
-        params: dict = {
-            "metric": _metric_ref(metric),
-            "time_scope": {"field": "event_date", "start": start, "end": end},
-            "granularity": "day",
-            "strategy": "point_anomaly",
-        }
-        if sensitivity is not None:
-            params["sensitivity"] = sensitivity
-        params.update(extra)
-        envelope = run_detect_intent(self.service, session_id, params)
-        return envelope["result"]
-
-    # ── Schema fields ─────────────────────────────────────────────────────────
-
-    def test_detect_artifact_schema_fields(self) -> None:
-        """Artifact must contain all mandatory schema fields."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric)
-
-        self.assertEqual(result["artifact_type"], "anomaly_candidates")
-        self.assertEqual(result["artifact_schema_version"], "v1")
-        self.assertIn("scan_summary", result)
-        self.assertIn("total_candidate_count", result["scan_summary"])
-        self.assertIn("detectability", result)
-        self.assertIn("status", result["detectability"])
-        self.assertIn("truncation", result)
-        self.assertIn("returned_candidate_count", result["truncation"])
-        self.assertIn("analytical_metadata", result)
-        self.assertEqual(
-            result["analytical_metadata"]["baseline_method"]["methods"]["point_anomaly"],
-            "scan_window_zscore",
-        )
-        self.assertIn("provenance", result)
-        self.assertIn("detector_version", result["provenance"])
-        self.assertIn("artifact_id", result)
-        self.assertIsNotNone(result["artifact_id"])
-        # v1 required fields
-        self.assertIn("dimension", result)
-        self.assertIn("strategy", result)
-
-    # ── Empty semantics ────────────────────────────────────────────────────────
-
-    def test_detect_empty_commits_success_artifact(self) -> None:
-        """Uniform data: no anomaly candidates, but artifact is still committed successfully."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.uniform_metric)
-
-        self.assertEqual(result["artifact_type"], "anomaly_candidates")
-        # std = 0 → z = 0 for all → no candidates above threshold
-        self.assertEqual(result["scan_summary"]["total_candidate_count"], 0)
-        self.assertEqual(result["truncation"]["returned_candidate_count"], 0)
-        self.assertFalse(result["truncation"]["truncated"])
-        self.assertEqual(result["candidates"], [])
-
-    def test_detect_hour_granularity_rejects_day_time_field(self) -> None:
-        session_id = self._make_session()
-
-        with self.assertRaisesRegex(ValueError, "hour-compatible"):
-            self._detect(
-                session_id,
-                self.spike_metric,
-                start="2026-01-01T00:00:00",
-                end="2026-01-02T00:00:00",
-                granularity="hour",
-            )
-
-    # ── Spike detection ────────────────────────────────────────────────────────
-
-    def test_detect_with_spike_returns_candidate(self) -> None:
-        """Spike data: day 7 has 5× the normal count; should produce ≥ 1 candidate."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric)
-
-        self.assertGreaterEqual(result["scan_summary"]["total_candidate_count"], 1)
-        candidates = result["candidates"]
-        self.assertTrue(len(candidates) >= 1)
-
-        top = candidates[0]
-        self.assertEqual(top["candidate_type"], "point_anomaly")
-        self.assertIn("candidate_ref", top)
-        self.assertIn("current_value", top)
-        self.assertIn("baseline_value", top)
-        self.assertIn("deviation_abs", top)
-        self.assertIn("candidate_score", top)
-        self.assertIn("flag_level", top)
-        self.assertIn("direction", top)
-        # Spike is upward
-        self.assertEqual(top["direction"], "up")
-        self.assertIn(top["flag_level"], ("low", "medium", "high"))
-
-    # ── Sensitivity ────────────────────────────────────────────────────────────
-
-    def test_detect_sensitivity_aggressive_detects_spike(self) -> None:
-        """sensitivity='aggressive' (threshold 1.5) detects the spike."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric, sensitivity="aggressive")
-        self.assertGreater(result["scan_summary"]["total_candidate_count"], 0)
-
-    def test_detect_sensitivity_conservative_detects_spike(self) -> None:
-        """sensitivity='conservative' (threshold 2.5) still detects the 5× spike (z≈3.6)."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric, sensitivity="conservative")
-        self.assertGreater(result["scan_summary"]["total_candidate_count"], 0)
-
-    def test_detect_sensitivity_balanced_detects_spike(self) -> None:
-        """sensitivity='balanced' (threshold 2.0) detects the 5× spike."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric, sensitivity="balanced")
-        self.assertGreater(result["scan_summary"]["total_candidate_count"], 0)
-
-    def test_detect_sensitivity_propagated_to_artifact(self) -> None:
-        """Requested sensitivity value is stored in the artifact."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric, sensitivity="aggressive")
-        self.assertEqual(result["sensitivity"], "aggressive")
-
-    def test_detect_invalid_sensitivity_raises(self) -> None:
-        """Unknown sensitivity value → ValueError."""
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            self._detect(session_id, self.spike_metric, sensitivity="extreme")
-
-    # ── Strategy ──────────────────────────────────────────────────────────────
-
-    def test_detect_strategy_echoed_in_response(self) -> None:
-        """Explicitly requested strategy is stored in the artifact."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric, strategy="period_shift")
-        self.assertEqual(result["strategy"], "period_shift")
-
-    def test_detect_sensitivity_defaults_to_aggressive(self) -> None:
-        """Omitted sensitivity normalises to 'aggressive'."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric)
-        self.assertEqual(result["sensitivity"], "aggressive")
-
-    def test_detect_period_shift_finds_structural_degradation(self) -> None:
-        """period_shift compares the whole range to previous adjacent baseline."""
-        session_id = self._make_session()
-        result = self._detect(
-            session_id,
-            self.spike_metric,
-            start="2026-01-09",
-            end="2026-01-15",
-            strategy="period_shift",
-        )
-
-        self.assertEqual(result["strategy"], "period_shift")
-        self.assertEqual(result["scan_summary"]["total_candidate_count"], 1)
-        candidate = result["candidates"][0]
-        self.assertEqual(candidate["candidate_type"], "period_shift")
-        self.assertEqual(candidate["direction"], "down")
-        self.assertEqual(candidate["window"], {"start": "2026-01-09", "end": "2026-01-15"})
-        self.assertEqual(
-            candidate["baseline_window"],
-            {"start": "2026-01-03", "end": "2026-01-09"},
-        )
-        self.assertLessEqual(candidate["deviation_pct"], -0.20)
-
-    def test_detect_point_anomaly_ignores_uniform_structural_window(self) -> None:
-        """point_anomaly alone returns 0 when all current-window buckets are similar."""
-        session_id = self._make_session()
-        result = self._detect(
-            session_id,
-            self.spike_metric,
-            start="2026-01-09",
-            end="2026-01-15",
-            strategy="point_anomaly",
-        )
-
-        self.assertEqual(result["strategy"], "point_anomaly")
-        self.assertEqual(result["scan_summary"]["total_candidate_count"], 0)
-
-    def test_detect_invalid_strategy_raises(self) -> None:
-        """Unknown strategy → ValueError."""
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            self._detect(session_id, self.spike_metric, strategy="zscore_raw")
-
-    # ── filter ───────────────────────────────────────────────────────────────
-
-    def test_detect_filter_limits_scanned_population(self) -> None:
-        """AOI filter expression narrows the scan through runtime predicate scope."""
-        session_id = self._make_session()
-        result = self._detect(
-            session_id,
-            self.spike_metric,
-            filter={"dialects": [{"dialect": "ANSI_SQL", "expression": "cluster = 'beta'"}]},
-        )
-
-        self.assertEqual(result["scope"], {"predicate": "cluster = 'beta'"})
-        self.assertEqual(result["scan_summary"]["total_candidate_count"], 0)
-        self.assertEqual(result["candidates"], [])
-
-    def test_detect_invalid_filter_raises(self) -> None:
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            self._detect(session_id, self.spike_metric, filter={"dialects": []})
-
-    # ── dimension ─────────────────────────────────────────────────────────────
-
-    def test_detect_dimension_scans_independent_series(self) -> None:
-        """dimension scans each dimension value as an independent series."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric, dimension="dimension.cluster")
-
-        self.assertEqual(result["dimension"], "dimension.cluster")
-        self.assertEqual(result["scan_summary"]["eligible_series_count"], 2)
-        self.assertEqual(result["scan_summary"]["scanned_series_count"], 2)
-        self.assertEqual(result["scan_summary"]["excluded_series_count"], 0)
-        self.assertGreaterEqual(result["scan_summary"]["total_candidate_count"], 1)
-        self.assertTrue(
-            any(c["slice"] == {"dimension.cluster": "alpha"} for c in result["candidates"])
-        )
-
-    def test_detect_dimension_unsupported_dimension_raises(self) -> None:
-        """Unsupported split dimension is rejected instead of falling back to overall scan."""
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            self._detect(session_id, self.spike_metric, dimension="dimension.missing_cluster")
-
-    def test_detect_dimension_declared_dimension_without_physical_column_raises(self) -> None:
-        """Declared split dimension must resolve to an executable column."""
-        metric_name = _seed_metadata(
-            self.metadata,
-            db_path=Path(self.temp_dir.name) / "detect_svc.duckdb",
-            src_suffix="03",
-            metric_name="detect_missing_physical_dimension",
-            table_fqn="analytics.detect_events",
-            native_name="detect_events",
-            dimensions=["event_date", "dimension.cluster_missing"],
-        )
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            self._detect(session_id, metric_name, dimension="dimension.cluster_missing")
-
-    def test_detect_dimension_non_string_raises(self) -> None:
-        """Only a single dimension string is supported."""
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            self._detect(session_id, self.spike_metric, dimension=["dimension.cluster"])
-
-    def test_detect_dimension_null_when_omitted(self) -> None:
-        """Omitted dimension is null in the artifact."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric)
-        self.assertIsNone(result["dimension"])
-        self.assertEqual(result["scan_summary"]["eligible_series_count"], 1)
-        self.assertEqual(result["scan_summary"]["scanned_series_count"], 1)
-        self.assertEqual(result["scan_summary"]["excluded_series_count"], 0)
-
-    # ── limit truncation ──────────────────────────────────────────────────────
-
-    def test_detect_limit_truncates_candidates(self) -> None:
-        """limit=1 on spike data caps returned candidates and sets truncated=True."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric, limit=1)
-        # Spike data produces ≥1 candidate; with limit=1 we get exactly 1 back
-        # if total > 1, truncated=True; if only 1, truncated=False — both valid
-        self.assertLessEqual(result["truncation"]["returned_candidate_count"], 1)
-        total = result["scan_summary"]["total_candidate_count"]
-        if total > 1:
-            self.assertTrue(result["truncation"]["truncated"])
-            self.assertEqual(len(result["candidates"]), 1)
-        else:
-            self.assertFalse(result["truncation"]["truncated"])
-
-    def test_detect_truncation_counts_consistent(self) -> None:
-        """truncation.total_candidate_count matches scan_summary.total_candidate_count."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric)
-        self.assertEqual(
-            result["truncation"]["total_candidate_count"],
-            result["scan_summary"]["total_candidate_count"],
-        )
-
-    def test_detect_limit_must_be_positive(self) -> None:
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            self._detect(session_id, self.spike_metric, limit=0)
-
-    # ── time_scope validation ─────────────────────────────────────────────────
-
-    def test_detect_hour_granularity_requires_datetime_boundaries(self) -> None:
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            self._detect(session_id, self.spike_metric, granularity="hour")
-
-    def test_detect_invalid_grain_raises(self) -> None:
-        """Unsupported granularity → ValueError."""
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            run_detect_intent(
-                self.service,
-                session_id,
-                {
-                    "metric": self.spike_metric,
-                    "time_scope": {
-                        "field": "event_date",
-                        "start": "2026-01-01",
-                        "end": "2026-01-15",
-                    },
-                    "granularity": "minute",
-                    "strategy": "point_anomaly",
-                },
-            )
-
-    def test_detect_invalid_time_scope_start_gte_end_raises(self) -> None:
-        """start >= end → ValueError."""
-        session_id = self._make_session()
-        with self.assertRaises(ValueError):
-            run_detect_intent(
-                self.service,
-                session_id,
-                {
-                    "metric": self.spike_metric,
-                    "time_scope": {
-                        "field": "event_date",
-                        "start": "2026-01-15",
-                        "end": "2026-01-01",
-                    },
-                    "granularity": "day",
-                    "strategy": "point_anomaly",
-                },
-            )
-
-    # ── Candidate ranking ──────────────────────────────────────────────────────
-
-    def test_detect_candidate_ranking_score_desc(self) -> None:
-        """Candidates are sorted by candidate_score descending."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric)
-        candidates = result["candidates"]
-        if len(candidates) >= 2:
-            scores = [c["candidate_score"] for c in candidates]
-            self.assertEqual(scores, sorted(scores, reverse=True))
-
-    # ── Insufficient points ────────────────────────────────────────────────────
-
-    def test_detect_insufficient_points_needs_attention(self) -> None:
-        """Only 2 data points → detectability.status = 'needs_attention', 0 candidates."""
-        session_id = self._make_session()
-        # Use 2-day range: only 2 buckets, below the min threshold of 3
-        result = self._detect(
-            session_id,
-            self.spike_metric,
-            start="2026-01-01",
-            end="2026-01-03",  # 2 days
-        )
-        self.assertEqual(result["detectability"]["status"], "needs_attention")
-        issues = result["detectability"]["issues"]
-        self.assertTrue(any(i["code"] == "insufficient_points" for i in issues))
-        guidance = result["detectability"]["guidance"]
-        self.assertEqual(guidance["reason"], "insufficient_points")
-        self.assertEqual(guidance["minimum_points_required"], 3)
-        self.assertEqual(guidance["recommended_next_action"], "expand_scan_window")
-        self.assertEqual(
-            guidance["recommended_current_window"],
-            {"start": "2025-12-31", "end": "2026-01-03"},
-        )
-        self.assertEqual(result["scan_summary"]["total_candidate_count"], 0)
-
-    # ── Candidate ref ──────────────────────────────────────────────────────────
-
-    def test_detect_candidate_ref_structure(self) -> None:
-        """Each candidate has a valid candidate_ref with artifact_ref and item_ref."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric)
-        for i, c in enumerate(result["candidates"]):
-            ref = c["candidate_ref"]
-            self.assertIn("artifact_ref", ref)
-            self.assertIn("item_ref", ref)
-            self.assertEqual(ref["artifact_ref"]["session_id"], session_id)
-            self.assertEqual(ref["artifact_ref"]["step_type"], "detect")
-            self.assertEqual(ref["item_ref"]["collection"], "candidates")
-            self.assertEqual(ref["item_ref"]["index"], i)
-
-    # ── Metric not found ───────────────────────────────────────────────────────
-
-    def test_detect_unknown_metric_raises_value_error(self) -> None:
-        """Unresolved metric → ValueError."""
-        session_id = self._make_session()
-        with self.assertRaises(ValueError, msg="expect ValueError for unknown metric"):
-            run_detect_intent(
-                self.service,
-                session_id,
-                {
-                    "metric": _metric_ref("nonexistent_metric_xyz_abc"),
-                    "time_scope": {
-                        "field": "event_date",
-                        "start": "2026-01-01",
-                        "end": "2026-01-15",
-                    },
-                    "granularity": "day",
-                    "strategy": "point_anomaly",
-                },
-            )
-
-    # ── response time_scope shape ─────────────────────────────────────────────
-
-    def test_detect_response_time_scope_shape(self) -> None:
-        """Response time_scope must use canonical field/start/end plus top-level granularity."""
-        session_id = self._make_session()
-        result = self._detect(session_id, self.spike_metric)
-        ts = result["time_scope"]
-        self.assertEqual(ts["field"], "event_date")
-        self.assertEqual(ts["start"], "2026-01-01")
-        self.assertEqual(ts["end"], "2026-01-15")
-        self.assertEqual(result["granularity"], "day")
-
-
-class TestDetectRunnerCommitPath(unittest.TestCase):
-    """run_detect_intent must call _commit_artifact_with_extraction(step_type='detect')."""
-
-    def _make_runtime(self) -> MagicMock:
-        runtime = MagicMock()
-        runtime.core = MagicMock()
-        runtime.new_step_id.return_value = "step_4c2_001"
-        runtime.commit_artifact_with_extraction.return_value = _FAKE_ARTIFACT_ID
-        runtime.insert_step.return_value = None
-        runtime.make_provenance.return_value = {"query_hash": "testhash"}
-        runtime.build_step_semantic_metadata.return_value = {}
-        return runtime
-
-    def _run_detect(
-        self,
-        runtime: MagicMock,
-        *,
-        params_patch: dict[str, Any] | None = None,
-        rows: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        from marivo.runtime.intents.detect import run_detect_intent
-
-        runtime.core.normalize_intent_metric_ref.return_value = "m1"
-        runtime.core.metric_name_from_ref.return_value = "m1"
-        runtime.resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
-        runtime.resolve_metric_table.return_value = "src.metrics"
-        runtime.resolve_metric_dimensions.return_value = []
-        runtime.resolve_engine_for_session.return_value = (
-            MagicMock(),
-            "duckdb",
-            {"metrics": "src.metrics"},
-        )
-        runtime.resolve_metric_sql_for_execution.return_value = "SUM(val)"
-        runtime.build_scoped_query.return_value = None
-        runtime.compile_step.return_value = _make_compiled_mock()
-
-        params = {
-            "metric": "m1",
-            "time_scope": {"field": "event_date", "start": "2024-01-01", "end": "2024-01-31"},
-            "granularity": "day",
-            "strategy": "point_anomaly",
-        }
-        if params_patch:
-            params.update(params_patch)
-        with patch("marivo.runtime.intents.detect.execute_compiled") as mock_exec:
-            # 9 points with one spike (day 5 = 200) to produce ≥1 anomaly candidate.
-            # mean≈111, std≈31, z(200)≈2.83 > balanced threshold 2.0.
-            mock_exec.return_value.rows = rows or [
-                {"bucket_start": f"2024-01-{d:02d}", "value": 200.0 if d == 5 else 100.0}
-                for d in range(1, 10)
-            ]
-            return run_detect_intent(runtime, _SESSION, params)
-
-    def test_detect_calls_commit_artifact_with_extraction(self) -> None:
-        runtime = self._make_runtime()
-        self._run_detect(runtime)
-        runtime.commit_artifact_with_extraction.assert_called_once()
-
-    def test_detect_passes_step_type_detect(self) -> None:
-        runtime = self._make_runtime()
-        self._run_detect(runtime)
-        _, kwargs = runtime.commit_artifact_with_extraction.call_args
-        self.assertEqual(kwargs.get("step_type"), "detect")
-
-    def test_detect_artifact_type_is_anomaly_candidates(self) -> None:
-        runtime = self._make_runtime()
-        self._run_detect(runtime)
-        args, _ = runtime.commit_artifact_with_extraction.call_args
-        self.assertEqual(args[2], "anomaly_candidates")
-
-    def test_detect_artifact_id_patched_in_result(self) -> None:
-        # After _commit_artifact_with_extraction returns, detect.py patches artifact_id
-        # into result["candidates"][*]["candidate_ref"]["artifact_ref"]["artifact_id"]
-        # and result["artifact_id"].  Verify both are populated with the committed id.
-        runtime = self._make_runtime()
-        envelope = self._run_detect(runtime)
-        result = envelope["result"]
-        self.assertEqual(envelope["artifact_id"], _FAKE_ARTIFACT_ID)
-        self.assertEqual(result["artifact_id"], _FAKE_ARTIFACT_ID)
-        candidates = result.get("candidates", [])
-        self.assertTrue(len(candidates) > 0, "expected at least one candidate in result")
-        for c in candidates:
-            self.assertEqual(
-                c["candidate_ref"]["artifact_ref"]["artifact_id"],
-                _FAKE_ARTIFACT_ID,
-            )
-
-    def test_detect_hour_granularity_accepts_datetime_boundaries(self) -> None:
-        runtime = self._make_runtime()
-        envelope = self._run_detect(
-            runtime,
-            params_patch={
-                "time_scope": {
-                    "field": "event_time",
-                    "start": "2024-01-01T00:00:00",
-                    "end": "2024-01-01T09:00:00",
-                },
-                "granularity": "hour",
+    shape: str = "time_series",
+    values: list[Any] | None = None,
+    metric_ref: str = "metric.revenue",
+) -> dict[str, Any]:
+    points = [
+        {
+            "window": {
+                "start": f"2026-01-{day:02d}T00:00:00Z",
+                "end": f"2026-01-{day + 1:02d}T00:00:00Z",
             },
-            rows=[
+            "value": value,
+        }
+        for day, value in enumerate(values or [100.0, 100.0, 100.0, 100.0, 220.0, 100.0], start=1)
+    ]
+    return build_metric_frame_artifact(
+        artifact_id=_METRIC_ARTIFACT_ID,
+        shape=shape,
+        metric_ref=metric_ref,
+        time_scope={
+            "field": "event_time",
+            "start": "2026-01-01T00:00:00Z",
+            "end": "2026-01-07T00:00:00Z",
+        },
+        scope={},
+        axes=[{"kind": "time", "grain": "day"}],
+        series=[{"keys": {}, "points": points}],
+        unit="usd",
+    )
+
+
+def _panel_metric_frame_source() -> dict[str, Any]:
+    source = _metric_frame_source()
+    source["shape"] = "panel"
+    source["axes"] = [{"kind": "time", "grain": "day"}, {"kind": "dimension", "name": "region"}]
+    source["payload"]["series"] = [
+        {
+            "keys": {"region": "west"},
+            "points": source["payload"]["series"][0]["points"],
+        }
+    ]
+    return source
+
+
+def _panel_metric_frame_source_with_duplicate_point_keys() -> dict[str, Any]:
+    source = _metric_frame_source()
+    source["shape"] = "panel"
+    source["axes"] = [{"kind": "time", "grain": "day"}, {"kind": "dimension", "name": "region"}]
+    base_points = source["payload"]["series"][0]["points"]
+    source["payload"]["series"] = [
+        {"keys": {"region": "east"}, "points": base_points},
+        {"keys": {"region": "west"}, "points": base_points},
+    ]
+    return source
+
+
+def _sparse_panel_metric_frame_source() -> dict[str, Any]:
+    source = _metric_frame_source()
+    source["shape"] = "panel"
+    source["axes"] = [{"kind": "time", "grain": "day"}, {"kind": "dimension", "name": "region"}]
+    source["payload"]["series"] = [
+        {
+            "keys": {"region": region},
+            "points": [
                 {
-                    "bucket_start": f"2024-01-01T{h:02d}:00:00",
-                    "value": 200.0 if h == 4 else 100.0,
+                    "window": {
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-01-02T00:00:00Z",
+                    },
+                    "value": value,
                 }
-                for h in range(9)
             ],
-        )
-        result = envelope["result"]
-
-        self.assertEqual(result["granularity"], "hour")
-        self.assertEqual(result["time_scope"]["start"], "2024-01-01T00:00:00")
-        self.assertEqual(result["time_scope"]["end"], "2024-01-01T09:00:00")
+        }
+        for region, value in (("east", 100.0), ("west", 120.0), ("north", 140.0))
+    ]
+    return source
 
 
-# ── correlate ─────────────────────────────────────────────────────────────────
+def _delta_frame_source(
+    *,
+    shape: str = "time_series_delta",
+    metric_ref: str = "metric.revenue",
+    keys: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    return build_delta_frame_artifact(
+        artifact_id=_DELTA_ARTIFACT_ID,
+        shape=shape,
+        metric_ref=metric_ref,
+        axes=(
+            [{"kind": "time", "grain": "day"}, {"kind": "dimension", "name": "region"}]
+            if shape == "panel_delta"
+            else [{"kind": "time", "grain": "day"}]
+        ),
+        series=[
+            {
+                "keys": keys or {},
+                "points": [
+                    {
+                        "window": {
+                            "start": "2026-01-05T00:00:00Z",
+                            "end": "2026-01-06T00:00:00Z",
+                        },
+                        "baseline_window": {
+                            "start": "2025-12-29T00:00:00Z",
+                            "end": "2025-12-30T00:00:00Z",
+                        },
+                        "current_value": 130.0,
+                        "baseline_value": 100.0,
+                        "delta_abs": 30.0,
+                        "delta_pct": 0.3,
+                        "direction": "increase",
+                    }
+                ],
+            }
+        ],
+        unit="usd",
+    )
+
+
+def _panel_delta_frame_source_with_duplicate_point_keys() -> dict[str, Any]:
+    source = _delta_frame_source(shape="panel_delta", keys={"region": "east"})
+    source["payload"]["series"].append(
+        {
+            "keys": {"region": "west"},
+            "points": [dict(source["payload"]["series"][0]["points"][0])],
+        }
+    )
+    return source
+
+
+def _runtime_with_source(source_artifact: dict[str, Any] | None) -> MagicMock:
+    runtime = MagicMock()
+    runtime.resolve_artifact_with_step_by_id.return_value = (
+        None if source_artifact is None else (_SOURCE_STEP_ID, source_artifact)
+    )
+    runtime.commit_artifact_with_extraction.side_effect = lambda *args, **kwargs: kwargs[
+        "artifact_id"
+    ]
+    runtime.insert_step.return_value = None
+    return runtime
+
+
+def _run_detect(runtime: MagicMock, **overrides: Any) -> dict[str, Any]:
+    params: dict[str, Any] = {"source_artifact_id": _METRIC_ARTIFACT_ID}
+    params.update(overrides)
+    return run_detect_intent(runtime, _SESSION, params)
+
+
+def test_detect_metric_frame_commits_candidate_set_without_sql() -> None:
+    runtime = _runtime_with_source(_metric_frame_source())
+
+    envelope = _run_detect(runtime, sensitivity="balanced", limit=5)
+
+    artifact = envelope["result"]
+    validated_artifact = validate_aoi_artifact(artifact).model_dump(mode="json")
+    assert artifact["artifact_family"] == "candidate_set"
+    assert validated_artifact["artifact_family"] == "candidate_set"
+    assert artifact["shape"] == "point_anomaly_candidates"
+    assert artifact["lineage"]["strategy"] == "point_anomaly"
+    assert artifact["payload"]["scan_summary"]["total_candidate_count"] == 1
+    item = artifact["payload"]["items"][0]
+    assert item["item_id"] == "point_anomaly:series_0:2026-01-05T00:00:00Z"
+    assert item["source_point_ref"]["artifact_id"] == _METRIC_ARTIFACT_ID
+    assert item["source_point_ref"]["point_key"] == "2026-01-05T00:00:00Z"
+    assert item["direction"] == "increase"
+    runtime.compile_step.assert_not_called()
+    runtime.resolve_metric_execution_context.assert_not_called()
+    args, kwargs = runtime.commit_artifact_with_extraction.call_args
+    assert args[2] == "candidate_set"
+    committed_payload = args[4]
+    assert envelope["artifact_id"] == artifact["artifact_id"] == committed_payload["artifact_id"]
+    assert envelope["artifact_id"] == kwargs["artifact_id"]
+    assert kwargs["step_type"] == "detect"
+
+
+def test_detect_delta_frame_commits_period_shift_candidate_set() -> None:
+    runtime = _runtime_with_source(_delta_frame_source())
+
+    envelope = run_detect_intent(
+        runtime,
+        _SESSION,
+        {
+            "source_artifact_id": _DELTA_ARTIFACT_ID,
+            "sensitivity": "balanced",
+        },
+    )
+
+    artifact = envelope["result"]
+    item = artifact["payload"]["items"][0]
+    assert artifact["artifact_family"] == "candidate_set"
+    assert artifact["shape"] == "period_shift_candidates"
+    assert artifact["lineage"]["strategy"] == "period_shift"
+    assert item["item_id"] == "period_shift:series_0:2026-01-05T00:00:00Z"
+    assert item["baseline_window"] == {
+        "start": "2025-12-29T00:00:00Z",
+        "end": "2025-12-30T00:00:00Z",
+    }
+    assert item["source_delta_point_ref"]["artifact_id"] == _DELTA_ARTIFACT_ID
+    assert item["value"] == 130.0
+    assert item["baseline_value"] == 100.0
+    assert item["delta_abs"] == 30.0
+    assert item["delta_pct"] == 0.3
+    assert item["score"] == 0.3
+    assert item["direction"] == "increase"
+
+
+def test_detect_panel_delta_frame_commits_period_shift_candidate_set_with_source_keys() -> None:
+    runtime = _runtime_with_source(
+        _delta_frame_source(shape="panel_delta", keys={"region": "west"})
+    )
+
+    envelope = run_detect_intent(
+        runtime,
+        _SESSION,
+        {
+            "source_artifact_id": _DELTA_ARTIFACT_ID,
+            "sensitivity": "balanced",
+        },
+    )
+
+    artifact = envelope["result"]
+    item = artifact["payload"]["items"][0]
+    assert artifact["shape"] == "period_shift_candidates"
+    assert artifact["subject"]["source_shape"] == "panel_delta"
+    assert artifact["lineage"]["strategy"] == "period_shift"
+    assert item["keys"] == {"region": "west"}
+    assert item["source_delta_point_ref"] == {
+        "artifact_id": _DELTA_ARTIFACT_ID,
+        "series_index": 0,
+        "point_index": 0,
+        "series_keys": {"region": "west"},
+        "point_key": "2026-01-05T00:00:00Z",
+    }
+
+
+def test_detect_panel_metric_frame_candidate_item_ids_include_series_discriminator() -> None:
+    runtime = _runtime_with_source(_panel_metric_frame_source_with_duplicate_point_keys())
+
+    envelope = _run_detect(runtime, sensitivity="balanced")
+
+    item_ids = [item["item_id"] for item in envelope["result"]["payload"]["items"]]
+    assert item_ids == [
+        "point_anomaly:series_0:2026-01-05T00:00:00Z",
+        "point_anomaly:series_1:2026-01-05T00:00:00Z",
+    ]
+    assert len(item_ids) == len(set(item_ids))
+
+
+def test_detect_panel_delta_frame_candidate_item_ids_include_series_discriminator() -> None:
+    runtime = _runtime_with_source(_panel_delta_frame_source_with_duplicate_point_keys())
+
+    envelope = run_detect_intent(
+        runtime,
+        _SESSION,
+        {
+            "source_artifact_id": _DELTA_ARTIFACT_ID,
+            "sensitivity": "balanced",
+        },
+    )
+
+    item_ids = [item["item_id"] for item in envelope["result"]["payload"]["items"]]
+    assert item_ids == [
+        "period_shift:series_0:2026-01-05T00:00:00Z",
+        "period_shift:series_1:2026-01-05T00:00:00Z",
+    ]
+    assert len(item_ids) == len(set(item_ids))
+
+
+@pytest.mark.parametrize(
+    "removed_field",
+    ["metric", "time_scope", "granularity", "filter", "dimension", "strategy"],
+)
+def test_detect_rejects_removed_source_style_fields(removed_field: str) -> None:
+    runtime = _runtime_with_source(_metric_frame_source())
+
+    with pytest.raises(ValueError, match="unsupported parameter"):
+        _run_detect(runtime, **{removed_field: "legacy"})
+
+    runtime.resolve_artifact_with_step_by_id.assert_not_called()
+    runtime.commit_artifact_with_extraction.assert_not_called()
+
+
+@pytest.mark.parametrize("shape", ["scalar", "segmented"])
+def test_detect_rejects_unsupported_metric_frame_shapes(shape: str) -> None:
+    runtime = _runtime_with_source(_metric_frame_source(shape=shape))
+
+    with pytest.raises(ValueError, match=f"metric_frame shape '{shape}' is not supported"):
+        _run_detect(runtime)
+
+    runtime.commit_artifact_with_extraction.assert_not_called()
+
+
+@pytest.mark.parametrize("shape", ["scalar_delta", "segmented_delta"])
+def test_detect_rejects_unsupported_delta_frame_shapes(shape: str) -> None:
+    runtime = _runtime_with_source(_delta_frame_source(shape=shape))
+
+    with pytest.raises(ValueError, match=f"delta_frame shape '{shape}' is not supported"):
+        run_detect_intent(runtime, _SESSION, {"source_artifact_id": _DELTA_ARTIFACT_ID})
+
+    runtime.commit_artifact_with_extraction.assert_not_called()
+
+
+def test_detect_rejects_other_artifact_families() -> None:
+    runtime = _runtime_with_source(
+        {
+            "artifact_id": "artifact_other",
+            "artifact_family": "forecast_series",
+            "shape": "time_series_forecast",
+            "payload": {},
+        }
+    )
+
+    with pytest.raises(
+        ValueError, match="source artifact family 'forecast_series' is not supported"
+    ):
+        _run_detect(runtime)
+
+    runtime.commit_artifact_with_extraction.assert_not_called()
+
+
+def test_detect_empty_metric_frame_commits_candidate_set_with_empty_items() -> None:
+    runtime = _runtime_with_source(_metric_frame_source(values=[100.0, 100.0, 100.0, 100.0]))
+
+    envelope = _run_detect(runtime, sensitivity="balanced")
+
+    artifact = envelope["result"]
+    assert artifact["artifact_family"] == "candidate_set"
+    assert artifact["shape"] == "point_anomaly_candidates"
+    assert artifact["payload"]["items"] == []
+    assert artifact["payload"]["scan_summary"]["total_candidate_count"] == 0
+    assert artifact["payload"]["truncation"] == {
+        "returned_candidate_count": 0,
+        "total_candidate_count": 0,
+        "truncated": False,
+    }
+    runtime.commit_artifact_with_extraction.assert_called_once()
+
+
+def test_detect_sparse_panel_metric_frame_reports_no_eligible_series() -> None:
+    runtime = _runtime_with_source(_sparse_panel_metric_frame_source())
+
+    envelope = _run_detect(runtime, sensitivity="balanced")
+
+    artifact = envelope["result"]
+    assert artifact["payload"]["items"] == []
+    assert artifact["payload"]["quality"]["status"] == "needs_attention"
+    assert any(
+        issue["code"] == "insufficient_points" for issue in artifact["payload"]["quality"]["issues"]
+    )
+
+
+def test_detect_panel_metric_frame_preserves_source_keys_in_candidate_ref() -> None:
+    runtime = _runtime_with_source(_panel_metric_frame_source())
+
+    envelope = _run_detect(runtime, sensitivity="balanced")
+
+    item = envelope["result"]["payload"]["items"][0]
+    assert item["keys"] == {"region": "west"}
+    assert item["source_point_ref"]["series_keys"] == {"region": "west"}
+
+
+def test_detect_fails_when_metric_frame_missing_metric_ref() -> None:
+    source = _metric_frame_source()
+    source["subject"].pop("metric_ref")
+    runtime = _runtime_with_source(source)
+
+    with pytest.raises(ValueError, match="missing metric_ref"):
+        _run_detect(runtime)
+
+    runtime.commit_artifact_with_extraction.assert_not_called()
+
+
+def test_detect_invalid_sensitivity_uses_invalid_argument_error_style() -> None:
+    runtime = _runtime_with_source(_metric_frame_source())
+
+    with pytest.raises(
+        ValueError,
+        match="detect: INVALID_ARGUMENT - sensitivity='extreme' is not valid",
+    ):
+        _run_detect(runtime, sensitivity="extreme")
+
+    runtime.resolve_artifact_with_step_by_id.assert_not_called()
+    runtime.commit_artifact_with_extraction.assert_not_called()
+
+
+def test_detect_missing_source_artifact_uses_artifact_not_found_error() -> None:
+    runtime = _runtime_with_source(None)
+
+    with pytest.raises(ValueError, match="ARTIFACT_NOT_FOUND"):
+        _run_detect(runtime)
+
+    runtime.commit_artifact_with_extraction.assert_not_called()

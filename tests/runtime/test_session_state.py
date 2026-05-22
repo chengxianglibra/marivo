@@ -445,14 +445,14 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
         status = self._get_status(artifact_id)
         self.assertEqual(status["artifact_stage"], "findings_committed")
 
-    def test_anomaly_candidates_family_no_findings_is_findings_committed(self) -> None:
-        """anomaly_candidates (D4 allows-empty) with no findings → findings_committed."""
+    def test_candidate_set_family_no_findings_is_findings_committed(self) -> None:
+        """candidate_set (D4 allows-empty) with no findings -> findings_committed."""
         artifact_id = f"art_{uuid4().hex[:8]}"
         _insert_artifact(
             self.store,
             artifact_id,
             self.session_id,
-            artifact_type="anomaly_candidates",
+            artifact_type="candidate_set",
         )
         status = self._get_status(artifact_id)
         self.assertEqual(status["artifact_stage"], "findings_committed")

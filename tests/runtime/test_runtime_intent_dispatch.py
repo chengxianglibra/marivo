@@ -242,10 +242,7 @@ def _correlate_request() -> aoi.Correlate:
 
 def _detect_request() -> aoi.Detect:
     return aoi.Detect(
-        metric="view_time",
-        time_scope=_time_scope(),
-        granularity="day",
-        strategy="point_anomaly",
+        source_artifact_id="artifact-source",
         sensitivity="aggressive",
         limit=10,
     )

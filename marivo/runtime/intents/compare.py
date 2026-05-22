@@ -847,6 +847,11 @@ def run_compare_intent(
             right_row = right_series_map.get(key)
             anchor = left_row or right_row or {}
             window = dict(anchor.get("window") or {})
+            baseline_window = (
+                dict(right_row.get("_matched_window") or right_row.get("window") or {})
+                if right_row
+                else None
+            )
             current_value = _coerce_numeric_or_none(left_row.get("value")) if left_row else None
             baseline_value = _coerce_numeric_or_none(right_row.get("value")) if right_row else None
             if left_row and right_row and current_value is not None and baseline_value is not None:
@@ -881,6 +886,7 @@ def run_compare_intent(
             time_series_rows.append(
                 {
                     "window": window,
+                    **({"baseline_window": baseline_window} if baseline_window else {}),
                     "current_value": current_value,
                     "baseline_value": baseline_value,
                     "delta_abs": row_abs,
@@ -1139,6 +1145,11 @@ def run_compare_intent(
 
                     anchor = left_ts_map.get(bucket_key) or matched_right_anchor or {}
                     window = dict(anchor.get("window") or {})
+                    baseline_window = (
+                        dict(matched_right_window)
+                        if isinstance(matched_right_window, dict) and matched_right_window
+                        else (dict(r_point.get("window") or {}) if r_point else None)
+                    )
                     current_value = (
                         _coerce_numeric_or_none(l_point.get("value")) if l_point else None
                     )
@@ -1175,6 +1186,7 @@ def run_compare_intent(
                     series_delta_points.append(
                         {
                             "window": window,
+                            **({"baseline_window": baseline_window} if baseline_window else {}),
                             "current_value": current_value,
                             "baseline_value": baseline_value,
                             "delta_abs": row_abs,

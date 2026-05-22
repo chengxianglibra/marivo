@@ -558,8 +558,8 @@ class TestDefaultFindingRegistry(unittest.TestCase):
         self.assertIn(("metric_frame", None), default_finding_registry.registered_keys())
 
     def test_default_finding_registry_contains_detect_extractor(self) -> None:
-        # Phase 4d-2: detect extractor registered under ("anomaly_candidates", "v1").
-        self.assertIn(("anomaly_candidates", "v1"), default_finding_registry.registered_keys())
+        self.assertIn(("candidate_set", None), default_finding_registry.registered_keys())
+        self.assertNotIn(("anomaly_candidates", "v1"), default_finding_registry.registered_keys())
 
     def test_default_finding_registry_is_module_level_singleton(self) -> None:
         from marivo.runtime.evidence.finding_extractor_registry import (

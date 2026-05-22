@@ -158,6 +158,76 @@ def _step_types(env: DiagnoseEnv, session_id: str) -> list[str]:
     return [str(row["step_type"]) for row in rows]
 
 
+def _mock_source_observe_result(
+    *,
+    session_id: str,
+    artifact_id: str = "art_source",
+    step_id: str = "step_source_observe",
+    metric_ref: str = "metric.mock_metric",
+    grain: str = "day",
+) -> dict[str, Any]:
+    return {
+        "step_ref": {"session_id": session_id, "step_id": step_id, "step_type": "observe"},
+        "artifact_id": artifact_id,
+        "result": build_metric_frame_artifact(
+            artifact_id=artifact_id,
+            shape="time_series",
+            metric_ref=metric_ref,
+            time_scope={"field": "event_date", "start": _START, "end": _END},
+            scope={},
+            axes=[{"kind": "time", "grain": grain}],
+            series=[{"keys": {}, "points": []}],
+            unit=None,
+        ),
+    }
+
+
+def _mock_candidate_set_detect_result(
+    *,
+    session_id: str,
+    artifact_id: str = "art_detect",
+    items: list[dict[str, Any]] | None = None,
+    total_candidate_count: int | None = None,
+    truncated: bool = False,
+) -> dict[str, Any]:
+    candidate_items = items or []
+    total = len(candidate_items) if total_candidate_count is None else total_candidate_count
+    return {
+        "step_ref": {"session_id": session_id, "step_id": "step_detect", "step_type": "detect"},
+        "artifact_id": artifact_id,
+        "result": {
+            "artifact_id": artifact_id,
+            "artifact_family": "candidate_set",
+            "shape": "point_anomaly_candidates",
+            "subject": {
+                "kind": "candidate_scan",
+                "metric_ref": "metric.mock_metric",
+                "source_artifact_id": "art_source",
+                "source_artifact_family": "metric_frame",
+                "source_shape": "time_series",
+            },
+            "axes": [{"kind": "time", "grain": "day"}],
+            "measures": [{"id": "score", "value_type": "number", "nullable": False}],
+            "capabilities": ["filterable"],
+            "lineage": {
+                "operation": "detect",
+                "source_artifact_ids": ["art_source"],
+                "strategy": "point_anomaly",
+            },
+            "payload": {
+                "items": candidate_items,
+                "scan_summary": {"scanned_series_count": 1, "total_candidate_count": total},
+                "truncation": {
+                    "returned_candidate_count": len(candidate_items),
+                    "total_candidate_count": total,
+                    "truncated": truncated,
+                },
+                "quality": {"status": "detectable", "issues": []},
+            },
+        },
+    }
+
+
 def test_auto_detect_follows_detect_artifact_candidates_and_builds_full_chain(
     diagnose_env: DiagnoseEnv,
 ) -> None:
@@ -225,7 +295,7 @@ def test_auto_detect_follows_detect_artifact_candidates_and_builds_full_chain(
 
     step_types = _step_types(diagnose_env, session_id)
     assert step_types.count("detect") == 1
-    assert step_types.count("observe") == 2
+    assert step_types.count("observe") == 3
     assert step_types.count("compare") == 1
     assert step_types.count("decompose") == 1
     assert step_types.count("diagnose") == 1
@@ -406,29 +476,26 @@ def test_candidate_limit_truncation_is_reported_from_detect_artifact_payload() -
 
     candidates = [
         {
-            "candidate_ref": {"item_ref": {"collection": "candidates", "index": 0}},
+            "item_id": "point_anomaly:series_0:2026-01-02",
             "window": {"start": "2026-01-02", "end": "2026-01-03"},
-            "slice": None,
-            "candidate_score": 10.0,
+            "keys": None,
+            "value": 10.0,
+            "score": 10.0,
+            "direction": "increase",
         }
     ]
-    detect_result = {
-        "step_ref": {"session_id": "sess_trunc", "step_id": "step_detect", "step_type": "detect"},
-        "artifact_id": "art_detect",
-        "result": {
-            "artifact_id": "art_detect",
-            "detectability": {"status": "detectable", "issues": [], "guidance": None},
-            "scan_summary": {"total_candidate_count": 2},
-            "candidates": candidates,
-            "truncation": {
-                "returned_candidate_count": 1,
-                "total_candidate_count": 2,
-                "truncated": True,
-            },
-        },
-    }
+    detect_result = _mock_candidate_set_detect_result(
+        session_id="sess_trunc",
+        items=candidates,
+        total_candidate_count=2,
+        truncated=True,
+    )
 
     with (
+        patch(
+            "marivo.runtime.intents.diagnose.run_observe_intent",
+            return_value=_mock_source_observe_result(session_id="sess_trunc"),
+        ),
         patch(
             "marivo.runtime.intents.diagnose.run_detect_intent",
             return_value=detect_result,
@@ -448,6 +515,7 @@ def test_candidate_limit_truncation_is_reported_from_detect_artifact_payload() -
     validation = _product(bundle)["validation"]
 
     detect.assert_called_once()
+    assert detect.call_args.args[2]["source_artifact_id"] == "art_source"
     assert detect.call_args.args[2]["limit"] == 1
     assert summary["returned_candidate_count"] == 1
     assert summary["total_candidate_count"] == 2
@@ -455,6 +523,77 @@ def test_candidate_limit_truncation_is_reported_from_detect_artifact_payload() -
     assert summary["truncated"] is True
     assert any(issue["code"] == "candidate_followup_truncated" for issue in validation["issues"])
     follow_up.assert_called_once()
+
+
+def test_period_shift_candidates_preserve_detect_baseline_window() -> None:
+    runtime = MagicMock()
+    runtime.core.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
+    runtime.core.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+    runtime.insert_artifact.return_value = "art_diag_period_shift_bundle"
+    runtime.insert_step.return_value = None
+
+    current_source = _mock_source_observe_result(
+        session_id="sess_period_shift",
+        artifact_id="art_current_source",
+        step_id="step_current_source",
+    )
+    baseline_source = _mock_source_observe_result(
+        session_id="sess_period_shift",
+        artifact_id="art_baseline_source",
+        step_id="step_baseline_source",
+    )
+    compare_result = {
+        "step_ref": {
+            "session_id": "sess_period_shift",
+            "step_id": "step_compare",
+            "step_type": "compare",
+        },
+        "artifact_id": "art_delta_source",
+        "result": {"artifact_id": "art_delta_source", "artifact_family": "delta_frame"},
+    }
+    detect_baseline_window = {"start": "2025-12-01", "end": "2025-12-02"}
+    detect_result = _mock_candidate_set_detect_result(
+        session_id="sess_period_shift",
+        items=[
+            {
+                "item_id": "period_shift:series_0:2026-01-08",
+                "window": {"start": "2026-01-08", "end": "2026-01-09"},
+                "baseline_window": detect_baseline_window,
+                "keys": None,
+                "value": 500.0,
+                "baseline_value": 100.0,
+                "delta_abs": 400.0,
+                "delta_pct": 4.0,
+                "score": 4.0,
+                "direction": "increase",
+            }
+        ],
+    )
+    detect_result["result"]["shape"] = "period_shift_candidates"
+    detect_result["result"]["subject"]["source_artifact_family"] = "delta_frame"
+    detect_result["result"]["subject"]["source_shape"] = "time_series_delta"
+    detect_result["result"]["lineage"]["strategy"] = "period_shift"
+
+    with (
+        patch(
+            "marivo.runtime.intents.diagnose.run_observe_intent",
+            side_effect=[current_source, baseline_source],
+        ),
+        patch("marivo.runtime.intents.diagnose.run_compare_intent", return_value=compare_result),
+        patch("marivo.runtime.intents.diagnose.run_detect_intent", return_value=detect_result),
+        patch(
+            "marivo.runtime.intents.diagnose._follow_up_candidate",
+            return_value={"status": "diagnosed", "issues": []},
+        ) as follow_up,
+    ):
+        run_diagnose_intent(
+            runtime,
+            "sess_period_shift",
+            _auto_params(metric="mock_metric", strategy="period_shift", candidate_limit=1),
+        )
+
+    follow_up.assert_called_once()
+    assert follow_up.call_args.kwargs["baseline_window_override"] == detect_baseline_window
 
 
 @pytest.mark.parametrize("granularity", ["quarter", "year"])
@@ -465,25 +604,25 @@ def test_auto_detect_accepts_generic_time_granularities(granularity: str) -> Non
     runtime.insert_artifact.return_value = "art_diag_bundle"
     runtime.insert_step.return_value = None
 
-    detect_result = {
-        "step_ref": {"session_id": "sess_grain", "step_id": "step_detect", "step_type": "detect"},
-        "artifact_id": "art_detect",
-        "result": {
-            "artifact_id": "art_detect",
-            "detectability": {"status": "detectable", "issues": [], "guidance": None},
-            "scan_summary": {"total_candidate_count": 1},
-            "candidates": [
-                {
-                    "candidate_ref": {"item_ref": {"collection": "candidates", "index": 0}},
-                    "window": {"start": "2026-01-01", "end": "2026-04-01"},
-                    "slice": None,
-                    "candidate_score": 10.0,
-                }
-            ],
-        },
-    }
+    detect_result = _mock_candidate_set_detect_result(
+        session_id="sess_grain",
+        items=[
+            {
+                "item_id": "point_anomaly:series_0:2026-01-01",
+                "window": {"start": "2026-01-01", "end": "2026-04-01"},
+                "keys": None,
+                "value": 10.0,
+                "score": 10.0,
+                "direction": "increase",
+            }
+        ],
+    )
 
     with (
+        patch(
+            "marivo.runtime.intents.diagnose.run_observe_intent",
+            return_value=_mock_source_observe_result(session_id="sess_grain", grain=granularity),
+        ),
         patch(
             "marivo.runtime.intents.diagnose.run_detect_intent", return_value=detect_result
         ) as detect,
@@ -499,7 +638,8 @@ def test_auto_detect_accepts_generic_time_granularities(granularity: str) -> Non
         )
 
     assert _result(bundle)["granularity"] == granularity
-    assert detect.call_args.args[2]["granularity"] == granularity
+    assert detect.call_args.args[2]["source_artifact_id"] == "art_source"
+    assert "granularity" not in detect.call_args.args[2]
     assert follow_up.call_args.kwargs["grain"] == granularity
 
 
@@ -593,30 +733,31 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
     runtime.insert_artifact.return_value = "art_diag_hour_bundle"
     runtime.insert_step.return_value = None
 
-    detect_result = {
-        "step_ref": {
-            "session_id": "sess_diag_hour",
-            "step_id": "step_detect_hour",
-            "step_type": "detect",
-        },
-        "artifact_id": "art_detect_hour",
-        "result": {
-            "artifact_id": "art_detect_hour",
-            "detectability": {"status": "detectable", "issues": [], "guidance": None},
-            "scan_summary": {"total_candidate_count": 1},
-            "candidates": [
-                {
-                    "candidate_ref": {"item_ref": {"collection": "candidates", "index": 0}},
-                    "window": {
-                        "start": "2026-04-09T14:00:00",
-                        "end": "2026-04-09T15:00:00",
-                    },
-                    "candidate_score": 99.0,
-                }
-            ],
-        },
-    }
+    detect_result = _mock_candidate_set_detect_result(
+        session_id="sess_diag_hour",
+        artifact_id="art_detect_hour",
+        items=[
+            {
+                "item_id": "point_anomaly:series_0:2026-04-09T14:00:00",
+                "window": {
+                    "start": "2026-04-09T14:00:00",
+                    "end": "2026-04-09T15:00:00",
+                },
+                "keys": None,
+                "value": 99.0,
+                "score": 99.0,
+                "direction": "increase",
+            }
+        ],
+    )
     observe_results = [
+        _mock_source_observe_result(
+            session_id="sess_diag_hour",
+            artifact_id="art_source_hour",
+            step_id="step_source_observe_hour",
+            metric_ref="metric.trino_elapsed_seconds_p95",
+            grain="hour",
+        ),
         {
             "step_ref": {
                 "session_id": "sess_diag_hour",
@@ -779,7 +920,7 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
     driver = _result(bundle)["diagnoses"][0]["drivers"][0]
     assert driver["rows"][0]["absolute_contribution"] == 26.0
     assert driver["top_segment"]["absolute_contribution"] == 26.0
-    assert observe.call_args_list[0].args[2]["time_scope"] == {
+    assert observe.call_args_list[1].args[2]["time_scope"] == {
         "start": "2026-04-09T14:00:00",
         "end": "2026-04-09T15:00:00",
         "field": "event_time",

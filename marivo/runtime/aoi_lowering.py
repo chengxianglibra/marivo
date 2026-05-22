@@ -42,14 +42,9 @@ def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, 
         }
     if isinstance(request, aoi.Detect):
         return {
-            "metric": request.metric,
-            "time_scope": _dump_time_scope(request.time_scope),
-            "granularity": request.granularity,
-            "filter": _dump_model(request.filter) if request.filter is not None else None,
-            "dimension": _dump_model(request.dimension) if request.dimension is not None else None,
-            "strategy": request.strategy,
+            "source_artifact_id": request.source_artifact_id,
             "sensitivity": request.sensitivity,
-            "limit": _dump_model(request.limit) if request.limit is not None else None,
+            "limit": request.limit,
         }
     if isinstance(request, aoi.Test):
         return {

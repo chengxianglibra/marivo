@@ -95,7 +95,7 @@ These endpoints return runtime payloads directly. They do not add paging metadat
 | `updated_at` | string | ISO 8601 timestamp; reflects the session row's `updated_at` in v1 |
 | `schema_version` | string | Fixed as `session_runtime_status.v1` |
 
-**v1 constraints:** `overall_status` only emits `idle` or `running`. `blocked` and `degraded` are reserved for a future version with real queue/lease tracking. `blocked_reason` is always `none`. `backpressured_propositions` and `failed_items` in `backlog_summary` are always `0`. `queued_artifacts` excludes D4-allows-empty artifact types (`observation`, `anomaly_candidates`).
+**v1 constraints:** `overall_status` only emits `idle` or `running`. `blocked` and `degraded` are reserved for a future version with real queue/lease tracking. `blocked_reason` is always `none`. `backpressured_propositions` and `failed_items` in `backlog_summary` are always `0`. `queued_artifacts` excludes D4-allows-empty artifact types (`observation`, `candidate_set`).
 
 ### `ArtifactRuntimeStatus`
 

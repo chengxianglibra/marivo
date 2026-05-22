@@ -404,7 +404,7 @@ class TestRegistrySnapshotCompleteness(unittest.TestCase):
         artifact_types = {e["artifact_type"] for e in snapshot}
         expected = {
             "metric_frame",
-            "anomaly_candidates",
+            "candidate_set",
             "compare_artifact",
             "attribution_frame",
             "pairwise_time_series_association",

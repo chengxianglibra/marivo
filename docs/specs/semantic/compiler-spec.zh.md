@@ -221,13 +221,14 @@ type NormalizedRequest = {
 直接以 root semantic anchors 发起，例如：
 
 - `observe(metric, time_scope, scope, ...)`
-- `detect(metric, time_scope, scope, ...)`
+- `diagnose(metric, time_scope, scope, ...)`
 
 #### 2. `typed_ref`
 
 消费上游 canonical artifacts，例如：
 
 - `compare(left_artifact_id, right_artifact_id)`
+- `detect(source_artifact_id, sensitivity?, limit?)`
 - `decompose(compare_artifact_id, dimension)`
 - `correlate(left_artifact_id, right_artifact_id)`
 - `test(metric, left, right, hypothesis)`
@@ -632,15 +633,15 @@ derived intent 需要两层表达：
 
 ### 输入锚点
 
-- root anchors：`metric`
-- request bindings：detect 风格 `time_scope`、`scope`、`split_by`、`sensitivity`、`limit`、`max_series`
+- typed ref anchors：`source_artifact_id`
+- request bindings：`sensitivity`、`limit`
 
 ### 编译要求
 
-- 需要判断 metric 是否支持稳定时间投影
-- 需要在编译阶段确定 scan surface 是否有界
-- `split_by` 是扫描轴，不是 filter scope
-- `split_by` / follow-up dimension 必须满足 dimension compatibility gate，而不是依赖旧式 capability 标签
+- `source_artifact_id` 必须解析为已提交 artifact
+- 支持 `metric_frame(time_series | panel)` 与 `delta_frame(time_series_delta | panel_delta)`
+- 检测策略由 artifact family/shape 推导，不接受请求级 `strategy`
+- `metric`、`time_scope`、`scope`、`split_by`、`max_series` 不属于 atomic detect 编译输入
 
 ## `test`
 
@@ -742,13 +743,14 @@ type CompilerError = {
 - `left_ref` / `right_ref` 的显式 bindings
 - `CompileReport.validation_trace` 中的 `comparability_gate`
 
-## 例 3：`avg_watch_time + session_contract + detect`
+## 例 3：`metric_frame artifact + detect`
 
 编译结果至少应包含：
 
-- `MeasurementNode(metric_name="avg_watch_time")`
+- `ArtifactRefNode(artifact_id="art_metric_frame_123")`
 - `IntentNode(intent_kind="detect")`
-- 输出 time-series artifact
+- `source_artifact_id` 的显式 binding
+- 输出 `candidate_set` artifact
 - `CompileReport.validation_trace` 中的 `lowerability_precheck`
 
 ## 与现有文档的关系

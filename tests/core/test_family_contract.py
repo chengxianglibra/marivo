@@ -16,6 +16,7 @@ import unittest
 
 from marivo.core.evidence.canonical_finding import FindingExtractionResult
 from marivo.core.evidence.family_contract import (
+    ALLOWS_EMPTY_ARTIFACT_TYPES,
     FAMILY_ALLOWS_EMPTY,
     FamilyEmptyError,
     check_finding_count,
@@ -64,6 +65,10 @@ class TestFamilyAllowsEmptyValues(unittest.TestCase):
     def test_exactly_two_allow_empty_families(self) -> None:
         allowed = [f for f, ok in FAMILY_ALLOWS_EMPTY.items() if ok]
         self.assertEqual(sorted(allowed), sorted(_ALLOW_EMPTY_FAMILIES))
+
+    def test_detect_success_empty_artifact_type_is_candidate_set(self) -> None:
+        self.assertIn("candidate_set", ALLOWS_EMPTY_ARTIFACT_TYPES)
+        self.assertNotIn("anomaly_candidates", ALLOWS_EMPTY_ARTIFACT_TYPES)
 
 
 class TestCheckFindingCountAllowEmpty(unittest.TestCase):

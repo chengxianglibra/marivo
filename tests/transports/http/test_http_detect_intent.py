@@ -137,66 +137,58 @@ class DetectIntentEndpointTests(unittest.TestCase):
             "metric": _metric_ref(metric),
             "time_scope": self._time_scope(),
             "granularity": "day",
-            "strategy": "point_anomaly",
         }
         payload.update(extra)
         return payload
 
-    def test_detect_missing_metric_returns_422(self) -> None:
+    def _source_artifact_id(self, metric: str, **extra: object) -> str:
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json=self._detect_payload(metric, **extra),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()["artifact_id"]
+
+    def test_detect_missing_source_artifact_id_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
-            json={"time_scope": self._time_scope()},
+            json={"sensitivity": "balanced"},
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_detect_missing_time_scope_returns_422(self) -> None:
+    def test_detect_rejects_removed_metric_field_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={"metric": _metric_ref("http_detect_metric")},
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_detect_unknown_metric_returns_422(self) -> None:
+    def test_detect_unknown_source_artifact_returns_404_or_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
-            json=self._detect_payload("metric_that_does_not_exist_xyz"),
+            json={"source_artifact_id": "artifact_that_does_not_exist_xyz"},
         )
-        self.assertEqual(r.status_code, 422)
+        self.assertIn(r.status_code, {404, 422})
 
-    def test_detect_not_ready_metric_returns_409_with_structured_readiness_error(self) -> None:
+    def test_detect_rejects_removed_source_style_fields(self) -> None:
         metadata = self.client.app.state.services.metadata_store
-        metric_name = _seed_metadata(
-            metadata,
-            db_path=self.client.app.state.services.resolved_path,
-            src_suffix="http_not_ready",
-            metric_name="http_detect_not_ready_metric",
-            table_fqn="analytics.not_ready_events",
-            native_name="not_ready_events",
-            measure_type="average",
-            dimensions=["event_date", "dimension.cluster"],
-        )
-        metadata.execute(
-            """
-            UPDATE semantic_datasets
-            SET datasource_id = NULL
-            WHERE source = ?
-            """,
-            ["analytics.not_ready_events"],
-        )
+        assert metadata is not None
+        artifact_id = self._source_artifact_id("http_detect_metric")
 
-        response = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
-            json={
-                **self._detect_payload(metric_name),
-            },
-        )
+        for removed_field in (
+            "metric",
+            "time_scope",
+            "granularity",
+            "filter",
+            "dimension",
+            "strategy",
+        ):
+            response = self.client.post(
+                f"/sessions/{self.session_id}/intents/detect",
+                json={"source_artifact_id": artifact_id, removed_field: "bad"},
+            )
 
-        self.assertEqual(response.status_code, 409, response.text)
-        detail = response.json()["detail"]
-        self.assertEqual(detail["code"], "semantic_not_ready")
-        self.assertEqual(detail["category"], "readiness")
-        self.assertEqual(detail["subject_ref"], "metric.http_detect_not_ready_metric")
-        self.assertEqual(detail["readiness_status"], "not_ready")
+            self.assertEqual(response.status_code, 422, response.text)
 
     def test_detect_ready_metric_with_auxiliary_binding_returns_200(self) -> None:
         metadata = self.client.app.state.services.metadata_store
@@ -214,7 +206,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                **self._detect_payload(metric_name),
+                "source_artifact_id": self._source_artifact_id(metric_name),
                 "sensitivity": "balanced",
             },
         )
@@ -222,30 +214,29 @@ class DetectIntentEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         result = response.json()["result"]
         self.assertIn("artifact_id", result)
-        self.assertIn("items", result["result"])
+        self.assertEqual(result["artifact_family"], "candidate_set")
+        self.assertIn("items", result["payload"])
 
-    def test_detect_invalid_time_scope_returns_422(self) -> None:
-        """start >= end is rejected with 422."""
+    def test_observe_invalid_time_scope_for_detect_source_returns_422(self) -> None:
+        """The source artifact construction rejects invalid windows before detect."""
         r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
+            f"/sessions/{self.session_id}/intents/observe",
             json={
                 "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(start="2026-02-21", end="2026-02-07"),
                 "granularity": "day",
-                "strategy": "point_anomaly",
             },
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_detect_invalid_grain_returns_422(self) -> None:
-        """Unsupported granularity → 422."""
+    def test_observe_invalid_grain_for_detect_source_returns_422(self) -> None:
+        """Unsupported source granularity is rejected before detect."""
         r = self.client.post(
-            f"/sessions/{self.session_id}/intents/detect",
+            f"/sessions/{self.session_id}/intents/observe",
             json={
                 "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(start="2026-02-07", end="2026-03-08"),
                 "granularity": "minute",
-                "strategy": "point_anomaly",
             },
         )
         self.assertEqual(r.status_code, 422)
@@ -255,46 +246,43 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                **self._detect_payload("http_detect_metric"),
+                "source_artifact_id": self._source_artifact_id("http_detect_metric"),
                 "sensitivity": "balanced",
             },
         )
         self.assertEqual(r.status_code, 200, msg=r.text)
         body = r.json()["result"]
         self.assertIn("artifact_id", body)
-        result = body["result"]
         # uniform_events has the same number of rows per day per cluster → no candidates
-        self.assertEqual(result["items"], [])
+        self.assertEqual(body["payload"]["items"], [])
 
     def test_detect_all_public_options_return_200(self) -> None:
+        source_artifact_id = self._source_artifact_id(
+            "http_detect_split_metric",
+            filter={
+                "dialects": [
+                    {"dialect": "ANSI_SQL", "expression": "cluster = 'alpha'"},
+                ]
+            },
+        )
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                **self._detect_payload("http_detect_split_metric"),
-                "filter": {
-                    "dialects": [
-                        {"dialect": "ANSI_SQL", "expression": "cluster = 'alpha'"},
-                    ]
-                },
-                "dimension": "dimension.cluster",
+                "source_artifact_id": source_artifact_id,
                 "sensitivity": "balanced",
                 "limit": 1,
             },
         )
 
         self.assertEqual(r.status_code, 200, msg=r.text)
-        items = r.json()["result"]["result"]["items"]
+        items = r.json()["result"]["payload"]["items"]
         self.assertLessEqual(len(items), 1)
-        self.assertTrue(all(c.get("series_keys") == {"dimension.cluster": "alpha"} for c in items))
 
-    def test_detect_dimension_array_returns_422(self) -> None:
+    def test_detect_dimension_array_removed_field_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": _metric_ref("http_detect_split_metric"),
-                "time_scope": self._time_scope(),
-                "granularity": "day",
-                "strategy": "point_anomaly",
+                "source_artifact_id": self._source_artifact_id("http_detect_split_metric"),
                 "dimension": ["dimension.cluster"],
             },
         )
@@ -304,10 +292,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             "/sessions/sess_does_not_exist/intents/detect",
             json={
-                "metric": _metric_ref("http_detect_metric"),
-                "time_scope": self._time_scope(),
-                "granularity": "day",
-                "strategy": "point_anomaly",
+                "source_artifact_id": "artifact_source",
             },
         )
         self.assertEqual(r.status_code, 404)

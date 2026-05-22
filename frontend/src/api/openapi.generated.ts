@@ -3,8 +3,6 @@
  * Do not make direct changes to the file.
  */
 
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-
 export interface paths {
     "/health": {
         parameters: {
@@ -762,35 +760,12 @@ export interface components {
             /** Schema Version */
             schema_version: string;
         };
-        /** AnomalyCandidate */
-        AnomalyCandidate: {
-            /** Item Id */
-            item_id: string;
-            /**
-             * Bucket Start
-             * Format: date-time
-             */
-            bucket_start: string;
-            /** Value */
-            value: number;
-            /** Score */
-            score: number;
-            /** Series Keys */
-            series_keys: {
-                [key: string]: string;
-            } | null;
-        };
-        /** AnomalyCandidatesResult */
-        AnomalyCandidatesResult: {
-            /** Items */
-            items: components["schemas"]["AnomalyCandidate"][];
-        };
         /** Artifact1 */
         Artifact1: {
             /** Artifact Id */
             artifact_id: string;
             /** Result */
-            result: components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"] | components["schemas"]["AttributionFrameArtifact"] | components["schemas"]["AnomalyCandidatesResult"] | components["schemas"]["AssociationResult"] | components["schemas"]["HypothesisTestResult"] | components["schemas"]["ForecastSeriesResult"];
+            result: components["schemas"]["DeltaFrameArtifact"] | components["schemas"]["AttributionFrameArtifact"] | components["schemas"]["AssociationResult"] | components["schemas"]["HypothesisTestResult"] | components["schemas"]["ForecastSeriesResult"] | components["schemas"]["PointAnomalyCandidateSetArtifact"] | components["schemas"]["PeriodShiftCandidateSetArtifact"];
             failure?: components["schemas"]["AnalysisFailure"] | null;
         };
         /** Artifact2 */
@@ -798,7 +773,7 @@ export interface components {
             /** Artifact Id */
             artifact_id: string;
             /** Result */
-            result?: components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"] | components["schemas"]["AttributionFrameArtifact"] | components["schemas"]["AnomalyCandidatesResult"] | components["schemas"]["AssociationResult"] | components["schemas"]["HypothesisTestResult"] | components["schemas"]["ForecastSeriesResult"] | null;
+            result?: components["schemas"]["DeltaFrameArtifact"] | components["schemas"]["AttributionFrameArtifact"] | components["schemas"]["AssociationResult"] | components["schemas"]["HypothesisTestResult"] | components["schemas"]["ForecastSeriesResult"] | components["schemas"]["PointAnomalyCandidateSetArtifact"] | components["schemas"]["PeriodShiftCandidateSetArtifact"] | null;
             failure: components["schemas"]["AnalysisFailure"];
         };
         /** ArtifactExtractorKey */
@@ -818,7 +793,7 @@ export interface components {
             artifact_id: string;
             /** Result */
             result: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             };
         };
         /** ArtifactRuntimeStatusResponse */
@@ -919,7 +894,10 @@ export interface components {
             /** Axes */
             axes: components["schemas"]["AttributionFrameAxis"][];
             /** Measures */
-            measures: (components["schemas"]["AttributionFrameContributionAbsMeasure"] | components["schemas"]["AttributionFrameContributionPctMeasure"])[];
+            measures: [
+                components["schemas"]["AttributionFrameContributionAbsMeasure"],
+                components["schemas"]["AttributionFrameContributionPctMeasure"]
+            ];
             /** Capabilities */
             capabilities: "filterable"[];
             lineage: components["schemas"]["AttributionFrameLineage"];
@@ -985,10 +963,7 @@ export interface components {
         AttributionFramePayload: {
             /** Series */
             series: components["schemas"]["AttributionSeriesEntry"][];
-            /** Scope */
-            scope: {
-                [key: string]: string | number | boolean | null;
-            };
+            scope: components["schemas"]["AttributionFrameScope"];
             quality: components["schemas"]["AttributionFrameQuality"];
         };
         /** AttributionFrameQuality */
@@ -1005,6 +980,22 @@ export interface components {
             unexplained_pct?: number | null;
             /** Unexplained Reason */
             unexplained_reason?: string | null;
+        };
+        /** AttributionFrameScope */
+        AttributionFrameScope: {
+            /** Current Value */
+            current_value: number | null;
+            /** Baseline Value */
+            baseline_value: number | null;
+            /** Delta Abs */
+            delta_abs: number | null;
+            /** Delta Pct */
+            delta_pct: number | null;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "increase" | "decrease" | "flat" | "undefined";
         };
         /** AttributionPoint */
         AttributionPoint: {
@@ -1056,6 +1047,35 @@ export interface components {
             /** Column Count */
             column_count?: number | null;
         };
+        /** CandidateQualityIssue */
+        CandidateQualityIssue: {
+            /** Code */
+            code: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "warning" | "error";
+            /** Message */
+            message: string;
+        };
+        /** CandidateSetMeasure */
+        CandidateSetMeasure: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "score" | "value" | "baseline_value" | "delta_abs" | "delta_pct";
+            /**
+             * Value Type
+             * @constant
+             */
+            value_type: "number";
+            /** Nullable */
+            nullable: boolean;
+            /** Unit */
+            unit?: string | null;
+        };
         /** Compare */
         Compare: {
             /**
@@ -1087,7 +1107,19 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /** Result */
-            result: components["schemas"]["_CompareArtifact"] | components["schemas"]["_CompareFailureArtifact"];
+            result: components["schemas"]["DeltaFrameArtifact"] | components["schemas"]["_CompareFailureArtifact"];
+        };
+        /** ComparisonSubject */
+        ComparisonSubject: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "comparison";
+            /** Metric Ref */
+            metric_ref: string;
+            current: components["schemas"]["SubjectScopeRef"];
+            baseline: components["schemas"]["SubjectScopeRef"];
         };
         /** Correlate */
         Correlate: {
@@ -1284,47 +1316,111 @@ export interface components {
             /** Result */
             result: components["schemas"]["AttributionFrameArtifact"] | components["schemas"]["Artifact2"];
         };
-        /** DeltaPoint */
-        DeltaPoint: {
+        /** DeltaFrameArtifact */
+        DeltaFrameArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
             /**
-             * Bucket Start
-             * Format: date-time
+             * Artifact Family
+             * @constant
              */
-            bucket_start: string;
+            artifact_family: "delta_frame";
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "scalar_delta" | "time_series_delta" | "segmented_delta" | "panel_delta";
+            subject: components["schemas"]["ComparisonSubject"];
+            /** Axes */
+            axes: (components["schemas"]["MetricFrameAxis1"] | components["schemas"]["MetricFrameAxis2"] | components["schemas"]["MetricFrameAxis3"])[];
+            /** Measures */
+            measures: components["schemas"]["DeltaFrameMeasure"][];
+            payload: components["schemas"]["DeltaFramePayload"];
+        };
+        /** DeltaFrameMeasure */
+        DeltaFrameMeasure: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "delta_abs" | "delta_pct";
+            /**
+             * Value Type
+             * @constant
+             */
+            value_type: "number";
+            /**
+             * Nullable
+             * @constant
+             */
+            nullable: true;
+            /** Unit */
+            unit?: string | null;
+        };
+        /** DeltaFramePayload */
+        DeltaFramePayload: {
+            /** Series */
+            series: components["schemas"]["DeltaFrameSeries"][];
+            scope: components["schemas"]["DeltaFrameScope"];
+        };
+        /** DeltaFramePoint */
+        DeltaFramePoint: {
+            window?: components["schemas"]["MetricFrameWindow"];
+            baseline_window?: components["schemas"]["MetricFrameWindow"] | null;
             /** Current Value */
             current_value: number | null;
             /** Baseline Value */
             baseline_value: number | null;
-            /** Delta */
-            delta: number | null;
+            /** Delta Abs */
+            delta_abs: number | null;
+            /** Delta Pct */
+            delta_pct: number | null;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "increase" | "decrease" | "flat" | "undefined";
+            /** Presence */
+            presence?: ("both" | "current_only" | "baseline_only") | null;
+        };
+        /** DeltaFrameScope */
+        DeltaFrameScope: {
+            /** Current Value */
+            current_value: number | null;
+            /** Baseline Value */
+            baseline_value: number | null;
+            /** Delta Abs */
+            delta_abs: number | null;
+            /** Delta Pct */
+            delta_pct: number | null;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "increase" | "decrease" | "flat" | "undefined";
+        };
+        /** DeltaFrameSeries */
+        DeltaFrameSeries: {
+            /** Keys */
+            keys: {
+                [key: string]: string | number | boolean | null;
+            };
+            /** Points */
+            points: components["schemas"]["DeltaFramePoint"][];
         };
         /** DerivedBundleResult */
         DerivedBundleResult: {
             /** Bundle Type */
             bundle_type: string;
             /** Aoi Artifacts */
-            aoi_artifacts: (components["schemas"]["MetricFrameArtifact"] | components["schemas"]["AttributionFrameArtifact"] | components["schemas"]["Artifact1"] | components["schemas"]["Artifact2"])[];
+            aoi_artifacts: (components["schemas"]["MetricFrameArtifact"] | components["schemas"]["DeltaFrameArtifact"] | components["schemas"]["AttributionFrameArtifact"] | components["schemas"]["PointAnomalyCandidateSetArtifact"] | components["schemas"]["PeriodShiftCandidateSetArtifact"] | components["schemas"]["Artifact1"] | components["schemas"]["Artifact2"])[];
         } & {
             [key: string]: unknown;
         };
         /** Detect */
         Detect: {
-            /** Metric */
-            metric: string;
-            time_scope: components["schemas"]["TimeScope"];
-            /**
-             * Granularity
-             * @enum {string}
-             */
-            granularity: "hour" | "day" | "week" | "month" | "quarter" | "year";
-            filter?: components["schemas"]["Expression-Input"];
-            /** Dimension */
-            dimension?: string;
-            /**
-             * Strategy
-             * @enum {string}
-             */
-            strategy: "point_anomaly" | "period_shift";
+            /** Source Artifact Id */
+            source_artifact_id: string;
             /**
              * Sensitivity
              * @default aggressive
@@ -1352,7 +1448,7 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /** Result */
-            result: components["schemas"]["_DetectArtifact"] | components["schemas"]["_DetectFailureArtifact"];
+            result: components["schemas"]["PointAnomalyCandidateSetArtifact"] | components["schemas"]["PeriodShiftCandidateSetArtifact"] | components["schemas"]["_DetectFailureArtifact"];
         };
         /** Diagnose */
         Diagnose: {
@@ -1595,6 +1691,21 @@ export interface components {
             /** Points */
             points: components["schemas"]["Point"][];
         };
+        /** FramePointRef */
+        FramePointRef: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Series Index */
+            series_index: number;
+            /** Point Index */
+            point_index: number;
+            /** Series Keys */
+            series_keys: {
+                [key: string]: string;
+            };
+            /** Point Key */
+            point_key: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1628,6 +1739,8 @@ export interface components {
             /** Assumption Notes */
             assumption_notes: string[];
         };
+        /** JsonValue */
+        JsonValue: unknown;
         /**
          * MarivoDatasetCustomExtension
          * @description MARIVO custom extension for Dataset.
@@ -1771,7 +1884,7 @@ export interface components {
             shape: "scalar" | "time_series" | "segmented" | "panel";
             subject: components["schemas"]["MetricFrameSubject"];
             /** Axes */
-            axes: (components["schemas"]["MetricFrameAxis1"] | components["schemas"]["MetricFrameAxis2"])[];
+            axes: (components["schemas"]["MetricFrameAxis4"] | components["schemas"]["MetricFrameAxis5"])[];
             /** Measures */
             measures: components["schemas"]["MetricFrameMeasure"][];
             payload: components["schemas"]["MetricFramePayload"];
@@ -1791,6 +1904,37 @@ export interface components {
         };
         /** MetricFrameAxis2 */
         MetricFrameAxis2: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "dimension";
+            /** Name */
+            name: string;
+        };
+        /** MetricFrameAxis3 */
+        MetricFrameAxis3: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "comparison_side";
+        };
+        /** MetricFrameAxis4 */
+        MetricFrameAxis4: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "time";
+            /**
+             * Grain
+             * @enum {string}
+             */
+            grain: "hour" | "day" | "week" | "month" | "quarter" | "year";
+        };
+        /** MetricFrameAxis5 */
+        MetricFrameAxis5: {
             /**
              * Kind
              * @constant
@@ -1930,6 +2074,102 @@ export interface components {
         };
         /** PValue */
         PValue: number;
+        /** PeriodShiftCandidateItem */
+        PeriodShiftCandidateItem: {
+            /** Item Id */
+            item_id: string;
+            window: components["schemas"]["MetricFrameWindow"];
+            baseline_window?: components["schemas"]["MetricFrameWindow"] | null;
+            /** Keys */
+            keys: {
+                [key: string]: string;
+            } | null;
+            /** Value */
+            value: number | null;
+            /** Baseline Value */
+            baseline_value?: number | null;
+            /** Delta Abs */
+            delta_abs?: number | null;
+            /** Delta Pct */
+            delta_pct?: number | null;
+            /** Score */
+            score: number;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "increase" | "decrease" | "unknown";
+            source_delta_point_ref: components["schemas"]["FramePointRef"];
+        };
+        /** PeriodShiftCandidateScanSubject */
+        PeriodShiftCandidateScanSubject: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "candidate_scan";
+            /** Metric Ref */
+            metric_ref: string;
+            /** Source Artifact Id */
+            source_artifact_id: string;
+            /**
+             * Source Artifact Family
+             * @constant
+             */
+            source_artifact_family: "delta_frame";
+            /**
+             * Source Shape
+             * @enum {string}
+             */
+            source_shape: "time_series_delta" | "panel_delta";
+        };
+        /** PeriodShiftCandidateSetArtifact */
+        PeriodShiftCandidateSetArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Artifact Family
+             * @constant
+             */
+            artifact_family: "candidate_set";
+            /** Axes */
+            axes: (components["schemas"]["MetricFrameAxis4"] | components["schemas"]["MetricFrameAxis5"])[];
+            /** Measures */
+            measures: components["schemas"]["CandidateSetMeasure"][];
+            /** Capabilities */
+            capabilities: "filterable"[];
+            /**
+             * Shape
+             * @constant
+             */
+            shape: "period_shift_candidates";
+            subject: components["schemas"]["PeriodShiftCandidateScanSubject"];
+            lineage: components["schemas"]["PeriodShiftCandidateSetLineage"];
+            payload: components["schemas"]["PeriodShiftCandidateSetPayload"];
+        };
+        /** PeriodShiftCandidateSetLineage */
+        PeriodShiftCandidateSetLineage: {
+            /**
+             * Operation
+             * @constant
+             */
+            operation: "detect";
+            /** Source Artifact Ids */
+            source_artifact_ids: components["schemas"]["SourceArtifactId"][];
+            /**
+             * Strategy
+             * @constant
+             */
+            strategy: "period_shift";
+        };
+        /** PeriodShiftCandidateSetPayload */
+        PeriodShiftCandidateSetPayload: {
+            /** Items */
+            items: components["schemas"]["PeriodShiftCandidateItem"][];
+            scan_summary: components["schemas"]["ScanSummary"];
+            truncation: components["schemas"]["Truncation"];
+            quality: components["schemas"]["Quality"];
+        };
         /** Point */
         Point: {
             /**
@@ -1944,43 +2184,138 @@ export interface components {
             /** Ci High */
             ci_high: number | null;
         };
+        /** PointAnomalyCandidateItem */
+        PointAnomalyCandidateItem: {
+            /** Item Id */
+            item_id: string;
+            window: components["schemas"]["MetricFrameWindow"];
+            /** Keys */
+            keys: {
+                [key: string]: string;
+            } | null;
+            /** Value */
+            value: number | null;
+            /** Baseline Value */
+            baseline_value?: number | null;
+            /** Delta Abs */
+            delta_abs?: number | null;
+            /** Delta Pct */
+            delta_pct?: number | null;
+            /** Score */
+            score: number;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "increase" | "decrease" | "unknown";
+            source_point_ref: components["schemas"]["FramePointRef"];
+        };
+        /** PointAnomalyCandidateScanSubject */
+        PointAnomalyCandidateScanSubject: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "candidate_scan";
+            /** Metric Ref */
+            metric_ref: string;
+            /** Source Artifact Id */
+            source_artifact_id: string;
+            /**
+             * Source Artifact Family
+             * @constant
+             */
+            source_artifact_family: "metric_frame";
+            /**
+             * Source Shape
+             * @enum {string}
+             */
+            source_shape: "time_series" | "panel";
+        };
+        /** PointAnomalyCandidateSetArtifact */
+        PointAnomalyCandidateSetArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Artifact Family
+             * @constant
+             */
+            artifact_family: "candidate_set";
+            /** Axes */
+            axes: (components["schemas"]["MetricFrameAxis4"] | components["schemas"]["MetricFrameAxis5"])[];
+            /** Measures */
+            measures: components["schemas"]["CandidateSetMeasure"][];
+            /** Capabilities */
+            capabilities: "filterable"[];
+            /**
+             * Shape
+             * @constant
+             */
+            shape: "point_anomaly_candidates";
+            subject: components["schemas"]["PointAnomalyCandidateScanSubject"];
+            lineage: components["schemas"]["PointAnomalyCandidateSetLineage"];
+            payload: components["schemas"]["PointAnomalyCandidateSetPayload"];
+        };
+        /** PointAnomalyCandidateSetLineage */
+        PointAnomalyCandidateSetLineage: {
+            /**
+             * Operation
+             * @constant
+             */
+            operation: "detect";
+            /** Source Artifact Ids */
+            source_artifact_ids: components["schemas"]["SourceArtifactId"][];
+            /**
+             * Strategy
+             * @constant
+             */
+            strategy: "point_anomaly";
+        };
+        /** PointAnomalyCandidateSetPayload */
+        PointAnomalyCandidateSetPayload: {
+            /** Items */
+            items: components["schemas"]["PointAnomalyCandidateItem"][];
+            scan_summary: components["schemas"]["ScanSummary"];
+            truncation: components["schemas"]["Truncation"];
+            quality: components["schemas"]["Quality"];
+        };
         /** PropositionContextView */
         PropositionContextView: {
             /** Proposition */
             proposition: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             };
             /** Seed Entries */
             seed_entries: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Relevant Findings */
             relevant_findings: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Latest Assessment */
             latest_assessment?: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             } | null;
             /** Blocking Gaps */
             blocking_gaps: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Non Blocking Gaps */
             non_blocking_gaps: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Applied Inference Records */
             applied_inference_records: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Assessment Dependencies */
             assessment_dependencies: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Artifact Refs */
             artifact_refs: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Schema Version */
             schema_version: string;
@@ -2007,6 +2342,16 @@ export interface components {
             last_failure_at?: string | null;
             /** Schema Version */
             schema_version: string;
+        };
+        /** Quality */
+        Quality: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "detectable" | "needs_attention";
+            /** Issues */
+            issues: components["schemas"]["CandidateQualityIssue"][];
         };
         /**
          * RatioDecomposition
@@ -2242,36 +2587,12 @@ export interface components {
             /** Failed Items */
             failed_items: number;
         };
-        /** ScalarDeltaResult */
-        ScalarDeltaResult: {
-            /** Current Value */
-            current_value: number | null;
-            /** Baseline Value */
-            baseline_value: number | null;
-            /** Delta */
-            delta: number | null;
-            matched_time_scope: components["schemas"]["TimeScope"] | null;
-        };
-        /** SegmentedDeltaResult */
-        SegmentedDeltaResult: {
-            /** Rows */
-            rows: components["schemas"]["SegmentedDeltaRow"][];
-            matched_time_scope: components["schemas"]["TimeScope"] | null;
-        };
-        /** SegmentedDeltaRow */
-        SegmentedDeltaRow: {
-            /** Item Id */
-            item_id: string;
-            /** Keys */
-            keys: {
-                [key: string]: string;
-            };
-            /** Current Value */
-            current_value: number | null;
-            /** Baseline Value */
-            baseline_value: number | null;
-            /** Delta */
-            delta: number | null;
+        /** ScanSummary */
+        ScanSummary: {
+            /** Scanned Series Count */
+            scanned_series_count: number;
+            /** Total Candidate Count */
+            total_candidate_count: number;
         };
         /**
          * SemanticModel
@@ -2457,23 +2778,23 @@ export interface components {
             session_id: string;
             /** Active Propositions */
             active_propositions: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Backing Findings */
             backing_findings: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Blocking Gaps */
             blocking_gaps: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Artifact Refs */
             artifact_refs: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             /** Focus Subjects */
             focus_subjects: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             }[];
             truncation: components["schemas"]["SessionStateTruncation"];
             /** Schema Version */
@@ -2510,15 +2831,15 @@ export interface components {
             artifact_id?: string | null;
             /** Output Summary */
             output_summary?: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             } | null;
             /** Provenance */
             provenance?: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             } | null;
             /** Semantic Metadata */
             semantic_metadata?: {
-                [key: string]: JsonValue;
+                [key: string]: components["schemas"]["JsonValue"];
             } | null;
             /** Warnings */
             warnings: components["schemas"]["SessionTraceWarning"][];
@@ -2569,6 +2890,14 @@ export interface components {
             step_id: string;
             /** Step Type */
             step_type: string;
+        };
+        /** SubjectScopeRef */
+        SubjectScopeRef: {
+            time_scope: components["schemas"]["TimeScope"];
+            /** Scope */
+            scope: {
+                [key: string]: string | number | boolean | null;
+            };
         };
         /**
          * SumDecomposition
@@ -2668,12 +2997,6 @@ export interface components {
              */
             end: string;
         };
-        /** TimeSeriesDeltaResult */
-        TimeSeriesDeltaResult: {
-            /** Points */
-            points: components["schemas"]["DeltaPoint"][];
-            matched_time_scope: components["schemas"]["TimeScope"] | null;
-        };
         /** TrinoDatasourceConnection */
         TrinoDatasourceConnection: {
             /**
@@ -2706,6 +3029,15 @@ export interface components {
             session_properties?: {
                 [key: string]: string;
             };
+        };
+        /** Truncation */
+        Truncation: {
+            /** Returned Candidate Count */
+            returned_candidate_count: number;
+            /** Total Candidate Count */
+            total_candidate_count: number;
+            /** Truncated */
+            truncated: boolean;
         };
         /** Validate */
         Validate: {
@@ -2774,20 +3106,11 @@ export interface components {
              */
             weight: components["schemas"]["MetricComponentRef"] | components["schemas"]["ExpressionComponent"];
         };
-        /** _CompareArtifact */
-        _CompareArtifact: {
-            /** Artifact Id */
-            artifact_id: string;
-            /** Result */
-            result: components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"];
-            failure?: components["schemas"]["AnalysisFailure"] | null;
-        };
         /** _CompareFailureArtifact */
         _CompareFailureArtifact: {
             /** Artifact Id */
             artifact_id: string;
-            /** Result */
-            result?: components["schemas"]["ScalarDeltaResult"] | components["schemas"]["TimeSeriesDeltaResult"] | components["schemas"]["SegmentedDeltaResult"] | null;
+            result?: components["schemas"]["DeltaFrameArtifact"] | null;
             failure: components["schemas"]["AnalysisFailure"];
         };
         /** _CorrelateArtifact */
@@ -2804,18 +3127,12 @@ export interface components {
             result?: components["schemas"]["AssociationResult"] | null;
             failure: components["schemas"]["AnalysisFailure"];
         };
-        /** _DetectArtifact */
-        _DetectArtifact: {
-            /** Artifact Id */
-            artifact_id: string;
-            result: components["schemas"]["AnomalyCandidatesResult"];
-            failure?: components["schemas"]["AnalysisFailure"] | null;
-        };
         /** _DetectFailureArtifact */
         _DetectFailureArtifact: {
             /** Artifact Id */
             artifact_id: string;
-            result?: components["schemas"]["AnomalyCandidatesResult"] | null;
+            /** Result */
+            result?: null;
             failure: components["schemas"]["AnalysisFailure"];
         };
         /** _ForecastArtifact */
@@ -2855,8 +3172,8 @@ export interface components {
             failure: components["schemas"]["AnalysisFailure"];
         };
         /** JsonValidationValue */
-        JsonValidationValue: string | number | boolean | null | JsonValue[] | {
-            [key: string]: JsonValue;
+        JsonValidationValue: string | number | boolean | null | components["schemas"]["JsonValue"][] | {
+            [key: string]: components["schemas"]["JsonValue"];
         };
     };
     responses: never;

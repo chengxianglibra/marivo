@@ -70,6 +70,42 @@ def _delta_frame_result(artifact_id: str = "art_compare_1") -> dict[str, Any]:
     }
 
 
+def _candidate_set_result(artifact_id: str = "artifact_candidates") -> dict[str, Any]:
+    return {
+        "artifact_id": artifact_id,
+        "artifact_family": "candidate_set",
+        "shape": "point_anomaly_candidates",
+        "subject": {
+            "kind": "candidate_scan",
+            "metric_ref": "metric.revenue",
+            "source_artifact_id": "artifact_source",
+            "source_artifact_family": "metric_frame",
+            "source_shape": "time_series",
+        },
+        "axes": [{"kind": "time", "grain": "day"}],
+        "measures": [{"id": "score", "value_type": "number", "nullable": False}],
+        "capabilities": ["filterable"],
+        "lineage": {
+            "operation": "detect",
+            "source_artifact_ids": ["artifact_source"],
+            "strategy": "point_anomaly",
+        },
+        "payload": {
+            "items": [],
+            "scan_summary": {
+                "scanned_series_count": 1,
+                "total_candidate_count": 0,
+            },
+            "truncation": {
+                "returned_candidate_count": 0,
+                "total_candidate_count": 0,
+                "truncated": False,
+            },
+            "quality": {"status": "detectable", "issues": []},
+        },
+    }
+
+
 class _FakeRuntime:
     def __init__(self) -> None:
         self.observe_payload: Any | None = None
@@ -131,13 +167,8 @@ class _FakeRuntime:
                 "step_id": "step_detect_1",
                 "step_type": "detect",
             },
-            "artifact_id": "art_detect_1",
-            "result": {
-                "artifact_id": "art_detect_1",
-                "result": {
-                    "items": [],
-                },
-            },
+            "artifact_id": "artifact_candidates",
+            "result": _candidate_set_result(),
             "provenance": {"mocked": True},
             "product_metadata": None,
         }
@@ -699,20 +730,12 @@ def test_observe_accepts_segmented_aoi_request() -> None:
     assert [dimension.root for dimension in runtime.observe_payload.dimensions] == ["region"]
 
 
-def test_detect_accepts_aoi_request_with_strategy_and_dimension() -> None:
+def test_detect_accepts_aoi_artifact_input_request() -> None:
     runtime = _FakeRuntime()
     response = _client(runtime).post(
         "/sessions/sess_1/intents/detect",
         json={
-            "metric": "metric.revenue",
-            "time_scope": {
-                "field": "event_time",
-                "start": "2026-01-01T00:00:00Z",
-                "end": "2026-01-08T00:00:00Z",
-            },
-            "granularity": "day",
-            "dimension": "region",
-            "strategy": "period_shift",
+            "source_artifact_id": "artifact_source",
             "sensitivity": "balanced",
             "limit": 5,
         },
@@ -720,9 +743,11 @@ def test_detect_accepts_aoi_request_with_strategy_and_dimension() -> None:
 
     assert response.status_code == 200, response.text
     assert isinstance(runtime.detect_payload, aoi.Detect)
-    assert runtime.detect_payload.dimension == "region"
-    assert runtime.detect_payload.strategy == "period_shift"
+    assert runtime.detect_payload.source_artifact_id == "artifact_source"
     assert runtime.detect_payload.sensitivity == "balanced"
+    body = response.json()
+    assert body["result"]["artifact_family"] == "candidate_set"
+    assert body["result"]["subject"]["source_artifact_id"] == "artifact_source"
 
 
 def test_compare_accepts_aoi_request_with_compare_type() -> None:
@@ -743,19 +768,15 @@ def test_compare_accepts_aoi_request_with_compare_type() -> None:
     assert runtime.compare_payload.compare_type == "weekday_aligned"
 
 
-def test_detect_requires_strategy() -> None:
-    response = _client(_FakeRuntime()).post(
-        "/sessions/sess_1/intents/detect",
-        json={
-            "metric": "metric.revenue",
-            "time_scope": {
-                "field": "event_time",
-                "start": "2026-01-01T00:00:00Z",
-                "end": "2026-01-08T00:00:00Z",
-            },
-            "granularity": "day",
-        },
-    )
+@pytest.mark.parametrize(
+    "removed_field",
+    ["metric", "time_scope", "granularity", "filter", "dimension", "strategy"],
+)
+def test_detect_rejects_removed_source_style_fields(removed_field: str) -> None:
+    payload: dict[str, Any] = {"source_artifact_id": "artifact_source"}
+    payload[removed_field] = "bad"
+
+    response = _client(_FakeRuntime()).post("/sessions/sess_1/intents/detect", json=payload)
 
     assert response.status_code == 422
 

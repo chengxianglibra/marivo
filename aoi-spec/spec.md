@@ -131,7 +131,7 @@ AOI v0.2 has no `Scope` wrapper. Filter conditions are expressed directly throug
 
 - `TimeScope` represents the dataset time field plus "what time range is the analysis over". It does not carry granularity because bucketing is meaningless for some outputs (e.g. a scalar observation has no buckets) and belongs in request-specific fields where it does apply.
 - `TimeScope.field` is a required string that references the OSI dataset field used as the time axis for the slice.
-- `TimeGranularity` is referenced from intents that need time bucketing or a statistical sample unit — `observe.granularity`, `detect.granularity`, `test.grain`, `validate.grain`, and bucketed producing steps where downstream consumers need to know the bucket size.
+- `TimeGranularity` is referenced from intents that need time bucketing or a statistical sample unit — `observe.granularity`, `test.grain`, `validate.grain`, and bucketed producing steps where downstream consumers need to know the bucket size. `detect` inherits the grain from its source artifact.
 - When a request supplies a grain or granularity, its `TimeScope` boundaries must align to that grain so implementations do not produce partial buckets.
 - `test.grain` and `validate.grain` use the same `TimeGranularity` values for the statistical sample unit used in internal sample-summary computation. `grain` is not an observe output mode selector.
 - There is no separate `ResolvedTimeScope` in core; calendar-resolution details (matched-bucket counts, calendar policy summaries, holiday alignment) are execution/audit metadata outside v0.2.
@@ -216,7 +216,7 @@ The request contract is per-intent. Every atomic request is either **source-type
 | Intent      | Input mode      | Required inputs                                                                                                                            |
 | ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `observe`   | source          | `metric`, `time_scope`, `filter?`, `granularity?`, `dimensions?` (optional selectors; both present produces a panel, see 4.1.2)              |
-| `detect`    | source          | `metric`, `time_scope`, `granularity: TimeGranularity`, `filter?`, `dimension?`, `strategy: "point_anomaly" \| "period_shift"`, `sensitivity?`, `limit?` |
+| `detect`    | artifact        | `source_artifact_id`, `sensitivity?`, `limit?` |
 | `test`      | source (paired) | `metric`, `current: { time_scope, filter? }`, `baseline: { time_scope, filter? }`, `grain: TimeGranularity`, `kind: "numeric"`, `hypothesis: Hypothesis` |
 | `forecast`  | ref             | `source_artifact_id: string`, `horizon`                                                                             |
 | `compare`   | ref             | `current_artifact_id: string`, `baseline_artifact_id: string`, `compare_type?: CompareType`                                                             |
@@ -306,7 +306,7 @@ scalar_delta_result
 time_series_delta_result
 segmented_delta_result
 attribution_frame_artifact
-anomaly_candidates_result
+candidate_set_artifact
 association_result
 hypothesis_test_result
 forecast_series_result
@@ -391,12 +391,47 @@ artifact: { "artifact_id": string,
                          "scope": object,
                          "quality": object } }
 
-// anomaly_candidates_result
-result: { "items": [ { "item_id": string,
-                       "bucket_start": "ISO8601",
-                       "value": number,
-                       "score": number,
-                       "series_keys": DimensionKeyMap | null } ] }
+// candidate_set_artifact
+artifact: { "artifact_id": string,
+            "artifact_family": "candidate_set",
+            "shape": "point_anomaly_candidates" | "period_shift_candidates",
+            "subject": { "kind": "candidate_scan",
+                         "metric_ref": string,
+                         "source_artifact_id": string,
+                         "source_artifact_family": "metric_frame" | "delta_frame",
+                         "source_shape": string },
+            "axes": [ { "kind": "time", "grain": TimeGranularity } |
+                      { "kind": "dimension", "name": string } ],
+            "measures": [ { "id": "score" | "value" | "baseline_value" | "delta_abs" | "delta_pct",
+                            "value_type": "number",
+                            "nullable": boolean } ],
+            "capabilities": [ "filterable" ],
+            "lineage": { "operation": "detect",
+                         "source_artifact_ids": [ string ],
+                         "strategy": "point_anomaly" | "period_shift" },
+            "payload": { "items": [ { "item_id": string,
+                                       "source_point_ref": FramePointRef,
+                                       "source_delta_point_ref": FramePointRef,
+                                       "window": { "start": "ISO8601",
+                                                   "end": "ISO8601" },
+                                       "baseline_window": { "start": "ISO8601",
+                                                            "end": "ISO8601" } | null,
+                                       "keys": DimensionKeyMap | null,
+                                       "value": number | null,
+                                       "baseline_value": number | null,
+                                       "delta_abs": number | null,
+                                       "delta_pct": number | null,
+                                       "score": number,
+                                       "direction": "increase" | "decrease" | "unknown" } ],
+                         "scan_summary": { "scanned_series_count": integer,
+                                           "total_candidate_count": integer },
+                         "truncation": { "returned_candidate_count": integer,
+                                         "total_candidate_count": integer,
+                                         "truncated": boolean },
+                         "quality": { "status": "detectable" | "needs_attention",
+                                      "issues": [ { "code": string,
+                                                    "severity": "warning" | "error",
+                                                    "message": string } ] } } }
 
 // association_result
 result: { "coefficient": number,
@@ -427,7 +462,7 @@ Numeric result semantics:
 | Compare `delta` | Metric-domain difference, nullable when not computable. | Positive means left/current is higher than right/baseline; negative means lower; larger absolute value means a larger change. |
 | `attribution_frame_artifact.payload.series[].points[].contribution_abs` | Signed metric-domain contribution; finite number with no fixed schema bound. | Positive increases the compared delta; negative offsets it; larger absolute value means a stronger driver. |
 | `attribution_frame_artifact.payload.series[].points[].contribution_pct` | Signed ratio to total delta or `null` when not computable. | Same sign as the total delta reinforces the change; opposite sign offsets it; larger absolute value means higher relative importance. |
-| `anomaly_candidates_result.items[].score` | Non-negative number, `[0, +infinity)`. | Higher means more anomalous within the same implementation and scoring profile. Scores are not portable severity labels. |
+| `candidate_set.payload.items[].score` | Non-negative number, `[0, +infinity)`. | Higher means more anomalous within the same candidate set. Scores are not portable severity labels. |
 | `association_result.coefficient` | `[-1, 1]`. | Higher positive values mean stronger positive association; values near `0` mean weak/no association under the chosen method; lower negative values mean stronger inverse association. |
 | `p_value` fields | `[0, 1]`. | Lower means stronger evidence against the relevant null model; higher means weaker evidence. |
 | `hypothesis_test_result.statistic` | Finite statistic for the two-sample mean test. | Sign and magnitude are interpreted with `hypothesis.alternative`; larger absolute values usually mean stronger separation from the null model. |
@@ -438,7 +473,7 @@ Non-blocking caveat fields are narrow and intent-specific. `matched_time_scope` 
 
 #### 4.2.4 List-with-items strict constraint
 
-Every row in `*_observation.rows[]`, `*_delta.rows[]`, attribution frame payload points, and `anomaly_candidates.items[]` must carry stable row addressing. Compare and anomaly rows use `item_id`; attribution frame points use their ranked position within a keyed series.
+Every row in `*_observation.rows[]`, `*_delta.rows[]`, attribution frame payload points, and `candidate_set.payload.items[]` must carry stable row addressing. Compare and candidate rows use `item_id`; attribution frame points use their ranked position within a keyed series.
 
 #### 4.2.5 Forecast is not an observation
 
@@ -487,7 +522,7 @@ Current Marivo row-level candidates remain outside AOI v0.2:
 |---------------------|---------------|--------|
 | Calendar bucket-pairing rows (`bucket_pairing[]`, `pairing_reason`, `strictness_level`, `is_reused_baseline_bucket`) | Do not include | These explain how an implementation resolved a comparison, but consumers can consume the resulting `*_delta` values without them. `compare_type` on the producing step is sufficient to prevent mode mixing; detailed pairing is operator/debug audit data outside AOI v0.2. |
 | Matched bucket counts and coverage ratios on time-series rows | Do not include | Partial overlap is represented portably by result-level `matched_time_scope` where the successful analytical result needs that caveat. Per-row coverage ratios create a second warning surface and are not required to interpret `value: null`, `current_value`, `baseline_value`, or `delta`. |
-| Detect candidate display labels (`flag_level`, row severity labels) | Do not include | Core `anomaly_candidates.items[].score` is the machine-readable contract. Labels are thresholded presentation choices and can be derived by UI/SDK layers without changing the artifact. |
+| Detect candidate display labels (`flag_level`, row severity labels) | Do not include | Core `candidate_set.payload.items[].score` is the machine-readable contract. Labels are thresholded presentation choices and can be derived by UI/SDK layers without changing the artifact. |
 | Compare row `direction` and decompose point `direction` | Do not include | `direction` is derivable from the sign of `delta` or `contribution_abs`. Shipping both would allow disagreement with core numeric fields. |
 | Row `unit` echoes | Do not include | Unit belongs to the OSI metric definition, not to each AOI row. Repeating it per row increases drift risk and is unnecessary for consumers that can resolve metric metadata. |
 | Additivity or dimension-policy annotations on contribution points | Do not include | Successful `attribution_frame` points carry `contribution_abs` and `contribution_pct`. If additivity prevents a valid decomposition, that is a blocking failure with `failure.message`, not point metadata on a successful artifact. |
@@ -647,10 +682,16 @@ Concrete evidence of consolidation. This table is also the input list for Marivo
 
 ### 8.2 Status / direction / issue vocabulary
 
+This section tracks the older Marivo v0.1 consolidation work. The active
+`candidate_set_artifact` contract above intentionally retains candidate-local
+`payload.quality.status`, `payload.truncation`, and `items[].direction` because
+detect candidate sets need these fields for downstream ranking, follow-up, and
+extraction.
+
 | Current inconsistency | AOI v0.2 |
 |-----------------------|----------|
-| 9 distinct ready-keywords (`comparable`, `attributable`, `aligned`, `detectable`, `valid`, `validated`, `forecastable`, `diagnosable`, `ready`) | **Removed from AOI artifacts.** AOI v0.2 has no artifact status vocabulary on the wire: presence of `result` means success, presence of `failure` means blocked. No "needs_attention" middle state in AOI artifacts. |
-| `direction: increase\|decrease\|flat\|undefined` (most intents) vs `up\|down\|flat\|undefined` (detect) | **`Direction` removed from spec.** Direction is `sign(value)`, derivable by consumers; "flat" requires an epsilon the spec never defined. Result bodies expose values; consumers classify direction locally. |
+| 9 distinct ready-keywords (`comparable`, `attributable`, `aligned`, `valid`, `validated`, `forecastable`, `diagnosable`, `ready`, legacy top-level `detectability`) | Removed from generic artifact envelopes. Candidate-set scan quality is represented locally at `candidate_set.payload.quality.status`. |
+| `direction: increase\|decrease\|flat\|undefined` (most intents) vs `up\|down\|flat\|undefined` (legacy detect) | Standardized where present. Candidate-set items use `increase\|decrease\|unknown`; delta-frame points retain `increase\|decrease\|flat\|undefined`. |
 | `presence: both\|current_only\|baseline_only` on compare delta rows vs attribution frame points | **Compare-row presence is removed.** Attribution frame points retain `presence` as interpretive metadata for current/baseline membership. It is not a delta measure, not a readiness/status flag, and does not replace the `current_value` / `baseline_value` null pattern. |
 | `unit` echoed on Observation, delta, contribution rows | **Removed from artifacts.** Unit is a metric-definition property in OSI; consumers retrieve unit through OSI metric metadata, not through AOI artifacts. |
 | `decision.reject_null: boolean\|null` (atomic test) vs `"reject_null"\|"fail_to_reject"\|"undetermined"` (validate) | AOI standardizes the `validate` and `attribute` request contracts only; derived response bundles remain implementation-owned. Atomic `test` retains `boolean\|null`. |
@@ -667,11 +708,11 @@ Concrete evidence of consolidation. This table is also the input list for Marivo
 | `DetectCandidateRef = {artifact_id, item_ref}` | **Removed from AOI v0.2**. List-shaped artifacts expose stable row `item_id` values, but v0.2 has no request or artifact field that references an individual row by contract. |
 | `compare.segmented_delta.rows[].keys` (multi-dim) vs `decompose.rows[].key` (single-value) | Both retained at result-body level (different result schemas, different shapes); but every row carries `item_id`. |
 
-### 8.4 Truncation — removed from spec
+### 8.4 Truncation — artifact-local only where needed
 
 | Current | AOI v0.2 |
 |---------|----------|
-| `DetectTruncation`, `DecomposeProjection.{returned_row_count, total_row_count, is_truncated, ...}`, `DiagnoseDriverProjection.{...}` | **Removed.** Bounded outputs are governed by request-side limits (`detect.limit`, `decompose.limit`). "Could have been more" signals are SDK / transport concerns and out of AOI v0.2 scope. |
+| `DetectTruncation`, `DecomposeProjection.{returned_row_count, total_row_count, is_truncated, ...}`, `DiagnoseDriverProjection.{...}` | Detect keeps truncation as `candidate_set.payload.truncation` because candidate follow-up depends on knowing returned vs total candidates. Projection-only truncation fields remain outside AOI artifacts. |
 
 ### 8.5 Filter / Expression / TimeScope — alignment with OSI Expression
 
@@ -680,7 +721,7 @@ Concrete evidence of consolidation. This table is also the input list for Marivo
 | `Scope = {constraints: Record<dim, value>, expression: ExpressionAST}` (two-field wrapper) | **`Scope` removed.** Filters use `filter: Expression \| null` directly on each intent. |
 | Custom `Expression` AST with closed `op` enumeration (`and / or / not / eq / neq / in / gt / ...`) | **`Expression` re-modelled as OSI `Expression`**: `{dialects: [{dialect, expression}]}` — multi-dialect SQL boolean expression, same shape as OSI's metric/field/filter expression. |
 | `TimeScope` union (`range \| named "last_7_days"`) | **`{field, start, end}` only.** Named relative ranges removed (caller resolves to absolutes). Granularity is no longer part of `TimeScope`. |
-| `TimeGranularity` and time-range bundled in one primitive | **Split.** `TimeScope` carries the dataset time field plus time range; `TimeGranularity` is a separate primitive that intents reference where bucketing applies (`observe.granularity`, `detect`, bucketed artifact bodies). |
+| `TimeGranularity` and time-range bundled in one primitive | **Split.** `TimeScope` carries the dataset time field plus time range; `TimeGranularity` is a separate primitive that intents reference where bucketing applies (`observe.granularity`, bucketed artifact bodies). `detect` reads the grain from its source artifact. |
 | `ResolvedTimeScope` (output form with `matched_bucket_count`, calendar resolution) | **Removed.** `matched_bucket_count` and calendar-resolution detail are execution/audit metadata outside AOI v0.2; unsupported or unmapped calendar data produces a blocking failure. |
 
 **Why this alignment**: OSI already standardizes multi-dialect SQL expressions for metric / field / filter purposes. AOI is positioned as a sibling standard; reusing OSI's `Expression` shape for AOI's filter avoids parallel reinvention and inherits OSI's portability story (multiple dialects in one expression). The previous AST design would have been the cleaner abstract form, but it cannot express the filter expressiveness real analysis requires (`LOWER()`, `EXTRACT()`, arithmetic, CASE, UDFs) without effectively reinventing a SQL-grade AST.
@@ -709,7 +750,7 @@ Section 5 explains why implementation-private metadata stays outside AOI v0.2. T
 | `flag_level` and similar row display labels | **Not included**; UI/SDK layers may derive labels from core `score`. |
 | Calendar-specific blocking issue codes | Portable core `failure.code` plus `failure.message`. |
 | `pairing_basis` / `pairing_rule` single-value literals | **Deleted** (single-value literals are not contracts). |
-| `gate`, `status`, `needs_attention`, `direction`, compare-row `presence`, `unit`, sample-summary observations, derived-intent bundles | **Not AOI artifact fields**; they are either derivable, presentation-only, folded into core result/failure fields, or private product-layer concepts. Attribution frame point `presence` is retained separately as current/baseline membership metadata, not as readiness/status. |
+| `gate`, generic top-level `status`, compare-row `presence`, `unit`, sample-summary observations, derived-intent bundles | **Not generic AOI artifact envelope fields**; they are either derivable, presentation-only, folded into core result/failure fields, or private product-layer concepts. Candidate-set item `direction` and candidate-set payload quality/truncation are artifact-local fields, not generic envelopes. Attribution frame point `presence` is retained separately as current/baseline membership metadata, not as readiness/status. |
 
 ### 8.8 `observe.result_mode`, `forecast_series_result`, and sample-summary relocation
 
@@ -789,6 +830,6 @@ foundation primitives package
 + 3 derived requests (validate, attribute, diagnose)
 ```
 
-That is the entire standard. No derived requests beyond `validate`, `attribute`, and `diagnose`, no composition recipes, no transport binding, no governance ceremony, no private metadata envelope, no per-artifact provenance, no truncation envelope, no artifact status vocabulary, no Direction enum, no unit echo. Consolidation against current Marivo schemas eliminates all 11 version fields from AOI artifacts, all artifact status keywords (replaced by a result-vs-failure invariant), all derived direction/status enums whose values can be computed from data, and the four heavy validation envelopes (`Gate`, `Status`, `Truncation`, `Provenance` collapse into a single optional `AnalysisFailure`). Attribution frame points retain optional `presence` as current/baseline membership metadata; it is not a status, readiness flag, or delta measure. `observe` returns a top-level `metric_frame` artifact whose shape is derived from optional top-level selectors: neither selector produces `scalar`, `granularity` alone produces `time_series`, `dimensions` alone produces `segmented`, and both together produce `panel`. Comparison mode is core via `compare_type`; detailed calendar/additivity audit metadata stays out of AOI artifacts, and blocked-execution diagnostics use `failure.message`. Filter expressions reuse OSI's multi-dialect `Expression` shape directly.
+That is the entire standard. No derived requests beyond `validate`, `attribute`, and `diagnose`, no composition recipes, no transport binding, no governance ceremony, no private metadata envelope, no per-artifact provenance, no generic truncation envelope, no generic artifact status vocabulary, no unit echo. Consolidation against current Marivo schemas eliminates all 11 version fields from AOI artifacts, all generic artifact status keywords (replaced by a result-vs-failure invariant), all derived direction/status enums whose values can be computed from data, and the four heavy validation envelopes (`Gate`, generic `Status`, generic `Truncation`, `Provenance` collapse into a single optional `AnalysisFailure`). Candidate-set item `direction`, candidate-set payload quality/truncation, and attribution frame point `presence` are artifact-local fields with explicit contracts above. `observe` returns a top-level `metric_frame` artifact whose shape is derived from optional top-level selectors: neither selector produces `scalar`, `granularity` alone produces `time_series`, `dimensions` alone produces `segmented`, and both together produce `panel`. Comparison mode is core via `compare_type`; detailed calendar/additivity audit metadata stays out of AOI artifacts, and blocked-execution diagnostics use `failure.message`. Filter expressions reuse OSI's multi-dialect `Expression` shape directly.
 
 The result is a small, consolidated, defensible v0.2 that can be published independently of any implementation refactor.

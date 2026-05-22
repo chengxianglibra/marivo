@@ -184,13 +184,18 @@ curl -s http://127.0.0.1:8000/sessions -X POST \
   -H "Content-Type: application/json" \
   -d '{"goal": "Investigate watch time drop"}'
 
-# Run a typed intent
-curl -s http://127.0.0.1:8000/sessions/<id>/intents/detect -X POST \
+# Build a source artifact
+curl -s http://127.0.0.1:8000/sessions/<id>/intents/observe -X POST \
   -H "Content-Type: application/json" \
   -d '{"metric": "metric.watch_time",
        "time_scope": {"field": "event_time", "start": "2026-03-01T00:00:00Z", "end": "2026-03-08T00:00:00Z"},
-       "granularity": "day",
-       "strategy": "point_anomaly"}'
+       "granularity": "day"}'
+
+# Scan the committed metric_frame or delta_frame artifact
+curl -s http://127.0.0.1:8000/sessions/<id>/intents/detect -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"source_artifact_id": "art_metric_frame_123",
+       "sensitivity": "aggressive"}'
 
 # Typed intent metric params use canonical refs only
 # Example: "metric.watch_time" (not "watch_time")
