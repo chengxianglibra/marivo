@@ -57,9 +57,20 @@ TimeGranularity = Annotated[
     Literal["hour", "day", "week", "month", "quarter", "year"],
     Field(
         description=(
-            "Required AOI time granularity used as the statistical sample unit for "
-            "the `grain` field in hypothesis testing. This is not an observe output selector."
+            "Required AOI time granularity used as the statistical sample unit for derived "
+            "validation. This is not an observe output selector."
         )
+    ),
+]
+
+SampleFrameArtifactId = Annotated[
+    str,
+    Field(
+        min_length=1,
+        description=(
+            "Committed sample_frame artifact ID from this session. Use a sample_frame "
+            "artifact produced by the sample_summary operation."
+        ),
     ),
 ]
 
@@ -180,6 +191,20 @@ def to_aoi_detect_request(
     )
 
 
+def to_aoi_sample_summary_request(
+    source_artifact_id: str,
+    sample_kind: Literal["numeric"] = "numeric",
+) -> aoi.SampleSummary:
+    return aoi.SampleSummary.model_validate(
+        _omit_none(
+            {
+                "source_artifact_id": source_artifact_id,
+                "sample_kind": sample_kind,
+            }
+        )
+    )
+
+
 def _to_aoi_slice(slice_ref: McpAoiSliceRef) -> dict[str, Any]:
     payload = {
         "time_scope": slice_ref.time_scope.model_dump(),
@@ -190,10 +215,8 @@ def _to_aoi_slice(slice_ref: McpAoiSliceRef) -> dict[str, Any]:
 
 
 def to_aoi_test_request(
-    metric: str,
-    current: McpAoiSliceRef,
-    baseline: McpAoiSliceRef,
-    grain: Literal["hour", "day", "week", "month", "quarter", "year"],
+    current_sample_artifact_id: str,
+    baseline_sample_artifact_id: str,
     hypothesis: McpTestHypothesis | dict[str, Any],
 ) -> aoi.Test:
     hypothesis_model = (
@@ -203,11 +226,8 @@ def to_aoi_test_request(
     )
     return aoi.Test.model_validate(
         {
-            "metric": metric,
-            "current": _to_aoi_slice(current),
-            "baseline": _to_aoi_slice(baseline),
-            "grain": grain,
-            "kind": "numeric",
+            "current_sample_artifact_id": current_sample_artifact_id,
+            "baseline_sample_artifact_id": baseline_sample_artifact_id,
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": hypothesis_model.alternative,
@@ -221,7 +241,7 @@ def to_aoi_validate_request(
     metric: str,
     current: McpAoiSliceRef,
     baseline: McpAoiSliceRef,
-    grain: Literal["hour", "day", "week", "month", "quarter", "year"],
+    granularity: Literal["hour", "day", "week", "month", "quarter", "year"],
     hypothesis: McpValidateHypothesis | dict[str, Any] | None = None,
 ) -> aoi.Validate:
     hypothesis_model = (
@@ -234,7 +254,7 @@ def to_aoi_validate_request(
             "metric": metric,
             "current": _to_aoi_slice(current),
             "baseline": _to_aoi_slice(baseline),
-            "grain": grain,
+            "granularity": granularity,
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": hypothesis_model.alternative or "two_sided",
@@ -402,6 +422,44 @@ def register_compare(server: Any, runtime: Any) -> None:
         )
         return await call_runtime(
             runtime.compare, session_id=session_id, request=request, reasoning=reasoning
+        )
+
+
+def register_sample_summary(server: Any, runtime: Any) -> None:
+    @server.tool(  # type: ignore
+        description=(
+            "Summarize a committed AOI metric_frame artifact into a numeric sample_frame for "
+            "hypothesis testing. The sample grain is inherited from the source metric_frame; "
+            "do not pass grain, metric, time_scope, or filter to this tool."
+        )
+    )
+    async def sample_summary(
+        session_id: Annotated[
+            str,
+            Field(description="Marivo analysis session ID that owns this intent call."),
+        ],
+        source_artifact_id: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description=(
+                    "Committed metric_frame artifact ID from this session. sample_summary "
+                    "inherits grain from this source artifact."
+                ),
+            ),
+        ],
+        sample_kind: Annotated[
+            Literal["numeric"],
+            Field(description="Sample frame kind. Fixed to numeric for MCP."),
+        ] = "numeric",
+        reasoning: _ReasoningField = None,
+    ) -> dict[str, Any]:
+        request = to_aoi_sample_summary_request(
+            source_artifact_id=source_artifact_id,
+            sample_kind=sample_kind,
+        )
+        return await call_runtime(
+            runtime.sample_summary, session_id=session_id, request=request, reasoning=reasoning
         )
 
 
@@ -780,10 +838,9 @@ def register_diagnose(server: Any, runtime: Any) -> None:
 def register_test_intent(server: Any, runtime: Any) -> None:
     @server.tool(  # type: ignore
         description=(
-            "Run a fixed-family numeric hypothesis test over current and baseline AOI slices. "
-            "MCP fixes kind='numeric' and hypothesis.family='two_sample_mean'; do not pass "
-            "kind, method, family, alpha, or label. grain is required, uses AOI "
-            "TimeGranularity values, and defines the statistical sample unit."
+            "Run a fixed-family numeric hypothesis test over current and baseline AOI "
+            "sample_frame artifacts. MCP fixes hypothesis.family='two_sample_mean'; do not "
+            "pass kind, method, family, alpha, or label."
         )
     )
     async def test_intent(
@@ -791,22 +848,8 @@ def register_test_intent(server: Any, runtime: Any) -> None:
             str,
             Field(description="Marivo analysis session ID that owns this intent call."),
         ],
-        metric: Annotated[
-            str,
-            Field(
-                min_length=1,
-                description="Semantic metric identifier, e.g. 'total_query_count'.",
-            ),
-        ],
-        current: Annotated[
-            McpAoiSliceRef,
-            Field(description="Current AOI slice: time_scope plus optional filter."),
-        ],
-        baseline: Annotated[
-            McpAoiSliceRef,
-            Field(description="Baseline AOI slice: time_scope plus optional filter."),
-        ],
-        grain: TimeGranularity,
+        current_sample_artifact_id: SampleFrameArtifactId,
+        baseline_sample_artifact_id: SampleFrameArtifactId,
         hypothesis: Annotated[
             McpTestHypothesis,
             Field(
@@ -819,10 +862,8 @@ def register_test_intent(server: Any, runtime: Any) -> None:
         reasoning: _ReasoningField = None,
     ) -> dict[str, Any]:
         request = to_aoi_test_request(
-            metric=metric,
-            current=current,
-            baseline=baseline,
-            grain=grain,
+            current_sample_artifact_id=current_sample_artifact_id,
+            baseline_sample_artifact_id=baseline_sample_artifact_id,
             hypothesis=hypothesis,
         )
         return await call_runtime(
@@ -835,9 +876,9 @@ def register_validate(server: Any, runtime: Any) -> None:
         description=(
             "Run derived validation for current and baseline AOI slices using the fixed "
             "two_sample_mean hypothesis family. MCP fills missing hypothesis defaults and "
-            "does not expose method, family, alpha, or label. grain is required, uses AOI "
-            "TimeGranularity values, and defines the statistical sample unit for the "
-            "wrapped test."
+            "does not expose method, family, alpha, or label. granularity is required, "
+            "uses AOI TimeGranularity values, and builds the upstream metric_frame axis "
+            "that sample_summary inherits before the wrapped test."
         )
     )
     async def validate(
@@ -860,7 +901,7 @@ def register_validate(server: Any, runtime: Any) -> None:
             McpAoiSliceRef,
             Field(description="Baseline AOI slice: time_scope plus optional filter."),
         ],
-        grain: TimeGranularity,
+        granularity: TimeGranularity,
         hypothesis: Annotated[
             McpValidateHypothesis | None,
             Field(
@@ -876,7 +917,7 @@ def register_validate(server: Any, runtime: Any) -> None:
             metric=metric,
             current=current,
             baseline=baseline,
-            grain=grain,
+            granularity=granularity,
             hypothesis=hypothesis,
         )
         return await call_runtime(

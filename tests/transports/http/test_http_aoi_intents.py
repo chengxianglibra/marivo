@@ -14,6 +14,7 @@ from marivo.transports.http.models import (
     ObserveResponse,
     ValidateResponse,
 )
+from marivo.transports.http.models.intent_response_models import SampleSummaryResponse
 from marivo.transports.http.sessions import router
 
 
@@ -112,6 +113,7 @@ class _FakeRuntime:
         self.compare_payload: Any | None = None
         self.detect_payload: Any | None = None
         self.decompose_payload: Any | None = None
+        self.sample_summary_payload: Any | None = None
         self.test_payload: Any | None = None
         self.forecast_payload: Any | None = None
         self.attribute_payload: Any | None = None
@@ -260,6 +262,45 @@ class _FakeRuntime:
                     "p_value": 0.04,
                     "decision": {"reject_null": True},
                     "assumption_notes": [],
+                },
+            },
+            "provenance": {"mocked": True},
+            "product_metadata": None,
+        }
+
+    def sample_summary(self, session_id: str, payload: Any) -> dict[str, Any]:
+        self.sample_summary_payload = payload
+        return {
+            "intent_type": "sample_summary",
+            "step_type": "sample_summary",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": "step_sample_summary_1",
+                "step_type": "sample_summary",
+            },
+            "artifact_id": "art_sample_1",
+            "result": {
+                "artifact_id": "art_sample_1",
+                "artifact_family": "sample_frame",
+                "shape": "numeric_summary",
+                "subject": {
+                    "kind": "sample_summary",
+                    "metric_ref": "metric.revenue",
+                    "source_artifact_id": "art_observe_1",
+                },
+                "axes": [{"kind": "sample", "source_axis": "time", "grain": "day"}],
+                "measures": [
+                    {"id": "n", "value_type": "integer", "nullable": False},
+                    {"id": "mean", "value_type": "number", "nullable": True},
+                    {"id": "standard_deviation", "value_type": "number", "nullable": True},
+                ],
+                "lineage": {
+                    "operation": "sample_summary",
+                    "source_artifact_ids": ["art_observe_1"],
+                },
+                "payload": {
+                    "summary": {"n": 7, "mean": 120.0, "standard_deviation": 10.0},
+                    "quality": {"status": "test_ready", "issues": []},
                 },
             },
             "provenance": {"mocked": True},
@@ -808,6 +849,25 @@ def test_decompose_accepts_aoi_request_with_limit() -> None:
 
 def _valid_test_request() -> dict[str, Any]:
     return {
+        "current_sample_artifact_id": "art_sample_current",
+        "baseline_sample_artifact_id": "art_sample_baseline",
+        "hypothesis": {
+            "family": "two_sample_mean",
+            "alternative": "two_sided",
+            "significance": "balanced",
+        },
+    }
+
+
+def _valid_sample_summary_request() -> dict[str, Any]:
+    return {
+        "source_artifact_id": "art_observe_1",
+        "sample_kind": "numeric",
+    }
+
+
+def _valid_validate_request() -> dict[str, Any]:
+    return {
         "metric": "metric.revenue",
         "current": {
             "time_scope": {
@@ -823,20 +883,13 @@ def _valid_test_request() -> dict[str, Any]:
                 "end": "2026-01-15T00:00:00Z",
             }
         },
-        "grain": "day",
-        "kind": "numeric",
+        "granularity": "day",
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "two_sided",
             "significance": "balanced",
         },
     }
-
-
-def _valid_validate_request() -> dict[str, Any]:
-    payload = _valid_test_request()
-    payload.pop("kind")
-    return payload
 
 
 def _valid_attribute_request() -> dict[str, Any]:
@@ -931,31 +984,73 @@ def test_test_accepts_aoi_request_and_returns_execution_envelope() -> None:
 
     assert response.status_code == 200, response.text
     assert isinstance(runtime.test_payload, aoi.Test)
-    assert runtime.test_payload.kind == "numeric"
-    assert runtime.test_payload.grain == "day"
+    assert runtime.test_payload.current_sample_artifact_id == "art_sample_current"
+    assert runtime.test_payload.baseline_sample_artifact_id == "art_sample_baseline"
     assert runtime.test_payload.hypothesis.family == "two_sample_mean"
     body = response.json()
     assert body["intent_type"] == "test"
     assert body["artifact_id"] == "art_test_1"
 
 
-@pytest.mark.parametrize("grain", ["quarter", "year"])
-def test_test_accepts_time_granularity_grain(grain: str) -> None:
+def test_sample_summary_transform_accepts_aoi_request_and_returns_sample_frame() -> None:
     runtime = _FakeRuntime()
-    payload = _valid_test_request()
-    payload["grain"] = grain
-
-    response = _client(runtime).post("/sessions/sess_1/intents/test", json=payload)
+    response = _client(runtime).post(
+        "/sessions/sess_1/transforms/sample_summary",
+        json=_valid_sample_summary_request(),
+    )
 
     assert response.status_code == 200, response.text
-    assert runtime.test_payload.grain == grain
+    assert isinstance(runtime.sample_summary_payload, aoi.SampleSummary)
+    assert runtime.sample_summary_payload.source_artifact_id == "art_observe_1"
+    assert runtime.sample_summary_payload.sample_kind == "numeric"
+    body = response.json()
+    assert body["intent_type"] == "sample_summary"
+    assert body["result"]["artifact_family"] == "sample_frame"
+    SampleSummaryResponse.model_validate(body)
+
+
+def test_sample_summary_transform_rejects_grain() -> None:
+    payload = _valid_sample_summary_request()
+    payload["grain"] = "day"
+
+    response = _client(_FakeRuntime()).post(
+        "/sessions/sess_1/transforms/sample_summary", json=payload
+    )
+    assert response.status_code == 422
+
+
+def test_sample_summary_transform_maps_runtime_value_error_to_422() -> None:
+    class _ErrorRuntime(_FakeRuntime):
+        def sample_summary(self, session_id: str, payload: Any) -> dict[str, Any]:
+            raise ValueError("sample_summary: INVALID_ARGUMENT - bad source")
+
+    app = FastAPI()
+    app.state.services = type("Services", (), {"runtime": _ErrorRuntime()})()
+    app.include_router(router)
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        "/sessions/sess_1/transforms/sample_summary",
+        json=_valid_sample_summary_request(),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "sample_summary: INVALID_ARGUMENT - bad source"
+
+
+def test_test_rejects_slice_based_request() -> None:
+    runtime = _FakeRuntime()
+    payload = _valid_validate_request()
+    payload["kind"] = "numeric"
+
+    response = _client(runtime).post("/sessions/sess_1/intents/test", json=payload)
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize(
     ("path", "value"),
     [
         (("method",), "welch_t"),
-        (("grain",), "minute"),
+        (("grain",), "day"),
         (("hypothesis", "alpha"), 0.05),
     ],
 )
@@ -980,23 +1075,23 @@ def test_validate_accepts_aoi_request_and_returns_typed_bundle() -> None:
 
     assert response.status_code == 200, response.text
     assert isinstance(runtime.validate_payload, aoi.Validate)
-    assert runtime.validate_payload.grain == "day"
+    assert runtime.validate_payload.granularity == "day"
     body = response.json()
     assert body["intent_type"] == "validate"
     assert body["result"]["bundle_type"] == "validation_bundle"
     assert body["result"]["aoi_artifacts"][0]["result"]["p_value"] == 0.04
 
 
-@pytest.mark.parametrize("grain", ["quarter", "year"])
-def test_validate_accepts_time_granularity_grain(grain: str) -> None:
+@pytest.mark.parametrize("granularity", ["quarter", "year"])
+def test_validate_accepts_time_granularity(granularity: str) -> None:
     runtime = _FakeRuntime()
     payload = _valid_validate_request()
-    payload["grain"] = grain
+    payload["granularity"] = granularity
 
     response = _client(runtime).post("/sessions/sess_1/intents/validate", json=payload)
 
     assert response.status_code == 200, response.text
-    assert runtime.validate_payload.grain == grain
+    assert runtime.validate_payload.granularity == granularity
 
 
 def test_attribute_accepts_aoi_request_and_returns_typed_bundle() -> None:

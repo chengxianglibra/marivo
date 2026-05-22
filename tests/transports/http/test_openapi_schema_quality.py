@@ -53,6 +53,7 @@ for _intent_response_name in (
     "DiagnoseResponse",
     "ForecastResponse",
     "ObserveResponse",
+    "SampleSummaryResponse",
     "TestResponse",
     "ValidateResponse",
 ):
@@ -116,6 +117,7 @@ def _is_scoped_path(path: str) -> bool:
         path.startswith(SCOPED_PATH_PREFIXES)
         or path in SCOPED_SESSION_PATHS
         or path.startswith("/sessions/{session_id}/intents/")
+        or path.startswith("/sessions/{session_id}/transforms/")
     )
 
 

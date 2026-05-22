@@ -14,8 +14,10 @@ AoiAtomicRequest: TypeAlias = (  # noqa: UP040 - mypy hook does not support PEP 
     aoi.Compare | aoi.Decompose | aoi.Correlate | aoi.Detect | aoi.Test | aoi.Forecast | aoi.Observe
 )
 AoiDerivedRequest: TypeAlias = aoi.Validate | aoi.Attribute | aoi.Diagnose  # noqa: UP040
+AoiTransformRequest: TypeAlias = aoi.SampleSummary  # noqa: UP040
 AoiArtifact = (
     aoi.MetricFrameArtifact
+    | aoi.SampleFrameArtifact
     | aoi.DeltaFrameArtifact
     | aoi.AttributionFrameArtifact
     | aoi.CandidateSetArtifact
@@ -45,13 +47,13 @@ class RuntimeIntentEnvelope(BaseModel):
 
     session_id: str
     actor: str | None = None
-    request: AoiAtomicRequest | AoiDerivedRequest
+    request: AoiAtomicRequest | AoiDerivedRequest | AoiTransformRequest
 
 
 @dataclass(frozen=True)
 class AoiOperationDefinition:
     intent_type: str
-    request_types: tuple[type[AoiAtomicRequest | AoiDerivedRequest], ...]
+    request_types: tuple[type[AoiAtomicRequest | AoiDerivedRequest | AoiTransformRequest], ...]
 
 
 AOI_OPERATION_REGISTRY: dict[str, AoiOperationDefinition] = {
@@ -71,6 +73,10 @@ AOI_DERIVED_OPERATION_REGISTRY: dict[str, AoiOperationDefinition] = {
     "attribute": AoiOperationDefinition("attribute", (aoi.Attribute,)),
     "diagnose": AoiOperationDefinition("diagnose", (aoi.Diagnose,)),
     "validate": AoiOperationDefinition("validate", (aoi.Validate,)),
+}
+
+AOI_TRANSFORM_OPERATION_REGISTRY: dict[str, AoiOperationDefinition] = {
+    "sample_summary": AoiOperationDefinition("sample_summary", (aoi.SampleSummary,)),
 }
 
 
@@ -102,11 +108,26 @@ def assert_derived_request_matches_intent(
         )
 
 
+def assert_transform_request_matches_operation(
+    operation_type: str,
+    request: AoiTransformRequest,
+) -> None:
+    definition = AOI_TRANSFORM_OPERATION_REGISTRY.get(operation_type)
+    if definition is None:
+        raise ValueError(f"AOI_TRANSFORM_OPERATION_UNKNOWN: {operation_type}")
+    if not isinstance(request, definition.request_types):
+        raise ValueError(
+            f"AOI_TRANSFORM_OPERATION_MISMATCH: operation_type={operation_type} "
+            f"request_type={type(request).__name__}"
+        )
+
+
 def validate_aoi_artifact(value: Any) -> AoiArtifact:
     if isinstance(
         value,
         (
             aoi.MetricFrameArtifact,
+            aoi.SampleFrameArtifact,
             aoi.DeltaFrameArtifact,
             aoi.AttributionFrameArtifact,
             aoi.CandidateSetArtifact,
@@ -124,6 +145,8 @@ def validate_aoi_artifact(value: Any) -> AoiArtifact:
         return aoi.Artifact2.model_validate(value)
     if value.get("artifact_family") == "metric_frame":
         return aoi.MetricFrameArtifact.model_validate(value)
+    if value.get("artifact_family") == "sample_frame":
+        return aoi.SampleFrameArtifact.model_validate(value)
     if value.get("artifact_family") == "delta_frame":
         return aoi.DeltaFrameArtifact.model_validate(value)
     if value.get("artifact_family") == "attribution_frame":
@@ -151,7 +174,12 @@ def validate_aoi_artifact(value: Any) -> AoiArtifact:
 
 def artifact_to_envelope_result(artifact: AoiArtifact) -> dict[str, Any]:
     data = artifact.model_dump(mode="json")
-    if data.get("artifact_family") in ("metric_frame", "delta_frame", "candidate_set"):
+    if data.get("artifact_family") in (
+        "metric_frame",
+        "sample_frame",
+        "delta_frame",
+        "candidate_set",
+    ):
         payload = data.get("payload")
         if isinstance(payload, dict):
             for series in payload.get("series") or []:

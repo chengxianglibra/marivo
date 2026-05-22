@@ -27,6 +27,9 @@
       "$ref": "#/$defs/requests/forecast"
     },
     {
+      "$ref": "#/$defs/transforms/sample_summary"
+    },
+    {
       "$ref": "#/$defs/derived_requests/validate"
     },
     {
@@ -49,6 +52,9 @@
     },
     {
       "$ref": "#/$defs/artifacts/CandidateSetArtifact"
+    },
+    {
+      "$ref": "#/$defs/artifacts/SampleFrameArtifact"
     }
   ],
   "$defs": {
@@ -119,12 +125,6 @@
           "conservative",
           "balanced",
           "aggressive"
-        ]
-      },
-      "TestKind": {
-        "type": "string",
-        "enum": [
-          "numeric"
         ]
       },
       "CorrelationMethod": {
@@ -365,29 +365,18 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "metric",
-          "current",
-          "baseline",
-          "grain",
-          "kind",
+          "current_sample_artifact_id",
+          "baseline_sample_artifact_id",
           "hypothesis"
         ],
         "properties": {
-          "metric": {
+          "current_sample_artifact_id": {
             "type": "string",
             "minLength": 1
           },
-          "current": {
-            "$ref": "#/$defs/primitives/Slice"
-          },
-          "baseline": {
-            "$ref": "#/$defs/primitives/Slice"
-          },
-          "grain": {
-            "$ref": "#/$defs/primitives/TimeGranularity"
-          },
-          "kind": {
-            "$ref": "#/$defs/primitives/TestKind"
+          "baseline_sample_artifact_id": {
+            "type": "string",
+            "minLength": 1
           },
           "hypothesis": {
             "$ref": "#/$defs/primitives/Hypothesis"
@@ -413,6 +402,29 @@
         }
       }
     },
+    "transforms": {
+      "sample_summary": {
+        "title": "SampleSummary",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_artifact_id",
+          "sample_kind"
+        ],
+        "properties": {
+          "source_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sample_kind": {
+            "type": "string",
+            "enum": [
+              "numeric"
+            ]
+          }
+        }
+      }
+    },
     "derived_requests": {
       "validate": {
         "title": "Validate",
@@ -422,7 +434,7 @@
           "metric",
           "current",
           "baseline",
-          "grain",
+          "granularity",
           "hypothesis"
         ],
         "properties": {
@@ -436,7 +448,7 @@
           "baseline": {
             "$ref": "#/$defs/primitives/Slice"
           },
-          "grain": {
+          "granularity": {
             "$ref": "#/$defs/primitives/TimeGranularity"
           },
           "hypothesis": {
@@ -870,6 +882,264 @@
           },
           "end": {
             "$ref": "#/$defs/primitives/ISO8601"
+          }
+        }
+      },
+      "SampleAxis": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "source_axis",
+          "grain"
+        ],
+        "properties": {
+          "kind": {
+            "const": "sample"
+          },
+          "source_axis": {
+            "const": "time"
+          },
+          "grain": {
+            "$ref": "#/$defs/primitives/TimeGranularity"
+          }
+        }
+      },
+      "SampleFrameSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "metric_ref",
+          "source_artifact_id"
+        ],
+        "properties": {
+          "kind": {
+            "const": "sample_summary"
+          },
+          "metric_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "SampleSummaryPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "quality"
+        ],
+        "properties": {
+          "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "n",
+              "mean",
+              "standard_deviation"
+            ],
+            "properties": {
+              "n": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mean": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "standard_deviation": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "quality": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "issues"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "test_ready",
+                  "insufficient_data",
+                  "unsupported_source"
+                ]
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "message": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "SampleFrameLineage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "source_artifact_ids"
+        ],
+        "properties": {
+          "operation": {
+            "const": "sample_summary"
+          },
+          "source_artifact_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "SampleFrameArtifact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "artifact_family",
+          "shape",
+          "subject",
+          "axes",
+          "measures",
+          "lineage",
+          "payload"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_family": {
+            "const": "sample_frame"
+          },
+          "shape": {
+            "const": "numeric_summary"
+          },
+          "subject": {
+            "$ref": "#/$defs/artifacts/SampleFrameSubject"
+          },
+          "axes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "$ref": "#/$defs/artifacts/SampleAxis"
+            }
+          },
+          "measures": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "value_type",
+                  "nullable"
+                ],
+                "properties": {
+                  "id": {
+                    "const": "n"
+                  },
+                  "value_type": {
+                    "const": "integer"
+                  },
+                  "nullable": {
+                    "const": false
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "value_type",
+                  "nullable"
+                ],
+                "properties": {
+                  "id": {
+                    "const": "mean"
+                  },
+                  "value_type": {
+                    "const": "number"
+                  },
+                  "nullable": {
+                    "const": true
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "value_type",
+                  "nullable"
+                ],
+                "properties": {
+                  "id": {
+                    "const": "standard_deviation"
+                  },
+                  "value_type": {
+                    "const": "number"
+                  },
+                  "nullable": {
+                    "const": true
+                  }
+                }
+              }
+            ],
+            "items": false,
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "lineage": {
+            "$ref": "#/$defs/artifacts/SampleFrameLineage"
+          },
+          "payload": {
+            "$ref": "#/$defs/artifacts/SampleSummaryPayload"
           }
         }
       },

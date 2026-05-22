@@ -10,8 +10,10 @@ from pydantic import BaseModel, RootModel
 from marivo.contracts.aoi_runtime import (
     AoiAtomicRequest,
     AoiDerivedRequest,
+    AoiTransformRequest,
     assert_derived_request_matches_intent,
     assert_request_matches_intent,
+    assert_transform_request_matches_operation,
 )
 from marivo.contracts.generated import aoi
 
@@ -48,11 +50,8 @@ def lower_aoi_request(intent_type: str, request: AoiAtomicRequest) -> dict[str, 
         }
     if isinstance(request, aoi.Test):
         return {
-            "metric": request.metric,
-            "current": _dump_slice(request.current),
-            "baseline": _dump_slice(request.baseline),
-            "grain": request.grain,
-            "kind": request.kind,
+            "current_sample_artifact_id": request.current_sample_artifact_id,
+            "baseline_sample_artifact_id": request.baseline_sample_artifact_id,
             "hypothesis": request.hypothesis.model_dump(exclude_none=True),
         }
     if isinstance(request, aoi.Forecast):
@@ -68,7 +67,7 @@ def lower_aoi_derived_request(intent_type: str, request: AoiDerivedRequest) -> d
             "metric": request.metric,
             "current": _dump_slice(request.current),
             "baseline": _dump_slice(request.baseline),
-            "grain": request.grain,
+            "granularity": request.granularity,
             "hypothesis": request.hypothesis.model_dump(exclude_none=True),
         }
     if isinstance(request, aoi.Attribute):
@@ -99,6 +98,20 @@ def lower_aoi_derived_request(intent_type: str, request: AoiDerivedRequest) -> d
             payload["scan_dimension"] = request.scan_dimension
         return payload
     raise TypeError(f"Unsupported AOI derived request type: {type(request).__name__}")
+
+
+def lower_aoi_transform_request(
+    operation_type: str,
+    request: AoiTransformRequest,
+) -> dict[str, Any]:
+    assert_transform_request_matches_operation(operation_type, request)
+
+    if isinstance(request, aoi.SampleSummary):
+        return {
+            "source_artifact_id": request.source_artifact_id,
+            "sample_kind": request.sample_kind,
+        }
+    raise TypeError(f"Unsupported AOI transform request type: {type(request).__name__}")
 
 
 def _lower_observe(

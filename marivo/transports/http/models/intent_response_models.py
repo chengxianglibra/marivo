@@ -89,6 +89,14 @@ class TestResponse(_EnvelopeBase):
     result: _TestArtifact | _TestFailureArtifact
 
 
+class _SampleSummaryFailureArtifact(aoi.Artifact2):
+    result: None = None
+
+
+class SampleSummaryResponse(_EnvelopeBase):
+    result: aoi.SampleFrameArtifact | _SampleSummaryFailureArtifact
+
+
 class DerivedBundleResult(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -97,6 +105,7 @@ class DerivedBundleResult(BaseModel):
         aoi.MetricFrameArtifact
         | aoi.DeltaFrameArtifact
         | aoi.AttributionFrameArtifact
+        | aoi.SampleFrameArtifact
         | aoi.PointAnomalyCandidateSetArtifact
         | aoi.PeriodShiftCandidateSetArtifact
         | aoi.Artifact1

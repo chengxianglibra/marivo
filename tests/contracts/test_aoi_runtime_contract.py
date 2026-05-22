@@ -86,6 +86,33 @@ def _metric_frame_payload(shape: str = "scalar") -> dict[str, object]:
     }
 
 
+def _sample_frame_payload() -> dict[str, object]:
+    return {
+        "artifact_id": "art_sample_current",
+        "artifact_family": "sample_frame",
+        "shape": "numeric_summary",
+        "subject": {
+            "kind": "sample_summary",
+            "metric_ref": "metric.view_time",
+            "source_artifact_id": "art_metric_frame_current",
+        },
+        "axes": [{"kind": "sample", "source_axis": "time", "grain": "day"}],
+        "measures": [
+            {"id": "n", "value_type": "integer", "nullable": False},
+            {"id": "mean", "value_type": "number", "nullable": True},
+            {"id": "standard_deviation", "value_type": "number", "nullable": True},
+        ],
+        "lineage": {
+            "operation": "sample_summary",
+            "source_artifact_ids": ["art_metric_frame_current"],
+        },
+        "payload": {
+            "summary": {"n": 7, "mean": 120.0, "standard_deviation": 10.0},
+            "quality": {"status": "test_ready", "issues": []},
+        },
+    }
+
+
 def test_runtime_intent_envelope_accepts_generated_observe_request() -> None:
     request = _observe_request()
 
@@ -206,7 +233,7 @@ def test_runtime_intent_envelope_accepts_generated_validate_request() -> None:
         metric="view_time",
         current=aoi.Slice(time_scope=_time_scope()),
         baseline=aoi.Slice(time_scope=_time_scope()),
-        grain="day",
+        granularity="day",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="two_sided",
@@ -235,7 +262,7 @@ def test_aoi_validate_accepts_full_current_shape_with_filters() -> None:
                 "time_scope": _time_scope_payload(),
                 "filter": {"dialects": [{"dialect": "ANSI_SQL", "expression": "region = 'CA'"}]},
             },
-            "grain": "day",
+            "granularity": "day",
             "hypothesis": {
                 "family": "two_sample_mean",
                 "alternative": "greater",
@@ -270,7 +297,7 @@ def test_aoi_validate_rejects_invalid_shape(
         "metric": "view_time",
         "current": {"time_scope": _time_scope_payload()},
         "baseline": {"time_scope": _time_scope_payload()},
-        "grain": "day",
+        "granularity": "day",
         "hypothesis": {
             "family": "two_sample_mean",
             "alternative": "two_sided",
@@ -323,7 +350,7 @@ def test_assert_derived_request_matches_intent_rejects_operation_mismatch() -> N
         metric="view_time",
         current=aoi.Slice(time_scope=_time_scope()),
         baseline=aoi.Slice(time_scope=_time_scope()),
-        grain="day",
+        granularity="day",
         hypothesis=aoi.Hypothesis(
             family="two_sample_mean",
             alternative="two_sided",
@@ -383,6 +410,15 @@ def test_validate_aoi_artifact_accepts_metric_frame_artifact() -> None:
     assert artifact.subject.scope == {}
 
 
+def test_validate_aoi_artifact_accepts_sample_frame_artifact() -> None:
+    artifact = validate_aoi_artifact(_sample_frame_payload())
+
+    assert isinstance(artifact, aoi.SampleFrameArtifact)
+    assert artifact.artifact_family == "sample_frame"
+    assert artifact.shape == "numeric_summary"
+    assert artifact.payload.summary.n == 7
+
+
 def test_validate_aoi_artifact_accepts_candidate_set_artifact() -> None:
     artifact = validate_aoi_artifact(
         {
@@ -430,6 +466,17 @@ def test_artifact_to_envelope_result_keeps_metric_frame_top_level() -> None:
     assert result["payload"]["series"][0]["points"][0]["window"]["start"] == (
         "2026-01-01T00:00:00Z"
     )
+
+
+def test_artifact_to_envelope_result_keeps_sample_frame_top_level() -> None:
+    artifact = validate_aoi_artifact(_sample_frame_payload())
+    result = artifact_to_envelope_result(artifact)
+
+    assert result["artifact_id"] == "art_sample_current"
+    assert result["artifact_family"] == "sample_frame"
+    assert result["shape"] == "numeric_summary"
+    assert "result" not in result
+    assert result["payload"]["summary"]["n"] == 7
 
 
 def test_artifact_to_envelope_result_preserves_metric_frame_null_contract() -> None:
@@ -604,6 +651,18 @@ def test_validate_aoi_artifact_rejects_nested_metric_frame_result() -> None:
     payload = {
         "artifact_id": "art_nested_observe_1",
         "result": _metric_frame_payload(),
+    }
+
+    with pytest.raises(ValidationError):
+        validate_aoi_artifact(payload)
+    with pytest.raises(ValidationError):
+        aoi.Artifact1.model_validate(payload)
+
+
+def test_validate_aoi_artifact_rejects_nested_sample_frame_result() -> None:
+    payload = {
+        "artifact_id": "art_nested_sample_1",
+        "result": _sample_frame_payload(),
     }
 
     with pytest.raises(ValidationError):

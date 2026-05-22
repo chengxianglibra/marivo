@@ -21,6 +21,7 @@ from marivo.transports.mcp.tools.intents import (
     register_diagnose,
     register_forecast,
     register_observe,
+    register_sample_summary,
     register_test_intent,
     register_validate,
 )
@@ -39,6 +40,7 @@ def register_tools(
 ) -> None:
     # Intent tools — available in all modes
     register_observe(server, runtime)
+    register_sample_summary(server, runtime)
     register_compare(server, runtime)
     register_decompose(server, runtime)
     register_detect(server, runtime)

@@ -395,6 +395,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{session_id}/transforms/sample_summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Transform Sample Summary */
+        post: operations["transform_sample_summary_sessions__session_id__transforms_sample_summary_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{session_id}/intents/test": {
         parameters: {
             query?: never;
@@ -1413,7 +1430,7 @@ export interface components {
             /** Bundle Type */
             bundle_type: string;
             /** Aoi Artifacts */
-            aoi_artifacts: (components["schemas"]["MetricFrameArtifact"] | components["schemas"]["DeltaFrameArtifact"] | components["schemas"]["AttributionFrameArtifact"] | components["schemas"]["PointAnomalyCandidateSetArtifact"] | components["schemas"]["PeriodShiftCandidateSetArtifact"] | components["schemas"]["Artifact1"] | components["schemas"]["Artifact2"])[];
+            aoi_artifacts: (components["schemas"]["MetricFrameArtifact"] | components["schemas"]["DeltaFrameArtifact"] | components["schemas"]["AttributionFrameArtifact"] | components["schemas"]["SampleFrameArtifact"] | components["schemas"]["PointAnomalyCandidateSetArtifact"] | components["schemas"]["PeriodShiftCandidateSetArtifact"] | components["schemas"]["Artifact1"] | components["schemas"]["Artifact2"])[];
         } & {
             [key: string]: unknown;
         };
@@ -1739,8 +1756,20 @@ export interface components {
             /** Assumption Notes */
             assumption_notes: string[];
         };
-        /** JsonValue */
-        JsonValue: unknown;
+        /** Issue */
+        Issue: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+        };
+        /**
+         * JsonValue
+         * @description Arbitrary JSON value.
+         */
+        JsonValue: {
+            [key: string]: string | number | boolean | null | Record<string, never>;
+        };
         /**
          * MarivoDatasetCustomExtension
          * @description MARIVO custom extension for Dataset.
@@ -1831,6 +1860,60 @@ export interface components {
             decomposition_semantics: components["schemas"]["SumDecomposition"] | components["schemas"]["RatioDecomposition"] | components["schemas"]["WeightedAverageDecomposition"];
         } & {
             [key: string]: unknown;
+        };
+        /** Measure */
+        Measure: {
+            /**
+             * Id
+             * @constant
+             */
+            id: "n";
+            /**
+             * Value Type
+             * @constant
+             */
+            value_type: "integer";
+            /**
+             * Nullable
+             * @constant
+             */
+            nullable: false;
+        };
+        /** Measure1 */
+        Measure1: {
+            /**
+             * Id
+             * @constant
+             */
+            id: "mean";
+            /**
+             * Value Type
+             * @constant
+             */
+            value_type: "number";
+            /**
+             * Nullable
+             * @constant
+             */
+            nullable: true;
+        };
+        /** Measure2 */
+        Measure2: {
+            /**
+             * Id
+             * @constant
+             */
+            id: "standard_deviation";
+            /**
+             * Value Type
+             * @constant
+             */
+            value_type: "number";
+            /**
+             * Nullable
+             * @constant
+             */
+            nullable: true;
         };
         /**
          * Metric
@@ -2168,7 +2251,7 @@ export interface components {
             items: components["schemas"]["PeriodShiftCandidateItem"][];
             scan_summary: components["schemas"]["ScanSummary"];
             truncation: components["schemas"]["Truncation"];
-            quality: components["schemas"]["Quality"];
+            quality: components["schemas"]["Quality1"];
         };
         /** Point */
         Point: {
@@ -2277,7 +2360,7 @@ export interface components {
             items: components["schemas"]["PointAnomalyCandidateItem"][];
             scan_summary: components["schemas"]["ScanSummary"];
             truncation: components["schemas"]["Truncation"];
-            quality: components["schemas"]["Quality"];
+            quality: components["schemas"]["Quality1"];
         };
         /** PropositionContextView */
         PropositionContextView: {
@@ -2345,6 +2428,16 @@ export interface components {
         };
         /** Quality */
         Quality: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "test_ready" | "insufficient_data" | "unsupported_source";
+            /** Issues */
+            issues: components["schemas"]["Issue"][];
+        };
+        /** Quality1 */
+        Quality1: {
             /**
              * Status
              * @enum {string}
@@ -2586,6 +2679,107 @@ export interface components {
             backpressured_propositions: number;
             /** Failed Items */
             failed_items: number;
+        };
+        /** SampleAxis */
+        SampleAxis: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "sample";
+            /**
+             * Source Axis
+             * @constant
+             */
+            source_axis: "time";
+            /**
+             * Grain
+             * @enum {string}
+             */
+            grain: "hour" | "day" | "week" | "month" | "quarter" | "year";
+        };
+        /** SampleFrameArtifact */
+        SampleFrameArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            /**
+             * Artifact Family
+             * @constant
+             */
+            artifact_family: "sample_frame";
+            /**
+             * Shape
+             * @constant
+             */
+            shape: "numeric_summary";
+            subject: components["schemas"]["SampleFrameSubject"];
+            /** Axes */
+            axes: components["schemas"]["SampleAxis"][];
+            /** Measures */
+            measures: [
+                components["schemas"]["Measure"],
+                components["schemas"]["Measure1"],
+                components["schemas"]["Measure2"]
+            ];
+            lineage: components["schemas"]["SampleFrameLineage"];
+            payload: components["schemas"]["SampleSummaryPayload"];
+        };
+        /** SampleFrameLineage */
+        SampleFrameLineage: {
+            /**
+             * Operation
+             * @constant
+             */
+            operation: "sample_summary";
+            /** Source Artifact Ids */
+            source_artifact_ids: components["schemas"]["SourceArtifactId"][];
+        };
+        /** SampleFrameSubject */
+        SampleFrameSubject: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "sample_summary";
+            /** Metric Ref */
+            metric_ref: string;
+            /** Source Artifact Id */
+            source_artifact_id: string;
+        };
+        /** SampleSummary */
+        SampleSummary: {
+            /** Source Artifact Id */
+            source_artifact_id: string;
+            /**
+             * Sample Kind
+             * @constant
+             */
+            sample_kind: "numeric";
+        };
+        /** SampleSummaryPayload */
+        SampleSummaryPayload: {
+            summary: components["schemas"]["Summary"];
+            quality: components["schemas"]["Quality"];
+        };
+        /** SampleSummaryResponse */
+        SampleSummaryResponse: {
+            /** Intent Type */
+            intent_type: string;
+            /** Step Type */
+            step_type: string;
+            step_ref: components["schemas"]["StepRef"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
+            /** Product Metadata */
+            product_metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Result */
+            result: components["schemas"]["SampleFrameArtifact"] | components["schemas"]["_SampleSummaryFailureArtifact"];
         };
         /** ScanSummary */
         ScanSummary: {
@@ -2910,6 +3104,15 @@ export interface components {
              */
             type: "sum";
         };
+        /** Summary */
+        Summary: {
+            /** N */
+            n: number;
+            /** Mean */
+            mean: number | null;
+            /** Standard Deviation */
+            standard_deviation: number | null;
+        };
         /** TablePreviewColumn */
         TablePreviewColumn: {
             /** Name */
@@ -2946,20 +3149,10 @@ export interface components {
         };
         /** Test */
         Test: {
-            /** Metric */
-            metric: string;
-            current: components["schemas"]["Slice"];
-            baseline: components["schemas"]["Slice"];
-            /**
-             * Grain
-             * @enum {string}
-             */
-            grain: "hour" | "day" | "week" | "month" | "quarter" | "year";
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "numeric";
+            /** Current Sample Artifact Id */
+            current_sample_artifact_id: string;
+            /** Baseline Sample Artifact Id */
+            baseline_sample_artifact_id: string;
             hypothesis: components["schemas"]["Hypothesis"];
         };
         /** TestResponse */
@@ -3046,10 +3239,10 @@ export interface components {
             current: components["schemas"]["Slice"];
             baseline: components["schemas"]["Slice"];
             /**
-             * Grain
+             * Granularity
              * @enum {string}
              */
-            grain: "hour" | "day" | "week" | "month" | "quarter" | "year";
+            granularity: "hour" | "day" | "week" | "month" | "quarter" | "year";
             hypothesis: components["schemas"]["Hypothesis"];
         };
         /** ValidateResponse */
@@ -3157,6 +3350,14 @@ export interface components {
             result?: null;
             failure: components["schemas"]["AnalysisFailure"];
         };
+        /** _SampleSummaryFailureArtifact */
+        _SampleSummaryFailureArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Result */
+            result?: null;
+            failure: components["schemas"]["AnalysisFailure"];
+        };
         /** _TestArtifact */
         _TestArtifact: {
             /** Artifact Id */
@@ -3171,9 +3372,12 @@ export interface components {
             result?: components["schemas"]["HypothesisTestResult"] | null;
             failure: components["schemas"]["AnalysisFailure"];
         };
-        /** JsonValidationValue */
-        JsonValidationValue: string | number | boolean | null | components["schemas"]["JsonValue"][] | {
-            [key: string]: components["schemas"]["JsonValue"];
+        /**
+         * JsonValidationValue
+         * @description Arbitrary JSON value.
+         */
+        JsonValidationValue: {
+            [key: string]: string | number | boolean | null | Record<string, never>;
         };
     };
     responses: never;
@@ -3897,6 +4101,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ForecastResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transform_sample_summary_sessions__session_id__transforms_sample_summary_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SampleSummary"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleSummaryResponse"];
                 };
             };
             /** @description Validation Error */

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from marivo.contracts.aoi_runtime import AoiAtomicRequest, AoiDerivedRequest
+from marivo.contracts.aoi_runtime import AoiAtomicRequest, AoiDerivedRequest, AoiTransformRequest
 from marivo.contracts.errors import ErrorCode, NotFoundError, ValidationError
 from marivo.contracts.ids import ArtifactId, ModelId, SessionId, StepId, UserId
 from marivo.contracts.semantic import ModelSummary, SemanticModel
@@ -326,6 +326,13 @@ class MarivoRuntime:
         self, session_id: str, request: AoiAtomicRequest, *, reasoning: str | None = None
     ) -> dict[str, Any]:
         return intent_execution.forecast(self, SessionId(session_id), request, reasoning=reasoning)
+
+    def sample_summary(
+        self, session_id: str, request: AoiTransformRequest, *, reasoning: str | None = None
+    ) -> dict[str, Any]:
+        return intent_execution.sample_summary(
+            self, SessionId(session_id), request, reasoning=reasoning
+        )
 
     def attribute(
         self, session_id: str, request: AoiDerivedRequest, *, reasoning: str | None = None

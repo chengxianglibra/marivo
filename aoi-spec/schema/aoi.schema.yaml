@@ -41,9 +41,9 @@ hypothesis_significances:
   - balanced      # Default threshold; internally resolves to alpha=0.05.
   - aggressive    # Exploratory threshold; internally resolves to alpha=0.10.
 
-# Supported measurement kinds for test requests.
-test_kinds:
-  - numeric  # Numeric metric test.
+# Supported sample summary kinds for standard transforms.
+sample_kinds:
+  - numeric  # Numeric sample summary.
 
 # Supported correlation methods.
 correlation_methods:
@@ -107,12 +107,12 @@ hypothesis:
   # Required: significance preset, one of hypothesis_significances.
   significance: hypothesis_significances
 
-# Paired source slice used by test requests.
+# Source slice used by source-style operations and derived requests such as validate.
 slice:
-  # Required: time range for this side of the test.
+  # Required: time range for this source slice.
   time_scope: time_scope
 
-  # Optional: filter expression for this side of the test. Omit when there is no filter.
+  # Optional: AOI Expression filter for this slice. Omit when there is no filter.
   filter: expression
 
 # Requests
@@ -182,22 +182,13 @@ detect:
   # Optional: maximum number of anomaly candidates to return, range [1, +infinity).
   limit: integer
 
-# Run a statistical test between two source slices.
+# Run a statistical test between two sample_frame artifacts.
 test:
-  # Required: metric identifier to test.
-  metric: string
+  # Required: artifact_id for the current sample_frame.
+  current_sample_artifact_id: string
 
-  # Required: current source slice.
-  current: slice
-
-  # Required: baseline source slice.
-  baseline: slice
-
-  # Required: statistical sample grain used to split each source slice into observations, one of time_granularities.
-  grain: time_granularities
-
-  # Required: metric kind, one of test_kinds.
-  kind: test_kinds
+  # Required: artifact_id for the baseline sample_frame.
+  baseline_sample_artifact_id: string
 
   # Required: hypothesis configuration.
   hypothesis: hypothesis
@@ -209,6 +200,16 @@ forecast:
 
   # Required: number of future buckets to forecast, range [1, +infinity).
   horizon: integer
+
+# Standard transforms
+
+# Summarize a source metric_frame into a test-ready sample_frame.
+sample_summary:
+  # Required: artifact_id of the source metric_frame.
+  source_artifact_id: string
+
+  # Required: sample summary kind, one of sample_kinds.
+  sample_kind: sample_kinds
 
 # Derived requests
 
@@ -223,8 +224,8 @@ validate:
   # Required: baseline source slice.
   baseline: slice
 
-  # Required: statistical sample grain passed to the wrapped hypothesis test, one of time_granularities.
-  grain: time_granularities
+  # Required: observation granularity used to build upstream metric_frame samples, one of time_granularities.
+  granularity: time_granularities
 
   # Required: hypothesis configuration.
   hypothesis: hypothesis
@@ -341,6 +342,45 @@ metric_frame_artifact:
               start: iso8601_datetime
               end: iso8601_datetime
             value: number
+
+# Sample frame artifact
+
+# Successful artifact returned by sample_summary.
+sample_frame_artifact:
+  artifact_id: string
+  artifact_family: sample_frame
+  shape: numeric_summary
+  subject:
+    kind: sample_summary
+    metric_ref: string
+    source_artifact_id: string
+  axes:
+    - kind: sample
+      source_axis: time
+      grain: time_granularities
+  measures:
+    - id: n
+      value_type: integer
+      nullable: false
+    - id: mean
+      value_type: number
+      nullable: true
+    - id: standard_deviation
+      value_type: number
+      nullable: true
+  lineage:
+    operation: sample_summary
+    source_artifact_ids: string[]
+  payload:
+    summary:
+      n: integer
+      mean: number | null
+      standard_deviation: number | null
+    quality:
+      status: test_ready | insufficient_data | unsupported_source
+      issues:
+        - code: string
+          message: string
 
 # Compare delta frame artifact
 

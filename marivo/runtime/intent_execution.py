@@ -11,10 +11,16 @@ from typing import TYPE_CHECKING, Any, Protocol
 from marivo.contracts.aoi_runtime import (
     AoiAtomicRequest,
     AoiDerivedRequest,
+    AoiTransformRequest,
     assert_request_matches_intent,
+    assert_transform_request_matches_operation,
 )
 from marivo.contracts.ids import SessionId
-from marivo.runtime.aoi_lowering import lower_aoi_derived_request, lower_aoi_request
+from marivo.runtime.aoi_lowering import (
+    lower_aoi_derived_request,
+    lower_aoi_request,
+    lower_aoi_transform_request,
+)
 from marivo.runtime.intents.attribute import run_attribute_intent
 from marivo.runtime.intents.compare import run_compare_intent
 from marivo.runtime.intents.correlate import run_correlate_intent
@@ -23,6 +29,7 @@ from marivo.runtime.intents.detect import run_detect_intent
 from marivo.runtime.intents.diagnose import run_diagnose_intent
 from marivo.runtime.intents.forecast import run_forecast_intent
 from marivo.runtime.intents.observe import run_observe_intent
+from marivo.runtime.intents.sample_summary import run_sample_summary_transform
 from marivo.runtime.intents.test import run_test_intent
 from marivo.runtime.intents.validate import run_validate_intent
 
@@ -143,6 +150,16 @@ def validate(
     return _run_aoi_derived(runtime, "validate", session_id, request, reasoning=reasoning)
 
 
+def sample_summary(
+    runtime: MarivoRuntime,
+    session_id: SessionId,
+    request: AoiTransformRequest,
+    *,
+    reasoning: str | None = None,
+) -> dict[str, Any]:
+    return _run_aoi_transform(runtime, "sample_summary", session_id, request, reasoning=reasoning)
+
+
 AOI_RUNNERS: dict[str, _IntentRunner] = {
     "observe": run_observe_intent,
     "compare": run_compare_intent,
@@ -157,6 +174,10 @@ DERIVED_RUNNERS: dict[str, _IntentRunner] = {
     "attribute": run_attribute_intent,
     "diagnose": run_diagnose_intent,
     "validate": run_validate_intent,
+}
+
+TRANSFORM_RUNNERS: dict[str, _IntentRunner] = {
+    "sample_summary": run_sample_summary_transform,
 }
 
 # Mapping from intent type string to wrapper function.
@@ -236,6 +257,20 @@ def _run_aoi_derived(
     _assert_session_is_open(runtime, session_id)
     params = lower_aoi_derived_request(intent_type, request)
     return DERIVED_RUNNERS[intent_type](runtime, str(session_id), params, reasoning=reasoning)
+
+
+def _run_aoi_transform(
+    runtime: MarivoRuntime,
+    operation_type: str,
+    session_id: SessionId,
+    request: AoiTransformRequest,
+    *,
+    reasoning: str | None = None,
+) -> dict[str, Any]:
+    _assert_session_is_open(runtime, session_id)
+    assert_transform_request_matches_operation(operation_type, request)
+    params = lower_aoi_transform_request(operation_type, request)
+    return TRANSFORM_RUNNERS[operation_type](runtime, str(session_id), params, reasoning=reasoning)
 
 
 def _assert_session_is_open(runtime: MarivoRuntime, session_id: SessionId) -> None:

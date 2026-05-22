@@ -19,6 +19,17 @@ not contain a top-level `step_type`.
 | `attribute` | `POST /sessions/{session_id}/intents/attribute` | `AttributeResponse` |
 | `diagnose` | `POST /sessions/{session_id}/intents/diagnose` | `DiagnoseResponse` |
 
+## Transforms
+
+| Transform | Endpoint | Response model |
+|-----------|----------|----------------|
+| `sample_summary` | `POST /sessions/{session_id}/transforms/sample_summary` | `SampleSummaryResponse` |
+
+`sample_summary` consumes an existing `metric_frame` artifact and produces a
+`sample_frame` artifact for downstream statistical validation. The transform
+does not accept `grain`; granularity is inherited from the source
+`metric_frame`.
+
 ## Common Response Envelope
 
 Atomic AOI-backed intents return:
@@ -218,23 +229,8 @@ POST /sessions/{session_id}/intents/test
 
 ```json
 {
-  "metric": "order_revenue",
-  "current": {
-    "time_scope": {
-      "field": "order_date",
-      "start": "2026-01-01T00:00:00Z",
-      "end": "2026-02-01T00:00:00Z"
-    }
-  },
-  "baseline": {
-    "time_scope": {
-      "field": "order_date",
-      "start": "2025-12-01T00:00:00Z",
-      "end": "2026-01-01T00:00:00Z"
-    }
-  },
-  "grain": "day",
-  "kind": "numeric",
+  "current_sample_artifact_id": "art_sample_current",
+  "baseline_sample_artifact_id": "art_sample_baseline",
   "hypothesis": {
     "family": "two_sample_mean",
     "alternative": "greater",
@@ -243,15 +239,10 @@ POST /sessions/{session_id}/intents/test
 }
 ```
 
-`kind` only accepts `numeric`. `hypothesis.family` only accepts
-`two_sample_mean`; `hypothesis` has no label field and `test` has no request
-`method` parameter. `hypothesis.significance` accepts `conservative`,
-`balanced`, or `aggressive`; these resolve internally to alpha thresholds
-`0.01`, `0.05`, and `0.10`. `grain` is required and defines the statistical
-sample unit used to split each source slice before computing the test; it is
-not an output selector. Supported values are `hour`, `day`, `week`, `month`,
-`quarter`, and `year`. Time slice boundaries must align to the selected
-`grain`; for example, `quarter` windows start and end on Jan/Apr/Jul/Oct 1.
+`hypothesis.family` only accepts `two_sample_mean`; `hypothesis` has no label
+field and `test` has no request `method` parameter.
+`hypothesis.significance` accepts `conservative`, `balanced`, or `aggressive`;
+these resolve internally to alpha thresholds `0.01`, `0.05`, and `0.10`.
 
 ## Derived Intents
 
@@ -387,7 +378,7 @@ transport defaults before constructing that generated model:
       "end": "2025-02-01T00:00:00Z"
     }
   },
-  "grain": "day",
+  "granularity": "day",
   "hypothesis": {
     "family": "two_sample_mean",
     "alternative": "greater",
@@ -397,10 +388,12 @@ transport defaults before constructing that generated model:
 ```
 
 `current` and `baseline` use AOI `Slice` (`time_scope` plus optional `filter`).
-`grain` is required and uses AOI `TimeGranularity` values as the statistical
-sample unit (`hour`, `day`, `week`, `month`, `quarter`, or `year`).
-Time slice boundaries must align to the selected `grain`. Derived `scope` and
-`method` are not part of the runtime contract.
+`granularity` is required and uses AOI `TimeGranularity` values for the
+upstream observations (`hour`, `day`, `week`, `month`, `quarter`, or `year`).
+The derived workflow applies that granularity to `observe`; `sample_summary`
+inherits the resulting metric-frame axis and does not accept a separate
+`grain`. Time slice boundaries must align to the selected `granularity`.
+Derived `scope` and `method` are not part of the runtime contract.
 
 ## Errors
 

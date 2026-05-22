@@ -1,7 +1,7 @@
 """Validate derived intent runner — numeric (Welch's t) only.
 
-Orchestrates the source-type test intent with metric + slices,
-then builds a validation_bundle artifact wrapping the test result.
+Orchestrates observe -> sample_summary -> test, then builds a
+validation_bundle artifact wrapping the test result.
 
 Per AOI v0.2, validate is a derived request contract under AOI's
 derived namespace. The response bundle remains Marivo-owned.
@@ -16,6 +16,8 @@ from marivo.runtime.intents.derived_envelopes import (
     aoi_artifact_dump,
     build_derived_bundle_envelope,
 )
+from marivo.runtime.intents.observe import run_observe_intent
+from marivo.runtime.intents.sample_summary import run_sample_summary_transform
 from marivo.runtime.intents.test import _SIGNIFICANCE_ALPHA, run_test_intent
 from marivo.time_scope import TimeScopeGrain
 
@@ -25,7 +27,7 @@ if TYPE_CHECKING:
 _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "validation_bundle.v1"
 _REQUEST_FIELDS: frozenset[str] = frozenset(
-    {"metric", "current", "baseline", "grain", "hypothesis"}
+    {"metric", "current", "baseline", "granularity", "hypothesis"}
 )
 _SLICE_FIELDS: frozenset[str] = frozenset({"time_scope", "filter"})
 _HYPOTHESIS_FIELDS: frozenset[str] = frozenset({"family", "alternative", "significance"})
@@ -55,7 +57,7 @@ def run_validate_intent(
     baseline_time_scope: dict[str, Any] = baseline_raw["time_scope"]
     current_filter: Any = current_raw.get("filter")
     baseline_filter: Any = baseline_raw.get("filter")
-    grain = _validate_grain(p["grain"])
+    granularity = _validate_grain(p["granularity"])
 
     hypothesis_raw = _validate_hypothesis(p["hypothesis"])
     family: str = hypothesis_raw["family"]
@@ -64,20 +66,58 @@ def run_validate_intent(
     alpha = _SIGNIFICANCE_ALPHA[significance]
     metric_name = runtime.core.metric_name_from_ref(metric_ref)
 
-    # ── Build test params (source-type) ──────────────────────────────────
-    current_test_slice: dict[str, Any] = {"time_scope": current_time_scope}
-    if current_filter is not None:
-        current_test_slice["filter"] = current_filter
-    baseline_test_slice: dict[str, Any] = {"time_scope": baseline_time_scope}
-    if baseline_filter is not None:
-        baseline_test_slice["filter"] = baseline_filter
-
-    test_params: dict[str, Any] = {
+    # ── Build observe params ──────────────────────────────────────────────
+    current_observe_params: dict[str, Any] = {
         "metric": metric_ref,
-        "current": current_test_slice,
-        "baseline": baseline_test_slice,
-        "grain": grain,
-        "kind": "numeric",
+        "time_scope": current_time_scope,
+        "granularity": granularity,
+    }
+    if current_filter is not None:
+        current_observe_params["filter"] = current_filter
+    baseline_observe_params: dict[str, Any] = {
+        "metric": metric_ref,
+        "time_scope": baseline_time_scope,
+        "granularity": granularity,
+    }
+    if baseline_filter is not None:
+        baseline_observe_params["filter"] = baseline_filter
+
+    # ── Run observe + sample_summary transforms ───────────────────────────
+    try:
+        current_observe_result = run_observe_intent(runtime, session_id, current_observe_params)
+        baseline_observe_result = run_observe_intent(runtime, session_id, baseline_observe_params)
+        current_metric_artifact_id = cast("str", current_observe_result.get("artifact_id") or "")
+        baseline_metric_artifact_id = cast("str", baseline_observe_result.get("artifact_id") or "")
+        if not current_metric_artifact_id or not baseline_metric_artifact_id:
+            raise ValueError("observe did not return artifact_id")
+        current_sample_result = run_sample_summary_transform(
+            runtime,
+            session_id,
+            {
+                "source_artifact_id": current_metric_artifact_id,
+                "sample_kind": "numeric",
+            },
+        )
+        baseline_sample_result = run_sample_summary_transform(
+            runtime,
+            session_id,
+            {
+                "source_artifact_id": baseline_metric_artifact_id,
+                "sample_kind": "numeric",
+            },
+        )
+    except Exception as exc:
+        raise ValueError(f"validate: TEST_FAILED - sample orchestration failed: {exc}") from exc
+
+    current_sample_artifact_id = cast("str", current_sample_result.get("artifact_id") or "")
+    baseline_sample_artifact_id = cast("str", baseline_sample_result.get("artifact_id") or "")
+    if not current_sample_artifact_id or not baseline_sample_artifact_id:
+        raise ValueError("validate: TEST_FAILED - sample summary did not return artifact_id")
+
+    # ── Build test params (sample refs) ───────────────────────────────────
+    test_params: dict[str, Any] = {
+        "current_sample_artifact_id": current_sample_artifact_id,
+        "baseline_sample_artifact_id": baseline_sample_artifact_id,
         "hypothesis": {
             "family": family,
             "alternative": alternative,
@@ -156,7 +196,7 @@ def run_validate_intent(
         "metric": metric_ref,
         "current": {"time_scope": current_time_scope, "filter": current_filter},
         "baseline": {"time_scope": baseline_time_scope, "filter": baseline_filter},
-        "grain": grain,
+        "granularity": granularity,
         "kind": "numeric",
         "hypothesis": hypothesis_out,
         "method": resolved_method,
@@ -195,7 +235,7 @@ def run_validate_intent(
     provenance: dict[str, Any] = {
         "test_step_id": test_step_id,
         "kind": "numeric",
-        "grain": grain,
+        "granularity": granularity,
         "derived_logic_version": _DERIVED_LOGIC_VERSION,
         "projection_version": _PROJECTION_VERSION,
     }
@@ -207,7 +247,13 @@ def run_validate_intent(
         step_type="validate",
         bundle_type="validation_bundle",
         artifact_name=artifact_name,
-        aoi_artifacts=[aoi_artifact_dump(test_result)],
+        aoi_artifacts=[
+            aoi_artifact_dump(current_observe_result),
+            aoi_artifact_dump(baseline_observe_result),
+            aoi_artifact_dump(current_sample_result),
+            aoi_artifact_dump(baseline_sample_result),
+            aoi_artifact_dump(test_result),
+        ],
         summary=summary,
         product_status=product_status,
         issues=bundle_issues,
@@ -245,10 +291,10 @@ def _validate_request(value: Any) -> dict[str, Any]:
 
 def _validate_grain(value: Any) -> TimeScopeGrain:
     if not isinstance(value, str):
-        raise ValueError("validate: INVALID_ARGUMENT - grain must be a string")
+        raise ValueError("validate: INVALID_ARGUMENT - granularity must be a string")
     if value not in _VALID_GRAINS:
         raise ValueError(
-            f"validate: INVALID_ARGUMENT - grain must be one of {sorted(_VALID_GRAINS)}, "
+            f"validate: INVALID_ARGUMENT - granularity must be one of {sorted(_VALID_GRAINS)}, "
             f"got '{value}'"
         )
     return cast("TimeScopeGrain", value)

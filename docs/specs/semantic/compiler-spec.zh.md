@@ -231,7 +231,7 @@ type NormalizedRequest = {
 - `detect(source_artifact_id, sensitivity?, limit?)`
 - `decompose(compare_artifact_id, dimension)`
 - `correlate(left_artifact_id, right_artifact_id)`
-- `test(metric, left, right, hypothesis)`
+- `test(current_sample_artifact_id, baseline_sample_artifact_id, hypothesis)`
 - `forecast(source_artifact_id, ...)`
 - 当前 AOI runtime 请求使用 `*_artifact_id` 字段；上述 typed refs 是输出
   lineage / compiler IR 中的语义绑定，不是 HTTP/MCP 请求形状。
@@ -466,23 +466,24 @@ Dimension 作为 Field 属性表达，不再是独立对象。compiler 抽取：
 外部输入锚点：
 
 - `metric`
-- `left(time_scope, scope)`
-- `right(time_scope, scope)`
+- `current(time_scope, filter?)`
+- `baseline(time_scope, filter?)`
+- `granularity`
 - `hypothesis`
-- `method`
 
 展开为：
 
-1. 解析 inferential summary mode（`sample_kind` 从 metric 定义解析，不再作为请求参数）
-2. `observe(left, result_mode=inferred_summary_mode)`
-3. `observe(right, result_mode=inferred_summary_mode)`
-4. `test(metric, left, right, hypothesis)`
+1. `observe(current, granularity)` 生成当前 `metric_frame`
+2. `observe(baseline, granularity)` 生成基准 `metric_frame`
+3. `sample_summary(current_metric_frame)` 生成当前 `sample_frame`
+4. `sample_summary(baseline_metric_frame)` 生成基准 `sample_frame`
+5. `test(current_sample_artifact_id, baseline_sample_artifact_id, hypothesis)`
 
 关键 gate：
 
-- `sample_kind` 从 metric 定义解析（`decomposition_semantics` 决定统计检验方法），不再接受请求参数
-- 左右侧必须都可归一化为 inferential-ready scalar observe
-- method 兼容性完全继承 `test`
+- `granularity` 只作用于上游 `observe`；`sample_summary` 继承 `metric_frame` 轴，不接收独立 `grain`
+- 左右侧必须生成可检验的 time-series `metric_frame`
+- `test` 的 canonical 输入是两个 `sample_frame` artifact refs，不读取 semantic metric，也不在内部生成 sample summary
 
 ## Phase 5：IR 装配
 

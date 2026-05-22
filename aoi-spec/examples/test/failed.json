@@ -1,7 +1,7 @@
 {
-  "artifact_id": "test_conversion_rate_failed",
+  "artifact_id": "art_test_sample_failed",
   "failure": {
     "code": "test.insufficient_sample_size",
-    "message": "At least one side has too few observations for the requested hypothesis test."
+    "message": "At least one sample_frame has too few observations for the requested hypothesis test."
   }
 }

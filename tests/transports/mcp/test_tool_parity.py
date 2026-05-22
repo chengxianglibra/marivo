@@ -105,6 +105,9 @@ class FakeRuntime:
     def compare(self, **kw):
         return {}
 
+    def sample_summary(self, **kw):
+        return {}
+
     def decompose(self, **kw):
         return {}
 
@@ -326,6 +329,14 @@ def test_stdio_omits_catalog_tools():
     )
 
 
+def test_sample_summary_tool_is_registered() -> None:
+    server = FastMCP("test")
+    register_tools(server, FakeRuntime(), transport="stdio")
+    tools = _tool_names(server)
+
+    assert "sample_summary" in tools
+
+
 def test_semantic_tools_expose_compact_document_inventory() -> None:
     server = FastMCP("test")
     register_tools(server, FakeRuntime(), transport="stdio")
@@ -471,20 +482,21 @@ def test_test_intent_tool_schema_matches_current_aoi_surface() -> None:
     tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
 
     properties = tools["test_intent"].parameters["properties"]
-    slice_schema = tools["test_intent"].parameters["$defs"]["McpAoiSliceRef"]
     hypothesis_schema = tools["test_intent"].parameters["$defs"]["McpTestHypothesis"]
 
     assert "method" not in properties
     assert "kind" not in properties
-    assert properties["current"]["$ref"] == "#/$defs/McpAoiSliceRef"
-    assert properties["baseline"]["$ref"] == "#/$defs/McpAoiSliceRef"
-    assert properties["grain"]["enum"] == ["hour", "day", "week", "month", "quarter", "year"]
-    assert "AOI time granularity" in properties["grain"]["description"]
-    assert "Current AOI slice" in properties["current"]["description"]
-    assert "Baseline AOI slice" in properties["baseline"]["description"]
-    _assert_aoi_slice_ref_schema_uses_filter(slice_schema)
+    assert "current" not in properties
+    assert "baseline" not in properties
+    assert "grain" not in properties
+    assert "McpAoiSliceRef" not in tools["test_intent"].parameters.get("$defs", {})
+    assert "sample_frame artifact ID" in properties["current_sample_artifact_id"]["description"]
+    assert "sample_frame artifact ID" in properties["baseline_sample_artifact_id"]["description"]
+    assert "sample_summary" in properties["current_sample_artifact_id"]["description"]
+    assert "sample_summary" in properties["baseline_sample_artifact_id"]["description"]
     assert "hypothesis" in tools["test_intent"].parameters["required"]
-    assert "grain" in tools["test_intent"].parameters["required"]
+    assert "current_sample_artifact_id" in tools["test_intent"].parameters["required"]
+    assert "baseline_sample_artifact_id" in tools["test_intent"].parameters["required"]
     assert properties["hypothesis"]["$ref"] == "#/$defs/McpTestHypothesis"
     assert "family is fixed internally" in properties["hypothesis"]["description"]
     assert hypothesis_schema["additionalProperties"] is False
@@ -614,12 +626,13 @@ def test_validate_hypothesis_schema_omits_fixed_family() -> None:
     assert "method" not in properties
     assert properties["current"]["$ref"] == "#/$defs/McpAoiSliceRef"
     assert properties["baseline"]["$ref"] == "#/$defs/McpAoiSliceRef"
-    assert properties["grain"]["enum"] == ["hour", "day", "week", "month", "quarter", "year"]
-    assert "AOI time granularity" in properties["grain"]["description"]
+    assert properties["granularity"]["enum"] == ["hour", "day", "week", "month", "quarter", "year"]
+    assert "AOI time granularity" in properties["granularity"]["description"]
     assert "Current AOI slice" in properties["current"]["description"]
     assert "Baseline AOI slice" in properties["baseline"]["description"]
     _assert_aoi_slice_ref_schema_uses_filter(slice_schema)
-    assert "grain" in tools["validate"].parameters["required"]
+    assert "granularity" in tools["validate"].parameters["required"]
+    assert "grain" not in properties
     assert properties["hypothesis"]["anyOf"][0] == {"$ref": "#/$defs/McpValidateHypothesis"}
     assert "family defaults internally" in properties["hypothesis"]["description"]
     assert hypothesis_schema["additionalProperties"] is False
