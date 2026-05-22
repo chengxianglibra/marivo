@@ -6,7 +6,7 @@
 
 ## 目的
 
-`correlate` 用于估计两个先前定义的时间序列观测之间的统计关联。
+`correlate` 用于估计两个先前定义的同形状 `metric_frame` 之间的统计关联。
 
 设计目标：
 
@@ -17,12 +17,12 @@
 
 ## 核心设计决策
 
-`correlate` 消费两个 `observe(time_series)` 输出，而不是原始指标名、scope、列名或临时 join 规则。
+`correlate` 消费两个同形状的 `metric_frame` 输出，而不是原始指标名、scope、列名或临时 join 规则。
 
 这样可以保持数据流清晰：
 
-- `observe` 定义每条时间序列
-- `correlate` 定义这两条时间序列之间的关联
+- `observe` 定义 scalar、time_series、segmented 或 panel 观测面
+- `correlate` 定义两个同形状观测面之间的关联
 
 因此 v1 只保留类型化引用契约（typed-reference contract），不再维护一套直接关联契约（direct correlate 契约）。
 
@@ -172,22 +172,26 @@ bucket matching 之后所需的最小对齐数据点数。
 
 ## 对齐契约
 
-只有当两条输入序列能在清晰且确定的 bucket 契约下对齐时，关联估计才是合法的。
+只有当两个输入 frame 能在清晰且确定的样本键契约下对齐时，关联估计才是合法的。
 
-v1 只使用一条对齐规则：
+v1 按 `metric_frame.shape` 使用固定对齐规则：
 
-- `pairing_rule = "intersection_by_time_bucket"`
+- `scalar`: `metric_frame_scalar_singleton`
+- `time_series`: `metric_frame_time_bucket_intersection`
+- `segmented`: `metric_frame_dimension_key_intersection`
+- `panel`: `metric_frame_panel_key_time_intersection`
 
 这意味着：
 
-- 只保留两边都存在的 bucket
-- 不对缺失 bucket 做插值
+- 只保留两边都存在的样本键
+- 不对缺失 bucket 或 segment 做插值
 - 不做 interpolation、forward-fill、back-fill 或 resampling
 - bucket 边界继承 `observe` 的半开区间语义
 
 系统至少要检查：
 
-- 相同 `granularity`
+- 相同 `shape`
+- time_series / panel 输入具有相同 `granularity`
 - 兼容的 bucket 定义
 - 足够的 matched pairs
 - 两边数据完整性是否可接受
@@ -271,9 +275,14 @@ type CorrelationStatistic = {
 };
 
 type CorrelateAnalyticalMetadata = {
-  pairing_rule: "intersection_by_time_bucket";
-  left_granularity: TimeGranularity;
-  right_granularity: TimeGranularity;
+  pairing_rule:
+    | "metric_frame_scalar_singleton"
+    | "metric_frame_time_bucket_intersection"
+    | "metric_frame_dimension_key_intersection"
+    | "metric_frame_panel_key_time_intersection";
+  source_shape: "scalar" | "time_series" | "segmented" | "panel";
+  left_granularity: TimeGranularity | null;
+  right_granularity: TimeGranularity | null;
   matched_time_scope: ResolvedTimeScope | null;
   significance_level: 0.05;
   left_point_count: number;

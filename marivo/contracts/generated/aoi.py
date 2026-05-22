@@ -414,6 +414,7 @@ class Point(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    keys: dict[str, str] | None = None
     bucket_start: AwareDatetime
     value: float
     ci_low: float | None

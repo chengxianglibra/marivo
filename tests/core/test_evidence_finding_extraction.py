@@ -473,6 +473,43 @@ def test_extract_forecast_basic() -> None:
     assert findings[0]["payload"]["predicted_value"] == 110.0
 
 
+def test_extract_forecast_panel_series_keys_disambiguate_findings() -> None:
+    payload = {
+        "metric": "revenue",
+        "forecast": [
+            {
+                "keys": {"region": "US"},
+                "points": [
+                    {
+                        "window": {"start": "2024-02-01", "end": "2024-02-08"},
+                        "point_forecast": 110,
+                        "bucket_index": 1,
+                    }
+                ],
+            },
+            {
+                "keys": {"region": "EU"},
+                "points": [
+                    {
+                        "window": {"start": "2024-02-01", "end": "2024-02-08"},
+                        "point_forecast": 115,
+                        "bucket_index": 1,
+                    }
+                ],
+            },
+        ],
+    }
+
+    findings = extract_forecast_findings(
+        "art_1", payload, {"session_id": "s1", "step_id": "step1", "step_type": "forecast"}
+    )
+
+    assert len(findings) == 2
+    assert findings[0]["finding_id"] != findings[1]["finding_id"]
+    assert findings[0]["subject"]["slice"] == {"region": "US"}
+    assert findings[1]["subject"]["slice"] == {"region": "EU"}
+
+
 # ---------------------------------------------------------------------------
 # TEST extraction
 # ---------------------------------------------------------------------------

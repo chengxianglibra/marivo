@@ -76,7 +76,7 @@ def _correlate_payload(
     coefficient: float | None = 0.85,
     p_value: float | None = 0.02,
     n_pairs: int | None = 12,
-    pairing_rule: str = "intersection_by_time_bucket",
+    pairing_rule: str = "metric_frame_time_bucket_intersection",
     matched_time_scope: dict[str, Any] | None = None,
     left_metric: str = "dau",
     right_metric: str = "revenue",
@@ -147,6 +147,21 @@ def _forecast_payload(
     }
 
 
+def _panel_forecast_payload() -> dict[str, Any]:
+    return _forecast_payload(
+        buckets=[
+            {
+                "keys": {"region": "US"},
+                "points": [_forecast_bucket("2024-01-08", "2024-01-09", 1, 95.0)],
+            },
+            {
+                "keys": {"region": "EU"},
+                "points": [_forecast_bucket("2024-01-08", "2024-01-09", 1, 88.0)],
+            },
+        ]
+    )
+
+
 # ===========================================================================
 # CorrelateArtifactExtractor tests
 # ===========================================================================
@@ -197,9 +212,12 @@ class TestCorrelateExtractor(unittest.TestCase):
         self.assertIsNone(result["findings"][0]["payload"]["coefficient"])
 
     def test_payload_join_basis(self) -> None:
-        result = self._extract(_correlate_payload(pairing_rule="intersection_by_time_bucket"))
+        result = self._extract(
+            _correlate_payload(pairing_rule="metric_frame_time_bucket_intersection")
+        )
         self.assertEqual(
-            result["findings"][0]["payload"]["join_basis"], "intersection_by_time_bucket"
+            result["findings"][0]["payload"]["join_basis"],
+            "metric_frame_time_bucket_intersection",
         )
 
     def test_payload_left_right_artifact_ids(self) -> None:
@@ -313,6 +331,15 @@ class TestForecastExtractor(unittest.TestCase):
             _FORECAST_ART_ID, _forecast_payload(buckets=[b2]), _FORECAST_STEP_REF, _SESSION
         )
         self.assertEqual(r1["findings"][0]["finding_id"], r2["findings"][0]["finding_id"])
+
+    def test_panel_forecast_finding_ids_include_series_keys(self) -> None:
+        result = self._extract(_panel_forecast_payload())
+
+        self.assertEqual(result["finding_count"], 2)
+        findings = result["findings"]
+        self.assertNotEqual(findings[0]["finding_id"], findings[1]["finding_id"])
+        self.assertEqual(findings[0]["subject"]["slice"], {"region": "US"})
+        self.assertEqual(findings[1]["subject"]["slice"], {"region": "EU"})
 
     def test_payload_bucket_start_end(self) -> None:
         result = self._extract()

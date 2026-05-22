@@ -1317,6 +1317,32 @@ def _build_prediction_interval(raw: Any) -> dict[str, Any] | None:
     }
 
 
+def _forecast_bucket_items(payload: dict[str, Any]) -> list[tuple[dict[str, str], dict[str, Any]]]:
+    buckets: list[dict[str, Any]] = payload.get("forecast") or []
+    items: list[tuple[dict[str, str], dict[str, Any]]] = []
+    for entry in buckets:
+        if isinstance(entry.get("points"), list):
+            keys = {
+                str(key): str(value)
+                for key, value in (entry.get("keys") or {}).items()
+                if value is not None
+            }
+            for point in entry.get("points") or []:
+                if isinstance(point, dict):
+                    items.append((keys, point))
+        else:
+            items.append(({}, entry))
+    return items
+
+
+def _forecast_stable_key(series_keys: dict[str, str], bucket_start: str, bucket_end: str) -> str:
+    bucket_key = f"{bucket_start}/{bucket_end}"
+    if not series_keys:
+        return bucket_key
+    key_prefix = "|".join(f"{key}={series_keys[key]}" for key in sorted(series_keys))
+    return f"{key_prefix}|{bucket_key}"
+
+
 def extract_forecast_findings(
     artifact_id: str,
     payload: dict[str, Any],
@@ -1327,15 +1353,15 @@ def extract_forecast_findings(
     Pure computation: 1 finding per forecast bucket.
     """
     metric: str | None = payload.get("metric") or None
-    buckets: list[dict[str, Any]] = payload.get("forecast") or []
+    buckets = _forecast_bucket_items(payload)
 
     findings: list[dict[str, Any]] = []
-    for i, bucket in enumerate(buckets):
+    for i, (series_keys, bucket) in enumerate(buckets):
         window: dict[str, Any] = bucket.get("window") or {}
         bucket_start: str = str(window.get("start") or "")
         bucket_end: str = str(window.get("end") or "")
 
-        stable_key = f"{bucket_start}/{bucket_end}"
+        stable_key = _forecast_stable_key(series_keys, bucket_start, bucket_end)
         canonical_item_key, item_ref = make_item_identity("points", key=stable_key)
         finding_id = make_finding_id(artifact_id, "forecast_point", canonical_item_key)
 
@@ -1367,7 +1393,7 @@ def extract_forecast_findings(
                 subject={
                     "metric": metric,
                     "entity": None,
-                    "slice": {},
+                    "slice": dict(series_keys),
                     "grain": None,
                     "analysis_axis": "forecast",
                 },

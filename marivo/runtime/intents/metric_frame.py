@@ -43,6 +43,14 @@ class FramePoint:
         return self.point.get(field)
 
 
+@dataclass(frozen=True)
+class MetricFrameValueSample:
+    sample_key: tuple[tuple[str, str], ...]
+    value: Any
+    window: dict[str, Any] | None
+    series_keys: dict[str, str]
+
+
 def build_metric_frame_artifact(
     *,
     artifact_id: str,
@@ -263,6 +271,10 @@ def _string_series_keys(value: Any) -> dict[str, str]:
     return {str(key): str(raw) for key, raw in value.items()}
 
 
+def _sample_key_from_series_keys(series_keys: dict[str, str]) -> tuple[tuple[str, str], ...]:
+    return tuple(sorted(series_keys.items()))
+
+
 def _copy_dict(value: dict[str, Any]) -> dict[str, Any]:
     copied_value: dict[str, Any] = deepcopy(value)
     return copied_value
@@ -311,6 +323,52 @@ def iter_frame_points(artifact_id: str, artifact: dict[str, Any]) -> list[FrameP
                 )
             )
     return frame_points
+
+
+def iter_metric_frame_value_samples(artifact: dict[str, Any]) -> list[MetricFrameValueSample]:
+    """Flatten a metric_frame into shape-native correlation/forecast samples."""
+    shape = read_metric_frame_shape(artifact)
+    samples: list[MetricFrameValueSample] = []
+    for series in read_metric_frame_series(artifact):
+        if not isinstance(series, dict):
+            continue
+        series_keys = _string_series_keys(series.get("keys"))
+        raw_points = series.get("points") or []
+        for point in raw_points:
+            if not isinstance(point, dict):
+                continue
+            window_raw = point.get("window")
+            window = _copy_dict(window_raw) if isinstance(window_raw, dict) else None
+            value = point.get("value")
+
+            if shape == "scalar":
+                sample_key: tuple[tuple[str, str], ...] = ()
+            elif shape == "time_series":
+                start = str((window or {}).get("start") or "").strip()
+                if not start:
+                    continue
+                sample_key = (("time", start),)
+            elif shape == "segmented":
+                sample_key = _sample_key_from_series_keys(series_keys)
+                if not sample_key:
+                    continue
+            elif shape == "panel":
+                start = str((window or {}).get("start") or "").strip()
+                if not start:
+                    continue
+                sample_key = (*_sample_key_from_series_keys(series_keys), ("time", start))
+            else:
+                raise ValueError(f"Unknown metric_frame shape: {shape}")
+
+            samples.append(
+                MetricFrameValueSample(
+                    sample_key=sample_key,
+                    value=value,
+                    window=window,
+                    series_keys=dict(series_keys),
+                )
+            )
+    return samples
 
 
 def _first_present(artifact: dict[str, Any], keys: list[str]) -> Any:

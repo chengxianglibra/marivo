@@ -8,11 +8,12 @@ from typing import TYPE_CHECKING, Any
 from marivo.core.intent.primitives import new_step_id
 from marivo.runtime.intents._helpers import commit_step_result
 from marivo.runtime.intents.metric_frame import (
+    MetricFrameValueSample,
     is_metric_frame_artifact,
+    iter_metric_frame_value_samples,
     metric_display_name,
     read_axes_from_artifact,
     read_metric_frame_metric_ref,
-    read_metric_frame_points,
     read_metric_frame_shape,
     read_metric_frame_time_scope,
     time_grain_from_axes,
@@ -70,6 +71,45 @@ def _spearman_correlation(x: list[float], y: list[float]) -> float:
     return _pearson_correlation(_rank(x), _rank(y))
 
 
+def _pairing_rule_for_shape(shape: str) -> str:
+    if shape == "scalar":
+        return "metric_frame_scalar_singleton"
+    if shape == "time_series":
+        return "metric_frame_time_bucket_intersection"
+    if shape == "segmented":
+        return "metric_frame_dimension_key_intersection"
+    if shape == "panel":
+        return "metric_frame_panel_key_time_intersection"
+    raise ValueError(f"correlate: INVALID_ARGUMENT - unsupported metric_frame shape '{shape}'")
+
+
+def _sample_map(
+    samples: list[MetricFrameValueSample],
+) -> dict[tuple[tuple[str, str], ...], MetricFrameValueSample]:
+    return {sample.sample_key: sample for sample in samples}
+
+
+def _matched_time_scope(
+    samples: list[MetricFrameValueSample],
+    matched_keys: list[tuple[tuple[str, str], ...]],
+    time_scope: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not matched_keys:
+        return None
+    windows = [sample.window for sample in samples if sample.sample_key in set(matched_keys)]
+    usable_windows = [
+        window for window in windows if window and window.get("start") and window.get("end")
+    ]
+    if not usable_windows:
+        return None
+    sorted_windows = sorted(usable_windows, key=lambda window: str(window.get("start") or ""))
+    return {
+        "field": str(time_scope.get("field") or "time").strip() or "time",
+        "start": sorted_windows[0]["start"],
+        "end": sorted_windows[-1]["end"],
+    }
+
+
 def run_correlate_intent(
     runtime: MarivoRuntime,
     session_id: str,
@@ -78,8 +118,8 @@ def run_correlate_intent(
 ) -> dict[str, Any]:
     """Execute a `correlate` intent: estimate pairwise statistical association.
 
-    Input: left_artifact_id + right_artifact_id (both committed time_series
-           observe artifacts, same session).
+    Input: left_artifact_id + right_artifact_id (committed metric_frame artifacts
+           with the same shape, same session).
     Output: committed pairwise_time_series_association artifact (1 artifact → 1 finding).
 
     Empty semantics: alignment or pair count insufficient → fails, does NOT commit
@@ -153,46 +193,30 @@ def run_correlate_intent(
             "artifact with artifact_family='metric_frame'"
         )
 
-    left_obs_type = read_metric_frame_shape(left_artifact)
-    right_obs_type = read_metric_frame_shape(right_artifact)
-    if left_obs_type != "time_series":
+    left_shape = read_metric_frame_shape(left_artifact)
+    right_shape = read_metric_frame_shape(right_artifact)
+    if left_shape != right_shape:
         raise ValueError(
-            f"correlate: INVALID_ARGUMENT - left_artifact_id must be a time_series artifact, "
-            f"got observation_type='{left_obs_type}'"
+            "correlate: INVALID_ARGUMENT - metric_frame shape mismatch: "
+            f"left='{left_shape}' right='{right_shape}'"
         )
-    if right_obs_type != "time_series":
-        raise ValueError(
-            f"correlate: INVALID_ARGUMENT - right_artifact_id must be a time_series artifact, "
-            f"got observation_type='{right_obs_type}'"
-        )
+    pairing_rule = _pairing_rule_for_shape(left_shape)
 
     left_granularity = time_grain_from_axes(read_axes_from_artifact(left_artifact))
     right_granularity = time_grain_from_axes(read_axes_from_artifact(right_artifact))
 
     # ── Alignment ─────────────────────────────────────────────────────────────
-    if left_granularity != right_granularity:
+    if left_shape in {"time_series", "panel"} and left_granularity != right_granularity:
         raise ValueError(
             f"correlate: ALIGNMENT_FAILED - granularity mismatch: "
             f"left='{left_granularity}' right='{right_granularity}'"
         )
 
-    # ── Read metric_frame time-series points ──────────────────────────────────
-    left_series = read_metric_frame_points(left_artifact)
-    right_series = read_metric_frame_points(right_artifact)
-
-    left_map: dict[str, Any] = {}
-    for item in left_series:
-        w = item.get("window") or {}
-        key = w.get("start") or ""
-        if key:
-            left_map[key] = item.get("value")
-
-    right_map: dict[str, Any] = {}
-    for item in right_series:
-        w = item.get("window") or {}
-        key = w.get("start") or ""
-        if key:
-            right_map[key] = item.get("value")
+    # ── Read metric_frame shape-native samples ────────────────────────────────
+    left_samples = iter_metric_frame_value_samples(left_artifact)
+    right_samples = iter_metric_frame_value_samples(right_artifact)
+    left_map = _sample_map(left_samples)
+    right_map = _sample_map(right_samples)
 
     matched_keys = sorted(set(left_map) & set(right_map))
 
@@ -200,8 +224,8 @@ def run_correlate_intent(
     xs: list[float] = []
     ys: list[float] = []
     for k in matched_keys:
-        lv = left_map[k]
-        rv = right_map[k]
+        lv = left_map[k].value
+        rv = right_map[k].value
         try:
             left_numeric = float(lv)
             right_numeric = float(rv)
@@ -214,13 +238,14 @@ def run_correlate_intent(
 
     # Fix 3: dropped counts relative to n_pairs so that the invariant
     # left_point_count = matched_pair_count + dropped_left_points holds.
-    dropped_left = len(left_map) - n_pairs
-    dropped_right = len(right_map) - n_pairs
+    dropped_left = len(left_samples) - n_pairs
+    dropped_right = len(right_samples) - n_pairs
 
     if n_pairs < min_pairs:
         raise ValueError(
             f"correlate: INSUFFICIENT_DATA - only {n_pairs} aligned numeric pairs "
-            f"(minimum {min_pairs}). Ensure both series share time buckets with numeric values."
+            f"(minimum {min_pairs}). Ensure both metric_frame artifacts share aligned "
+            "sample keys with numeric values."
         )
 
     # ── Constant-series detection ─────────────────────────────────────────────
@@ -275,21 +300,13 @@ def run_correlate_intent(
         significance = "not_significant"
 
     # ── matched_time_scope ────────────────────────────────────────────────────
-    matched_time_scope: dict[str, Any] | None = None
-    if matched_keys:
-        # Find corresponding end from left series for the last bucket
-        left_end_map: dict[str, str] = {}
-        for item in left_series:
-            w = item.get("window") or {}
-            k = w.get("start") or ""
-            if k:
-                left_end_map[k] = w.get("end") or k
-        left_time_scope = read_metric_frame_time_scope(left_artifact)
-        matched_time_scope = {
-            "field": str(left_time_scope.get("field") or "time").strip() or "time",
-            "start": matched_keys[0],
-            "end": left_end_map.get(matched_keys[-1], matched_keys[-1]),
-        }
+    matched_time_scope = None
+    if left_shape in {"time_series", "panel"}:
+        matched_time_scope = _matched_time_scope(
+            list(left_map.values()),
+            matched_keys,
+            read_metric_frame_time_scope(left_artifact),
+        )
 
     # ── Build artifact ────────────────────────────────────────────────────────
     now = datetime.now(UTC).isoformat()
@@ -304,14 +321,14 @@ def run_correlate_intent(
         "session_id": session_id,
         "step_id": left_step_id,
         "artifact_id": left_artifact_id,
-        "observation_type": "time_series",
+        "shape": left_shape,
     }
     right_ref_out: dict[str, Any] = {
         "step_type": "observe",
         "session_id": session_id,
         "step_id": right_step_id,
         "artifact_id": right_artifact_id,
-        "observation_type": "time_series",
+        "shape": right_shape,
     }
 
     left_metric = metric_display_name(read_metric_frame_metric_ref(left_artifact))
@@ -338,13 +355,14 @@ def run_correlate_intent(
         "sign": sign,
         "significance": significance,
         "analytical_metadata": {
-            "pairing_rule": "intersection_by_time_bucket",
+            "pairing_rule": pairing_rule,
+            "source_shape": left_shape,
             "left_granularity": left_granularity,
             "right_granularity": right_granularity,
             "matched_time_scope": matched_time_scope,
             "significance_level": _SIGNIFICANCE_LEVEL,
-            "left_point_count": len(left_map),
-            "right_point_count": len(right_map),
+            "left_point_count": len(left_samples),
+            "right_point_count": len(right_samples),
             "matched_pair_count": n_pairs,
             "dropped_left_points": dropped_left,
             "dropped_right_points": dropped_right,

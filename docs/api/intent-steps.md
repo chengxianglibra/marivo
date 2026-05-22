@@ -181,13 +181,15 @@ POST /sessions/{session_id}/intents/correlate
 
 ```json
 {
-  "left_artifact_id": "art_left_timeseries",
-  "right_artifact_id": "art_right_timeseries",
+  "left_artifact_id": "art_left_metric_frame",
+  "right_artifact_id": "art_right_metric_frame",
   "method": "spearman",
   "min_pairs": 5
 }
 ```
 
+`left_artifact_id` and `right_artifact_id` must resolve to same-shape
+`metric_frame` artifacts (`scalar`, `time_series`, `segmented`, or `panel`).
 `method` may be `pearson` or `spearman`. `min_pairs` is optional and must be at least 1.
 
 ### Detect
@@ -216,10 +218,13 @@ POST /sessions/{session_id}/intents/forecast
 
 ```json
 {
-  "source_artifact_id": "art_timeseries",
+  "source_artifact_id": "art_metric_frame_timeseries_or_panel",
   "horizon": 14
 }
 ```
+
+`source_artifact_id` must resolve to `metric_frame(time_series|panel)`. Panel
+inputs are forecast independently per series and preserve series keys.
 
 ### Test
 

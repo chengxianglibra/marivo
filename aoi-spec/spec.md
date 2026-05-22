@@ -226,7 +226,7 @@ The request contract is per-intent. Every atomic request is either **source-type
 | `forecast`  | ref             | `source_artifact_id: string`, `horizon`                                                                             |
 | `compare`   | ref             | `current_artifact_id: string`, `baseline_artifact_id: string`, `compare_type?: CompareType`                                                             |
 | `decompose` | ref             | `compare_artifact_id: string`, `dimension`, `limit?`                                                                                          |
-| `correlate` | ref             | `left_artifact_id: string`, `right_artifact_id: string` (both time_series), `method?`, `min_pairs?`                                              |
+| `correlate` | ref             | `left_artifact_id: string`, `right_artifact_id: string` (both same-shape `metric_frame` artifacts), `method?`, `min_pairs?`                                              |
 
 `decompose` returns an `attribution_frame` artifact with shape
 `ranked_contributions`. Each payload point carries `contribution_abs` and
@@ -488,7 +488,8 @@ result: { "statistic": number,
           "assumption_notes": [string] }
 
 // forecast_series_result
-result: { "points": [ { "bucket_start": "ISO8601",
+result: { "points": [ { "keys": { string: string }, // optional; present for panel forecasts
+                        "bucket_start": "ISO8601",
                         "value": number,
                         "ci_low": number | null,
                         "ci_high": number | null } ] }

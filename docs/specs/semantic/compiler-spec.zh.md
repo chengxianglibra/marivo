@@ -626,7 +626,7 @@ derived intent 需要两层表达：
 
 ### 编译要求
 
-- 两侧都必须解析为 canonical `observe(time_series)`
+- 两侧都必须解析为同形状 canonical `metric_frame`（`scalar`、`time_series`、`segmented` 或 `panel`）
 - 必须做 alignment gate
 - `min_pairs` 是合法性阈值，而不是任意 tuning knob
 
@@ -667,7 +667,7 @@ derived intent 需要两层表达：
 
 ### 编译要求
 
-- source 必须是 canonical `observe(time_series)`
+- source 必须是 canonical `metric_frame(time_series|panel)`
 - 需要 metric 的 time projection 能力
 - horizon 必须有界且在系统上限内
 - `source_artifact_id` 解析出的 observe artifact 必须通过显式 `InputBinding` 进入当前节点

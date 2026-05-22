@@ -47,6 +47,65 @@ def _time_series_observation(
     )
 
 
+def _scalar_observation(metric: str = "m1", value: Any = 10.0) -> dict[str, Any]:
+    return build_metric_frame_artifact(
+        artifact_id=f"art_{metric}_scalar",
+        shape="scalar",
+        metric_ref=metric,
+        time_scope={"field": "time", "start": "2024-01-01", "end": "2024-01-02"},
+        scope={},
+        axes=[],
+        series=[{"keys": {}, "points": [{"value": value}]}],
+        unit=None,
+    )
+
+
+def _segmented_observation(
+    metric: str = "m1",
+    *,
+    values: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved_values = values or {"US": 10.0, "EU": 20.0, "JP": 30.0, "BR": 40.0, "IN": 50.0}
+    return build_metric_frame_artifact(
+        artifact_id=f"art_{metric}_segmented",
+        shape="segmented",
+        metric_ref=metric,
+        time_scope={"field": "time", "start": "2024-01-01", "end": "2024-02-01"},
+        scope={},
+        axes=[{"kind": "dimension", "name": "region"}],
+        series=[
+            {"keys": {"region": region}, "points": [{"value": value}]}
+            for region, value in resolved_values.items()
+        ],
+        unit=None,
+    )
+
+
+def _panel_observation(
+    metric: str = "m1",
+    *,
+    values: dict[str, list[Any]] | None = None,
+    granularity: str = "day",
+) -> dict[str, Any]:
+    resolved_values = values or {
+        "US": [10.0, 20.0, 30.0],
+        "EU": [40.0, 50.0, 60.0],
+    }
+    return build_metric_frame_artifact(
+        artifact_id=f"art_{metric}_panel",
+        shape="panel",
+        metric_ref=metric,
+        time_scope={"field": "time", "start": "2024-01-01", "end": "2024-01-04"},
+        scope={},
+        axes=[{"kind": "time", "grain": granularity}, {"kind": "dimension", "name": "region"}],
+        series=[
+            {"keys": {"region": region}, "points": _points(points)}
+            for region, points in resolved_values.items()
+        ],
+        unit=None,
+    )
+
+
 def _make_runtime(
     left_artifact: dict[str, Any] | None = None,
     right_artifact: dict[str, Any] | None = None,
@@ -181,6 +240,51 @@ def test_correlate_explicit_min_pairs_allows_shorter_aligned_series() -> None:
     assert result["analytical_metadata"]["matched_pair_count"] == 3
 
 
+def test_correlate_accepts_scalar_metric_frames_with_explicit_single_pair() -> None:
+    runtime = _make_runtime(_scalar_observation("m1", 10), _scalar_observation("m2", 20))
+
+    result = _run_correlate(runtime, _correlate_params(min_pairs=1))
+
+    assert result["statistic"]["n_pairs"] == 1
+    assert result["analytical_metadata"]["source_shape"] == "scalar"
+    assert result["analytical_metadata"]["pairing_rule"] == "metric_frame_scalar_singleton"
+    assert result["left_ref"]["shape"] == "scalar"
+    assert result["right_ref"]["shape"] == "scalar"
+
+
+def test_correlate_accepts_segmented_metric_frames_by_dimension_key() -> None:
+    runtime = _make_runtime(
+        _segmented_observation("m1", values={"US": 1, "EU": 2, "JP": 3}),
+        _segmented_observation("m2", values={"US": 2, "EU": 4, "JP": 6}),
+    )
+
+    result = _run_correlate(runtime, _correlate_params(min_pairs=3))
+
+    assert result["statistic"]["coefficient"] == pytest.approx(1.0)
+    assert result["statistic"]["n_pairs"] == 3
+    assert result["analytical_metadata"]["source_shape"] == "segmented"
+    assert (
+        result["analytical_metadata"]["pairing_rule"] == "metric_frame_dimension_key_intersection"
+    )
+    assert result["analytical_metadata"]["matched_time_scope"] is None
+
+
+def test_correlate_accepts_panel_metric_frames_by_dimension_key_and_time() -> None:
+    runtime = _make_runtime(
+        _panel_observation("m1", values={"US": [1, 2, 3], "EU": [4, 5, 6]}),
+        _panel_observation("m2", values={"US": [2, 4, 6], "EU": [8, 10, 12]}),
+    )
+
+    result = _run_correlate(runtime, _correlate_params(method="pearson", min_pairs=6))
+
+    assert result["statistic"]["coefficient"] == pytest.approx(1.0)
+    assert result["statistic"]["n_pairs"] == 6
+    assert result["analytical_metadata"]["source_shape"] == "panel"
+    assert (
+        result["analytical_metadata"]["pairing_rule"] == "metric_frame_panel_key_time_intersection"
+    )
+
+
 def test_correlate_positive_association_derives_sign_and_significance() -> None:
     runtime = _make_runtime(
         _time_series_observation("m1", values=[1, 2, 3, 4, 5]),
@@ -265,7 +369,7 @@ def test_correlate_artifact_metadata_includes_pairing_and_query_hash() -> None:
     result = _run_correlate(runtime, _correlate_params(method="pearson"))
 
     assert result["association_type"] == "pairwise_time_series_association"
-    assert result["analytical_metadata"]["pairing_rule"] == "intersection_by_time_bucket"
+    assert result["analytical_metadata"]["pairing_rule"] == "metric_frame_time_bucket_intersection"
     assert result["analytical_metadata"]["significance_level"] == 0.05
     assert result["execution_metadata"]["engine"] == "service"
     assert len(result["execution_metadata"]["query_hash"]) == 16
@@ -353,50 +457,10 @@ def test_correlate_rejects_right_non_metric_frame_artifacts_before_shape_read() 
     )
 
 
-@pytest.mark.parametrize(
-    ("side", "left_artifact", "right_artifact", "match"),
-    [
-        (
-            "left",
-            build_metric_frame_artifact(
-                artifact_id="art_left_scalar",
-                shape="scalar",
-                metric_ref="m1",
-                time_scope={"field": "time", "start": "2024-01-01", "end": "2024-01-02"},
-                scope={},
-                axes=[],
-                series=[{"keys": {}, "points": [{"value": 1.0}]}],
-                unit=None,
-            ),
-            _time_series_observation("m2"),
-            "left_artifact_id",
-        ),
-        (
-            "right",
-            _time_series_observation("m1"),
-            build_metric_frame_artifact(
-                artifact_id="art_right_segmented",
-                shape="segmented",
-                metric_ref="m2",
-                time_scope={"field": "time", "start": "2024-01-01", "end": "2024-01-02"},
-                scope={},
-                axes=[{"kind": "dimension", "name": "region"}],
-                series=[{"keys": {"region": "US"}, "points": [{"value": 1.0}]}],
-                unit=None,
-            ),
-            "right_artifact_id",
-        ),
-    ],
-)
-def test_correlate_rejects_non_time_series_artifacts(
-    side: str,
-    left_artifact: dict[str, Any],
-    right_artifact: dict[str, Any],
-    match: str,
-) -> None:
-    runtime = _make_runtime(left_artifact, right_artifact)
+def test_correlate_rejects_shape_mismatch() -> None:
+    runtime = _make_runtime(_scalar_observation("m1"), _time_series_observation("m2"))
 
-    _assert_correlate_fails_without_commit(runtime, _correlate_params(), match)
+    _assert_correlate_fails_without_commit(runtime, _correlate_params(), "shape mismatch")
 
 
 def test_correlate_rejects_granularity_mismatch() -> None:
