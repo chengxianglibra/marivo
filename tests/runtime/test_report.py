@@ -160,13 +160,18 @@ def test_extract_artifact_summary_scalar():
 
 def test_extract_artifact_summary_compare():
     payload = {
-        "artifact_type": "comparison",
-        "comparison_type": "scalar_delta",
-        "absolute_delta": -1200.0,
-        "relative_delta": -0.18,
-        "direction": "decrease",
-        "current_value": 5400.0,
-        "baseline_value": 6600.0,
+        "artifact_family": "delta_frame",
+        "shape": "scalar_delta",
+        "payload": {
+            "series": [],
+            "scope": {
+                "current_value": 5400.0,
+                "baseline_value": 6600.0,
+                "delta_abs": -1200.0,
+                "delta_pct": -0.18,
+                "direction": "decrease",
+            },
+        },
         "comparability": {"status": "comparable", "issues": []},
     }
     summary = _extract_artifact_summary(payload)
@@ -177,7 +182,7 @@ def test_extract_artifact_summary_compare():
     assert "current_value" not in summary
     assert "baseline_value" not in summary
     # metadata keys are kept
-    assert summary["comparison_type"] == "scalar_delta"
+    assert summary["shape"] == "scalar_delta"
     assert summary["comparability_status"] == "comparable"
 
 

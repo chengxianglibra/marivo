@@ -521,9 +521,10 @@ class CompareSegmentedIntentEndpointTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["step_type"], "compare")
         result_data = payload["result"]
-        aoi_result = result_data.get("result") or {}
-        self.assertEqual(aoi_result["rows"][0]["keys"], {"log_hour": "09"})
-        self.assertEqual(len(aoi_result["rows"]), 3)
+        self.assertEqual(result_data["artifact_family"], "delta_frame")
+        self.assertEqual(result_data["shape"], "segmented_delta")
+        self.assertEqual(result_data["payload"]["series"][0]["keys"], {"log_hour": "09"})
+        self.assertEqual(len(result_data["payload"]["series"]), 3)
 
 
 class ClosedSessionWriteGuardTests(unittest.TestCase):

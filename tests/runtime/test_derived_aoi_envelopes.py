@@ -123,8 +123,8 @@ def test_attribute_bundle_envelope_keeps_aoi_artifacts_in_result_and_product_met
     _assert_bundle_storage_is_consistent(result, runtime)
 
 
-def test_aoi_artifact_dump_preserves_flat_runtime_payload_for_projection() -> None:
-    flat_compare_result = {
+def test_aoi_artifact_dump_preserves_delta_frame_runtime_payload_for_projection() -> None:
+    delta_frame_result = {
         "intent_type": "compare",
         "step_type": "compare",
         "step_ref": {
@@ -133,24 +133,69 @@ def test_aoi_artifact_dump_preserves_flat_runtime_payload_for_projection() -> No
             "step_type": "compare",
         },
         "artifact_id": "art_compare",
-        "comparison_type": "scalar_delta",
-        "current_value": 10.0,
-        "baseline_value": 7.0,
-        "absolute_delta": 3.0,
+        "artifact_family": "delta_frame",
+        "shape": "scalar_delta",
+        "metric": "revenue",
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.revenue",
+            "current": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2026-05-01T00:00:00+00:00",
+                    "end": "2026-05-08T00:00:00+00:00",
+                },
+                "scope": {},
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "time",
+                    "start": "2026-04-24T00:00:00+00:00",
+                    "end": "2026-05-01T00:00:00+00:00",
+                },
+                "scope": {},
+            },
+        },
+        "axes": [{"kind": "comparison_side"}],
+        "measures": [{"id": "delta_abs", "value_type": "number", "nullable": True, "unit": None}],
+        "payload": {
+            "series": [
+                {
+                    "keys": {},
+                    "points": [
+                        {
+                            "current_value": 10.0,
+                            "baseline_value": 7.0,
+                            "delta_abs": 3.0,
+                            "delta_pct": 0.4285714286,
+                            "direction": "increase",
+                        }
+                    ],
+                }
+            ],
+            "scope": {
+                "current_value": 10.0,
+                "baseline_value": 7.0,
+                "delta_abs": 3.0,
+                "delta_pct": 0.4285714286,
+                "direction": "increase",
+            },
+        },
         "provenance": {"query": "internal"},
         "product_metadata": {"debug": True},
     }
 
-    artifact = aoi_artifact_dump(flat_compare_result)
+    artifact = aoi_artifact_dump(delta_frame_result)
     projected = project_aoi_artifact_from_any(artifact)
 
     assert artifact["artifact_id"] == "art_compare"
-    assert artifact["result"]["comparison_type"] == "scalar_delta"
+    assert artifact["result"]["shape"] == "scalar_delta"
     assert "provenance" not in artifact["result"]
     assert projected["artifact_id"] == "art_compare"
-    assert projected["result"]["current_value"] == 10.0
-    assert projected["result"]["baseline_value"] == 7.0
-    assert projected["result"]["delta"] == 3.0
+    assert projected["artifact_family"] == "delta_frame"
+    assert projected["payload"]["scope"]["current_value"] == 10.0
+    assert projected["payload"]["scope"]["baseline_value"] == 7.0
+    assert projected["payload"]["scope"]["delta_abs"] == 3.0
 
 
 def test_diagnosis_bundle_envelope_keeps_aoi_artifacts_in_result_and_product_metadata() -> None:

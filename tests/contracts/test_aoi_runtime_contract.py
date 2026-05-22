@@ -339,12 +339,7 @@ def test_validate_aoi_artifact_returns_success_artifact() -> None:
     artifact = validate_aoi_artifact(
         {
             "artifact_id": "artifact_1",
-            "result": {
-                "current_value": 42.0,
-                "baseline_value": 40.0,
-                "delta": 2.0,
-                "matched_time_scope": None,
-            },
+            "result": _delta_frame_payload(),
         }
     )
 
@@ -370,12 +365,7 @@ def test_validate_aoi_artifact_returns_failure_artifact() -> None:
 def test_validate_aoi_artifact_accepts_generated_success_artifact() -> None:
     source = aoi.Artifact1(
         artifact_id="artifact_1",
-        result=aoi.ScalarDeltaResult(
-            current_value=42.0,
-            baseline_value=40.0,
-            delta=2.0,
-            matched_time_scope=None,
-        ),
+        result=aoi.DeltaFrameArtifact.model_validate(_delta_frame_payload()),
     )
 
     artifact = validate_aoi_artifact(source)
@@ -483,13 +473,17 @@ def _delta_frame_payload() -> dict[str, object]:
             },
         },
         "axes": [{"kind": "comparison_side"}],
-        "measures": [{"id": "delta_abs", "value_type": "number", "nullable": True}],
+        "measures": [{"id": "delta_abs", "value_type": "number", "nullable": True, "unit": None}],
         "payload": {
             "series": [
                 {
                     "keys": {},
                     "points": [
                         {
+                            "window": {
+                                "start": "2026-05-15T00:00:00+00:00",
+                                "end": "2026-05-16T00:00:00+00:00",
+                            },
                             "current_value": 10.0,
                             "baseline_value": 5.0,
                             "delta_abs": 5.0,
@@ -499,6 +493,13 @@ def _delta_frame_payload() -> dict[str, object]:
                     ],
                 }
             ],
+            "scope": {
+                "current_value": 10.0,
+                "baseline_value": 5.0,
+                "delta_abs": 5.0,
+                "delta_pct": 1.0,
+                "direction": "increase",
+            },
         },
     }
 
@@ -509,6 +510,49 @@ def test_validate_aoi_artifact_accepts_delta_frame_artifact() -> None:
     assert isinstance(artifact, aoi.DeltaFrameArtifact)
     assert artifact.artifact_family == "delta_frame"
     assert artifact.shape == "scalar_delta"
+
+
+def test_validate_aoi_artifact_accepts_panel_delta_frame_artifact() -> None:
+    payload = _delta_frame_payload()
+    payload["shape"] = "panel_delta"
+    payload["axes"] = [
+        {"kind": "time", "grain": "day"},
+        {"kind": "dimension", "name": "country"},
+        {"kind": "comparison_side"},
+    ]
+    payload["payload"] = {
+        "series": [
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {
+                        "window": {
+                            "start": "2026-05-15T00:00:00+00:00",
+                            "end": "2026-05-16T00:00:00+00:00",
+                        },
+                        "current_value": 10.0,
+                        "baseline_value": 5.0,
+                        "delta_abs": 5.0,
+                        "delta_pct": 1.0,
+                        "direction": "increase",
+                        "presence": "both",
+                    }
+                ],
+            }
+        ],
+        "scope": {
+            "current_value": 10.0,
+            "baseline_value": 5.0,
+            "delta_abs": 5.0,
+            "delta_pct": 1.0,
+            "direction": "increase",
+        },
+    }
+
+    artifact = validate_aoi_artifact(payload)
+
+    assert isinstance(artifact, aoi.DeltaFrameArtifact)
+    assert artifact.shape == "panel_delta"
 
 
 def test_artifact_to_envelope_result_keeps_delta_frame_top_level() -> None:
@@ -553,12 +597,7 @@ def test_metric_frame_artifact_rejects_invalid_contract(patch: dict[str, object]
 def test_validate_aoi_artifact_rejects_mixed_generated_success_artifact() -> None:
     source = aoi.Artifact1(
         artifact_id="artifact_1",
-        result=aoi.ScalarDeltaResult(
-            current_value=42.0,
-            baseline_value=40.0,
-            delta=2.0,
-            matched_time_scope=None,
-        ),
+        result=aoi.DeltaFrameArtifact.model_validate(_delta_frame_payload()),
         failure=aoi.AnalysisFailure(
             code="NOT_COMPARABLE",
             message="No comparable baseline.",
@@ -603,12 +642,7 @@ def test_execution_envelope_keeps_aoi_artifact_under_result() -> None:
     artifact = validate_aoi_artifact(
         {
             "artifact_id": "artifact_1",
-            "result": {
-                "current_value": 42.0,
-                "baseline_value": 40.0,
-                "delta": 2.0,
-                "matched_time_scope": None,
-            },
+            "result": _delta_frame_payload(),
         }
     )
 
@@ -624,15 +658,10 @@ def test_execution_envelope_keeps_aoi_artifact_under_result() -> None:
         result=artifact_to_envelope_result(artifact),
     )
 
-    assert envelope.result == {
-        "artifact_id": "artifact_1",
-        "result": {
-            "current_value": 42.0,
-            "baseline_value": 40.0,
-            "delta": 2.0,
-            "matched_time_scope": None,
-        },
-    }
+    assert envelope.result["artifact_id"] == "artifact_1"
+    assert envelope.result["result"]["artifact_family"] == "delta_frame"
+    assert envelope.result["result"]["shape"] == "scalar_delta"
+    assert envelope.result["result"]["payload"]["scope"]["delta_abs"] == 5.0
     assert "value" not in envelope.model_dump()
 
 
@@ -664,9 +693,7 @@ def test_project_aoi_artifact_produces_delta_frame_envelope() -> None:
             },
         },
         "axes": [{"kind": "comparison_side"}],
-        "measures": [
-            {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": None}
-        ],
+        "measures": [{"id": "delta_abs", "value_type": "number", "nullable": True, "unit": None}],
         "payload": {
             "series": [
                 {
@@ -682,6 +709,13 @@ def test_project_aoi_artifact_produces_delta_frame_envelope() -> None:
                     ],
                 }
             ],
+            "scope": {
+                "current_value": 10.0,
+                "baseline_value": 5.0,
+                "delta_abs": 5.0,
+                "delta_pct": 1.0,
+                "direction": "increase",
+            },
         },
     }
     result = project_aoi_artifact("compare", "art_delta_test", {"result": delta_frame})
@@ -689,7 +723,7 @@ def test_project_aoi_artifact_produces_delta_frame_envelope() -> None:
     assert result["shape"] == "scalar_delta"
 
 
-def test_project_aoi_artifact_result_scalar_delta_from_legacy_comparison_type() -> None:
+def test_project_aoi_artifact_result_rejects_legacy_comparison_type() -> None:
     from marivo.contracts.aoi_projection import project_aoi_artifact_result
 
     legacy_payload = {
@@ -705,19 +739,29 @@ def test_project_aoi_artifact_result_scalar_delta_from_legacy_comparison_type() 
             },
         },
     }
-    result = project_aoi_artifact_result("compare", legacy_payload)
-    assert result.get("current_value") == 10.0
-    assert result.get("baseline_value") == 5.0
+    with pytest.raises(ValueError, match="requires a delta_frame artifact"):
+        project_aoi_artifact_result("compare", legacy_payload)
 
 
-def test_project_aoi_artifact_result_scalar_delta_from_shape_field() -> None:
+def test_project_aoi_artifact_result_rejects_shape_only_compare_payload() -> None:
     from marivo.contracts.aoi_projection import project_aoi_artifact_result
 
     shaped_payload = {
         "shape": "scalar_delta",
-        "summary_current_value": 10.0,
-        "summary_baseline_value": 5.0,
-        "summary_absolute_delta": 5.0,
+        "payload": {
+            "series": [
+                {
+                    "keys": {},
+                    "points": [
+                        {
+                            "current_value": 10.0,
+                            "baseline_value": 5.0,
+                            "delta_abs": 5.0,
+                        }
+                    ],
+                }
+            ]
+        },
         "analytical_metadata": {
             "matched_time_scope": {
                 "field": "log_date",
@@ -726,10 +770,8 @@ def test_project_aoi_artifact_result_scalar_delta_from_shape_field() -> None:
             },
         },
     }
-    result = project_aoi_artifact_result("compare", shaped_payload)
-    assert result.get("current_value") == 10.0
-    assert result.get("baseline_value") == 5.0
-    assert result.get("delta") == 5.0
+    with pytest.raises(ValueError, match="requires a delta_frame artifact"):
+        project_aoi_artifact_result("compare", shaped_payload)
 
 
 def _merge_patch(target: dict[str, Any], patch_value: dict[str, Any]) -> None:

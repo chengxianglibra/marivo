@@ -243,26 +243,27 @@
   {{ render_generic_artifact(content) }}
   {% endif %}
 
-{% elif artifact_type == "comparison" or content.get("artifact_type") == "comparison" or content.get("comparison_type") %}
+{% elif artifact_type == "comparison" or content.get("artifact_family") == "delta_frame" or content.get("shape") %}
+  {% set delta_scope = (content.get("payload") or {}).get("scope") or {} %}
   <table class="result-table">
-    {% if content.get("scope_current_value") or content.get("current_value") %}
-    <tr><th>Current Value</th><td>{{ content.get("scope_current_value", content.get("current_value", "—")) }}</td></tr>
+    {% if delta_scope.get("current_value") is not none %}
+    <tr><th>Current Value</th><td>{{ delta_scope.get("current_value", "—") }}</td></tr>
     {% endif %}
-    {% if content.get("scope_baseline_value") or content.get("baseline_value") %}
-    <tr><th>Baseline Value</th><td>{{ content.get("scope_baseline_value", content.get("baseline_value", "—")) }}</td></tr>
+    {% if delta_scope.get("baseline_value") is not none %}
+    <tr><th>Baseline Value</th><td>{{ delta_scope.get("baseline_value", "—") }}</td></tr>
     {% endif %}
-    {% if content.get("scope_absolute_delta") or content.get("absolute_delta") %}
-    <tr><th>Absolute Delta</th><td>{{ content.get("scope_absolute_delta", content.get("absolute_delta")) | fmt_delta }}</td></tr>
+    {% if delta_scope.get("delta_abs") is not none %}
+    <tr><th>Absolute Delta</th><td>{{ delta_scope.get("delta_abs") | fmt_delta }}</td></tr>
     {% endif %}
-    {% if content.get("scope_relative_delta") or content.get("relative_delta") %}
-    <tr><th>Relative Delta</th><td>{{ content.get("scope_relative_delta", content.get("relative_delta")) | fmt_pct }}</td></tr>
+    {% if delta_scope.get("delta_pct") is not none %}
+    <tr><th>Relative Delta</th><td>{{ delta_scope.get("delta_pct") | fmt_pct }}</td></tr>
     {% endif %}
-    {% if content.get("scope_direction") or content.get("direction") %}
-    {% set dir = content.get("scope_direction", content.get("direction", "")) %}
+    {% if delta_scope.get("direction") %}
+    {% set dir = delta_scope.get("direction", "") %}
     <tr><th>Direction</th><td class="direction-{{ dir }}">{% if dir == "up" or dir == "increase" %}↑ {% elif dir == "down" or dir == "decrease" %}↓ {% endif %}{{ dir }}</td></tr>
     {% endif %}
-    {% if content.get("comparison_type") %}
-    <tr><th>Comparison Type</th><td>{{ content.get("comparison_type") }}</td></tr>
+    {% if content.get("shape") %}
+    <tr><th>Shape</th><td>{{ content.get("shape") }}</td></tr>
     {% endif %}
   </table>
 

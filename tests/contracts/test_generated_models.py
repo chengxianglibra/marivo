@@ -1584,12 +1584,13 @@ def test_aoi_result_nullable_fields_still_accept_explicit_null() -> None:
     from marivo.contracts.generated import aoi
 
     aoi.MetricFramePoint.model_validate({"value": None})
-    aoi.ScalarDeltaResult.model_validate(
+    aoi.DeltaFrameScope.model_validate(
         {
             "current_value": None,
             "baseline_value": None,
-            "delta": None,
-            "matched_time_scope": None,
+            "delta_abs": None,
+            "delta_pct": None,
+            "direction": "undefined",
         }
     )
     aoi.AssociationResult.model_validate(

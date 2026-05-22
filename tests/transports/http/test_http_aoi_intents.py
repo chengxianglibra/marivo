@@ -17,6 +17,59 @@ from marivo.transports.http.models import (
 from marivo.transports.http.sessions import router
 
 
+def _delta_frame_result(artifact_id: str = "art_compare_1") -> dict[str, Any]:
+    return {
+        "artifact_id": artifact_id,
+        "artifact_family": "delta_frame",
+        "shape": "scalar_delta",
+        "subject": {
+            "kind": "comparison",
+            "metric_ref": "metric.revenue",
+            "current": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-08T00:00:00Z",
+                    "end": "2026-01-15T00:00:00Z",
+                },
+                "scope": {},
+            },
+            "baseline": {
+                "time_scope": {
+                    "field": "event_time",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-08T00:00:00Z",
+                },
+                "scope": {},
+            },
+        },
+        "axes": [{"kind": "comparison_side"}],
+        "measures": [{"id": "delta_abs", "value_type": "number", "nullable": True}],
+        "payload": {
+            "series": [
+                {
+                    "keys": {},
+                    "points": [
+                        {
+                            "current_value": 120.0,
+                            "baseline_value": 100.0,
+                            "delta_abs": 20.0,
+                            "delta_pct": 0.2,
+                            "direction": "increase",
+                        }
+                    ],
+                }
+            ],
+            "scope": {
+                "current_value": 120.0,
+                "baseline_value": 100.0,
+                "delta_abs": 20.0,
+                "delta_pct": 0.2,
+                "direction": "increase",
+            },
+        },
+    }
+
+
 class _FakeRuntime:
     def __init__(self) -> None:
         self.observe_payload: Any | None = None
@@ -63,14 +116,7 @@ class _FakeRuntime:
                 "step_type": "compare",
             },
             "artifact_id": "art_compare_1",
-            "result": {
-                "artifact_id": "art_compare_1",
-                "result": {
-                    "absolute_delta": 7.0,
-                    "relative_delta": 0.7,
-                    "direction": "increase",
-                },
-            },
+            "result": _delta_frame_result("art_compare_1"),
             "provenance": {"mocked": True},
             "product_metadata": None,
         }
@@ -267,15 +313,7 @@ class _FakeRuntime:
             "result": {
                 "bundle_type": "attribute_bundle",
                 "aoi_artifacts": [
-                    {
-                        "artifact_id": "art_compare_1",
-                        "result": {
-                            "current_value": 120.0,
-                            "baseline_value": 100.0,
-                            "delta": 20.0,
-                            "matched_time_scope": None,
-                        },
-                    }
+                    _delta_frame_result("art_compare_1"),
                 ],
             },
             "provenance": {"mocked": True},
@@ -942,7 +980,8 @@ def test_attribute_accepts_aoi_request_and_returns_typed_bundle() -> None:
     body = response.json()
     assert body["intent_type"] == "attribute"
     assert body["result"]["bundle_type"] == "attribute_bundle"
-    assert body["result"]["aoi_artifacts"][0]["result"]["delta"] == 20.0
+    assert body["result"]["aoi_artifacts"][0]["artifact_family"] == "delta_frame"
+    assert body["result"]["aoi_artifacts"][0]["payload"]["scope"]["delta_abs"] == 20.0
 
 
 @pytest.mark.parametrize(
