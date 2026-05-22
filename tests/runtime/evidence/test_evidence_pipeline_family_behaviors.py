@@ -265,16 +265,33 @@ def _compare_segmented_payload(rows: list[dict[str, Any]] | None = None) -> dict
                 "keys": {"country": "US"},
                 "current_value": 500.0,
                 "baseline_value": 400.0,
-                "absolute_delta": 100.0,
-                "relative_delta": 0.25,
+                "delta_abs": 100.0,
+                "delta_pct": 0.25,
                 "direction": "increase",
                 "presence": "both",
             },
         ]
+    series = [
+        {
+            "keys": row.get("keys", {}),
+            "points": [
+                {
+                    "current_value": row.get("current_value"),
+                    "baseline_value": row.get("baseline_value"),
+                    "delta_abs": row.get("delta_abs"),
+                    "delta_pct": row.get("delta_pct"),
+                    "direction": row.get("direction", "undefined"),
+                    "presence": row.get("presence", "both"),
+                }
+            ],
+        }
+        for row in rows
+    ]
     return {
         "artifact_type": "compare_artifact",
-        "schema_version": "1.0",
-        "comparison_type": "segmented_delta",
+        "artifact_family": "delta_frame",
+        "schema_version": "2.0",
+        "shape": "segmented_delta",
         "metric": "daily_users",
         "current_ref": {"session_id": _SESSION, "step_id": "step_obs_l", "step_type": "observe"},
         "baseline_ref": {
@@ -283,7 +300,17 @@ def _compare_segmented_payload(rows: list[dict[str, Any]] | None = None) -> dict
             "step_type": "observe",
         },
         "unit": None,
-        "rows": rows,
+        "axes": [{"kind": "dimension", "name": "country"}, {"kind": "comparison_side"}],
+        "payload": {
+            "series": series,
+            "scope": {
+                "current_value": sum(row.get("current_value") or 0.0 for row in rows),
+                "baseline_value": sum(row.get("baseline_value") or 0.0 for row in rows),
+                "delta_abs": sum(row.get("delta_abs") or 0.0 for row in rows),
+                "delta_pct": None,
+                "direction": "undefined" if not rows else "increase",
+            },
+        },
         "resolved_input_summary": {
             "current_scope": {},
             "baseline_scope": {},

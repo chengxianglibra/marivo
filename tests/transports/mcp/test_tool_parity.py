@@ -894,9 +894,9 @@ def test_compare_tool_schema_exposes_compare_type_enum_and_default() -> None:
         "weekday_aligned",
         "holiday_and_weekday_aligned",
     ]
-    assert "scalar, segmented, or time_series" in current_description
+    assert "scalar, segmented, time_series, or panel" in current_description
     assert "dimensions=['log_hour']" in current_description
-    assert "calendar-aligned compare types require time_series" in baseline_description
+    assert "calendar-aligned compare types require time_series or panel" in baseline_description
 
 
 def test_compare_tool_passes_generated_request_for_segmented_artifact_ids(monkeypatch) -> None:

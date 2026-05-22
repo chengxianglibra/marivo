@@ -29,18 +29,12 @@ class ObserveResponse(_EnvelopeBase):
     result: aoi.MetricFrameArtifact | _ObserveFailureArtifact
 
 
-class _CompareArtifact(aoi.Artifact1):
-    result: aoi.ScalarDeltaResult | aoi.TimeSeriesDeltaResult | aoi.SegmentedDeltaResult
-
-
 class _CompareFailureArtifact(aoi.Artifact2):
-    result: aoi.ScalarDeltaResult | aoi.TimeSeriesDeltaResult | aoi.SegmentedDeltaResult | None = (
-        None
-    )
+    result: aoi.DeltaFrameArtifact | None = None
 
 
 class CompareResponse(_EnvelopeBase):
-    result: _CompareArtifact | _CompareFailureArtifact
+    result: aoi.DeltaFrameArtifact | _CompareFailureArtifact
 
 
 class DecomposeResponse(_EnvelopeBase):
@@ -100,7 +94,11 @@ class DerivedBundleResult(BaseModel):
 
     bundle_type: str
     aoi_artifacts: list[
-        aoi.MetricFrameArtifact | aoi.AttributionFrameArtifact | aoi.Artifact1 | aoi.Artifact2
+        aoi.MetricFrameArtifact
+        | aoi.DeltaFrameArtifact
+        | aoi.AttributionFrameArtifact
+        | aoi.Artifact1
+        | aoi.Artifact2
     ]
 
 

@@ -156,14 +156,36 @@ def _scalar_compare_artifact() -> dict:
     left_window = {"field": "time", "start": "2026-05-01", "end": "2026-05-08"}
     right_window = {"field": "time", "start": "2026-04-24", "end": "2026-05-01"}
     return {
-        "comparison_type": "scalar_delta",
+        "artifact_family": "delta_frame",
+        "shape": "scalar_delta",
+        "schema_version": "2.0",
         "metric": "revenue",
-        "current_value": 120.0,
-        "baseline_value": 100.0,
-        "absolute_delta": 20.0,
-        "relative_delta": 0.2,
-        "direction": "increase",
         "unit": "usd",
+        "axes": [{"kind": "comparison_side"}],
+        "subject": {"comparison_kind": "scalar"},
+        "payload": {
+            "series": [
+                {
+                    "keys": {},
+                    "points": [
+                        {
+                            "current_value": 120.0,
+                            "baseline_value": 100.0,
+                            "delta_abs": 20.0,
+                            "delta_pct": 0.2,
+                            "direction": "increase",
+                        },
+                    ],
+                }
+            ],
+            "scope": {
+                "current_value": 120.0,
+                "baseline_value": 100.0,
+                "delta_abs": 20.0,
+                "delta_pct": 0.2,
+                "direction": "increase",
+            },
+        },
         "current_ref": {"artifact_id": "art_left_observe"},
         "baseline_ref": {"artifact_id": "art_right_observe"},
         "resolved_input_summary": {

@@ -739,20 +739,6 @@ def run_compare_intent(
         rel_delta = _compute_relative_delta(abs_delta, baseline_value)
         direction = _compute_direction(abs_delta, rel_delta, flat_tolerance_relative)
         scalar_axes: list[dict[str, str]] = []
-        scalar_series: list[dict[str, Any]] = [
-            {
-                "keys": {},
-                "points": [
-                    {
-                        "current_value": current_value,
-                        "baseline_value": baseline_value,
-                        "delta": abs_delta,
-                        "delta_pct": rel_delta,
-                        "direction": direction,
-                    }
-                ],
-            }
-        ]
         scalar_delta_series: list[dict[str, Any]] = [
             {
                 "keys": {},
@@ -799,7 +785,6 @@ def run_compare_intent(
             **scalar_delta_artifact,
             **base,
             "shape": "scalar_delta",
-            "comparison_type": "scalar_delta",
             "axes": [{"kind": "comparison_side"}],
             "measures": [
                 {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
@@ -822,17 +807,6 @@ def run_compare_intent(
                 ],
                 "scope": scalar_scope,
             },
-            "series": scalar_series,
-            "current_value": current_value,
-            "baseline_value": baseline_value,
-            "absolute_delta": abs_delta,
-            "relative_delta": rel_delta,
-            "direction": direction,
-            "summary_current_value": current_value,
-            "summary_baseline_value": baseline_value,
-            "summary_absolute_delta": abs_delta,
-            "summary_relative_delta": rel_delta,
-            "summary_direction": direction,
         }
         artifact_name = f"{metric_name}_compare_scalar"
         summary = (
@@ -1080,20 +1054,13 @@ def run_compare_intent(
             **time_delta_artifact,
             **base,
             "shape": "time_series_delta",
-            "comparison_type": "time_series_delta",
             "axes": [{"kind": "time", "grain": granularity}, {"kind": "comparison_side"}],
             "measures": [
                 {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
                 {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
             ],
             "payload": {"series": [{"keys": {}, "points": time_series_rows}], "scope": time_scope},
-            "series": [{"keys": {}, "points": time_series_rows}],
             "coverage": coverage,
-            "summary_current_value": summary_current_value,
-            "summary_baseline_value": summary_baseline_value,
-            "summary_absolute_delta": summary_abs,
-            "summary_relative_delta": summary_rel,
-            "summary_direction": summary_dir,
         }
         artifact_name = f"{metric_name}_compare_time_series"
         summary = f"compare {metric_name} time_series: {len(time_series_rows)} bucket deltas"
@@ -1156,10 +1123,21 @@ def run_compare_intent(
                     # global time-series pairing. Extract the start to find matching
                     # points in each panel series.
                     bucket_start = bucket_key.split("|")[0]
+                    matched_right_anchor = right_ts_map.get(bucket_key)
+                    matched_right_window = (
+                        matched_right_anchor.get("_matched_window")
+                        if isinstance(matched_right_anchor, dict)
+                        else None
+                    )
+                    baseline_bucket_start = (
+                        str((matched_right_window or {}).get("start") or "")
+                        if isinstance(matched_right_window, dict)
+                        else ""
+                    ) or bucket_start
                     l_point = l_by_start.get(bucket_start)
-                    r_point = r_by_start.get(bucket_start)
+                    r_point = r_by_start.get(baseline_bucket_start)
 
-                    anchor = left_ts_map.get(bucket_key) or right_ts_map.get(bucket_key) or {}
+                    anchor = left_ts_map.get(bucket_key) or matched_right_anchor or {}
                     window = dict(anchor.get("window") or {})
                     current_value = (
                         _coerce_numeric_or_none(l_point.get("value")) if l_point else None
@@ -1303,12 +1281,16 @@ def run_compare_intent(
                 {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
                 {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
             ],
-            "payload": {"series": panel_series},
-            "summary_current_value": summary_current_value,
-            "summary_baseline_value": summary_baseline_value,
-            "summary_absolute_delta": summary_abs,
-            "summary_relative_delta": summary_rel,
-            "summary_direction": summary_dir,
+            "payload": {
+                "series": panel_series,
+                "scope": {
+                    "current_value": summary_current_value,
+                    "baseline_value": summary_baseline_value,
+                    "delta_abs": summary_abs,
+                    "delta_pct": summary_rel,
+                    "direction": summary_dir,
+                },
+            },
         }
         artifact_name = f"{metric_name}_compare_panel"
         summary = f"compare {metric_name} panel: {len(panel_series)} series deltas"
@@ -1449,19 +1431,12 @@ def run_compare_intent(
             **segmented_delta_artifact,
             **segmented_base,
             "shape": "segmented_delta",
-            "comparison_type": "segmented_delta",
             "axes": [*seg_axes, {"kind": "comparison_side"}],
             "measures": [
                 {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": left_unit},
                 {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
             ],
             "payload": {"series": segmented_delta_series, "scope": segmented_scope},
-            "series": segmented_series,
-            "scope_current_value": scope_lv,
-            "scope_baseline_value": scope_rv,
-            "scope_absolute_delta": scope_abs,
-            "scope_relative_delta": scope_rel,
-            "scope_direction": scope_dir,
         }
         artifact_name = f"{metric_name}_compare_segmented"
         summary = f"compare {metric_name} segmented: {len(segmented_series)} delta rows"

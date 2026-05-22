@@ -1,9 +1,9 @@
 """Tests for the compare / decompose finding extractors (Phase 4d-3).
 
-CompareArtifactExtractor (compare_artifact → DeltaFinding):
+CompareArtifactExtractor (delta_frame → DeltaFinding):
 - scalar_delta → exactly 1 finding with correct DeltaPayload fields
 - segmented_delta → 1 finding per row; segment key stability
-- Unknown comparison_type raises ValueError
+- Unknown or missing shape raises ValueError
 - Empty segmented rows → validate_for_commit("compare", result) raises FamilyEmptyError
 - Registered in default_finding_registry under ("compare_artifact", "v1"); NULL normalisation
 
@@ -91,11 +91,6 @@ def _scalar_delta_payload(
             "artifact_id": _RIGHT_OBS_ART_ID,
         },
         "unit": unit,
-        "current_value": current_value,
-        "baseline_value": baseline_value,
-        "delta_abs": delta,
-        "delta_pct": delta_pct,
-        "direction": direction,
         "axes": [{"kind": "comparison_side"}],
         "subject": {"comparison_kind": "scalar"},
         "payload": {
@@ -113,6 +108,13 @@ def _scalar_delta_payload(
                     ],
                 },
             ],
+            "scope": {
+                "current_value": current_value,
+                "baseline_value": baseline_value,
+                "delta_abs": delta,
+                "delta_pct": delta_pct,
+                "direction": direction,
+            },
         },
         "resolved_input_summary": {
             "current_scope": current_scope or {},
@@ -188,7 +190,7 @@ def _segmented_delta_payload(
                 {
                     "current_value": row.get("current_value"),
                     "baseline_value": row.get("baseline_value"),
-                    "delta_abs": row.get("delta_abs") or row.get("delta"),
+                    "delta_abs": row.get("delta_abs"),
                     "delta_pct": row.get("delta_pct"),
                     "direction": row.get("direction"),
                     "presence": row.get("presence"),
@@ -222,6 +224,23 @@ def _segmented_delta_payload(
         "subject": {"comparison_kind": "segmented"},
         "payload": {
             "series": series,
+            "scope": {
+                "current_value": sum(
+                    row.get("current_value") or 0.0
+                    for row in rows
+                    if row.get("current_value") is not None
+                ),
+                "baseline_value": sum(
+                    row.get("baseline_value") or 0.0
+                    for row in rows
+                    if row.get("baseline_value") is not None
+                ),
+                "delta_abs": sum(
+                    row.get("delta_abs") or 0.0 for row in rows if row.get("delta_abs") is not None
+                ),
+                "delta_pct": None,
+                "direction": "increase",
+            },
         },
         "unit": unit,
         "resolved_input_summary": {
@@ -288,13 +307,15 @@ def _time_series_delta_payload(
         "subject": {"comparison_kind": "time_series"},
         "payload": {
             "series": series,
+            "scope": {
+                "current_value": 100.0,
+                "baseline_value": 90.0,
+                "delta_abs": 10.0,
+                "delta_pct": 10.0 / 90.0,
+                "direction": "increase",
+            },
         },
         "unit": unit,
-        "summary_current_value": 100.0,
-        "summary_baseline_value": 90.0,
-        "summary_absolute_delta": 10.0,
-        "summary_relative_delta": 10.0 / 90.0,
-        "summary_direction": "increase",
         "resolved_input_summary": {
             "current_scope": {},
             "baseline_scope": {},
@@ -781,14 +802,7 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
 
     def _extract_without_summary(self, rows: list[dict[str, Any]] | None = None) -> Any:
         payload = _time_series_delta_payload(rows=rows)
-        for key in (
-            "summary_current_value",
-            "summary_baseline_value",
-            "summary_absolute_delta",
-            "summary_relative_delta",
-            "summary_direction",
-        ):
-            payload.pop(key, None)
+        payload["payload"].pop("scope", None)
         return _COMPARE_EXTRACTOR.extract(
             artifact_id=_ART_ID,
             artifact_payload=payload,
@@ -932,6 +946,13 @@ class TestCompareEdgeCases(unittest.TestCase):
         payload = _scalar_delta_payload()
         del payload["shape"]
         with self.assertRaises(ValueError):
+            _COMPARE_EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
+
+    def test_comparison_type_only_payload_is_rejected(self) -> None:
+        payload = _scalar_delta_payload()
+        payload["comparison_type"] = "scalar_delta"
+        del payload["shape"]
+        with self.assertRaises(ValueError, msg="unknown shape"):
             _COMPARE_EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
 
     def test_finding_count_matches_len_findings(self) -> None:
@@ -1480,16 +1501,24 @@ class TestComparePanelDelta(unittest.TestCase):
                         ],
                     },
                 ],
+                "scope": {
+                    "current_value": 230,
+                    "baseline_value": 170,
+                    "delta_abs": 60,
+                    "delta_pct": 60 / 170,
+                    "direction": "increase",
+                },
             },
             "unit": "usd",
-            "summary_current_value": 230,
-            "summary_baseline_value": 170,
-            "summary_absolute_delta": 60,
             "resolved_input_summary": {
                 "current_scope": {},
                 "baseline_scope": {},
                 "current_time_scope": {"field": "time", "start": "2026-05-15", "end": "2026-05-16"},
-                "baseline_time_scope": {"field": "time", "start": "2026-05-08", "end": "2026-05-09"},
+                "baseline_time_scope": {
+                    "field": "time",
+                    "start": "2026-05-08",
+                    "end": "2026-05-09",
+                },
             },
             "comparability": {"status": "comparable", "issues": []},
             "analytical_metadata": {},
@@ -1505,14 +1534,24 @@ class TestComparePanelDelta(unittest.TestCase):
         findings_list = _COMPARE_EXTRACTOR.extract(
             _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
         )["findings"]
-        us_finding = next(f for f in findings_list if f["payload"].get("delta_kind") == "panel_delta" and f["subject"]["slice"].get("country") == "US")
+        us_finding = next(
+            f
+            for f in findings_list
+            if f["payload"].get("delta_kind") == "panel_delta"
+            and f["subject"]["slice"].get("country") == "US"
+        )
         self.assertEqual(us_finding["payload"]["absolute_delta"], 50)
 
     def test_delta_kind_is_panel_delta(self) -> None:
         findings_list = _COMPARE_EXTRACTOR.extract(
             _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
         )["findings"]
-        panel_findings = [f for f in findings_list if f["payload"]["delta_kind"] == "panel_delta" and f["provenance"]["canonical_item_key"] != "summary"]
+        panel_findings = [
+            f
+            for f in findings_list
+            if f["payload"]["delta_kind"] == "panel_delta"
+            and f["provenance"]["canonical_item_key"] != "summary"
+        ]
         for f in panel_findings:
             self.assertEqual(f["payload"]["delta_kind"], "panel_delta")
 
@@ -1520,7 +1559,12 @@ class TestComparePanelDelta(unittest.TestCase):
         findings_list = _COMPARE_EXTRACTOR.extract(
             _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
         )["findings"]
-        panel_findings = [f for f in findings_list if f["payload"]["delta_kind"] == "panel_delta" and f["provenance"]["canonical_item_key"] != "summary"]
+        panel_findings = [
+            f
+            for f in findings_list
+            if f["payload"]["delta_kind"] == "panel_delta"
+            and f["provenance"]["canonical_item_key"] != "summary"
+        ]
         for f in panel_findings:
             self.assertEqual(f["subject"]["analysis_axis"], "panel")
 
@@ -1543,7 +1587,9 @@ class TestComparePanelDelta(unittest.TestCase):
         findings_list = _COMPARE_EXTRACTOR.extract(
             _ART_ID, self._panel_delta_payload(), _STEP_REF, _SESSION
         )["findings"]
-        summary_findings = [f for f in findings_list if f["provenance"]["canonical_item_key"] == "summary"]
+        summary_findings = [
+            f for f in findings_list if f["provenance"]["canonical_item_key"] == "summary"
+        ]
         self.assertEqual(len(summary_findings), 1)
         self.assertEqual(summary_findings[0]["payload"]["absolute_delta"], 60)
 

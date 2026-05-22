@@ -170,6 +170,17 @@ class AttributionFrameContributionPctMeasure(BaseModel):
     nullable: Literal[True]
 
 
+class DeltaFrameScope(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current_value: float | None
+    baseline_value: float | None
+    delta_abs: float | None
+    delta_pct: float | None
+    direction: Literal["increase", "decrease", "flat", "undefined"]
+
+
 class AttributionPoint(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -314,27 +325,6 @@ class AttributionSubjectScope(BaseModel):
             }
         },
     )
-
-
-class DeltaPoint(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bucket_start: AwareDatetime
-    current_value: float | None
-    baseline_value: float | None
-    delta: float | None
-
-
-class SegmentedDeltaRow(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    item_id: str = Field(..., min_length=1)
-    keys: dict[str, str]
-    current_value: float | None
-    baseline_value: float | None
-    delta: float | None
 
 
 class SubjectScopeRef(BaseModel):
@@ -532,32 +522,6 @@ class MetricFrameSubject(BaseModel):
     )
 
 
-class ScalarDeltaResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    current_value: float | None
-    baseline_value: float | None
-    delta: float | None
-    matched_time_scope: TimeScope | None
-
-
-class SegmentedDeltaResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    rows: list[SegmentedDeltaRow]
-    matched_time_scope: TimeScope | None
-
-
-class TimeSeriesDeltaResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    points: list[DeltaPoint]
-    matched_time_scope: TimeScope | None
-
-
 class Slice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -639,6 +603,7 @@ class DeltaFramePayload(BaseModel):
         extra="forbid",
     )
     series: list[DeltaFrameSeries]
+    scope: DeltaFrameScope
 
 
 class MetricFramePayload(BaseModel):
@@ -646,43 +611,6 @@ class MetricFramePayload(BaseModel):
         extra="forbid",
     )
     series: list[MetricFrameSeries]
-
-
-class Artifact1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    artifact_id: str = Field(..., min_length=1)
-    result: (
-        ScalarDeltaResult
-        | TimeSeriesDeltaResult
-        | SegmentedDeltaResult
-        | AttributionFrameArtifact
-        | AnomalyCandidatesResult
-        | AssociationResult
-        | HypothesisTestResult
-        | ForecastSeriesResult
-    )
-    failure: AnalysisFailure | None = None
-
-
-class Artifact2(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    artifact_id: str = Field(..., min_length=1)
-    result: (
-        ScalarDeltaResult
-        | TimeSeriesDeltaResult
-        | SegmentedDeltaResult
-        | AttributionFrameArtifact
-        | AnomalyCandidatesResult
-        | AssociationResult
-        | HypothesisTestResult
-        | ForecastSeriesResult
-        | None
-    ) = None
-    failure: AnalysisFailure
 
 
 class DeltaFrameArtifact(BaseModel):
@@ -709,6 +637,39 @@ class MetricFrameArtifact(BaseModel):
     axes: list[MetricFrameAxis4 | MetricFrameAxis5]
     measures: list[MetricFrameMeasure] = Field(..., max_length=1, min_length=1)
     payload: MetricFramePayload
+
+
+class Artifact1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., min_length=1)
+    result: (
+        DeltaFrameArtifact
+        | AttributionFrameArtifact
+        | AnomalyCandidatesResult
+        | AssociationResult
+        | HypothesisTestResult
+        | ForecastSeriesResult
+    )
+    failure: AnalysisFailure | None = None
+
+
+class Artifact2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., min_length=1)
+    result: (
+        DeltaFrameArtifact
+        | AttributionFrameArtifact
+        | AnomalyCandidatesResult
+        | AssociationResult
+        | HypothesisTestResult
+        | ForecastSeriesResult
+        | None
+    ) = None
+    failure: AnalysisFailure
 
 
 class AoiV02(

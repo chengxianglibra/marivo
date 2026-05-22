@@ -317,9 +317,7 @@ artifact:
   result:
     # Result body must match one of the AOI result schemas below.
     one_of:
-      - scalar_delta_result            # Scalar comparison delta.
-      - time_series_delta_result       # Time-bucketed comparison deltas.
-      - segmented_delta_result         # Dimension-segmented comparison deltas.
+      - delta_frame_artifact           # Compare delta frame artifact.
       - attribution_frame_artifact     # Ranked contribution frame for a compare result.
       - anomaly_candidates_result      # Ranked anomalous buckets or segments.
       - association_result             # Correlation/association statistics.
@@ -359,49 +357,50 @@ metric_frame_artifact:
               end: iso8601_datetime
             value: number
 
-# Compare results
+# Compare delta frame artifact
 
-# Result for scalar compare requests.
-scalar_delta_result:
-  # Required, nullable: current scalar value. Null means absent. Range follows the metric domain.
-  current_value: number
-
-  # Required, nullable: baseline scalar value. Null means absent. Range follows the metric domain.
-  baseline_value: number
-
-  # Required, nullable: computed current-minus-baseline delta. Null means not computable.
-  # Range follows the metric domain difference. Positive means current is higher than baseline; negative means lower; larger absolute value means a larger change.
-  delta: number
-
-  # Required, nullable: time range actually compared. Null means the full referenced scope was used.
-  matched_time_scope: time_scope
-
-# Result for time-series compare requests.
-time_series_delta_result:
-  # Required: comparison values by time bucket.
-  points:
-    # One bucketed comparison point.
-    - bucket_start: iso8601_datetime  # Required: bucket start timestamp.
-      current_value: number          # Required, nullable: current bucket value. Null means absent. Range follows the metric domain.
-      baseline_value: number         # Required, nullable: baseline bucket value. Null means absent. Range follows the metric domain.
-      delta: number                  # Required, nullable: current-minus-baseline delta. Null means not computable. Positive means current is higher; negative means lower; larger absolute value means larger change.
-
-  # Required, nullable: time range actually compared. Null means the full referenced scope was used.
-  matched_time_scope: time_scope
-
-# Result for segmented compare requests.
-segmented_delta_result:
-  # Required: comparison values by segment.
-  rows:
-    # One segmented comparison row.
-    - item_id: string                 # Required: stable row identifier.
-      keys: dimension_key_map         # Required: segment dimension values.
-      current_value: number          # Required, nullable: current segment value. Null means absent. Range follows the metric domain.
-      baseline_value: number         # Required, nullable: baseline segment value. Null means absent. Range follows the metric domain.
-      delta: number                  # Required, nullable: current-minus-baseline delta. Null means not computable. Positive means current is higher; negative means lower; larger absolute value means larger change.
-
-  # Required, nullable: time range actually compared. Null means the full referenced scope was used.
-  matched_time_scope: time_scope
+# Successful artifact returned by compare.
+delta_frame_artifact:
+  artifact_id: string
+  artifact_family: delta_frame
+  shape: scalar_delta | time_series_delta | segmented_delta | panel_delta
+  subject:
+    kind: comparison
+    metric_ref: string
+    current:
+      time_scope: time_scope
+      scope: object
+    baseline:
+      time_scope: time_scope
+      scope: object
+  axes:
+    - kind: time | dimension | comparison_side
+      grain: time_granularities
+      name: string
+  measures:
+    - id: delta_abs | delta_pct
+      value_type: number
+      nullable: true
+      unit: string
+  payload:
+    series:
+      - keys: object
+        points:
+          - window:
+              start: iso8601_datetime
+              end: iso8601_datetime
+            current_value: number
+            baseline_value: number
+            delta_abs: number
+            delta_pct: number
+            direction: increase | decrease | flat | undefined
+            presence: both | current_only | baseline_only
+    scope:
+      current_value: number
+      baseline_value: number
+      delta_abs: number
+      delta_pct: number
+      direction: increase | decrease | flat | undefined
 
 # Decompose, detect, correlate, test, and forecast results
 

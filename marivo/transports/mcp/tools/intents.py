@@ -45,10 +45,10 @@ CompareObserveArtifactId = Annotated[
     Field(
         description=(
             "Committed observe artifact ID from this session. compare accepts scalar, "
-            "segmented, or time_series observe artifacts when left and right have the same "
-            "observation family. Segmented observe artifacts such as dimensions=['log_hour'] "
-            "are valid with compare_type='normal'; calendar-aligned compare types require "
-            "time_series artifacts."
+            "segmented, time_series, or panel observe artifacts when left and right have "
+            "the same observation family. Segmented observe artifacts such as "
+            "dimensions=['log_hour'] are valid with compare_type='normal'; "
+            "calendar-aligned compare types require time_series or panel artifacts."
         )
     ),
 ]
@@ -377,9 +377,9 @@ def register_compare(server: Any, runtime: Any) -> None:
     @server.tool(  # type: ignore
         description=(
             "Compare two committed observe artifacts from the same session. scalar, segmented, "
-            "and time_series observations are valid for compare_type='normal'; "
+            "time_series, and panel observations are valid for compare_type='normal'; "
             "holiday_aligned, weekday_aligned, and holiday_and_weekday_aligned require "
-            "observe(time_series) inputs."
+            "time-axis observe inputs."
         )
     )
     async def compare(
@@ -398,8 +398,8 @@ def register_compare(server: Any, runtime: Any) -> None:
             ],
             Field(
                 description=(
-                    "normal compares scalar, segmented, or time_series observations. "
-                    "Calendar-aligned values are only valid for time_series observations."
+                    "normal compares scalar, segmented, time_series, or panel observations. "
+                    "Calendar-aligned values are valid for time_series or panel observations."
                 )
             ),
         ] = "normal",

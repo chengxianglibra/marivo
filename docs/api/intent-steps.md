@@ -136,16 +136,17 @@ POST /sessions/{session_id}/intents/compare
 }
 ```
 
-`compare_type` defaults to `normal` when omitted. It is the only public calendar
-alignment control: `normal` compares scalar, segmented, or time-series observe
-artifacts. For segmented observe artifacts, including hour partition slices such
-as `dimensions: ["log_hour"]`, compare joins rows by segment key and returns a
-`segmented_delta` result. For time-series observe artifacts, `normal` pairs
-buckets by relative position in the left and right artifact windows.
-`holiday_aligned`, `weekday_aligned`, and `holiday_and_weekday_aligned` are
-accepted only for time-series compare artifacts. Holiday strategies read
-configured calendar data; all alignment strategies fall back to relative-position
-pairing when a more specific bucket match is absent.
+`compare_type` defaults to `normal` when omitted. Compare consumes committed
+`metric_frame` observe artifacts and returns a `delta_frame` artifact. `normal`
+compares scalar, segmented, time-series, or panel observe artifacts. For
+segmented observe artifacts, including hour partition slices such as
+`dimensions: ["log_hour"]`, compare joins rows by segment key and returns a
+`segmented_delta` result. For time-axis observe artifacts (`time_series` and
+`panel`), `normal` pairs buckets by relative position in the left and right
+artifact windows. `holiday_aligned`, `weekday_aligned`, and
+`holiday_and_weekday_aligned` are accepted for time-axis observe artifacts.
+Holiday strategies read configured calendar data; all alignment strategies fall
+back to relative-position pairing when a more specific bucket match is absent.
 
 ### Decompose
 

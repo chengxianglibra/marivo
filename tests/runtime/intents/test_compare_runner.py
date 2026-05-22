@@ -176,12 +176,15 @@ def test_compare_scalar_commits_scalar_delta() -> None:
     result = _run_compare(runtime)
 
     assert result["artifact_id"] == _FAKE_ARTIFACT_ID
-    assert result["comparison_type"] == "scalar_delta"
     assert result["artifact_family"] == "delta_frame"
     assert result["shape"] == "scalar_delta"
     assert "decomposable" in result["capabilities"]
-    assert result["payload"]["scope"]["delta_abs"] == result["summary_absolute_delta"]
-    assert result["payload"]["series"][0]["points"][0]["delta_abs"] == result["absolute_delta"]
+    assert result["payload"]["scope"]["delta_abs"] == 2.0
+    assert result["payload"]["series"][0]["points"][0]["delta_abs"] == 2.0
+    assert "comparison_type" not in result
+    assert "series" not in result
+    assert "absolute_delta" not in result
+    assert "summary_absolute_delta" not in result
 
 
 def test_compare_time_series_commits_time_series_delta() -> None:
@@ -198,20 +201,19 @@ def test_compare_time_series_commits_time_series_delta() -> None:
 
     result = _run_compare(runtime)
 
-    assert result["comparison_type"] == "time_series_delta"
     assert result["artifact_family"] == "delta_frame"
     assert result["shape"] == "time_series_delta"
     assert "decomposable" in result["capabilities"]
-    assert result["payload"]["scope"]["delta_abs"] == result["summary_absolute_delta"]
-    assert (
-        result["payload"]["series"][0]["points"][0]["delta_abs"]
-        == result["series"][0]["points"][0]["delta_abs"]
-    )
+    assert result["payload"]["scope"]["delta_abs"] == 7.0
+    assert result["payload"]["series"][0]["points"][0]["delta_abs"] == 2.0
+    assert "comparison_type" not in result
+    assert "series" not in result
+    assert "summary_absolute_delta" not in result
     assert result["axes"] == [{"kind": "time", "grain": "day"}, {"kind": "comparison_side"}]
     points = result["payload"]["series"][0]["points"]
     assert len(points) == 2
-    assert result["summary_current_value"] == 30.0
-    assert result["summary_baseline_value"] == 23.0
+    assert result["payload"]["scope"]["current_value"] == 30.0
+    assert result["payload"]["scope"]["baseline_value"] == 23.0
     assert result["analytical_metadata"]["pairing_basis"] == "input_artifact_window_position"
     assert result["analytical_metadata"]["pairing_rule"] == "relative_bucket_position"
 
@@ -344,17 +346,15 @@ def test_compare_segmented_commits_segmented_delta() -> None:
 
     result = _run_compare(runtime)
 
-    assert result["comparison_type"] == "segmented_delta"
     assert result["artifact_family"] == "delta_frame"
     assert result["shape"] == "segmented_delta"
     assert "decomposable" in result["capabilities"]
-    assert result["payload"]["scope"]["delta_abs"] == result["scope_absolute_delta"]
-    assert (
-        result["payload"]["series"][0]["points"][0]["delta_abs"]
-        == result["series"][0]["points"][0]["delta_abs"]
-    )
+    assert result["payload"]["scope"]["delta_abs"] == 40.0
+    assert result["payload"]["series"][0]["points"][0]["delta_abs"] is not None
+    assert "comparison_type" not in result
+    assert "series" not in result
+    assert "scope_absolute_delta" not in result
     assert "coverage" not in result
-    assert result["scope_absolute_delta"] == 40.0
     assert result["lineage"]["compare_type"] == "normal"
     series_entries = result["payload"]["series"]
     assert {entry["points"][0]["presence"] for entry in series_entries} == {
@@ -390,7 +390,7 @@ def test_compare_segmented_log_hour_commits_segmented_delta() -> None:
         {"kind": "dimension", "name": "log_hour"},
         {"kind": "comparison_side"},
     ]
-    assert result["scope_absolute_delta"] == 70.0
+    assert result["payload"]["scope"]["delta_abs"] == 70.0
     series_entries = result["payload"]["series"]
     assert {next(iter(entry["keys"].items())) for entry in series_entries} == {
         ("log_hour", "09"),
@@ -465,8 +465,10 @@ def test_compare_panel_commits_panel_delta() -> None:
     assert us_series["points"][0]["direction"] == "increase"
     assert us_series["points"][0]["presence"] == "both"
     # Scope summary sums all matched values
-    assert result["summary_current_value"] == 260.0  # 100 + 110 + 50
-    assert result["summary_baseline_value"] == 210.0  # 80 + 90 + 40
+    assert result["payload"]["scope"]["current_value"] == 260.0  # 100 + 110 + 50
+    assert result["payload"]["scope"]["baseline_value"] == 210.0  # 80 + 90 + 40
+    assert result["payload"]["scope"]["delta_abs"] == 50.0
+    assert "summary_absolute_delta" not in result
 
 
 def test_compare_panel_partial_series_has_current_only_and_baseline_only() -> None:
@@ -616,9 +618,9 @@ def test_compare_type_normal_aligns_non_overlapping_windows_by_relative_position
     assert result["analytical_metadata"]["pairing_basis"] == "input_artifact_window_position"
     assert result["analytical_metadata"]["pairing_rule"] == "relative_bucket_position"
     assert result["analytical_metadata"]["compare_type"] == "normal"
-    assert result["summary_current_value"] == 22.0
-    assert result["summary_baseline_value"] == 20.0
-    assert result["summary_absolute_delta"] == 2.0
+    assert result["payload"]["scope"]["current_value"] == 22.0
+    assert result["payload"]["scope"]["baseline_value"] == 20.0
+    assert result["payload"]["scope"]["delta_abs"] == 2.0
     assert result["analytical_metadata"]["matched_current_time_scope"] == {
         "field": "time",
         "start": "2026-02-14",
@@ -751,6 +753,154 @@ def test_compare_type_holiday_and_weekday_aligned_falls_back_to_weekday() -> Non
         ]
         == "same_weekday_nearest"
     )
+
+
+def test_compare_panel_weekday_aligned_uses_calendar_pairing() -> None:
+    left = _panel_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}
+                ],
+            }
+        ],
+    )
+    _set_metric_frame_time_scope(
+        left, {"field": "time", "start": "2026-04-02", "end": "2026-04-04"}
+    )
+    right = _panel_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}
+                ],
+            }
+        ],
+    )
+    _set_metric_frame_time_scope(
+        right, {"field": "time", "start": "2025-04-01", "end": "2025-04-05"}
+    )
+    runtime = _make_runtime(left, right)
+
+    result = _run_compare(runtime, _compare_params("weekday_aligned"))
+
+    points = result["payload"]["series"][0]["points"]
+    assert result["shape"] == "panel_delta"
+    assert points[0]["baseline_value"] == 100.0
+    assert (
+        result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
+            "pairing_reason"
+        ]
+        == "same_weekday_nearest"
+    )
+
+
+def test_compare_panel_holiday_aligned_reads_calendar_data() -> None:
+    left = _panel_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {"window": {"start": "2026-02-20", "end": "2026-02-21"}, "value": 120.0}
+                ],
+            }
+        ],
+    )
+    _set_metric_frame_time_scope(
+        left, {"field": "time", "start": "2026-02-20", "end": "2026-02-21"}
+    )
+    right = _panel_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {"window": {"start": "2025-02-20", "end": "2025-02-21"}, "value": 100.0}
+                ],
+            }
+        ],
+    )
+    _set_metric_frame_time_scope(
+        right, {"field": "time", "start": "2025-02-20", "end": "2025-02-21"}
+    )
+    runtime = _make_runtime(left, right)
+    runtime.calendar_data_reader = _FakeCalendarDataReader()
+
+    result = _run_compare(runtime, _compare_params("holiday_aligned"))
+
+    points = result["payload"]["series"][0]["points"]
+    assert result["shape"] == "panel_delta"
+    assert points[0]["baseline_value"] == 100.0
+    assert (
+        result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
+            "pairing_reason"
+        ]
+        == "holiday_cluster"
+    )
+
+
+def test_compare_panel_holiday_and_weekday_aligned_falls_back_to_weekday() -> None:
+    left = _panel_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": 120.0}
+                ],
+            }
+        ],
+    )
+    _set_metric_frame_time_scope(
+        left, {"field": "time", "start": "2026-04-02", "end": "2026-04-03"}
+    )
+    right = _panel_observation_v2(
+        "m1",
+        dimensions=["country"],
+        series=[
+            {
+                "keys": {"country": "US"},
+                "points": [
+                    {"window": {"start": "2025-04-03", "end": "2025-04-04"}, "value": 100.0}
+                ],
+            }
+        ],
+    )
+    _set_metric_frame_time_scope(
+        right, {"field": "time", "start": "2025-04-01", "end": "2025-04-05"}
+    )
+    runtime = _make_runtime(left, right)
+    runtime.calendar_data_reader = _FakeCalendarDataReader()
+
+    result = _run_compare(runtime, _compare_params("holiday_and_weekday_aligned"))
+
+    points = result["payload"]["series"][0]["points"]
+    assert result["shape"] == "panel_delta"
+    assert points[0]["baseline_value"] == 100.0
+    assert (
+        result["resolved_input_summary"]["calendar_alignment"]["bucket_pairing"][0][
+            "pairing_reason"
+        ]
+        == "same_weekday_nearest"
+    )
+
+
+def test_compare_panel_holiday_aligned_requires_calendar_reader() -> None:
+    runtime = _make_runtime(_panel_observation_v2("m1"), _panel_observation_v2("m1"))
+    runtime.calendar_data_reader = None
+
+    with pytest.raises(ValueError, match="requires configured calendar data"):
+        _run_compare(runtime, _compare_params("holiday_aligned"))
 
 
 def test_compare_type_holiday_aligned_requires_calendar_reader() -> None:

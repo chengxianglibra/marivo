@@ -606,13 +606,7 @@
           "result": {
             "anyOf": [
               {
-                "$ref": "#/$defs/artifacts/ScalarDeltaResult"
-              },
-              {
-                "$ref": "#/$defs/artifacts/TimeSeriesDeltaResult"
-              },
-              {
-                "$ref": "#/$defs/artifacts/SegmentedDeltaResult"
+                "$ref": "#/$defs/artifacts/DeltaFrameArtifact"
               },
               {
                 "$ref": "#/$defs/artifacts/AttributionFrameArtifact"
@@ -1454,7 +1448,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "series"
+          "series",
+          "scope"
         ],
         "properties": {
           "series": {
@@ -1462,6 +1457,55 @@
             "items": {
               "$ref": "#/$defs/artifacts/DeltaFrameSeries"
             }
+          },
+          "scope": {
+            "$ref": "#/$defs/artifacts/DeltaFrameScope"
+          }
+        }
+      },
+      "DeltaFrameScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current_value",
+          "baseline_value",
+          "delta_abs",
+          "delta_pct",
+          "direction"
+        ],
+        "properties": {
+          "current_value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "baseline_value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "delta_abs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "delta_pct": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "increase",
+              "decrease",
+              "flat",
+              "undefined"
+            ]
           }
         }
       },
