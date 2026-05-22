@@ -23,7 +23,7 @@ from marivo.runtime.intents.metric_frame import (
     metric_display_name,
     read_axes_from_artifact,
     read_metric_frame_metric_ref,
-    read_metric_frame_points,
+    read_metric_frame_series,
     read_metric_frame_shape,
     read_metric_frame_time_scope,
     time_grain_from_axes,
@@ -115,6 +115,102 @@ def _generate_future_windows(
     return windows
 
 
+def _usable_points(raw_series: list[dict[str, Any]]) -> list[tuple[str, str, float]]:
+    usable: list[tuple[str, str, float]] = []
+    for bucket in raw_series:
+        w = bucket.get("window") or {}
+        val_raw = bucket.get("value")
+        if val_raw is None:
+            continue
+        try:
+            val = float(val_raw)
+        except (TypeError, ValueError):
+            continue
+        usable.append((str(w.get("start") or ""), str(w.get("end") or ""), val))
+    return usable
+
+
+def _compute_forecast_points(
+    *,
+    usable: list[tuple[str, str, float]],
+    granularity: str,
+    horizon: int,
+    interval_level: float,
+) -> tuple[list[dict[str, Any]], str, str, str, str, dict[str, str]]:
+    usable_count = len(usable)
+    resolved_profile = "trend" if usable_count >= _MIN_POINTS["trend"] else "level"
+
+    min_required = _MIN_POINTS.get(resolved_profile, 1)
+    if usable_count < min_required:
+        raise ValueError(
+            f"forecast: INSUFFICIENT_HISTORY - profile='{resolved_profile}' requires at least "
+            f"{min_required} usable history point(s), but only {usable_count} available"
+        )
+
+    last_obs_start = usable[-1][0]
+    last_obs_end = usable[-1][1]
+    last_observed_window = {"start": last_obs_start, "end": last_obs_end}
+    values = [u[2] for u in usable]
+    future_windows = _generate_future_windows(last_obs_end, granularity, horizon)
+
+    forecast_buckets: list[dict[str, Any]] = []
+    if resolved_profile == "level":
+        last_value = values[-1]
+        trend_assumption = "none"
+        seasonality_assumption = "not_applicable"
+        model_family = "level"
+
+        for idx, (w_start, w_end) in enumerate(future_windows, start=1):
+            forecast_buckets.append(
+                {
+                    "bucket_index": idx,
+                    "window": {"start": w_start, "end": w_end},
+                    "point_forecast": last_value,
+                    "prediction_interval": None,
+                }
+            )
+    else:
+        a, b = _ols_fit(values)
+        resid_std = _ols_residual_std(values, a, b)
+        n = len(values)
+
+        trend_assumption = "included"
+        seasonality_assumption = "none"
+        model_family = "ols_linear"
+        z = _z_for_level(interval_level)
+
+        for idx, (w_start, w_end) in enumerate(future_windows, start=1):
+            x_future = n + idx - 1
+            point = a + b * x_future
+
+            if resid_std > 0:
+                prediction_interval: dict[str, Any] | None = {
+                    "level": interval_level,
+                    "lower": point - z * resid_std,
+                    "upper": point + z * resid_std,
+                }
+            else:
+                prediction_interval = None
+
+            forecast_buckets.append(
+                {
+                    "bucket_index": idx,
+                    "window": {"start": w_start, "end": w_end},
+                    "point_forecast": point,
+                    "prediction_interval": prediction_interval,
+                }
+            )
+
+    return (
+        forecast_buckets,
+        resolved_profile,
+        trend_assumption,
+        seasonality_assumption,
+        model_family,
+        last_observed_window,
+    )
+
+
 # ── Runner ────────────────────────────────────────────────────────────────────
 
 
@@ -124,9 +220,9 @@ def run_forecast_intent(
     params: dict[str, Any] | None,
     reasoning: str | None = None,
 ) -> dict[str, Any]:
-    """Execute a `forecast` intent: project a time-series into future buckets.
+    """Execute a `forecast` intent: project a metric_frame into future buckets.
 
-    Consumes a single `time_series` observe artifact from the same session and
+    Consumes a `metric_frame(time_series|panel)` artifact from the same session and
     applies a v1 forecast profile selected by available history.
 
     Empty semantics: forecast must produce ≥1 bucket (non-empty success).
@@ -180,11 +276,11 @@ def run_forecast_intent(
             "forecast: INVALID_ARGUMENT - source_artifact_id must point to a metric_frame "
             "artifact with artifact_family='metric_frame'"
         )
-    artifact_obs_type = read_metric_frame_shape(source_artifact)
-    if artifact_obs_type != "time_series":
+    source_shape = read_metric_frame_shape(source_artifact)
+    if source_shape not in {"time_series", "panel"}:
         raise ValueError(
-            f"forecast: INVALID_ARGUMENT - source_artifact_id must point to a 'time_series' observe "
-            f"artifact, got observation_type='{artifact_obs_type}'"
+            "forecast: INVALID_ARGUMENT - source_artifact_id must point to "
+            f"metric_frame(time_series|panel), got shape='{source_shape}'"
         )
     # ── Derive granularity from source artifact ───────────────────────────────
     granularity = str(time_grain_from_axes(read_axes_from_artifact(source_artifact)) or "").lower()
@@ -195,38 +291,27 @@ def run_forecast_intent(
         )
 
     # ── Extract and validate metric_frame points ──────────────────────────────
-    raw_series = read_metric_frame_points(source_artifact)
-    observed_points = len(raw_series)
+    metric_frame_series = read_metric_frame_series(source_artifact)
+    series_entries = [entry for entry in metric_frame_series if isinstance(entry, dict)]
+    observed_points = sum(len(entry.get("points") or []) for entry in series_entries)
 
-    usable: list[tuple[str, str, float]] = []  # (start, end, value)
-    for bucket in raw_series:
-        w = bucket.get("window") or {}
-        val_raw = bucket.get("value")
-        if val_raw is None:
-            continue
-        try:
-            val = float(val_raw)
-        except (TypeError, ValueError):
-            continue
-        usable.append((str(w.get("start") or ""), str(w.get("end") or ""), val))
-
-    usable_count = len(usable)
-    dropped_points = observed_points - usable_count
-
-    # Resolve a concrete profile based on available history.
-    resolved_profile = "trend" if usable_count >= _MIN_POINTS["trend"] else "level"
-
-    min_required = _MIN_POINTS.get(resolved_profile, 1)
-    if usable_count < min_required:
-        raise ValueError(
-            f"forecast: INSUFFICIENT_HISTORY - profile='{resolved_profile}' requires at least "
-            f"{min_required} usable history point(s), but only {usable_count} available"
+    per_series: list[dict[str, Any]] = []
+    total_usable = 0
+    for index, entry in enumerate(series_entries):
+        raw_points = entry.get("points") or []
+        usable = _usable_points(raw_points)
+        total_usable += len(usable)
+        per_series.append(
+            {
+                "index": index,
+                "keys": dict(entry.get("keys") or {}),
+                "raw_points": raw_points,
+                "usable": usable,
+            }
         )
 
-    # Last observed window (derived from last usable bucket)
-    last_obs_start = usable[-1][0]
-    last_obs_end = usable[-1][1]
-    last_observed_window = {"start": last_obs_start, "end": last_obs_end}
+    usable_count = total_usable
+    dropped_points = observed_points - usable_count
 
     # ── Forecastability assessment ─────────────────────────────────────────────
     forecastability_issues: list[dict[str, Any]] = []
@@ -257,66 +342,73 @@ def run_forecast_intent(
         raise ValueError(f"forecast: not_forecastable: {'; '.join(error_msgs)}")
 
     # ── Compute forecast ───────────────────────────────────────────────────────
-    values = [u[2] for u in usable]
-    future_windows = _generate_future_windows(last_obs_end, granularity, horizon)
-
+    forecast_buckets: list[dict[str, Any]]
+    resolved_profile: str
     trend_assumption: str
     seasonality_assumption: str
     model_family: str
-    forecast_buckets: list[dict[str, Any]] = []
+    last_observed_window: dict[str, str]
 
-    if resolved_profile == "level":
-        # Carry-forward: last observed value for all future buckets
-        last_value = values[-1]
-        trend_assumption = "none"
-        seasonality_assumption = "not_applicable"
-        model_family = "level"
-
-        for idx, (w_start, w_end) in enumerate(future_windows, start=1):
-            forecast_buckets.append(
-                {
-                    "bucket_index": idx,
-                    "window": {"start": w_start, "end": w_end},
-                    "point_forecast": last_value,
-                    "prediction_interval": None,
-                }
+    if source_shape == "time_series":
+        if not per_series:
+            raise ValueError(
+                "forecast: INSUFFICIENT_HISTORY - profile='level' requires at least 1 usable "
+                "history point(s), but only 0 available"
             )
-
+        (
+            forecast_buckets,
+            resolved_profile,
+            trend_assumption,
+            seasonality_assumption,
+            model_family,
+            last_observed_window,
+        ) = _compute_forecast_points(
+            usable=per_series[0]["usable"],
+            granularity=granularity,
+            horizon=horizon,
+            interval_level=interval_level,
+        )
     else:
-        # trend → OLS linear trend with residual interval
-        a, b = _ols_fit(values)
-        resid_std = _ols_residual_std(values, a, b)
-        n = len(values)
+        panel_forecast: list[dict[str, Any]] = []
+        profiles: set[str] = set()
+        trend_assumptions: set[str] = set()
+        seasonality_assumptions: set[str] = set()
+        model_families: set[str] = set()
+        last_windows: list[dict[str, str]] = []
 
-        trend_assumption = "included"
-        seasonality_assumption = "none"
-        model_family = "ols_linear"
-
-        z = _z_for_level(interval_level)
-
-        for idx, (w_start, w_end) in enumerate(future_windows, start=1):
-            x_future = n + idx - 1  # extrapolate at position n, n+1, ...
-            point = a + b * x_future
-
-            if resid_std > 0:
-                lower = point - z * resid_std
-                upper = point + z * resid_std
-                prediction_interval: dict[str, Any] | None = {
-                    "level": interval_level,
-                    "lower": lower,
-                    "upper": upper,
-                }
-            else:
-                prediction_interval = None
-
-            forecast_buckets.append(
-                {
-                    "bucket_index": idx,
-                    "window": {"start": w_start, "end": w_end},
-                    "point_forecast": point,
-                    "prediction_interval": prediction_interval,
-                }
+        for entry in per_series:
+            (
+                points,
+                entry_profile,
+                entry_trend_assumption,
+                entry_seasonality_assumption,
+                entry_model_family,
+                entry_last_window,
+            ) = _compute_forecast_points(
+                usable=entry["usable"],
+                granularity=granularity,
+                horizon=horizon,
+                interval_level=interval_level,
             )
+            panel_forecast.append({"keys": entry["keys"], "points": points})
+            profiles.add(entry_profile)
+            trend_assumptions.add(entry_trend_assumption)
+            seasonality_assumptions.add(entry_seasonality_assumption)
+            model_families.add(entry_model_family)
+            last_windows.append(entry_last_window)
+
+        forecast_buckets = panel_forecast
+        resolved_profile = profiles.pop() if len(profiles) == 1 else "mixed"
+        trend_assumption = trend_assumptions.pop() if len(trend_assumptions) == 1 else "mixed"
+        seasonality_assumption = (
+            seasonality_assumptions.pop() if len(seasonality_assumptions) == 1 else "mixed"
+        )
+        model_family = model_families.pop() if len(model_families) == 1 else "mixed"
+        last_observed_window = (
+            sorted(last_windows, key=lambda window: window["end"])[-1]
+            if last_windows
+            else {"start": "", "end": ""}
+        )
 
     # Non-empty semantics guard (should always pass given horizon >= 1)
     if not forecast_buckets:
@@ -336,7 +428,7 @@ def run_forecast_intent(
         "session_id": session_id,
         "step_id": src_step_id,
         "artifact_id": resolved_artifact_id,
-        "observation_type": "time_series",
+        "source_shape": source_shape,
     }
 
     artifact: dict[str, Any] = {
@@ -358,6 +450,7 @@ def run_forecast_intent(
             "usable_points": usable_count,
             "dropped_points": dropped_points,
             "last_observed_window": last_observed_window,
+            "series_count": len(per_series),
         },
         "forecast": forecast_buckets,
         "source_lineage": {

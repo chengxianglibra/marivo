@@ -29,13 +29,13 @@ _ReasoningField = Annotated[
     ),
 ]
 
-TimeSeriesObserveArtifactId = Annotated[
+MetricFrameArtifactId = Annotated[
     str,
     Field(
         description=(
-            "Committed observe(time_series) artifact ID from this session. Produce it with "
-            "observe(granularity=...) and no dimensions; scalar, segmented, datasource, and "
-            "forecast artifacts are not valid."
+            "Committed AOI metric_frame artifact ID from this session. correlate accepts "
+            "scalar, time_series, segmented, or panel metric_frame artifacts when both sides "
+            "have the same shape. forecast accepts time_series or panel metric_frame artifacts."
         )
     ),
 ]
@@ -561,9 +561,9 @@ def register_detect(server: Any, runtime: Any) -> None:
 def register_correlate(server: Any, runtime: Any) -> None:
     @server.tool(  # type: ignore
         description=(
-            "Correlate two committed observe(time_series) artifacts from the same session. "
-            "Use artifact IDs returned by observe calls with granularity; scalar or segmented "
-            "observe artifacts are invalid."
+            "Correlate two committed metric_frame artifacts from the same session. Both "
+            "artifact IDs must resolve to the same shape: scalar, time_series, segmented, "
+            "or panel."
         )
     )
     async def correlate(
@@ -571,8 +571,8 @@ def register_correlate(server: Any, runtime: Any) -> None:
             str,
             Field(description="Marivo analysis session ID that owns this intent call."),
         ],
-        left_artifact_id: TimeSeriesObserveArtifactId,
-        right_artifact_id: TimeSeriesObserveArtifactId,
+        left_artifact_id: MetricFrameArtifactId,
+        right_artifact_id: MetricFrameArtifactId,
         method: Annotated[
             Literal["pearson", "spearman"] | None,
             Field(description="Correlation method; omit to use the service default."),
@@ -603,9 +603,9 @@ def register_correlate(server: Any, runtime: Any) -> None:
 def register_forecast(server: Any, runtime: Any) -> None:
     @server.tool(  # type: ignore
         description=(
-            "Forecast from one committed observe(time_series) artifact from the same session. "
-            "source_artifact_id must come from observe(granularity=...), not from datasource, "
-            "scalar observe, segmented observe, or forecast output."
+            "Forecast from one committed metric_frame(time_series|panel) artifact from the "
+            "same session. Panel inputs are forecast independently per series and preserve "
+            "series keys."
         )
     )
     async def forecast(
@@ -613,14 +613,14 @@ def register_forecast(server: Any, runtime: Any) -> None:
             str,
             Field(description="Marivo analysis session ID that owns this intent call."),
         ],
-        source_artifact_id: TimeSeriesObserveArtifactId,
+        source_artifact_id: MetricFrameArtifactId,
         horizon: Annotated[
             int,
             Field(
                 ge=1,
                 description=(
                     "Number of future buckets to forecast, in units of the source "
-                    "observe(time_series) granularity."
+                    "metric_frame time granularity."
                 ),
             ),
         ],

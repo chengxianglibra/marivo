@@ -48,6 +48,30 @@ def _time_series_artifact(
     )
 
 
+def _panel_artifact(
+    *,
+    values_by_region: dict[str, list[Any]] | None = None,
+    granularity: str = "day",
+) -> dict[str, Any]:
+    resolved_values = values_by_region or {
+        "US": [100.0, 110.0, 120.0],
+        "EU": [200.0, 210.0, 220.0],
+    }
+    return build_metric_frame_artifact(
+        artifact_id="art_metric_forecast_dau_panel",
+        shape="panel",
+        metric_ref="metric.forecast_dau",
+        time_scope={"field": "event_time", "start": "2026-01-01", "end": "2026-01-04"},
+        scope={},
+        axes=[{"kind": "time", "grain": granularity}, {"kind": "dimension", "name": "region"}],
+        series=[
+            {"keys": {"region": region}, "points": _daily_points(values)}
+            for region, values in resolved_values.items()
+        ],
+        unit=None,
+    )
+
+
 def _make_runtime(
     artifact: dict[str, Any] | None = None,
     *,
@@ -96,7 +120,7 @@ def test_forecast_resolves_source_by_artifact_id_and_records_source_lineage() ->
         "session_id": _SESSION,
         "step_id": _SOURCE_STEP_ID,
         "artifact_id": _SOURCE_ARTIFACT_ID,
-        "observation_type": "time_series",
+        "source_shape": "time_series",
     }
     assert result["source_lineage"]["source_artifact_ref"] == result["source_ref"]
     assert result["source_lineage"]["source_metric_contract_version"] is None
@@ -195,6 +219,25 @@ def test_forecast_moderate_horizon_is_forecastable() -> None:
     result = _run_forecast(runtime, horizon=3)
 
     assert result["forecastability"] == {"status": "forecastable", "issues": []}
+
+
+def test_forecast_accepts_panel_metric_frame_and_preserves_series_keys() -> None:
+    runtime = _make_runtime(
+        _panel_artifact(values_by_region={"US": [100.0, 110.0, 120.0], "EU": [40.0, 45.0, 50.0]})
+    )
+
+    result = _run_forecast(runtime, horizon=2)
+
+    assert result["source_ref"]["source_shape"] == "panel"
+    assert result["history_summary"]["series_count"] == 2
+    assert result["forecast"][0]["keys"] == {"region": "US"}
+    assert result["forecast"][1]["keys"] == {"region": "EU"}
+    assert [len(series["points"]) for series in result["forecast"]] == [2, 2]
+    assert [point["bucket_index"] for point in result["forecast"][0]["points"]] == [1, 2]
+    assert result["forecast"][0]["points"][0]["window"] == {
+        "start": "2026-01-04",
+        "end": "2026-01-05",
+    }
 
 
 @pytest.mark.parametrize(
@@ -300,13 +343,14 @@ def test_forecast_rejects_non_metric_frame_artifact_before_shape_read() -> None:
     )
 
 
-def test_forecast_rejects_non_time_series_source() -> None:
-    runtime = _make_runtime(_time_series_artifact(shape="scalar"))
+@pytest.mark.parametrize("shape", ["scalar", "segmented"])
+def test_forecast_rejects_non_forecastable_metric_frame_shapes(shape: str) -> None:
+    runtime = _make_runtime(_time_series_artifact(shape=shape))
 
     _assert_forecast_fails_without_commit(
         runtime,
         {"source_artifact_id": _SOURCE_ARTIFACT_ID, "horizon": 1},
-        "time_series",
+        r"metric_frame\(time_series\|panel\)",
     )
 
 

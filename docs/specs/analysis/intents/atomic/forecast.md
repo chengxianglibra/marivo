@@ -6,7 +6,7 @@
 
 ## 目的
 
-`forecast` 用于把一个已定义的单时间序列观测投影到有界未来范围，并返回带不确定性的类型化预测值。
+`forecast` 用于把一个已定义的 `metric_frame(time_series|panel)` 投影到有界未来范围，并返回带不确定性的类型化预测值。
 
 设计目标：
 
@@ -17,19 +17,19 @@
 
 ## 核心设计决策
 
-`forecast` 消费一个 `observe(time_series)` 输出，而不是原始 metric 名、time scope、SQL 片段或任意模型配置（model config）。
+`forecast` 消费一个 `metric_frame(time_series|panel)` 输出，而不是原始 metric 名、time scope、SQL 片段或任意模型配置（model config）。
 
 数据流因此保持清晰：
 
-- `observe` 定义历史序列
-- `forecast` 定义该序列上的未来投影
+- `observe` 定义历史 time_series 或 panel 观测面
+- `forecast` 定义该观测面上的未来投影
 
 v1 明确排除：
 
 - 因果预测（causal forecasting）
 - 情景规划（scenario planning）
 - 干预模拟（intervention simulation）
-- 多序列联合预测（multi-series joint forecasting）
+- 多序列联合建模（multi-series joint modeling）；panel 输入按 series 独立预测并保留 keys
 - 任意模型超参数（model hyperparameters）
 - 预算分配（budget allocation）或目标求解（target-solving）
 - 节假日（holidays）/ 支出（spend）/ 活动标记（campaign flags）等外生回归变量（exogenous regressors）
@@ -177,13 +177,13 @@ v1 支持的输入形态如下：
 
 ### source_artifact_id
 
-指向先前 `observe(time_series)` 步骤产出的完整 artifact，定义历史序列。runtime 会在输出
+指向先前 `metric_frame(time_series|panel)` artifact，定义历史序列。runtime 会在输出
 artifact 中补全 `source_ref` lineage。
 
-每次请求只消费一条历史序列。这是刻意设计：
+time_series 输入产生单序列预测；panel 输入按每个 series 独立预测并保留 series keys。这是刻意设计：
 
-- 多序列预测属于 workflow concern
-- 单序列范围让 validation、horizon semantics 与 provenance 更稳定
+- 不在 `forecast` 内做跨 segment 聚合或联合建模
+- 每条 series 的 validation、horizon semantics 与 provenance 保持稳定
 
 ### horizon
 
@@ -321,7 +321,7 @@ type ForecastSourceLineage = {
   source_metric_contract_version: string | null;
 };
 
-type ForecastProfile = "level" | "trend";
+type ForecastProfile = "level" | "trend" | "mixed";
 
 type ForecastSeriesObservation = {
   step_ref: StepRef;
@@ -330,14 +330,14 @@ type ForecastSeriesObservation = {
   derivation_version: string;
   observation_type: "forecast_series";
   metric: string;
-  source_ref: ObservationArtifactRef;
+  source_ref: ObservationArtifactRef & { source_shape: "time_series" | "panel" };
   source_granularity: TimeGranularity;
   source_time_scope: ResolvedRangeTimeScope;
   profile: ForecastProfile;
   interval_level: number;
   forecastability: ForecastabilityMetadata;
   history_summary: ForecastHistorySummary;
-  forecast: ForecastBucket[];
+  forecast: ForecastBucket[] | ForecastSeries[];
   source_lineage: ForecastSourceLineage;
   analytical_metadata: ForecastAnalyticalMetadata;
   execution_metadata: ForecastExecutionMetadata;
@@ -378,10 +378,16 @@ type ForecastHistorySummary = {
   observed_points: number;
   usable_points: number;
   dropped_points: number;
+  series_count: number;
   last_observed_window: {
     start: string;
     end: string;
   };
+};
+
+type ForecastSeries = {
+  keys: Record<string, string>;
+  points: ForecastBucket[];
 };
 
 type ForecastBucket = {
@@ -401,12 +407,13 @@ type ForecastBucket = {
 type ForecastAnalyticalMetadata = {
   timezone: string | null;
   data_complete: boolean | null;
-  trend_assumption: "none" | "included" | "auto";
+  trend_assumption: "none" | "included" | "auto" | "mixed";
   seasonality_assumption:
     | "none"
     | "included"
     | "auto"
-    | "not_applicable";
+    | "not_applicable"
+    | "mixed";
 };
 
 type ForecastExecutionMetadata = {

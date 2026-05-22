@@ -1773,8 +1773,8 @@ interface DiagnoseArtifact {
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
-| left_artifact_id | string | 是 | 左侧 `observe(time_series)` artifact ID |
-| right_artifact_id | string | 是 | 右侧 `observe(time_series)` artifact ID |
+| left_artifact_id | string | 是 | 左侧 `metric_frame` artifact ID |
+| right_artifact_id | string | 是 | 右侧 `metric_frame` artifact ID |
 
 可选参数：
 
@@ -1784,8 +1784,8 @@ interface DiagnoseArtifact {
 | min_pairs | integer | 否 | 5 | 运行相关性估计所需的最小对齐数值配对数，必须 >= 1；不用时省略，不传 `null` |
 
 注意：参数为字符串 artifact ID，非引用对象。左右输入都必须是同一
-session 内已提交的 `observe(time_series)` artifact：先调用 `observe` 并设置 `granularity`，
-不要同时传 `dimensions`；不要传 scalar/segmented observe artifact。
+session 内已提交的同形状 `metric_frame` artifact：`scalar`、`time_series`、
+`segmented` 或 `panel` 均可，但左右两侧 shape 必须一致。
 
 **输出 — CorrelateArtifact**：
 
@@ -1964,13 +1964,13 @@ interface TestIntentArtifact {
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | session_id | string | 是 | 会话ID |
-| source_artifact_id | string | 是 | `observe(time_series)` artifact ID |
+| source_artifact_id | string | 是 | `metric_frame(time_series|panel)` artifact ID |
 | horizon | integer | 是 | 预测步数（向前预测多少个 granularity 单位） |
 
 注意：参数为字符串 artifact ID（如 `"art_obs_1"`），非引用对象。无 `interval_level` 参数。
-`source_artifact_id` 必须是同一 session 内已提交的 `observe(time_series)` artifact：先调用
-`observe` 并设置 `granularity`，不要同时传 `dimensions`；不要传 datasource ID、
-scalar/segmented observe artifact，或 forecast 输出 artifact。
+`source_artifact_id` 必须是同一 session 内已提交的 `metric_frame(time_series|panel)`
+artifact。`panel` 输入会按每个 series 独立预测并保留 series keys；不要传 datasource ID、
+`metric_frame(scalar|segmented)` artifact，或 forecast 输出 artifact。
 
 **输出 — ForecastArtifact**：
 

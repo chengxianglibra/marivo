@@ -802,7 +802,7 @@ def test_diagnose_tool_defaults_to_compact_response_and_can_include_details() ->
     assert full_driver["rows"] == [{"key": "A", "absolute_contribution": 10.0}]
 
 
-def test_correlate_and_forecast_tool_schemas_document_time_series_artifact_inputs() -> None:
+def test_correlate_and_forecast_tool_schemas_document_metric_frame_artifact_inputs() -> None:
     server = FastMCP("test")
     register_tools(server, FakeRuntime(), transport="stdio")
     tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
@@ -812,8 +812,8 @@ def test_correlate_and_forecast_tool_schemas_document_time_series_artifact_input
 
     for name in ("left_artifact_id", "right_artifact_id"):
         description = correlate_props[name]["description"]
-        assert "observe(time_series)" in description
-        assert "granularity" in description
+        assert "metric_frame" in description
+        assert "scalar, time_series, segmented, or panel" in description
 
     assert correlate_props["min_pairs"]["default"] is None
     assert correlate_props["min_pairs"]["anyOf"][0]["minimum"] == 1
@@ -821,9 +821,8 @@ def test_correlate_and_forecast_tool_schemas_document_time_series_artifact_input
     assert "Correlation method" in correlate_props["method"]["description"]
 
     forecast_description = forecast_props["source_artifact_id"]["description"]
-    assert "observe(time_series)" in forecast_description
-    assert "granularity" in forecast_description
-    assert "datasource" in forecast_description
+    assert "metric_frame" in forecast_description
+    assert "time_series or panel" in forecast_description
     assert forecast_props["horizon"]["minimum"] == 1
     assert "future buckets" in forecast_props["horizon"]["description"]
 

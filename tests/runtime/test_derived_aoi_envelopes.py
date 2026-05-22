@@ -198,6 +198,42 @@ def test_aoi_artifact_dump_preserves_delta_frame_runtime_payload_for_projection(
     assert projected["payload"]["scope"]["delta_abs"] == 3.0
 
 
+def test_project_aoi_artifact_from_any_preserves_panel_forecast_keys() -> None:
+    artifact = {
+        "artifact_id": "art_forecast_panel",
+        "artifact_type": "forecast_series",
+        "observation_type": "forecast_series",
+        "forecast": [
+            {
+                "keys": {"region": "US"},
+                "points": [
+                    {
+                        "window": {"start": "2026-01-04", "end": "2026-01-05"},
+                        "point_forecast": 120.0,
+                        "prediction_interval": None,
+                    }
+                ],
+            },
+            {
+                "keys": {"region": "EU"},
+                "points": [
+                    {
+                        "window": {"start": "2026-01-04", "end": "2026-01-05"},
+                        "point_forecast": 50.0,
+                        "prediction_interval": None,
+                    }
+                ],
+            },
+        ],
+    }
+
+    projected = project_aoi_artifact_from_any(artifact)
+
+    assert projected["result"]["points"][0]["keys"] == {"region": "US"}
+    assert projected["result"]["points"][1]["keys"] == {"region": "EU"}
+    assert projected["result"]["points"][0]["value"] == 120.0
+
+
 def test_diagnosis_bundle_envelope_keeps_aoi_artifacts_in_result_and_product_metadata() -> None:
     runtime = _Runtime()
     aoi_artifact = {"artifact_id": "art_detect", "result": {"anomalies": []}}

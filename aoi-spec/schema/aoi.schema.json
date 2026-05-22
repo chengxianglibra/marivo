@@ -1333,6 +1333,12 @@
                 "ci_high"
               ],
               "properties": {
+                "keys": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
                 "bucket_start": {
                   "$ref": "#/$defs/primitives/ISO8601"
                 },

@@ -29,9 +29,9 @@ class CorrelateObservationRef(ObservationRef):
         default=None,
         description="Artifact ID of the upstream observe artifact (optional; resolved from step_id if omitted).",
     )
-    observation_type: Literal["time_series"] = Field(
+    shape: Literal["scalar", "time_series", "segmented", "panel"] = Field(
         default="time_series",
-        description="Must be 'time_series'.  v1 does not support scalar or segmented correlations.",
+        description="Metric frame shape. Both correlate inputs must use the same shape.",
     )
 
 

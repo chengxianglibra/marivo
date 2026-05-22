@@ -354,10 +354,10 @@ transform DSL。
 | `observe` | semantic metric + time scope / filter / granularity / dimensions | `metric_frame` |
 | `compare` | 两个 `metric_frame` 输入，每个都可带 inline transforms | `delta_frame` |
 | `decompose` | 一个 `delta_frame`，可带 inline transforms + dimension | `attribution_frame` |
-| `correlate` | 两个有效 `metric_frame(time_series)` 输入 | `association_result` |
+| `correlate` | 两个同形状有效 `metric_frame` 输入 | `association_result` |
 | `detect` | scan-ready 的有效 `metric_frame(time_series | panel)`，或 semantic metric + scan scope | `candidate_set` |
 | `test` | 两个有效 `metric_frame(sample_summary)` 输入 | `hypothesis_test_result` |
-| `forecast` | 一个有效 `metric_frame(time_series)` 输入 | `forecast_frame` |
+| `forecast` | 一个有效 `metric_frame(time_series | panel)` 输入 | `forecast_frame` |
 | `validate` | 语义 metric / source slices，或 sample-summary artifact 输入加 hypothesis | `hypothesis_test_result` |
 | `attribute` | 两个可比较的 `metric_frame` 输入，或语义 source slices + dimensions | `attribution_frame` |
 | `diagnose` | scan-ready `metric_frame`，或 semantic metric + scan scope + dimensions | `diagnosis_result` |
@@ -368,8 +368,8 @@ transform DSL。
   便利用法输入，但规范降级必须仍然产出逻辑 artifact DAG。
 - `compare` 检查 `comparable` capability 与语义对齐，不检查 producer
   operation 名称。
-- `forecast` 只接受单个有效 `metric_frame(time_series)`。`panel` 输入必须通过 inline
-  `slice` 或 `rollup` 降为单序列，或用可复用的 `observe` output 替代。
+- `forecast` 接受单个有效 `metric_frame(time_series | panel)`。`panel` 输入按 series
+  独立预测并保留 series keys，不在 `forecast` 内做跨 segment 聚合。
 - `decompose` 消费 `delta_frame`，不得重新 observe 原始 metric。
 - `test` 消费有效 `metric_frame(sample_summary)` 输入。Sample summary 计算不再是藏在
   `test` 内部的私有逻辑，而是 request 语义中的显式 transform。

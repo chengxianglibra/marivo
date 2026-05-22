@@ -603,7 +603,7 @@ artifact_registry:
       output_family: attribution_frame
 
     correlate:
-      accepts: two effective metric_frame(time_series) inputs.
+      accepts: two same-shape effective metric_frame inputs.
       output_family: association_result
 
     detect:
@@ -617,7 +617,7 @@ artifact_registry:
       output_family: hypothesis_test_result
 
     forecast:
-      accepts: one effective metric_frame(time_series) input.
+      accepts: one effective metric_frame(time_series | panel) input.
       output_family: forecast_frame
 
     validate:
@@ -687,7 +687,7 @@ requests:
   correlate:
     operation: correlate
 
-    # Required: effective metric_frame(time_series) inputs.
+    # Required: same-shape effective metric_frame inputs.
     left: artifact_input
     right: artifact_input
 
@@ -732,7 +732,7 @@ requests:
   forecast:
     operation: forecast
 
-    # Required: effective metric_frame(time_series) input.
+    # Required: effective metric_frame(time_series | panel) input.
     source: artifact_input
 
     # Required: forecast horizon.

@@ -42,6 +42,20 @@ def _point_start(item: dict[str, Any]) -> Any:
     return item.get("bucket_start") or item.get("start")
 
 
+def _forecast_point_items(payload: dict[str, Any]) -> list[tuple[dict[str, str], dict[str, Any]]]:
+    forecast = payload.get("forecast") or []
+    items: list[tuple[dict[str, str], dict[str, Any]]] = []
+    for entry in forecast:
+        if isinstance(entry, dict) and isinstance(entry.get("points"), list):
+            keys = _string_keys(entry.get("keys"))
+            for point in entry.get("points") or []:
+                if isinstance(point, dict):
+                    items.append((keys, point))
+        elif isinstance(entry, dict):
+            items.append(({}, entry))
+    return items
+
+
 def _first_point_value(entry: dict[str, Any], field: str) -> Any:
     """Read a field value from the first point in a series entry."""
     points = entry.get("points") or []
@@ -356,6 +370,7 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
         return aoi.ForecastSeriesResult(
             points=[
                 aoi.Point(
+                    keys=keys or None,
                     bucket_start=_as_aoi_datetime(_point_start(point)),
                     value=float(point.get("point_forecast") or 0.0),
                     ci_low=(point.get("prediction_interval") or {}).get("lower")
@@ -365,7 +380,7 @@ def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> di
                     if point.get("prediction_interval")
                     else None,
                 )
-                for point in payload.get("forecast") or []
+                for keys, point in _forecast_point_items(payload)
             ]
         ).model_dump(mode="json")
 

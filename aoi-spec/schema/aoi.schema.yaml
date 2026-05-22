@@ -583,7 +583,8 @@ forecast_series_result:
   # Required: forecasted values by future bucket.
   points:
     # One forecasted point.
-    - bucket_start: iso8601_datetime # Required: forecast bucket start timestamp.
+    - keys: object                   # Optional: panel series keys for segmented forecasts.
+      bucket_start: iso8601_datetime # Required: forecast bucket start timestamp.
       value: number                  # Required: forecast metric value; range follows the metric domain. Higher/lower has the metric's normal business meaning.
       ci_low: number                # Required, nullable: lower confidence interval bound in metric units. Null means unavailable. When present with ci_high, must be <= ci_high; lower values mean a lower plausible outcome.
       ci_high: number               # Required, nullable: upper confidence interval bound in metric units. Null means unavailable. When present with ci_low, must be >= ci_low; higher values mean a higher plausible outcome.
