@@ -183,7 +183,7 @@ _LEFT_WIN = {"field": "time", "start": "2024-01-01", "end": "2024-01-07"}
 _RIGHT_WIN = {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
 
 _COMPARE_ARTIFACT_CONTENT = {
-    "comparison_type": "scalar_delta",
+    "shape": "scalar_delta",
     "metric": "dau",
     "direction": "decrease",
     "resolved_input_summary": {
@@ -509,7 +509,7 @@ class TestCreationConditionT1(_Base):
             "art_no_summary_001",
             artifact_type="compare_artifact",
             content={
-                "comparison_type": "scalar_delta",
+                "shape": "scalar_delta",
                 "metric": "dau",
             },  # no resolved_input_summary
         )

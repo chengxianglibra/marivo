@@ -238,41 +238,7 @@ def _project_decompose_attribution_frame(payload: dict[str, Any]) -> dict[str, A
         return aoi.AttributionFrameArtifact.model_validate(payload).model_dump(
             mode="json", exclude_none=True
         )
-
-    artifact_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
-    if not artifact_payload:
-        contribution_summary_raw = payload.get("contribution_summary")
-        contribution_summary: dict[str, Any] = (
-            contribution_summary_raw if isinstance(contribution_summary_raw, dict) else {}
-        )
-        artifact_payload = {
-            "series": _attribution_series_from_rows(payload),
-            "scope": {
-                "delta_abs": payload.get("delta_abs") or contribution_summary.get("delta_abs")
-            },
-            "quality": {"reconciliation_status": "unknown"},
-        }
-        if artifact_payload["scope"]["delta_abs"] is None:
-            artifact_payload["scope"] = {}
-
-    artifact = aoi.AttributionFrameArtifact.model_validate(
-        {
-            "artifact_id": str(payload.get("artifact_id") or "artifact_decompose"),
-            "artifact_family": "attribution_frame",
-            "shape": "ranked_contributions",
-            "subject": _attribution_subject(payload),
-            "axes": payload.get("axes")
-            or [{"kind": "dimension", "name": payload.get("dimension") or "dimension"}],
-            "measures": [
-                {"id": "contribution_abs", "value_type": "number", "nullable": False},
-                {"id": "contribution_pct", "value_type": "number", "nullable": True},
-            ],
-            "capabilities": ["filterable"],
-            "lineage": _attribution_lineage(payload),
-            "payload": artifact_payload,
-        }
-    )
-    return artifact.model_dump(mode="json", exclude_none=True)
+    raise ValueError("decompose AOI projection requires an attribution_frame artifact")
 
 
 def _metric_frame_subject(payload: dict[str, Any]) -> aoi.MetricFrameSubject:
@@ -506,9 +472,7 @@ def _infer_intent_type(payload: dict[str, Any]) -> str:
         "panel_delta",
     ):
         return "compare"
-    if payload.get("artifact_family") == "attribution_frame" or "contribution_summary" in payload:
-        return "decompose"
-    if artifact_type == "delta_decomposition":
+    if payload.get("artifact_family") == "attribution_frame":
         return "decompose"
     if artifact_type == "pairwise_time_series_association":
         return "correlate"

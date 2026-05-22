@@ -57,6 +57,24 @@ class AttributionFrameAxis(BaseModel):
     name: str = Field(..., min_length=1)
 
 
+class AttributionFrameContributionAbsMeasure(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Literal["contribution_abs"]
+    value_type: Literal["number"]
+    nullable: Literal[False]
+
+
+class AttributionFrameContributionPctMeasure(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Literal["contribution_pct"]
+    value_type: Literal["number"]
+    nullable: Literal[True]
+
+
 class SourceArtifactId(RootModel[str]):
     root: str = Field(..., min_length=1)
 
@@ -150,24 +168,6 @@ class Expression(BaseModel):
         extra="forbid",
     )
     dialects: list[Dialect] = Field(..., min_length=1)
-
-
-class AttributionFrameContributionAbsMeasure(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: Literal["contribution_abs"]
-    value_type: Literal["number"]
-    nullable: Literal[False]
-
-
-class AttributionFrameContributionPctMeasure(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: Literal["contribution_pct"]
-    value_type: Literal["number"]
-    nullable: Literal[True]
 
 
 class DeltaFrameScope(BaseModel):
@@ -297,6 +297,17 @@ class AttributionFrameQuality(BaseModel):
     unexplained_delta_abs: float | None = None
     unexplained_pct: float | None = None
     unexplained_reason: str | None = None
+
+
+class AttributionFrameScope(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current_value: float | None
+    baseline_value: float | None
+    delta_abs: float | None
+    delta_pct: float | None
+    direction: Literal["increase", "decrease", "flat", "undefined"]
 
 
 class AttributionSeriesEntry(BaseModel):
@@ -474,19 +485,7 @@ class AttributionFramePayload(BaseModel):
         extra="forbid",
     )
     series: list[AttributionSeriesEntry]
-    scope: dict[str, Any] = Field(
-        ...,
-        json_schema_extra={
-            "additionalProperties": {
-                "anyOf": [
-                    {"type": "string"},
-                    {"type": "number"},
-                    {"type": "boolean"},
-                    {"type": "null"},
-                ]
-            }
-        },
-    )
+    scope: AttributionFrameScope
     quality: AttributionFrameQuality
 
 
@@ -555,9 +554,7 @@ class AttributionFrameArtifact(BaseModel):
     shape: Literal["ranked_contributions"]
     subject: AttributionComparisonSubject
     axes: list[AttributionFrameAxis] = Field(..., max_length=1, min_length=1)
-    measures: list[
-        AttributionFrameContributionAbsMeasure | AttributionFrameContributionPctMeasure
-    ] = Field(..., max_length=2, min_length=2)
+    measures: tuple[AttributionFrameContributionAbsMeasure, AttributionFrameContributionPctMeasure]
     capabilities: list[Literal["filterable"]] = Field(..., max_length=1, min_length=1)
     lineage: AttributionFrameLineage
     payload: AttributionFramePayload

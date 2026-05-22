@@ -1631,6 +1631,40 @@
           }
         }
       },
+      "AttributionFrameScope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current_value",
+          "baseline_value",
+          "delta_abs",
+          "delta_pct",
+          "direction"
+        ],
+        "properties": {
+          "current_value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "baseline_value": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "delta_abs": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "delta_pct": {
+            "$ref": "#/$defs/primitives/NumberOrNull"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "increase",
+              "decrease",
+              "flat",
+              "undefined"
+            ]
+          }
+        }
+      },
       "AttributionFrameContributionAbsMeasure": {
         "type": "object",
         "additionalProperties": false,
@@ -1826,7 +1860,7 @@
             }
           },
           "scope": {
-            "type": "object"
+            "$ref": "#/$defs/artifacts/AttributionFrameScope"
           },
           "quality": {
             "$ref": "#/$defs/artifacts/AttributionFrameQuality"
@@ -1871,9 +1905,15 @@
           },
           "measures": {
             "type": "array",
-            "items": {
-              "$ref": "#/$defs/artifacts/AttributionFrameMeasure"
-            },
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/artifacts/AttributionFrameContributionAbsMeasure"
+              },
+              {
+                "$ref": "#/$defs/artifacts/AttributionFrameContributionPctMeasure"
+              }
+            ],
+            "items": false,
             "minItems": 2,
             "maxItems": 2
           },

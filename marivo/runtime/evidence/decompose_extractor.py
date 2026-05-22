@@ -208,7 +208,7 @@ class DecomposeArtifactExtractor(FindingExtractor):
                 "or source_lineage.compare_artifact id was found."
             )
 
-        compare_type: str = compare_ref.get("shape") or compare_ref.get("comparison_type") or ""
+        compare_type: str = compare_ref.get("shape") or ""
         delta_collection: str
         if compare_type == "time_series_delta":
             delta_collection = "summary"

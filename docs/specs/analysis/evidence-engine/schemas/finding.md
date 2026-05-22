@@ -493,9 +493,9 @@ type DeltaFinding = FindingBase & {
 
 抽取规则：
 
-- `compare.comparison_type = "scalar_delta"` 时创建 1 个 delta finding，并固定 `presence = null`
-- `compare.comparison_type = "segmented_delta"` 时每个 row 创建 1 个 delta finding，并把 row `presence` 原样映射到 finding payload
-- `compare.comparison_type = "time_series_delta"` 时创建 1 个 summary delta finding（若有 summary 字段）+ 每个 bucket row 1 个 delta finding；`delta_kind` 固定为 `"time_series_delta"`
+- `compare.shape = "scalar_delta"` 时创建 1 个 delta finding，并固定 `presence = null`
+- `compare.shape = "segmented_delta"` 时每个 row 创建 1 个 delta finding，并把 row `presence` 原样映射到 finding payload
+- `compare.shape = "time_series_delta"` 时创建 1 个 summary delta finding（若有 summary 字段）+ 每个 bucket row 1 个 delta finding；`delta_kind` 固定为 `"time_series_delta"`
 
 ### Decomposition Item Finding
 

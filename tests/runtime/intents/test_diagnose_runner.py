@@ -196,7 +196,7 @@ def test_auto_detect_follows_detect_artifact_candidates_and_builds_full_chain(
     assert diagnosis["anomaly_evidence"]["expected_value"] == pytest.approx(128.5714285714)
     assert diagnosis["attribution_comparison"]["basis"] == "previous_adjacent_equal_length"
     assert diagnosis["attribution_comparison"]["shape"] == "scalar_delta"
-    assert diagnosis["attribution_comparison"]["comparison_type"] == "scalar_delta"  # transition alias
+    assert "comparison_type" not in diagnosis["attribution_comparison"]
     assert diagnosis["attribution_comparison"]["current_window"] == {
         "start": _SPIKE_START,
         "end": _SPIKE_END,
@@ -686,7 +686,6 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
         "schema_version": "2.0",
         "artifact_family": "delta_frame",
         "shape": "scalar_delta",
-        "comparison_type": "scalar_delta",  # transition alias
         "axes": [{"kind": "comparison_side"}],
         "subject": {
             "kind": "comparison",

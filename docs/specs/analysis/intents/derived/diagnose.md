@@ -452,7 +452,7 @@ type BaselineDerivationMetadata = {
 
 type AttributionComparisonSummary = {
   basis: "previous_adjacent_equal_length";
-  comparison_type: "scalar_delta";
+  shape: "scalar_delta";
   current_window: {
     start: string;
     end: string;

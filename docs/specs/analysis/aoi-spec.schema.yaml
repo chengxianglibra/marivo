@@ -409,7 +409,12 @@ attribution_frame_artifact:
             # not a delta measure or readiness/status flag.
             presence: both | current_only | baseline_only
             rank: integer
-    scope: object
+    scope:
+      current_value: number | null
+      baseline_value: number | null
+      delta_abs: number | null
+      delta_pct: number | null
+      direction: increase | decrease | flat | undefined
     quality:
       reconciliation_status: string | null
       reconciliation_gap: number | null

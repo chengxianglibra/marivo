@@ -83,7 +83,13 @@ def _attribution_frame_fixture(session_id: str) -> dict[str, object]:
                     ],
                 }
             ],
-            "scope": {},
+            "scope": {
+                "current_value": 700.0,
+                "baseline_value": 100.0,
+                "delta_abs": 600.0,
+                "delta_pct": 6.0,
+                "direction": "increase",
+            },
             "quality": {"reconciliation_status": "reconciled"},
         },
     }

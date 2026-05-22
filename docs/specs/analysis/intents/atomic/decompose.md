@@ -72,7 +72,7 @@ type CompareArtifactRef = {
   session_id: string;
   step_id: string;
   artifact_id: string;
-  comparison_type: "scalar_delta" | "time_series_delta";
+  shape: "scalar_delta" | "time_series_delta" | "segmented_delta" | "panel_delta";
 };
 
 type ObservationArtifactRef = {
@@ -87,7 +87,8 @@ type ObservationArtifactRef = {
 引用约束：
 
 - `compare_artifact_id` 必须指向已完成步骤产出的 canonical compare artifact
-- 被引用 artifact 的 `comparison_type` 在 v1 中必须是 `scalar_delta` 或 `time_series_delta`
+- 被引用 artifact 必须是 `artifact_family = "delta_frame"`，且 `shape` 为 `scalar_delta`、`time_series_delta`、`segmented_delta` 或 `panel_delta`
+- 被引用 artifact 必须包含 canonical `payload.series`、`payload.scope` 和 `decomposable` capability
 - 不允许 projection ref 充当 canonical source ref
 - v1 不允许跨 session artifact ref
 - 引用图必须保持 DAG；`decompose` 不允许直接或间接回指依赖自己的对象
@@ -155,14 +156,14 @@ v1 支持的输入形态如下：
 
 `decompose` 不会重定义这个 delta，只负责解释它。
 
-v1 要求 `compare_artifact_id` 解析到 `scalar_delta` 或 `time_series_delta`，而不是 `segmented_delta`。
+v1 要求 `compare_artifact_id` 解析到 canonical `delta_frame`。`scalar_delta`、`time_series_delta`、`segmented_delta` 与 `panel_delta` 均可作为输入。
 
 当上游是 `time_series_delta` 时，`decompose` 解释的是 compare 已对齐 bucket 之后的 summary delta，而不是为每个时间 bucket 单独生成一组 contribution rows。若 compare analytical metadata 提供 `matched_current_time_scope` / `matched_baseline_time_scope`，`decompose` 的 grouped 重算必须分别复用左右两侧的 matched 范围；若只有兼容字段 `matched_time_scope`，则可继续将其同时视作两侧范围，以保持与 summary delta 同一对账边界。
 
 原因：
 
 - 当前请求的分解维度可能与上游 compare 的 segmentation 不同
-- 上游 segmented compare 可能已被排序或截断，不适合作为 attribution 基底
+- 上游 segmented/panel compare 只有在维度匹配且完整性可证明时才能作为 fast path attribution 基底
 - `decompose` 必须自行控制完整重算、完整性检查和 canonical 排序
 
 ### dimension
@@ -215,16 +216,16 @@ v1 将 `delta_share` 限制在 `additive_dimensions` 非空的 metrics 上；`ad
 
 ## Signed Share 解释
 
-`contribution_share` 是带符号的 attribution ratio，不是单纯 magnitude share。
+`contribution_pct` 是带符号的 attribution ratio，不是单纯 magnitude share。
 
 - 正值表示该 segment 与 scope delta 同方向，强化整体变化
 - 负值表示该 segment 与 scope delta 反方向，抵消整体变化的一部分
 
 例如：
 
-- `scope_absolute_delta = -2000000`
-- 某行 `absolute_contribution = 1000000`
-- 则 `contribution_share = -0.5`
+- `payload.scope.delta_abs = -2000000`
+- 某行 `contribution_abs = 1000000`
+- 则 `contribution_pct = -0.5`
 
 解释：该行抵消了整体下跌的 50%。如果没有该 segment，总体 delta 会从 `-2000000` 扩大到 `-3000000`。
 
@@ -414,9 +415,8 @@ artifact 默认排序固定为：
 
 最小闭包读取要求：
 
-- agent 若读取 contribution rows，必须同时读取 `scope_absolute_delta`
-- agent 若读取 contribution rows，必须同时读取 `attribution.status`
-- agent 若读取压缩视图，必须同时读取截断元数据与 residual bucket
+- agent 若读取 contribution rows，必须同时读取 `payload.scope.delta_abs`
+- agent 若读取 contribution rows，必须同时读取 `payload.quality`
 
 v1 不提供单行 contribution 的独立 typed ref。下游步骤若依赖 `decompose`，应引用整个 artifact，而不是引用单行投影。
 

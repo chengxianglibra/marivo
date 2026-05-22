@@ -160,7 +160,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
         normalized = _normalize_decompose_compare_input(_scalar_delta_artifact())
 
         self.assertEqual(normalized["shape"], "scalar_delta")
-        self.assertEqual(normalized["comparison_type"], "scalar_delta")
+        self.assertNotIn("comparison_type", normalized)
         self.assertEqual(normalized["scope_current_value"], 100.0)
         self.assertEqual(normalized["scope_baseline_value"], 90.0)
         self.assertEqual(normalized["scope_absolute_delta"], 10.0)
@@ -246,7 +246,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(normalized["comparison_type"], "time_series_delta")
+        self.assertNotIn("comparison_type", normalized)
         # Aggregated from series points: 20+10=30, 15+8=23, delta=7
         self.assertEqual(normalized["scope_current_value"], 30.0)
         self.assertEqual(normalized["scope_baseline_value"], 23.0)
@@ -283,7 +283,7 @@ class DecomposeHourWindowTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(normalized["comparison_type"], "time_series_delta")
+        self.assertNotIn("comparison_type", normalized)
         self.assertEqual(normalized["scope_absolute_delta"], 7.0)
         self.assertEqual(normalized["source_observation_type"], "time_series")
         self.assertEqual(
@@ -574,7 +574,13 @@ class DecomposeHourWindowTests(unittest.TestCase):
                             ],
                         }
                     ],
-                    "scope": {"delta_abs": 20.0},
+                    "scope": {
+                        "current_value": 120.0,
+                        "baseline_value": 100.0,
+                        "delta_abs": 20.0,
+                        "delta_pct": 0.2,
+                        "direction": "increase",
+                    },
                 },
                 "subject": {
                     "kind": "comparison",
@@ -629,7 +635,13 @@ class DecomposeHourWindowTests(unittest.TestCase):
                             ],
                         }
                     ],
-                    "scope": {"delta_abs": 70.0},
+                    "scope": {
+                        "current_value": 70.0,
+                        "baseline_value": None,
+                        "delta_abs": 70.0,
+                        "delta_pct": None,
+                        "direction": "increase",
+                    },
                 },
                 "subject": _comparison_subject(),
                 "lineage": {
@@ -666,7 +678,13 @@ class DecomposeHourWindowTests(unittest.TestCase):
                             ],
                         }
                     ],
-                    "scope": {"delta_abs": 10.0},
+                    "scope": {
+                        "current_value": 30.0,
+                        "baseline_value": 20.0,
+                        "delta_abs": 10.0,
+                        "delta_pct": 0.5,
+                        "direction": "increase",
+                    },
                 },
                 "subject": _comparison_subject(),
                 "lineage": {
@@ -702,7 +720,13 @@ class DecomposeHourWindowTests(unittest.TestCase):
                             "points": [{"current_value": None, "baseline_value": 22.0}],
                         },
                     ],
-                    "scope": {"delta_abs": 8.0},
+                    "scope": {
+                        "current_value": 30.0,
+                        "baseline_value": 22.0,
+                        "delta_abs": 8.0,
+                        "delta_pct": 8.0 / 22.0,
+                        "direction": "increase",
+                    },
                 },
                 "subject": _comparison_subject(),
                 "lineage": {
@@ -911,6 +935,20 @@ class DecomposeDeltaFrameGuardTests(unittest.TestCase):
                     "payload": {"series": []},
                 }
             )
+
+    def test_decompose_rejects_delta_frame_without_payload_scope(self) -> None:
+        artifact = _scalar_delta_artifact()
+        artifact["payload"].pop("scope")
+
+        with self.assertRaisesRegex(ValueError, "payload.scope"):
+            _normalize_decompose_compare_input(artifact)
+
+    def test_decompose_rejects_delta_frame_scope_missing_required_field(self) -> None:
+        artifact = _scalar_delta_artifact()
+        artifact["payload"]["scope"].pop("delta_abs")
+
+        with self.assertRaisesRegex(ValueError, "payload.scope missing field"):
+            _normalize_decompose_compare_input(artifact)
 
     def test_decompose_rejects_malformed_axes_as_value_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "axes must be a list"):
@@ -1132,14 +1170,14 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                 {"id": "contribution_pct", "value_type": "number", "nullable": True},
             ],
         )
-        self.assertEqual(result["payload"]["scope"]["delta_abs"], result["scope_absolute_delta"])
+        self.assertEqual(result["payload"]["scope"]["delta_abs"], 10.0)
         self.assertEqual(
             result["payload"]["series"][0]["points"][0]["contribution_abs"],
-            result["rows"][0]["absolute_contribution"],
+            0.0,
         )
         self.assertEqual(
             result["payload"]["series"][0]["points"][0]["contribution_pct"],
-            result["rows"][0]["contribution_share"],
+            0.0,
         )
         self.assertTrue(result["artifact_id"])
 
@@ -1187,28 +1225,24 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         self.assertIn("baseline_artifact", result["source_lineage"])
         aoi.AttributionFrameArtifact.model_validate(canonical_subset)
 
-    def test_decompose_output_has_rows_backward_compat_alias(self) -> None:
+    def test_decompose_output_has_no_rows_backward_compat_alias(self) -> None:
         runtime = self._make_runtime()
         result = self._run_decompose(runtime)
-        # v2.0 format uses series as canonical, but keeps rows as backward-compat alias
-        self.assertIn("rows", result)
-        self.assertIsInstance(result["rows"], list)
+        self.assertNotIn("rows", result)
 
-    def test_decompose_output_has_dimension_backward_compat_alias(self) -> None:
+    def test_decompose_output_has_no_dimension_backward_compat_alias(self) -> None:
         runtime = self._make_runtime()
         result = self._run_decompose(runtime)
-        # v2.0 format encodes dimension in axes, but keeps dimension as backward-compat alias
-        self.assertIn("dimension", result)
-        self.assertEqual(result["dimension"], "dim1")
+        self.assertNotIn("dimension", result)
 
-    def test_decompose_output_scope_values_at_top_level(self) -> None:
+    def test_decompose_output_has_no_scope_values_at_top_level(self) -> None:
         runtime = self._make_runtime()
         result = self._run_decompose(runtime)
-        self.assertIn("scope_current_value", result)
-        self.assertIn("scope_baseline_value", result)
-        self.assertIn("scope_absolute_delta", result)
-        self.assertIn("scope_relative_delta", result)
-        self.assertIn("scope_direction", result)
+        self.assertNotIn("scope_current_value", result)
+        self.assertNotIn("scope_baseline_value", result)
+        self.assertNotIn("scope_absolute_delta", result)
+        self.assertNotIn("scope_relative_delta", result)
+        self.assertNotIn("scope_direction", result)
 
     def test_decompose_time_series_delta_commits_summary_attribution_frame(self) -> None:
         runtime = self._make_runtime()
@@ -1274,10 +1308,11 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
             },
         )
 
-        self.assertEqual(result["compare_ref"]["comparison_type"], "time_series_delta")
+        self.assertEqual(result["compare_ref"]["shape"], "time_series_delta")
+        self.assertNotIn("comparison_type", result["compare_ref"])
         self.assertEqual(result["current_ref"]["observation_type"], "time_series")
         self.assertEqual(result["baseline_ref"]["observation_type"], "time_series")
-        self.assertEqual(result["scope_absolute_delta"], 30.0)
+        self.assertEqual(result["payload"]["scope"]["delta_abs"], 30.0)
         self.assertEqual(result["schema_version"], "2.0")
         self.assertIsInstance(result["axes"], list)
         self.assertIsInstance(result["payload"]["series"], list)
@@ -1367,25 +1402,33 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
 
         mock_query.assert_not_called()
         self.assertEqual(
-            result["rows"],
+            result["payload"]["series"],
             [
                 {
-                    "key": "paid",
-                    "current_value": 70.0,
-                    "baseline_value": 58.0,
-                    "absolute_contribution": 12.0,
-                    "contribution_share": 0.6,
-                    "direction": "increase",
-                    "presence": "both",
+                    "keys": {"dim1": "paid"},
+                    "points": [
+                        {
+                            "contribution_abs": 12.0,
+                            "contribution_pct": 0.6,
+                            "current_value": 70.0,
+                            "baseline_value": 58.0,
+                            "rank": 1,
+                            "presence": "both",
+                        }
+                    ],
                 },
                 {
-                    "key": "organic",
-                    "current_value": 50.0,
-                    "baseline_value": 42.0,
-                    "absolute_contribution": 8.0,
-                    "contribution_share": 0.4,
-                    "direction": "increase",
-                    "presence": "both",
+                    "keys": {"dim1": "organic"},
+                    "points": [
+                        {
+                            "contribution_abs": 8.0,
+                            "contribution_pct": 0.4,
+                            "current_value": 50.0,
+                            "baseline_value": 42.0,
+                            "rank": 2,
+                            "presence": "both",
+                        }
+                    ],
                 },
             ],
         )

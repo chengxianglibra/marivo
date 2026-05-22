@@ -1338,7 +1338,7 @@ class TestDecomposeScopeDeltaRef(unittest.TestCase):
         payload["source_lineage"] = {
             "compare_artifact": {
                 "artifact_id": "art_from_source_lineage",
-                "comparison_type": "time_series_delta",
+                "shape": "time_series_delta",
             }
         }
         result = _DECOMPOSE_EXTRACTOR.extract(

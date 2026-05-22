@@ -17,7 +17,6 @@ from marivo.runtime.intents.metric_frame import (
     is_delta_frame_artifact,
     read_axes_from_artifact,
     read_delta_frame_shape,
-    read_frame_payload_scope,
 )
 from marivo.runtime.semantic.executor import execute_compiled
 from marivo.time_scope import normalize_metric_query_request
@@ -88,7 +87,7 @@ def run_decompose_intent(
         compare_artifact,
         requested_dimension=dimension,
     )
-    comparison_type: str = normalized_compare["comparison_type"]
+    comparison_shape: str = normalized_compare["shape"]
 
     # ── Extract metadata from compare artifact ────────────────────────────────
     metric_name: str = normalized_compare["metric_name"]
@@ -283,7 +282,7 @@ def run_decompose_intent(
         "session_id": session_id,
         "step_id": compare_step_id,
         "artifact_id": compare_artifact_id,
-        "comparison_type": comparison_type,
+        "shape": comparison_shape,
     }
 
     scope_payload = {
@@ -329,8 +328,6 @@ def run_decompose_intent(
         "compare_ref": compare_ref_out,
         "current_ref": current_ref_out,
         "baseline_ref": baseline_ref_out,
-        "dimension": dimension,
-        "rows": returned_rows,
         "method": decomp.method,
         "unit": unit,
         "current_time_scope": current_time_scope,
@@ -339,11 +336,6 @@ def run_decompose_intent(
             "current": current_scope,
             "baseline": baseline_scope,
         },
-        "scope_current_value": scope_current_value,
-        "scope_baseline_value": scope_baseline_value,
-        "scope_absolute_delta": scope_absolute_delta,
-        "scope_relative_delta": scope_relative_delta,
-        "scope_direction": scope_direction,
         "attribution": {"status": attribution_status, "issues": issues},
         "unexplained_absolute_delta": unexplained_absolute_delta,
         "unexplained_share": unexplained_share,
@@ -456,6 +448,7 @@ def _require_delta_frame_source(
     axes = _read_required_axes_for_source(source_artifact)
     _validate_delta_axes(shape, axes)
     _read_required_payload_series_for_source(source_artifact)
+    _read_required_payload_scope_for_source(source_artifact)
     return shape, axes
 
 
@@ -501,6 +494,33 @@ def _read_required_payload_series_for_source(
     return series
 
 
+def _read_required_payload_scope_for_source(source_artifact: dict[str, Any]) -> dict[str, Any]:
+    payload = source_artifact.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError(
+            "decompose: INVALID_ARGUMENT - delta_frame payload must be an object with payload.scope"
+        )
+    scope = payload.get("scope")
+    if not isinstance(scope, dict):
+        raise ValueError(
+            "decompose: INVALID_ARGUMENT - delta_frame payload.scope must be an object"
+        )
+    required_fields = {
+        "current_value",
+        "baseline_value",
+        "delta_abs",
+        "delta_pct",
+        "direction",
+    }
+    missing_fields = sorted(required_fields - set(scope))
+    if missing_fields:
+        raise ValueError(
+            "decompose: INVALID_ARGUMENT - delta_frame payload.scope missing field(s): "
+            f"{missing_fields}"
+        )
+    return scope
+
+
 def _validate_delta_axes(shape: str, axes: list[dict[str, str]]) -> None:
     time_axes = [axis for axis in axes if axis.get("kind") == "time"]
     dimension_axes = [axis for axis in axes if axis.get("kind") == "dimension"]
@@ -525,9 +545,7 @@ def _validate_delta_axes(shape: str, axes: list[dict[str, str]]) -> None:
         raise ValueError(
             "decompose: INVALID_ARGUMENT - time_series_delta requires exactly one time axis"
         )
-    if shape == "segmented_delta" and (
-        structural_axis_count != 1 or len(dimension_axes) != 1
-    ):
+    if shape == "segmented_delta" and (structural_axis_count != 1 or len(dimension_axes) != 1):
         raise ValueError(
             "decompose: INVALID_ARGUMENT - segmented_delta requires exactly one dimension axis"
         )
@@ -675,11 +693,10 @@ def _normalize_decompose_compare_input(
 ) -> dict[str, Any]:
     """Normalize a compare artifact for decompose input.
 
-    Reads from delta_frame payload format with temporary summary alias fallbacks.
+    Reads from canonical delta_frame payload format.
     """
     shape, axes = _require_delta_frame_source(compare_artifact)
-    payload_series = _read_required_payload_series_for_source(compare_artifact)
-    payload_scope = read_frame_payload_scope(compare_artifact)
+    payload_scope = _read_required_payload_scope_for_source(compare_artifact)
     subject = compare_artifact.get("subject") or {}
     metric_ref = (
         compare_artifact.get("metric_ref")
@@ -709,23 +726,14 @@ def _normalize_decompose_compare_input(
     )
 
     if shape == "scalar_delta":
-        points = (payload_series[0].get("points") or []) if payload_series else []
-        point = points[0] if points else {}
-        scope_current_value = _safe_float(
-            payload_scope.get("current_value", point.get("current_value"))
-        )
-        scope_baseline_value = _safe_float(
-            payload_scope.get("baseline_value", point.get("baseline_value"))
-        )
-        scope_absolute_delta = _safe_float(
-            payload_scope.get("delta_abs", point.get("delta_abs", point.get("delta")))
-        )
-        scope_relative_delta = _safe_float(payload_scope.get("delta_pct", point.get("delta_pct")))
-        scope_direction = payload_scope.get("direction") or point.get("direction") or "undefined"
+        scope_current_value = _safe_float(payload_scope.get("current_value"))
+        scope_baseline_value = _safe_float(payload_scope.get("baseline_value"))
+        scope_absolute_delta = _safe_float(payload_scope.get("delta_abs"))
+        scope_relative_delta = _safe_float(payload_scope.get("delta_pct"))
+        scope_direction = payload_scope.get("direction") or "undefined"
 
         return {
             "shape": "scalar_delta",
-            "comparison_type": "scalar_delta",
             "metric_name": metric_name,
             "unit": _unit_from_measures(compare_artifact),
             "scope_current_value": scope_current_value,
@@ -757,56 +765,11 @@ def _normalize_decompose_compare_input(
         elif isinstance(matched_time_scope, dict) and matched_time_scope:
             baseline_time_scope = dict(matched_time_scope)
 
-        # Read summary values from series points aggregation (v2.0 canonical).
-        # Aggregate matched-pair current/baseline values, then compute delta.
-        # Fall back to top-level summary_* fields if series is absent or empty.
-        series_points = (payload_series[0].get("points") or []) if payload_series else []
-        matched_current_values: list[float] = []
-        matched_baseline_values: list[float] = []
-        for point in series_points:
-            presence = point.get("presence")
-            cv = _safe_float(point.get("current_value"))
-            bv = _safe_float(point.get("baseline_value"))
-            if (
-                (presence == "both" or (cv is not None and bv is not None))
-                and cv is not None
-                and bv is not None
-            ):
-                matched_current_values.append(cv)
-                matched_baseline_values.append(bv)
-
-        if matched_current_values:
-            scope_current_value = sum(matched_current_values)
-        else:
-            scope_current_value = _safe_float(payload_scope.get("current_value"))
-
-        if matched_baseline_values:
-            scope_baseline_value = sum(matched_baseline_values)
-        else:
-            scope_baseline_value = _safe_float(payload_scope.get("baseline_value"))
-
-        if scope_current_value is not None and scope_baseline_value is not None:
-            scope_absolute_delta = scope_current_value - scope_baseline_value
-            if scope_baseline_value != 0:
-                scope_relative_delta = scope_absolute_delta / scope_baseline_value
-            else:
-                scope_relative_delta = None
-        else:
-            scope_absolute_delta = _safe_float(payload_scope.get("delta_abs"))
-            scope_relative_delta = _safe_float(payload_scope.get("delta_pct"))
-
-        flat_tolerance = 0.01
-        if scope_absolute_delta is not None:
-            if scope_absolute_delta == 0 or (
-                scope_relative_delta is not None and abs(scope_relative_delta) <= flat_tolerance
-            ):
-                scope_direction = "flat"
-            elif scope_absolute_delta > 0:
-                scope_direction = "increase"
-            else:
-                scope_direction = "decrease"
-        else:
-            scope_direction = payload_scope.get("direction") or "undefined"
+        scope_current_value = _safe_float(payload_scope.get("current_value"))
+        scope_baseline_value = _safe_float(payload_scope.get("baseline_value"))
+        scope_absolute_delta = _safe_float(payload_scope.get("delta_abs"))
+        scope_relative_delta = _safe_float(payload_scope.get("delta_pct"))
+        scope_direction = payload_scope.get("direction") or "undefined"
 
         # Derive granularity from axes
         granularity = None
@@ -816,7 +779,6 @@ def _normalize_decompose_compare_input(
 
         return {
             "shape": "time_series_delta",
-            "comparison_type": "time_series_delta",
             "metric_name": metric_name,
             "unit": _unit_from_measures(compare_artifact),
             "scope_current_value": scope_current_value,
@@ -845,9 +807,7 @@ def _normalize_decompose_compare_input(
     if shape in {"segmented_delta", "panel_delta"}:
         scope_current_value = _safe_float(payload_scope.get("current_value"))
         scope_baseline_value = _safe_float(payload_scope.get("baseline_value"))
-        scope_absolute_delta = _safe_float(
-            payload_scope.get("delta_abs", payload_scope.get("delta"))
-        )
+        scope_absolute_delta = _safe_float(payload_scope.get("delta_abs"))
         scope_relative_delta = _safe_float(payload_scope.get("delta_pct"))
         scope_direction = payload_scope.get("direction") or "undefined"
         analytical = compare_artifact.get("analytical_metadata") or {}
@@ -858,7 +818,6 @@ def _normalize_decompose_compare_input(
 
         return {
             "shape": shape,
-            "comparison_type": shape,
             "metric_name": metric_name,
             "unit": _unit_from_measures(compare_artifact),
             "scope_current_value": scope_current_value,

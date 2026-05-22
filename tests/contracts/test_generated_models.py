@@ -99,7 +99,13 @@ def _attribution_frame_payload() -> dict[str, Any]:
                     "points": [{"contribution_abs": 12.0, "contribution_pct": 0.6, "rank": 1}],
                 }
             ],
-            "scope": {"delta_abs": 20.0},
+            "scope": {
+                "current_value": 120.0,
+                "baseline_value": 100.0,
+                "delta_abs": 20.0,
+                "delta_pct": 0.2,
+                "direction": "increase",
+            },
             "quality": {"reconciliation_status": "within_tolerance"},
         },
     }
@@ -129,6 +135,13 @@ def _attribution_frame_payload() -> dict[str, Any]:
                 {"id": "unknown", "value_type": "number", "nullable": False},
             ],
         ),
+        (
+            "measures",
+            [
+                {"id": "contribution_abs", "value_type": "number", "nullable": False},
+                {"id": "contribution_abs", "value_type": "number", "nullable": False},
+            ],
+        ),
         ("capabilities", []),
         ("subject", {}),
         ("lineage", {"operation": "decompose"}),
@@ -141,6 +154,35 @@ def test_aoi_attribution_frame_artifact_rejects_invalid_contract_shapes(
 
     payload = deepcopy(_attribution_frame_payload())
     payload[field_name] = bad_value
+
+    with pytest.raises(ValidationError):
+        aoi.AttributionFrameArtifact.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "bad_scope",
+    [
+        {
+            "current_value": 120.0,
+            "baseline_value": 100.0,
+            "delta_pct": 0.2,
+            "direction": "increase",
+        },
+        {
+            "current_value": 120.0,
+            "baseline_value": 100.0,
+            "delta_abs": 20.0,
+            "delta_pct": 0.2,
+            "direction": "increase",
+            "unexpected": True,
+        },
+    ],
+)
+def test_aoi_attribution_frame_artifact_rejects_invalid_scope(bad_scope: dict[str, Any]) -> None:
+    from marivo.contracts.generated import aoi
+
+    payload = deepcopy(_attribution_frame_payload())
+    payload["payload"]["scope"] = bad_scope
 
     with pytest.raises(ValidationError):
         aoi.AttributionFrameArtifact.model_validate(payload)

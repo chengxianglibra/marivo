@@ -661,19 +661,19 @@ def extract_compare_findings(
 ) -> list[dict[str, Any]]:
     """Extract delta findings from a compare artifact payload.
 
-    Pure computation: maps ``comparison_type`` variants to finding dicts.
+    Pure computation: maps delta frame ``shape`` variants to finding dicts.
     """
-    comparison_type: str = payload.get("comparison_type") or ""
+    shape: str = payload.get("shape") or ""
 
-    if comparison_type == "scalar_delta":
+    if shape == "scalar_delta":
         return _extract_compare_scalar_delta(artifact_id, payload, step_ref)
-    elif comparison_type == "segmented_delta":
+    elif shape == "segmented_delta":
         return _extract_compare_segmented_delta(artifact_id, payload, step_ref)
-    elif comparison_type == "time_series_delta":
+    elif shape == "time_series_delta":
         return _extract_compare_time_series_delta(artifact_id, payload, step_ref)
     else:
         raise ValueError(
-            f"Unknown comparison_type={comparison_type!r}. "
+            f"Unknown delta_frame shape={shape!r}. "
             "Expected one of: scalar_delta, segmented_delta, time_series_delta."
         )
 
@@ -1092,9 +1092,9 @@ def extract_decompose_findings(
     Pure computation with ``session_id`` needed only for scope_delta_ref
     (a cross-reference within the same session, no DB access required).
     """
-    dimension: str = payload.get("dimension") or ""
+    dimension: str = _attribution_frame_dimension(payload) or ""
     if not dimension:
-        raise ValueError("Decompose artifact payload is missing required 'dimension' field.")
+        raise ValueError("Decompose artifact payload is missing required dimension axis.")
 
     # Resolve scope_delta_ref from compare_ref
     compare_ref: dict[str, Any] = payload.get("compare_ref") or {}
@@ -1105,14 +1105,14 @@ def extract_decompose_findings(
             "scope_delta_ref.finding_id but is absent or empty."
         )
 
-    compare_type: str = compare_ref.get("comparison_type") or ""
-    if compare_type == "time_series_delta":
+    compare_shape: str = compare_ref.get("shape") or ""
+    if compare_shape == "time_series_delta":
         delta_collection = "summary"
-    elif compare_type in ("", "scalar_delta"):
+    elif compare_shape in ("", "scalar_delta"):
         delta_collection = "result"
     else:
         raise ValueError(
-            f"Decompose artifact: compare_ref.comparison_type={compare_type!r} "
+            f"Decompose artifact: compare_ref.shape={compare_shape!r} "
             "is not supported for scope_delta_ref derivation."
         )
 
@@ -1121,7 +1121,7 @@ def extract_decompose_findings(
     scope_delta_ref = {"session_id": session_id, "finding_id": delta_finding_id}
 
     metric: str | None = payload.get("metric")
-    rows: list[dict[str, Any]] = payload.get("rows") or []
+    rows = _attribution_frame_rows(payload, dimension=dimension)
 
     findings: list[dict[str, Any]] = []
     for rank_0, row in enumerate(rows):
@@ -1165,8 +1165,8 @@ def extract_decompose_findings(
                 payload={
                     "dimension": dimension,
                     "keys": {dimension: key_typed},
-                    "contribution_value": to_float_or_none(row.get("absolute_contribution")),
-                    "contribution_share": to_float_or_none(row.get("contribution_share")),
+                    "contribution_value": to_float_or_none(row.get("contribution_abs")),
+                    "contribution_share": to_float_or_none(row.get("contribution_pct")),
                     "rank": rank_0 + 1,
                     "direction": direction,
                     "scope_delta_ref": scope_delta_ref,
@@ -1174,6 +1174,45 @@ def extract_decompose_findings(
             )
         )
     return findings
+
+
+def _attribution_frame_dimension(payload: dict[str, Any]) -> str | None:
+    axes = payload.get("axes")
+    if not isinstance(axes, list):
+        return None
+    for axis in axes:
+        if isinstance(axis, dict) and axis.get("kind") == "dimension":
+            name = axis.get("name")
+            return str(name) if name else None
+    return None
+
+
+def _attribution_frame_rows(
+    payload: dict[str, Any],
+    *,
+    dimension: str,
+) -> list[dict[str, Any]]:
+    frame_payload = payload.get("payload")
+    if not isinstance(frame_payload, dict):
+        return []
+    series = frame_payload.get("series")
+    if not isinstance(series, list):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for item in series:
+        if not isinstance(item, dict):
+            continue
+        keys = item.get("keys")
+        points = item.get("points")
+        if not isinstance(keys, dict) or not isinstance(points, list):
+            continue
+        key = keys.get(dimension)
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            rows.append({"key": key, **point})
+    return rows
 
 
 # ===========================================================================

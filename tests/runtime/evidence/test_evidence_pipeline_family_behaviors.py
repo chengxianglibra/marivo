@@ -381,7 +381,7 @@ def _decompose_payload(rows: list[dict[str, Any]] | None = None) -> dict[str, An
             "session_id": _SESSION,
             "step_id": "step_cmp_up",
             "artifact_id": "art_upstream_001",
-            "comparison_type": "scalar_delta",
+            "shape": "scalar_delta",
         },
         "current_ref": {
             "step_type": "observe",
@@ -406,16 +406,6 @@ def _decompose_payload(rows: list[dict[str, Any]] | None = None) -> dict[str, An
             },
             "quality": {"reconciliation_status": "exact", "reconciliation_gap": 0.0},
         },
-        "rows": [
-            {
-                "key": "legacy-top-level-row-that-must-be-ignored",
-                "contribution_abs": 9999.0,
-                "contribution_pct": 9999.0,
-            }
-        ],
-        "scope_absolute_delta": 200.0,
-        "scope_relative_delta": 0.25,
-        "scope_direction": "increase",
         "unexplained_absolute_delta": 0.0,
         "unexplained_share": 0.0,
         "unexplained_reason": "rounding",
