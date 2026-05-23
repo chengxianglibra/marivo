@@ -5,7 +5,7 @@ CompareArtifactExtractor (delta_frame → DeltaFinding):
 - segmented_delta → 1 finding per row; segment key stability
 - Unknown or missing shape raises ValueError
 - Empty segmented rows → validate_for_commit("compare", result) raises FamilyEmptyError
-- Registered in default_finding_registry under ("compare_artifact", "v1"); NULL normalisation
+- Registered in default_finding_registry under ("delta_frame", "v1"); NULL normalisation
 
 DecomposeArtifactExtractor (attribution_frame → DecompositionItemFinding):
 - N rows → N findings with correct DecompositionItemPayload fields
@@ -75,7 +75,7 @@ def _scalar_delta_payload(
     return {
         "artifact_family": "delta_frame",
         "shape": "scalar_delta",
-        "artifact_type": "compare_artifact",
+        "artifact_type": "delta_frame",
         "schema_version": "2.0",
         "metric": metric,
         "current_ref": {
@@ -205,7 +205,7 @@ def _segmented_delta_payload(
     return {
         "artifact_family": "delta_frame",
         "shape": "segmented_delta",
-        "artifact_type": "compare_artifact",
+        "artifact_type": "delta_frame",
         "schema_version": "2.0",
         "metric": metric,
         "current_ref": {
@@ -288,7 +288,7 @@ def _time_series_delta_payload(
     return {
         "artifact_family": "delta_frame",
         "shape": "time_series_delta",
-        "artifact_type": "compare_artifact",
+        "artifact_type": "delta_frame",
         "schema_version": "2.0",
         "metric": metric,
         "current_ref": {
@@ -594,7 +594,7 @@ class TestCompareScalarDelta(unittest.TestCase):
 
     def test_extractor_metadata(self) -> None:
         result = self._extract()
-        self.assertEqual(result["extractor_name"], "compare_artifact_v1")
+        self.assertEqual(result["extractor_name"], "delta_frame_v1")
         self.assertEqual(result["extractor_version"], "1.0.0")
         self.assertEqual(result["artifact_schema_version"], "v1")
 
@@ -981,23 +981,23 @@ class TestCompareEdgeCases(unittest.TestCase):
 
 
 class TestCompareRegistration(unittest.TestCase):
-    def test_registered_under_compare_artifact_v1(self) -> None:
-        extractor = default_finding_registry.find("compare_artifact", "v1")
+    def test_registered_under_delta_frame_v1(self) -> None:
+        extractor = default_finding_registry.find("delta_frame", "v1")
         self.assertIsNotNone(extractor)
         self.assertIsInstance(extractor, CompareArtifactExtractor)
 
     def test_null_version_normalised_to_v1(self) -> None:
-        extractor = default_finding_registry.find("compare_artifact", None)
+        extractor = default_finding_registry.find("delta_frame", None)
         self.assertIsNotNone(extractor)
         self.assertIsInstance(extractor, CompareArtifactExtractor)
 
     def test_snapshot_contains_compare_entry(self) -> None:
         entries = {e["artifact_type"]: e for e in default_finding_registry.snapshot()}
-        self.assertIn("compare_artifact", entries)
-        entry = entries["compare_artifact"]
+        self.assertIn("delta_frame", entries)
+        entry = entries["delta_frame"]
         self.assertEqual(entry["artifact_schema_version"], "v1")
         self.assertEqual(entry["family"], "compare")
-        self.assertEqual(entry["extractor_name"], "compare_artifact_v1")
+        self.assertEqual(entry["extractor_name"], "delta_frame_v1")
         self.assertEqual(entry["finding_schema_version"], "v1")
 
 
@@ -1312,26 +1312,22 @@ class TestDecomposeScopeDeltaRef(unittest.TestCase):
         for f in result["findings"]:
             self.assertEqual(f["payload"]["scope_delta_ref"]["session_id"], other_session)
 
-    def test_scope_delta_ref_uses_lineage_source_artifact_id_when_compare_ref_absent(self) -> None:
+    def test_missing_compare_ref_rejects_lineage_source_artifact_id_alias(self) -> None:
         payload = _decompose_payload(compare_artifact_id="art_from_lineage")
         payload.pop("compare_ref", None)
         payload["lineage"] = {
             "operation": "decompose",
             "source_artifact_ids": ["art_from_lineage"],
         }
-        result = _DECOMPOSE_EXTRACTOR.extract(
-            _DECOMP_ART_ID,
-            payload,
-            _DECOMP_STEP_REF,
-            _SESSION,
-        )
-        expected_key, _ = make_item_identity("result")
-        expected_fid = make_finding_id("art_from_lineage", "delta", expected_key)
-        self.assertEqual(
-            result["findings"][0]["payload"]["scope_delta_ref"]["finding_id"], expected_fid
-        )
+        with self.assertRaisesRegex(ValueError, "compare_ref.artifact_id"):
+            _DECOMPOSE_EXTRACTOR.extract(
+                _DECOMP_ART_ID,
+                payload,
+                _DECOMP_STEP_REF,
+                _SESSION,
+            )
 
-    def test_scope_delta_ref_uses_source_lineage_compare_artifact_alias(self) -> None:
+    def test_missing_compare_ref_rejects_source_lineage_compare_artifact_alias(self) -> None:
         payload = _decompose_payload(compare_artifact_id="")
         payload.pop("compare_ref", None)
         payload["lineage"] = {"operation": "decompose", "source_artifact_ids": []}
@@ -1341,17 +1337,13 @@ class TestDecomposeScopeDeltaRef(unittest.TestCase):
                 "shape": "time_series_delta",
             }
         }
-        result = _DECOMPOSE_EXTRACTOR.extract(
-            _DECOMP_ART_ID,
-            payload,
-            _DECOMP_STEP_REF,
-            _SESSION,
-        )
-        expected_key, _ = make_item_identity("summary")
-        expected_fid = make_finding_id("art_from_source_lineage", "delta", expected_key)
-        self.assertEqual(
-            result["findings"][0]["payload"]["scope_delta_ref"]["finding_id"], expected_fid
-        )
+        with self.assertRaisesRegex(ValueError, "compare_ref.artifact_id"):
+            _DECOMPOSE_EXTRACTOR.extract(
+                _DECOMP_ART_ID,
+                payload,
+                _DECOMP_STEP_REF,
+                _SESSION,
+            )
 
 
 # ===========================================================================
@@ -1449,7 +1441,7 @@ class TestComparePanelDelta(unittest.TestCase):
         return {
             "artifact_family": "delta_frame",
             "shape": "panel_delta",
-            "artifact_type": "compare_artifact",
+            "artifact_type": "delta_frame",
             "schema_version": "2.0",
             "metric": "revenue",
             "current_ref": {

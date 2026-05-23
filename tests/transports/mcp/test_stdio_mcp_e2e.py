@@ -582,7 +582,7 @@ async def test_stdio_context_tools_use_local_canonical_evidence_repos(tmp_path: 
     runtime.commit_artifact_with_extraction(
         SessionId(session_id),
         "step_stdio_context_compare",
-        "compare_artifact",
+        "delta_frame",
         "stdio_context_compare",
         _scalar_compare_artifact(),
         step_type="compare",

@@ -71,7 +71,7 @@ def _insert_session(store: SQLiteMetadataStore, session_id: str) -> None:
     )
 
 
-# compare_artifact content for T1 materializer (delta → change proposition).
+# delta_frame content for T1 materializer (delta → change proposition).
 _LEFT_WIN = {"field": "time", "start": "2024-01-01", "end": "2024-01-07"}
 _RIGHT_WIN = {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
 _COMPARE_CONTENT: dict[str, Any] = {
@@ -108,7 +108,7 @@ def _insert_artifact(
     store: SQLiteMetadataStore,
     artifact_id: str,
     session_id: str,
-    artifact_type: str = "compare_artifact",
+    artifact_type: str = "delta_frame",
     content: dict[str, Any] | None = None,
     artifact_schema_version: str | None = "v1",
 ) -> None:

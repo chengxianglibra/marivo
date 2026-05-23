@@ -37,9 +37,8 @@ therefore deterministic:
 
     delta_finding_id = make_finding_id(compare_artifact_id, "delta", key)
 
-``compare_artifact_id`` is taken from canonical ``compare_ref`` if present, then
-from compatibility lineage/source aliases emitted by current runtimes.  If no
-upstream compare artifact id can be found, extraction fails with a ``ValueError``.
+``compare_artifact_id`` is taken from canonical ``compare_ref``.  If no upstream
+compare artifact id can be found, extraction fails with a ``ValueError``.
 
 Rank:
 -----
@@ -153,25 +152,6 @@ def _compare_ref_from_payload(artifact_payload: dict[str, Any]) -> dict[str, Any
     compare_ref = artifact_payload.get("compare_ref")
     if isinstance(compare_ref, dict) and compare_ref.get("artifact_id"):
         return compare_ref
-
-    source_lineage = artifact_payload.get("source_lineage") or {}
-    if isinstance(source_lineage, dict):
-        source_compare_ref = source_lineage.get("compare_artifact")
-        if isinstance(source_compare_ref, dict) and source_compare_ref.get("artifact_id"):
-            return source_compare_ref
-
-    source_compare_ref = artifact_payload.get("source_compare_ref")
-    if isinstance(source_compare_ref, dict) and source_compare_ref.get("artifact_id"):
-        return source_compare_ref
-
-    lineage = artifact_payload.get("lineage") or {}
-    if isinstance(lineage, dict):
-        source_ids = lineage.get("source_artifact_ids") or []
-        if isinstance(source_ids, list) and source_ids:
-            source_id = source_ids[0]
-            if source_id:
-                return {"artifact_id": str(source_id)}
-
     return {}
 
 
@@ -204,8 +184,7 @@ class DecomposeArtifactExtractor(FindingExtractor):
         if not compare_artifact_id:
             raise ValueError(
                 "DecomposeArtifactExtractor: upstream compare artifact id is required to compute "
-                "scope_delta_ref.finding_id but no compare_ref, lineage.source_artifact_ids, "
-                "or source_lineage.compare_artifact id was found."
+                "scope_delta_ref.finding_id but no compare_ref.artifact_id was found."
             )
 
         compare_type: str = compare_ref.get("shape") or ""

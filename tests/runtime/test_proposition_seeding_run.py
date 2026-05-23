@@ -48,7 +48,7 @@ def _insert_artifact(
     artifact_id: str,
     session_id: str = "sess_4e3",
     step_id: str = "step_001",
-    artifact_type: str = "compare_artifact",
+    artifact_type: str = "delta_frame",
     content: dict[str, Any] | None = None,
 ) -> None:
     store.execute(
@@ -507,7 +507,7 @@ class TestCreationConditionT1(_Base):
         _insert_artifact(
             self.store,
             "art_no_summary_001",
-            artifact_type="compare_artifact",
+            artifact_type="delta_frame",
             content={
                 "shape": "scalar_delta",
                 "metric": "dau",

@@ -386,7 +386,7 @@ def run_attribute_intent(
     decompose_refs: list[dict[str, Any]] = [d["decompose_ref"] for d in drivers]
 
     lineage: dict[str, Any] = {
-        "source_compare_ref": compare_ref,
+        "source_delta_ref": compare_ref,
         "source_observation_refs": [current_ref_typed, baseline_ref_typed],
         "source_decompose_refs": decompose_refs,
     }
@@ -528,7 +528,7 @@ def _read_scope_absolute_delta(artifact: dict[str, Any]) -> Any:
         scope = payload.get("scope")
         if isinstance(scope, dict) and "delta_abs" in scope:
             return scope.get("delta_abs")
-    return artifact.get("scope_absolute_delta")
+    return None
 
 
 # ── Request shape validation ──────────────────────────────────────────────────

@@ -117,15 +117,16 @@ def _compare_result(
             {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": None},
             {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
         ],
-        "payload": {"series": series_data},
-        # Backward-compatible top-level series for read_compare_scalar_point
-        "series": series_data,
-        # Backward-compatible aliases
-        "current_value": 120.0,
-        "baseline_value": 100.0,
-        "absolute_delta": 20.0,
-        "relative_delta": 0.2,
-        "direction": "increase",
+        "payload": {
+            "series": series_data,
+            "scope": {
+                "current_value": 120.0,
+                "baseline_value": 100.0,
+                "delta_abs": 20.0,
+                "delta_pct": 0.2,
+                "direction": "increase",
+            },
+        },
     }
 
 

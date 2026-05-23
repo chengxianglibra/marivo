@@ -93,7 +93,7 @@ def _setup(store: SQLiteMetadataStore) -> None:
             _ARTIFACT_ID,
             _SESSION,
             "step_rr_001",
-            "compare_artifact",
+            "delta_frame",
             _ARTIFACT_ID,
             json.dumps(_COMPARE_ARTIFACT_CONTENT),
         ],

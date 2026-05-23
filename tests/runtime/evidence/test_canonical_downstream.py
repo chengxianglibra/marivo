@@ -58,7 +58,7 @@ _FINDING_ID = "fnd_cd_001"
 _LEFT_WIN = {"field": "time", "start": "2024-01-01", "end": "2024-01-07"}
 _RIGHT_WIN = {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
 
-# Compare artifact content with resolved_input_summary required by T1 materializer.
+# Delta frame content with resolved_input_summary required by T1 materializer.
 _COMPARE_ARTIFACT_CONTENT: dict[str, Any] = {
     "shape": "scalar_delta",
     "metric": "dau",
@@ -115,7 +115,7 @@ def _insert_artifact(
             artifact_id,
             session_id,
             "step_cd_001",
-            "compare_artifact",
+            "delta_frame",
             artifact_id,
             json.dumps(content if content is not None else _COMPARE_ARTIFACT_CONTENT),
         ],

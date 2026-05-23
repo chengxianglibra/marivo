@@ -85,7 +85,7 @@ def _setup_session_artifact_finding(store: SQLiteMetadataStore) -> None:
             _ARTIFACT_ID,
             _SESSION,
             "step_si_001",
-            "compare_artifact",
+            "delta_frame",
             _ARTIFACT_ID,
             json.dumps(_COMPARE_ARTIFACT_CONTENT),
         ],

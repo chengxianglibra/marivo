@@ -259,9 +259,6 @@ def read_frame_payload_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:
         series = payload.get("series")
         if isinstance(series, list):
             return series
-    series = artifact.get("series")
-    if isinstance(series, list):
-        return series
     raise ValueError("frame artifact payload missing series")
 
 
@@ -369,37 +366,6 @@ def iter_metric_frame_value_samples(artifact: dict[str, Any]) -> list[MetricFram
                 )
             )
     return samples
-
-
-def _first_present(artifact: dict[str, Any], keys: list[str]) -> Any:
-    for key in keys:
-        if key in artifact:
-            return artifact[key]
-    return None
-
-
-def read_frame_payload_scope(artifact: dict[str, Any]) -> dict[str, Any]:
-    payload = artifact.get("payload")
-    if isinstance(payload, dict):
-        scope = payload.get("scope")
-        if isinstance(scope, dict):
-            return scope
-    scope = artifact.get("scope")
-    if isinstance(scope, dict):
-        return scope
-    summary = artifact.get("summary")
-    if isinstance(summary, dict):
-        return summary
-    return {
-        "current_value": _first_present(artifact, ["summary_current_value", "scope_current_value"]),
-        "baseline_value": _first_present(
-            artifact, ["summary_baseline_value", "scope_baseline_value"]
-        ),
-        "delta_abs": _first_present(artifact, ["summary_absolute_delta", "scope_absolute_delta"]),
-        "delta_pct": _first_present(artifact, ["summary_relative_delta", "scope_relative_delta"]),
-        "direction": _first_present(artifact, ["summary_direction", "scope_direction"])
-        or "undefined",
-    }
 
 
 def read_metric_frame_unit(artifact: dict[str, Any]) -> str | None:
@@ -569,28 +535,16 @@ def read_axes_from_artifact(artifact: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def read_compare_scalar_point(artifact: dict[str, Any]) -> dict[str, Any]:
-    """Read the scalar delta point from a compare or delta-frame artifact."""
-    try:
-        series_list = read_frame_payload_series(artifact)
-    except ValueError:
-        series_list = []
+    """Read the scalar delta point from a canonical delta_frame artifact."""
+    series_list = read_frame_payload_series(artifact)
     if series_list:
         points = series_list[0].get("points") or []
         if points:
             point = dict(points[0])
             if "delta" not in point and "delta_abs" in point:
                 point["delta"] = point["delta_abs"]
-            if "delta_pct" not in point and "relative_delta" in point:
-                point["delta_pct"] = point["relative_delta"]
             return point
-    # v1.0 fallback: assemble from top-level aliases
-    return {
-        "current_value": artifact.get("current_value"),
-        "baseline_value": artifact.get("baseline_value"),
-        "delta_abs": artifact.get("absolute_delta"),
-        "delta_pct": artifact.get("relative_delta"),
-        "direction": artifact.get("direction") or "undefined",
-    }
+    raise ValueError("delta_frame artifact has no scalar delta point")
 
 
 def read_attribution_rows_from_series(artifact: dict[str, Any]) -> list[dict[str, Any]]:

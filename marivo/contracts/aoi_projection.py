@@ -64,28 +64,6 @@ def _first_point_value(entry: dict[str, Any], field: str) -> Any:
     return points[0].get(field)
 
 
-def _metric_frame_window(point: dict[str, Any]) -> dict[str, Any] | None:
-    raw_window = point.get("window")
-    if isinstance(raw_window, dict) and raw_window.get("start") and raw_window.get("end"):
-        return {
-            "start": _as_aoi_datetime(raw_window.get("start")),
-            "end": _as_aoi_datetime(raw_window.get("end")),
-        }
-    start = _point_start(point)
-    end = point.get("bucket_end") or point.get("end")
-    if start is None or end is None:
-        return None
-    return {"start": _as_aoi_datetime(start), "end": _as_aoi_datetime(end)}
-
-
-def _metric_frame_point(point: dict[str, Any]) -> dict[str, Any]:
-    value: dict[str, Any] = {"value": point.get("value")}
-    window = _metric_frame_window(point)
-    if window is not None:
-        value["window"] = window
-    return value
-
-
 def _delta_frame_window(point: dict[str, Any]) -> dict[str, Any] | None:
     raw_window = point.get("window")
     if isinstance(raw_window, dict) and raw_window.get("start") and raw_window.get("end"):
@@ -162,91 +140,6 @@ def _project_delta_frame_artifact(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _default_time_scope() -> dict[str, str]:
-    return {
-        "field": "time",
-        "start": "1970-01-01T00:00:00Z",
-        "end": "1970-01-02T00:00:00Z",
-    }
-
-
-def _attribution_time_scope(value: Any) -> Any:
-    if isinstance(value, dict) and value.get("start") is not None and value.get("end") is not None:
-        return {
-            "field": str(value.get("field") or "time"),
-            "start": value.get("start"),
-            "end": value.get("end"),
-        }
-    return _default_time_scope()
-
-
-def _attribution_scope(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
-
-
-def _attribution_subject(payload: dict[str, Any]) -> dict[str, Any]:
-    subject = payload.get("subject")
-    if isinstance(subject, dict):
-        return subject
-    resolved_scopes_raw = payload.get("resolved_scopes")
-    resolved_scopes: dict[str, Any] = (
-        resolved_scopes_raw if isinstance(resolved_scopes_raw, dict) else {}
-    )
-    metric_ref = str(payload.get("metric_ref") or payload.get("metric") or "unknown")
-    if not metric_ref.startswith("metric."):
-        metric_ref = f"metric.{metric_ref}"
-    return {
-        "kind": "comparison",
-        "metric_ref": metric_ref,
-        "current": {
-            "time_scope": _attribution_time_scope(payload.get("current_time_scope")),
-            "scope": _attribution_scope(resolved_scopes.get("current")),
-        },
-        "baseline": {
-            "time_scope": _attribution_time_scope(payload.get("baseline_time_scope")),
-            "scope": _attribution_scope(resolved_scopes.get("baseline")),
-        },
-    }
-
-
-def _attribution_lineage(payload: dict[str, Any]) -> dict[str, Any]:
-    lineage = payload.get("lineage")
-    if isinstance(lineage, dict):
-        return lineage
-    compare_ref_raw = payload.get("compare_ref")
-    compare_ref: dict[str, Any] = compare_ref_raw if isinstance(compare_ref_raw, dict) else {}
-    return {
-        "operation": "decompose",
-        "source_artifact_ids": [str(compare_ref.get("artifact_id") or "unknown")],
-    }
-
-
-def _attribution_series_from_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    dimension = str(payload.get("dimension") or "dimension")
-    series = []
-    for idx, row in enumerate(payload.get("rows") or []):
-        if not isinstance(row, dict):
-            continue
-        key = row.get("key") if "key" in row else row.get("dimension_value")
-        point = {
-            "contribution_abs": row.get("contribution_abs")
-            if "contribution_abs" in row
-            else row.get("absolute_contribution", 0.0),
-            "contribution_pct": row.get("contribution_pct")
-            if "contribution_pct" in row
-            else row.get("contribution_share", 0.0),
-            "rank": row.get("rank") or idx + 1,
-        }
-        if "current_value" in row:
-            point["current_value"] = row.get("current_value")
-        if "baseline_value" in row:
-            point["baseline_value"] = row.get("baseline_value")
-        if "presence" in row:
-            point["presence"] = row.get("presence")
-        series.append({"keys": {dimension: str(key or f"item_{idx}")}, "points": [point]})
-    return series
-
-
 def _project_decompose_attribution_frame(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("artifact_family") == "attribution_frame":
         return aoi.AttributionFrameArtifact.model_validate(payload).model_dump(
@@ -255,90 +148,11 @@ def _project_decompose_attribution_frame(payload: dict[str, Any]) -> dict[str, A
     raise ValueError("decompose AOI projection requires an attribution_frame artifact")
 
 
-def _metric_frame_subject(payload: dict[str, Any]) -> aoi.MetricFrameSubject:
-    raw_time_scope = (
-        payload.get("time_scope")
-        or (payload.get("analytical_metadata") or {}).get("time_scope")
-        or (payload.get("analytical_metadata") or {}).get("matched_time_scope")
-    )
-    time_scope = _as_aoi_time_scope(raw_time_scope) or aoi.TimeScope(
-        field="time",
-        start=_as_aoi_datetime("1970-01-01T00:00:00Z"),
-        end=_as_aoi_datetime("1970-01-02T00:00:00Z"),
-    )
-    scope = payload.get("scope")
-    return aoi.MetricFrameSubject.model_validate(
-        {
-            "kind": "metric",
-            "metric_ref": str(
-                payload.get("metric_ref") or payload.get("metric") or "metric.unknown"
-            ),
-            "time_scope": time_scope,
-            "scope": scope if isinstance(scope, dict) else {},
-        }
-    )
-
-
-def _project_observe_metric_frame(artifact_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    observation_type = payload.get("observation_type")
-    granularity = payload.get("granularity") or payload.get("grain") or "day"
-    dimensions = payload.get("dimensions") or payload.get("dimension")
-    if isinstance(dimensions, str):
-        dimension_names = [dimensions]
-    elif isinstance(dimensions, list):
-        dimension_names = [str(dimension) for dimension in dimensions]
-    else:
-        dimension_names = []
-
-    if observation_type == "time_series" or payload.get("series"):
-        shape = "panel" if dimension_names else "time_series"
-        axes: list[dict[str, Any]] = [{"kind": "time", "grain": granularity}]
-        axes.extend({"kind": "dimension", "name": name} for name in dimension_names)
-        raw_series = payload.get("series") or []
-        series = [
-            {
-                "keys": _string_keys(entry.get("keys")),
-                "points": [_metric_frame_point(point) for point in entry.get("points") or []],
-            }
-            if isinstance(entry, dict) and isinstance(entry.get("points"), list)
-            else {"keys": {}, "points": [_metric_frame_point(entry)]}
-            for entry in raw_series
-            if isinstance(entry, dict)
-        ]
-    elif observation_type == "segmented" or payload.get("segments"):
-        shape = "segmented"
-        axes = [{"kind": "dimension", "name": name} for name in (dimension_names or ["segment"])]
-        series = [
-            {
-                "keys": _string_keys(segment.get("keys")),
-                "points": [{"value": segment.get("value")}],
-            }
-            for segment in payload.get("segments") or []
-            if isinstance(segment, dict)
-        ]
-    else:
-        shape = "scalar"
-        axes = []
-        series = [{"keys": {}, "points": [{"value": payload.get("value")}]}]
-
-    artifact = aoi.MetricFrameArtifact.model_validate(
-        {
-            "artifact_id": artifact_id,
-            "artifact_family": "metric_frame",
-            "shape": shape,
-            "subject": _metric_frame_subject(payload),
-            "axes": axes,
-            "measures": [{"id": "value", "value_type": "number", "nullable": True}],
-            "payload": {"series": series},
-        }
-    )
-    return artifact.model_dump(mode="json", exclude_none=True)
-
-
 def project_aoi_artifact_result(intent_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     if intent_type == "observe":
-        artifact_id = str(payload.get("artifact_id") or "artifact_observe")
-        return _project_observe_metric_frame(artifact_id, payload)
+        if payload.get("artifact_family") == "metric_frame":
+            return artifact_to_envelope_result(validate_aoi_artifact(payload))
+        raise ValueError("observe AOI projection requires a metric_frame artifact")
 
     if intent_type == "compare":
         if payload.get("artifact_family") == "delta_frame":
@@ -436,9 +250,7 @@ def project_aoi_artifact(
         ):
             projected_payload = raw
         projected_payload.setdefault("artifact_id", artifact_id)
-        return artifact_to_envelope_result(
-            validate_aoi_artifact(_project_observe_metric_frame(artifact_id, projected_payload))
-        )
+        return project_aoi_artifact_result("observe", projected_payload)
     if intent_type == "decompose":
         if isinstance(raw, dict) and raw.get("artifact_id") and "failure" in raw:
             return artifact_to_envelope_result(validate_aoi_artifact(raw))

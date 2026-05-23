@@ -659,10 +659,12 @@ def extract_compare_findings(
     payload: dict[str, Any],
     step_ref: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Extract delta findings from a compare artifact payload.
+    """Extract delta findings from a delta_frame artifact payload.
 
     Pure computation: maps delta frame ``shape`` variants to finding dicts.
     """
+    if payload.get("artifact_family") != "delta_frame":
+        raise ValueError("Compare extraction requires artifact_family='delta_frame'.")
     shape: str = payload.get("shape") or ""
 
     if shape == "scalar_delta":
@@ -678,6 +680,36 @@ def extract_compare_findings(
         )
 
 
+def _delta_frame_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    frame_payload = payload.get("payload")
+    if not isinstance(frame_payload, dict):
+        raise ValueError("delta_frame payload must be an object")
+    return frame_payload
+
+
+def _delta_frame_series(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    series = _delta_frame_payload(payload).get("series")
+    if not isinstance(series, list):
+        raise ValueError("delta_frame payload.series must be a list")
+    return series
+
+
+def _delta_frame_scope(payload: dict[str, Any]) -> dict[str, Any]:
+    scope = _delta_frame_payload(payload).get("scope")
+    return scope if isinstance(scope, dict) else {}
+
+
+def _delta_frame_granularity(payload: dict[str, Any]) -> str | None:
+    axes = payload.get("axes")
+    if not isinstance(axes, list):
+        return None
+    for axis in axes:
+        if isinstance(axis, dict) and axis.get("kind") == "time":
+            grain = axis.get("grain")
+            return str(grain) if grain else None
+    return None
+
+
 def _extract_compare_scalar_delta(
     artifact_id: str,
     payload: dict[str, Any],
@@ -689,8 +721,9 @@ def _extract_compare_scalar_delta(
     resolved = payload.get("resolved_input_summary") or {}
     current_scope: dict[str, Any] = resolved.get("current_scope") or {}
     current_time_scope = resolved.get("current_time_scope")
+    scope = _delta_frame_scope(payload)
 
-    direction = _validate_direction(payload.get("direction"))
+    direction = _validate_direction(scope.get("direction"))
 
     _, obs_item_ref = make_item_identity("value")
     current_ref = {"artifact_id": "", "item_ref": obs_item_ref}
@@ -702,10 +735,10 @@ def _extract_compare_scalar_delta(
             "delta_kind": "scalar_delta",
             "current_ref": current_ref,
             "baseline_ref": baseline_ref,
-            "current_value": to_float_or_none(payload.get("current_value")),
-            "baseline_value": to_float_or_none(payload.get("baseline_value")),
-            "absolute_delta": to_float_or_none(payload.get("absolute_delta")),
-            "relative_delta": to_float_or_none(payload.get("relative_delta")),
+            "current_value": to_float_or_none(scope.get("current_value")),
+            "baseline_value": to_float_or_none(scope.get("baseline_value")),
+            "absolute_delta": to_float_or_none(scope.get("delta_abs")),
+            "relative_delta": to_float_or_none(scope.get("delta_pct")),
             "direction": direction,
             "presence": "both",
             "unit": payload.get("unit"),
@@ -730,7 +763,7 @@ def _extract_compare_scalar_delta(
             quality=_empty_quality(),
             provenance=_make_provenance(
                 step_ref=step_ref,
-                extractor_name="compare_artifact_v1",
+                extractor_name="delta_frame_v1",
                 extractor_version="1.0.0",
                 artifact_schema_version="v1",
                 canonical_item_key=canonical_item_key,
@@ -746,7 +779,11 @@ def _extract_compare_segmented_delta(
     payload: dict[str, Any],
     step_ref: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = payload.get("rows") or []
+    rows: list[dict[str, Any]] = [
+        {"keys": entry.get("keys") or {}, **((entry.get("points") or [{}])[0] or {})}
+        for entry in _delta_frame_series(payload)
+        if isinstance(entry, dict)
+    ]
     metric: str | None = payload.get("metric")
     unit: str | None = payload.get("unit")
     resolved = payload.get("resolved_input_summary") or {}
@@ -774,8 +811,8 @@ def _extract_compare_segmented_delta(
                 "baseline_ref": {"artifact_id": "", "item_ref": baseline_item_ref},
                 "current_value": to_float_or_none(row.get("current_value")),
                 "baseline_value": to_float_or_none(row.get("baseline_value")),
-                "absolute_delta": to_float_or_none(row.get("absolute_delta")),
-                "relative_delta": to_float_or_none(row.get("relative_delta")),
+                "absolute_delta": to_float_or_none(row.get("delta_abs")),
+                "relative_delta": to_float_or_none(row.get("delta_pct")),
                 "direction": direction,
                 "presence": presence,
                 "unit": unit,
@@ -800,7 +837,7 @@ def _extract_compare_segmented_delta(
                 quality=_empty_quality(),
                 provenance=_make_provenance(
                     step_ref=step_ref,
-                    extractor_name="compare_artifact_v1",
+                    extractor_name="delta_frame_v1",
                     extractor_version="1.0.0",
                     artifact_schema_version="v1",
                     canonical_item_key=canonical_item_key,
@@ -817,39 +854,32 @@ def _extract_compare_time_series_delta(
     payload: dict[str, Any],
     step_ref: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = payload.get("rows") or []
+    series_entries = _delta_frame_series(payload)
+    rows: list[dict[str, Any]] = series_entries[0].get("points") or [] if series_entries else []
     metric: str | None = payload.get("metric")
     unit: str | None = payload.get("unit")
-    granularity: str | None = payload.get("granularity")
+    granularity: str | None = _delta_frame_granularity(payload)
     comp_payload = extract_comparability_payload(payload)
 
     findings: list[dict[str, Any]] = []
 
     # Summary delta
-    has_summary = any(
-        key in payload
-        for key in (
-            "summary_current_value",
-            "summary_baseline_value",
-            "summary_absolute_delta",
-            "summary_relative_delta",
-            "summary_direction",
-        )
-    )
+    scope = _delta_frame_scope(payload)
+    has_summary = bool(scope)
     if has_summary:
         summary_key, summary_item_ref = make_item_identity("summary")
         summary_finding_id = make_finding_id(artifact_id, "delta", summary_key)
-        summary_direction = _validate_direction(payload.get("summary_direction"))
+        summary_direction = _validate_direction(scope.get("direction"))
 
         summary_payload = _attach_comparability_payload(
             {
                 "delta_kind": "time_series_delta",
                 "current_ref": {"artifact_id": "", "item_ref": summary_item_ref},
                 "baseline_ref": {"artifact_id": "", "item_ref": summary_item_ref},
-                "current_value": to_float_or_none(payload.get("summary_current_value")),
-                "baseline_value": to_float_or_none(payload.get("summary_baseline_value")),
-                "absolute_delta": to_float_or_none(payload.get("summary_absolute_delta")),
-                "relative_delta": to_float_or_none(payload.get("summary_relative_delta")),
+                "current_value": to_float_or_none(scope.get("current_value")),
+                "baseline_value": to_float_or_none(scope.get("baseline_value")),
+                "absolute_delta": to_float_or_none(scope.get("delta_abs")),
+                "relative_delta": to_float_or_none(scope.get("delta_pct")),
                 "direction": summary_direction,
                 "presence": None,
                 "unit": unit,
@@ -887,7 +917,7 @@ def _extract_compare_time_series_delta(
                 quality=_empty_quality(),
                 provenance=_make_provenance(
                     step_ref=step_ref,
-                    extractor_name="compare_artifact_v1",
+                    extractor_name="delta_frame_v1",
                     extractor_version="1.0.0",
                     artifact_schema_version="v1",
                     canonical_item_key=summary_key,
@@ -920,8 +950,8 @@ def _extract_compare_time_series_delta(
                 "baseline_ref": {"artifact_id": "", "item_ref": bucket_item_ref},
                 "current_value": to_float_or_none(row.get("current_value")),
                 "baseline_value": to_float_or_none(row.get("baseline_value")),
-                "absolute_delta": to_float_or_none(row.get("absolute_delta")),
-                "relative_delta": to_float_or_none(row.get("relative_delta")),
+                "absolute_delta": to_float_or_none(row.get("delta_abs")),
+                "relative_delta": to_float_or_none(row.get("delta_pct")),
                 "direction": direction,
                 "presence": presence,
                 "unit": unit,
@@ -952,7 +982,7 @@ def _extract_compare_time_series_delta(
                 quality=_empty_quality(),
                 provenance=_make_provenance(
                     step_ref=step_ref,
-                    extractor_name="compare_artifact_v1",
+                    extractor_name="delta_frame_v1",
                     extractor_version="1.0.0",
                     artifact_schema_version="v1",
                     canonical_item_key=canonical_item_key,

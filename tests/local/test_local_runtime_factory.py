@@ -68,7 +68,7 @@ def test_local_artifact_commit_syncs_canonical_context(tmp_path: Path) -> None:
     artifact_id = runtime.commit_artifact_with_extraction(
         SessionId(session_id),
         "step_compare_local_context",
-        "compare_artifact",
+        "delta_frame",
         "local_context_compare",
         _scalar_compare_artifact(),
         step_type="compare",

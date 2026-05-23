@@ -836,15 +836,16 @@ def test_hour_candidate_followup_preserves_hour_windows_for_compare() -> None:
             {"id": "delta_abs", "value_type": "number", "nullable": True, "unit": None},
             {"id": "delta_pct", "value_type": "number", "nullable": True, "unit": None},
         ],
-        "payload": {"series": compare_series},
-        # Backward-compatible top-level series for read_compare_scalar_point
-        "series": compare_series,
-        # Backward-compatible aliases
-        "current_value": 29.0,
-        "baseline_value": 3.0,
-        "absolute_delta": 26.0,
-        "relative_delta": 8.6,
-        "direction": "up",
+        "payload": {
+            "series": compare_series,
+            "scope": {
+                "current_value": 29.0,
+                "baseline_value": 3.0,
+                "delta_abs": 26.0,
+                "delta_pct": 8.6,
+                "direction": "increase",
+            },
+        },
         "comparability": {"status": "comparable", "issues": []},
     }
     decompose_result = {

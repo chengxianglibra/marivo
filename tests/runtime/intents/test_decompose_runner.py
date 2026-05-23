@@ -1220,7 +1220,7 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
             canonical_subset["lineage"],
             {"operation": "decompose", "source_artifact_ids": ["art_compare"]},
         )
-        self.assertIn("compare_artifact", result["source_lineage"])
+        self.assertIn("delta_frame", result["source_lineage"])
         self.assertIn("current_artifact", result["source_lineage"])
         self.assertIn("baseline_artifact", result["source_lineage"])
         aoi.AttributionFrameArtifact.model_validate(canonical_subset)

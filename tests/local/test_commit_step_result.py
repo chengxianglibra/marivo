@@ -45,7 +45,7 @@ def test_commit_step_result_passes_artifact_type_and_name():
         session_id="sess-2",
         step_id="step-2",
         step_type="compare",
-        artifact_type="compare_artifact",
+        artifact_type="delta_frame",
         artifact_name="revenue_compare",
         artifact_payload={"shape": "scalar_delta"},
         summary="Compared revenue",
@@ -55,7 +55,7 @@ def test_commit_step_result_passes_artifact_type_and_name():
     call_args = mock_runtime.commit_artifact_with_extraction.call_args
     assert call_args[0][0] == "sess-2"
     assert call_args[0][1] == "step-2"
-    assert call_args[0][2] == "compare_artifact"
+    assert call_args[0][2] == "delta_frame"
     assert call_args[0][3] == "revenue_compare"
     assert call_args[0][4] == {"shape": "scalar_delta"}
     assert call_args[1].get("step_type") == "compare"

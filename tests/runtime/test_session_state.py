@@ -136,13 +136,37 @@ def _get_artifact_runtime_status(
     }
 
 
-# compare_artifact content valid for T1 materializer (delta → change proposition).
+# delta_frame content valid for T1 materializer (delta -> change proposition).
 _LEFT_WIN = {"field": "time", "start": "2024-01-01", "end": "2024-01-07"}
 _RIGHT_WIN = {"field": "time", "start": "2024-01-08", "end": "2024-01-14"}
 _COMPARE_CONTENT: dict[str, Any] = {
+    "artifact_family": "delta_frame",
     "shape": "scalar_delta",
     "metric": "dau",
-    "direction": "increase",
+    "axes": [{"kind": "comparison_side"}],
+    "payload": {
+        "series": [
+            {
+                "keys": {},
+                "points": [
+                    {
+                        "current_value": 900.0,
+                        "baseline_value": 1000.0,
+                        "delta_abs": 100.0,
+                        "delta_pct": 0.111,
+                        "direction": "increase",
+                    }
+                ],
+            }
+        ],
+        "scope": {
+            "current_value": 900.0,
+            "baseline_value": 1000.0,
+            "delta_abs": 100.0,
+            "delta_pct": 0.111,
+            "direction": "increase",
+        },
+    },
     "resolved_input_summary": {
         "current_scope": {},
         "current_time_scope": _LEFT_WIN,
@@ -173,7 +197,7 @@ def _insert_artifact(
     store: SQLiteMetadataStore,
     artifact_id: str,
     session_id: str,
-    artifact_type: str = "compare_artifact",
+    artifact_type: str = "delta_frame",
     content: dict[str, Any] | None = None,
     artifact_schema_version: str | None = "v1",
 ) -> None:
@@ -424,7 +448,7 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
             self.store,
             artifact_id,
             self.session_id,
-            artifact_type="compare_artifact",
+            artifact_type="delta_frame",
         )
         status = self._get_status(artifact_id)
 
@@ -465,7 +489,7 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
             self.store,
             artifact_id,
             self.session_id,
-            artifact_type="compare_artifact",
+            artifact_type="delta_frame",
         )
         _insert_finding(self.store, finding_id, self.session_id, artifact_id)
         status = self._get_status(artifact_id)
@@ -483,12 +507,12 @@ class TestArtifactRuntimeStatusManager(unittest.TestCase):
             self.store,
             artifact_id,
             self.session_id,
-            artifact_type="compare_artifact",
+            artifact_type="delta_frame",
             artifact_schema_version="v1",
         )
         status = self._get_status(artifact_id)
         key = status["extractor_key"]
-        self.assertEqual(key["artifact_type"], "compare_artifact")
+        self.assertEqual(key["artifact_type"], "delta_frame")
         self.assertEqual(key["artifact_schema_version"], "v1")
         # extractor_version: compare_extractor is registered in default_finding_registry
         self.assertIsNotNone(key["extractor_version"])
