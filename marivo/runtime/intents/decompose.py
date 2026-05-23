@@ -359,7 +359,7 @@ def run_decompose_intent(
             },
         },
         "source_lineage": {
-            "compare_artifact": compare_ref_out,
+            "delta_frame": compare_ref_out,
             "current_artifact": current_ref_out,
             "baseline_artifact": baseline_ref_out,
         },

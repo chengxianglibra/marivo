@@ -1,11 +1,9 @@
-# DEPRECATED: Pure extraction logic extracted to app.core.evidence.finding_extraction.extract_compare_findings.
-
-"""compare artifact → delta finding extractor (Phase 4d-3).
+"""delta_frame artifact → delta finding extractor (Phase 4d-3).
 
 Registered via ``_bootstrap_finding_extractors()`` in
 ``finding_extractor_registry.py`` — same bootstrap pattern as 4d-1/4d-2.
 
-Artifact type: ``"compare_artifact"``   Schema version: ``"v1"``   Family: ``"compare"``
+Artifact type: ``"delta_frame"``   Schema version: ``"v1"``   Family: ``"compare"``
 
 Maps compare ``shape`` variants to :class:`DeltaFinding`:
 
@@ -165,12 +163,12 @@ def _segment_stable_key(keys: dict[str, Any]) -> str:
 
 
 class CompareArtifactExtractor(FindingExtractor):
-    """Extract :class:`DeltaFinding`\\s from ``compare_artifact`` artifacts."""
+    """Extract :class:`DeltaFinding`\\s from ``delta_frame`` artifacts."""
 
-    artifact_type = "compare_artifact"
+    artifact_type = "delta_frame"
     artifact_schema_version = "v1"
     family = "compare"
-    extractor_name = "compare_artifact_v1"
+    extractor_name = "delta_frame_v1"
     extractor_version = "1.0.0"
     finding_schema_version = "v1"
 

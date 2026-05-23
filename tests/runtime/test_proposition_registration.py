@@ -54,7 +54,7 @@ def _insert_artifact(
         "INSERT INTO artifacts "
         "(artifact_id, session_id, step_id, artifact_type, name, content_json) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        [artifact_id, session_id, "step_4e2_001", "compare_artifact", "cmp", "{}"],
+        [artifact_id, session_id, "step_4e2_001", "delta_frame", "cmp", "{}"],
     )
 
 

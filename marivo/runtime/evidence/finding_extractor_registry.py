@@ -45,7 +45,7 @@ class FindingExtractor(ABC):
     ----------------------
     artifact_type:
         The artifact type this extractor handles.
-        Example: ``"observation_artifact"``, ``"compare_artifact"``.
+        Example: ``"metric_frame"``, ``"delta_frame"``.
     artifact_schema_version:
         The schema version string this extractor handles.
         Example: ``"v1"``.  The registry's ``find()`` method honors exact

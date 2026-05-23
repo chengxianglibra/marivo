@@ -1101,7 +1101,7 @@ def _read_scope_absolute_delta(artifact: dict[str, Any]) -> Any:
         scope = payload.get("scope")
         if isinstance(scope, dict) and "delta_abs" in scope:
             return scope.get("delta_abs")
-    return artifact.get("scope_absolute_delta")
+    return None
 
 
 def _collect_diagnose_aoi_artifacts(

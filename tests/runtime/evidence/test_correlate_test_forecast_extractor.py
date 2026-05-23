@@ -432,7 +432,7 @@ class TestRegistrySnapshotCompleteness(unittest.TestCase):
         expected = {
             "metric_frame",
             "candidate_set",
-            "compare_artifact",
+            "delta_frame",
             "attribution_frame",
             "pairwise_time_series_association",
             "forecast_series",

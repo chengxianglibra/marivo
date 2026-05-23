@@ -85,7 +85,7 @@ class _ObsV2Extractor(FindingExtractor):
 
 
 class _CompareV1Extractor(FindingExtractor):
-    artifact_type = "compare_artifact"
+    artifact_type = "delta_frame"
     artifact_schema_version = "v1"
     family = "compare"
     extractor_name = "compare_v1"
@@ -293,7 +293,7 @@ class TestFindingExtractorRegistryBasic(unittest.TestCase):
         try:
             self.registry.get("observation_artifact", "v1")
         except KeyError as exc:
-            self.assertIn("compare_artifact", str(exc))
+            self.assertIn("delta_frame", str(exc))
 
     def test_key_error_message_lists_mixed_none_and_string_versions(self) -> None:
         self.registry.register(_ObsNoneExtractor())
@@ -303,7 +303,7 @@ class TestFindingExtractorRegistryBasic(unittest.TestCase):
         except KeyError as exc:
             message = str(exc)
             self.assertIn("('observation_artifact', None)", message)
-            self.assertIn("('compare_artifact', 'v1')", message)
+            self.assertIn("('delta_frame', 'v1')", message)
         else:
             self.fail("Expected KeyError was not raised")
 
@@ -314,7 +314,7 @@ class TestFindingExtractorRegistryBasic(unittest.TestCase):
         self.registry.register(_ObsV1Extractor())
         self.registry.register(_CompareV1Extractor())
         keys = self.registry.registered_keys()
-        self.assertIn(("compare_artifact", "v1"), keys)
+        self.assertIn(("delta_frame", "v1"), keys)
         self.assertIn(("observation_artifact", "v1"), keys)
 
     def test_registered_keys_is_sorted(self) -> None:
@@ -400,7 +400,7 @@ class TestFindingExtractorRegistryVersionRouting(unittest.TestCase):
 
     def test_different_artifact_types_route_independently(self) -> None:
         obs = self.registry.get("observation_artifact", "v1")
-        cmp = self.registry.get("compare_artifact", "v1")
+        cmp = self.registry.get("delta_frame", "v1")
         self.assertIsInstance(obs, _ObsV1Extractor)
         self.assertIsInstance(cmp, _CompareV1Extractor)
 

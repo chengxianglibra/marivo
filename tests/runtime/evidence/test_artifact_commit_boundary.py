@@ -300,10 +300,10 @@ class _ObserveEmptyExtractor(FindingExtractor):
 class _CompareEmptyExtractor(FindingExtractor):
     """Returns 0 findings for the 'compare' family — must be rejected (D4 non-empty)."""
 
-    artifact_type = "compare_artifact"
+    artifact_type = "delta_frame"
     artifact_schema_version = "v1"
     family = "compare"
-    extractor_name = "compare_empty_stub"
+    extractor_name = "delta_empty_stub"
     extractor_version = "0.0.1"
 
     def extract(
@@ -597,7 +597,7 @@ class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
                 self.store,
                 _SESSION_ID,
                 _STEP_ID,
-                "compare_artifact",
+                "delta_frame",
                 "cmp_test",
                 {},
                 _registry=self.registry,
@@ -609,7 +609,7 @@ class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
                 self.store,
                 _SESSION_ID,
                 _STEP_ID,
-                "compare_artifact",
+                "delta_frame",
                 "cmp_test",
                 {},
                 _registry=self.registry,
@@ -617,7 +617,7 @@ class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
         # Validation runs before any DB write; failure must leave no artifact row.
         rows = self.store.query_rows(
             "SELECT artifact_id FROM artifacts "
-            "WHERE session_id = ? AND artifact_type = 'compare_artifact'",
+            "WHERE session_id = ? AND artifact_type = 'delta_frame'",
             [_SESSION_ID],
         )
         self.assertEqual(rows, [])
@@ -628,7 +628,7 @@ class TestFamilyEmptyErrorNoArtifact(unittest.TestCase):
                 self.store,
                 _SESSION_ID,
                 _STEP_ID,
-                "compare_artifact",
+                "delta_frame",
                 "cmp_test",
                 {},
                 _registry=self.registry,
@@ -817,7 +817,7 @@ class TestCompareRejectsEmpty(unittest.TestCase):
                 self.store,
                 _SESSION_ID,
                 _STEP_ID,
-                "compare_artifact",
+                "delta_frame",
                 "cmp_empty",
                 {},
                 _registry=self.registry,
@@ -830,7 +830,7 @@ class TestCompareRejectsEmpty(unittest.TestCase):
                 self.store,
                 _SESSION_ID,
                 _STEP_ID,
-                "compare_artifact",
+                "delta_frame",
                 "cmp_empty",
                 {},
                 _registry=self.registry,
@@ -838,7 +838,7 @@ class TestCompareRejectsEmpty(unittest.TestCase):
         # Validation runs before any DB write; failure must leave no artifact row.
         rows = self.store.query_rows(
             "SELECT artifact_id FROM artifacts "
-            "WHERE session_id = ? AND artifact_type = 'compare_artifact'",
+            "WHERE session_id = ? AND artifact_type = 'delta_frame'",
             [_SESSION_ID],
         )
         self.assertEqual(rows, [])

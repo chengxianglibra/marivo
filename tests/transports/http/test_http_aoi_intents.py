@@ -131,14 +131,7 @@ class _FakeRuntime:
                 "step_type": "observe",
             },
             "artifact_id": "art_observe_1",
-            "result": {
-                "artifact_id": "art_observe_1",
-                "result": {
-                    "artifact_kind": "scalar_observation",
-                    "metric": "metric.revenue",
-                    "value": 42.0,
-                },
-            },
+            "result": _metric_frame_result(),
             "provenance": {"mocked": True},
             "product_metadata": None,
         }

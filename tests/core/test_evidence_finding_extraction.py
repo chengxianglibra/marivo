@@ -288,13 +288,9 @@ def test_extract_observe_unknown_metric_frame_shape_raises() -> None:
 
 def test_extract_compare_scalar_delta() -> None:
     payload = {
+        "artifact_family": "delta_frame",
         "shape": "scalar_delta",
         "metric": "revenue",
-        "current_value": 100,
-        "baseline_value": 120,
-        "absolute_delta": 20,
-        "relative_delta": 0.2,
-        "direction": "increase",
         "unit": "USD",
         "resolved_input_summary": {
             "current_scope": {"region": "US"},
@@ -302,6 +298,29 @@ def test_extract_compare_scalar_delta() -> None:
                 "field": "time",
                 "start": "2024-01-01",
                 "end": "2024-02-01",
+            },
+        },
+        "payload": {
+            "series": [
+                {
+                    "keys": {},
+                    "points": [
+                        {
+                            "current_value": 100,
+                            "baseline_value": 120,
+                            "delta_abs": 20,
+                            "delta_pct": 0.2,
+                            "direction": "increase",
+                        }
+                    ],
+                }
+            ],
+            "scope": {
+                "current_value": 100,
+                "baseline_value": 120,
+                "delta_abs": 20,
+                "delta_pct": 0.2,
+                "direction": "increase",
             },
         },
     }
@@ -319,7 +338,7 @@ def test_extract_compare_unknown_type_raises() -> None:
     with pytest.raises(ValueError, match="Unknown delta_frame shape"):
         extract_compare_findings(
             "art_1",
-            {"shape": "unknown"},
+            {"artifact_family": "delta_frame", "shape": "unknown"},
             {"session_id": "s1", "step_id": "step1", "step_type": "compare"},
         )
 

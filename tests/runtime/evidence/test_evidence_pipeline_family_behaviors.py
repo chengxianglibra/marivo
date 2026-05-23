@@ -302,7 +302,7 @@ def _compare_segmented_payload(rows: list[dict[str, Any]] | None = None) -> dict
         for row in rows
     ]
     return {
-        "artifact_type": "compare_artifact",
+        "artifact_type": "delta_frame",
         "artifact_family": "delta_frame",
         "schema_version": "2.0",
         "shape": "segmented_delta",
@@ -611,7 +611,7 @@ class TestDetectEmptyCommit(unittest.TestCase):
 
 
 class TestCompareEmptyRejects(unittest.TestCase):
-    """compare_artifact with empty segmented rows → FamilyEmptyError, no artifact in DB."""
+    """delta_frame with empty segmented rows → FamilyEmptyError, no artifact in DB."""
 
     def setUp(self) -> None:
         self.store = _make_store()
@@ -621,7 +621,7 @@ class TestCompareEmptyRejects(unittest.TestCase):
             self.store,
             _SESSION,
             _STEP_ID,
-            "compare_artifact",
+            "delta_frame",
             "cmp_empty",
             _compare_segmented_payload(rows=[]),
             step_type="compare",
@@ -637,7 +637,7 @@ class TestCompareEmptyRejects(unittest.TestCase):
             self._commit_empty()
         rows = self.store.query_rows(
             "SELECT artifact_id FROM artifacts "
-            "WHERE session_id = ? AND artifact_type = 'compare_artifact'",
+            "WHERE session_id = ? AND artifact_type = 'delta_frame'",
             [_SESSION],
         )
         self.assertEqual(rows, [])
