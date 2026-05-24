@@ -101,3 +101,29 @@ source_modules =
 forbidden_modules =
     marivo.transports.http.models.osi
     marivo.transports.http.models.marivo_extensions
+
+[importlinter:contract:analysis_py-independence]
+name = analysis_py must not import marivo internals beyond semantic_py
+type = forbidden
+source_modules =
+    marivo.analysis_py
+forbidden_modules =
+    marivo.runtime
+    marivo.adapters
+    marivo.contracts.aoi_runtime
+    marivo.contracts.session
+    marivo.contracts.generated.aoi
+    marivo.transports
+    marivo.core.evidence
+    marivo.core.session
+    marivo.core.intent
+    marivo.core.orchestration
+
+[importlinter:contract:runtime-does-not-depend-on-analysis_py]
+name = marivo.runtime and adapters must not import analysis_py
+type = forbidden
+source_modules =
+    marivo.runtime
+    marivo.adapters
+forbidden_modules =
+    marivo.analysis_py
