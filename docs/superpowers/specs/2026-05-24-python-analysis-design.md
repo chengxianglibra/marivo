@@ -116,11 +116,32 @@ Public surface available as `import marivo.analysis_py as mv`.
 import marivo.analysis_py as mv
 
 # Session management
-mv.session.create(name: str, question: str | None = None, set_active: bool = True) -> Session
-mv.session.attach(name: str) -> Session
-mv.session.switch(name: str) -> Session
+mv.session.create(
+    name: str,
+    question: str | None = None,
+    set_active: bool = True,
+    *,
+    # exactly one of backends / backend_factory may be supplied (or neither for
+    # read-only). See §Executor + Backend.
+    backends: dict[str, Callable[[], ibis.BaseBackend]] | None = None,
+    backend_factory: Callable[[str], ibis.BaseBackend] | None = None,
+) -> Session
+
+mv.session.attach(
+    name: str,
+    *,
+    backends: dict[str, Callable[[], ibis.BaseBackend]] | None = None,
+    backend_factory: Callable[[str], ibis.BaseBackend] | None = None,
+) -> Session
+
+mv.session.switch(name: str, *, backends=..., backend_factory=...) -> Session
 mv.session.active() -> Session
-mv.session.active_or_create(name_hint: str, question: str | None = None) -> Session
+mv.session.active_or_create(
+    name_hint: str,
+    question: str | None = None,
+    *,
+    backends=..., backend_factory=...,
+) -> Session
 mv.session.list(include_archived: bool = False) -> list[SessionSummary]
 mv.session.archive(name: str) -> None
 mv.session.delete(name: str) -> None
@@ -223,7 +244,12 @@ class Session:
     state: Literal["active", "archived"]
     created_at: datetime
     updated_at: datetime
-    backend_cache: BackendCache   # per-Session, in-process
+    project_root: Path
+    backend_cache: BackendCache   # per-Session, in-process; may wrap a None factory
+
+    # Set of datasource_names this session has ever used (recorded on disk,
+    # so the caller knows what to wire up when re-attaching).
+    known_datasources: set[str]
 
     def jobs(self) -> list[JobSummary]: ...
     def job(self, job_id: str) -> JobRecord: ...
@@ -231,15 +257,30 @@ class Session:
     def archive(self) -> None: ...
     def info(self) -> SessionInfo: ...
     def close(self) -> None: ...           # closes backend_cache
+
+    @property
+    def is_read_only(self) -> bool:
+        """True when no backend_factory has been supplied; load_frame and
+        jobs() still work, but observe / compare raise NoBackendFactoryError."""
 ```
+
+The `backend_factory` (or `backends` dict, internally compiled to a factory)
+is supplied at create / attach time and is **never persisted**. Re-attaching
+a session in a new process requires the caller to supply the factory again
+if they intend to submit new jobs.
 
 ### Agent script header (recommended template, shipped in skill)
 
 ```python
 import marivo.analysis_py as mv
+from .datasources import warehouse_main      # the @ms.datasource function exposed by semantic_py
 
-s = mv.session.active_or_create(name_hint="<short-description>")
-print(f"[marivo] session={s.name} id={s.id} jobs={len(s.jobs())} created={s.created_at}")
+s = mv.session.active_or_create(
+    name_hint="<short-description>",
+    backends={"warehouse_main": warehouse_main},
+)
+print(f"[marivo] session={s.name} id={s.id} jobs={len(s.jobs())} "
+      f"read_only={s.is_read_only} created={s.created_at}")
 # All subsequent observe / compare calls default to s via the active chain.
 ```
 
@@ -269,7 +310,7 @@ session every script.
     └── sess_a3b21c89/
         ├── meta.json            # SessionInfo
         ├── jobs/
-        │   ├── job_001_e7c4f.json
+        │   ├── job_e7c4f8a1.json
         │   └── ...
         └── frames/
             └── frame_4c2a8b1d/
@@ -294,12 +335,22 @@ CREATE INDEX sessions_state ON sessions(state);
 The SQLite database holds only the session index. Job records and frame data
 live as plain files on disk under each `sessions/<sid>/`.
 
+### Job ordering
+
+Jobs are ordered by their `started_at` ISO-8601 timestamp; the `id` field is a
+random `job_<8-hex>` token with no embedded sequence number. The earlier
+`seq: int` field is intentionally omitted in v1 to avoid a per-session
+allocator: assigning a monotonic counter across parallel writers would require
+either a `jobs` table in `index.db` or an extra fcntl region around every
+write, neither of which is justified by current use cases.
+`session.jobs()` returns jobs sorted ascending by `started_at`; ties (rare,
+sub-millisecond) break by string-compare on `id`.
+
 ### Job record (`sessions/<sid>/jobs/<job_id>.json`)
 
 ```json
 {
-  "id": "job_001_e7c4f",
-  "seq": 1,
+  "id": "job_e7c4f8a1",
   "session_id": "sess_a3b21c89",
   "intent": "observe",
   "params": {
@@ -382,12 +433,40 @@ BaseFrame
 `AttributionFrame`, `SampleFrame`, `ForecastFrame`, etc. arrive with their
 respective intents in follow-on specs.
 
+### `BaseFrameMeta` shape (shared ownership and provenance fields)
+
+Every frame meta extends `BaseFrameMeta`, which carries the fields needed to
+enforce v1's session-scoping rules and to reconstruct the frame on read-back.
+
+```python
+class BaseFrameMeta(BaseModel):
+    kind: Literal[...]                # subclass fixes via Literal
+    ref: str                          # frame_<8-hex>
+    session_id: str                   # owning session id; required
+    project_root: str                 # absolute path of the project root at write time
+    produced_by_job: str | None       # None for from_dataframe entries
+    created_at: datetime
+    row_count: int
+    byte_size: int
+    lineage: Lineage
+```
+
+`session_id` is the authority for cross-session safety. `mv.load_frame(ref,
+session=s)` raises `CrossSessionFrameError` if `meta.session_id != s.id`.
+`mv.compare(a, b, session=s)` requires both inputs to satisfy the same check
+before any persistence work begins.
+
+`project_root` records the absolute path of `<project_root>` at write time
+to detect cases where a session directory has been moved between machines.
+v1 emits a warning (not an error) when `project_root` no longer matches the
+current resolved project root; the session is still usable.
+
 ### `BaseFrame` shape
 
 ```python
 class BaseFrame:
     _df: pd.DataFrame
-    meta: <FrameTypeMeta>          # subclass-specific Pydantic model
+    meta: BaseFrameMeta            # subclass narrows the type
     lineage: Lineage
 
     # Exit boundary
@@ -423,7 +502,7 @@ class BaseFrame:
 ### MetricFrame
 
 ```python
-class MetricFrameMeta(BaseModel):
+class MetricFrameMeta(BaseFrameMeta):
     kind: Literal["metric_frame"] = "metric_frame"
     metric_id: str                            # "sales.revenue"
     axes: dict[str, AxisSpec]
@@ -432,8 +511,6 @@ class MetricFrameMeta(BaseModel):
     slice: dict[str, Any]
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str
-    row_count: int
-    byte_size: int
 
 class MetricFrame(BaseFrame):
     meta: MetricFrameMeta
@@ -462,7 +539,7 @@ materialization path.
 ### DeltaFrame
 
 ```python
-class DeltaFrameMeta(BaseModel):
+class DeltaFrameMeta(BaseFrameMeta):
     kind: Literal["delta_frame"] = "delta_frame"
     metric_id: str
     source_a_ref: str
@@ -472,8 +549,6 @@ class DeltaFrameMeta(BaseModel):
     calendar_info: CalendarInfo | None
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str
-    row_count: int
-    byte_size: int
 
 class DeltaFrame(BaseFrame):
     meta: DeltaFrameMeta
@@ -500,17 +575,30 @@ class Lineage(BaseModel):
 `compare` produces a Lineage whose `steps` is `a.lineage.steps + b.lineage.steps
 + [compare_step]`. `external_inputs` propagates from `a` and `b`.
 
-### Read-through vs blocked operations
+### Immutability contract (honest version)
 
-| Operation | Allowed | Goes to |
-|---|---|---|
-| Read / slice / stats / plot | yes (transparent) | `frame.head() / frame[col] / frame.shape / frame.plot()` |
-| Arithmetic / merge / groupby / schema mutation | no | `frame.to_pandas()` first |
-| Column write / value mutation | no | `frame.to_pandas()` first |
-| Type conversion | yes (new view) | `frame.to_pandas() / frame.to_polars()` |
+The **top-level frame API is immutable**: `frame[col] = x`, `frame + 1`,
+`frame.merge(...)`, and any arithmetic on the frame raise
+`FrameMutationError("frame is immutable; call .to_pandas() to operate on a copy")`.
 
-Blocked operations raise `FrameMutationError("frame is immutable; call
-.to_pandas() to operate on a copy")`.
+The **read-through accessors return real pandas objects** (`frame[col]`,
+`frame.head()`, `frame.describe()`, etc.). These are *not* defensive copies;
+they are pandas views or sub-frames, and mutating them may or may not affect
+the underlying DataFrame depending on pandas' copy-on-write rules (which vary
+by version). marivo deliberately does **not** insert defensive copies in
+these paths because the perf cost is real and pandas semantics are
+already documented elsewhere.
+
+**The only path that guarantees an isolated copy is `frame.to_pandas()`,
+which always returns `self._df.copy()`.** Use it whenever you intend to
+mutate.
+
+| Operation | Allowed on frame? | Result obtained via | Mutation isolated from frame? |
+|---|---|---|---|
+| Top-level write / arithmetic | no (raises) | n/a | n/a |
+| Slice / column read | yes | `frame[col]`, `frame.head()` | **No, pandas view rules apply** |
+| Stats / plot | yes | `frame.describe()`, `frame.plot()` | yes (returns scalars / new objects) |
+| Get a mutable copy | yes | `frame.to_pandas()` | **Yes, always a `.copy()`** |
 
 ## Intent Contracts
 
@@ -540,20 +628,64 @@ Parameter semantics:
   only; `!=` / `in` / range predicates are deferred.
 - `session`: defaults to `mv.session.active()` resolution.
 
-Execution flow:
+Execution flow (the important step is **filter is applied to dataset
+tables before the metric function aggregates**; we deliberately do not
+use `reader.materialize_metric` because that helper aggregates first and
+returns an expression where the dataset columns are no longer reachable):
 
 ```text
 1. Parse metric → (model_name, metric_name).
-2. Resolve session via the active chain.
-3. reader.get_metric(model_name, metric_name) → MetricIR
-4. reader.materialize_metric(...) → ibis.Expr
-5. apply_window(expr, window, dataset_ir, metric_ir) → ibis.Expr
-6. apply_slice(expr, slice, dataset_ir) → ibis.Expr
-7. executor.runner.execute(expr, datasource_name=ds.datasource_name, session=...) → pd.DataFrame
-8. Build MetricFrameMeta (metric_id, axes, measure, semantic_kind, window, slice, ...).
-9. Persist: write frame_<ref>/data.parquet + meta.json, write job record.
-10. Return MetricFrame.
+2. Resolve session via the active chain. Require session.backend_factory to
+   be set (raise NoBackendFactoryError if attached in read-only mode).
+3. metric_ir = reader.get_metric(model_name, metric_name)
+4. For each dataset_name in metric_ir.references.datasets:
+   a. dataset_ir = reader.get_dataset(model_name, dataset_name)
+   b. backend = session.backend_cache.get_or_create(dataset_ir.datasource_name)
+   c. table = dataset_ir.fn(backend)                            # ibis.Table
+   d. table = apply_slice_to_dataset(table, slice, dataset_ir)  # filters BEFORE aggregation
+   e. table = apply_window_to_dataset(table, window, dataset_ir)
+5. agg_expr = metric_ir.fn(**dataset_tables)                    # aggregated ibis.Expr
+6. result = executor.runner.execute(agg_expr,
+       datasource_name=primary_datasource_name, session=session)
+7. Build MetricFrameMeta (metric_id, axes, measure, semantic_kind, window,
+   slice, session_id, project_root, produced_by_job, ...).
+8. Persist: write frames/<ref>/data.parquet + meta.json, write job record.
+9. Return MetricFrame.
 ```
+
+"Primary datasource" for step 6 is the datasource of the **single dataset
+referenced by the metric** in v1's most common case. For multi-dataset
+metrics, see "Multi-dataset metrics" below.
+
+### Multi-dataset metrics
+
+Most metrics reference one dataset; v1 supports this case fully. Metrics
+that reference multiple datasets (e.g., `revenue_per_active_user(orders,
+users)`) hit two ambiguity points the runtime must resolve:
+
+**1. Which dataset's time field does `window` apply to?**
+
+If exactly one of the referenced datasets has a time_field, window applies
+there. Otherwise the caller must specify `window["dataset"] = "orders"`. If
+the caller omits this and ambiguity exists, raise
+`WindowAmbiguousError(candidates=[...])`.
+
+**2. Which dataset does each `slice` key apply to?**
+
+For each `(field_name, value)` in slice:
+
+- Look up `field_name` across all referenced datasets' declared fields.
+- Exactly one match → apply on that dataset.
+- Zero matches → fall back to physical column match across datasets;
+  same rule.
+- Multiple matches → raise `SliceAmbiguousError`. Caller may disambiguate
+  by writing `slice={"orders.region": "north"}` (dataset-prefixed key).
+
+**3. Which backend executes the final aggregate?**
+
+If all referenced datasets share a `datasource_name`, use that backend. If
+they differ, raise `CrossBackendMetricError`; cross-backend federation is
+explicitly out of v1 scope.
 
 ### `mv.compare(...)`
 
@@ -583,16 +715,22 @@ Parameter semantics:
 Execution flow:
 
 ```text
-1. Validate metric_id equality.
-2. Validate semantic_kind compatibility (both time_series, both segmented, etc.).
-3. Apply alignment:
+1. Resolve session via the active chain.
+2. Validate cross-session ownership: a.meta.session_id and b.meta.session_id
+   must equal session.id. Otherwise raise CrossSessionFrameError pointing
+   at the right attach() call. (Prevents writing a DeltaFrame into a
+   session that does not own its sources.)
+3. Validate metric_id equality.
+4. Validate semantic_kind compatibility (both time_series, both segmented, etc.).
+5. Apply alignment:
    - bucket: inner-join on the time axis (NaN-fill misses become explicit nulls)
    - segment_key: inner-join on the segment axis
    - sample: align by row index
-4. Compute current / baseline / delta / pct_change columns.
-5. Compose lineage = a.lineage.steps + b.lineage.steps + [compare_step].
-6. Persist frame + job record.
-7. Return DeltaFrame.
+6. Compute current / baseline / delta / pct_change columns.
+7. Compose lineage = a.lineage.steps + b.lineage.steps + [compare_step].
+8. Persist frame + job record (writes session_id, project_root,
+   produced_by_job onto DeltaFrameMeta via BaseFrameMeta).
+9. Return DeltaFrame.
 ```
 
 Calendar / timezone alignment beyond simple bucket join is deferred to v1.2.
@@ -603,12 +741,17 @@ Calendar / timezone alignment beyond simple bucket join is deferred to v1.2.
 AnalysisError
 ├── MetricNotFoundError
 ├── WindowInvalidError
+├── WindowAmbiguousError              # multi-dataset metric, no window["dataset"]
 ├── SliceInvalidError
+├── SliceAmbiguousError               # field name on multiple referenced datasets
 ├── SemanticKindMismatchError
 ├── AlignmentFailedError
+├── CrossBackendMetricError           # metric references datasets on different datasources
+├── CrossSessionFrameError            # frame belongs to a different session
 ├── FrameMutationError
 ├── FrameRefNotFound
 ├── BackendError
+├── NoBackendFactoryError             # session attached read-only, submit job attempted
 ├── DuplicateSessionNameError
 ├── NoActiveSessionError
 └── SessionStateError                 # write to archived session, etc.
@@ -634,8 +777,15 @@ reader.get_model(name) -> ModelIR
 reader.get_metric(model, metric_name) -> MetricIR
 reader.get_dataset(model, dataset_name) -> DatasetIR
 reader.get_field(model, dataset, field_name) -> FieldIR
-reader.materialize_metric(model, metric_name) -> ibis.Expr
 ```
+
+`reader.materialize_metric(...)` is **deliberately not used** by analysis_py
+because it aggregates first and returns an expression whose dataset columns
+are no longer reachable for window / slice filtering. analysis_py instead
+calls `reader.get_metric` and `reader.get_dataset` to obtain the IRs, then
+composes the ibis Expr itself by invoking `DatasetIR.fn(backend)` and
+`MetricIR.fn(**dataset_tables)` directly with filtered tables (see
+§Intent Contracts execution flow).
 
 No imports of `marivo.semantic_py.registry` / `marivo.semantic_py.decorators`
 etc. from `analysis_py`.
@@ -658,28 +808,101 @@ executor.runner.execute(ibis_expr, *, datasource_name, session)
    ↓
 session.backend_cache.get_or_create(datasource_name)
    ↓
-marivo.semantic_py.reader.get_dataset(...) → DatasetIR → datasource_name → DatasourceIR.fn()
+session._backend_factory(datasource_name)   # supplied by the caller at session create / attach
 ```
+
+### Why analysis_py supplies the backend, not semantic_py
+
+The current semantic_py `DatasourceIR` records `name / backend_type /
+description / ai_context / source_location` — it does **not** hold the
+decorated function body. The `@ms.datasource` decorator keeps the original
+function callable for the user's import but discards it once metadata is
+captured. There is no semantic_py API that turns a `datasource_name` into a
+live backend.
+
+This is intentional in semantic_py: keeping connection construction out of
+the metadata layer avoids putting credentials into the IR. The cost is that
+analysis_py must take responsibility for backend construction at session
+creation time.
 
 ### `BackendCache`
 
-Per-Session, in-process:
+Per-Session, in-process, a memoizing wrapper around a caller-supplied
+factory:
 
 ```python
 class BackendCache:
-    _by_datasource: dict[str, ibis.BaseBackend]
+    def __init__(self, factory: Callable[[str], ibis.BaseBackend] | None):
+        self._factory = factory
+        self._cache: dict[str, ibis.BaseBackend] = {}
 
-    def get_or_create(self, datasource_name: str) -> ibis.BaseBackend: ...
-    def close_all(self) -> None: ...        # best-effort disconnect on Session.close()
+    def get_or_create(self, datasource_name: str) -> ibis.BaseBackend:
+        if self._factory is None:
+            raise NoBackendFactoryError(
+                message=(
+                    f"session has no backend_factory; this session was attached "
+                    f"in read-only mode (load_frame / jobs() still work, but "
+                    f"observe / compare require a factory)"
+                ),
+                hint=(
+                    "Pass backends={...} or backend_factory=... when creating "
+                    "or re-attaching the session."
+                ),
+            )
+        if datasource_name not in self._cache:
+            self._cache[datasource_name] = self._factory(datasource_name)
+        return self._cache[datasource_name]
+
+    def close_all(self) -> None:
+        # best-effort disconnect on Session.close()
+        for backend in self._cache.values():
+            try:
+                backend.disconnect()
+            except Exception:
+                pass
+        self._cache.clear()
 ```
 
-When a datasource is requested for the first time the cache walks the loaded
-models, finds the matching `DatasourceIR`, calls its registered `fn()`, and
-stores the returned backend. Subsequent requests return the cached instance.
+### Session creation: how callers supply the factory
+
+`mv.session.create()` accepts two equivalent forms:
+
+```python
+# Form 1: explicit dict, idiomatic for the common case
+s = mv.session.create(
+    name="q3-revenue",
+    question="...",
+    backends={"warehouse_main": warehouse_main},   # name -> Callable[[], ibis.BaseBackend]
+)
+
+# Form 2: arbitrary factory function, for dynamic routing / tests
+s = mv.session.create(
+    name="q3-revenue",
+    backend_factory=lambda ds_name: my_router.connect(ds_name),
+)
+```
+
+`backends={}` is sugar — internally compiled to a factory that looks up the
+dict by name (raising on miss). `backend_factory=` is the lower-level
+contract. The two are mutually exclusive; passing both raises
+`SessionStateError("supply either backends or backend_factory, not both")`.
+
+`mv.session.attach()` and `mv.session.active_or_create()` accept the same
+kwargs. When attaching to an existing session **without** these kwargs, the
+session enters **read-only mode**: `load_frame()`, `jobs()`, and `frames()`
+work, but any `observe` / `compare` call raises `NoBackendFactoryError`.
+
+### Why the factory is not persisted
+
+`backends` / `backend_factory` carry credentials and live connection state
+that must not appear on disk. They are supplied fresh by the caller on every
+attach. Session metadata records only the set of `datasource_name`s the
+session has used (so the caller knows what to wire up) — never the factory
+itself.
 
 The cache lives on the Session (not the global registry) so that:
 
-- Two sessions in the same process can use isolated backend instances
+- Two sessions in the same process use isolated backend instances
   (useful for tests).
 - Session-scoped cleanup is easy (`session.close()` closes everything).
 - No accidental cross-session sharing of authenticated connections.
@@ -731,38 +954,59 @@ default-off mode protects against accidental schema leakage in production.
 
 ### Window / slice translation
 
+These operate on **dataset ibis Tables** before the metric function runs.
+They are applied per-dataset inside observe's flow (step 4 of the
+execution flow); the metric function then receives already-filtered tables.
+
 ```python
 # executor/runner.py
-def apply_window(expr: ibis.Expr, window: dict | WindowSpec | None,
-                 *, dataset_ir, metric_ir) -> ibis.Expr:
-    """v1 requires the metric's dataset to have exactly one time_field.
+def apply_window_to_dataset(
+    table: ibis.Table,
+    window: dict | WindowSpec | None,
+    *,
+    dataset_ir,
+) -> ibis.Table:
+    """Apply a time-window filter to a single dataset's ibis.Table.
 
-    If the dataset has zero time_fields, the metric is not windowable and
-    we raise WindowInvalidError. If the dataset has more than one
-    time_field, the caller must extend window with an explicit
-    'time_field' key naming which one to apply against (v1.1 will lift
-    this constraint and accept multiple primary time fields).
+    v1 requires the dataset to have exactly one time_field. Zero
+    time_fields → WindowInvalidError. More than one → caller must extend
+    window with an explicit 'time_field' key naming which one to apply
+    against (v1.1 will lift this constraint).
     """
     if window is None:
-        return expr
-    time_field_expr = _resolve_time_field(dataset_ir, window=window)
-    return expr.filter(time_field_expr >= window["start"],
-                       time_field_expr <= window["end"])
+        return table
+    time_field = _resolve_time_field(dataset_ir, window=window)
+    return table.filter(
+        time_field.fn(table) >= window["start"],
+        time_field.fn(table) <= window["end"],
+    )
 
 
-def apply_slice(expr: ibis.Expr, slice: dict | None,
-                *, dataset_ir) -> ibis.Expr:
+def apply_slice_to_dataset(
+    table: ibis.Table,
+    slice: dict | None,
+    *,
+    dataset_ir,
+) -> ibis.Table:
+    """Apply == filters to a single dataset's ibis.Table.
+
+    For each (field_name, value): look up field_name in dataset_ir.fields;
+    if missing, fall back to physical column on the Table; otherwise raise
+    SliceInvalidError. v1 supports only == semantics.
+    """
     if not slice:
-        return expr
+        return table
     for field_name, value in slice.items():
-        field_expr = _resolve_slice_field(dataset_ir, field_name)
-        expr = expr.filter(field_expr == value)            # v1: == only
-    return expr
+        field_expr = _resolve_slice_field(dataset_ir, field_name, table)
+        table = table.filter(field_expr == value)
+    return table
 ```
 
-`_resolve_slice_field` first looks up `dataset_ir.fields[field_name]`; if
-missing, falls back to the physical column name; if neither exists, raises
-`SliceInvalidError`.
+For multi-dataset metrics, `observe`'s flow calls `apply_*_to_dataset`
+once per referenced dataset, choosing **which** dataset based on the rules
+in "Multi-dataset metrics" (above). A field referenced in `slice` is
+applied only to the dataset that declares it; an unprefixed key that
+resolves to multiple datasets raises `SliceAmbiguousError`.
 
 ### Concurrency and thread safety
 
@@ -875,6 +1119,11 @@ analysis documentation under `docs/specs/analysis/` is untouched.
 | Plan DSL (multi-step DAG submission) | v1 is single-step per intent |
 | `next` / recommended-action hints in returns | Belongs to the deferred evidence layer |
 | `DeltaFrame.from_dataframe` entry boundary | v1 only `MetricFrame.from_dataframe`; revisit when an evidence consumer needs it |
+| Multi-dataset metrics with multiple time_fields and no `window["dataset"]` | Raises `WindowAmbiguousError`; v1.1 may permit auto-resolution heuristics |
+| Cross-backend metrics (datasets on different datasources) | Raises `CrossBackendMetricError`; semantic_py is expected to keep one metric per backend |
+| `seq` field on job records | Intentionally omitted; jobs ordered by `started_at`. Adding a transactional counter requires SQLite `jobs` table; deferred. |
+| Read-only session attach (no backend_factory) | Supported for read-back; `observe` / `compare` raise `NoBackendFactoryError` until factory is supplied |
+| Defensive copies on read-through accessors | Not done; `frame[col]` returns a pandas view. `frame.to_pandas()` is the documented isolation path. |
 
 ## v1 Deliverables
 
@@ -883,27 +1132,44 @@ The minimum runnable skeleton is complete when:
 1. Twelve modules under `marivo/analysis_py/` exist and import cleanly.
 2. `tests/analysis_py/` covers:
    - `BaseFrame` / `MetricFrame` / `DeltaFrame` construction, mutation
-     blocking, `to_pandas` / `from_dataframe` boundaries, lineage.
+     blocking on top-level API, `to_pandas` returns a real copy,
+     `from_dataframe` entry boundary, lineage propagation.
    - Session lifecycle: create / attach / switch / active / archive /
      delete; active resolution chain; duplicate-name rejection;
-     `active_or_create` ignoring `name_hint` when active exists.
-   - Persistence: job record write + frame file write + read-back via
-     `mv.load_frame`.
+     `active_or_create` ignoring `name_hint` when active exists;
+     read-only attach without backend_factory.
+   - Persistence: job record write (with `started_at` ordering),
+     frame file write, read-back via `mv.load_frame`.
+   - BackendCache memoization: same datasource_name returns the same
+     backend instance across calls; `close_all` clears the cache.
    - `mv.observe` end-to-end against a seeded DuckDB
-     `@ms.datasource` exposing a `sales` model.
+     `@ms.datasource` exposing a `sales` model, including a slice and
+     a window applied before aggregation.
    - `mv.compare` between two MetricFrames with `align="bucket"`.
+   - Cross-session safety: compare across sessions raises
+     `CrossSessionFrameError`; load_frame across sessions raises the
+     same.
    - Error cases: `MetricNotFoundError`, `SliceInvalidError`,
      `SemanticKindMismatchError`, `NoActiveSessionError`,
-     `DuplicateSessionNameError`, `FrameMutationError`.
+     `DuplicateSessionNameError`, `FrameMutationError`,
+     `NoBackendFactoryError`, `WindowAmbiguousError`,
+     `SliceAmbiguousError`, `CrossBackendMetricError`.
 3. One end-to-end example:
 
    ```python
    import marivo.analysis_py as mv
-   s = mv.session.create(name="demo", question="Q3 revenue diff?")
+   from .datasources import warehouse_main
+
+   s = mv.session.create(
+       name="demo",
+       question="Q3 revenue diff?",
+       backends={"warehouse_main": warehouse_main},
+   )
    q3 = mv.observe("sales.revenue", window={"start": "2026-07-01", "end": "2026-09-30"})
    q2 = mv.observe("sales.revenue", window={"start": "2026-04-01", "end": "2026-06-30"})
    d = mv.compare(q3, q2, align="bucket", compare_type="qoq")
    assert d.meta.kind == "delta_frame"
+   assert d.meta.session_id == s.id
    assert "delta" in d.columns
    ```
 
