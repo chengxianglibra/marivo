@@ -10,8 +10,10 @@ from marivo.semantic_py.decorators import (
     relationship,
     time_field,
 )
+from marivo.semantic_py.registry import SemanticProject
 
 __all__ = [
+    "SemanticProject",
     "dataset",
     "datasource",
     "field",
