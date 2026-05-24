@@ -245,7 +245,8 @@ class Session:
     created_at: datetime
     updated_at: datetime
     project_root: Path
-    backend_cache: BackendCache   # per-Session, in-process; may wrap a None factory
+    semantic_project: SemanticProject  # per-Session, points at <project_root>/.marivo/semantic
+    backend_cache: BackendCache        # per-Session, in-process; may wrap a None factory
 
     # Set of datasource_names this session has ever used (recorded on disk,
     # so the caller knows what to wire up when re-attaching).
@@ -268,6 +269,13 @@ The `backend_factory` (or `backends` dict, internally compiled to a factory)
 is supplied at create / attach time and is **never persisted**. Re-attaching
 a session in a new process requires the caller to supply the factory again
 if they intend to submit new jobs.
+
+`semantic_project` is constructed once per Session at create / attach time
+with root resolved to `<project_root>/.marivo/semantic`. It is **not**
+shared across Sessions: two Sessions in the same process each have their
+own `SemanticProject` (and therefore independent registries / load caches).
+This avoids cross-session state leak and aligns with `BackendCache` being
+per-Session.
 
 ### Agent script header (recommended template, shipped in skill)
 
@@ -637,21 +645,27 @@ returns an expression where the dataset columns are no longer reachable):
 1. Parse metric → (model_name, metric_name).
 2. Resolve session via the active chain. Require session.backend_factory to
    be set (raise NoBackendFactoryError if attached in read-only mode).
-3. metric_ir = reader.get_metric(model_name, metric_name)
-4. For each dataset_name in metric_ir.references.datasets:
-   a. dataset_ir = reader.get_dataset(model_name, dataset_name)
+3. reader.ensure_loaded(project=session.semantic_project)   # idempotent
+4. metric_ir = reader.get_metric(model_name, metric_name,
+                                  project=session.semantic_project)
+5. For each dataset_name in metric_ir.references.datasets:
+   a. dataset_ir = reader.get_dataset(model_name, dataset_name,
+                                       project=session.semantic_project)
    b. backend = session.backend_cache.get_or_create(dataset_ir.datasource_name)
    c. table = dataset_ir.fn(backend)                            # ibis.Table
    d. table = apply_slice_to_dataset(table, slice, dataset_ir)  # filters BEFORE aggregation
    e. table = apply_window_to_dataset(table, window, dataset_ir)
-5. agg_expr = metric_ir.fn(**dataset_tables)                    # aggregated ibis.Expr
-6. result = executor.runner.execute(agg_expr,
+6. agg_expr = metric_ir.fn(**dataset_tables)                    # aggregated ibis.Expr
+7. result = executor.runner.execute(agg_expr,
        datasource_name=primary_datasource_name, session=session)
-7. Build MetricFrameMeta (metric_id, axes, measure, semantic_kind, window,
+8. Build MetricFrameMeta (metric_id, axes, measure, semantic_kind, window,
    slice, session_id, project_root, produced_by_job, ...).
-8. Persist: write frames/<ref>/data.parquet + meta.json, write job record.
-9. Return MetricFrame.
+9. Persist: write frames/<ref>/data.parquet + meta.json, write job record.
+10. Return MetricFrame.
 ```
+
+All `reader.*` calls pass `project=session.semantic_project`. analysis_py
+never uses semantic_py's `default_project()`.
 
 "Primary datasource" for step 6 is the datasource of the **single dataset
 referenced by the metric** in v1's most common case. For multi-dataset
@@ -770,14 +784,38 @@ Every error carries:
 The intent layer talks to semantic_py only through the public reader:
 
 ```python
-from marivo.semantic_py import reader
+from marivo.semantic_py import SemanticProject, reader
 
-reader.list_models() -> list[str]
-reader.get_model(name) -> ModelIR
-reader.get_metric(model, metric_name) -> MetricIR
-reader.get_dataset(model, dataset_name) -> DatasetIR
-reader.get_field(model, dataset, field_name) -> FieldIR
+# Project construction (analysis_py builds its own, does not use semantic_py's
+# default_project which is rooted at "." and does not honor the
+# .marivo/semantic/ convention).
+SemanticProject(root="<project_root>/.marivo/semantic")
+
+# All reader calls take project= explicitly.
+reader.list_models(project=...) -> list[str]
+reader.get_model(name, project=...) -> ModelIR
+reader.get_metric(model, metric_name, project=...) -> MetricIR
+reader.get_dataset(model, dataset_name, project=...) -> DatasetIR
+reader.get_field(model, dataset, field_name, project=...) -> FieldIR
 ```
+
+Two important constraints implied here:
+
+1. **analysis_py constructs its own `SemanticProject`** with root resolved to
+   `<project_root>/.marivo/semantic` (the convention from the semantic_py
+   spec). It does **not** call `default_project()` because that resolves to
+   `"."` and bypasses the convention directory.
+2. **All reader calls pass `project=` explicitly**. The default-project
+   global never appears on the analysis_py path.
+
+The allowed top-level imports from `marivo.semantic_py` are:
+
+- `marivo.semantic_py.SemanticProject` (constructed per Session, not shared)
+- `marivo.semantic_py.reader` (its public functions)
+
+Imports of `marivo.semantic_py.registry`, `marivo.semantic_py.decorators`,
+`marivo.semantic_py.loader`, etc. are still forbidden — top-level re-exports
+are the only allowed entry.
 
 `reader.materialize_metric(...)` is **deliberately not used** by analysis_py
 because it aggregates first and returns an expression whose dataset columns
@@ -786,9 +824,6 @@ calls `reader.get_metric` and `reader.get_dataset` to obtain the IRs, then
 composes the ibis Expr itself by invoking `DatasetIR.fn(backend)` and
 `MetricIR.fn(**dataset_tables)` directly with filtered tables (see
 §Intent Contracts execution flow).
-
-No imports of `marivo.semantic_py.registry` / `marivo.semantic_py.decorators`
-etc. from `analysis_py`.
 
 ### Session ↔ semantic project
 
@@ -889,8 +924,18 @@ contract. The two are mutually exclusive; passing both raises
 
 `mv.session.attach()` and `mv.session.active_or_create()` accept the same
 kwargs. When attaching to an existing session **without** these kwargs, the
-session enters **read-only mode**: `load_frame()`, `jobs()`, and `frames()`
-work, but any `observe` / `compare` call raises `NoBackendFactoryError`.
+session enters **read-only-against-backends mode**:
+
+- `load_frame()`, `jobs()`, `frames()`, and `mv.compare(a, b)` all work
+  (none of them touch a backend; compare is a pandas-only operation that
+  composes two in-memory frames into a new DeltaFrame).
+- Only intents that materialize fresh data from a datasource —
+  `mv.observe(...)` in v1, plus future intents that touch the data layer —
+  raise `NoBackendFactoryError` until the caller re-attaches with a
+  factory.
+
+This lets agents reload an existing session in a new process, read frames
+out, and run compares between them without re-supplying credentials.
 
 ### Why the factory is not persisted
 
@@ -968,6 +1013,12 @@ def apply_window_to_dataset(
 ) -> ibis.Table:
     """Apply a time-window filter to a single dataset's ibis.Table.
 
+    The window bounds in the public API are always ISO-8601 strings
+    ("2026-07-01" or "2026-07-01T10:00:00"). The internal encoder
+    converts them to the time field's physical representation based on
+    `time_meta.data_type` and `time_meta.format`. See "v1 supported
+    time-field formats" below.
+
     v1 requires the dataset to have exactly one time_field. Zero
     time_fields → WindowInvalidError. More than one → caller must extend
     window with an explicit 'time_field' key naming which one to apply
@@ -975,11 +1026,29 @@ def apply_window_to_dataset(
     """
     if window is None:
         return table
-    time_field = _resolve_time_field(dataset_ir, window=window)
-    return table.filter(
-        time_field.fn(table) >= window["start"],
-        time_field.fn(table) <= window["end"],
-    )
+    time_field_ir = _resolve_time_field(dataset_ir, window=window)
+    field_expr = time_field_ir.fn(table)
+    lower = _encode_window_bound(window["start"], time_field_ir.time_meta)
+    upper = _encode_window_bound(window["end"], time_field_ir.time_meta)
+    return table.filter(field_expr >= lower, field_expr <= upper)
+
+
+def _encode_window_bound(iso_string: str, time_meta: TimeFieldMeta):
+    """Convert an ISO-8601 string to the time field's physical value.
+
+    v1 supported (data_type, format) combinations:
+      ("date", None)                    -> ibis date literal
+      ("timestamp", None)               -> ibis timestamp literal
+      ("string", "yyyy-mm-dd")          -> "2026-07-01" verbatim
+      ("string", "yyyymmdd")            -> "20260701"
+      ("integer", "yyyymmdd")           -> 20260701
+      ("integer", "epoch_seconds")      -> int(datetime.fromisoformat(iso).timestamp())
+
+    Unsupported combinations (notably "hh" / "h" hour-only formats and any
+    format not listed above) raise WindowInvalidError with a
+    "v1_unsupported_format" hint pointing at the relevant time_field.
+    """
+    ...
 
 
 def apply_slice_to_dataset(
@@ -1122,7 +1191,9 @@ analysis documentation under `docs/specs/analysis/` is untouched.
 | Multi-dataset metrics with multiple time_fields and no `window["dataset"]` | Raises `WindowAmbiguousError`; v1.1 may permit auto-resolution heuristics |
 | Cross-backend metrics (datasets on different datasources) | Raises `CrossBackendMetricError`; semantic_py is expected to keep one metric per backend |
 | `seq` field on job records | Intentionally omitted; jobs ordered by `started_at`. Adding a transactional counter requires SQLite `jobs` table; deferred. |
-| Read-only session attach (no backend_factory) | Supported for read-back; `observe` / `compare` raise `NoBackendFactoryError` until factory is supplied |
+| Read-only-against-backends session attach (no backend_factory) | Supported. `load_frame`, `jobs`, `frames`, and `compare` work without a factory; `observe` and other data-materializing intents raise `NoBackendFactoryError` until a factory is supplied. |
+| Time-field windowing | v1 supports `(data_type, format)` = `("date", None)`, `("timestamp", None)`, `("string", "yyyy-mm-dd")`, `("string", "yyyymmdd")`, `("integer", "yyyymmdd")`, `("integer", "epoch_seconds")`. Other formats — notably `"hh"` / `"h"` hour-only — raise `WindowInvalidError` (deferred to v1.1) |
+| `default_project()` from semantic_py | analysis_py never uses it; each Session builds its own `SemanticProject(root=<project_root>/.marivo/semantic)` and passes `project=` to every reader call |
 | Defensive copies on read-through accessors | Not done; `frame[col]` returns a pandas view. `frame.to_pandas()` is the documented isolation path. |
 
 ## v1 Deliverables
@@ -1149,6 +1220,14 @@ The minimum runnable skeleton is complete when:
    - Cross-session safety: compare across sessions raises
      `CrossSessionFrameError`; load_frame across sessions raises the
      same.
+   - Read-only attach (no backend_factory): `load_frame` succeeds;
+     `mv.compare(a, b)` succeeds where a / b were loaded from disk;
+     `mv.observe` raises `NoBackendFactoryError`.
+   - Window encoding: a `data_type="string", format="yyyymmdd"`
+     time_field accepts `window={"start": "2026-07-01", ...}` and the
+     internal encoder converts to `"20260701"` before filtering.
+   - `(data_type, format) = ("integer", "hh")` raises
+     `WindowInvalidError` with a v1-unsupported-format hint.
    - Error cases: `MetricNotFoundError`, `SliceInvalidError`,
      `SemanticKindMismatchError`, `NoActiveSessionError`,
      `DuplicateSessionNameError`, `FrameMutationError`,
