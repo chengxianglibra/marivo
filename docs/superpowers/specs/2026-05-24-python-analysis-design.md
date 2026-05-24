@@ -1258,7 +1258,8 @@ The minimum runnable skeleton is complete when:
 ## Roadmap (out of v1 scope)
 
 - **v1.1**: `decompose` / `correlate` / `detect` intents; `AttributionFrame`
-  family; slice predicates beyond `==`.
+  family; slice predicates beyond `==`. See
+  [`2026-05-24-python-analysis-v1.1-design.md`](2026-05-24-python-analysis-v1.1-design.md).
 - **v1.2**: Calendar / timezone alignment; relative window expressions.
 - **v1.3**: Evidence layer (finding / proposition / assessment /
   action_proposal); outcome envelope shape.
