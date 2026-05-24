@@ -91,6 +91,7 @@ docs/archive/
 
 # Superpowers (working docs — tracked selectively via frontmatter convention)
 # docs/superpowers/ is no longer fully ignored; active specs/plans are tracked
+docs/superpowers/plans/
 .superpowers/
 .gitnexus
 .worktrees/
