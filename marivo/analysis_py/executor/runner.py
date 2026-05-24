@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Mapping
 from contextlib import suppress
@@ -114,6 +115,105 @@ def _resolve_slice_field(dataset_ir: Any, field_name: str, table: ibis.Table) ->
     )
 
 
+_SUPPORTED_SLICE_OPS = {"==", "!=", "in", ">", ">=", "<", "<=", "between"}
+_SCALAR_SLICE_OPS = {"==", "!=", ">", ">=", "<", "<="}
+
+
+def _normalize_slice_predicate(raw: Any) -> tuple[str, Any]:
+    if isinstance(raw, Mapping):
+        if "op" not in raw or "value" not in raw:
+            raise SliceInvalidError(
+                message="structured slice predicate must include 'op' and 'value'",
+                details={"predicate": dict(raw)},
+            )
+        op = raw["op"]
+        value = raw["value"]
+        if not isinstance(op, str) or op not in _SUPPORTED_SLICE_OPS:
+            raise SliceInvalidError(
+                message=f"unsupported slice predicate op {op!r}",
+                details={"supported_ops": sorted(_SUPPORTED_SLICE_OPS)},
+            )
+        _validate_slice_value_shape(op, value)
+        return str(op), value
+    _validate_slice_value_shape("==", raw)
+    return "==", raw
+
+
+def _validate_slice_value_shape(op: str, value: Any) -> None:
+    if op in _SCALAR_SLICE_OPS:
+        if isinstance(value, (Mapping, list, tuple, set)):
+            raise SliceInvalidError(
+                message=f"slice op {op!r} requires a scalar value",
+                details={"op": op, "value_type": type(value).__name__},
+            )
+        return
+    if op == "in":
+        if not isinstance(value, (list, tuple, set)) or len(value) == 0:
+            raise SliceInvalidError(message="slice op 'in' requires a non-empty list/tuple/set")
+        return
+    if op == "between":
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            raise SliceInvalidError(message="slice op 'between' requires exactly two values")
+        return
+
+
+def normalize_slice_for_storage(slice: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not slice:
+        return {}
+    normalized: dict[str, Any] = {}
+    for field_name, raw_predicate in slice.items():
+        op, value = _normalize_slice_predicate(raw_predicate)
+        if op == "==" and not isinstance(raw_predicate, Mapping):
+            normalized[field_name] = _json_safe_value(value)
+        else:
+            normalized[field_name] = {"op": op, "value": _json_safe_value(value)}
+    _ensure_json_safe(normalized)
+    return normalized
+
+
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, set):
+        return [_json_safe_value(item) for item in sorted(value, key=repr)]
+    if isinstance(value, tuple):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, list):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, Mapping):
+        return {key: _json_safe_value(item) for key, item in value.items()}
+    return value
+
+
+def _ensure_json_safe(value: Any) -> None:
+    try:
+        json.dumps(value, sort_keys=True)
+    except (TypeError, ValueError) as exc:
+        raise SliceInvalidError(
+            message="slice predicate value must be JSON serializable",
+            details={"error": str(exc)},
+        ) from exc
+
+
+def _apply_slice_predicate(field_expr: Any, *, op: str, value: Any) -> Any:
+    if op == "==":
+        return field_expr == value
+    if op == "!=":
+        return field_expr != value
+    if op == "in":
+        return field_expr.isin(list(value))
+    if op == ">":
+        return field_expr > value
+    if op == ">=":
+        return field_expr >= value
+    if op == "<":
+        return field_expr < value
+    if op == "<=":
+        return field_expr <= value
+    if op == "between":
+        lower, upper = value
+        return (field_expr >= lower) & (field_expr <= upper)
+    raise SliceInvalidError(message=f"unsupported slice predicate op {op!r}")
+
+
 def apply_slice_to_dataset(
     table: ibis.Table,
     slice: Mapping[str, Any] | None,
@@ -122,8 +222,10 @@ def apply_slice_to_dataset(
 ) -> ibis.Table:
     if not slice:
         return table
-    for field_name, value in slice.items():
-        table = table.filter(_resolve_slice_field(dataset_ir, field_name, table) == value)
+    for field_name, raw_predicate in slice.items():
+        op, value = _normalize_slice_predicate(raw_predicate)
+        field_expr = _resolve_slice_field(dataset_ir, field_name, table)
+        table = table.filter(_apply_slice_predicate(field_expr, op=op, value=value))
     return table
 
 

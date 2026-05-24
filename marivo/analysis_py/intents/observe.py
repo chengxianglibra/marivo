@@ -17,6 +17,7 @@ from marivo.analysis_py.executor.runner import (
     apply_slice_to_dataset,
     apply_window_to_dataset,
     execute,
+    normalize_slice_for_storage,
 )
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.lineage import Lineage, LineageStep
@@ -69,6 +70,7 @@ def observe(
     started = monotonic()
     dataset_tables: dict[str, Any] = {}
     primary_datasource: str | None = None
+    stored_slice = normalize_slice_for_storage(slice)
 
     for dataset_name in metric_ir.references.datasets:
         dataset_ir = reader.get_dataset(model_name, dataset_name, project=session.semantic_project)
@@ -96,7 +98,7 @@ def observe(
 
     frame_ref = _gen_ref("frame")
     job_ref = _gen_ref("job")
-    params = {"metric": metric, "window": window, "slice": slice or {}}
+    params = {"metric": metric, "window": window, "slice": stored_slice}
     meta = MetricFrameMeta(
         kind="metric_frame",
         ref=frame_ref,
@@ -120,7 +122,7 @@ def observe(
         axes={},
         measure={"name": metric_name},
         window=dict(window) if window else None,
-        slice=dict(slice) if slice else {},
+        slice=stored_slice,
         semantic_kind="time_series" if window else "scalar",
         semantic_model=model_name,
     )
