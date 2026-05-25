@@ -81,7 +81,7 @@ class MetricNotFoundError(AnalysisError):
             "fix_snippet": (
                 "import marivo.semantic_py as ms\n"
                 "ms.list_metrics()  # confirm the exact id\n"
-                'mv.observe(mv.MetricRef("<registered_metric_id>"), window="2026Q3")'
+                'mv.observe("<registered_metric_id>", window="2026Q3")'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
@@ -94,7 +94,7 @@ class WindowInvalidError(AnalysisError):
         return {
             "location": "mv.observe / mv.compare window argument",
             "cause": f"window={window_ref} could not be parsed by the active calendar.",
-            "fix_snippet": 'mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")',
+            "fix_snippet": 'mv.observe("revenue", window="2026Q3")',
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
@@ -145,8 +145,8 @@ class SemanticKindMismatchError(AnalysisError):
                 "compare result where an observe result is required."
             ),
             "fix_snippet": (
-                'cur  = mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")\n'
-                'base = mv.observe(mv.MetricRef("sales.revenue"), window="2025Q3")\n'
+                'cur  = mv.observe("revenue", window="2026Q3")\n'
+                'base = mv.observe("revenue", window="2025Q3")\n'
                 "delta = mv.compare(cur, base)"
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",

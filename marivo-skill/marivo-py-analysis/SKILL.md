@@ -111,7 +111,7 @@ Runnable reference: `references/examples/01_observe_single_window.py`.
 import marivo.analysis_py as mv
 
 cur = mv.observe(
-    mv.MetricRef("<metric_id>"),
+    "<metric_id>",
     window={"start": "2026-07-01", "end": "2026-09-30"},
 )
 print(cur.summary())
@@ -126,11 +126,11 @@ metric. Runnable reference: `references/examples/02_compare_yoy.py`.
 import marivo.analysis_py as mv
 
 cur = mv.observe(
-    mv.MetricRef("<metric_id>"),
+    "<metric_id>",
     window={"start": "2026-07-01", "end": "2026-09-30"},
 )
 base = mv.observe(
-    mv.MetricRef("<metric_id>"),
+    "<metric_id>",
     window={"start": "2025-07-01", "end": "2025-09-30"},
 )
 delta = mv.compare(cur, base, compare_type="yoy")
@@ -150,11 +150,11 @@ do not invent a segment such as `region` unless it exists in the delta.
 import marivo.analysis_py as mv
 
 cur = mv.observe(
-    mv.MetricRef("<metric_id>"),
+    "<metric_id>",
     slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 base = mv.observe(
-    mv.MetricRef("<metric_id>"),
+    "<metric_id>",
     slice={"created_at": {"op": "between", "value": ["2025-07-01", "2025-09-30"]}},
 )
 delta = mv.compare(cur, base, compare_type="yoy")
@@ -174,7 +174,7 @@ reference: `references/examples/04_detect_anomaly.py`.
 import marivo.analysis_py as mv
 
 series = mv.observe(
-    mv.MetricRef("<metric_id>"),
+    "<metric_id>",
     slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 anomalies = mv.detect(series, threshold=1.0)
@@ -190,8 +190,8 @@ with `meta.attribution_kind == "correlation"`.
 ```python
 import marivo.analysis_py as mv
 
-a = mv.observe(mv.MetricRef("<metric_a>"), window={"start": "2026-07-01", "end": "2026-09-30"})
-b = mv.observe(mv.MetricRef("<metric_b>"), window={"start": "2026-07-01", "end": "2026-09-30"})
+a = mv.observe("<metric_a>", window={"start": "2026-07-01", "end": "2026-09-30"})
+b = mv.observe("<metric_b>", window={"start": "2026-07-01", "end": "2026-09-30"})
 correlation = mv.correlate(a, b, align="sample")
 print(correlation.summary())
 ```

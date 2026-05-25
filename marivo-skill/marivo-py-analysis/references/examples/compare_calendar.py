@@ -34,11 +34,11 @@ calendar_dir.mkdir(parents=True, exist_ok=True)
 )
 
 cur = mv.observe(
-    mv.MetricRef(METRIC_ID),
+    METRIC_ID,
     window={"expr": "mtd", "grain": "day", "as_of": "2026-09-15T12:00:00+08:00"},
 )
 base = mv.observe(
-    mv.MetricRef(METRIC_ID),
+    METRIC_ID,
     window={"start": "2025-07-01", "end": "2025-07-31", "grain": "day"},
 )
 delta = mv.compare(
