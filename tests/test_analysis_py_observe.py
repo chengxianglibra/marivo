@@ -98,6 +98,9 @@ def test_observe_rejects_bare_metric_string(tmp_path):
 
     assert exc_info.value.details["expected_kind"] == "MetricRef"
     assert exc_info.value.details["got_kind"] == "str"
+    rendered = str(exc_info.value)
+    assert "frame kind" not in rendered
+    assert 'mv.MetricRef("sales.revenue")' in rendered
 
 
 def test_observe_applies_window(tmp_path):
