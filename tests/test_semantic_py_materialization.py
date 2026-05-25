@@ -84,6 +84,13 @@ def test_materialize_metric_returns_ibis_expression() -> None:
     assert expr.execute() == 60
 
 
+def test_list_metrics_returns_sorted_fully_qualified_ids() -> None:
+    project = _project()
+
+    assert hasattr(ms, "list_metrics")
+    assert ms.list_metrics(project=project) == ["sales.revenue"]
+
+
 def test_backend_factory_is_called_once_per_datasource() -> None:
     project = _project()
     con = ibis.duckdb.connect()

@@ -83,6 +83,29 @@ def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
     assert d.to_pandas().iloc[0]["delta"] == pytest.approx(10.0)
 
 
+def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
+    _bootstrap_sales(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    q3 = observe("sales.revenue", window={"start": "2026-07-01", "end": "2026-07-31"}, session=s)
+    q2 = observe("sales.revenue", window={"start": "2026-04-01", "end": "2026-04-30"}, session=s)
+    delta = compare(q3, q2, compare_type="qoq", session=s)
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        compare(q3, delta, session=s)  # type: ignore[arg-type]
+
+    rendered = str(exc_info.value)
+    assert (
+        "SemanticKindMismatchError: compare(a, b) expected MetricFrame for `b`, got DeltaFrame."
+        in rendered
+    )
+    assert "正确写法:" in rendered
+    assert "delta = mv.compare(cur, base)" in rendered
+    assert exc_info.value.details["expected_kind"] == "metric_frame"
+    assert exc_info.value.details["got_kind"] == "delta_frame"
+
+
 def test_compare_semantic_kind_mismatch_raises(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")

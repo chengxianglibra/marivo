@@ -25,9 +25,39 @@ from marivo.analysis_py.session.attach import active as session_active
 from marivo.analysis_py.session.core import Session, ensure_session_writable
 from marivo.analysis_py.session.persistence import write_frame_to_disk, write_job_record
 
+EXPECTED_METRIC_FRAME_KIND = "metric_frame"
+
 
 def _gen_ref(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(4)}"
+
+
+def _display_kind(kind: str) -> str:
+    return "".join(part.capitalize() for part in kind.split("_"))
+
+
+def _frame_kind(frame: object) -> str | None:
+    meta = getattr(frame, "meta", None)
+    kind = getattr(meta, "kind", None)
+    return kind if isinstance(kind, str) and kind else None
+
+
+def _require_metric_frame(label: str, frame: object) -> MetricFrame:
+    got_kind = _frame_kind(frame)
+    if isinstance(frame, MetricFrame) and got_kind == EXPECTED_METRIC_FRAME_KIND:
+        return frame
+    if got_kind is None:
+        got_kind = type(frame).__name__
+    raise SemanticKindMismatchError(
+        message=(
+            f"compare(a, b) expected MetricFrame for `{label}`, got {_display_kind(got_kind)}."
+        ),
+        details={
+            "parameter": label,
+            "expected_kind": EXPECTED_METRIC_FRAME_KIND,
+            "got_kind": got_kind,
+        },
+    )
 
 
 def compare(
@@ -41,6 +71,8 @@ def compare(
     if session is None:
         session = session_active()
     ensure_session_writable(session)
+    a = _require_metric_frame("a", a)
+    b = _require_metric_frame("b", b)
     for label, source_frame in (("a", a), ("b", b)):
         if source_frame.meta.session_id != session.id:
             raise CrossSessionFrameError(

@@ -7,6 +7,7 @@ import marivo.analysis_py.session.attach as session_attach
 from marivo.analysis_py.errors import MetricNotFoundError, NoBackendFactoryError, SessionStateError
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.intents.observe import observe
+from marivo.semantic_py.errors import SemanticLoadError
 
 
 @pytest.fixture(autouse=True)
@@ -105,6 +106,22 @@ def test_observe_unknown_metric_raises(tmp_path):
     s = session_attach.create(name="demo", backends=_backends(con))
     with pytest.raises(MetricNotFoundError):
         observe("sales.nonexistent", session=s)
+
+
+def test_observe_semantic_load_error_is_not_metric_not_found(tmp_path, monkeypatch):
+    _bootstrap_sales(tmp_path)
+    s = session_attach.create(name="demo")
+    error = SemanticLoadError([])
+
+    def fail_load(*, project=None):
+        raise error
+
+    monkeypatch.setattr("marivo.semantic_py.reader.ensure_loaded", fail_load)
+
+    with pytest.raises(SemanticLoadError) as exc_info:
+        observe("sales.revenue", session=s)
+
+    assert exc_info.value is error
 
 
 def test_observe_read_only_session_raises(tmp_path):

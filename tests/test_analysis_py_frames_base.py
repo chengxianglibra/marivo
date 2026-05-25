@@ -93,6 +93,9 @@ def test_repr_includes_kind_ref_and_row_count():
     df = pd.DataFrame({"x": [1, 2]})
     f = BaseFrame(_df=df, meta=_meta())
     r = repr(f)
-    assert "metric_frame" in r
-    assert "frame_abc12345" in r
-    assert "row_count=2" in r or "n=2" in r
+    first = r.splitlines()[0]
+    assert first.startswith("<BaseFrame")
+    assert "kind=metric_frame" in first
+    assert "ref=frame_abc12345" in first
+    assert "rows=2" in first
+    assert "cols=[x]" in first

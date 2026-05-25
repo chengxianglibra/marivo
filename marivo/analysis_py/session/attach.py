@@ -255,6 +255,36 @@ def active() -> Session:
     return attach(name=active_name)
 
 
+def current() -> SessionSummary | None:
+    """Return a summary for the active session, or None when no session is active."""
+    try:
+        sess = active()
+    except NoActiveSessionError:
+        return None
+    return SessionSummary(
+        id=sess.id,
+        name=sess.name,
+        state=sess.state,
+        created_at=sess.created_at.isoformat(),
+        updated_at=sess.updated_at.isoformat(),
+    )
+
+
+def history(limit: int = 5) -> list[Any]:
+    """Return recent jobs for the active session, capped at ``limit`` entries."""
+    if limit <= 0:
+        return []
+
+    try:
+        sess = active()
+    except NoActiveSessionError:
+        return []
+
+    jobs_attr = getattr(sess, "jobs", [])
+    jobs = jobs_attr() if callable(jobs_attr) else jobs_attr
+    return list(jobs)[-limit:]
+
+
 def active_or_create(
     name_hint: str,
     question: str | None = None,

@@ -10,6 +10,7 @@ from marivo.semantic_py.decorators import (
     relationship,
     time_field,
 )
+from marivo.semantic_py.reader import list_metrics
 from marivo.semantic_py.registry import SemanticProject
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "dataset",
     "datasource",
     "field",
+    "list_metrics",
     "metric",
     "model",
     "ratio",

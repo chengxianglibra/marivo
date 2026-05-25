@@ -8,7 +8,9 @@ active = attach.active
 active_or_create = attach.active_or_create
 archive = attach.archive
 create = attach.create
+current = attach.current
 delete = attach.delete
+history = attach.history
 list = attach.list_sessions
 list_sessions = attach.list_sessions
 switch = attach.switch
@@ -19,7 +21,9 @@ __all__ = [
     "archive",
     "attach",
     "create",
+    "current",
     "delete",
+    "history",
     "list",
     "list_sessions",
     "switch",

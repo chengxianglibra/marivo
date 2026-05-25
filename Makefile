@@ -31,6 +31,19 @@ typecheck:
 	@./scripts/require-venv.sh mypy
 	@$(VENV_MYPY) marivo
 
+.PHONY: examples-check
+examples-check:
+	@EXAMPLE_TYPECHECK_FILES=$$(mktemp); \
+	find marivo-skill/marivo-py-semantic/references/examples \
+	     marivo-skill/marivo-py-analysis/references/examples \
+	     -type f \( -name '*.py' -o -name '*.pyi' \) -print0 > "$$EXAMPLE_TYPECHECK_FILES"; \
+	trap 'rm -f "$$EXAMPLE_TYPECHECK_FILES"' EXIT; \
+	if [ -s "$$EXAMPLE_TYPECHECK_FILES" ]; then \
+		xargs -0 $(VENV_MYPY) --explicit-package-bases --ignore-missing-imports \
+			< "$$EXAMPLE_TYPECHECK_FILES"; \
+	fi
+	@$(VENV_PYTHON) scripts/run_skill_examples.py
+
 lint:
 	@./scripts/require-venv.sh ruff
 	@$(VENV_RUFF) check .
@@ -45,7 +58,7 @@ test-mysql:
 	pip install -e ".[mysql,test-mysql]"
 	$(VENV_PYTEST) tests/contracts/ -m mysql
 
-check: lint typecheck test
+check: lint typecheck examples-check test
 
 pypi-build: ## Build PyPI sdist and wheel into dist/pypi/
 	@./scripts/require-venv.sh pip
