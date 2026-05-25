@@ -14,7 +14,7 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 cur = mv.observe(
-    METRIC_ID,
+    mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30"},
 )
 print(cur.summary())
