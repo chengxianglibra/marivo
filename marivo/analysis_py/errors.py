@@ -163,7 +163,44 @@ class FrameRefNotFound(AnalysisError): ...  # noqa: N818
 class BackendError(AnalysisError): ...
 
 
-class NoBackendFactoryError(AnalysisError): ...
+class NoBackendFactoryError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        datasource = self.details.get("datasource")
+        if not (isinstance(datasource, str) and datasource):
+            return {
+                "location": "analysis runtime backend configuration",
+                "cause": (
+                    "session has no backend factory configured; data-materializing "
+                    "analysis intents need backends={...} or backend_factory=..."
+                ),
+                "fix_snippet": (
+                    "import ibis\n"
+                    "import marivo.analysis_py as mv\n"
+                    "\n"
+                    'orders_backend = ibis.duckdb.connect(":memory:")\n'
+                    'session = mv.attach(name="analysis", backends={"tiny_orders": orders_backend})\n'
+                    "# or\n"
+                    'session = mv.attach(name="analysis", backend_factory=lambda name: orders_backend)'
+                ),
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        return {
+            "location": "@ms.datasource backend factory",
+            "cause": (
+                f"datasource={datasource!r} returned None "
+                "or a non-ibis object; the analysis runtime needs a live ibis "
+                "backend."
+            ),
+            "fix_snippet": (
+                "import ibis\n"
+                "import marivo.semantic_py as ms\n"
+                "\n"
+                '@ms.datasource(name="tiny_orders", backend_type="duckdb")\n'
+                "def tiny_orders():\n"
+                '    return ibis.duckdb.connect(":memory:")\n'
+            ),
+            "doc": "marivo-skill/marivo-py-semantic/references/pitfalls.md",
+        }
 
 
 class DuplicateSessionNameError(AnalysisError): ...

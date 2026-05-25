@@ -68,8 +68,10 @@ def test_semantic_error_keyword_construction_initializes_exception_args() -> Non
 
     rendered = str(error)
 
-    assert rendered == (
+    assert error.short_form() == (
         "decorator:invalid_metric at /tmp/semantic/sales/metrics.py:18: "
         "Metric expression is not callable."
     )
+    assert rendered.startswith("SemanticError: Metric expression is not callable.")
+    assert "原因: decorator:invalid_metric" in rendered
     assert error.args == (rendered,)
