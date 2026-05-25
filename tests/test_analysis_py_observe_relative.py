@@ -10,6 +10,7 @@ import pytest
 import marivo.analysis_py.session.attach as session_attach
 from marivo.analysis_py.errors import MetricShapeUnsupportedError
 from marivo.analysis_py.intents.observe import observe
+from marivo.analysis_py.refs import MetricRef
 from marivo.analysis_py.windows.spec import WindowInput
 
 
@@ -154,7 +155,7 @@ def test_relative_window_without_grain_stays_scalar(tmp_path):
     )
 
     frame = observe(
-        "sales.revenue",
+        MetricRef("sales.revenue"),
         window={"expr": "mtd", "as_of": "2026-05-24T13:42:11+08:00"},
         session=s,
     )
@@ -186,7 +187,7 @@ def test_relative_window_with_grain_returns_time_series(tmp_path):
     )
 
     frame = observe(
-        "sales.revenue",
+        MetricRef("sales.revenue"),
         window={"expr": "mtd", "grain": "day", "as_of": "2026-05-24T13:42:11+08:00"},
         session=s,
     )
@@ -215,7 +216,7 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
 
     with pytest.raises(MetricShapeUnsupportedError) as exc_info:
         observe(
-            "sales.net",
+            MetricRef("sales.net"),
             window={"start": "2026-05-01", "end": "2026-05-24", "grain": "day"},
             session=s,
         )
@@ -236,7 +237,7 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
     )
 
     frame = observe(
-        "sales.revenue",
+        MetricRef("sales.revenue"),
         window={"start": "2026-05-01", "end": "2026-05-24", "grain": "day"},
         session=s,
     )
@@ -268,7 +269,7 @@ def test_epoch_seconds_time_series_day_bucket_respects_session_tz(tmp_path):
     )
 
     frame = observe(
-        "sales.revenue",
+        MetricRef("sales.revenue"),
         window={"start": "2026-05-01", "end": "2026-05-01", "grain": "day"},
         session=s,
     )

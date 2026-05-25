@@ -121,7 +121,7 @@ def test_window_invalid_has_window_fix_template():
 
     assert "last quarter" in rendered
     assert "正确写法:" in rendered
-    assert '  mv.observe("revenue", window="2026Q3")' in rendered
+    assert '  mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")' in rendered
 
 
 def test_metric_not_found_has_list_metrics_fix_template():

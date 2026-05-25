@@ -61,12 +61,12 @@ def test_end_to_end_sales_observe_compare_load(tmp_path):
     assert not s.is_read_only
 
     q3 = mv.observe(
-        "sales.revenue",
+        mv.MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-09-30"},
         session=s,
     )
     q2 = mv.observe(
-        "sales.revenue",
+        mv.MetricRef("sales.revenue"),
         window={"start": "2026-04-01", "end": "2026-06-30"},
         session=s,
     )
