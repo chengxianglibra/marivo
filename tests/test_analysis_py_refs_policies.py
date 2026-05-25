@@ -22,6 +22,11 @@ def test_refs_reject_empty_ids():
             ref_cls(" ")
 
 
+def test_refs_reject_extra_fields_with_validation_error():
+    with pytest.raises(ValidationError):
+        CalendarRef(id="cn", extra=1)
+
+
 def test_metric_ref_requires_model_and_metric():
     with pytest.raises(ValidationError):
         MetricRef("revenue")
@@ -35,6 +40,9 @@ def test_alignment_policy_requires_calendar_for_calendar_backed_modes():
 
     with pytest.raises(ValidationError):
         AlignmentPolicy(kind="dow_aligned")
+
+    with pytest.raises(ValidationError):
+        AlignmentPolicy(kind="dow_aligned", calendar={"id": "cn", "extra": 1})
 
     policy = AlignmentPolicy(kind="holiday_and_dow_aligned", calendar=CalendarRef("cn"))
     assert policy.kind == "holiday_and_dow_aligned"

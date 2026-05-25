@@ -37,7 +37,7 @@ class AlignmentPolicy(BaseModel):
 class LagPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    mode: Literal["single", "sweep"] = "single"
+    mode: Literal["single"] = "single"
     offset: int = Field(default=0)
 
     @model_validator(mode="after")

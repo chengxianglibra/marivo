@@ -10,8 +10,12 @@ class _RefBase(BaseModel):
 
     id: str
 
-    def __init__(self, id: str) -> None:
-        super().__init__(id=id)
+    def __init__(self, id: str | None = None, **data: object) -> None:
+        if id is not None:
+            if "id" in data:
+                raise TypeError("ref id supplied both positionally and by keyword")
+            data["id"] = id
+        super().__init__(**data)
 
     @field_validator("id")
     @classmethod
