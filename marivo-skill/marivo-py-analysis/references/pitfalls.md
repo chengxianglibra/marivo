@@ -1,8 +1,8 @@
 # marivo-py-analysis pitfalls
 
 Use this file when a Marivo Python analysis script fails with a structured
-exception. Fix the smallest script and re-run through `.venv/bin/python` or
-`make examples-check`; do not use bare Python commands in this repository.
+exception. Fix the smallest script and re-run it with the active Python
+environment where `marivo` is installed.
 
 ## Passing a DeltaFrame back into compare
 

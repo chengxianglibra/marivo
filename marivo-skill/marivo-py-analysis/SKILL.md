@@ -5,10 +5,10 @@ description: Use when the task involves Marivo analysis — observe, compare, de
 
 # marivo-py-analysis
 
-Use this skill when writing or running Python code against Marivo's Python-native
-analysis SDK: `marivo.analysis_py` as `mv`. It covers `observe`, `compare`,
-`decompose`, `detect`, `correlate`, frame inspection, and session helpers over an
-already-declared semantic model.
+Use this skill when writing or running Python code against an installed Marivo
+Python library: `marivo.analysis_py` as `mv`. Assume the current Python
+environment already has `marivo` available from PyPI or an equivalent install;
+do not assume access to the Marivo repository source tree.
 
 Do not use this skill for stdio MCP investigation workflows. Use the separate
 `marivo-analysis` skill for MCP session tools. Do not use this skill to author
@@ -48,40 +48,36 @@ Important current return types:
 
 ## Standard workflow
 
-1. Check whether there is an active session and inspect available helpers.
+1. Check that the active Python environment can import Marivo, then inspect the
+   session and helper surface.
 
    ```bash
-   .venv/bin/python -c 'import marivo.analysis_py as mv; print(mv.session.current()); mv.help()'
+   python -c 'import marivo.analysis_py as mv; print(mv.session.current()); mv.help()'
    ```
 
 2. Confirm metric ids from the semantic layer before calling `observe`. In the
-   runnable examples, `references/examples/_fixtures/tiny_semantic.py` handles
-   fixture loading for you.
+   runnable examples, `references/examples/_fixtures/tiny_semantic.py` builds a
+   tiny in-memory semantic model using the installed `marivo` package. Examples
+   that use DuckDB require `marivo[duckdb]` or an equivalent environment.
 
-3. Write a small script in your working area. Use one of the templates below or
-   copy a runnable file from `references/examples/*.py`.
+3. Write a small script in the user's project or scratch area. Use one of the
+   templates below or adapt a runnable file from `references/examples/*.py`.
 
-4. Typecheck and run with repository entrypoints only.
+4. Run the smallest script with the same Python interpreter/environment where
+   `marivo` is installed.
 
    ```bash
-   make typecheck
-   .venv/bin/python my_analysis.py
+   python my_analysis.py
    ```
 
-   Never use bare `python`, `pytest`, `mypy`, or `ruff`; this repository's
-   `AGENTS.md` requires `make ...` or explicit `.venv/bin/...` entrypoints.
+   If the surrounding project has stricter command rules, follow those local
+   rules. This skill itself does not require the Marivo repository checkout.
 
 5. On Marivo exceptions, read the structured error text. It usually includes a
    `正确写法` block. Apply that fix, then re-run the smallest script.
 
-6. Before finishing skill or example edits, run:
-
-   ```bash
-   make examples-check
-   wc -l marivo-skill/marivo-py-analysis/SKILL.md
-   ```
-
-   `SKILL.md` must stay at or below 600 lines.
+6. Keep generated analysis outputs compact. Prefer `frame.summary()` and
+   `frame.head(n)` before materializing full data with `frame.to_pandas()`.
 
 ## Fill-in templates
 
@@ -231,8 +227,8 @@ Need raw pandas operations?
 
 ## Further reading
 
-- `references/examples/*.py` - runnable templates checked by `make examples-check`
+- `references/examples/*.py` - runnable templates for installed-library usage
 - `references/examples/_fixtures/tiny_semantic.py` - tiny semantic model used by
-  the examples
+  the examples; requires DuckDB support in the active Marivo environment
 - `references/cheatsheet.md` - compact intent/frame reference
 - `references/pitfalls.md` - expanded error recovery notes
