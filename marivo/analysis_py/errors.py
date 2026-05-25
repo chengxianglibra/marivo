@@ -83,7 +83,8 @@ class MetricNotFoundError(AnalysisError):
                 "project = ms.find_project()\n"
                 "project.load()\n"
                 "project.list_metrics()  # confirm the exact id\n"
-                'mv.observe(mv.MetricRef("<registered_metric_id>"), window="2026Q3")'
+                'mv.observe(mv.MetricRef("<registered_metric_id>"), '
+                'window={"start": "2026-07-01", "end": "2026-09-30"})'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
@@ -96,7 +97,10 @@ class WindowInvalidError(AnalysisError):
         return {
             "location": "mv.observe / mv.compare window argument",
             "cause": f"window={window_ref} could not be parsed by the active calendar.",
-            "fix_snippet": 'mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")',
+            "fix_snippet": (
+                'mv.observe(mv.MetricRef("sales.revenue"), '
+                'window={"start": "2026-07-01", "end": "2026-09-30"})'
+            ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
@@ -139,7 +143,10 @@ class SemanticKindMismatchError(AnalysisError):
                     f"got {got_kind}, expected {expected_kind}; observe requires "
                     "metric=mv.MetricRef(...)."
                 ),
-                "fix_snippet": 'mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")',
+                "fix_snippet": (
+                    'mv.observe(mv.MetricRef("sales.revenue"), '
+                    'window={"start": "2026-07-01", "end": "2026-09-30"})'
+                ),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         if got_kind != "delta_frame" or expected_kind != "metric_frame":
@@ -157,9 +164,11 @@ class SemanticKindMismatchError(AnalysisError):
                 "compare result where an observe result is required."
             ),
             "fix_snippet": (
-                'cur  = mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")\n'
-                'base = mv.observe(mv.MetricRef("sales.revenue"), window="2025Q3")\n'
-                "delta = mv.compare(cur, base)"
+                'cur  = mv.observe(mv.MetricRef("sales.revenue"), '
+                'window={"start": "2026-07-01", "end": "2026-09-30"})\n'
+                'base = mv.observe(mv.MetricRef("sales.revenue"), '
+                'window={"start": "2025-07-01", "end": "2025-09-30"})\n'
+                'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }

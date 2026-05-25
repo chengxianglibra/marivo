@@ -4,6 +4,11 @@ Use this file when a Marivo Python analysis script fails with a structured
 exception. Fix the smallest script and re-run it with the active Python
 environment where `marivo` is installed.
 
+Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`,
+`mv.AlignmentPolicy(...)`, and `mv.LagPolicy(...)` at public operator
+boundaries. Do not pass bare strings directly to `observe`, `decompose`, or
+calendar-backed `compare`.
+
 ## Passing a DeltaFrame back into compare
 
 **Symptom from `references/examples/99_pitfall_pass_delta_to_compare.py`:**
@@ -15,9 +20,9 @@ SemanticKindMismatchError: compare(a, b) expected MetricFrame for `b`, got Delta
 原因: got kind delta_frame, expected metric_frame; this usually means passing a compare result where an observe result is required.
 
 正确写法:
-  cur  = mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")
-  base = mv.observe(mv.MetricRef("sales.revenue"), window="2025Q3")
-  delta = mv.compare(cur, base)
+  cur  = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
+  base = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
+  delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
 
 相关文档: marivo-skill/marivo-py-analysis/references/pitfalls.md
 ```
@@ -28,12 +33,12 @@ SemanticKindMismatchError: compare(a, b) expected MetricFrame for `b`, got Delta
 ```python
 cur = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
 base = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
-delta = mv.compare(cur, base, compare_type="yoy")
-attribution = mv.decompose(delta)
+delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+attribution = mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 ```
 
-The exception template still shows compact quarter strings. For new examples and
-agent-authored scripts, prefer explicit dict windows or structured slices.
+Use explicit dict windows or structured slices in new examples and
+agent-authored scripts.
 
 ## Mutating a frame directly
 
@@ -62,7 +67,7 @@ NoActiveSessionError: no active session and none set via attach()
 ```
 
 **Action:** check cheaply, then create or attach before `observe`, `compare`,
-`decompose`, `detect`, or `correlate`.
+`decompose`, `discover`, or `correlate`.
 
 ```python
 if mv.session.current() is None:
@@ -124,36 +129,52 @@ mv.observe(
 Do not default to natural-language periods or bare quarter strings in new skill
 content. Wrap metric ids with `mv.MetricRef(...)`.
 
-## Detect and correlate return AttributionFrame
+## Discover returns CandidateSet
 
-**Symptom:** code checks for `CandidateSet` after `mv.detect` or
-`CorrelationFrame` after `mv.correlate`.
+**Symptom:** code calls the removed `mv.detect(...)` helper or expects anomaly
+results to be an `AttributionFrame`.
 
-**Action:** treat both as specialized `AttributionFrame`s.
+**Action:** use `mv.discover(..., objective="point_anomalies")` and treat the
+result as a `CandidateSet`.
 
 ```python
-anomalies = mv.detect(series, threshold=1.0)
-assert anomalies.meta.attribution_kind == "anomaly"
+candidates = mv.discover(series, objective="point_anomalies", threshold=1.0)
+assert candidates.meta.objective == "point_anomalies"
+```
 
-correlation = mv.correlate(a, b, align="sample")
-assert correlation.meta.attribution_kind == "correlation"
+## Correlate returns AssociationResult
+
+**Symptom:** code passes the removed `align=` argument or checks for
+`AttributionFrame` / `CorrelationFrame` after `mv.correlate`.
+
+**Action:** pass an `AlignmentPolicy` and treat correlation as an
+`AssociationResult`.
+
+```python
+correlation = mv.correlate(
+    a,
+    b,
+    alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+    lag_policy=mv.LagPolicy(mode="single", offset=0),
+)
+assert correlation.meta.kind == "association_result"
 ```
 
 Use `.summary()` for compact inspection and `.to_pandas()` for downstream pandas
 work.
 
-## Decompose with by on scalar deltas
+## Decompose without an explicit axis
 
 **Symptom:**
 
 ```text
-SemanticKindMismatchError: scalar decompose does not accept by
+TypeError: decompose() missing 1 required keyword-only argument: 'axis'
 ```
 
-**Action:** omit `by=` for scalar deltas. Add `by=` only when the `DeltaFrame`
-already contains that grouping column.
+**Action:** pass `axis=mv.DimensionRef("<column>")` for a grouping column that
+already exists in the `DeltaFrame`.
 
 ```python
-delta = mv.compare(cur, base, compare_type="yoy")
-attribution = mv.decompose(delta)
+delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+attribution = mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 ```

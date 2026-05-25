@@ -23,10 +23,24 @@ def test_top_level_help_lists_intents_and_helpers() -> None:
     assert "observe" in out
     assert "compare" in out
     assert "decompose" in out
-    assert "detect" in out
+    assert "discover" in out
+    assert "detect" not in out
     assert "correlate" in out
     assert "session" in out
     assert "help" in out
+
+
+def test_help_lists_discover_and_not_detect(capsys) -> None:
+    mv.help()
+    output = capsys.readouterr().out
+
+    assert "mv.discover" in output
+    assert "mv.detect" not in output
+
+
+def test_detect_is_not_exported() -> None:
+    assert "detect" not in mv.__all__
+    assert not hasattr(mv, "detect")
 
 
 def test_help_for_intent_includes_signature_and_docstring() -> None:

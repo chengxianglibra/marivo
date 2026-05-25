@@ -17,6 +17,8 @@ from marivo.analysis_py.errors import (
 from marivo.analysis_py.frames.delta import DeltaFrame
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.intents.compare import compare
+from marivo.analysis_py.policies import AlignmentPolicy
+from marivo.analysis_py.refs import CalendarRef
 
 
 @pytest.fixture
@@ -336,15 +338,13 @@ def test_rejects_align_period_day():
     assert exc_info.value.details["kind"] == "CalendarPolicyInvalid"
 
 
-def test_compare_calendar_requires_policy(calendar_project):
+def test_compare_rejects_loose_calendar_alignment_args(calendar_project):
     s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
     current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
     baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
 
-    with pytest.raises(CalendarPolicyError) as exc_info:
-        compare(current, baseline, align="calendar", session=s)
-
-    assert exc_info.value.details["kind"] == "CalendarPolicyNotSpecified"
+    with pytest.raises(TypeError):
+        compare(current, baseline, align="calendar", session=s)  # type: ignore[call-arg]
 
 
 def test_compare_calendar_rejects_scalar(calendar_project):
@@ -356,8 +356,11 @@ def test_compare_calendar_rejects_scalar(calendar_project):
         compare(
             current,
             baseline,
-            align="calendar",
-            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            alignment=AlignmentPolicy(
+                kind="dow_aligned",
+                calendar=CalendarRef("cn_holidays"),
+                period="month",
+            ),
             session=s,
         )
 
@@ -372,48 +375,96 @@ def test_compare_calendar_returns_delta_frame(calendar_project):
     out = compare(
         current,
         baseline,
-        align="calendar",
-        calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+        alignment=AlignmentPolicy(
+            kind="dow_aligned",
+            calendar=CalendarRef("cn_holidays"),
+            period="month",
+        ),
         session=s,
     )
 
     compare_jobs = [job for job in s.jobs() if job.intent == "compare"]
     assert len(compare_jobs) == 1
     job_record = s.job(compare_jobs[0].id)
-    assert job_record["params"]["calendar_name"] == "cn_holidays"
-    assert "calendar" not in job_record["params"]
+    assert job_record["params"]["alignment"]["kind"] == "dow_aligned"
+    assert job_record["params"]["alignment"]["calendar"] == {"id": "cn_holidays"}
+    assert job_record["params"]["alignment"]["calendar_info"]["calendar_name"] == "cn_holidays"
 
     assert isinstance(out, DeltaFrame)
-    assert out.meta.align == "calendar"
-    assert out.meta.calendar_info is not None
-    assert out.meta.calendar_info["calendar_name"] == "cn_holidays"
+    assert out.meta.alignment["kind"] == "dow_aligned"
+    assert out.meta.alignment["calendar_info"]["calendar_name"] == "cn_holidays"
     df = out.to_pandas()
     assert list(df["current"]) == [100.0]
     assert list(df["baseline"]) == [80.0]
     assert list(df["align_quality"]) == ["exact"]
 
 
-def test_compare_calendar_requires_calendar_when_no_default(calendar_project):
+def test_compare_holiday_and_dow_alignment_policy(calendar_project):
+    calendar_path = calendar_project / ".marivo" / "calendar" / "cn_holidays.json"
+    calendar_path.write_text(_calendar().model_dump_json(), encoding="utf-8")
+    s = session_attach.create(name="demo", tz="Asia/Shanghai")
+    current = _metric(
+        s,
+        [
+            {"bucket_start": "2026-05-01", "value": 100.0},
+            {"bucket_start": "2026-05-05", "value": 10.0},
+        ],
+    )
+    baseline = _metric(
+        s,
+        [
+            {"bucket_start": "2025-05-01", "value": 80.0},
+            {"bucket_start": "2025-05-06", "value": 8.0},
+        ],
+    )
+
+    out = compare(
+        current,
+        baseline,
+        alignment=AlignmentPolicy(
+            kind="holiday_and_dow_aligned",
+            calendar=CalendarRef("cn_holidays"),
+            period="month",
+        ),
+        session=s,
+    )
+
+    df = out.to_pandas()
+    assert set(df["align_quality"]) == {"exact"}
+    assert set(df["align_key"]) == {'["holiday","labor-day"]', '["dow",2,0]'}
+    assert out.meta.alignment["kind"] == "holiday_and_dow_aligned"
+    assert out.meta.alignment["calendar_info"]["mode"] == "holiday_and_dow_aligned"
+
+
+def test_compare_calendar_uses_calendar_ref_without_session_default(calendar_project):
     s = session_attach.create(name="demo", tz="Asia/Shanghai")
     current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
     baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
 
-    with pytest.raises(CalendarPolicyError) as exc_info:
-        compare(
-            current,
-            baseline,
-            align="calendar",
-            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
-            session=s,
-        )
+    out = compare(
+        current,
+        baseline,
+        alignment=AlignmentPolicy(
+            kind="dow_aligned",
+            calendar=CalendarRef("cn_holidays"),
+            period="month",
+        ),
+        session=s,
+    )
 
-    assert exc_info.value.details["kind"] == "CalendarNotSpecified"
+    assert out.meta.alignment["calendar"]["id"] == "cn_holidays"
 
 
-def test_compare_calendar_rejects_blank_calendar_without_fallback(calendar_project):
+def test_compare_calendar_rejects_missing_calendar_ref(calendar_project):
     s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
     current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
     baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
+    alignment = AlignmentPolicy.model_construct(
+        kind="dow_aligned",
+        calendar=None,
+        period="month",
+        fallback="drop",
+    )
     before_jobs = len(s.jobs())
     before_frames = len(s.frames())
 
@@ -421,13 +472,11 @@ def test_compare_calendar_rejects_blank_calendar_without_fallback(calendar_proje
         compare(
             current,
             baseline,
-            align="calendar",
-            calendar="  ",
-            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            alignment=alignment,
             session=s,
         )
 
-    assert exc_info.value.details["kind"] == "CalendarNameInvalid"
+    assert exc_info.value.details["kind"] == "CalendarRefMissing"
     assert len(s.jobs()) == before_jobs
     assert len(s.frames()) == before_frames
 
@@ -441,8 +490,11 @@ def test_compare_calendar_rejects_timezone_mismatch(calendar_project):
         compare(
             current,
             baseline,
-            align="calendar",
-            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            alignment=AlignmentPolicy(
+                kind="dow_aligned",
+                calendar=CalendarRef("cn_holidays"),
+                period="month",
+            ),
             session=s,
         )
 
@@ -458,8 +510,11 @@ def test_compare_calendar_wraps_policy_validation_error(calendar_project):
         compare(
             current,
             baseline,
-            align="calendar",
-            calendar_policy={"mode": "dow_aligned", "align_period": "day"},
+            alignment=AlignmentPolicy(
+                kind="dow_aligned",
+                calendar=CalendarRef("cn_holidays"),
+                period="day",
+            ),
             session=s,
         )
 
@@ -480,8 +535,11 @@ def test_compare_calendar_rejects_missing_time_axis(calendar_project):
         compare(
             current,
             baseline,
-            align="calendar",
-            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            alignment=AlignmentPolicy(
+                kind="dow_aligned",
+                calendar=CalendarRef("cn_holidays"),
+                period="month",
+            ),
             session=s,
         )
 
@@ -509,8 +567,11 @@ def test_compare_calendar_rejects_missing_required_columns_on_baseline(calendar_
         compare(
             current,
             baseline,
-            align="calendar",
-            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            alignment=AlignmentPolicy(
+                kind="dow_aligned",
+                calendar=CalendarRef("cn_holidays"),
+                period="month",
+            ),
             session=s,
         )
 
@@ -552,8 +613,11 @@ def test_compare_calendar_rejects_ambiguous_value_column(calendar_project):
         compare(
             current,
             baseline,
-            align="calendar",
-            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            alignment=AlignmentPolicy(
+                kind="dow_aligned",
+                calendar=CalendarRef("cn_holidays"),
+                period="month",
+            ),
             session=s,
         )
 
@@ -581,8 +645,11 @@ def test_compare_calendar_rejects_missing_value_column(calendar_project):
         compare(
             current,
             baseline,
-            align="calendar",
-            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            alignment=AlignmentPolicy(
+                kind="dow_aligned",
+                calendar=CalendarRef("cn_holidays"),
+                period="month",
+            ),
             session=s,
         )
 

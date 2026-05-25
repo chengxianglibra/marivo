@@ -5,7 +5,7 @@ When triggered: the agent uses `delta` instead of `base` for the second compare 
 Expected output:
     SemanticKindMismatchError
     正确写法:
-    delta = mv.compare(cur, base)
+    delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
 """
 
 from __future__ import annotations
@@ -17,15 +17,18 @@ ensure_loaded()
 
 import marivo.analysis_py as mv  # noqa: E402
 
+session = mv.session.active()
 cur = mv.observe(
     mv.MetricRef(id=METRIC_ID),
     slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    session=session,
 )
 base = mv.observe(
     mv.MetricRef(id=METRIC_ID),
     slice={"created_at": {"op": "between", "value": ["2025-07-01", "2025-09-30"]}},
+    session=session,
 )
-delta = mv.compare(cur, base, compare_type="yoy")
+delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"), session=session)
 
 try:
     mv.compare(cur, delta)  # type: ignore[arg-type]

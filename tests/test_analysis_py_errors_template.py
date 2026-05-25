@@ -15,7 +15,7 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
         details={
             "location": "mv.compare call",
             "cause": "param a was invalid",
-            "fix_snippet": "delta = mv.compare(cur, base)",
+            "fix_snippet": 'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))',
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         },
     )
@@ -27,7 +27,10 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
     assert "原因: param a was invalid" in rendered
     assert "建议: try fixing X" in rendered
     assert "正确写法:" in rendered
-    assert "  delta = mv.compare(cur, base)" in rendered
+    assert (
+        '  delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        in rendered
+    )
     assert "相关文档: marivo-skill/marivo-py-analysis/references/pitfalls.md" in rendered
 
 
@@ -85,9 +88,18 @@ def test_semantic_kind_mismatch_has_compare_fix_template():
     assert "delta_frame" in rendered
     assert "metric_frame" in rendered
     assert "正确写法:" in rendered
-    assert 'cur  = mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")' in rendered
-    assert 'base = mv.observe(mv.MetricRef("sales.revenue"), window="2025Q3")' in rendered
-    assert "  delta = mv.compare(cur, base)" in rendered
+    assert (
+        'cur  = mv.observe(mv.MetricRef("sales.revenue"), '
+        'window={"start": "2026-07-01", "end": "2026-09-30"})'
+    ) in rendered
+    assert (
+        'base = mv.observe(mv.MetricRef("sales.revenue"), '
+        'window={"start": "2025-07-01", "end": "2025-09-30"})'
+    ) in rendered
+    assert (
+        '  delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        in rendered
+    )
     assert 'mv.observe("revenue"' not in rendered
 
 
@@ -97,7 +109,10 @@ def test_semantic_kind_mismatch_without_kind_details_is_not_compare_specific():
     rendered = str(err)
 
     assert "mv.compare call" not in rendered
-    assert "delta = mv.compare(cur, base)" not in rendered
+    assert (
+        'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        not in rendered
+    )
 
 
 def test_semantic_kind_mismatch_for_delta_expected_is_not_compare_specific():
@@ -111,7 +126,10 @@ def test_semantic_kind_mismatch_for_delta_expected_is_not_compare_specific():
     assert "metric_frame" in rendered
     assert "delta_frame" in rendered
     assert "mv.compare call" not in rendered
-    assert "delta = mv.compare(cur, base)" not in rendered
+    assert (
+        'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        not in rendered
+    )
 
 
 def test_window_invalid_has_window_fix_template():
@@ -124,8 +142,11 @@ def test_window_invalid_has_window_fix_template():
 
     assert "last quarter" in rendered
     assert "正确写法:" in rendered
-    assert '  mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")' in rendered
-    assert 'mv.observe("revenue", window="2026Q3")' not in rendered
+    assert (
+        '  mv.observe(mv.MetricRef("sales.revenue"), '
+        'window={"start": "2026-07-01", "end": "2026-09-30"})'
+    ) in rendered
+    assert 'mv.observe("revenue", window=' not in rendered
 
 
 def test_metric_not_found_has_list_metrics_fix_template():
@@ -138,9 +159,12 @@ def test_metric_not_found_has_list_metrics_fix_template():
 
     assert "metric_id=revenu" in rendered
     assert "正确写法:" in rendered
-    assert "  project.list_metrics()  # confirm the exact id" in rendered
-    assert 'mv.observe(mv.MetricRef("<registered_metric_id>"), window="2026Q3")' in rendered
-    assert 'mv.observe("<registered_metric_id>", window="2026Q3")' not in rendered
+    assert "  ms.list_metrics()  # confirm the exact id" in rendered
+    assert (
+        'mv.observe(mv.MetricRef("<registered_metric_id>"), '
+        'window={"start": "2026-07-01", "end": "2026-09-30"})'
+    ) in rendered
+    assert 'mv.observe("<registered_metric_id>", window=' not in rendered
 
 
 def test_metric_not_found_uses_model_and_metric_details_in_cause():
@@ -153,7 +177,7 @@ def test_metric_not_found_uses_model_and_metric_details_in_cause():
 
     assert "sales.revenu" in rendered
     assert "正确写法:" in rendered
-    assert "  project.list_metrics()  # confirm the exact id" in rendered
+    assert "  ms.list_metrics()  # confirm the exact id" in rendered
     assert "<metric_id>" not in rendered
 
 

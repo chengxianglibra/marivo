@@ -1,4 +1,4 @@
-"""mv.correlate for same-model MetricFrames."""
+"""mv.correlate for MetricFrames."""
 
 import pandas as pd
 import pytest
@@ -10,8 +10,9 @@ from marivo.analysis_py.errors import (
     CrossSessionFrameError,
     SemanticKindMismatchError,
 )
-from marivo.analysis_py.frames.attribution import AttributionFrame
+from marivo.analysis_py.frames.association import AssociationResult
 from marivo.analysis_py.frames.metric import MetricFrame
+from marivo.analysis_py.policies import AlignmentPolicy, LagPolicy
 
 
 @pytest.fixture(autouse=True)
@@ -48,10 +49,29 @@ def test_correlate_sample_alignment_same_model_cross_metric():
 
     out = mv.correlate(revenue, orders, session=session)
 
-    assert isinstance(out, AttributionFrame)
-    assert out.meta.attribution_kind == "correlation"
+    assert isinstance(out, AssociationResult)
+    assert out.meta.kind == "association_result"
     assert out.meta.metric_ids == ["sales.revenue", "sales.orders"]
+    assert out.meta.semantic_models == ["sales", "sales"]
+    assert out.meta.semantic_kinds == ["time_series", "time_series"]
+    assert out.meta.correlation == pytest.approx(1.0)
+    assert out.meta.alignment == {
+        "kind": "calendar_bucket",
+        "calendar": None,
+        "period": "month",
+        "fallback": "drop",
+    }
+    assert out.meta.lag_policy == {"mode": "single", "offset": 0}
     df = out.to_pandas()
+    assert df.iloc[0]["metric_id_a"] == "sales.revenue"
+    assert df.iloc[0]["metric_id_b"] == "sales.orders"
+    assert df.iloc[0]["semantic_model_a"] == "sales"
+    assert df.iloc[0]["semantic_model_b"] == "sales"
+    assert df.iloc[0]["semantic_kind"] == "time_series"
+    assert df.iloc[0]["method"] == "pearson"
+    assert df.iloc[0]["alignment_kind"] == "calendar_bucket"
+    assert df.iloc[0]["lag_mode"] == "single"
+    assert df.iloc[0]["lag_offset"] == 0
     assert df.iloc[0]["correlation"] == pytest.approx(1.0)
     assert df.iloc[0]["aligned_row_count"] == 4
     assert df.iloc[0]["dropped_row_count"] == 0
@@ -70,7 +90,13 @@ def test_correlate_common_key_alignment():
         metric_id="sales.orders",
     )
 
-    out = mv.correlate(a, b, align="bucket", session=session)
+    out = mv.correlate(
+        a,
+        b,
+        alignment=AlignmentPolicy(kind="calendar_bucket"),
+        lag_policy=LagPolicy(mode="single", offset=0),
+        session=session,
+    )
 
     df = out.to_pandas()
     assert df.iloc[0]["driver_field"] == "bucket"
@@ -104,7 +130,13 @@ def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
         semantic_kind="panel",
     )
 
-    out = mv.correlate(a, b, align="bucket", session=session)
+    out = mv.correlate(
+        a,
+        b,
+        alignment=AlignmentPolicy(kind="calendar_bucket"),
+        lag_policy=LagPolicy(mode="single", offset=0),
+        session=session,
+    )
 
     df = out.to_pandas()
     assert df.iloc[0]["driver_field"] == "segment,bucket"
@@ -140,7 +172,13 @@ def test_correlate_rejects_duplicate_composite_keys_without_persisting():
     )
 
     with pytest.raises(AlignmentFailedError):
-        mv.correlate(a, b, align="bucket", session=session)
+        mv.correlate(
+            a,
+            b,
+            alignment=AlignmentPolicy(kind="calendar_bucket"),
+            lag_policy=LagPolicy(mode="single", offset=0),
+            session=session,
+        )
 
     assert [job for job in session.jobs() if job.intent == "correlate"] == []
 
@@ -180,6 +218,49 @@ def test_correlate_writes_job_and_frame():
     params = session.job(jobs[0].id)["params"]
     assert params["value_a"] == "value"
     assert params["value_b"] == "value"
+    assert params["alignment"] == {
+        "kind": "calendar_bucket",
+        "calendar": None,
+        "period": "month",
+        "fallback": "drop",
+    }
+    assert params["lag_policy"] == {"mode": "single", "offset": 0}
+    assert params["method"] == "pearson"
+
+
+def test_correlate_output_round_trips_through_load_frame():
+    session = session_attach.create(name="demo")
+    a = _metric(
+        session,
+        pd.DataFrame({"bucket": ["2026-07-01", "2026-07-02"], "value": [1.0, 2.0]}),
+        metric_id="sales.revenue",
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({"bucket": ["2026-07-01", "2026-07-02"], "value": [2.0, 4.0]}),
+        metric_id="sales.orders",
+    )
+
+    out = mv.correlate(a, b, session=session)
+    loaded = mv.load_frame(out.ref, session=session)
+
+    assert isinstance(loaded, AssociationResult)
+    assert loaded.meta.correlation == pytest.approx(1.0)
+    assert loaded.to_pandas().iloc[0]["driver_field"] == "bucket"
+
+
+def test_correlate_sample_output_round_trips_with_null_driver_field():
+    session = session_attach.create(name="demo")
+    a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
+    b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
+
+    out = mv.correlate(a, b, session=session)
+    loaded = mv.load_frame(out.ref, session=session)
+
+    assert isinstance(loaded, AssociationResult)
+    row = loaded.to_pandas().iloc[0]
+    assert pd.isna(row["driver_field"])
+    assert loaded.meta.correlation == pytest.approx(1.0)
 
 
 def test_correlate_rejects_constant_input_without_persisting():
@@ -193,7 +274,7 @@ def test_correlate_rejects_constant_input_without_persisting():
     assert [job for job in session.jobs() if job.intent == "correlate"] == []
 
 
-def test_correlate_rejects_cross_model_frames():
+def test_correlate_allows_cross_model_same_shape_frames():
     session = session_attach.create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(
@@ -202,8 +283,19 @@ def test_correlate_rejects_cross_model_frames():
         metric_id="marketing.spend",
         semantic_model="marketing",
     )
-    with pytest.raises(SemanticKindMismatchError):
-        mv.correlate(a, b, session=session)
+    out = mv.correlate(a, b, session=session)
+
+    assert isinstance(out, AssociationResult)
+    assert out.meta.semantic_models == ["sales", "marketing"]
+    assert out.meta.correlation == pytest.approx(1.0)
+    row = out.to_pandas().iloc[0]
+    assert row["semantic_model_a"] == "sales"
+    assert row["semantic_model_b"] == "marketing"
+    jobs = [job for job in session.jobs() if job.intent == "correlate"]
+    assert len(jobs) == 1
+    record = session.job(jobs[0].id)
+    assert record["semantic_model"] == "sales"
+    assert record["semantic_models"] == ["sales", "marketing"]
 
 
 def test_correlate_rejects_mixed_semantic_kind():
@@ -234,3 +326,57 @@ def test_correlate_rejects_cross_session_frame():
     b = _metric(session_b, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.orders")
     with pytest.raises(CrossSessionFrameError):
         mv.correlate(a, b, session=session_a)
+
+
+def test_correlate_rejects_loose_align_parameter():
+    session = session_attach.create(name="demo")
+    a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
+    b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
+
+    with pytest.raises(TypeError):
+        mv.correlate(a, b, align="sample", session=session)  # type: ignore[call-arg]
+
+
+def test_correlate_rejects_non_alignment_policy():
+    session = session_attach.create(name="demo")
+    a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
+    b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
+
+    with pytest.raises(SemanticKindMismatchError) as exc:
+        mv.correlate(a, b, alignment="calendar_bucket", session=session)  # type: ignore[arg-type]
+
+    assert exc.value.details == {
+        "expected_kind": "AlignmentPolicy",
+        "got_kind": "str",
+    }
+
+
+def test_correlate_rejects_calendar_backed_alignment_for_now():
+    session = session_attach.create(name="demo")
+    a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
+    b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
+    alignment = AlignmentPolicy(kind="dow_aligned", calendar=mv.CalendarRef("cn_holidays"))
+
+    with pytest.raises(SemanticKindMismatchError) as exc:
+        mv.correlate(a, b, alignment=alignment, session=session)
+
+    assert exc.value.details == {"alignment": alignment.model_dump(mode="json")}
+
+
+def test_correlate_rejects_non_lag_policy():
+    session = session_attach.create(name="demo")
+    a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
+    b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
+
+    with pytest.raises(SemanticKindMismatchError) as exc:
+        mv.correlate(a, b, lag_policy={"mode": "single", "offset": 0}, session=session)  # type: ignore[arg-type]
+
+    assert exc.value.details == {
+        "expected_kind": "LagPolicy",
+        "got_kind": "dict",
+    }
+
+
+def test_correlate_rejects_non_zero_lag_policy_construction():
+    with pytest.raises(ValueError):
+        LagPolicy(mode="single", offset=1)
