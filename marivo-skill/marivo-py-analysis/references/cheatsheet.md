@@ -1,7 +1,8 @@
 # marivo-py-analysis cheatsheet
 
 Use this as the compact routing table after loading the skill. For runnable
-syntax, prefer `references/examples/*.py`.
+syntax, prefer `references/examples/*.py`. Assume `marivo` is imported from the
+active Python environment, not from a local Marivo source checkout.
 
 ## Intents
 

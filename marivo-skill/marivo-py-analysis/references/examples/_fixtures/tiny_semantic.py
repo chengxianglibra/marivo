@@ -15,24 +15,19 @@ the registered semantic model and keeps the ``examples`` session attached.
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[5]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+import ibis
 
-import ibis  # noqa: E402
-
-import marivo.analysis_py as mv  # noqa: E402
-import marivo.analysis_py.session.attach as session_attach  # noqa: E402
-import marivo.semantic_py as ms  # noqa: E402
-from marivo.analysis_py.errors import DuplicateSessionNameError  # noqa: E402
-from marivo.semantic_py.registry import SemanticProject, use_registry  # noqa: E402
+import marivo.analysis_py as mv
+import marivo.analysis_py.session.attach as session_attach
+import marivo.semantic_py as ms
+from marivo.analysis_py.errors import DuplicateSessionNameError
+from marivo.semantic_py.registry import SemanticProject, use_registry
 
 MODEL_NAME = "sales"
 METRIC_ID = f"{MODEL_NAME}.revenue"

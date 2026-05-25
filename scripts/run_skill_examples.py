@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -36,9 +37,14 @@ def _iter_example_files(examples_dir: Path) -> list[Path]:
 
 def _execute_example(example: Path) -> tuple[int, str, str]:
     """Run an example as a subprocess; return (returncode, stdout, stderr)."""
+    env = os.environ.copy()
+    root = str(Path.cwd())
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = root if not existing else f"{root}{os.pathsep}{existing}"
     proc = subprocess.run(
         [sys.executable, example.name],
         cwd=example.parent,
+        env=env,
         capture_output=True,
         text=True,
         check=False,
