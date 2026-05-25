@@ -79,6 +79,27 @@ Important current return types:
 6. Keep generated analysis outputs compact. Prefer `frame.summary()` and
    `frame.head(n)` before materializing full data with `frame.to_pandas()`.
 
+## Relative Windows And Timezone
+
+- For v1.2 relative windows, prefer explicit `window={"expr": ..., "as_of": ...}`
+  and set `grain` only when you need a time series.
+- No `grain` keeps `mv.observe(...)` scalar; adding `grain="day"` returns
+  `semantic_kind == "time_series"`.
+- Set session timezone/default calendar at session creation or attach time so
+  relative windows and calendar compare resolve consistently.
+- Runnable references:
+  `references/examples/window_relative.py`,
+  `references/examples/session_timezone.py`.
+
+## Calendar-Aware Compare
+
+- Calendar alignment requires two time-series `MetricFrame`s and
+  `align="calendar"` on `mv.compare(...)`.
+- Supply `calendar_policy`, for example
+  `{"mode": "dow_aligned", "align_period": "month"}`.
+- Ensure the session timezone and selected calendar timezone match.
+- Runnable reference: `references/examples/compare_calendar.py`.
+
 ## Fill-in templates
 
 ### Observe one metric window

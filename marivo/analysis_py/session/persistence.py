@@ -1,8 +1,8 @@
 """Disk I/O for analysis_py sessions, jobs, and frames."""
-# mypy: disable-error-code=import-untyped
 
 from __future__ import annotations
 
+# mypy: disable-error-code=import-untyped
 import json
 import os
 import tempfile

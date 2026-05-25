@@ -99,6 +99,14 @@ class WindowInvalidError(AnalysisError):
         }
 
 
+class WindowRelativeParseError(AnalysisError):
+    pass
+
+
+class TimezoneInvalidError(AnalysisError):
+    pass
+
+
 class WindowAmbiguousError(AnalysisError): ...
 
 
@@ -146,6 +154,22 @@ class SemanticKindMismatchError(AnalysisError):
 
 
 class AlignmentFailedError(AnalysisError): ...
+
+
+class MetricShapeUnsupportedError(AnalysisError):
+    pass
+
+
+class FrameMetaInvalidError(AnalysisError):
+    pass
+
+
+class CalendarNotFoundError(AnalysisError):
+    pass
+
+
+class CalendarPolicyError(AnalysisError):
+    pass
 
 
 class CrossBackendMetricError(AnalysisError): ...

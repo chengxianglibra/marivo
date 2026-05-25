@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+from marivo.analysis_py.calendar.loader import CalendarCache
 from marivo.analysis_py.session.core import JobSummary, Session, SessionState
 from marivo.analysis_py.session.persistence import PersistenceLayout, write_job_record
 
@@ -88,3 +89,8 @@ def test_session_close_clears_backend_cache(tmp_path):
     s.backend_cache._cache["fake"] = object()
     s.close()
     assert s.backend_cache._cache == {}
+
+
+def test_session_initializes_calendar_cache(tmp_path):
+    s = _session(tmp_path)
+    assert isinstance(s.calendars, CalendarCache)

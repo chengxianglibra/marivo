@@ -1,8 +1,8 @@
 """Detect anomalies in MetricFrames."""
-# mypy: disable-error-code=import-untyped
 
 from __future__ import annotations
 
+# mypy: disable-error-code=import-untyped
 from datetime import UTC, datetime
 from numbers import Real
 from time import monotonic

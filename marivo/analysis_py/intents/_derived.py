@@ -1,8 +1,8 @@
 """Shared helpers for analysis_py derived intents."""
-# mypy: disable-error-code=import-untyped
 
 from __future__ import annotations
 
+# mypy: disable-error-code=import-untyped
 import hashlib
 import json
 import secrets

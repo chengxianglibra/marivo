@@ -1,8 +1,8 @@
 """Decompose DeltaFrames into AttributionFrames."""
-# mypy: disable-error-code=import-untyped
 
 from __future__ import annotations
 
+# mypy: disable-error-code=import-untyped
 from datetime import UTC, datetime
 from time import monotonic
 

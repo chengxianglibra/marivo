@@ -1,0 +1,589 @@
+from __future__ import annotations
+
+import json
+from datetime import date
+
+import pandas as pd
+import pytest
+
+import marivo.analysis_py.session.attach as session_attach
+from marivo.analysis_py.calendar.align import _local_dates, align_calendar_frames
+from marivo.analysis_py.calendar.model import Calendar, CalendarPolicy
+from marivo.analysis_py.errors import (
+    AlignmentFailedError,
+    CalendarPolicyError,
+    SemanticKindMismatchError,
+)
+from marivo.analysis_py.frames.delta import DeltaFrame
+from marivo.analysis_py.frames.metric import MetricFrame
+from marivo.analysis_py.intents.compare import compare
+
+
+@pytest.fixture
+def calendar_project(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    session_attach._reset_process_state()
+    calendar_dir = tmp_path / ".marivo" / "calendar"
+    calendar_dir.mkdir(parents=True)
+    (calendar_dir / "cn_holidays.json").write_text(
+        json.dumps(
+            {
+                "name": "cn_holidays",
+                "timezone": "Asia/Shanghai",
+                "holidays": [],
+                "adjusted_workdays": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    yield tmp_path
+    session_attach._reset_process_state()
+
+
+def _metric(session, rows, semantic_kind="time_series"):
+    return MetricFrame.from_dataframe(
+        pd.DataFrame(rows),
+        metric_id="sales.revenue",
+        axes={
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": "day",
+                "time_field": "order_date",
+            }
+        },
+        measure={"name": "value"},
+        semantic_kind=semantic_kind,
+        semantic_model="sales",
+        session=session,
+    )
+
+
+def _metric_frame(
+    session,
+    rows,
+    *,
+    axes,
+    measure,
+    semantic_kind="time_series",
+):
+    return MetricFrame.from_dataframe(
+        pd.DataFrame(rows),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure=measure,
+        semantic_kind=semantic_kind,
+        semantic_model="sales",
+        session=session,
+    )
+
+
+def _calendar() -> Calendar:
+    return Calendar(
+        name="cn_holidays",
+        timezone="Asia/Shanghai",
+        holidays=[
+            {"date": "2025-05-01", "name": "劳动节", "group_id": "labor-day"},
+            {"date": "2026-05-01", "name": "劳动节", "group_id": "labor-day"},
+            {"date": "2026-04-30", "name": "劳动节", "group_id": "labor-day"},
+        ],
+        adjusted_workdays=[
+            {"date": "2026-05-02", "name": "调休", "group_id": "make-up"},
+        ],
+    )
+
+
+def test_calendar_helper_returns_expected_calendar():
+    calendar = _calendar()
+    assert calendar.name == "cn_holidays"
+    assert calendar.timezone == "Asia/Shanghai"
+    assert len(calendar.holidays) == 3
+    assert calendar.holidays[1].date == "2026-05-01"
+    assert calendar.holidays[1].name == "劳动节"
+    assert calendar.holidays[1].group_id == "labor-day"
+    assert [entry.date for entry in calendar.adjusted_workdays] == ["2026-05-02"]
+
+
+def test_dow_aligned_month_pair_uses_isoweekday_and_week_offset():
+    a = pd.DataFrame({"bucket_start": ["2026-05-05"], "value": [100.0]})
+    b = pd.DataFrame({"bucket_start": ["2026-04-07"], "value": [80.0]})
+    policy = CalendarPolicy(mode="dow_aligned", align_period="month")
+
+    aligned, info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=_calendar(),
+        policy=policy,
+        session_tz="Asia/Shanghai",
+    )
+
+    assert len(aligned) == 1
+    row = aligned.iloc[0]
+    assert row["current"] == pytest.approx(100.0)
+    assert row["baseline"] == pytest.approx(80.0)
+    assert row["delta"] == pytest.approx(20.0)
+    assert row["pct_change"] == pytest.approx(0.25)
+    assert row["align_key"] == '["dow",2,0]'
+    assert row["align_quality"] == "exact"
+    assert row["bucket_start_a"] == "2026-05-05"
+    assert row["bucket_start_b"] == "2026-04-07"
+    assert info.matched_rows == 1
+
+
+def test_local_dates_handles_tz_aware_naive_string_and_python_date_values():
+    tz_aware = pd.Series(pd.to_datetime(["2026-05-01T23:30:00+00:00"]))
+    assert _local_dates(tz_aware, session_tz="Asia/Shanghai").tolist() == [date(2026, 5, 2)]
+
+    naive = pd.Series(pd.to_datetime(["2026-05-01T23:30:00"]))
+    assert _local_dates(naive, session_tz="Asia/Shanghai").tolist() == [date(2026, 5, 2)]
+
+    mixed = pd.Series(["2026-05-01", date(2026, 5, 2)])
+    assert _local_dates(mixed, session_tz="Asia/Shanghai").tolist() == [
+        date(2026, 5, 1),
+        date(2026, 5, 2),
+    ]
+
+
+def test_workday_aligned_respects_holiday_and_adjusted_workday():
+    a = pd.DataFrame({"bucket_start": ["2026-05-02"], "value": [100.0]})
+    b = pd.DataFrame({"bucket_start": ["2026-04-01"], "value": [80.0]})
+    policy = CalendarPolicy(mode="workday_aligned", align_period="month")
+
+    aligned, info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=_calendar(),
+        policy=policy,
+        session_tz="Asia/Shanghai",
+    )
+
+    assert len(aligned) == 1
+    assert aligned.iloc[0]["align_key"] == '["workday",1]'
+    assert aligned.iloc[0]["align_quality"] == "exact"
+    assert info.matched_rows == 1
+    assert info.dropped_rows_a == 0
+    assert info.dropped_rows_b == 0
+
+
+def test_holiday_aligned_non_holiday_rows_do_not_exact_match_by_date():
+    a = pd.DataFrame({"bucket_start": ["2026-05-02", "2026-05-01"], "value": [100.0, 10.0]})
+    b = pd.DataFrame({"bucket_start": ["2025-05-02", "2025-05-01"], "value": [80.0, 8.0]})
+    policy = CalendarPolicy(mode="holiday_aligned", align_period="month", fallback="drop")
+
+    aligned, info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=_calendar(),
+        policy=policy,
+        session_tz="Asia/Shanghai",
+    )
+
+    assert len(aligned) == 1
+    assert aligned.iloc[0]["align_key"] == '["holiday","labor-day"]'
+    assert aligned.iloc[0]["align_quality"] == "exact"
+    assert info.matched_rows == 1
+    assert info.fallback_rows == 0
+    assert info.dropped_rows_a == 1
+    assert info.dropped_rows_b == 1
+
+
+def test_holiday_and_dow_aligned_uses_holiday_for_holidays_and_dow_for_others():
+    a = pd.DataFrame({"bucket_start": ["2026-05-01", "2026-05-05"], "value": [100.0, 10.0]})
+    b = pd.DataFrame({"bucket_start": ["2025-05-01", "2025-05-06"], "value": [80.0, 8.0]})
+    policy = CalendarPolicy(mode="holiday_and_dow_aligned", align_period="month", fallback="drop")
+
+    aligned, info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=_calendar(),
+        policy=policy,
+        session_tz="Asia/Shanghai",
+    )
+
+    assert len(aligned) == 2
+    assert set(aligned["align_key"].tolist()) == {'["holiday","labor-day"]', '["dow",2,0]'}
+    assert set(aligned["align_quality"].tolist()) == {"exact"}
+    assert info.matched_rows == 2
+    assert info.dropped_rows_a == 0
+    assert info.dropped_rows_b == 0
+
+
+def test_nearest_prior_workday_fallback_marks_quality_and_counts_rows():
+    a = pd.DataFrame(
+        {
+            "bucket_start": ["2026-05-01", "2026-05-03", "2026-05-04"],
+            "value": [100.0, 30.0, 40.0],
+        }
+    )
+    b = pd.DataFrame(
+        {
+            "bucket_start": ["2026-04-30", "2026-04-03", "2026-04-02", "2026-04-04"],
+            "value": [80.0, 10.0, 0.0, 50.0],
+        }
+    )
+    policy = CalendarPolicy(
+        mode="holiday_aligned", align_period="month", fallback="nearest_prior_workday"
+    )
+
+    aligned, info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=_calendar(),
+        policy=policy,
+        session_tz="Asia/Shanghai",
+    )
+
+    assert len(aligned) == 3
+    assert info.matched_rows == 3
+    assert info.fallback_rows == 2
+    assert info.dropped_rows_a == 0
+    assert info.dropped_rows_b == 2
+
+    exact = aligned[aligned["align_quality"] == "exact"]
+    assert len(exact) == 1
+    assert exact.iloc[0]["bucket_start_a"] == "2026-05-01"
+    assert exact.iloc[0]["bucket_start_b"] == "2026-04-30"
+
+    fallback = aligned[aligned["align_quality"] == "fallback"]
+    assert len(fallback) == 2
+    assert set(fallback["bucket_start_b"].tolist()) == {"2026-04-03"}
+    assert set(fallback["align_key"].tolist()) == {'["fallback_workday","2026-04-03"]'}
+
+
+def test_pct_change_is_nan_when_baseline_is_zero():
+    a = pd.DataFrame({"bucket_start": ["2026-05-05"], "value": [100.0]})
+    b = pd.DataFrame({"bucket_start": ["2026-04-07"], "value": [0.0]})
+    policy = CalendarPolicy(mode="dow_aligned", align_period="month")
+
+    aligned, _info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=_calendar(),
+        policy=policy,
+        session_tz="Asia/Shanghai",
+    )
+
+    assert len(aligned) == 1
+    assert pd.isna(aligned.iloc[0]["pct_change"])
+
+
+def test_rejects_multi_period_frame():
+    a = pd.DataFrame({"bucket_start": ["2026-05-01", "2026-06-01"], "value": [100.0, 110.0]})
+    b = pd.DataFrame({"bucket_start": ["2026-04-01"], "value": [80.0]})
+    policy = CalendarPolicy(mode="dow_aligned", align_period="month")
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        align_calendar_frames(
+            a,
+            b,
+            time_column="bucket_start",
+            value_column="value",
+            calendar=_calendar(),
+            policy=policy,
+            session_tz="Asia/Shanghai",
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarAlignFrameSpansMultiplePeriods"
+
+
+def test_rejects_duplicate_calendar_keys():
+    a = pd.DataFrame({"bucket_start": ["2026-05-05", "2026-05-05"], "value": [100.0, 101.0]})
+    b = pd.DataFrame({"bucket_start": ["2026-04-07"], "value": [80.0]})
+    policy = CalendarPolicy(mode="dow_aligned", align_period="month")
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        align_calendar_frames(
+            a,
+            b,
+            time_column="bucket_start",
+            value_column="value",
+            calendar=_calendar(),
+            policy=policy,
+            session_tz="Asia/Shanghai",
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarAlignKeyNotUnique"
+
+
+def test_rejects_align_period_day():
+    a = pd.DataFrame({"bucket_start": ["2026-05-05"], "value": [100.0]})
+    b = pd.DataFrame({"bucket_start": ["2026-04-07"], "value": [80.0]})
+    policy = CalendarPolicy(mode="dow_aligned", align_period="day")
+
+    with pytest.raises(CalendarPolicyError) as exc_info:
+        align_calendar_frames(
+            a,
+            b,
+            time_column="bucket_start",
+            value_column="value",
+            calendar=_calendar(),
+            policy=policy,
+            session_tz="Asia/Shanghai",
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarPolicyInvalid"
+
+
+def test_compare_calendar_requires_policy(calendar_project):
+    s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
+    current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
+    baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
+
+    with pytest.raises(CalendarPolicyError) as exc_info:
+        compare(current, baseline, align="calendar", session=s)
+
+    assert exc_info.value.details["kind"] == "CalendarPolicyNotSpecified"
+
+
+def test_compare_calendar_rejects_scalar(calendar_project):
+    s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
+    current = _metric(s, [{"value": 100.0}], semantic_kind="scalar")
+    baseline = _metric(s, [{"value": 80.0}], semantic_kind="scalar")
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        compare(
+            current,
+            baseline,
+            align="calendar",
+            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            session=s,
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarAlignRequiresTimeSeries"
+
+
+def test_compare_calendar_returns_delta_frame(calendar_project):
+    s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
+    current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
+    baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
+
+    out = compare(
+        current,
+        baseline,
+        align="calendar",
+        calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+        session=s,
+    )
+
+    compare_jobs = [job for job in s.jobs() if job.intent == "compare"]
+    assert len(compare_jobs) == 1
+    job_record = s.job(compare_jobs[0].id)
+    assert job_record["params"]["calendar_name"] == "cn_holidays"
+    assert "calendar" not in job_record["params"]
+
+    assert isinstance(out, DeltaFrame)
+    assert out.meta.align == "calendar"
+    assert out.meta.calendar_info is not None
+    assert out.meta.calendar_info["calendar_name"] == "cn_holidays"
+    df = out.to_pandas()
+    assert list(df["current"]) == [100.0]
+    assert list(df["baseline"]) == [80.0]
+    assert list(df["align_quality"]) == ["exact"]
+
+
+def test_compare_calendar_requires_calendar_when_no_default(calendar_project):
+    s = session_attach.create(name="demo", tz="Asia/Shanghai")
+    current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
+    baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
+
+    with pytest.raises(CalendarPolicyError) as exc_info:
+        compare(
+            current,
+            baseline,
+            align="calendar",
+            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            session=s,
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarNotSpecified"
+
+
+def test_compare_calendar_rejects_blank_calendar_without_fallback(calendar_project):
+    s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
+    current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
+    baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
+    before_jobs = len(s.jobs())
+    before_frames = len(s.frames())
+
+    with pytest.raises(CalendarPolicyError) as exc_info:
+        compare(
+            current,
+            baseline,
+            align="calendar",
+            calendar="  ",
+            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            session=s,
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarNameInvalid"
+    assert len(s.jobs()) == before_jobs
+    assert len(s.frames()) == before_frames
+
+
+def test_compare_calendar_rejects_timezone_mismatch(calendar_project):
+    s = session_attach.create(name="demo", tz="UTC", default_calendar="cn_holidays")
+    current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
+    baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
+
+    with pytest.raises(CalendarPolicyError) as exc_info:
+        compare(
+            current,
+            baseline,
+            align="calendar",
+            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            session=s,
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarTimezoneMismatch"
+
+
+def test_compare_calendar_wraps_policy_validation_error(calendar_project):
+    s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
+    current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
+    baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
+
+    with pytest.raises(CalendarPolicyError) as exc_info:
+        compare(
+            current,
+            baseline,
+            align="calendar",
+            calendar_policy={"mode": "dow_aligned", "align_period": "day"},
+            session=s,
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarPolicyInvalid"
+
+
+def test_compare_calendar_rejects_missing_time_axis(calendar_project):
+    s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
+    current = _metric_frame(
+        s,
+        [{"bucket_start": "2026-05-05", "value": 100.0}],
+        axes={},
+        measure={"name": "value"},
+    )
+    baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        compare(
+            current,
+            baseline,
+            align="calendar",
+            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            session=s,
+        )
+
+    assert exc_info.value.details["kind"] == "NoTimeAxis"
+
+
+def test_compare_calendar_rejects_missing_required_columns_on_baseline(calendar_project):
+    s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
+    current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
+    baseline = _metric_frame(
+        s,
+        [{"other_time": "2026-04-07", "other_value": 80.0}],
+        axes={
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": "day",
+                "time_field": "order_date",
+            }
+        },
+        measure={"name": "value"},
+    )
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        compare(
+            current,
+            baseline,
+            align="calendar",
+            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            session=s,
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarAlignColumnMissing"
+    assert exc_info.value.details["frame"] == "b"
+    assert set(exc_info.value.details["missing_columns"]) == {"bucket_start", "value"}
+
+
+def test_compare_calendar_rejects_ambiguous_value_column(calendar_project):
+    s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
+    current = _metric_frame(
+        s,
+        [{"bucket_start": "2026-05-05", "v1": 100.0, "v2": 120.0}],
+        axes={
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": "day",
+                "time_field": "order_date",
+            }
+        },
+        measure={"name": "value"},
+    )
+    baseline = _metric_frame(
+        s,
+        [{"bucket_start": "2026-04-07", "v1": 80.0, "v2": 90.0}],
+        axes={
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": "day",
+                "time_field": "order_date",
+            }
+        },
+        measure={"name": "value"},
+    )
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        compare(
+            current,
+            baseline,
+            align="calendar",
+            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            session=s,
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarAlignValueColumnAmbiguous"
+
+
+def test_compare_calendar_rejects_missing_value_column(calendar_project):
+    s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
+    current = _metric_frame(
+        s,
+        [{"bucket_start": "2026-05-05"}],
+        axes={
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": "day",
+                "time_field": "order_date",
+            }
+        },
+        measure={"name": "value"},
+    )
+    baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        compare(
+            current,
+            baseline,
+            align="calendar",
+            calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+            session=s,
+        )
+
+    assert exc_info.value.details["kind"] == "CalendarAlignValueColumnMissing"
