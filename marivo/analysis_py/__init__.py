@@ -3,8 +3,10 @@
 from marivo.analysis_py import errors as errors
 from marivo.analysis_py import session
 from marivo.analysis_py.calendar.model import CalendarPolicy
+from marivo.analysis_py.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis_py.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis_py.frames.base import BaseFrame, BaseFrameMeta
+from marivo.analysis_py.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.help import help
@@ -22,12 +24,16 @@ __all__ = [
     "AbsoluteWindow",
     "AlignmentKind",
     "AlignmentPolicy",
+    "AssociationResult",
+    "AssociationResultMeta",
     "AttributionFrame",
     "AttributionFrameMeta",
     "BaseFrame",
     "BaseFrameMeta",
     "CalendarPolicy",
     "CalendarRef",
+    "CandidateSet",
+    "CandidateSetMeta",
     "DeltaFrame",
     "DeltaFrameMeta",
     "DimensionRef",
