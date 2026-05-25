@@ -9,7 +9,6 @@ from marivo.analysis_py.frames.delta import DeltaFrame
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.intents.compare import compare
 from marivo.analysis_py.intents.observe import observe
-from marivo.analysis_py.refs import MetricRef
 from marivo.analysis_py.session.persistence import read_frame_from_disk
 
 
@@ -59,16 +58,8 @@ def test_compare_returns_delta_frame(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
-    q3 = observe(
-        MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31"},
-        session=s,
-    )
-    q2 = observe(
-        MetricRef("sales.revenue"),
-        window={"start": "2026-04-01", "end": "2026-04-30"},
-        session=s,
-    )
+    q3 = observe("sales.revenue", window={"start": "2026-07-01", "end": "2026-07-31"}, session=s)
+    q2 = observe("sales.revenue", window={"start": "2026-04-01", "end": "2026-04-30"}, session=s)
     d = compare(q3, q2, align="sample", compare_type="qoq", session=s)
     assert isinstance(d, DeltaFrame)
     assert d.meta.compare_type == "qoq"
@@ -86,16 +77,8 @@ def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
-    q3 = observe(
-        MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31"},
-        session=s,
-    )
-    q2 = observe(
-        MetricRef("sales.revenue"),
-        window={"start": "2026-04-01", "end": "2026-04-30"},
-        session=s,
-    )
+    q3 = observe("sales.revenue", window={"start": "2026-07-01", "end": "2026-07-31"}, session=s)
+    q2 = observe("sales.revenue", window={"start": "2026-04-01", "end": "2026-04-30"}, session=s)
     d = compare(q3, q2, compare_type="qoq", session=s)
     assert d.to_pandas().iloc[0]["delta"] == pytest.approx(10.0)
 
@@ -105,16 +88,8 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
-    q3 = observe(
-        MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31"},
-        session=s,
-    )
-    q2 = observe(
-        MetricRef("sales.revenue"),
-        window={"start": "2026-04-01", "end": "2026-04-30"},
-        session=s,
-    )
+    q3 = observe("sales.revenue", window={"start": "2026-07-01", "end": "2026-07-31"}, session=s)
+    q2 = observe("sales.revenue", window={"start": "2026-04-01", "end": "2026-04-30"}, session=s)
     delta = compare(q3, q2, compare_type="qoq", session=s)
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
@@ -136,9 +111,9 @@ def test_compare_semantic_kind_mismatch_raises(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(MetricRef("sales.revenue"), session=s)
+    a = observe("sales.revenue", session=s)
     b = observe(
-        MetricRef("sales.revenue"),
+        "sales.revenue",
         window={"start": "2026-07-01", "end": "2026-07-31", "grain": "day"},
         session=s,
     )
@@ -151,8 +126,8 @@ def test_compare_persists_job_and_frame(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(MetricRef("sales.revenue"), session=s)
-    b = observe(MetricRef("sales.revenue"), session=s)
+    a = observe("sales.revenue", session=s)
+    b = observe("sales.revenue", session=s)
     d = compare(a, b, align="sample", session=s)
     compare_jobs = [j for j in s.jobs() if j.intent == "compare"]
     assert len(compare_jobs) == 1
@@ -165,8 +140,8 @@ def test_compare_works_in_read_only_session(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s_write = session_attach.create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(MetricRef("sales.revenue"), session=s_write)
-    b = observe(MetricRef("sales.revenue"), session=s_write)
+    a = observe("sales.revenue", session=s_write)
+    b = observe("sales.revenue", session=s_write)
     s_write.close()
     session_attach._reset_process_state()
     s_read = session_attach.attach(name="demo")
@@ -187,8 +162,8 @@ def test_compare_archived_session_raises_for_cached_session(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(MetricRef("sales.revenue"), session=s)
-    b = observe(MetricRef("sales.revenue"), session=s)
+    a = observe("sales.revenue", session=s)
+    b = observe("sales.revenue", session=s)
     session_attach.archive("demo")
     with pytest.raises(SessionStateError):
         compare(a, b, align="sample", session=s)
@@ -199,8 +174,8 @@ def test_compare_stale_archived_session_raises(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(MetricRef("sales.revenue"), session=s)
-    b = observe(MetricRef("sales.revenue"), session=s)
+    a = observe("sales.revenue", session=s)
+    b = observe("sales.revenue", session=s)
     session_attach._reset_process_state()
     session_attach.archive("demo")
     assert s.state == "active"
