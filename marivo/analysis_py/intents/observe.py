@@ -13,6 +13,7 @@ from marivo.analysis_py.errors import (
     CrossBackendMetricError,
     MetricNotFoundError,
     MetricShapeUnsupportedError,
+    SemanticKindMismatchError,
 )
 from marivo.analysis_py.executor.runner import (
     apply_slice_to_dataset,
@@ -24,6 +25,7 @@ from marivo.analysis_py.executor.runner import (
 )
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.lineage import Lineage, LineageStep
+from marivo.analysis_py.refs import MetricRef
 from marivo.analysis_py.session.attach import active as session_active
 from marivo.analysis_py.session.core import Session, ensure_session_writable
 from marivo.analysis_py.session.persistence import (
@@ -71,7 +73,7 @@ def _resolve_window(
 
 
 def observe(
-    metric: str,
+    metric: MetricRef,
     *,
     window: WindowInput = None,
     slice: dict[str, Any] | None = None,
@@ -80,9 +82,18 @@ def observe(
     if session is None:
         session = session_active()
     ensure_session_writable(session)
-    if "." not in metric:
-        raise MetricNotFoundError(message=f"metric '{metric}' is not '<model>.<metric>'")
-    model_name, metric_name = metric.split(".", 1)
+    if not isinstance(metric, MetricRef):
+        raise SemanticKindMismatchError(
+            message="observe requires metric=MetricRef(...)",
+            details={
+                "expected_kind": "MetricRef",
+                "got_kind": type(metric).__name__,
+            },
+        )
+    metric_id = metric.id
+    if "." not in metric_id:
+        raise MetricNotFoundError(message=f"metric '{metric_id}' is not '<model>.<metric>'")
+    model_name, metric_name = metric_id.split(".", 1)
     window_in = normalize_window_input(window)
     resolved_window, original_window, as_of_resolved = _resolve_window(window_in, session=session)
     is_time_series = resolved_window is not None and resolved_window.grain is not None
@@ -95,7 +106,7 @@ def observe(
         metric_ir = reader.get_metric(model_name, metric_name, project=session.semantic_project)
     except PySemanticNotFound as exc:
         raise MetricNotFoundError(
-            message=f"metric '{metric}' not found",
+            message=f"metric '{metric_id}' not found",
             hint="Check <project_root>/.marivo/semantic/.",
             details={"model": model_name, "metric": metric_name},
         ) from exc
@@ -110,11 +121,11 @@ def observe(
     if is_time_series and len(metric_datasets) > 1:
         raise MetricShapeUnsupportedError(
             message=(
-                f"windowed time_series observe does not support multi-dataset metric '{metric}'"
+                f"windowed time_series observe does not support multi-dataset metric '{metric_id}'"
             ),
             details={
                 "kind": "WindowedTimeSeriesUnsupported",
-                "metric": metric,
+                "metric": metric_id,
                 "datasets": sorted(metric_datasets),
             },
         )
@@ -126,7 +137,7 @@ def observe(
             primary_datasource = datasource_name
         elif primary_datasource != datasource_name:
             raise CrossBackendMetricError(
-                message=f"metric '{metric}' spans multiple datasources; v1 does not support it",
+                message=f"metric '{metric_id}' spans multiple datasources; v1 does not support it",
             )
         backend = session.backend_cache.get_or_create(datasource_name)
         table = dataset_ir.fn(backend)
@@ -143,7 +154,7 @@ def observe(
     _persist_known_datasources(session)
 
     if primary_datasource is None:
-        raise MetricNotFoundError(message=f"metric '{metric}' references no datasets")
+        raise MetricNotFoundError(message=f"metric '{metric_id}' references no datasets")
 
     axes: dict[str, Any] = {}
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "scalar"
@@ -194,7 +205,7 @@ def observe(
             "as_of_resolved": as_of_resolved,
             "session_tz": str(session.tz),
         }
-    params = {"metric": metric, "window": params_window, "slice": stored_slice}
+    params = {"metric": metric_id, "window": params_window, "slice": stored_slice}
     meta = MetricFrameMeta(
         kind="metric_frame",
         ref=frame_ref,
@@ -214,7 +225,7 @@ def observe(
                 )
             ]
         ),
-        metric_id=metric,
+        metric_id=metric_id,
         axes=axes,
         measure={"name": metric_name},
         window=dump_window(resolved_window),
