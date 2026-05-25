@@ -11,8 +11,10 @@ from marivo.analysis_py.errors import (
     FrameMetaInvalidError,
     FrameRefNotFound,
 )
+from marivo.analysis_py.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis_py.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis_py.frames.base import BaseFrame
+from marivo.analysis_py.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.session.persistence import read_frame_from_disk
@@ -25,6 +27,8 @@ _FRAME_CLASSES = {
     "metric_frame": (MetricFrame, MetricFrameMeta),
     "delta_frame": (DeltaFrame, DeltaFrameMeta),
     "attribution_frame": (AttributionFrame, AttributionFrameMeta),
+    "candidate_set": (CandidateSet, CandidateSetMeta),
+    "association_result": (AssociationResult, AssociationResultMeta),
 }
 
 
