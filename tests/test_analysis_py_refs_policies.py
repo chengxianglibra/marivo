@@ -2,11 +2,12 @@ import pytest
 from pydantic import ValidationError
 
 import marivo.analysis_py as mv
-from marivo.analysis_py.policies import AlignmentPolicy, LagPolicy
+from marivo.analysis_py.policies import AlignmentKind, AlignmentPolicy, LagPolicy
 from marivo.analysis_py.refs import CalendarRef, DimensionRef, MetricRef
 
 
 def test_refs_are_exported_and_preserve_ids():
+    assert mv.AlignmentKind is AlignmentKind
     assert mv.MetricRef("sales.revenue").id == "sales.revenue"
     assert mv.DimensionRef("region").id == "region"
     assert mv.CalendarRef("cn_holidays").id == "cn_holidays"
@@ -28,6 +29,9 @@ def test_metric_ref_requires_model_and_metric():
 
 def test_alignment_policy_requires_calendar_for_calendar_backed_modes():
     assert AlignmentPolicy(kind="calendar_bucket").calendar is None
+
+    with pytest.raises(ValidationError):
+        AlignmentPolicy(kind="calendar_bucket", calendar=CalendarRef("cn"))
 
     with pytest.raises(ValidationError):
         AlignmentPolicy(kind="dow_aligned")
