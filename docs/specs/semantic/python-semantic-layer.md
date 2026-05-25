@@ -148,7 +148,8 @@ print(project.describe("sales.revenue", compile_sql=True))
 | `project.materialize_field(name, backend_factory=...)` | 物化 field 到 Ibis expression |
 | `project.materialize_metric(name, backend_factory=...)` | 物化 metric 到 Ibis expression |
 | `project.reload()` | 重新加载该项目 |
-| `help(symbol=None)` | 打印 agent 友好的 API 帮助 |
+
+`ms.help(symbol=None)` 是模块级帮助 helper，独立于 `SemanticProject` 实例使用，不需要 active project；用于 REPL / agent 自我发现 API 形态。
 
 `find_project()` 的 project 判定只要求 `.marivo/semantic/` 目录存在。空目录也算语义项目：`SemanticProject` 可返回，load 后 registry 为 `ready`，`list_models()` 返回 `[]`。如果 `.marivo/semantic` 存在但不是目录，必须 fail closed。
 
@@ -201,7 +202,14 @@ project = SemanticProject(root="/path/to/.marivo/semantic")
 
 model 是业务域边界，例如 `sales`、`marketing`、`subscription`。model 名称参与下游 semantic id，例如 `sales.revenue`。agent 不应用自然语言近似匹配替代 model id；如果不确定，应先 `project.list_models()` / `project.describe(...)`。
 
-每个 model 目录可维护 `_exports.py`，统一 re-export 该 model 允许其他 model 引用的 decorated objects。`_exports.py` 不声明新对象，只做 `from .metrics import revenue, total_users` 这类 re-export。它是推荐 convention，不是强制 contract。
+每个 model 目录可维护 `_exports.py`，统一 re-export 该 model 允许其他 model 引用的 decorated objects。`_exports.py` 不声明新对象，只做 re-export。它是推荐 convention，不是强制 contract。
+
+```python
+# .marivo/semantic/marketing/_exports.py
+from .datasets import sessions_daily, users
+from .fields import user_id
+from .metrics import sessions, signups
+```
 
 跨 model 引用时，如果被引用 model 有 `_exports.py`，应优先从 `_exports.py` import；如果没有，可直接从对应 sibling file import decorated ref，或使用字符串 `ms.ref(...)`。check 应把跨 model 直接 import 标为 hint 级提示，建议被引用方补 `_exports.py`。
 
@@ -321,7 +329,7 @@ def conversion_rate():
 形态判定必须 fail closed：
 
 - `datasets=[...]` 非空，body 使用 dataset aliases：base metric。
-- `datasets` 省略或为空，decomposition components 非空，body 只使用 `ms.component("<name>")`：derived metric。
+- `datasets` 省略或为空，decomposition components 非空，body 只使用 `ms.component("<name>")`、数字字面量和允许的算术运算：derived metric。
 - `decomposition=ms.sum()` 没有 components，因此必须是 base metric；省略 `datasets=[...]` 时直接报 `missing_datasets`。
 - `datasets` 和 component-only body 同时出现：错误。
 - 没有 `datasets` 且没有 decomposition components：错误。
@@ -331,8 +339,13 @@ def conversion_rate():
 relationship 描述 dataset 之间的连接路径：
 
 ```python
+# .marivo/semantic/sales/relationships.py
+import marivo.semantic_py as ms
+from .datasets import orders
+from .fields import order_user_id
+from marketing._exports import users, user_id
+
 ms.relationship(
-    model="sales",
     name="orders_to_users",
     from_=orders,
     to=users,
@@ -360,6 +373,10 @@ decomposition 描述 metric 在变化归因中的数学结构，不等同于 SQL
 `ms.help("component")` 应展示当前支持的 component names、可用算术和禁止形态，避免 agent 通过猜测 `numerator` / `denominator` / `weight` 的名称来 author derived metric。
 
 `ms.component("numerator")` / `ms.component("denominator")` / `ms.component("weight")` 在 decorator-time 返回 deferred Ibis expression sentinel。sentinel 支持 `+`、`-`、`*`、`/` 和一元 `-`；运算结果仍是 deferred sentinel tree。materialize-time 将 sentinel tree 的 leaves 替换为真实 component metric 的 Ibis scalar，再编译到目标 backend。
+
+`ms.component(...)` 的返回类型在 `marivo.semantic_py.typing` 中导出为 `ComponentExpr`（确定名称由实现期 freeze）。agent 通常无需显式标注；mypy / Pyright 会自动推断算术结果仍为 `ComponentExpr`。
+
+derived metric 不在 Python 层做零除保护；materialize 后的 Ibis 表达式在目标 backend 中按 SQL 语义处理，多数 backend 在分母为 0 时返回 `NULL`。需要明确 fallback（例如返回 0、跳过该 slice）时，应把保护逻辑封装到 base metric 内，再作为 component 引用，而不是在 derived metric body 内尝试条件表达式——白名单不会接受。
 
 Derived metric body AST 白名单：
 
@@ -416,7 +433,7 @@ agent 在新增或修改语义前应先运行确定性的 check 或读取当前 
 - 打印所有 decorator / load / assembly errors，包含结构化 kind、refs、location、hint 和人类可读摘要。
 - 非零退出码表示存在未解决错误。
 - 可选 `--parity` 对所有声明了 `source_sql` 的 metric 运行 parity。
-- 可选 `--strict-provenance` 将任何 `unverified` metric 视为非零退出。
+- 可选 `--strict-provenance` 将任何 `unverified` metric 视为非零退出。检查 metric 自身 provenance status 和 derived metric 的传播 status；任一非 `verified` / `python_native` 都触发。例如 derived metric 自身已 `python_native` 但某个 component 仍 `unverified` 时同样退出，避免 agent 误以为"提升自己就够了"。
 - 默认列出所有字符串 refs 和 unverified metrics，作为 agent 需要复核的 warning。
 - 支持 `--format=json` 输出结构化 errors / warnings / refs / parity statuses，便于 agent 稳定解析。
 
@@ -487,7 +504,13 @@ def sessions_per_user():
     return ms.component("numerator") / ms.component("denominator")
 ```
 
-`ms.ref(...)` 必须显式携带 kind 和全限定 semantic id。跨 model refs 允许，但必须在 resolve 阶段做存在性、cycle 和 contract 检查；不能退回到 SQL provenance 里复制另一个 model 的定义。
+`ms.ref(...)` 的唯一位置参数格式固定为 `"<kind>.<fully-qualified-id>"`。`kind` 取值：`datasource`、`dataset`、`field`、`time_field`、`metric`、`relationship`。例：
+
+- `ms.ref("metric.marketing.sessions")`
+- `ms.ref("field.sales.orders.user_id")`
+- `ms.ref("dataset.marketing.sessions_daily")`
+
+跨 model refs 允许，但必须在 resolve 阶段做存在性、cycle 和 contract 检查；不能退回到 SQL provenance 里复制另一个 model 的定义。
 
 因为字符串 ref 是重构风险，`check` 默认应列出所有字符串 refs，并标记为 `potentially_fragile_reference`。目标态还应提供结构化重命名工具，例如 `.venv/bin/python -m marivo.semantic_py refactor rename metric old new`，让 agent 优先通过工具修改 semantic refs，而不是手工 grep。
 
@@ -514,7 +537,7 @@ decorator 执行时检查局部声明是否自洽：
 - model/datasource/dataset/field/metric 重名。
 - decorated ref 类型错误。
 - 跨 model / 跨 dataset ref 不合法。
-- expression-bearing decorator 缺少显式 `model=`，且所在加载上下文没有显式 default model。
+- expression-bearing decorator 缺少显式 `model=`，且所在加载上下文没有显式 default model。此错误只在 `_model.py` 显式 `default=False`，或对象声明在 model 目录之外的文件中时触发；缺省 `default=True` 场景下，同目录对象自然继承 model，不会进入此错误路径。
 - base metric 缺少 `datasets=[...]`。
 - derived metric 带 dataset 参数、缺少 decomposition components 或在 body 中读取 dataset table。
 - decorator / metadata call 出现在 semantic loader context 之外。
@@ -622,7 +645,7 @@ typed frames + session persistence + lineage
 - decorators：`model`、`datasource`、`dataset`、`field`、`time_field`、`metric`、`relationship`。
 - builders：`sum`、`ratio`、`weighted_average`、`ref`。
 - loader：model 目录扫描、`_model.py` 优先执行、sibling files 排序执行、reload 清理项目模块。
-- reader/introspection：`list_models`、`list_datasources`、`list_datasets`、`list_metrics`、`describe`、`help`、`reload`。
+- reader/introspection：`list_models`、`list_datasources`、`list_datasets`、`list_metrics`、`describe`、`help`、`reload`。v1 现状的 reader 是 module-level free functions，依赖 context-local active project；v1.1 全部迁移到 `SemanticProject` methods（参见上方 §Reader / Introspection），free function 形态仅作为有显式 active project 的 REPL 糖保留。
 - materialization：dataset、field、metric 到 Ibis object。
 - validation：metric body AST 约束、missing refs、time prefix、relationship endpoint/columns/arity。
 - SQL provenance：`source_sql`、`source_dialect`、`source_document`、`source_notes`。
