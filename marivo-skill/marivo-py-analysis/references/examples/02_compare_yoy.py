@@ -15,15 +15,18 @@ ensure_loaded()
 
 import marivo.analysis_py as mv  # noqa: E402
 
+session = mv.session.active()
 cur = mv.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30"},
+    session=session,
 )
 base = mv.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2025-07-01", "end": "2025-09-30"},
+    session=session,
 )
-delta = mv.compare(cur, base, compare_type="yoy")
+delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"), session=session)
 summary = delta.summary()
 print(f"kind={summary.kind!r}")
 print(f"row_count={summary.row_count}")

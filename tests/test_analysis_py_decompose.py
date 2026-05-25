@@ -16,6 +16,7 @@ from marivo.analysis_py.frames.attribution import AttributionFrame
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.lineage import Lineage, LineageStep
+from marivo.analysis_py.refs import DimensionRef
 
 
 @pytest.fixture(autouse=True)
@@ -52,9 +53,7 @@ def _delta(session, df, *, semantic_kind="time_series", ref="frame_delta"):
         metric_id="sales.revenue",
         source_a_ref="frame_a",
         source_b_ref="frame_b",
-        compare_type="custom",
-        align="bucket",
-        calendar_info=None,
+        alignment={"kind": "calendar_bucket"},
         semantic_kind=semantic_kind,
         semantic_model="sales",
     )
@@ -83,7 +82,7 @@ def _metric(session):
     return MetricFrame(_df=pd.DataFrame({"value": [10.0]}), meta=meta)
 
 
-def test_decompose_time_series_infers_bucket_column():
+def test_decompose_time_series_uses_axis_ref():
     session = session_attach.create(name="demo")
     frame = _delta(
         session,
@@ -96,7 +95,7 @@ def test_decompose_time_series_infers_bucket_column():
         semantic_kind="time_series",
     )
 
-    out = mv.decompose(frame, session=session)
+    out = mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.attribution_kind == "decomposition"
@@ -108,7 +107,7 @@ def test_decompose_time_series_infers_bucket_column():
     assert df.iloc[0]["contribution"] == pytest.approx(10.0)
 
 
-def test_decompose_segmented_uses_explicit_by():
+def test_decompose_segmented_uses_axis_ref():
     session = session_attach.create(name="demo")
     frame = _delta(
         session,
@@ -121,7 +120,7 @@ def test_decompose_segmented_uses_explicit_by():
         semantic_kind="segmented",
     )
 
-    out = mv.decompose(frame, by="region", session=session)
+    out = mv.decompose(frame, axis=DimensionRef("region"), session=session)
 
     df = out.to_pandas()
     assert list(df["region"]) == ["north", "south"]
@@ -129,7 +128,7 @@ def test_decompose_segmented_uses_explicit_by():
     assert list(df["rank"]) == [1, 2]
 
 
-def test_decompose_segmented_infers_first_non_numeric_column():
+def test_decompose_requires_axis_argument():
     session = session_attach.create(name="demo")
     frame = _delta(
         session,
@@ -143,13 +142,11 @@ def test_decompose_segmented_infers_first_non_numeric_column():
         semantic_kind="segmented",
     )
 
-    out = mv.decompose(frame, session=session)
-
-    assert out.meta.driver_field == "region"
-    assert list(out.to_pandas()["region"]) == ["north", "south"]
+    with pytest.raises(TypeError):
+        mv.decompose(frame, session=session)
 
 
-def test_decompose_scalar_emits_total_row():
+def test_decompose_scalar_rejects_missing_axis_column():
     session = session_attach.create(name="demo")
     frame = _delta(
         session,
@@ -157,25 +154,17 @@ def test_decompose_scalar_emits_total_row():
         semantic_kind="scalar",
     )
 
-    out = mv.decompose(frame, session=session)
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        mv.decompose(frame, axis=DimensionRef("region"), session=session)
 
-    df = out.to_pandas()
-    assert df.to_dict("records") == [
-        {
-            "driver": "total",
-            "delta": 8.0,
-            "contribution": 8.0,
-            "pct_contribution": 1.0,
-            "rank": 1,
-        }
-    ]
+    assert exc_info.value.details["axis"] == "region"
 
 
 def test_decompose_writes_job_and_frame():
     session = session_attach.create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
 
-    out = mv.decompose(frame, session=session)
+    out = mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
 
     jobs = [job for job in session.jobs() if job.intent == "decompose"]
     assert len(jobs) == 1
@@ -186,7 +175,7 @@ def test_decompose_writes_job_and_frame():
 def test_decompose_rejects_metric_frame():
     session = session_attach.create(name="demo")
     with pytest.raises(SemanticKindMismatchError):
-        mv.decompose(_metric(session), session=session)  # type: ignore[arg-type]
+        mv.decompose(_metric(session), axis=DimensionRef("bucket"), session=session)  # type: ignore[arg-type]
 
 
 def test_decompose_rejects_panel_delta():
@@ -197,32 +186,49 @@ def test_decompose_rejects_panel_delta():
         semantic_kind="panel",
     )
     with pytest.raises(SemanticKindMismatchError):
-        mv.decompose(frame, session=session)
+        mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
 
 
-def test_decompose_rejects_missing_inferred_by():
+def test_decompose_rejects_non_dimension_ref_axis():
+    session = session_attach.create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["north", "south"], "delta": [1.0, 2.0]}),
+        semantic_kind="segmented",
+    )
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        mv.decompose(frame, axis="region", session=session)  # type: ignore[arg-type]
+
+    assert exc_info.value.details["expected_kind"] == "DimensionRef"
+    assert exc_info.value.details["got_kind"] == "str"
+
+
+def test_decompose_rejects_missing_axis_column():
     session = session_attach.create(name="demo")
     frame = _delta(
         session,
         pd.DataFrame({"delta": [1.0, 2.0]}),
         semantic_kind="time_series",
     )
-    with pytest.raises(SemanticKindMismatchError):
-        mv.decompose(frame, session=session)
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
+
+    assert exc_info.value.details["axis"] == "bucket"
+    assert exc_info.value.details["columns"] == ["delta"]
 
 
 def test_decompose_rejects_missing_value_column():
     session = session_attach.create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     with pytest.raises(SemanticKindMismatchError):
-        mv.decompose(frame, value="missing", session=session)
+        mv.decompose(frame, axis=DimensionRef("bucket"), value="missing", session=session)
 
 
 def test_decompose_rejects_non_numeric_value_column():
     session = session_attach.create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": ["bad"]}))
     with pytest.raises(SemanticKindMismatchError):
-        mv.decompose(frame, session=session)
+        mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
 
 
 def test_decompose_rejects_cross_session_frame():
@@ -230,7 +236,7 @@ def test_decompose_rejects_cross_session_frame():
     frame = _delta(session_a, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     session_b = session_attach.create(name="b")
     with pytest.raises(CrossSessionFrameError):
-        mv.decompose(frame, session=session_b)
+        mv.decompose(frame, axis=DimensionRef("bucket"), session=session_b)
 
 
 def test_decompose_archived_session_raises():
@@ -238,7 +244,7 @@ def test_decompose_archived_session_raises():
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     session_attach.archive("demo")
     with pytest.raises(SessionStateError):
-        mv.decompose(frame, session=session)
+        mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
 
 
 def test_decompose_stale_archived_session_raises():
@@ -248,4 +254,4 @@ def test_decompose_stale_archived_session_raises():
     session_attach.archive("demo")
     assert session.state == "active"
     with pytest.raises(SessionStateError):
-        mv.decompose(frame, session=session)
+        mv.decompose(frame, axis=DimensionRef("bucket"), session=session)

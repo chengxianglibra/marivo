@@ -1,11 +1,9 @@
-"""Pattern: decompose a scalar delta into total attribution.
+"""Pattern: decompose a time-series delta by bucket.
 
-When to use: you need a runnable v1 attribution frame for the total change
-between two scalar metric observations. Current v1 examples do not segment
-``observe`` output by dimension, so this example intentionally does not pass
-``by="region"``.
-Output shape: an AttributionFrame with one row for the total driver and
-contribution columns.
+When to use: you need a runnable attribution frame that ranks which time
+buckets contributed most to a bucket-aligned metric delta.
+Output shape: an AttributionFrame with one row per bucket and contribution
+columns.
 """
 
 from __future__ import annotations
@@ -17,16 +15,19 @@ ensure_loaded()
 
 import marivo.analysis_py as mv  # noqa: E402
 
+session = mv.session.active()
 cur = mv.observe(
     mv.MetricRef(id=METRIC_ID),
-    slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
+    session=session,
 )
 base = mv.observe(
     mv.MetricRef(id=METRIC_ID),
-    slice={"created_at": {"op": "between", "value": ["2025-07-01", "2025-09-30"]}},
+    window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
+    session=session,
 )
-delta = mv.compare(cur, base, compare_type="yoy")
-attribution = mv.decompose(delta)
+delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"), session=session)
+attribution = mv.decompose(delta, axis=mv.DimensionRef(id="bucket_start"), session=session)
 summary = attribution.summary()
 print(f"kind={summary.kind!r}")
 print(f"row_count={summary.row_count}")
@@ -34,5 +35,5 @@ print(f"columns={summary.columns!r}")
 
 # Expected output:
 # kind='attribution_frame'
-# row_count=1
-# columns=['driver', 'delta', 'contribution', 'pct_contribution', 'rank']
+# row_count=3
+# columns=['bucket_start', 'delta', 'contribution', 'pct_contribution', 'rank']

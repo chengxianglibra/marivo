@@ -51,8 +51,9 @@ mv.MetricRef("sales.revenue")
 mv.DimensionRef("region")
 mv.CalendarRef("cn_holidays")
 mv.AlignmentPolicy(kind="calendar_bucket")
-mv.AlignmentPolicy(kind="weekday_aligned", calendar=mv.CalendarRef("cn_holidays"))
+mv.AlignmentPolicy(kind="dow_aligned", calendar=mv.CalendarRef("cn_holidays"))
 mv.AlignmentPolicy(kind="holiday_aligned", calendar=mv.CalendarRef("cn_holidays"))
+mv.AlignmentPolicy(kind="holiday_and_dow_aligned", calendar=mv.CalendarRef("cn_holidays"))
 mv.LagPolicy(mode="single", offset=0)
 ```
 
@@ -107,8 +108,10 @@ Policy mapping for this slice:
 
 - `calendar_bucket`: ordinary bucket/sample alignment using existing local
   frame data
-- `weekday_aligned`: existing calendar alignment helper with day-of-week logic
+- `dow_aligned`: existing calendar alignment helper with day-of-week logic
 - `holiday_aligned`: existing calendar alignment helper with holiday logic
+- `holiday_and_dow_aligned`: align holiday buckets first, then align
+  non-holiday buckets by day of week
 
 The delta metadata and job params should store the normalized alignment policy
 dump, not a mix of loose `align`, `calendar`, and `calendar_policy` fields.

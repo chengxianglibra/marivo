@@ -26,14 +26,12 @@ def test_delta_frame_meta_kind_literal():
         metric_id="sales.revenue",
         source_a_ref="frame_a",
         source_b_ref="frame_b",
-        compare_type="qoq",
-        align="bucket",
-        calendar_info=None,
+        alignment={"kind": "calendar_bucket"},
         semantic_kind="time_series",
         semantic_model="sales",
     )
     assert meta.kind == "delta_frame"
-    assert meta.compare_type == "qoq"
+    assert meta.alignment["kind"] == "calendar_bucket"
     assert meta.source_a_ref == "frame_a"
 
 
@@ -60,9 +58,7 @@ def test_delta_frame_wraps_df_and_meta():
         metric_id="sales.revenue",
         source_a_ref="frame_a",
         source_b_ref="frame_b",
-        compare_type="custom",
-        align="bucket",
-        calendar_info=None,
+        alignment={"kind": "calendar_bucket"},
         semantic_kind="time_series",
         semantic_model="sales",
     )

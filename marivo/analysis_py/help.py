@@ -11,7 +11,7 @@ _TOP_LEVEL_ENTRIES = {
     "observe": "build a MetricFrame from a metric and window",
     "compare": "compare two MetricFrames into a DeltaFrame",
     "decompose": "decompose a DeltaFrame into an AttributionFrame",
-    "detect": "detect candidate segments or anomalies",
+    "discover": "discover candidate follow-ups from analysis artifacts",
     "correlate": "correlate compatible analysis frames",
     "session": "session lifecycle and persistence helpers",
     "help": "print top-level or symbol-specific introspection",

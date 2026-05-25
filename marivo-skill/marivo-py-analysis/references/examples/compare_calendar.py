@@ -36,21 +36,26 @@ calendar_dir.mkdir(parents=True, exist_ok=True)
 cur = mv.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"expr": "mtd", "grain": "day", "as_of": "2026-09-15T12:00:00+08:00"},
+    session=session,
 )
 base = mv.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2025-07-01", "end": "2025-07-31", "grain": "day"},
+    session=session,
 )
 delta = mv.compare(
     cur,
     base,
-    align="calendar",
-    calendar_policy={"mode": "dow_aligned", "align_period": "month"},
+    alignment=mv.AlignmentPolicy(
+        kind="holiday_and_dow_aligned",
+        calendar=mv.CalendarRef(id="cn_holidays"),
+        period="month",
+    ),
+    session=session,
 )
 
-assert delta.meta.align == "calendar"
-assert delta.meta.calendar_info is not None
-assert delta.meta.calendar_info["mode"] == "dow_aligned"
-assert delta.meta.calendar_info["align_period"] == "month"
-assert delta.meta.calendar_info["matched_rows"] > 0
-print(f"align={delta.meta.align!r}")
+assert delta.meta.alignment["kind"] == "holiday_and_dow_aligned"
+assert delta.meta.alignment["calendar_info"]["mode"] == "holiday_and_dow_aligned"
+assert delta.meta.alignment["calendar_info"]["align_period"] == "month"
+assert delta.meta.alignment["calendar_info"]["matched_rows"] > 0
+print(f"alignment={delta.meta.alignment['kind']!r}")

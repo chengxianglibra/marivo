@@ -90,6 +90,7 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
             lag_policy={"mode": "single", "offset": 0},
             aligned_row_count=10,
             dropped_row_count=0,
+            correlation=0.75,
         ),
     )
     frame.meta = write_frame_to_disk(session.layout, frame)
@@ -99,4 +100,5 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
     assert isinstance(loaded, AssociationResult)
     assert loaded.meta.kind == "association_result"
     assert loaded.meta.source_refs == ["frame_a", "frame_b"]
+    assert loaded.meta.correlation == 0.75
     assert loaded.to_pandas().iloc[0]["correlation"] == 0.75

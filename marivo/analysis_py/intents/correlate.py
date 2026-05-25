@@ -1,25 +1,40 @@
-"""Correlate same-model MetricFrames into AttributionFrames."""
+"""Correlate MetricFrames into AssociationResults."""
 
 from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
+import hashlib
+import json
+import secrets
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Literal
+from typing import Any, Literal, cast
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
 from marivo.analysis_py.errors import AlignmentFailedError, SemanticKindMismatchError
-from marivo.analysis_py.frames.attribution import AttributionFrame
+from marivo.analysis_py.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.intents._derived import (
+    compose_lineage,
     ensure_frame_in_session,
-    persist_attribution_frame,
     require_numeric_column,
     resolve_session,
 )
+from marivo.analysis_py.lineage import LineageStep
+from marivo.analysis_py.policies import AlignmentPolicy, LagPolicy
 from marivo.analysis_py.session.core import Session, ensure_session_writable
+from marivo.analysis_py.session.persistence import write_frame_to_disk, write_job_record
+
+
+def _gen_ref(prefix: str) -> str:
+    return f"{prefix}_{secrets.token_hex(4)}"
+
+
+def _params_digest(params: dict[str, Any]) -> str:
+    body = json.dumps(params, sort_keys=True, default=str).encode("utf-8")
+    return f"sha256:{hashlib.sha256(body).hexdigest()}"
 
 
 def correlate(
@@ -28,20 +43,41 @@ def correlate(
     *,
     value_a: str | None = None,
     value_b: str | None = None,
-    align: Literal["sample", "bucket", "segment_key"] = "sample",
+    alignment: AlignmentPolicy | None = None,
+    lag_policy: LagPolicy | None = None,
     method: Literal["pearson"] = "pearson",
     session: Session | None = None,
-) -> AttributionFrame:
+) -> AssociationResult:
     session = resolve_session(session)
     ensure_session_writable(session)
     if not isinstance(a, MetricFrame) or not isinstance(b, MetricFrame):
         raise SemanticKindMismatchError(message="correlate requires MetricFrame inputs")
     ensure_frame_in_session(a, session=session, label="correlate a")
     ensure_frame_in_session(b, session=session, label="correlate b")
-    if a.meta.semantic_model != b.meta.semantic_model:
+    if alignment is None:
+        alignment = AlignmentPolicy(kind="calendar_bucket")
+    if lag_policy is None:
+        lag_policy = LagPolicy(mode="single", offset=0)
+    if not isinstance(alignment, AlignmentPolicy):
         raise SemanticKindMismatchError(
-            message="correlate requires frames from the same semantic_model",
-            details={"a": a.meta.semantic_model, "b": b.meta.semantic_model},
+            message="correlate requires alignment=AlignmentPolicy(...)",
+            details={
+                "expected_kind": "AlignmentPolicy",
+                "got_kind": type(alignment).__name__,
+            },
+        )
+    if not isinstance(lag_policy, LagPolicy):
+        raise SemanticKindMismatchError(
+            message="correlate requires lag_policy=LagPolicy(...)",
+            details={
+                "expected_kind": "LagPolicy",
+                "got_kind": type(lag_policy).__name__,
+            },
+        )
+    if alignment.kind != "calendar_bucket":
+        raise SemanticKindMismatchError(
+            message="correlate only supports AlignmentPolicy(kind='calendar_bucket')",
+            details={"alignment": alignment.model_dump(mode="json")},
         )
     if a.meta.semantic_kind != b.meta.semantic_kind:
         raise SemanticKindMismatchError(
@@ -57,11 +93,13 @@ def correlate(
     b_df = b.to_pandas()
     a_value = require_numeric_column(a_df, value_a, purpose="correlate a")
     b_value = require_numeric_column(b_df, value_b, purpose="correlate b")
-    aligned, driver_field = _align(a_df, b_df, a_value=a_value, b_value=b_value, align=align)
+    aligned, driver_field = _align(a_df, b_df, a_value=a_value, b_value=b_value)
     before_drop = len(aligned)
     aligned = aligned.dropna(subset=["value_a", "value_b"])
     if len(aligned) < 2:
-        raise AlignmentFailedError(message=f"alignment '{align}' produced fewer than two rows")
+        raise AlignmentFailedError(
+            message=f"alignment '{alignment.kind}' produced fewer than two rows"
+        )
     if aligned["value_a"].nunique(dropna=True) < 2 or aligned["value_b"].nunique(dropna=True) < 2:
         raise AlignmentFailedError(message="pearson correlation is undefined for constant input")
 
@@ -69,14 +107,19 @@ def correlate(
     if pd.isna(correlation):
         raise AlignmentFailedError(message="pearson correlation produced NaN")
 
+    alignment_dump = alignment.model_dump(mode="json")
+    lag_dump = lag_policy.model_dump(mode="json")
     output = pd.DataFrame(
         {
             "metric_id_a": [a.meta.metric_id],
             "metric_id_b": [b.meta.metric_id],
-            "semantic_model": [a.meta.semantic_model],
+            "semantic_model_a": [a.meta.semantic_model],
+            "semantic_model_b": [b.meta.semantic_model],
             "semantic_kind": [a.meta.semantic_kind],
             "method": [method],
-            "align": [align],
+            "alignment_kind": [alignment.kind],
+            "lag_mode": [lag_policy.mode],
+            "lag_offset": [lag_policy.offset],
             "driver_field": [driver_field],
             "value_column_a": [a_value],
             "value_column_b": [b_value],
@@ -92,26 +135,65 @@ def correlate(
         "source_b_ref": b.ref,
         "value_a": a_value,
         "value_b": b_value,
-        "align": align,
+        "alignment": alignment_dump,
+        "lag_policy": lag_dump,
         "method": method,
     }
-    return persist_attribution_frame(
-        session=session,
-        df=output,
-        intent="correlate",
-        params=params,
-        sources=[a, b],
+    frame_ref = _gen_ref("frame")
+    job_ref = _gen_ref("job")
+    finished_at = datetime.now(UTC)
+    source_refs = [a.ref, b.ref]
+    meta = AssociationResultMeta(
+        kind="association_result",
+        ref=frame_ref,
+        session_id=session.id,
+        project_root=str(session.project_root),
+        produced_by_job=job_ref,
+        created_at=finished_at,
+        row_count=len(output),
+        byte_size=0,
+        lineage=compose_lineage(
+            [a, b],
+            step=LineageStep(
+                intent="correlate",
+                job_ref=job_ref,
+                inputs=source_refs,
+                params_digest=_params_digest(params),
+            ),
+        ),
+        source_refs=source_refs,
         metric_ids=[a.meta.metric_id, b.meta.metric_id],
-        attribution_kind="correlation",
-        driver_field=driver_field,
-        value_column=None,
-        contribution_column=None,
+        semantic_kinds=[a.meta.semantic_kind, b.meta.semantic_kind],
+        semantic_models=[a.meta.semantic_model, b.meta.semantic_model],
         method=method,
-        semantic_kind=a.meta.semantic_kind,
-        semantic_model=a.meta.semantic_model,
-        started_at=started_at,
-        started_monotonic=started,
+        alignment=alignment_dump,
+        lag_policy=lag_dump,
+        aligned_row_count=len(aligned),
+        dropped_row_count=before_drop - len(aligned),
+        correlation=correlation,
     )
+    result = AssociationResult(_df=output, meta=meta)
+    result.meta = cast("AssociationResultMeta", write_frame_to_disk(session.layout, result))
+    write_job_record(
+        session.layout,
+        {
+            "id": job_ref,
+            "session_id": session.id,
+            "intent": "correlate",
+            "params": params,
+            "input_frame_refs": source_refs,
+            "output_frame_ref": frame_ref,
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "duration_ms": int((monotonic() - started) * 1000),
+            "status": "succeeded",
+            "error": None,
+            "semantic_project_root": session.semantic_project.root,
+            "semantic_model": a.meta.semantic_model,
+            "semantic_models": [a.meta.semantic_model, b.meta.semantic_model],
+        },
+    )
+    return result
 
 
 def _align(
@@ -120,12 +202,12 @@ def _align(
     *,
     a_value: str,
     b_value: str,
-    align: str,
 ) -> tuple[pd.DataFrame, str | None]:
-    if align == "sample":
+    keys = _common_non_numeric_columns(a_df, b_df)
+    if not keys:
         n = min(len(a_df), len(b_df))
-        left = a_df.reset_index(drop=True).loc[: n - 1, [a_value]]
-        right = b_df.reset_index(drop=True).loc[: n - 1, [b_value]]
+        left = a_df.reset_index(drop=True).iloc[:n][[a_value]]
+        right = b_df.reset_index(drop=True).iloc[:n][[b_value]]
         return (
             pd.DataFrame(
                 {
@@ -135,16 +217,11 @@ def _align(
             ),
             None,
         )
-    if align in {"bucket", "segment_key"}:
-        keys = _common_non_numeric_columns(a_df, b_df)
-        if not keys:
-            raise AlignmentFailedError(message=f"align='{align}' could not find a common key")
-        _ensure_unique_keys(a_df, keys=keys, label="a")
-        _ensure_unique_keys(b_df, keys=keys, label="b")
-        left = a_df[[*keys, a_value]].rename(columns={a_value: "value_a"})
-        right = b_df[[*keys, b_value]].rename(columns={b_value: "value_b"})
-        return pd.merge(left, right, on=keys, validate="one_to_one"), ",".join(keys)
-    raise AlignmentFailedError(message=f"unknown align mode '{align}'")
+    _ensure_unique_keys(a_df, keys=keys, label="a")
+    _ensure_unique_keys(b_df, keys=keys, label="b")
+    left = a_df[[*keys, a_value]].rename(columns={a_value: "value_a"})
+    right = b_df[[*keys, b_value]].rename(columns={b_value: "value_b"})
+    return pd.merge(left, right, on=keys, validate="one_to_one"), ",".join(keys)
 
 
 def _common_non_numeric_columns(a_df: pd.DataFrame, b_df: pd.DataFrame) -> list[str]:

@@ -23,6 +23,7 @@ class AssociationResultMeta(BaseFrameMeta):
     lag_policy: dict[str, Any]
     aligned_row_count: int
     dropped_row_count: int
+    correlation: float
 
 
 @dataclass

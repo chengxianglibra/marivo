@@ -49,7 +49,12 @@ def test_end_to_end_sales_observe_compare_load(tmp_path):
         window={"start": "2026-04-01", "end": "2026-06-30"},
         session=s,
     )
-    d = mv.compare(q3, q2, align="sample", compare_type="qoq", session=s)
+    d = mv.compare(
+        q3,
+        q2,
+        alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+        session=s,
+    )
     df = d.to_pandas()
     assert df.iloc[0]["current"] == pytest.approx(60.0)
     assert df.iloc[0]["baseline"] == pytest.approx(20.0)
@@ -67,5 +72,10 @@ def test_end_to_end_sales_observe_compare_load(tmp_path):
     assert s_ro.is_read_only
     q3_again = mv.load_frame(q3.ref, session=s_ro)
     q2_again = mv.load_frame(q2.ref, session=s_ro)
-    d_again = mv.compare(q3_again, q2_again, align="sample", compare_type="qoq", session=s_ro)
+    d_again = mv.compare(
+        q3_again,
+        q2_again,
+        alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+        session=s_ro,
+    )
     assert d_again.to_pandas().iloc[0]["delta"] == pytest.approx(40.0)

@@ -1,6 +1,6 @@
 ---
 name: marivo-py-analysis
-description: Use when the task involves Marivo analysis — observe, compare, decompose, detect, correlate, or any investigation/diagnosis flow over a Marivo semantic model.
+description: Use when the task involves Marivo analysis — observe, compare, decompose, discover, correlate, or any investigation/diagnosis flow over a Marivo semantic model.
 ---
 
 # marivo-py-analysis
@@ -21,10 +21,10 @@ work.
 import marivo.analysis_py as mv
 
 mv.observe(mv.MetricRef(metric_id), window={"start": "...", "end": "..."})  # -> MetricFrame
-mv.compare(cur, base, compare_type="yoy")                     # -> DeltaFrame
-mv.decompose(delta)                                           # -> AttributionFrame
-mv.detect(series, threshold=1.0)                              # -> AttributionFrame
-mv.correlate(a, b, align="sample")                            # -> AttributionFrame
+mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))  # -> DeltaFrame
+mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))     # -> AttributionFrame
+mv.discover(series, objective="point_anomalies", threshold=1.0)  # -> CandidateSet
+mv.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))  # -> AssociationResult
 
 mv.session.current()      # current session summary, or None
 mv.session.history()      # recent session/job history
@@ -36,15 +36,20 @@ Every intent returns a typed frame. Stay in frame world until you intentionally
 materialize a copy with `frame.to_pandas()`. Prefer `frame.summary()` before
 printing full data into the agent context.
 
+Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`,
+`mv.AlignmentPolicy(...)`, and `mv.LagPolicy(...)` at public operator
+boundaries. Do not pass bare strings directly to `observe`, `decompose`, or
+calendar-backed `compare`.
+
 Important current return types:
 
 - `mv.observe(...)` returns `MetricFrame`.
 - `mv.compare(metric_frame, metric_frame, ...)` returns `DeltaFrame`.
 - `mv.decompose(delta_frame, ...)` returns `AttributionFrame`.
-- `mv.detect(metric_frame, ...)` returns anomaly `AttributionFrame`, not
+- `mv.discover(metric_frame, objective="point_anomalies", ...)` returns
   `CandidateSet`.
-- `mv.correlate(metric_frame, metric_frame, ...)` returns correlation
-  `AttributionFrame`, not `CorrelationFrame`.
+- `mv.correlate(metric_frame, metric_frame, ...)` returns
+  `AssociationResult`.
 
 ## Standard workflow
 
@@ -94,9 +99,9 @@ Important current return types:
 ## Calendar-Aware Compare
 
 - Calendar alignment requires two time-series `MetricFrame`s and
-  `align="calendar"` on `mv.compare(...)`.
-- Supply `calendar_policy`, for example
-  `{"mode": "dow_aligned", "align_period": "month"}`.
+  `alignment=mv.AlignmentPolicy(...)` on `mv.compare(...)`.
+- Supply a calendar-backed policy, for example
+  `mv.AlignmentPolicy(kind="dow_aligned", calendar=mv.CalendarRef("cn_holidays"), period="month")`.
 - Ensure the session timezone and selected calendar timezone match.
 - Runnable reference: `references/examples/compare_calendar.py`.
 
@@ -133,7 +138,7 @@ base = mv.observe(
     mv.MetricRef("<metric_id>"),
     window={"start": "2025-07-01", "end": "2025-09-30"},
 )
-delta = mv.compare(cur, base, compare_type="yoy")
+delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
 print(delta.summary())
 ```
 
@@ -142,33 +147,32 @@ print(delta.summary())
 Use this when you have a `DeltaFrame` and need attribution. Runnable reference:
 `references/examples/03_decompose_attribution.py`.
 
-The current runnable example demonstrates v1 scalar total attribution. Pass
-`by="<column>"` only when the `DeltaFrame` already contains that grouping column;
-do not invent a segment such as `region` unless it exists in the delta.
+Pass `axis=mv.DimensionRef("<column>")` for a column already present in the
+`DeltaFrame`; do not invent a segment such as `region` unless it exists in the
+delta.
 
 ```python
 import marivo.analysis_py as mv
 
 cur = mv.observe(
     mv.MetricRef("<metric_id>"),
-    slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
 )
 base = mv.observe(
     mv.MetricRef("<metric_id>"),
-    slice={"created_at": {"op": "between", "value": ["2025-07-01", "2025-09-30"]}},
+    window={"start": "2025-07-01", "end": "2025-09-30", "grain": "month"},
 )
-delta = mv.compare(cur, base, compare_type="yoy")
-attribution = mv.decompose(delta)
+delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+attribution = mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 print(attribution.summary())
 ```
 
-### Detect anomalies
+### Discover anomaly candidates
 
-Use this when you have a metric series and need anomaly flags/scores. Runnable
-reference: `references/examples/04_detect_anomaly.py`.
+Use this when you have a metric series and need candidate anomaly follow-ups.
+Runnable reference: `references/examples/04_detect_anomaly.py`.
 
-`mv.detect` currently returns an anomaly `AttributionFrame` with
-`meta.attribution_kind == "anomaly"`.
+`mv.discover` returns a `CandidateSet` with `meta.objective == "point_anomalies"`.
 
 ```python
 import marivo.analysis_py as mv
@@ -177,22 +181,27 @@ series = mv.observe(
     mv.MetricRef("<metric_id>"),
     slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
-anomalies = mv.detect(series, threshold=1.0)
-print(anomalies.summary())
+candidates = mv.discover(series, objective="point_anomalies", threshold=1.0)
+print(candidates.summary())
 ```
 
 ### Correlate two metric frames
 
 Use this when two compatible `MetricFrame`s should be tested for Pearson
-correlation. `mv.correlate` currently returns a correlation `AttributionFrame`
-with `meta.attribution_kind == "correlation"`.
+correlation. `mv.correlate` returns an `AssociationResult` with
+`meta.method == "pearson"`.
 
 ```python
 import marivo.analysis_py as mv
 
 a = mv.observe(mv.MetricRef("<metric_a>"), window={"start": "2026-07-01", "end": "2026-09-30"})
 b = mv.observe(mv.MetricRef("<metric_b>"), window={"start": "2026-07-01", "end": "2026-09-30"})
-correlation = mv.correlate(a, b, align="sample")
+correlation = mv.correlate(
+    a,
+    b,
+    alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+    lag_policy=mv.LagPolicy(mode="single", offset=0),
+)
 print(correlation.summary())
 ```
 
@@ -222,7 +231,7 @@ Need why the change happened?
   -> compare first -> decompose
 
 Need spikes, drops, or unusual buckets?
-  -> observe a metric series -> detect
+  -> observe a metric series -> discover
 
 Need whether two metric frames move together?
   -> observe both -> correlate
@@ -241,10 +250,14 @@ Need raw pandas operations?
 - Do not use window strings such as `"2026Q3"` as the default pattern. Current
   examples use `window={"start": "...", "end": "..."}` or structured `slice`
   filters such as `{"created_at": {"op": "between", "value": [...]}}`.
-- Do not pass `by=` to scalar decomposition. Use `by=` only for a grouping column
-  already present in a non-scalar `DeltaFrame`.
-- Do not assume detect/correlate have dedicated frame classes. Both return
-  specialized `AttributionFrame`s today.
+- Do not call decomposition without an axis. Use
+  `axis=mv.DimensionRef("<column>")` for a grouping column already present in
+  the `DeltaFrame`.
+- Do not call `mv.detect`; use
+  `mv.discover(series, objective="point_anomalies")` for anomaly candidates.
+- Do not pass `align=` to correlate. Use
+  `alignment=mv.AlignmentPolicy(kind="calendar_bucket")`; correlation returns
+  `AssociationResult`.
 
 ## Further reading
 
