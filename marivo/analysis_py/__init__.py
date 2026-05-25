@@ -13,13 +13,14 @@ from marivo.analysis_py.intents.correlate import correlate
 from marivo.analysis_py.intents.decompose import decompose
 from marivo.analysis_py.intents.detect import detect
 from marivo.analysis_py.intents.observe import observe
-from marivo.analysis_py.policies import AlignmentPolicy, LagPolicy
+from marivo.analysis_py.policies import AlignmentKind, AlignmentPolicy, LagPolicy
 from marivo.analysis_py.refs import CalendarRef, DimensionRef, MetricRef
 from marivo.analysis_py.session._load import load_frame
 from marivo.analysis_py.windows.spec import AbsoluteWindow, RelativeWindow, WindowInput
 
 __all__ = [
     "AbsoluteWindow",
+    "AlignmentKind",
     "AlignmentPolicy",
     "AttributionFrame",
     "AttributionFrameMeta",
