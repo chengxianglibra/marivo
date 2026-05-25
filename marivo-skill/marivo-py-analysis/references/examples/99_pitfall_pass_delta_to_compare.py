@@ -18,11 +18,11 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 cur = mv.observe(
-    METRIC_ID,
+    mv.MetricRef(id=METRIC_ID),
     slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 base = mv.observe(
-    METRIC_ID,
+    mv.MetricRef(id=METRIC_ID),
     slice={"created_at": {"op": "between", "value": ["2025-07-01", "2025-09-30"]}},
 )
 delta = mv.compare(cur, base, compare_type="yoy")

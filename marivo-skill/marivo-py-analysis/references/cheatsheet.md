@@ -8,7 +8,7 @@ active Python environment, not from a local Marivo source checkout.
 
 | Intent | Inputs | Output | Agent rule |
 | --- | --- | --- | --- |
-| `mv.observe` | registered `metric_id` | `MetricFrame` | Use `window={"start": "...", "end": "..."}` or structured `slice={field: {"op": ..., "value": ...}}`. |
+| `mv.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `window={"start": "...", "end": "..."}` or structured `slice={field: {"op": ..., "value": ...}}`. |
 | `mv.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
 | `mv.decompose` | `DeltaFrame` | `AttributionFrame` | Omit `by=` for scalar deltas; use `by=` only for a grouping column already present in the delta. |
 | `mv.detect` | `MetricFrame` | anomaly `AttributionFrame` | Not a `CandidateSet`; check `frame.meta.attribution_kind == "anomaly"`. |
@@ -31,11 +31,11 @@ for a small preview, and `frame.to_pandas()` when you need a mutable copy.
 import marivo.analysis_py as mv
 
 cur = mv.observe(
-    "sales.revenue",
+    mv.MetricRef("sales.revenue"),
     window={"start": "2026-07-01", "end": "2026-09-30"},
 )
 base = mv.observe(
-    "sales.revenue",
+    mv.MetricRef("sales.revenue"),
     window={"start": "2025-07-01", "end": "2025-09-30"},
 )
 delta = mv.compare(cur, base, compare_type="yoy")
@@ -45,7 +45,7 @@ print(attribution.summary())
 
 ```python
 series = mv.observe(
-    "sales.revenue",
+    mv.MetricRef("sales.revenue"),
     slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 anomalies = mv.detect(series, threshold=1.0)
@@ -62,5 +62,6 @@ print(anomalies.meta.attribution_kind)  # "anomaly"
 | Inspect SDK entrypoints | `mv.help()` or `mv.help("compare")` |
 | Confirm metric ids | `import marivo.semantic_py as ms; ms.list_metrics()` |
 
-Metric ids are strings such as `"model.metric"`. Do not guess them from metric
-display names; call `ms.list_metrics()` against the loaded semantic project.
+Metric refs wrap exact ids such as `mv.MetricRef("model.metric")`. Do not guess
+ids from metric display names; call `ms.list_metrics()` against the loaded
+semantic project.
