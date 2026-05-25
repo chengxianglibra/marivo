@@ -162,3 +162,39 @@ def test_metric_not_found_without_details_does_not_show_wrong_id_remediation():
     assert "Requested metric is not registered" not in rendered
     assert "metric_id=<metric_id>" not in rendered
     assert "<metric_id>" not in rendered
+
+
+def test_no_backend_factory_default_template_fields_populated() -> None:
+    from marivo.analysis_py.errors import NoBackendFactoryError
+
+    err = NoBackendFactoryError(
+        message="@ms.datasource 'tiny_orders' did not return an ibis backend.",
+        details={"datasource": "tiny_orders"},
+    )
+    rendered = str(err)
+    assert "正确写法:" in rendered
+    assert "datasource='tiny_orders' returned None or a non-ibis object" in rendered
+    assert "ibis.duckdb.connect" in rendered
+    assert "@ms.datasource" in rendered
+    assert "相关文档: marivo-skill/marivo-py-semantic/references/pitfalls.md" in rendered
+
+
+def test_no_backend_factory_without_details_uses_session_backend_template() -> None:
+    from marivo.analysis_py.errors import NoBackendFactoryError
+
+    err = NoBackendFactoryError(
+        message="session has no backend_factory; data-materializing intents need one",
+        hint="Pass backends={...} or backend_factory=... when creating or attaching.",
+    )
+
+    rendered = str(err)
+
+    assert "datasource=None" not in rendered
+    assert "@ms.datasource" not in rendered
+    assert "returned None or a non-ibis object" not in rendered
+    assert "session has no backend factory configured" in rendered
+    assert "正确写法:" in rendered
+    assert "mv.attach" in rendered
+    assert "backends=" in rendered
+    assert "backend_factory=" in rendered
+    assert "相关文档: marivo-skill/marivo-py-analysis/references/pitfalls.md" in rendered

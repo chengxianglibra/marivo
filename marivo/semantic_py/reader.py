@@ -35,14 +35,146 @@ def list_models(project: SemanticProject | None = None) -> list[str]:
     return sorted(target.registry.models)
 
 
-def list_metrics(project: SemanticProject | None = None) -> list[str]:
+def list_datasources(project: SemanticProject | None = None) -> list[str]:
     target = _project(project)
     ensure_loaded(target)
+    return sorted(
+        f"{model_name}.{datasource_name}"
+        for model_name, model_ir in target.registry.models.items()
+        for datasource_name in model_ir.datasources
+    )
+
+
+def list_datasets(
+    model: str | None = None,
+    project: SemanticProject | None = None,
+) -> list[str]:
+    target = _project(project)
+    ensure_loaded(target)
+    if model is not None:
+        model_ir = target.registry.models.get(model)
+        if model_ir is None:
+            return []
+        return sorted(f"{model}.{dataset_name}" for dataset_name in model_ir.datasets)
+    return sorted(
+        f"{model_name}.{dataset_name}"
+        for model_name, model_ir in target.registry.models.items()
+        for dataset_name in model_ir.datasets
+    )
+
+
+def list_metrics(
+    project: SemanticProject | None = None,
+    *,
+    dataset: str | None = None,
+) -> list[str]:
+    target = _project(project)
+    ensure_loaded(target)
+
+    if dataset is not None:
+        model_name, separator, dataset_name = dataset.partition(".")
+        if not separator or not model_name or not dataset_name:
+            return []
+        model_ir = target.registry.models.get(model_name)
+        if model_ir is None or dataset_name not in model_ir.datasets:
+            return []
+        return sorted(
+            f"{model_name}.{metric_name}"
+            for metric_name, metric_ir in model_ir.metrics.items()
+            if _metric_depends_on_dataset(model_ir, metric_ir, dataset_name)
+        )
+
     return sorted(
         f"{model_name}.{metric_name}"
         for model_name, model_ir in target.registry.models.items()
         for metric_name in model_ir.metrics
     )
+
+
+def _metric_depends_on_dataset(
+    model_ir: ModelIR,
+    metric_ir: MetricIR,
+    dataset_name: str,
+    seen: set[str] | None = None,
+) -> bool:
+    if dataset_name in metric_ir.references.datasets:
+        return True
+    if metric_ir.references.datasets:
+        return False
+
+    seen = set() if seen is None else seen
+    if metric_ir.name in seen:
+        return False
+    seen.add(metric_ir.name)
+
+    referenced_metrics = {
+        metric_name
+        for metric_name in (
+            *metric_ir.references.metrics,
+            metric_ir.decomposition.numerator,
+            metric_ir.decomposition.denominator,
+            metric_ir.decomposition.weight,
+        )
+        if metric_name is not None
+    }
+    return any(
+        _metric_depends_on_dataset(model_ir, referenced_metric_ir, dataset_name, seen)
+        for metric_name in referenced_metrics
+        if (referenced_metric_ir := model_ir.metrics.get(metric_name)) is not None
+    )
+
+
+def describe(name: str, project: SemanticProject | None = None) -> dict[str, Any]:
+    target = _project(project)
+    ensure_loaded(target)
+
+    model_name, separator, leaf_name = name.partition(".")
+    if not separator or not model_name or not leaf_name:
+        raise PySemanticNotFound("semantic object", name)
+
+    model_ir = target.registry.models.get(model_name)
+    if model_ir is None:
+        raise PySemanticNotFound("semantic object", name)
+
+    datasource_ir = model_ir.datasources.get(leaf_name)
+    dataset_ir = model_ir.datasets.get(leaf_name)
+    metric_ir = model_ir.metrics.get(leaf_name)
+    match_count = sum(
+        semantic_ir is not None for semantic_ir in (datasource_ir, dataset_ir, metric_ir)
+    )
+    if match_count > 1:
+        raise PySemanticNotFound("ambiguous semantic object", name)
+
+    if datasource_ir is not None:
+        return {
+            "kind": "datasource",
+            "model": model_name,
+            "name": datasource_ir.name,
+            "backend_type": datasource_ir.backend_type,
+            "description": datasource_ir.description,
+        }
+
+    if dataset_ir is not None:
+        return {
+            "kind": "dataset",
+            "model": model_name,
+            "name": dataset_ir.name,
+            "datasource": dataset_ir.datasource_name,
+            "primary_key": list(dataset_ir.primary_key),
+            "description": dataset_ir.description,
+        }
+
+    if metric_ir is not None:
+        dataset_ref = metric_ir.references.datasets[0] if metric_ir.references.datasets else None
+        return {
+            "kind": "metric",
+            "model": model_name,
+            "name": metric_ir.name,
+            "dataset": dataset_ref,
+            "description": metric_ir.description,
+        }
+
+    raise PySemanticNotFound("semantic object", name)
 
 
 def get_model(name: str, project: SemanticProject | None = None) -> ModelIR:

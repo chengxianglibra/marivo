@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from marivo.semantic_py.errors import (
+    DatasourceNotRegisteredError,
     SemanticAssemblyError,
     SemanticDecoratorError,
     SemanticLoadError,
@@ -258,13 +259,20 @@ def _validate_dataset(model: ModelIR, dataset_name: str) -> list[SemanticAssembl
         ]
     if dataset.datasource_name not in model.datasources:
         return [
-            _assembly_error(
+            DatasourceNotRegisteredError(
+                phase="assembly",
                 kind="DatasetDatasourceMissing",
                 location=dataset.source_location,
                 function=dataset.fn.__name__,
-                message=f"Dataset '{dataset.name}' references missing datasource '{dataset.datasource_name}'.",
-                hint="Register the referenced datasource before loading the semantic project.",
-                refs=[f"dataset:{dataset.name}", f"datasource:{dataset.datasource_name}"],
+                message=(
+                    f"Dataset '{dataset.name}' references missing datasource "
+                    f"'{dataset.datasource_name}'."
+                ),
+                hint=("Register the referenced datasource before loading the semantic project."),
+                refs=[
+                    f"dataset:{dataset.name}",
+                    f"datasource:{dataset.datasource_name}",
+                ],
             )
         ]
     return []
