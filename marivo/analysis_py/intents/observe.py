@@ -55,11 +55,12 @@ def observe(
     model_name, metric_name = metric.split(".", 1)
 
     from marivo.semantic_py import reader
+    from marivo.semantic_py.errors import PySemanticNotFound
 
+    reader.ensure_loaded(project=session.semantic_project)
     try:
-        reader.ensure_loaded(project=session.semantic_project)
         metric_ir = reader.get_metric(model_name, metric_name, project=session.semantic_project)
-    except Exception as exc:
+    except PySemanticNotFound as exc:
         raise MetricNotFoundError(
             message=f"metric '{metric}' not found",
             hint="Check <project_root>/.marivo/semantic/.",

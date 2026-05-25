@@ -35,6 +35,16 @@ def list_models(project: SemanticProject | None = None) -> list[str]:
     return sorted(target.registry.models)
 
 
+def list_metrics(project: SemanticProject | None = None) -> list[str]:
+    target = _project(project)
+    ensure_loaded(target)
+    return sorted(
+        f"{model_name}.{metric_name}"
+        for model_name, model_ir in target.registry.models.items()
+        for metric_name in model_ir.metrics
+    )
+
+
 def get_model(name: str, project: SemanticProject | None = None) -> ModelIR:
     target = _project(project)
     ensure_loaded(target)

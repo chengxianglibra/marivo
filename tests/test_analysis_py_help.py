@@ -1,0 +1,76 @@
+"""mv.help() introspection."""
+
+from __future__ import annotations
+
+import inspect
+import io
+from contextlib import redirect_stdout
+
+import marivo.analysis_py as mv
+from marivo.analysis_py.errors import SemanticKindMismatchError
+from marivo.analysis_py.intents.compare import compare as compare_fn
+
+
+def _capture(symbol: str | None = None) -> str:
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        mv.help(symbol)
+    return buf.getvalue()
+
+
+def test_top_level_help_lists_intents_and_helpers() -> None:
+    out = _capture()
+    assert "observe" in out
+    assert "compare" in out
+    assert "decompose" in out
+    assert "detect" in out
+    assert "correlate" in out
+    assert "session" in out
+    assert "help" in out
+
+
+def test_help_for_intent_includes_signature_and_docstring() -> None:
+    out = _capture("compare")
+    assert "compare(" in out
+    module = inspect.getmodule(compare_fn)
+    assert module is not None
+    first_doc_line = (inspect.getdoc(module) or "").strip().splitlines()[0]
+    assert first_doc_line in out
+
+
+def test_help_for_intent_does_not_mutate_callable_docstring() -> None:
+    original_doc = compare_fn.__doc__
+    compare_fn.__doc__ = None
+
+    try:
+        out = _capture("compare")
+
+        assert compare_fn.__doc__ is None
+        module = inspect.getmodule(compare_fn)
+        assert module is not None
+        first_doc_line = (inspect.getdoc(module) or "").strip().splitlines()[0]
+        assert first_doc_line in out
+    finally:
+        compare_fn.__doc__ = original_doc
+
+
+def test_help_for_exception_class_resolves_by_name() -> None:
+    out = _capture("SemanticKindMismatchError")
+    assert "SemanticKindMismatchError" in out
+    assert "MetricFrame" in out or "compare" in out
+
+
+def test_help_for_exception_class_does_not_use_inherited_base_docstring() -> None:
+    assert SemanticKindMismatchError.__doc__ is None
+
+    out = _capture("SemanticKindMismatchError")
+
+    assert "SemanticKindMismatchError" in out
+    assert "Base class for all analysis_py errors." not in out
+    assert "MetricFrame" in out or "compare" in out
+
+
+def test_help_for_unknown_symbol_explains_how_to_list() -> None:
+    out = _capture("nonexistent_thing_xyz")
+    assert "unknown symbol" in out.lower() or "not found" in out.lower()
+    assert "mv.help()" in out
