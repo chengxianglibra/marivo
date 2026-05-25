@@ -21,6 +21,7 @@
 - [Agent-First Intent Architecture](foundations/agent-first-intent-architecture.md) — Agent-only 场景下 intent system 的总体分工
 - [Marivo 分析操作总设计](foundations/analysis-operation-architecture.md) — 从接口、DSL、证据衔接到内部对象层的目标态总设计
 - [规范 Schema 设计原则](foundations/canonical-schema-principles.md) — canonical schema 的跨主题设计基线
+- [Python Analysis 算子集总体设计](python-analysis-operator-design.md) — `marivo.analysis` Python API 的目标态算子集合、固定输出 family 与组合方式
 
 ## Evidence Engine 主线
 
