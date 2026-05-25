@@ -18,11 +18,11 @@ ensure_loaded(tz="UTC")
 import marivo.analysis_py as mv  # noqa: E402
 
 scalar = mv.observe(
-    METRIC_ID,
+    mv.MetricRef(METRIC_ID),
     window={"expr": "mtd", "as_of": "2026-09-15T12:00:00+00:00"},
 )
 series = mv.observe(
-    METRIC_ID,
+    mv.MetricRef(METRIC_ID),
     window={"expr": "mtd", "grain": "day", "as_of": "2026-09-15T12:00:00+00:00"},
 )
 
