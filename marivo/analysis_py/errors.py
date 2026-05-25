@@ -81,7 +81,7 @@ class MetricNotFoundError(AnalysisError):
             "fix_snippet": (
                 "import marivo.semantic_py as ms\n"
                 "ms.list_metrics()  # confirm the exact id\n"
-                'mv.observe("<registered_metric_id>", window="2026Q3")'
+                'mv.observe(mv.MetricRef("<registered_metric_id>"), window="2026Q3")'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
@@ -128,6 +128,16 @@ class SemanticKindMismatchError(AnalysisError):
         ):
             return {
                 "cause": "Input frame kind or value shape does not match the requested analysis operation.",
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        if expected_kind == "MetricRef":
+            return {
+                "location": "mv.observe call",
+                "cause": (
+                    f"got {got_kind}, expected {expected_kind}; observe requires "
+                    "metric=mv.MetricRef(...)."
+                ),
+                "fix_snippet": 'mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")',
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         if got_kind != "delta_frame" or expected_kind != "metric_frame":

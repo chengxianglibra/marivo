@@ -135,6 +135,8 @@ def test_metric_not_found_has_list_metrics_fix_template():
     assert "metric_id=revenu" in rendered
     assert "正确写法:" in rendered
     assert "  ms.list_metrics()  # confirm the exact id" in rendered
+    assert 'mv.observe(mv.MetricRef("<registered_metric_id>"), window="2026Q3")' in rendered
+    assert 'mv.observe("<registered_metric_id>", window="2026Q3")' not in rendered
 
 
 def test_metric_not_found_uses_model_and_metric_details_in_cause():
