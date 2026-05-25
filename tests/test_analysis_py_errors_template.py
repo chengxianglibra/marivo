@@ -85,7 +85,10 @@ def test_semantic_kind_mismatch_has_compare_fix_template():
     assert "delta_frame" in rendered
     assert "metric_frame" in rendered
     assert "正确写法:" in rendered
+    assert 'cur  = mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")' in rendered
+    assert 'base = mv.observe(mv.MetricRef("sales.revenue"), window="2025Q3")' in rendered
     assert "  delta = mv.compare(cur, base)" in rendered
+    assert 'mv.observe("revenue"' not in rendered
 
 
 def test_semantic_kind_mismatch_without_kind_details_is_not_compare_specific():
@@ -121,7 +124,8 @@ def test_window_invalid_has_window_fix_template():
 
     assert "last quarter" in rendered
     assert "正确写法:" in rendered
-    assert '  mv.observe("revenue", window="2026Q3")' in rendered
+    assert '  mv.observe(mv.MetricRef("sales.revenue"), window="2026Q3")' in rendered
+    assert 'mv.observe("revenue", window="2026Q3")' not in rendered
 
 
 def test_metric_not_found_has_list_metrics_fix_template():
