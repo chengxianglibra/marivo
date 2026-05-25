@@ -18,7 +18,7 @@ class DeltaFrameMeta(BaseFrameMeta):
     source_a_ref: str
     source_b_ref: str
     compare_type: Literal["yoy", "qoq", "mom", "wow", "custom"]
-    align: Literal["bucket", "sample", "segment_key"]
+    align: Literal["bucket", "sample", "segment_key", "calendar"]
     calendar_info: dict[str, Any] | None
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str

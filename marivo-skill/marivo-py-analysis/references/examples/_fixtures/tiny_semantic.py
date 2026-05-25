@@ -120,12 +120,22 @@ def _temporary_cwd(path: Path) -> Iterator[None]:
         os.chdir(original)
 
 
-def ensure_loaded() -> None:
+def ensure_loaded(*, tz: str = "UTC", default_calendar: str | None = None) -> None:
     """Register the tiny semantic model and attach a writable examples session."""
     project = _project()
     with _temporary_cwd(_session_root()):
         try:
-            session = mv.session.create(name=SESSION_NAME, backends=_backends())
+            session = mv.session.create(
+                name=SESSION_NAME,
+                tz=tz,
+                default_calendar=default_calendar,
+                backends=_backends(),
+            )
         except DuplicateSessionNameError:
-            session = session_attach.attach(name=SESSION_NAME, backends=_backends())
+            session = session_attach.attach(
+                name=SESSION_NAME,
+                tz=tz,
+                default_calendar=default_calendar,
+                backends=_backends(),
+            )
     session.semantic_project = project

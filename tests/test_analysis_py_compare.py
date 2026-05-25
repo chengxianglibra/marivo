@@ -112,7 +112,11 @@ def test_compare_semantic_kind_mismatch_raises(tmp_path):
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
     a = observe("sales.revenue", session=s)
-    b = observe("sales.revenue", window={"start": "2026-07-01", "end": "2026-07-31"}, session=s)
+    b = observe(
+        "sales.revenue",
+        window={"start": "2026-07-01", "end": "2026-07-31", "grain": "day"},
+        session=s,
+    )
     with pytest.raises(SemanticKindMismatchError):
         compare(a, b, session=s)
 

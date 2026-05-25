@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from marivo.analysis_py.session.persistence import (
     PersistenceLayout,
@@ -49,6 +50,10 @@ class Session:
     backend_factory: BackendFactory | None
     layout: PersistenceLayout
     semantic_project: Any
+    tz: ZoneInfo = field(default_factory=lambda: ZoneInfo("UTC"))
+    default_calendar: str | None = None
+    known_calendars: set[str] = field(default_factory=set)
+    calendars: Any = None
     known_datasources: set[str] = field(default_factory=set)
     backend_cache: Any = None
 
@@ -57,6 +62,10 @@ class Session:
             from marivo.analysis_py.executor.backend import BackendCache
 
             self.backend_cache = BackendCache(self.backend_factory)
+        if self.calendars is None:
+            from marivo.analysis_py.calendar.loader import CalendarCache
+
+            self.calendars = CalendarCache(self.project_root)
 
     @property
     def is_read_only(self) -> bool:

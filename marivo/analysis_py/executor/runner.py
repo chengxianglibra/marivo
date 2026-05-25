@@ -1,22 +1,25 @@
 """Window/slice filtering and ibis execution."""
-# mypy: disable-error-code=import-untyped
 
 from __future__ import annotations
 
+# mypy: disable-error-code=import-untyped
 import json
 import os
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, date, datetime, time, timedelta
 from time import monotonic
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import ibis
 import pandas as pd
 
 from marivo.analysis_py.errors import BackendError, SliceInvalidError, WindowInvalidError
 from marivo.analysis_py.executor.backend import BackendCache
+from marivo.analysis_py.windows.resolver import zoneinfo_from_name
+from marivo.analysis_py.windows.spec import AbsoluteWindow
 
 _SUPPORTED_FORMATS = {
     ("date", None),
@@ -26,6 +29,7 @@ _SUPPORTED_FORMATS = {
     ("integer", "yyyymmdd"),
     ("integer", "epoch_seconds"),
 }
+UTC_ZONE = ZoneInfo("UTC")
 
 
 def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
@@ -54,6 +58,101 @@ def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
     raise WindowInvalidError(message=f"unsupported window bound format {pair}")
 
 
+def _is_date_only(value: str) -> bool:
+    if len(value) != 10 or "T" in value:
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _raise_window_bound_invalid(
+    *, bound_name: str, value: str, tz: ZoneInfo, error: Exception
+) -> None:
+    raise WindowInvalidError(
+        message=f"window.{bound_name}={value!r} is not a valid ISO-8601 date/datetime",
+        details={
+            "kind": "WindowBoundInvalid",
+            "bound": bound_name,
+            "value": value,
+            "tz": str(tz),
+        },
+    ) from error
+
+
+def _coerce_bound_datetime(value: str, *, tz: ZoneInfo, bound_name: str) -> datetime:
+    if _is_date_only(value):
+        local_dt = datetime.combine(date.fromisoformat(value), time.min, tzinfo=tz)
+        return local_dt.astimezone(UTC)
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except (TypeError, ValueError) as exc:
+        _raise_window_bound_invalid(bound_name=bound_name, value=value, tz=tz, error=exc)
+    dt = dt.replace(tzinfo=tz) if dt.tzinfo is None else dt.astimezone(tz)
+    return dt.astimezone(UTC)
+
+
+def _next_local_midnight(value: str, *, tz: ZoneInfo, bound_name: str) -> datetime:
+    if _is_date_only(value):
+        try:
+            base_day = date.fromisoformat(value)
+        except ValueError as exc:
+            _raise_window_bound_invalid(bound_name=bound_name, value=value, tz=tz, error=exc)
+    else:
+        normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+        try:
+            dt = datetime.fromisoformat(normalized)
+        except (TypeError, ValueError) as exc:
+            _raise_window_bound_invalid(bound_name=bound_name, value=value, tz=tz, error=exc)
+        dt = dt.replace(tzinfo=tz) if dt.tzinfo is None else dt.astimezone(tz)
+        base_day = dt.date()
+    next_midnight = datetime.combine(base_day + timedelta(days=1), time.min, tzinfo=tz)
+    return next_midnight.astimezone(UTC)
+
+
+def _window_bound_predicates(
+    field_expr: Any,
+    window: AbsoluteWindow,
+    time_meta: Any,
+    *,
+    session_tz: ZoneInfo,
+) -> tuple[Any, Any]:
+    data_type = time_meta.data_type
+    fmt = time_meta.format
+    if data_type == "timestamp":
+        lower_dt = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
+        if _is_date_only(window.end):
+            upper_dt = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+            return (
+                field_expr >= ibis.timestamp(lower_dt.isoformat()),
+                field_expr < ibis.timestamp(upper_dt.isoformat()),
+            )
+        upper_dt = _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
+        return (
+            field_expr >= ibis.timestamp(lower_dt.isoformat()),
+            field_expr <= ibis.timestamp(upper_dt.isoformat()),
+        )
+    if data_type == "integer" and fmt == "epoch_seconds":
+        lower_epoch = int(
+            _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start").timestamp()
+        )
+        if _is_date_only(window.end):
+            upper_epoch = int(
+                _next_local_midnight(window.end, tz=session_tz, bound_name="end").timestamp()
+            )
+            return (field_expr >= lower_epoch, field_expr < upper_epoch)
+        upper_epoch = int(
+            _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end").timestamp()
+        )
+        return (field_expr >= lower_epoch, field_expr <= upper_epoch)
+    lower = _encode_window_bound(window.start, time_meta)
+    upper = _encode_window_bound(window.end, time_meta)
+    return (field_expr >= lower, field_expr <= upper)
+
+
 def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
     time_fields = [
         field for field in dataset_ir.fields.values() if getattr(field, "is_time", False)
@@ -79,21 +178,87 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
     )
 
 
+def resolve_window_time_field(dataset_ir: Any, *, window: AbsoluteWindow) -> Any:
+    time_field = {"time_field": window.time_field} if window.time_field else {}
+    return _resolve_time_field(dataset_ir, time_field)
+
+
 def apply_window_to_dataset(
     table: ibis.Table,
-    window: Mapping[str, Any] | None,
+    window: AbsoluteWindow | Mapping[str, Any] | None,
     *,
     dataset_ir: Any,
+    session_tz: ZoneInfo = UTC_ZONE,
 ) -> ibis.Table:
     if window is None:
         return table
-    time_field_ir = _resolve_time_field(dataset_ir, window)
+    if isinstance(window, AbsoluteWindow):
+        normalized_window = window
+    else:
+        normalized_window = AbsoluteWindow(
+            start=str(window["start"]),
+            end=str(window["end"]),
+            grain=window.get("grain"),
+            tz=window.get("tz"),
+            time_field=window.get("time_field"),
+        )
+    time_field_ir = resolve_window_time_field(dataset_ir, window=normalized_window)
     if time_field_ir.time_meta is None:
         raise WindowInvalidError(message=f"field '{time_field_ir.name}' has no time metadata")
+    effective_tz = session_tz
+    if normalized_window.tz is not None:
+        effective_tz = zoneinfo_from_name(normalized_window.tz)
     field_expr = time_field_ir.fn(table)
-    lower = _encode_window_bound(window["start"], time_field_ir.time_meta)
-    upper = _encode_window_bound(window["end"], time_field_ir.time_meta)
-    return table.filter(field_expr >= lower, field_expr <= upper)
+    lower_predicate, upper_predicate = _window_bound_predicates(
+        field_expr,
+        normalized_window,
+        time_field_ir.time_meta,
+        session_tz=effective_tz,
+    )
+    return table.filter(lower_predicate, upper_predicate)
+
+
+def apply_time_series_bucket(
+    table: ibis.Table,
+    *,
+    field_ir: Any,
+    window: AbsoluteWindow,
+    session_tz: ZoneInfo,
+) -> ibis.Table:
+    if field_ir.time_meta is None:
+        raise WindowInvalidError(message=f"field '{field_ir.name}' has no time metadata")
+    effective_tz = session_tz
+    if window.tz is not None:
+        effective_tz = zoneinfo_from_name(window.tz)
+    raw = field_ir.fn(table)
+    time_meta = field_ir.time_meta
+    data_type = time_meta.data_type
+    fmt = time_meta.format
+    if window.grain is None:
+        return table
+    if window.grain == "day":
+        if data_type in {"timestamp", "integer"} and (
+            data_type != "integer" or fmt == "epoch_seconds"
+        ):
+            # Shift by the effective timezone's UTC offset before day bucketing.
+            # This fixes local-day boundary assignment for timestamp/epoch fields.
+            # Limitation: this uses a single offset anchored at window.start, so
+            # windows spanning DST transitions may still need backend-specific TZ binning.
+            anchor_utc = _coerce_bound_datetime(window.start, tz=effective_tz, bound_name="start")
+            offset = anchor_utc.astimezone(effective_tz).utcoffset()
+            offset_seconds = int(offset.total_seconds()) if offset is not None else 0
+            ts_expr = raw.cast("timestamp") if data_type == "integer" else raw
+            bucket = (
+                (ts_expr + ibis.interval(seconds=offset_seconds)).cast("date").name("bucket_start")
+            )
+        else:
+            bucket = raw.cast("date").name("bucket_start")
+    else:
+        if data_type == "integer" and fmt == "epoch_seconds":
+            bucket = raw.cast("timestamp").truncate(window.grain).name("bucket_start")
+        else:
+            bucket = raw.truncate(window.grain).name("bucket_start")
+    return table.mutate(bucket_start=bucket)
 
 
 def _resolve_slice_field(dataset_ir: Any, field_name: str, table: ibis.Table) -> Any:

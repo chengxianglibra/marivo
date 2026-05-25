@@ -1,8 +1,8 @@
 """Base frame wrapper and metadata."""
-# mypy: disable-error-code=import-untyped
 
 from __future__ import annotations
 
+# mypy: disable-error-code=import-untyped
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime

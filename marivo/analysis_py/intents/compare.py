@@ -1,20 +1,24 @@
 """Compare two MetricFrames into a DeltaFrame."""
-# mypy: disable-error-code=import-untyped
 
 from __future__ import annotations
 
+# mypy: disable-error-code=import-untyped
 import hashlib
 import json
 import secrets
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
+from pydantic import ValidationError
 
+from marivo.analysis_py.calendar.align import align_calendar_frames
+from marivo.analysis_py.calendar.model import CalendarPolicy
 from marivo.analysis_py.errors import (
     AlignmentFailedError,
+    CalendarPolicyError,
     CrossSessionFrameError,
     SemanticKindMismatchError,
 )
@@ -64,8 +68,10 @@ def compare(
     a: MetricFrame,
     b: MetricFrame,
     *,
-    align: Literal["bucket", "sample", "segment_key"] = "bucket",
+    align: Literal["bucket", "sample", "segment_key", "calendar"] = "bucket",
     compare_type: Literal["yoy", "qoq", "mom", "wow", "custom"] = "custom",
+    calendar: str | None = None,
+    calendar_policy: CalendarPolicy | dict[str, Any] | None = None,
     session: Session | None = None,
 ) -> DeltaFrame:
     if session is None:
@@ -92,10 +98,95 @@ def compare(
                 f"{a.meta.semantic_kind!r} and {b.meta.semantic_kind!r}"
             ),
         )
+    if align != "calendar" and (calendar is not None or calendar_policy is not None):
+        raise CalendarPolicyError(
+            message="calendar and calendar_policy require align='calendar'",
+            details={
+                "kind": "CalendarUnusedWithAlign",
+                "align": align,
+                "calendar": calendar,
+                "calendar_policy_supplied": calendar_policy is not None,
+            },
+        )
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    df = _align_and_compute(a.to_pandas(), b.to_pandas(), align=align)
+    calendar_info: dict[str, Any] | None = None
+    calendar_policy_params: dict[str, Any] | None = None
+    calendar_name: str | None = None
+    if align == "calendar":
+        if a.meta.semantic_kind != "time_series":
+            raise SemanticKindMismatchError(
+                message="compare align='calendar' requires time_series MetricFrames",
+                details={
+                    "kind": "CalendarAlignRequiresTimeSeries",
+                    "expected_kind": "time_series",
+                    "got_kind": a.meta.semantic_kind,
+                },
+            )
+        calendar_name = _resolve_calendar_name(
+            calendar=calendar,
+            default_calendar=session.default_calendar,
+        )
+        if calendar_policy is None:
+            raise CalendarPolicyError(
+                message="compare align='calendar' requires calendar_policy",
+                details={"kind": "CalendarPolicyNotSpecified"},
+            )
+        if isinstance(calendar_policy, CalendarPolicy):
+            policy = calendar_policy
+        else:
+            try:
+                policy = CalendarPolicy.model_validate(calendar_policy)
+            except ValidationError as exc:
+                raise CalendarPolicyError(
+                    message="calendar_policy is invalid",
+                    details={
+                        "kind": "CalendarPolicyInvalid",
+                        "validation_errors": exc.errors(),
+                    },
+                ) from exc
+        loaded_calendar = session.calendars.get(calendar_name)
+        session_tz = str(session.tz)
+        if loaded_calendar.timezone != session_tz:
+            raise CalendarPolicyError(
+                message="calendar timezone must match session timezone",
+                details={
+                    "kind": "CalendarTimezoneMismatch",
+                    "calendar_name": calendar_name,
+                    "calendar_timezone": loaded_calendar.timezone,
+                    "session_timezone": session_tz,
+                },
+            )
+        a_df = a.to_pandas()
+        b_df = b.to_pandas()
+        time_column = _time_axis_column(a)
+        b_time_column = _time_axis_column(b)
+        if b_time_column != time_column:
+            raise AlignmentFailedError(
+                message="compare align='calendar' requires matching time axis columns",
+                details={
+                    "kind": "CalendarAlignTimeAxisMismatch",
+                    "source_time_column": time_column,
+                    "baseline_time_column": b_time_column,
+                },
+            )
+        value_column = _value_column(a, a_df, time_column=time_column)
+        _require_calendar_columns(a_df, frame_label="a", columns=(time_column, value_column))
+        _require_calendar_columns(b_df, frame_label="b", columns=(time_column, value_column))
+        df, info = align_calendar_frames(
+            a_df,
+            b_df,
+            time_column=time_column,
+            value_column=value_column,
+            calendar=loaded_calendar,
+            policy=policy,
+            session_tz=session_tz,
+        )
+        calendar_info = info.model_dump(mode="json")
+        calendar_policy_params = policy.model_dump(mode="json")
+    else:
+        df = _align_and_compute(a.to_pandas(), b.to_pandas(), align=align)
     if df.empty:
         raise AlignmentFailedError(message=f"alignment '{align}' produced no rows")
     finished_at = datetime.now(UTC)
@@ -106,6 +197,8 @@ def compare(
         "source_a_ref": a.ref,
         "source_b_ref": b.ref,
         "align": align,
+        "calendar_name": calendar_name,
+        "calendar_policy": calendar_policy_params,
         "compare_type": compare_type,
     }
     digest = f"sha256:{hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()}"
@@ -133,7 +226,7 @@ def compare(
         source_b_ref=b.ref,
         compare_type=compare_type,
         align=align,
-        calendar_info=None,
+        calendar_info=calendar_info,
         semantic_kind=a.meta.semantic_kind,
         semantic_model=a.meta.semantic_model,
     )
@@ -158,6 +251,86 @@ def compare(
         },
     )
     return output_frame
+
+
+def _time_axis_column(frame: MetricFrame) -> str:
+    for axis in frame.meta.axes.values():
+        if not isinstance(axis, dict):
+            continue
+        if axis.get("role") != "time":
+            continue
+        column = axis.get("column")
+        if isinstance(column, str) and column:
+            return column
+    raise AlignmentFailedError(
+        message="time axis column is required for align='calendar'",
+        details={"kind": "NoTimeAxis"},
+    )
+
+
+def _resolve_calendar_name(*, calendar: str | None, default_calendar: str | None) -> str:
+    if calendar is not None:
+        if not calendar.strip():
+            raise CalendarPolicyError(
+                message="compare align='calendar' requires non-empty calendar name",
+                details={
+                    "kind": "CalendarNameInvalid",
+                    "calendar_name": calendar,
+                    "reason": "empty",
+                },
+            )
+        return calendar
+    if default_calendar is None or not default_calendar.strip():
+        raise CalendarPolicyError(
+            message="compare align='calendar' requires calendar name",
+            details={"kind": "CalendarNotSpecified"},
+        )
+    return default_calendar
+
+
+def _value_column(frame: MetricFrame, df: pd.DataFrame, *, time_column: str) -> str:
+    non_time_columns = [str(column) for column in df.columns if str(column) != time_column]
+    measure_name = frame.meta.measure.get("name")
+    if (
+        isinstance(measure_name, str)
+        and measure_name
+        and measure_name != time_column
+        and measure_name in df.columns
+    ):
+        return measure_name
+    if len(non_time_columns) == 1:
+        return non_time_columns[0]
+    if not non_time_columns:
+        raise AlignmentFailedError(
+            message="compare align='calendar' requires at least one value column",
+            details={"kind": "CalendarAlignValueColumnMissing", "time_column": time_column},
+        )
+    raise AlignmentFailedError(
+        message="compare align='calendar' requires exactly one value column",
+        details={
+            "kind": "CalendarAlignValueColumnAmbiguous",
+            "time_column": time_column,
+            "value_candidates": non_time_columns,
+            "measure_name": measure_name if isinstance(measure_name, str) else None,
+        },
+    )
+
+
+def _require_calendar_columns(
+    df: pd.DataFrame, *, frame_label: str, columns: tuple[str, ...]
+) -> None:
+    missing_columns = [column for column in columns if column not in df.columns]
+    if not missing_columns:
+        return
+    raise AlignmentFailedError(
+        message=f"compare align='calendar' frame '{frame_label}' is missing required columns",
+        details={
+            "kind": "CalendarAlignColumnMissing",
+            "frame": frame_label,
+            "missing_columns": missing_columns,
+            "available_columns": [str(column) for column in df.columns],
+        },
+    )
 
 
 def _align_and_compute(a_df: pd.DataFrame, b_df: pd.DataFrame, *, align: str) -> pd.DataFrame:
