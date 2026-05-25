@@ -440,7 +440,7 @@ agent 在新增或修改语义前应先运行确定性的 check 或读取当前 
 import marivo.analysis_py as mv
 
 session = mv.session.active_or_create("revenue-investigation")
-frame = mv.observe("sales.revenue", session=session)
+frame = mv.observe(mv.MetricRef("sales.revenue"), session=session)
 print(frame.summary())
 ```
 
