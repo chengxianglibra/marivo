@@ -258,3 +258,91 @@ class SessionStateError(AnalysisError): ...
 
 
 class SemanticProjectNotReadyError(AnalysisError): ...
+
+
+class DimensionFieldNotFoundError(SemanticKindMismatchError):
+    def _template_fields(self) -> dict[str, str]:
+        dim = self.details.get("dimension_id")
+        datasets = self.details.get("searched_datasets")
+        dim_ref = dim if isinstance(dim, str) and dim else "<dimension>"
+        dataset_list = (
+            ", ".join(datasets) if isinstance(datasets, list) and datasets else "<datasets>"
+        )
+        return {
+            "location": "mv.observe dimensions argument",
+            "cause": (
+                f"DimensionRef({dim_ref!r}) is not a field on any of the metric's "
+                f"datasets ({dataset_list})."
+            ),
+            "fix_snippet": (
+                "import marivo.semantic_py as ms\n"
+                "project = ms.find_project()\n"
+                "project.load()\n"
+                "project.list_fields()  # confirm available fields per dataset\n"
+                'mv.observe(mv.MetricRef("sales.revenue"), '
+                'dimensions=[mv.DimensionRef("<existing_field>")])'
+            ),
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class AmbiguousDimensionError(SemanticKindMismatchError):
+    def _template_fields(self) -> dict[str, str]:
+        dim = self.details.get("dimension_id")
+        candidates = self.details.get("candidates")
+        dim_ref = dim if isinstance(dim, str) and dim else "<dimension>"
+        candidate_list = (
+            ", ".join(candidates) if isinstance(candidates, list) and candidates else "<candidates>"
+        )
+        return {
+            "location": "mv.observe dimensions argument",
+            "cause": (
+                f"DimensionRef({dim_ref!r}) matches multiple datasets ({candidate_list}); "
+                "v1 requires unique dimension names across a metric's datasets."
+            ),
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class DimensionAcrossDatasetsError(SemanticKindMismatchError):
+    def _template_fields(self) -> dict[str, str]:
+        mapping = self.details.get("dimensions_by_dataset")
+        return {
+            "location": "mv.observe dimensions argument",
+            "cause": (
+                "all dimensions must resolve to the same dataset in v1; "
+                f"got dimensions_by_dataset={mapping!r}."
+            ),
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class AxisNotInPanelDimensionsError(SemanticKindMismatchError):
+    def _template_fields(self) -> dict[str, str]:
+        axis = self.details.get("axis")
+        available = self.details.get("available_dimensions")
+        axis_ref = axis if isinstance(axis, str) and axis else "<axis>"
+        available_list = (
+            ", ".join(available) if isinstance(available, list) and available else "<dimensions>"
+        )
+        return {
+            "location": "mv.decompose axis argument",
+            "cause": (
+                f"axis={axis_ref!r} is not in the panel frame dimensions "
+                f"({available_list}); decompose requires axis to be one of the frame's "
+                "segment dimensions."
+            ),
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class PanelGrainMismatchError(AlignmentFailedError):
+    pass
+
+
+class SegmentDimensionMismatchError(AlignmentFailedError):
+    pass
+
+
+class AlignmentPolicyNotApplicableError(AlignmentFailedError):
+    pass

@@ -6,12 +6,16 @@ import hashlib
 import json
 import secrets
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, Literal, cast
 
 from marivo.analysis_py.errors import (
+    AmbiguousDimensionError,
     CrossBackendMetricError,
+    DimensionAcrossDatasetsError,
+    DimensionFieldNotFoundError,
     MetricNotFoundError,
     MetricShapeUnsupportedError,
     SemanticKindMismatchError,
@@ -26,7 +30,7 @@ from marivo.analysis_py.executor.runner import (
 )
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.lineage import Lineage, LineageStep
-from marivo.analysis_py.refs import MetricRef
+from marivo.analysis_py.refs import DimensionRef, MetricRef
 from marivo.analysis_py.session.attach import active as session_active
 from marivo.analysis_py.session.core import Session, ensure_session_writable
 from marivo.analysis_py.session.persistence import (
@@ -131,12 +135,14 @@ def _build_dataset_adapter(
         def _default_field_fn(table: Any, *, _sid: str = _captured_field_sid) -> Any:
             raise RuntimeError(f"No sidecar callable for field {_sid!r}")
 
-        field_adapters[field_ir.name] = _FieldIRAdapter(
+        adapter = _FieldIRAdapter(
             name=field_ir.name,
             dataset_name=dataset_ir.name,
             fn=field_fn if field_fn is not None else _default_field_fn,
             is_time=False,
         )
+        field_adapters[field_ir.name] = adapter
+        field_adapters[field_ir.semantic_id] = adapter
 
     # Add time fields
     for tf_ir in sp.list_time_fields(dataset=dataset_ir.semantic_id):
@@ -152,13 +158,15 @@ def _build_dataset_adapter(
             format=None,
             required_prefix=tf_ir.required_prefix,
         )
-        field_adapters[tf_ir.name] = _FieldIRAdapter(
+        adapter = _FieldIRAdapter(
             name=tf_ir.name,
             dataset_name=dataset_ir.name,
             fn=tf_fn if tf_fn is not None else _default_tf_fn,
             is_time=True,
             time_meta=time_meta,
         )
+        field_adapters[tf_ir.name] = adapter
+        field_adapters[tf_ir.semantic_id] = adapter
 
     return _DatasetIRAdapter(
         name=dataset_ir.name,
@@ -197,10 +205,124 @@ def _resolve_window(
     return resolved, window_in, as_of_dt.isoformat()
 
 
+def _validate_dimension_refs(dimensions: list[Any] | None) -> list[DimensionRef]:
+    if dimensions is None:
+        return []
+    if len(dimensions) == 0:
+        raise SemanticKindMismatchError(
+            message="observe dimensions must be omitted or contain at least one DimensionRef",
+            details={
+                "expected_kind": "list[DimensionRef] | None",
+                "got_kind": "list[]",
+            },
+        )
+
+    validated: list[DimensionRef] = []
+    seen: set[str] = set()
+    duplicate_ids: set[str] = set()
+    for dimension in dimensions:
+        if not isinstance(dimension, DimensionRef):
+            raise SemanticKindMismatchError(
+                message="observe dimensions requires DimensionRef entries",
+                details={
+                    "expected_kind": "DimensionRef",
+                    "got_kind": type(dimension).__name__,
+                },
+            )
+        if dimension.id in seen:
+            duplicate_ids.add(dimension.id)
+        seen.add(dimension.id)
+        validated.append(dimension)
+    if duplicate_ids:
+        raise SemanticKindMismatchError(
+            message="observe dimensions must not contain duplicate DimensionRef ids",
+            details={
+                "expected_kind": "unique DimensionRef ids",
+                "got_kind": "duplicate DimensionRef ids",
+                "duplicate_dimensions": sorted(duplicate_ids),
+            },
+        )
+    return validated
+
+
+def _resolve_dimensions(
+    dimensions: list[Any] | None, *, dataset_irs: dict[str, Any]
+) -> list[tuple[str, Any]]:
+    dimension_refs = _validate_dimension_refs(dimensions)
+    resolved: list[tuple[str, Any]] = []
+    for dimension in dimension_refs:
+        matches = [
+            (dataset_name, dataset_ir.fields[dimension.id])
+            for dataset_name, dataset_ir in dataset_irs.items()
+            if dimension.id in dataset_ir.fields
+        ]
+        if not matches:
+            raise DimensionFieldNotFoundError(
+                message=f"dimension '{dimension.id}' not found",
+                details={
+                    "dimension_id": dimension.id,
+                    "searched_datasets": sorted(dataset_irs),
+                },
+            )
+        if len(matches) > 1:
+            raise AmbiguousDimensionError(
+                message=f"dimension '{dimension.id}' is ambiguous",
+                details={
+                    "dimension_id": dimension.id,
+                    "candidates": sorted(
+                        f"{dataset_name}.{field_ir.name}" for dataset_name, field_ir in matches
+                    ),
+                },
+            )
+        resolved.append(matches[0])
+
+    dimensions_by_dataset: dict[str, list[str]] = {}
+    for dataset_name, field_ir in resolved:
+        dimensions_by_dataset.setdefault(dataset_name, []).append(field_ir.name)
+    if len(dimensions_by_dataset) > 1:
+        raise DimensionAcrossDatasetsError(
+            message="observe dimensions must resolve to one dataset",
+            details={"dimensions_by_dataset": dimensions_by_dataset},
+        )
+    return resolved
+
+
+def _dump_dimensions(dimensions: list[DimensionRef] | None) -> list[dict[str, Any]] | None:
+    if dimensions is None:
+        return None
+    return [dimension.model_dump(mode="json") for dimension in dimensions]
+
+
+def _datasource_cache_key(datasource_semantic_id: str) -> str:
+    return (
+        datasource_semantic_id.rsplit(".", 1)[-1]
+        if "." in datasource_semantic_id
+        else datasource_semantic_id
+    )
+
+
+def _backend_for_datasource(session: Session, datasource_semantic_id: str) -> tuple[str, Any]:
+    try:
+        return datasource_semantic_id, session.backend_cache.get_or_create(datasource_semantic_id)
+    except KeyError:
+        short_name = _datasource_cache_key(datasource_semantic_id)
+        return short_name, session.backend_cache.get_or_create(short_name)
+
+
+def _call_metric(
+    metric_fn: Callable[..., Any],
+    *,
+    metric_datasets: tuple[str, ...],
+    dataset_tables: dict[str, Any],
+) -> Any:
+    return metric_fn(*(dataset_tables[dataset_name] for dataset_name in metric_datasets))
+
+
 def observe(
     metric: MetricRef,
     *,
     window: WindowInput = None,
+    dimensions: list[DimensionRef] | None = None,
     slice: dict[str, Any] | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
@@ -247,13 +369,13 @@ def observe(
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    dataset_tables: dict[str, Any] = {}  # keyed by semantic_id
-    dataset_tables_short: dict[str, Any] = {}  # keyed by short name (for metric fn kwargs)
-    dataset_adapters: dict[str, _DatasetIRAdapter] = {}
+    dataset_tables: dict[str, Any] = {}
+    dataset_irs: dict[str, _DatasetIRAdapter] = {}
     primary_datasource: str | None = None
     stored_slice = normalize_slice_for_storage(slice)
     metric_datasets = tuple(metric_ir.datasets)
-    if is_time_series and len(metric_datasets) > 1:
+    dimension_refs = _validate_dimension_refs(dimensions)
+    if is_time_series and not dimension_refs and len(metric_datasets) > 1:
         raise MetricShapeUnsupportedError(
             message=(
                 f"windowed time_series observe does not support multi-dataset metric '{metric_id}'"
@@ -272,23 +394,29 @@ def observe(
                 message=f"dataset '{dataset_name}' not found for metric '{metric_id}'",
                 details={"dataset": dataset_name},
             )
-        # Build adapter that bridges v1.1 IR to the shape runner.py expects
-        ds_adapter = _build_dataset_adapter(sp, dataset_ir)
-        # In v1.1, datasource is the full semantic_id (e.g. "sales.warehouse");
-        # the backend_cache keys match the short name passed in backends={}
-        datasource_semantic_id = ds_adapter.datasource_name
-        datasource_short = (
-            datasource_semantic_id.rsplit(".", 1)[-1]
-            if "." in datasource_semantic_id
-            else datasource_semantic_id
+        dataset_irs[dataset_name] = _build_dataset_adapter(sp, dataset_ir)
+
+    resolved_dimensions = _resolve_dimensions(dimensions, dataset_irs=dataset_irs)
+    if resolved_dimensions and len(metric_datasets) > 1:
+        raise MetricShapeUnsupportedError(
+            message=(f"segmented observe does not support multi-dataset metric '{metric_id}'"),
+            details={
+                "kind": "SegmentedMultiDatasetUnsupported",
+                "metric": metric_id,
+                "datasets": sorted(metric_datasets),
+                "dimensions": _dump_dimensions(dimensions),
+            },
         )
+
+    for dataset_name in metric_datasets:
+        ds_adapter = dataset_irs[dataset_name]
+        datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
         if primary_datasource is None:
-            primary_datasource = datasource_short
-        elif primary_datasource != datasource_short:
+            primary_datasource = datasource_name
+        elif primary_datasource != datasource_name:
             raise CrossBackendMetricError(
                 message=f"metric '{metric_id}' spans multiple datasources; v1 does not support it",
             )
-        backend = session.backend_cache.get_or_create(datasource_short)
         table = ds_adapter.fn(backend)
         table = apply_slice_to_dataset(table, slice, dataset_ir=ds_adapter)
         table = apply_window_to_dataset(
@@ -298,11 +426,7 @@ def observe(
             session_tz=session.tz,
         )
         dataset_tables[dataset_name] = table
-        # Short name for metric function kwargs (e.g. "orders" from "sales.orders")
-        short_name = dataset_name.rsplit(".", 1)[-1] if "." in dataset_name else dataset_name
-        dataset_tables_short[short_name] = table
-        dataset_adapters[dataset_name] = ds_adapter
-        session.known_datasources.add(datasource_short)
+        session.known_datasources.add(datasource_name)
     _persist_known_datasources(session)
 
     if primary_datasource is None:
@@ -310,9 +434,57 @@ def observe(
 
     axes: dict[str, Any] = {}
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "scalar"
-    if is_time_series and resolved_window is not None:
+    if is_time_series and resolved_window is not None and resolved_dimensions:
         dataset_name = metric_datasets[0]
-        ds_adapter = dataset_adapters[dataset_name]
+        ds_adapter = dataset_irs[dataset_name]
+        time_field_ir = resolve_window_time_field(ds_adapter, window=resolved_window)
+        bucketed_table = apply_time_series_bucket(
+            dataset_tables[dataset_name],
+            field_ir=time_field_ir,
+            window=resolved_window,
+            session_tz=session.tz,
+        )
+        dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
+        dimension_exprs = {
+            field_ir.name: field_ir.fn(bucketed_table).name(field_ir.name)
+            for _, field_ir in resolved_dimensions
+        }
+        bucketed_table = bucketed_table.mutate(**dimension_exprs)
+        dataset_tables[dataset_name] = bucketed_table
+        metric_expr = _call_metric(
+            metric_fn,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
+        )
+        group_names = ["bucket_start", *dimension_names]
+        grouped_expr = (
+            bucketed_table.group_by(group_names)
+            .aggregate(**{metric_name: metric_expr})
+            .order_by(group_names)
+            .select(*group_names, metric_name)
+        )
+        result = execute(
+            grouped_expr, datasource_name=primary_datasource, cache=session.backend_cache
+        )
+        if resolved_window.grain == "day" and "bucket_start" in result.df:
+            with suppress(AttributeError):
+                result.df["bucket_start"] = result.df["bucket_start"].dt.date
+        axes = {
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": resolved_window.grain,
+                "time_field": time_field_ir.name,
+            },
+            **{
+                field_ir.name: {"role": "dimension", "column": field_ir.name}
+                for _, field_ir in resolved_dimensions
+            },
+        }
+        semantic_kind = "panel"
+    elif is_time_series and resolved_window is not None:
+        dataset_name = metric_datasets[0]
+        ds_adapter = dataset_irs[dataset_name]
         time_field_ir = resolve_window_time_field(ds_adapter, window=resolved_window)
         bucketed_table = apply_time_series_bucket(
             dataset_tables[dataset_name],
@@ -321,9 +493,11 @@ def observe(
             session_tz=session.tz,
         )
         dataset_tables[dataset_name] = bucketed_table
-        ds_short_name = dataset_name.rsplit(".", 1)[-1] if "." in dataset_name else dataset_name
-        dataset_tables_short[ds_short_name] = bucketed_table
-        metric_expr = metric_fn(**dataset_tables_short)
+        metric_expr = _call_metric(
+            metric_fn,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
+        )
         grouped_expr = (
             bucketed_table.group_by("bucket_start")
             .aggregate(**{metric_name: metric_expr})
@@ -342,8 +516,41 @@ def observe(
             }
         }
         semantic_kind = "time_series"
+    elif resolved_dimensions:
+        dataset_name = resolved_dimensions[0][0]
+        table = dataset_tables[dataset_name]
+        dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
+        dimension_exprs = {
+            field_ir.name: field_ir.fn(table).name(field_ir.name)
+            for _, field_ir in resolved_dimensions
+        }
+        table = table.mutate(**dimension_exprs)
+        dataset_tables[dataset_name] = table
+        metric_expr = _call_metric(
+            metric_fn,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
+        )
+        grouped_expr = (
+            table.group_by(dimension_names)
+            .aggregate(**{metric_name: metric_expr})
+            .order_by(dimension_names)
+            .select(*dimension_names, metric_name)
+        )
+        result = execute(
+            grouped_expr, datasource_name=primary_datasource, cache=session.backend_cache
+        )
+        axes = {
+            field_ir.name: {"role": "dimension", "column": field_ir.name}
+            for _, field_ir in resolved_dimensions
+        }
+        semantic_kind = "segmented"
     else:
-        metric_expr = metric_fn(**dataset_tables_short)
+        metric_expr = _call_metric(
+            metric_fn,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
+        )
         result = execute(
             metric_expr, datasource_name=primary_datasource, cache=session.backend_cache
         )
@@ -359,7 +566,12 @@ def observe(
             "as_of_resolved": as_of_resolved,
             "session_tz": str(session.tz),
         }
-    params = {"metric": metric_id, "window": params_window, "slice": stored_slice}
+    params = {
+        "metric": metric_id,
+        "window": params_window,
+        "dimensions": _dump_dimensions(dimensions),
+        "slice": stored_slice,
+    }
     meta = MetricFrameMeta(
         kind="metric_frame",
         ref=frame_ref,
