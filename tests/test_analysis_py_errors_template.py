@@ -206,7 +206,7 @@ def test_no_backend_factory_default_template_fields_populated() -> None:
     assert "datasource='tiny_orders' returned None or a non-ibis object" in rendered
     assert "mv.profiles.set" in rendered
     assert "@ms.datasource" in rendered
-    assert "相关文档: marivo-skill/marivo-py-analysis/references/profiles.md" in rendered
+    assert "相关文档: marivo-skill/marivo-py-semantic/references/datasource.md" in rendered
 
 
 def test_no_backend_factory_without_details_uses_session_backend_template() -> None:
@@ -227,4 +227,4 @@ def test_no_backend_factory_without_details_uses_session_backend_template() -> N
     assert "mv.session.attach" in rendered
     assert "mv.profiles.set" in rendered
     assert "backend_factory=" in rendered
-    assert "相关文档: marivo-skill/marivo-py-analysis/references/profiles.md" in rendered
+    assert "相关文档: marivo-skill/marivo-py-semantic/references/datasource.md" in rendered

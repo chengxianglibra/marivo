@@ -210,11 +210,11 @@ def test_missing_metric_ref_in_decomposition() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Hour time field without required_prefix
+# Hour time field required_prefix validation
 # ---------------------------------------------------------------------------
 
 
-def test_hour_time_field_without_required_prefix() -> None:
+def test_timestamp_hour_time_field_without_required_prefix() -> None:
     registry = _make_registry()
     registry.fields["sales.order_hour"] = FieldIR(
         semantic_id="sales.order_hour",
@@ -226,12 +226,54 @@ def test_hour_time_field_without_required_prefix() -> None:
         is_time_field=True,
         data_type="timestamp",
         granularity="hour",
-        required_prefix=None,  # Missing!
+        required_prefix=None,
         python_symbol="order_hour",
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
+    assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+
+
+def test_hour_only_string_time_field_without_required_prefix() -> None:
+    registry = _make_registry()
+    registry.fields["sales.order_hour"] = FieldIR(
+        semantic_id="sales.order_hour",
+        model="sales",
+        dataset="sales.orders",
+        name="order_hour",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="string",
+        granularity="hour",
+        required_prefix=None,
+        python_symbol="order_hour",
+        location=_LOC,
+        format="hh",
+    )
+    errors, _warnings = assembly_validate(registry)
     assert any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+
+
+def test_complete_hour_string_time_field_without_required_prefix() -> None:
+    registry = _make_registry()
+    registry.fields["sales.order_hour"] = FieldIR(
+        semantic_id="sales.order_hour",
+        model="sales",
+        dataset="sales.orders",
+        name="order_hour",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="string",
+        granularity="hour",
+        required_prefix=None,
+        python_symbol="order_hour",
+        location=_LOC,
+        format="yyyymmddhh",
+    )
+    errors, _warnings = assembly_validate(registry)
+    assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
 
 
 def test_hour_time_field_with_required_prefix_ok() -> None:
@@ -269,6 +311,30 @@ def test_hour_time_field_with_invalid_prefix() -> None:
         required_prefix="sales.nonexistent_date",  # Not in registry
         python_symbol="order_hour",
         location=_LOC,
+    )
+    errors, _warnings = assembly_validate(registry)
+    assert any(
+        e.kind == ErrorKind.MISSING_FIELD_REF and "sales.order_hour" in e.semantic_refs
+        for e in errors
+    )
+
+
+def test_hour_time_field_prefix_must_reference_time_field() -> None:
+    registry = _make_registry()
+    registry.fields["sales.order_hour"] = FieldIR(
+        semantic_id="sales.order_hour",
+        model="sales",
+        dataset="sales.orders",
+        name="order_hour",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="string",
+        granularity="hour",
+        required_prefix="sales.amount",
+        python_symbol="order_hour",
+        location=_LOC,
+        format="hh",
     )
     errors, _warnings = assembly_validate(registry)
     assert any(
@@ -691,14 +757,15 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
 
 
 def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> None:
-    """Hour time field without required_prefix should fail via loader."""
+    """Hour-only string time field without required_prefix should fail via loader."""
     fields_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
         @ms.time_field(
             dataset="sales.orders",
-            data_type="timestamp",
+            data_type="string",
             granularity="hour",
+            format="hh",
         )
         def order_hour(table):
             return table.order_hour

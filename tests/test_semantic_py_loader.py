@@ -416,6 +416,85 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     assert "sales.revenue" in reg.metrics
 
 
+def test_relative_import_between_model_files(semantic_project_factory) -> None:
+    """Sibling model files can import decorated refs with relative imports."""
+    datasource_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="wh", backend_type="duckdb")
+    """)
+    dataset_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.dataset(datasource="sales.wh")
+        def query_info(backend):
+            return backend.table("query_info")
+    """)
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        from .dataset import query_info
+
+        @ms.metric(datasets=[query_info], decomposition=ms.sum())
+        def total_query_count(table):
+            return table.query_count.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasource.py": datasource_py,
+            "sales/dataset.py": dataset_py,
+            "sales/metrics.py": metrics_py,
+        }
+    )
+    assert project.is_ready()
+    reg = project.registry()
+    assert reg is not None
+    assert "sales.query_info" in reg.datasets
+    assert "sales.total_query_count" in reg.metrics
+
+
+def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> None:
+    """Reload should not reuse stale modules imported by sibling relative imports."""
+    datasource_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="wh", backend_type="duckdb")
+    """)
+    dataset_v1 = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.dataset(datasource="sales.wh")
+        def query_info(backend):
+            return backend.table("query_info")
+    """)
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        from .dataset import query_info
+
+        @ms.metric(datasets=[query_info], decomposition=ms.sum())
+        def total_query_count(table):
+            return table.query_count.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasource.py": datasource_py,
+            "sales/dataset.py": dataset_v1,
+            "sales/metrics.py": metrics_py,
+        }
+    )
+    assert project.is_ready()
+
+    dataset_v2 = dataset_v1.replace("def query_info", "def query_log")
+    from pathlib import Path
+
+    root = Path(project.root)
+    (root / "sales" / "dataset.py").write_text(dataset_v2)
+
+    result = project.reload()
+
+    assert result.status == "errored"
+    assert any("query_info" in err.message for err in result.errors)
+
+
 def test_cross_file_missing_dataset_ref(semantic_project_factory) -> None:
     """Metric referencing a dataset that doesn't exist should error."""
     metrics_py = textwrap.dedent("""\

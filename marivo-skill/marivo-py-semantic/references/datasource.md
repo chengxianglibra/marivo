@@ -1,128 +1,36 @@
 # marivo-py-semantic datasource reference
 
-Use this reference when semantic authoring needs a datasource but the prompt
-does not provide enough information to declare one safely.
+Use this reference when declaring or repairing `ms.datasource(...)` in a
+Python semantic model.
 
-## When to Ask the User
+## Core Rule
 
-Ask for datasource information before writing or repairing the semantic model
-when:
+A semantic model may reference only datasources that already have a matching
+profile. Check `mv.profiles.list()` before editing the model:
 
-- a new dataset is being declared and no datasource is named
-- a dataset points at a datasource that is not declared in the model
-- the user gives only a table name, SQL snippet, or metric idea
-- materialization or analysis fails because no backend factory is available
-- the backend type, schema, table, or column inventory is ambiguous
+- if the profile exists, reuse its name in `ms.datasource(name=...)`;
+- if the profile is missing, create it with `mv.profiles.set(...)` before
+  declaring datasets, fields, or metrics;
+- never ask for column structure when the backend is reachable; connect with
+  ibis, fetch schema, and query metadata comments first.
 
-Do not infer the datasource from field names or from the business question. A
-datasource is execution grounding, not a metric definition.
+The semantic file stores datasource identity only. Connection metadata,
+credentials, and profile fields never go into `.marivo/semantic/*.py`.
 
-## Minimum Information to Collect
+## Semantic Datasource Definition
 
-Collect the smallest set needed to declare the semantic object and let runtime
-code provide the actual connection:
-
-- stable datasource name for semantic refs, such as `warehouse`
-- `backend_type`, such as `duckdb`, `trino`, or `mysql`
-- physical relation identity: file/path for DuckDB, or catalog/schema/table for
-  warehouse engines such as Trino
-- key columns, time columns, measure columns, and descriptor columns needed by
-  the dataset and downstream metrics
-- where the project already resolves a live Ibis backend, such as a
-  `backend_factory`, environment-managed connection, or existing analysis setup
-
-Never ask the user to paste credentials into a semantic model. The semantic
-file only declares datasource identity (`name`, `backend_type`). The actual
-connection lives in the user-scope profile registry at
-`~/.marivo/profiles/profiles.json`, written via `mv.profiles.set(...)` from
-`marivo.analysis_py`. Sensitive fields go through `*_env` references and are
-read from `os.environ` at backend-build time. See
-[`marivo-py-analysis/references/profiles.md`](../../marivo-py-analysis/references/profiles.md)
-for the full registry contract.
-
-## Semantic Declaration Rule
-
-`ms.datasource(...)` is a top-level metadata declaration. It records datasource
-identity and backend type; it does not open a connection, store a DSN, create a
-pool, or hold credentials.
+`ms.datasource(...)` is a top-level metadata declaration. It records the stable
+semantic name and backend type that datasets bind to.
 
 ```python
 import marivo.semantic_py as ms
 
 ms.model(name="sales")
+
 warehouse = ms.datasource(
     name="warehouse",
     backend_type="trino",
     description="Production analytics warehouse.",
-)
-```
-
-Datasets bind to the datasource ref and use the backend passed by
-materialization or analysis:
-
-```python
-@ms.dataset(name="orders", datasource=warehouse, primary_key=["order_id"])
-def orders(backend):
-    return backend.table("orders")
-```
-
-The caller that executes or materializes the model must provide the live Ibis
-backend:
-
-```python
-expr = project.materialize_metric(
-    "sales.revenue",
-    backend_factory=lambda datasource_name: live_backend_for(datasource_name),
-)
-```
-
-## DuckDB Example
-
-Use DuckDB for local files, local development, and small reproducible examples.
-The semantic file names the datasource and the table; test or analysis code owns
-the actual `ibis.duckdb.connect(...)` call.
-
-```python
-import marivo.semantic_py as ms
-
-ms.model(name="sales")
-
-local_warehouse = ms.datasource(
-    name="local_warehouse",
-    backend_type="duckdb",
-    description="Local DuckDB fixture for sales examples.",
-)
-
-@ms.dataset(name="orders", datasource=local_warehouse, primary_key=["order_id"])
-def orders(backend):
-    return backend.table("orders")
-```
-
-Ask the user for:
-
-- the DuckDB file path, or confirmation that the example should use `:memory:`
-- the table name visible to DuckDB
-- primary key, time field, dimensions, and measures to expose semantically
-
-Keep the file path in the execution setup when possible. If a local example
-must mention a path, keep it in example/test code rather than in
-`ms.datasource(...)`.
-
-## Trino Example
-
-Use Trino for production warehouse relations where table identity normally
-includes catalog, schema, and table. The semantic model should describe that
-identity without embedding hostnames, tokens, usernames, or passwords.
-
-```python
-import marivo.semantic_py as ms
-
-ms.model(name="sales")
-
-warehouse = ms.datasource(
-    name="warehouse",
-    backend_type="trino",
-    description="Production Trino warehouse.",
 )
 
 @ms.dataset(name="orders", datasource=warehouse, primary_key=["order_id"])
@@ -130,37 +38,184 @@ def orders(backend):
     return backend.table("orders", database=("hive", "sales_mart"))
 ```
 
-Ask the user for:
+Rules:
 
-- semantic datasource name, usually a stable alias such as `warehouse`
-- Trino catalog, schema, and table
-- project-approved connection setup or backend factory name
-- key, time, dimension, and measure columns confirmed from live metadata
+- `name` must match an existing profile name.
+- `backend_type` must match the profile backend type.
+- Dataset functions receive the live ibis backend from the runtime/session.
+- Table identity belongs in dataset materialization (`backend.table(...)`), not
+  in `ms.datasource(...)`.
 
-If the user gives a Trino DSN or credentials, do not copy them into the semantic
-file. Use the project runtime/configuration boundary for the live connection and
-keep the semantic declaration limited to `name=`, `backend_type=`, description,
-and dataset table selection.
+## Profile Definition
 
-## Prompt to User When Information Is Missing
+Profiles are user-scope runtime connection records managed by
+`marivo.analysis_py`:
 
-Use a concise request like this:
+```python
+import marivo.analysis_py as mv
 
-```text
-I need datasource grounding before declaring the dataset. Please provide:
-1. backend type (duckdb, trino, mysql, etc.)
-2. stable datasource alias to use in semantic refs
-3. physical table identity (DuckDB table/path, or Trino catalog.schema.table)
-4. primary key, time column, and measure/dimension columns to model
-5. connection metadata for the profile registry (host, port, user, catalog/schema;
-   for any password/token, the env var name only — never the literal)
+mv.profiles.set(
+    "warehouse",
+    backend_type="trino",
+    host="trino.example.internal",
+    port=8080,
+    user="analytics",
+    catalog="hive",
+    schema="sales_mart",
+    password_env="WAREHOUSE_PWD",
+)
 ```
 
-Stop and ask instead of writing a guessed datasource when any of these fields
-would change semantic ids, physical grounding, or execution behavior.
+Use `mv.profiles.set(...)` when:
 
-After the user supplies the connection metadata, persist it once via
-`mv.profiles.set(...)` from `marivo.analysis_py` so future sessions reuse it
-without re-prompting. Sensitive fields go via `<field>_env="VAR_NAME"`. The
-detailed contract lives in
-[`marivo-py-analysis/references/profiles.md`](../../marivo-py-analysis/references/profiles.md).
+- `mv.profiles.list()` has no matching profile for the semantic datasource;
+- the profile exists but points at the wrong backend type or physical source;
+- `mv.profiles.test(name)` cannot open the backend.
+
+Sensitive values must use `*_env` fields such as `password_env`; never store a
+literal password, token, key, or secret. After setting a profile, test it and
+use ibis metadata before modeling:
+
+```python
+mv.profiles.test("warehouse")
+backend = mv.profiles.build_backend("warehouse")
+table = backend.table("orders", database=("hive", "sales_mart"))
+schema = table.schema()
+```
+
+`table.schema()` returns names and types, not comments. Fetch comments from the
+datasource metadata catalog before assigning semantic meaning. For time-like
+VARCHAR/string columns, preview sample values before choosing casts and
+granularity.
+
+## Required Profile Fields
+
+### DuckDB
+
+```python
+mv.profiles.set("local_warehouse", backend_type="duckdb", path="/data/warehouse.duckdb")
+```
+
+Required:
+
+- `path`: DuckDB file path, or `":memory:"` for a temporary test database.
+
+Metadata:
+
+- use `backend.table(...).schema()` for names/types;
+- use DuckDB metadata such as `PRAGMA table_info(...)` when comments or table
+  metadata are needed.
+
+### Trino
+
+```python
+mv.profiles.set(
+    "warehouse",
+    backend_type="trino",
+    host="trino.example.internal",
+    port=8080,
+    user="analytics",
+    catalog="hive",
+    schema="sales_mart",
+    http_scheme="https",
+    source="marivo-analysis",
+    client_tags=["standby", "routing_group=wide"],
+    password_env="WAREHOUSE_PWD",
+)
+```
+
+Required:
+
+- `host`
+- `port`
+- `user`
+- `catalog`
+- `schema` when the table reference does not include a schema
+- auth method fields required by the environment, using `*_env` for secrets
+
+Optional but common:
+
+- `http_scheme`
+- `source`
+- `client_tags`
+- `session_properties`
+
+Table naming:
+
+- `schema.table` is a two-part table reference; catalog is a separate profile
+  field, not part of that table name.
+- For ibis, pass catalog/schema according to the active Trino backend
+  convention used by the project, for example `database=("hive", "sales_mart")`.
+
+Metadata:
+
+- use `information_schema.columns` to fetch column comments and types;
+- preview partition/time columns such as `log_date`, `dt`, `create_time`, or
+  `hr` before deciding cast expressions.
+
+### MySQL
+
+```python
+mv.profiles.set(
+    "ops",
+    backend_type="mysql",
+    host="mysql.internal",
+    port=3306,
+    user="reporter",
+    database="analytics",
+    password_env="OPS_DB_PWD",
+)
+```
+
+Required:
+
+- `host`
+- `port`
+- `user`
+- `database`
+- auth method fields required by the environment, using `*_env` for secrets
+
+Metadata:
+
+- use `SHOW FULL COLUMNS FROM <table>` to fetch column types and comments.
+
+### Postgres
+
+```python
+mv.profiles.set(
+    "ops",
+    backend_type="postgres",
+    host="pg.internal",
+    port=5432,
+    user="reporter",
+    database="analytics",
+    schema="public",
+    password_env="OPS_DB_PWD",
+)
+```
+
+Required:
+
+- `host`
+- `port`
+- `user`
+- `database`
+- `schema` when not using the default schema
+- auth method fields required by the environment, using `*_env` for secrets
+
+Metadata:
+
+- use `information_schema.columns` or `pg_catalog` to fetch column types and
+  comments.
+
+## Ask Only When Automatic Checks Fail
+
+Ask the user only for:
+
+- missing connection parameters after checking existing profiles;
+- the Trino catalog when the user supplied only `schema.table`;
+- business intent that cannot be determined from knowledge context, column
+  comments, and sample values.
+
+Do not ask for profile existence, column names, column types, comments, or
+time/partition sample formats when the backend is reachable.

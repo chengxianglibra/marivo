@@ -169,6 +169,7 @@ class Description:
     primary_key: tuple[str, ...] | None
     granularity: str | None
     required_prefix: str | None
+    format: str | None
 
     def to_text(self) -> str:
         """Render this description as human-readable text."""
@@ -208,6 +209,8 @@ class Description:
             lines.append(f"  primary_key: {self.primary_key!r}")
         if self.granularity is not None:
             lines.append(f"  granularity: {self.granularity!r}")
+        if self.format is not None:
+            lines.append(f"  format: {self.format!r}")
         if self.required_prefix is not None:
             lines.append(f"  required_prefix: {self.required_prefix!r}")
 
@@ -956,6 +959,7 @@ class SemanticProject:
             primary_key=obj.primary_key if isinstance(obj, DatasetIR) else None,
             granularity=obj.granularity if isinstance(obj, FieldIR) else None,
             required_prefix=obj.required_prefix if isinstance(obj, FieldIR) else None,
+            format=obj.format if isinstance(obj, FieldIR) else None,
         )
 
         return desc

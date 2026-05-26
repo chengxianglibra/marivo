@@ -61,6 +61,22 @@ class Registry:
 Sidecar = dict[str, Callable[..., Any]]
 
 
+def _normalized_time_format(value: str | None) -> str | None:
+    """Normalize time format labels for validation comparisons."""
+    if value is None:
+        return None
+    return value.lower().replace("_", "").replace("-", "").replace(" ", "")
+
+
+def _requires_required_prefix(field_ir: FieldIR) -> bool:
+    """Return True for hour-only string/integer time fields."""
+    if not field_ir.is_time_field or field_ir.granularity != "hour":
+        return False
+    if field_ir.data_type not in {"string", "integer"}:
+        return False
+    return _normalized_time_format(field_ir.format) in {"h", "hh"}
+
+
 # ---------------------------------------------------------------------------
 # Layer 1: decorator-time validation
 # ---------------------------------------------------------------------------
@@ -576,28 +592,33 @@ def assembly_validate(
                     )
                 )
 
-    # -- Validate hour time_field required_prefix ----------------------------
+    # -- Validate hour-only time_field required_prefix -----------------------
     for f_id, f_ir in registry.fields.items():
-        if f_ir.is_time_field and f_ir.granularity == "hour":
-            if not f_ir.required_prefix:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING,
-                        message=f"Hour-granularity time field {f_id!r} "
-                        f"requires a required_prefix pointing to a "
-                        f"day-level time field.",
-                        refs=(f_id,),
-                    )
+        if _requires_required_prefix(f_ir) and not f_ir.required_prefix:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING,
+                    message=f"Hour-only time field {f_id!r} requires a "
+                    f"required_prefix pointing to a day-level time field.",
+                    refs=(f_id,),
                 )
-            elif f_ir.required_prefix not in registry.fields:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.MISSING_FIELD_REF,
-                        message=f"Hour time field {f_id!r} required_prefix "
-                        f"{f_ir.required_prefix!r} not found in registry.",
-                        refs=(f_id, f_ir.required_prefix),
-                    )
+            )
+        if (
+            f_ir.is_time_field
+            and f_ir.required_prefix
+            and (
+                f_ir.required_prefix not in registry.fields
+                or not registry.fields[f_ir.required_prefix].is_time_field
+            )
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.MISSING_FIELD_REF,
+                    message=f"Time field {f_id!r} required_prefix "
+                    f"{f_ir.required_prefix!r} is not a registered time field.",
+                    refs=(f_id, f_ir.required_prefix),
                 )
+            )
 
     # -- Cross-model cycle detection (basic) --------------------------------
     # Check for cycles in metric component references
