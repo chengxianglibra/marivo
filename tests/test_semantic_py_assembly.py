@@ -23,7 +23,9 @@ from marivo.semantic_py.errors import ErrorKind, WarningKind
 from marivo.semantic_py.ir import (
     AiContextIR,
     DatasetIR,
+    DatasourceAiContextIR,
     DatasourceIR,
+    DatasourceSourceLocation,
     DecompositionIR,
     FieldIR,
     MetricIR,
@@ -52,21 +54,22 @@ def _make_registry(**overrides: object) -> Registry:
         ai_context=AiContextIR(),
         location=_LOC,
     )
-    registry.datasources["sales.wh"] = DatasourceIR(
-        semantic_id="sales.wh",
-        model="sales",
+    registry.datasources["wh"] = DatasourceIR(
+        semantic_id="wh",
         name="wh",
         backend_type="duckdb",
+        fields={},
+        env_refs={},
         description=None,
-        ai_context=AiContextIR(),
+        ai_context=DatasourceAiContextIR(),
         python_symbol="wh",
-        location=_LOC,
+        location=DatasourceSourceLocation(file="<test>", line=0),
     )
     registry.datasets["sales.orders"] = DatasetIR(
         semantic_id="sales.orders",
         model="sales",
         name="orders",
-        datasource="sales.wh",
+        datasource="wh",
         primary_key=(),
         description=None,
         ai_context=AiContextIR(),
@@ -617,8 +620,15 @@ def semantic_project_factory(tmp_path):
     """Factory that creates a SemanticProject from a dict of files."""
 
     def _make(files: dict[str, str], load: bool = True) -> SemanticProject:
-        root = tmp_path / ".marivo" / "semantic"
+        marivo_root = tmp_path / ".marivo"
+        root = marivo_root / "semantic"
         root.mkdir(parents=True, exist_ok=True)
+        datasource_root = marivo_root / "datasource"
+        datasource_root.mkdir(parents=True, exist_ok=True)
+        (datasource_root / "wh.py").write_text(
+            "import marivo.datasource_py as md\n"
+            "md.datasource(name='wh', backend_type='duckdb', path=':memory:')\n"
+        )
         for rel, src in files.items():
             full = root / rel
             full.parent.mkdir(parents=True, exist_ok=True)
@@ -639,14 +649,10 @@ _MINIMAL_MODEL_PY = textwrap.dedent("""\
 
 def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     """Dataset in one file, metric referencing it in another should work."""
-    datasource_py = textwrap.dedent("""\
-        import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-    """)
     datasets_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
     """)
@@ -660,7 +666,6 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasource.py": datasource_py,
             "sales/datasets.py": datasets_py,
             "sales/metrics.py": metrics_py,
         }
@@ -694,21 +699,16 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
 
 def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
     """After loading, registry and sidecar should be populated."""
-    datasource_py = textwrap.dedent("""\
-        import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-    """)
     datasets_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
     """)
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasource.py": datasource_py,
             "sales/datasets.py": datasets_py,
         }
     )
@@ -716,7 +716,7 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
     reg = project.registry()
     assert reg is not None
     assert "sales" in reg.models
-    assert "sales.wh" in reg.datasources
+    assert "wh" in reg.datasources
     assert "sales.orders" in reg.datasets
     side = project.sidecar()
     assert side is not None
@@ -727,9 +727,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
     """LoadResult should include warnings."""
     metrics_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
 
@@ -772,16 +770,14 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
     """)
     datasource_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
     """)
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasource.py": datasource_py,
+            "sales/datasets.py": datasource_py,
             "sales/fields.py": fields_py,
         }
     )

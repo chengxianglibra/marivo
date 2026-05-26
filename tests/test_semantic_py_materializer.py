@@ -65,9 +65,7 @@ _MODEL_PY = textwrap.dedent("""\
 
 _DATASET_AND_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
@@ -82,9 +80,7 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
 
 _SQL_VIEW_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders_view(backend):
         return backend.sql("SELECT * FROM orders")
 """)
@@ -192,7 +188,7 @@ def test_backend_cache_reuses_same_backend(semantic_project_factory) -> None:
         created_backends.append((datasource_id, id(con)))
         return con
 
-    # Materialize dataset then metric — both use sales.warehouse
+    # Materialize dataset then metric — both use warehouse
     project.materialize_dataset("sales.orders", backend_factory=tracking_factory)
     project.materialize_metric("sales.total_amount", backend_factory=tracking_factory)
 
@@ -203,7 +199,7 @@ def test_backend_cache_reuses_same_backend(semantic_project_factory) -> None:
     # Second call: metric materialize -> 1 factory call (new Materializer)
     assert len(created_backends) == 2
     # Both should be for the same datasource
-    assert all(ds == "sales.warehouse" for ds, _ in created_backends)
+    assert all(ds == "warehouse" for ds, _ in created_backends)
 
 
 def test_backend_cache_within_single_materializer(semantic_project_factory) -> None:
@@ -331,14 +327,11 @@ def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend)
 
     cross_ds_model = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh1 = ms.datasource(name="warehouse1", backend_type="duckdb")
-        wh2 = ms.datasource(name="warehouse2", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh1)
+        @ms.dataset(datasource="warehouse1")
         def orders_a(backend):
             return backend.table("orders")
 
-        @ms.dataset(datasource=wh2)
+        @ms.dataset(datasource="warehouse2")
         def orders_b(backend):
             return backend.table("orders")
 
@@ -423,9 +416,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="warehouse")
         def orders(backend):
             return backend.table("orders")
 
@@ -456,9 +447,7 @@ def test_derived_metric_with_arithmetic(semantic_project_factory, backend_factor
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="warehouse")
         def orders(backend):
             return backend.table("orders")
 
@@ -489,9 +478,7 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="warehouse")
         def orders(backend):
             return backend.table("orders")
 
@@ -526,9 +513,7 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="warehouse")
         def orders(backend):
             return backend.table("orders")
 
@@ -655,13 +640,11 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
 
     multi_ds_model = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="warehouse")
         def orders(backend):
             return backend.table("orders")
 
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="warehouse")
         def orders_alias(backend):
             return backend.table("orders")
 

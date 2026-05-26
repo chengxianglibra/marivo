@@ -7,7 +7,7 @@ from typing import Any
 
 _TOP_LEVEL_ENTRIES: dict[str, str] = {
     "model": "context manager - opens a model namespace for decorator registration",
-    "datasource": "top-level call - declare a backend factory (returns DatasourceRef)",
+    "datasource": "removed - declare project datasources in .marivo/datasource/*.py",
     "dataset": "decorator - declare a dataset on top of a datasource",
     "field": "decorator - declare a non-aggregated field on a dataset",
     "time_field": "decorator - declare a time-aware field used as the calendar axis",

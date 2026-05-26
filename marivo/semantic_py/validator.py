@@ -16,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from marivo.datasource_py.ir import DatasourceIR
 from marivo.semantic_py.errors import (
     ErrorKind,
     SemanticError,
@@ -24,7 +25,6 @@ from marivo.semantic_py.errors import (
 )
 from marivo.semantic_py.ir import (
     DatasetIR,
-    DatasourceIR,
     FieldIR,
     MetricIR,
     ModelIR,
@@ -625,14 +625,8 @@ def assembly_validate(
     _detect_metric_cycles(registry, errors)
 
     # -- Warnings -----------------------------------------------------------
-    # String ref warnings: when a dataset/metric uses a string ref
-    # instead of a typed ref object.
-    # In the current v1.1, string refs are the norm (they come from
-    # cross-file references). So we produce a warning only for
-    # datasource refs that are strings (not DatasourceRef objects).
-    # All datasource refs are stored as strings in IR currently.
-    # We can't distinguish typed vs string at the IR level,
-    # so skip this warning for now.
+    # String ref warnings: datasource names are intentionally strings in the
+    # target API, and cross-file refs are common, so skip string-ref warnings.
 
     # Unverified provenance warnings
     for m_id, m_ir in registry.metrics.items():

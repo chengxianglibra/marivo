@@ -24,6 +24,20 @@ def test_create_timezone_round_trips_through_meta():
     assert meta["known_calendars"] == []
 
 
+def test_create_accepts_timezone_alias():
+    s = session_attach.create(name="demo", timezone="Asia/Shanghai")
+
+    assert s.tz == ZoneInfo("Asia/Shanghai")
+    assert read_session_meta(s.layout)["tz"] == "Asia/Shanghai"
+
+
+def test_create_rejects_conflicting_tz_and_timezone():
+    with pytest.raises(TimezoneInvalidError) as exc_info:
+        session_attach.create(name="demo", tz="UTC", timezone="Asia/Shanghai")
+
+    assert exc_info.value.details["kind"] == "TimezoneAliasConflict"
+
+
 def test_create_invalid_timezone_raises_structured_error():
     with pytest.raises(TimezoneInvalidError) as exc_info:
         session_attach.create(name="demo", tz="Mars/Olympus")

@@ -73,7 +73,9 @@ def hypothesis_test(
             details={"a": a.meta.semantic_model, "b": b.meta.semantic_model},
         )
     if a.meta.semantic_kind == "scalar":
-        raise TestShapeNotTestableError(message="scalar MetricFrame is not testable for mean_changed")
+        raise TestShapeNotTestableError(
+            message="scalar MetricFrame is not testable for mean_changed"
+        )
 
     expected_pairing = "segment_key" if a.meta.semantic_kind == "segmented" else "calendar_bucket"
     if sampling.pairing != expected_pairing:

@@ -40,7 +40,9 @@ def test_seeded_time_series_metric_frame_fixture(tmp_path):
     assert df["value"].tolist() == [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]
 
 
-def _metric_frame(session, rows, *, semantic_kind="time_series", axes=None, metric_id="sales.revenue"):
+def _metric_frame(
+    session, rows, *, semantic_kind="time_series", axes=None, metric_id="sales.revenue"
+):
     df = pd.DataFrame(rows)
     return MetricFrame.from_dataframe(
         df,
@@ -152,7 +154,9 @@ def test_test_operator_errors_and_persistence(tmp_path):
         mv.test(
             ts,
             ts,
-            alignment=mv.AlignmentPolicy(kind="dow_aligned", calendar=mv.CalendarRef("sales.retail")),
+            alignment=mv.AlignmentPolicy(
+                kind="dow_aligned", calendar=mv.CalendarRef("sales.retail")
+            ),
             session=session,
         )
 

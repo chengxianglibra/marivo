@@ -1,4 +1,4 @@
-"""End-to-end profile integration with mv.session.create / attach."""
+"""End-to-end datasource integration with mv.session.create / attach."""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ import pytest
 
 import marivo.analysis_py as mv
 from marivo.analysis_py.errors import (
+    DatasourceFieldInvalidError,
+    DatasourceMissingError,
     NoBackendFactoryError,
-    ProfileMissingError,
 )
 from marivo.analysis_py.session import attach as session_attach
 from tests.conftest import bootstrap_sales_project
@@ -35,19 +36,40 @@ def _seed(con: ibis.BaseBackend) -> None:
     con.raw_sql("INSERT INTO orders VALUES (1, 10.0, DATE '2026-01-01')")
 
 
-def test_session_uses_profile_when_no_explicit_backend(tmp_path: Path, fake_home: Path) -> None:
+def test_session_uses_datasource_when_no_explicit_backend(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
-    mv.profiles.set("warehouse", backend_type="duckdb", path=":memory:")
     session = mv.session.create(name="s")
-    # Force backend creation via the cache; it should resolve through the profile.
+    # Force backend creation via the cache; it should resolve through the project datasource.
     backend = session.backend_cache.get_or_create("warehouse")
     assert backend is not None
     assert backend.list_tables() == []
 
 
-def test_explicit_backend_factory_overrides_profile(tmp_path: Path, fake_home: Path) -> None:
+def test_observe_uses_global_datasource_name(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
-    mv.profiles.set("warehouse", backend_type="duckdb", path=":memory:")
+    db_path = tmp_path / "warehouse.duckdb"
+    seeded = ibis.duckdb.connect(str(db_path))
+    _seed(seeded)
+    seeded.disconnect()
+    mv.datasources.set("warehouse", backend_type="duckdb", path=str(db_path))
+
+    session = mv.session.create(name="s")
+    frame = mv.observe(mv.MetricRef("sales.revenue"), session=session)
+
+    assert frame.to_pandas().iloc[0, 0] == 10.0
+    assert session.known_datasources == {"warehouse"}
+
+
+def test_model_qualified_datasource_name_is_rejected(tmp_path: Path, fake_home: Path) -> None:
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
+        mv.datasources.set("sales.warehouse", backend_type="duckdb", path=":memory:")
+
+    assert exc_info.value.details["field"] == "<name>"
+
+
+def test_explicit_backend_factory_overrides_datasource(tmp_path: Path, fake_home: Path) -> None:
+    bootstrap_sales_project(tmp_path)
+    mv.datasources.set("warehouse", backend_type="duckdb", path=":memory:")
 
     sentinel = ibis.duckdb.connect(":memory:")
     _seed(sentinel)
@@ -61,20 +83,21 @@ def test_explicit_backend_factory_overrides_profile(tmp_path: Path, fake_home: P
     assert "orders" in backend.list_tables()
 
 
-def test_missing_profile_raises_profile_missing(tmp_path: Path, fake_home: Path) -> None:
+def test_missing_datasource_raises_datasource_missing(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
+    (tmp_path / ".marivo" / "datasource" / "warehouse.py").unlink()
     session = mv.session.create(name="s")
-    with pytest.raises(ProfileMissingError) as exc_info:
+    with pytest.raises(DatasourceMissingError) as exc_info:
         session.backend_cache.get_or_create("warehouse")
     rendered = str(exc_info.value)
     assert "warehouse" in rendered
-    assert "mv.profiles.set" in rendered
+    assert "mv.datasources.set" in rendered
 
 
-def test_use_profiles_false_disables_auto_factory(tmp_path: Path, fake_home: Path) -> None:
+def test_use_datasources_false_disables_auto_factory(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
-    mv.profiles.set("warehouse", backend_type="duckdb", path=":memory:")
-    session = mv.session.create(name="s", use_profiles=False)
+    mv.datasources.set("warehouse", backend_type="duckdb", path=":memory:")
+    session = mv.session.create(name="s", use_datasources=False)
     with pytest.raises(NoBackendFactoryError):
         session.backend_cache.get_or_create("warehouse")
 
@@ -82,11 +105,6 @@ def test_use_profiles_false_disables_auto_factory(tmp_path: Path, fake_home: Pat
 def test_audit_project_reports_missing(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
     session = mv.session.create(name="s")
-    result = mv.profiles.audit_project(session.semantic_project)
-    assert "warehouse" in result.missing
-    assert result.present == []
-
-    mv.profiles.set("warehouse", backend_type="duckdb", path=":memory:")
-    result_after = mv.profiles.audit_project(session.semantic_project)
-    assert result_after.missing == []
-    assert "warehouse" in result_after.present
+    result = mv.datasources.audit_project(session.semantic_project)
+    assert result.missing == []
+    assert "warehouse" in result.present

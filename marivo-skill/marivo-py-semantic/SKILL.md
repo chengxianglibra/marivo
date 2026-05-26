@@ -31,13 +31,15 @@ does not assume you have the Marivo source checkout.
 import ibis
 import marivo.semantic_py as ms
 
+# In .marivo/datasource/tiny_orders.py:
+# import marivo.datasource_py as md
+# md.datasource(name="tiny_orders", backend_type="duckdb", path=":memory:")
+#
 # In a _model.py file inside .marivo/semantic/sales/:
 ms.model(name="sales")
 
 # In a sibling .py file:
-warehouse = ms.datasource(name="tiny_orders", backend_type="duckdb")
-
-@ms.dataset(name="orders", datasource=warehouse, primary_key=["order_id"])
+@ms.dataset(name="orders", datasource="tiny_orders", primary_key=["order_id"])
 def orders(backend):
     return backend.table("orders")
 
@@ -88,10 +90,10 @@ Before writing any semantic-layer Python file, complete every step below. Do
 not declare datasets, fields, time fields, metrics, or relationships until this
 checklist is done.
 
-1. Check existing profiles.
+1. Check existing project datasources.
 
-   Run `mv.profiles.list()` to see whether the datasource already has a
-   configured profile. Reuse an existing profile without asking the user.
+   Run `mv.datasources.list()` to see whether the datasource already exists in
+   `.marivo/datasource`. Reuse an existing datasource without asking the user.
 
 2. Establish the backend connection.
 
@@ -173,20 +175,18 @@ casts. Parse through timestamp first, for example
 ### Register a Datasource
 
 Runnable reference: `references/examples/01_register_datasource.py`.
-Before declaring a datasource, read `references/datasource.md`: only existing
-profile-backed datasources may be used in semantic models, and missing profiles
-must be created before modeling.
+Before declaring a dataset, read `references/datasource.md`: semantic models
+can only reference project datasources declared in `.marivo/datasource/*.py`.
 
-Credentials never enter the semantic file. After the user supplies the
-connection metadata, persist it once via `mv.profiles.set(...)` from
-`marivo.analysis_py` so analysis sessions resolve the backend automatically;
-sensitive fields use `<field>_env="VAR_NAME"`. See `references/datasource.md`.
+Credentials never enter the semantic file. Persist non-secret connection
+metadata with `mv.datasources.set(...)` or by writing
+`.marivo/datasource/<name>.py`; sensitive fields use
+`<field>_env="VAR_NAME"`. See `references/datasource.md`.
 
 ```python
-import marivo.semantic_py as ms
+import marivo.datasource_py as md
 
-ms.model(name="<model_name>")
-warehouse = ms.datasource(name="<datasource_name>", backend_type="<duckdb|trino|mysql|...>")
+md.datasource(name="<datasource_name>", backend_type="duckdb", path=":memory:")
 ```
 
 ### Declare a Dataset
@@ -254,18 +254,17 @@ How is this value computed?
 
 ## Common Pitfalls
 
-- Dataset references a datasource that was never declared with
-  `ms.datasource`. The loader reports a `missing_dataset_ref` error.
+- Dataset references a datasource that has no `.marivo/datasource/*.py`
+  declaration. The loader reports a `missing_dataset_ref` error.
   Runnable reference:
   `references/examples/99_pitfall_dataset_without_datasource.py`.
 - Decorators need an active model opened by `ms.model(name=...)`.
-- `ms.datasource(...)` is a top-level metadata declaration, not a connection
-  factory. Runtime execution and analysis need a separate live Ibis backend
-  supplied by the caller, such as through `backend_factory`.
+- `ms.datasource(...)` has been removed. Put datasource config under
+  `.marivo/datasource` and reference its name from `@ms.dataset`.
 
 ## Further Reading
 
-- `references/datasource.md` -- profile-backed datasource rules and required profile fields
+- `references/datasource.md` -- project datasource rules and required fields
 - `references/cheatsheet.md` -- decorators, builders, CLI, introspection
 - `references/pitfalls.md` -- expanded exception explanations
 - `references/examples/` -- runnable files, one per template

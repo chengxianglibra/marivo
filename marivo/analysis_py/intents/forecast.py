@@ -47,7 +47,10 @@ def forecast(
 ) -> ForecastFrame:
     session = resolve_session(session)
     ensure_session_writable(session)
-    if not isinstance(history, MetricFrame) or history.meta.semantic_kind not in {"time_series", "panel"}:
+    if not isinstance(history, MetricFrame) or history.meta.semantic_kind not in {
+        "time_series",
+        "panel",
+    }:
         raise ForecastShapeUnsupportedError(
             message="forecast requires MetricFrame time_series or panel input"
         )

@@ -16,6 +16,13 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import Any, Literal
 
+from marivo.datasource_py.errors import (
+    DatasourceConfigError,
+    DatasourceDuplicateError,
+    DatasourceLoadError,
+)
+from marivo.datasource_py.ir import DatasourceIR
+from marivo.datasource_py.loader import load_datasources
 from marivo.semantic_py.errors import (
     ErrorKind,
     SemanticError,
@@ -53,6 +60,41 @@ _LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(
     "_LOADER_CTX",
     default=None,
 )
+
+
+def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
+    if isinstance(error, DatasourceDuplicateError):
+        datasource = error.details.get("datasource")
+        refs = (datasource,) if isinstance(datasource, str) and datasource else ()
+        return SemanticLoadError(
+            kind=ErrorKind.DUPLICATE_NAME,
+            message=error.message,
+            refs=refs,
+            hint="Keep each datasource name unique under .marivo/datasource.",
+        )
+    if isinstance(error, DatasourceLoadError):
+        path = error.details.get("path")
+        refs = (path,) if isinstance(path, str) and path else ()
+        return SemanticLoadError(
+            kind=ErrorKind.INVALID_PROJECT,
+            message=error.message,
+            refs=refs,
+            hint=error.hint or "Check .marivo/datasource/*.py datasource declarations.",
+        )
+    if isinstance(error, DatasourceConfigError):
+        datasource = error.details.get("datasource")
+        refs = (datasource,) if isinstance(datasource, str) and datasource else ()
+        return SemanticLoadError(
+            kind=ErrorKind.ORGANIZATION_ERROR,
+            message=error.message,
+            refs=refs,
+            hint=error.hint or "Check .marivo/datasource/*.py datasource declarations.",
+        )
+    return SemanticLoadError(
+        kind=ErrorKind.ORGANIZATION_ERROR,
+        message=str(error),
+        hint="Check .marivo/datasource/*.py datasource declarations.",
+    )
 
 
 @dataclass(frozen=True)
@@ -247,14 +289,17 @@ def _load_model_dir(
     return ctx
 
 
-def _build_registry(all_contexts: list[LoaderContext]) -> tuple[Registry, Sidecar]:
+def _build_registry(
+    all_contexts: list[LoaderContext],
+    *,
+    datasource_irs: tuple[DatasourceIR, ...] = (),
+) -> tuple[Registry, Sidecar]:
     """Build a Registry and Sidecar from all loader contexts.
 
     Pass 2: assemble all pending IR objects into the registry.
     """
     from marivo.semantic_py.ir import (
         DatasetIR,
-        DatasourceIR,
         FieldIR,
         FieldRef,
         MetricIR,
@@ -264,6 +309,8 @@ def _build_registry(all_contexts: list[LoaderContext]) -> tuple[Registry, Sideca
 
     registry = Registry()
     sidecar: Sidecar = {}
+    for datasource_ir in datasource_irs:
+        registry.datasources[datasource_ir.semantic_id] = datasource_ir
 
     for ctx in all_contexts:
         for ir, callable_ in ctx.pending_objects:
@@ -275,9 +322,7 @@ def _build_registry(all_contexts: list[LoaderContext]) -> tuple[Registry, Sideca
 
             sid = ir.semantic_id
 
-            if isinstance(ir, DatasourceIR):
-                registry.datasources[sid] = ir
-            elif isinstance(ir, DatasetIR):
+            if isinstance(ir, DatasetIR):
                 registry.datasets[sid] = ir
                 if callable_ is not None:
                     sidecar[sid] = callable_
@@ -339,6 +384,9 @@ def load_project(root: Path) -> LoadResult:
     sys.path.insert(0, path_entry)
     try:
         _ensure_package(module_prefix, root)
+        datasource_result = load_datasources(root.parent / "datasource")
+        for error in datasource_result.errors:
+            errors.append(_wrap_datasource_error(error))
         model_dirs = _discover_model_dirs(root)
         all_contexts: list[LoaderContext] = []
 
@@ -349,15 +397,19 @@ def load_project(root: Path) -> LoadResult:
                 all_contexts.append(ctx)
 
         # Pass 2: Resolve + Validate
-        registry, sidecar = _build_registry(all_contexts)
+        registry, sidecar = _build_registry(
+            all_contexts,
+            datasource_irs=datasource_result.datasources,
+        )
 
         # Duplicate semantic_id check
-        seen_ids: set[str] = set()
+        seen_objects: dict[str, Any] = {}
         for ctx in all_contexts:
             for ir, _ in ctx.pending_objects:
                 if hasattr(ir, "semantic_id"):
                     sid = ir.semantic_id
-                    if sid in seen_ids:
+                    existing = seen_objects.get(sid)
+                    if existing is not None:
                         errors.append(
                             SemanticLoadError(
                                 kind=ErrorKind.DUPLICATE_NAME,
@@ -365,7 +417,7 @@ def load_project(root: Path) -> LoadResult:
                                 refs=(sid,),
                             )
                         )
-                    seen_ids.add(sid)
+                    seen_objects.setdefault(sid, ir)
 
         # Assembly validation
         asm_errors, asm_warnings = assembly_validate(registry)

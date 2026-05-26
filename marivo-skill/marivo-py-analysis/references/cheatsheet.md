@@ -81,7 +81,7 @@ print(candidates.meta.objective)  # "point_anomalies"
 | --- | --- |
 | Check active session without raising | `mv.session.current()` |
 | Read recent jobs without raising | `mv.session.history()` |
-| Create, switch, or list sessions | `mv.session.create(name=...)`, `mv.session.switch(name=...)`, `mv.session.list_sessions()` |
+| Create, switch, or list sessions | `mv.session.create(name=..., timezone="Asia/Shanghai")`, `mv.session.switch(name=...)`, `mv.session.list_sessions()` |
 | Attach live data | `mv.session.create(name=..., backends=...)` or `mv.session.create(name=..., backend_factory=...)` |
 | Inspect SDK entrypoints | `mv.help()` or `mv.help("compare")` |
 | Confirm metric ids | `import marivo.semantic_py as ms; ms.list_metrics()` |
@@ -101,7 +101,7 @@ import ibis
 import marivo.analysis_py as mv
 
 def make_backend(datasource_name: str):
-    if datasource_name not in {"warehouse", "sales.warehouse"}:
+    if datasource_name != "warehouse":
         raise KeyError(datasource_name)
     return ibis.trino.connect(
         host="<trino_host>",
@@ -118,3 +118,19 @@ mv.session.create(name="analysis", backend_factory=make_backend)
 For Trino, map prompt `catalog` to Ibis `database`, and map
 `client-tags`/`client_tags` to Python `client_tags` as a list. See
 `references/backend-setup.md` for the full mapping and guardrails.
+
+Datasource names are global, not model-qualified. Semantic datasets use `.dataset(datasource="warehouse")`; backend factories receive `"warehouse"`, never `"sales.warehouse"`.
+
+When a dataset has multiple time fields, choose one in the observe window:
+
+```python
+mv.observe(
+    mv.MetricRef("sales.revenue"),
+    window={"start": "2026-07-01", "end": "2026-07-31", "time_field": "create_date"},
+)
+```
+
+`AlignmentPolicy(kind="calendar_bucket")` aligns by shared `bucket_start` when
+available. For equal-length same-grain WoW/YoY windows with no shared dates, it
+pairs buckets by ordinal position and preserves the baseline date as
+`bucket_start_b`.

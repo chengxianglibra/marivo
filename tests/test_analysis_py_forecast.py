@@ -48,7 +48,9 @@ def test_naive_time_series_constant(tmp_path):
 
 def test_seasonal_naive_dow_period_7(tmp_path):
     session = session_attach.create(name="demo")
-    history = seeded_time_series_metric_frame(session=session, n_buckets=21, value_pattern="seasonal_7")
+    history = seeded_time_series_metric_frame(
+        session=session, n_buckets=21, value_pattern="seasonal_7"
+    )
 
     result = mv.forecast(
         history,
@@ -129,7 +131,9 @@ def test_forecast_errors_and_persistence(tmp_path):
     with pytest.raises(ForecastPolicyError):
         mv.forecast(history, horizon=1, interval_level=1.0, session=session)
     with pytest.raises(ForecastInsufficientHistoryError):
-        mv.forecast(history, horizon=1, model="seasonal_naive", seasonality_period=7, session=session)
+        mv.forecast(
+            history, horizon=1, model="seasonal_naive", seasonality_period=7, session=session
+        )
 
     scalar = MetricFrame.from_dataframe(
         pd.DataFrame({"value": [1.0]}),

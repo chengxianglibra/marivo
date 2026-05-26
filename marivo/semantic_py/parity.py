@@ -177,22 +177,6 @@ def parity_check(
         )
 
     datasource_id = next(iter(datasource_ids))
-    datasource_ir = reg.datasources.get(datasource_id)
-
-    # Dialect mismatch check
-    if (
-        datasource_ir is not None
-        and metric_ir.provenance.source_dialect != datasource_ir.backend_type
-    ):
-        _raise(
-            ErrorKind.BACKEND_MISMATCH,
-            f"Metric {metric_id!r} source_dialect "
-            f"{metric_ir.provenance.source_dialect!r} does not match "
-            f"datasource {datasource_id!r} backend_type "
-            f"{datasource_ir.backend_type!r}.",
-            cls=SemanticParityError,
-            refs=(metric_id, datasource_id),
-        )
 
     # Execute the ibis metric -> single scalar
     try:

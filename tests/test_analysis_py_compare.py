@@ -1,10 +1,15 @@
 """mv.compare against two MetricFrames."""
 
 import ibis
+import pandas as pd
 import pytest
 
 import marivo.analysis_py.session.attach as session_attach
-from marivo.analysis_py.errors import SemanticKindMismatchError, SessionStateError
+from marivo.analysis_py.errors import (
+    AlignmentFailedError,
+    SemanticKindMismatchError,
+    SessionStateError,
+)
 from marivo.analysis_py.frames.delta import DeltaFrame
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.intents.compare import compare
@@ -163,6 +168,87 @@ def test_compare_rejects_loose_align_parameter(tmp_path):
         compare(q3, q2, align="sample", session=s)  # type: ignore[call-arg]
 
 
+def test_calendar_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    cur = observe(
+        MetricRef("sales.revenue"),
+        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        session=s,
+    )
+    base = observe(
+        MetricRef("sales.revenue"),
+        window={"start": "2026-04-01", "end": "2026-04-02", "grain": "day"},
+        session=s,
+    )
+
+    delta = compare(cur, base, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+
+    df = delta.to_pandas()
+    assert len(df) == 2
+    assert list(df["bucket_start"].astype(str)) == ["2026-07-01", "2026-07-02"]
+    assert list(df["bucket_start_b"].astype(str)) == ["2026-04-01", "2026-04-02"]
+    assert list(df["delta"]) == [pytest.approx(5.0), pytest.approx(5.0)]
+    assert delta.meta.alignment["mode"] == "ordinal_bucket"
+
+
+def test_calendar_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.create(
+        name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
+    )
+    cur = MetricFrame.from_dataframe(
+        pd.DataFrame({"bucket_start": ["2026-07-01", "2026-07-02"], "revenue": [10.0, 20.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        session=s,
+    )
+    base = MetricFrame.from_dataframe(
+        pd.DataFrame({"bucket_start": ["2026-04-01", "2026-04-02"], "revenue": [5.0, 15.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "hour"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        session=s,
+    )
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        compare(cur, base, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+
+    assert exc_info.value.details["kind"] == "CalendarBucketGrainMismatch"
+    assert exc_info.value.details["current_grain"] == "day"
+    assert exc_info.value.details["baseline_grain"] == "hour"
+
+
+def test_calendar_bucket_no_overlap_unequal_lengths_explains_requirement(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    cur = observe(
+        MetricRef("sales.revenue"),
+        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        session=s,
+    )
+    base = observe(
+        MetricRef("sales.revenue"),
+        window={"start": "2026-04-01", "end": "2026-04-01", "grain": "day"},
+        session=s,
+    )
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        compare(cur, base, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+
+    assert "equal-length" in str(exc_info.value)
+    assert exc_info.value.details["kind"] == "CalendarBucketNoComparableBuckets"
+
+
 def test_compare_persists_job_and_frame(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
@@ -188,7 +274,7 @@ def test_compare_works_in_read_only_session(tmp_path):
     b = observe(MetricRef("sales.revenue"), session=s_write)
     s_write.close()
     session_attach._reset_process_state()
-    s_read = session_attach.attach(name="demo", use_profiles=False)
+    s_read = session_attach.attach(name="demo", use_datasources=False)
     assert s_read.is_read_only
     df_a, meta_a = read_frame_from_disk(s_read.layout, a.ref)
     df_b, meta_b = read_frame_from_disk(s_read.layout, b.ref)

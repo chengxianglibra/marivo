@@ -73,9 +73,7 @@ _MODEL_PY = textwrap.dedent("""\
 
 _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
@@ -95,9 +93,7 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
 
 _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
@@ -113,9 +109,7 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
 
 _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
@@ -126,9 +120,7 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
 
 _DIALECT_MISMATCH_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
@@ -144,9 +136,7 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
 
 _DERIVED_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
@@ -179,9 +169,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 
 _DECLARED_PYTHON_NATIVE_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
@@ -196,9 +184,7 @@ _DECLARED_PYTHON_NATIVE_PY = textwrap.dedent("""\
 
 _DECLARED_UNVERIFIED_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
@@ -284,9 +270,7 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
     # Create a project where expected and actual differ by a small amount
     small_mismatch_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="warehouse")
         def orders(backend):
             return backend.table("orders")
 
@@ -349,21 +333,22 @@ def test_missing_source_sql_raises(semantic_project_factory, backend_factory) ->
 
 
 # ---------------------------------------------------------------------------
-# Dialect mismatch raises error
+# Source dialect is provenance, not datasource backend config
 # ---------------------------------------------------------------------------
 
 
-def test_dialect_mismatch_raises(semantic_project_factory, backend_factory) -> None:
-    """Parity check when source_dialect != datasource.backend_type should raise."""
+def test_source_dialect_does_not_require_semantic_datasource_backend_type(
+    semantic_project_factory, backend_factory
+) -> None:
+    """Profiles own backend_type; semantic datasource refs no longer carry it."""
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
             "sales/metrics.py": _DIALECT_MISMATCH_PY,
         }
     )
-    with pytest.raises(SemanticParityError) as exc_info:
-        project.parity_check("sales.total_amount", backend_factory=backend_factory)
-    assert exc_info.value.kind == ErrorKind.BACKEND_MISMATCH
+    result = project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    assert isinstance(result.ok, bool)
 
 
 # ---------------------------------------------------------------------------
@@ -375,14 +360,11 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
     """Parity check on metric with cross-datasource datasets should raise."""
     cross_ds_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh1 = ms.datasource(name="warehouse1", backend_type="duckdb")
-        wh2 = ms.datasource(name="warehouse2", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh1)
+        @ms.dataset(datasource="warehouse1")
         def orders_a(backend):
             return backend.table("orders")
 
-        @ms.dataset(datasource=wh2)
+        @ms.dataset(datasource="warehouse2")
         def orders_b(backend):
             return backend.table("orders")
 
@@ -526,9 +508,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
     """When one component metric is drifted, derived should be DRIFTED."""
     drifted_component_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="warehouse")
         def orders(backend):
             return backend.table("orders")
 
@@ -600,9 +580,7 @@ def test_derived_propagation_verified_and_python_native(
     """When one component is verified and another is python_native, derived is PYTHON_NATIVE."""
     mixed_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="warehouse")
         def orders(backend):
             return backend.table("orders")
 

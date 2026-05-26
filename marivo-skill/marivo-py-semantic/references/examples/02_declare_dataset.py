@@ -13,9 +13,7 @@ import marivo.semantic_py as ms
 
 # In a model file inside the semantic project:
 #   ms.model(name="sales")
-#   warehouse = ms.datasource(name="tiny_orders", backend_type="duckdb")
-#
-#   @ms.dataset(name="orders", datasource=warehouse, primary_key=["order_id"])
+#   @ms.dataset(name="orders", datasource="tiny_orders", primary_key=["order_id"])
 #   def orders(backend):
 #       return backend.table("orders")
 
@@ -23,13 +21,17 @@ import marivo.semantic_py as ms
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp) / ".marivo" / "semantic" / "sales"
     root.mkdir(parents=True)
+    datasource_dir = Path(tmp) / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True)
+    (datasource_dir / "tiny_orders.py").write_text(
+        "import marivo.datasource_py as md\n"
+        "md.datasource(name='tiny_orders', backend_type='duckdb', path=':memory:')\n"
+    )
     (root / "__init__.py").write_text("")
     (root / "_model.py").write_text("import marivo.semantic_py as ms\nms.model(name='sales')\n")
     (root / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
-        "warehouse = ms.datasource(name='tiny_orders', backend_type='duckdb')\n"
-        "\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
+        "@ms.dataset(name='orders', datasource='tiny_orders')\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
     )
