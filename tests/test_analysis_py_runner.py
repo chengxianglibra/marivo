@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo
 import ibis
 import pytest
 
-import marivo.semantic_py as ms
 from marivo.analysis_py.errors import BackendError, SliceInvalidError, WindowInvalidError
 from marivo.analysis_py.executor.backend import BackendCache
 from marivo.analysis_py.executor.runner import (
@@ -17,54 +16,94 @@ from marivo.analysis_py.executor.runner import (
 )
 from marivo.analysis_py.windows.spec import AbsoluteWindow
 from marivo.semantic_py import SemanticProject
-from marivo.semantic_py.registry import use_registry
+
+# ---------------------------------------------------------------------------
+# Helper: build a SemanticProject with files on disk so the loader works
+# ---------------------------------------------------------------------------
 
 
-def _project_with_dataset(tmp_path):
-    project = SemanticProject(root=str(tmp_path / "semantic"))
-    with use_registry(project.registry):
-        ms.model(name="sales")
+def _bootstrap_project(
+    tmp_path,
+    *,
+    with_time_field: bool = True,
+    model_name: str = "sales",
+    dataset_name: str = "orders",
+    datasource_name: str = "warehouse",
+    time_field_data_type: str = "date",
+) -> SemanticProject:
+    """Write semantic model files on disk and return a loaded SemanticProject."""
+    semantic_dir = tmp_path / ".marivo" / "semantic" / model_name
+    semantic_dir.mkdir(parents=True, exist_ok=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        f"import marivo.semantic_py as ms\nms.model(name='{model_name}')\n"
+    )
 
-        @ms.datasource(name="warehouse")
-        def warehouse() -> None: ...
+    time_field_block = ""
+    if with_time_field:
+        time_field_block = (
+            f"\n@ms.time_field(dataset={dataset_name}, "
+            f"data_type='{time_field_data_type}', granularity='day')\n"
+            f"def created_at({dataset_name}):\n"
+            f"    return {dataset_name}.created_at\n"
+        )
 
-        @ms.dataset(name="orders", datasource=warehouse)
-        def orders(backend):
-            return backend.table("orders")
+    (semantic_dir / "definitions.py").write_text(
+        f"import marivo.semantic_py as ms\n"
+        f"\n"
+        f"{datasource_name} = ms.datasource(name='{datasource_name}', backend_type='duckdb')\n"
+        f"\n"
+        f"@ms.dataset(name='{dataset_name}', datasource={datasource_name})\n"
+        f"def {dataset_name}(backend):\n"
+        f"    return backend.table('{dataset_name}')\n"
+        f"\n"
+        f"@ms.field(dataset={dataset_name})\n"
+        f"def region({dataset_name}):\n"
+        f"    return {dataset_name}.region.upper()\n"
+        f"{time_field_block}"
+    )
 
-        @ms.time_field(dataset="orders", data_type="date", granularity="day")
-        def order_date(orders):
-            return orders.created_at.cast("date")
-
-        @ms.field(dataset="orders")
-        def region(orders):
-            return orders.region.upper()
-
-    project.registry.state = "ready"
+    project = SemanticProject(root=tmp_path / ".marivo" / "semantic")
+    project.load()
     return project
 
 
-def _seed_backend():
+def _build_dataset_adapter(sp: SemanticProject, dataset_semantic_id: str) -> object:
+    """Build an adapter object that mimics old-style DatasetIR for runner.py.
+
+    The runner expects dataset_ir.fn(backend), dataset_ir.fields, etc.
+    """
+    from marivo.analysis_py.intents.observe import _build_dataset_adapter as _build
+
+    dataset_ir = sp.get_dataset(dataset_semantic_id)
+    assert dataset_ir is not None, f"Dataset {dataset_semantic_id} not found"
+    return _build(sp, dataset_ir)
+
+
+def _seed_backend(table_name: str = "orders") -> ibis.duckdb.DuckDBBackend:
     con = ibis.duckdb.connect(":memory:")
-    con.raw_sql(
-        "CREATE TABLE orders (order_id INTEGER, created_at DATE, amount DOUBLE, region VARCHAR)"
-    )
-    con.raw_sql(
-        "INSERT INTO orders VALUES "
-        "(1, DATE '2026-07-01', 10.0, 'north'),"
-        "(2, DATE '2026-08-01', 20.0, 'south')"
-    )
+    if table_name == "orders":
+        con.raw_sql(
+            "CREATE TABLE orders (order_id INTEGER, created_at DATE, amount DOUBLE, region VARCHAR)"
+        )
+        con.raw_sql(
+            "INSERT INTO orders VALUES "
+            "(1, DATE '2026-07-01', 10.0, 'north'),"
+            "(2, DATE '2026-08-01', 20.0, 'south')"
+        )
+    elif table_name == "t":
+        con.raw_sql("CREATE TABLE t (x INTEGER)")
     return con
 
 
 def test_apply_window_filters_rows(tmp_path):
-    project = _project_with_dataset(tmp_path)
+    sp = _bootstrap_project(tmp_path)
     con = _seed_backend()
-    dataset_ir = project.registry.models["sales"].datasets["orders"]
+    ds_adapter = _build_dataset_adapter(sp, "sales.orders")
     filtered = apply_window_to_dataset(
-        dataset_ir.fn(con),
+        ds_adapter.fn(con),
         {"start": "2026-07-01", "end": "2026-07-31"},
-        dataset_ir=dataset_ir,
+        dataset_ir=ds_adapter,
     )
     df = filtered.execute()
     assert len(df) == 1
@@ -72,11 +111,11 @@ def test_apply_window_filters_rows(tmp_path):
 
 
 def test_apply_slice_filters_by_declared_field(tmp_path):
-    project = _project_with_dataset(tmp_path)
+    sp = _bootstrap_project(tmp_path)
     con = _seed_backend()
-    dataset_ir = project.registry.models["sales"].datasets["orders"]
+    ds_adapter = _build_dataset_adapter(sp, "sales.orders")
     filtered = apply_slice_to_dataset(
-        dataset_ir.fn(con), {"region": "NORTH"}, dataset_ir=dataset_ir
+        ds_adapter.fn(con), {"region": "NORTH"}, dataset_ir=ds_adapter
     )
     df = filtered.execute()
     assert len(df) == 1
@@ -84,34 +123,25 @@ def test_apply_slice_filters_by_declared_field(tmp_path):
 
 
 def test_apply_slice_unknown_field_raises(tmp_path):
-    project = _project_with_dataset(tmp_path)
+    sp = _bootstrap_project(tmp_path)
     con = _seed_backend()
-    dataset_ir = project.registry.models["sales"].datasets["orders"]
+    ds_adapter = _build_dataset_adapter(sp, "sales.orders")
     with pytest.raises(SliceInvalidError):
-        apply_slice_to_dataset(dataset_ir.fn(con), {"bogus_field": 1}, dataset_ir=dataset_ir)
+        apply_slice_to_dataset(ds_adapter.fn(con), {"bogus_field": 1}, dataset_ir=ds_adapter)
 
 
 def test_apply_window_dataset_without_time_field_raises(tmp_path):
-    project = SemanticProject(root=str(tmp_path / "semantic2"))
-    with use_registry(project.registry):
-        ms.model(name="x")
-
-        @ms.datasource(name="w")
-        def w() -> None: ...
-
-        @ms.dataset(name="t", datasource=w)
-        def t(backend):
-            return backend.table("t")
-
-    project.registry.state = "ready"
+    sp = _bootstrap_project(
+        tmp_path, with_time_field=False, model_name="x", dataset_name="t", datasource_name="w"
+    )
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE t (x INTEGER)")
-    dataset_ir = project.registry.models["x"].datasets["t"]
+    ds_adapter = _build_dataset_adapter(sp, "x.t")
     with pytest.raises(WindowInvalidError):
         apply_window_to_dataset(
-            dataset_ir.fn(con),
+            ds_adapter.fn(con),
             {"start": "2026-01-01", "end": "2026-12-31"},
-            dataset_ir=dataset_ir,
+            dataset_ir=ds_adapter,
         )
 
 
@@ -136,31 +166,15 @@ def test_execute_wraps_backend_errors():
 
 
 def test_apply_time_series_bucket_adds_bucket_start(tmp_path):
-    project = SemanticProject(root=str(tmp_path / "semantic3"))
-    with use_registry(project.registry):
-        ms.model(name="sales")
-
-        @ms.datasource(name="warehouse")
-        def warehouse() -> None: ...
-
-        @ms.dataset(name="orders", datasource=warehouse)
-        def orders(backend):
-            return backend.table("orders")
-
-        @ms.time_field(dataset="orders", data_type="date", granularity="day")
-        def created_at(orders):
-            return orders.created_at
-
-    project.registry.state = "ready"
-
+    sp = _bootstrap_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE orders (created_at DATE, amount DOUBLE)")
     con.raw_sql("INSERT INTO orders VALUES (DATE '2026-05-01', 10.0), (DATE '2026-05-02', 20.0)")
 
-    dataset_ir = project.registry.models["sales"].datasets["orders"]
+    ds_adapter = _build_dataset_adapter(sp, "sales.orders")
     bucketed = apply_time_series_bucket(
-        dataset_ir.fn(con),
-        field_ir=dataset_ir.fields["created_at"],
+        ds_adapter.fn(con),
+        field_ir=ds_adapter.fields["created_at"],
         window=AbsoluteWindow(start="2026-05-01", end="2026-05-31", grain="day"),
         session_tz=ZoneInfo("UTC"),
     )
@@ -171,23 +185,7 @@ def test_apply_time_series_bucket_adds_bucket_start(tmp_path):
 
 
 def test_apply_time_series_bucket_day_respects_session_tz_for_timestamp(tmp_path):
-    project = SemanticProject(root=str(tmp_path / "semantic4"))
-    with use_registry(project.registry):
-        ms.model(name="sales")
-
-        @ms.datasource(name="warehouse")
-        def warehouse() -> None: ...
-
-        @ms.dataset(name="orders", datasource=warehouse)
-        def orders(backend):
-            return backend.table("orders")
-
-        @ms.time_field(dataset="orders", data_type="timestamp", granularity="day")
-        def created_at(orders):
-            return orders.created_at
-
-    project.registry.state = "ready"
-
+    sp = _bootstrap_project(tmp_path, time_field_data_type="timestamp")
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE orders (created_at TIMESTAMP, amount DOUBLE)")
     con.raw_sql(
@@ -196,10 +194,10 @@ def test_apply_time_series_bucket_day_respects_session_tz_for_timestamp(tmp_path
         "(TIMESTAMP '2026-05-01 15:30:00', 20.0)"
     )
 
-    dataset_ir = project.registry.models["sales"].datasets["orders"]
+    ds_adapter = _build_dataset_adapter(sp, "sales.orders")
     bucketed = apply_time_series_bucket(
-        dataset_ir.fn(con),
-        field_ir=dataset_ir.fields["created_at"],
+        ds_adapter.fn(con),
+        field_ir=ds_adapter.fields["created_at"],
         window=AbsoluteWindow(start="2026-05-01", end="2026-05-01", grain="day"),
         session_tz=ZoneInfo("Asia/Shanghai"),
     )

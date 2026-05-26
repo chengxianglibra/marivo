@@ -49,7 +49,7 @@ class Session:
     updated_at: datetime
     backend_factory: BackendFactory | None
     layout: PersistenceLayout
-    semantic_project: Any
+    semantic_project: Any  # SemanticProject from marivo.semantic_py
     tz: ZoneInfo = field(default_factory=lambda: ZoneInfo("UTC"))
     default_calendar: str | None = None
     known_calendars: set[str] = field(default_factory=set)

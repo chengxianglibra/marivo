@@ -4,19 +4,19 @@
 
 | Decorator          | Lives on               | Required kwargs                         | Notes                                                 |
 |--------------------|------------------------|-----------------------------------------|-------------------------------------------------------|
-| `@ms.datasource`   | bare function          | `name=`, `backend_type=`                | Must return an ibis backend.                          |
-| `@ms.dataset`      | function taking backend | `name=`, `datasource=<fn or ref>`       | `primary_key=` is optional but recommended.           |
-| `@ms.field`        | function taking dataset | `dataset="<name>"`                      | Non-aggregated per-row expression.                    |
+| `ms.datasource`   | bare function          | `name=`, `backend_type=`                | Must return an ibis backend.                          |
+| `@ms.dataset`      | function taking backend | `name=`, `datasource=<ref>`             | `primary_key=` is optional but recommended.           |
+| `@ms.field`        | function taking dataset | `dataset=<ref or str>`                  | Non-aggregated per-row expression.                    |
 | `@ms.time_field`   | function taking dataset | `dataset=`, `data_type=`, `granularity=` | Calendar axis for time-aware analysis.                |
-| `@ms.metric`       | function taking datasets | `decomposition=`, optional `name=`      | Body returns an ibis expression for the metric value. |
-| `@ms.relationship` | bare function          | `from_=`, `to=`, `from_columns=`, `to_columns=` | Declares cross-dataset joins.                  |
+| `@ms.metric`       | function taking datasets | `datasets=`, `decomposition=`, `name=`  | Body returns an ibis expression for the metric value. |
+| `@ms.relationship` | bare function          | `from_=`, `to=`, `from_fields=`, `to_fields=` | Declares cross-dataset joins.                  |
 
 ## Builders
 
 | Builder                            | Purpose                                           |
 |------------------------------------|---------------------------------------------------|
 | `ms.ref("metric.name")`            | Reference a registered metric by local name.      |
-| `ms.ref("datasource.name")`        | Reference a datasource by local name.             |
+| `ms.component("numerator")`        | Access a component inside a derived metric body.  |
 | `ms.ratio(numerator=..., denominator=...)` | Derived metric decomposition marker.       |
 | `ms.weighted_average(numerator=..., weight=...)` | Weighted-average decomposition marker. |
 | `ms.sum()`                         | Additive metric decomposition marker.             |
@@ -26,19 +26,29 @@
 | Helper                                     | Purpose                                                   |
 |--------------------------------------------|-----------------------------------------------------------|
 | `ms.model(name=...)`                       | Open a model namespace inside the active registry.        |
-| `marivo.semantic_py.registry.use_registry` | Swap to a non-default registry for tests/examples.        |
-| `ms.reload(project=None)`                  | Rebuild IR from current Python source files.              |
+| `ms.find_project()`                        | Walk up from cwd to find .marivo/semantic/ project.       |
+| `ms.SemanticProject(root=...)`             | Create a SemanticProject pointing at a semantic root.     |
 
-## Introspection
+## Introspection (via SemanticProject)
 
-| Call                            | Output                                                        |
-|---------------------------------|---------------------------------------------------------------|
-| `ms.list_models()`              | Model names.                                                  |
-| `ms.list_datasources()`         | `model.datasource` qualified ids.                             |
-| `ms.list_datasets(model=...)`   | `model.dataset` ids, optionally filtered by model.            |
-| `ms.list_metrics(dataset=...)`  | `model.metric` ids, optionally filtered by `model.dataset`.   |
-| `ms.describe("model.x")`        | Dict with `kind=datasource|dataset|metric` plus identity fields. |
-| `ms.help()` / `ms.help("name")` | Top-level entry list or per-symbol signature/docstring.       |
+| Call                                   | Output                                                        |
+|----------------------------------------|---------------------------------------------------------------|
+| `project.list_models()`                | ModelIR objects.                                              |
+| `project.list_datasources()`           | DatasourceIR objects.                                         |
+| `project.list_datasets(model=...)`     | DatasetIR objects, optionally filtered by model.              |
+| `project.list_metrics(dataset=...)`    | MetricIR objects, optionally filtered.                        |
+| `project.describe("model.x")`          | IR object or text description.                                |
+| `project.search("query")`              | SearchResult list.                                            |
+| `project.dependencies("model.x")`      | LineageGraph of upstream dependencies.                        |
+
+## CLI
+
+| Command                                          | Purpose                                      |
+|--------------------------------------------------|----------------------------------------------|
+| `python -m marivo.semantic_py check`             | Validate the semantic project.               |
+| `python -m marivo.semantic_py check --strict-provenance` | Non-zero exit if any metric is unverified. |
+| `python -m marivo.semantic_py check --parity`    | Run parity checks for metrics with source_sql. |
+| `python -m marivo.semantic_py check --format=json` | JSON output with schema_version "1".        |
 
 ## Help
 
@@ -46,4 +56,3 @@
 |-------------------------------------------|---------------------------------------------|
 | `ms.help()`                               | Top-level entry list.                       |
 | `ms.help("dataset")`                      | Signature and docstring for a decorator.    |
-| `ms.help("DatasourceNotRegisteredError")` | Docstring for an exception class.           |

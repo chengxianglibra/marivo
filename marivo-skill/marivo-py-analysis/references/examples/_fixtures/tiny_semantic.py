@@ -9,6 +9,9 @@ Provides:
 
 ``ensure_loaded()`` is idempotent: calling it twice within one process reuses
 the registered semantic model and keeps the ``examples`` session attached.
+
+This fixture creates a temporary project on disk under .marivo/semantic/
+and uses the standard loader pipeline to build the semantic model.
 """
 # mypy: disable-error-code=import-untyped
 
@@ -25,9 +28,7 @@ import ibis
 
 import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
-import marivo.semantic_py as ms
 from marivo.analysis_py.errors import DuplicateSessionNameError
-from marivo.semantic_py.registry import SemanticProject, use_registry
 
 MODEL_NAME = "sales"
 METRIC_ID = f"{MODEL_NAME}.revenue"
@@ -35,7 +36,6 @@ SESSION_NAME = "examples"
 DATASOURCE_NAME = "tiny_orders"
 
 _CON: Any | None = None
-_PROJECT: SemanticProject | None = None
 _SESSION_ROOT: Path | None = None
 
 
@@ -64,50 +64,42 @@ def _connection() -> Any:
     return _CON
 
 
-def _build_project() -> SemanticProject:
-    project = SemanticProject(root=":tiny_semantic:")
-    with use_registry(project.registry):
-        ms.model(name=MODEL_NAME)
-
-        @ms.datasource(name=DATASOURCE_NAME, backend_type="duckdb")
-        def tiny_orders() -> None: ...
-
-        @ms.dataset(name="orders", datasource=tiny_orders)
-        def orders(backend: Any) -> Any:
-            return backend.table("orders")
-
-        @ms.time_field(dataset="orders", data_type="date", granularity="day")
-        def created_at(orders: Any) -> Any:
-            return orders.created_at.cast("date")
-
-        @ms.field(dataset="orders")
-        def region(orders: Any) -> Any:
-            return orders.region
-
-        @ms.metric(decomposition=ms.sum(), name="revenue")
-        def revenue(orders: Any) -> Any:
-            return orders.amount.sum()
-
-    project.registry.state = "ready"
-    return project
-
-
-def _project() -> SemanticProject:
-    global _PROJECT
-    if _PROJECT is None:
-        _PROJECT = _build_project()
-    return _PROJECT
-
-
-def _backends() -> dict[str, Any]:
-    return {DATASOURCE_NAME: _connection}
-
-
 def _session_root() -> Path:
     global _SESSION_ROOT
     if _SESSION_ROOT is None:
         _SESSION_ROOT = Path(tempfile.mkdtemp(prefix="marivo-py-analysis-examples-"))
     return _SESSION_ROOT
+
+
+def _bootstrap_semantic_project(root: Path) -> None:
+    """Write a minimal semantic project to disk so the loader can find it."""
+    semantic_dir = root / ".marivo" / "semantic" / MODEL_NAME
+    semantic_dir.mkdir(parents=True, exist_ok=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic_py as ms\nms.model(name='sales')\n"
+    )
+    (semantic_dir / "definitions.py").write_text(
+        "import marivo.semantic_py as ms\n"
+        "\n"
+        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource=warehouse)\n"
+        "def orders(backend):\n"
+        "    return backend.table('orders')\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "def created_at(orders):\n"
+        "    return orders.created_at.cast('date')\n"
+        "\n"
+        "@ms.field(dataset=orders)\n"
+        "def region(orders):\n"
+        "    return orders.region\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
 
 
 @contextmanager
@@ -120,22 +112,26 @@ def _temporary_cwd(path: Path) -> Iterator[None]:
         os.chdir(original)
 
 
-def ensure_loaded(*, tz: str = "UTC", default_calendar: str | None = None) -> None:
+def _backends() -> dict[str, Any]:
+    return {"warehouse": _connection}
+
+
+def ensure_loaded(*, tz: str = "UTC", default_calendar: str | None = None) -> Any:
     """Register the tiny semantic model and attach a writable examples session."""
-    project = _project()
-    with _temporary_cwd(_session_root()):
+    root = _session_root()
+    _bootstrap_semantic_project(root)
+    with _temporary_cwd(root):
         try:
-            session = mv.session.create(
+            return mv.session.create(
                 name=SESSION_NAME,
                 tz=tz,
                 default_calendar=default_calendar,
                 backends=_backends(),
             )
         except DuplicateSessionNameError:
-            session = session_attach.attach(
+            return session_attach.attach(
                 name=SESSION_NAME,
                 tz=tz,
                 default_calendar=default_calendar,
                 backends=_backends(),
             )
-    session.semantic_project = project

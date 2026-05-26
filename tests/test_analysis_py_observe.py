@@ -13,7 +13,7 @@ from marivo.analysis_py.errors import (
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.intents.observe import observe
 from marivo.analysis_py.refs import MetricRef
-from marivo.semantic_py.errors import SemanticLoadError
+from tests.conftest import bootstrap_sales_project
 
 
 @pytest.fixture(autouse=True)
@@ -37,47 +37,12 @@ def _seed(con):
     )
 
 
-def _bootstrap_sales(tmp_path, *, with_time: bool = True):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
-    (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic_py as ms\nms.model(name='sales')\n"
-    )
-    time_field = (
-        "@ms.time_field(dataset='orders', data_type='date', granularity='day')\n"
-        "def order_date(orders):\n"
-        "    return orders.created_at.cast('date')\n\n"
-        if with_time
-        else ""
-    )
-    (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse(): ...\n"
-        "\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
-        "\n"
-        f"{time_field}"
-        "@ms.field(dataset='orders')\n"
-        "def region(orders):\n"
-        "    return orders.region.upper()\n"
-        "\n"
-        "@ms.metric(decomposition=ms.sum())\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n"
-    )
-
-
 def _backends(con):
     return {"warehouse": lambda: con}
 
 
 def test_observe_returns_metric_frame(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends=_backends(con))
@@ -88,7 +53,7 @@ def test_observe_returns_metric_frame(tmp_path):
 
 
 def test_observe_rejects_bare_metric_string(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends=_backends(con))
@@ -104,7 +69,7 @@ def test_observe_rejects_bare_metric_string(tmp_path):
 
 
 def test_observe_applies_window(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends=_backends(con))
@@ -117,7 +82,7 @@ def test_observe_applies_window(tmp_path):
 
 
 def test_observe_applies_slice(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends=_backends(con))
@@ -126,7 +91,7 @@ def test_observe_applies_slice(tmp_path):
 
 
 def test_observe_unknown_metric_raises(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends=_backends(con))
@@ -134,31 +99,43 @@ def test_observe_unknown_metric_raises(tmp_path):
         observe(MetricRef("sales.nonexistent"), session=s)
 
 
-def test_observe_semantic_load_error_is_not_metric_not_found(tmp_path, monkeypatch):
-    _bootstrap_sales(tmp_path)
-    s = session_attach.create(name="demo")
-    error = SemanticLoadError([])
+def test_observe_errored_project_raises(tmp_path, monkeypatch):
+    bootstrap_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.create(name="demo", backends=_backends(con))
+    # Simulate a project that re-loads and stays errored
+    from marivo.semantic_py.errors import SemanticLoadFailed
 
-    def fail_load(*, project=None):
-        raise error
+    def fail_load(self):
+        from marivo.semantic_py.errors import SemanticError
+        from marivo.semantic_py.loader import LoadResult
 
-    monkeypatch.setattr("marivo.semantic_py.reader.ensure_loaded", fail_load)
+        err = SemanticError(kind="test_error", message="test error")
+        result = LoadResult(status="errored", errors=(err,))
+        # Also update the project state
+        self._status = result.status
+        self._errors = result.errors
+        self._registry = result.registry
+        self._sidecar = result.sidecar
+        return result
 
-    with pytest.raises(SemanticLoadError) as exc_info:
+    monkeypatch.setattr(type(s.semantic_project), "load", fail_load)
+    s.semantic_project._status = "unloaded"
+
+    with pytest.raises(SemanticLoadFailed):
         observe(MetricRef("sales.revenue"), session=s)
-
-    assert exc_info.value is error
 
 
 def test_observe_read_only_session_raises(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     s = session_attach.create(name="demo")
     with pytest.raises(NoBackendFactoryError):
         observe(MetricRef("sales.revenue"), session=s)
 
 
 def test_observe_persists_job_and_frame(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends=_backends(con))
@@ -171,7 +148,7 @@ def test_observe_persists_job_and_frame(tmp_path):
 
 
 def test_observe_archived_session_raises(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends=_backends(con))
@@ -181,7 +158,7 @@ def test_observe_archived_session_raises(tmp_path):
 
 
 def test_observe_stale_archived_session_raises(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends=_backends(con))
@@ -193,7 +170,7 @@ def test_observe_stale_archived_session_raises(tmp_path):
 
 
 def test_observe_persists_known_datasources(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends=_backends(con))

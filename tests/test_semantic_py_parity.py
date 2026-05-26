@@ -1,370 +1,730 @@
+"""Tests for marivo.semantic_py.parity -- parity checking and status propagation.
+
+Tests cover:
+- Base metric parity ok (matching values)
+- Base metric parity fail (mismatched values)
+- Base metric parity with rel_tol
+- Base metric parity with abs_tol
+- Derived metric parity raises error (not supported directly)
+- Missing source_sql raises error
+- Dialect mismatch raises error
+- Cross-datasource metric raises error
+- Parity status computation: declared python_native -> PYTHON_NATIVE
+- Parity status computation: declared unverified -> UNVERIFIED
+- Parity status computation: no source_sql -> UNVERIFIED
+- Parity status computation: parity_check ok -> VERIFIED
+- Parity status computation: parity_check fail -> DRIFTED
+- Derived propagation: all verified -> VERIFIED
+- Derived propagation: one drifted -> DRIFTED
+- Derived propagation: one unverified -> UNVERIFIED
+- Derived propagation: mix of verified + python_native -> PYTHON_NATIVE
+- Parity results cached, cleared on reload
+- list_metrics(provenance_status=...) filter works
+"""
+
 from __future__ import annotations
 
-from typing import Any
+import textwrap
 
 import ibis
 import pytest
 
-import marivo.semantic_py as ms
-from marivo.semantic_py.errors import SemanticParityError
-from marivo.semantic_py.parity import _comparison_ok, compare_metric_to_source_sql
-from marivo.semantic_py.registry import SemanticProject, use_registry
+from marivo.semantic_py.errors import ErrorKind, SemanticParityError
+from marivo.semantic_py.ir import ParityStatus
+from marivo.semantic_py.parity import propagated_parity_status
+
+# ---------------------------------------------------------------------------
+# DuckDB backend fixture
+# ---------------------------------------------------------------------------
 
 
-def _project(
-    *,
-    source_sql: str
-    | None = "select sum(case when pay_status = 1 then amount else 0 end) as value from orders",
-    source_dialect: str | None = "duckdb",
-    backend_type: str | None = "duckdb",
-) -> SemanticProject:
-    project = SemanticProject(root="/tmp/parity")
-    with use_registry(project.registry):
-        ms.model(name="sales")
-
-        @ms.datasource(name="warehouse", backend_type=backend_type)
-        def warehouse() -> None: ...
-
-        @ms.dataset(name="orders", datasource=warehouse)
-        def orders(backend: Any) -> Any:
-            return backend.table("orders")
-
-        @ms.metric(
-            decomposition=ms.sum(),
-            source_sql=source_sql,
-            source_dialect=source_dialect if source_sql is not None else None,
-            source_document="kb://finance/revenue" if source_sql is not None else None,
-        )
-        def paid_revenue(orders: Any) -> Any:
-            return orders.filter(orders.pay_status == 1).amount.sum()
-
-    project.registry.state = "ready"
-    return project
-
-
-def _missing_dataset_project() -> SemanticProject:
-    project = SemanticProject(root="/tmp/parity-missing-dataset")
-    with use_registry(project.registry):
-        ms.model(name="sales")
-
-        @ms.datasource(name="warehouse", backend_type="duckdb")
-        def warehouse() -> None: ...
-
-        @ms.metric(
-            decomposition=ms.sum(),
-            source_sql="select 17 as value",
-            source_dialect="duckdb",
-        )
-        def paid_revenue(orders: Any) -> Any:
-            return orders.amount.sum()
-
-    project.registry.state = "ready"
-    return project
-
-
-def _non_scalar_metric_project() -> SemanticProject:
-    project = SemanticProject(root="/tmp/parity-non-scalar-metric")
-    with use_registry(project.registry):
-        ms.model(name="sales")
-
-        @ms.datasource(name="warehouse", backend_type="duckdb")
-        def warehouse() -> None: ...
-
-        @ms.dataset(name="orders", datasource=warehouse)
-        def orders(backend: Any) -> Any:
-            return backend.table("orders")
-
-        @ms.metric(
-            decomposition=ms.sum(),
-            source_sql="select 17 as value",
-            source_dialect="duckdb",
-        )
-        def paid_revenue(orders: Any) -> Any:
-            return orders
-
-    project.registry.state = "ready"
-    return project
-
-
-def _multi_datasource_project() -> SemanticProject:
-    project = SemanticProject(root="/tmp/parity-multi-datasource")
-    with use_registry(project.registry):
-        ms.model(name="sales")
-
-        @ms.datasource(name="warehouse")
-        def warehouse() -> None: ...
-
-        @ms.datasource(name="finance")
-        def finance() -> None: ...
-
-        @ms.dataset(name="orders", datasource=warehouse)
-        def orders(backend: Any) -> Any:
-            return backend.table("orders")
-
-        @ms.dataset(name="refunds", datasource=finance)
-        def refunds(backend: Any) -> Any:
-            return backend.table("refunds")
-
-        @ms.metric(
-            decomposition=ms.sum(),
-            source_sql="select 1 as value",
-            source_dialect="duckdb",
-        )
-        def net_revenue(orders: Any, refunds: Any) -> Any:
-            return orders.amount.sum() - refunds.amount.sum()
-
-    project.registry.state = "ready"
-    return project
-
-
-def test_compare_metric_to_source_sql_passes_for_equal_results() -> None:
-    project = _project()
-    con = ibis.duckdb.connect()
-    con.create_table("orders", {"pay_status": [1, 0, 1], "amount": [10, 99, 7]})
-    calls: list[str] = []
-
-    def backend_factory(datasource_name: str) -> Any:
-        calls.append(datasource_name)
-        return con
-
-    result = compare_metric_to_source_sql(
-        project=project,
-        model="sales",
-        metric="paid_revenue",
-        backend_factory=backend_factory,
+@pytest.fixture
+def duckdb_backend():
+    """In-memory DuckDB backend with a test orders table."""
+    con = ibis.duckdb.connect(":memory:")
+    con.con.execute(
+        "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
     )
+    con.con.execute(
+        "INSERT INTO orders VALUES (1, 100.0, 'US', '2025-01-01'), (2, 200.0, 'EU', '2025-02-01')"
+    )
+    return con
 
+
+@pytest.fixture
+def backend_factory(duckdb_backend):
+    """A backend_factory callable that always returns the shared DuckDB backend."""
+
+    def _factory(datasource_semantic_id: str):
+        return duckdb_backend
+
+    return _factory
+
+
+# ---------------------------------------------------------------------------
+# Model file templates
+# ---------------------------------------------------------------------------
+
+
+_MODEL_PY = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    ms.model(name="sales", default=True)
+""")
+
+_DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    wh = ms.datasource(name="warehouse", backend_type="duckdb")
+
+    @ms.dataset(datasource=wh)
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.field(dataset=orders)
+    def amount(table):
+        return table.amount
+
+    @ms.metric(
+        datasets=[orders],
+        decomposition=ms.sum(),
+        source_sql="SELECT SUM(amount) AS total_amount FROM orders",
+        source_dialect="duckdb",
+    )
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
+_DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    wh = ms.datasource(name="warehouse", backend_type="duckdb")
+
+    @ms.dataset(datasource=wh)
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.metric(
+        datasets=[orders],
+        decomposition=ms.sum(),
+        source_sql="SELECT 999.0 AS total_amount",
+        source_dialect="duckdb",
+    )
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
+_DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    wh = ms.datasource(name="warehouse", backend_type="duckdb")
+
+    @ms.dataset(datasource=wh)
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
+_DIALECT_MISMATCH_PY = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    wh = ms.datasource(name="warehouse", backend_type="duckdb")
+
+    @ms.dataset(datasource=wh)
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.metric(
+        datasets=[orders],
+        decomposition=ms.sum(),
+        source_sql="SELECT SUM(amount) FROM orders",
+        source_dialect="postgres",
+    )
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
+_DERIVED_METRIC_PY = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    wh = ms.datasource(name="warehouse", backend_type="duckdb")
+
+    @ms.dataset(datasource=wh)
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.metric(
+        datasets=[orders],
+        decomposition=ms.sum(),
+        source_sql="SELECT SUM(amount) AS revenue FROM orders",
+        source_dialect="duckdb",
+    )
+    def revenue(table):
+        return table.amount.sum()
+
+    @ms.metric(
+        datasets=[orders],
+        decomposition=ms.sum(),
+        source_sql="SELECT SUM(amount) AS cost FROM orders",
+        source_dialect="duckdb",
+    )
+    def cost(table):
+        return table.amount.sum()
+
+    @ms.metric(
+        decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
+        source_sql="SELECT 0.5 AS margin",
+        source_dialect="duckdb",
+    )
+    def margin():
+        return ms.component("numerator") / ms.component("denominator")
+""")
+
+_DECLARED_PYTHON_NATIVE_PY = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    wh = ms.datasource(name="warehouse", backend_type="duckdb")
+
+    @ms.dataset(datasource=wh)
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.metric(
+        datasets=[orders],
+        decomposition=ms.sum(),
+        provenance="python_native",
+    )
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
+_DECLARED_UNVERIFIED_PY = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    wh = ms.datasource(name="warehouse", backend_type="duckdb")
+
+    @ms.dataset(datasource=wh)
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.metric(
+        datasets=[orders],
+        decomposition=ms.sum(),
+        source_sql="SELECT SUM(amount) FROM orders",
+        source_dialect="duckdb",
+        provenance="unverified",
+    )
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
+
+# ---------------------------------------------------------------------------
+# Base metric parity ok
+# ---------------------------------------------------------------------------
+
+
+def test_base_metric_parity_ok(semantic_project_factory, backend_factory) -> None:
+    """Parity check with matching values should return ok=True."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
+        }
+    )
+    result = project.parity_check("sales.total_amount", backend_factory=backend_factory)
     assert result.ok is True
-    assert result.metric_value == 17
-    assert result.sql_value == 17
-    assert result.source_sql == (
-        "select sum(case when pay_status = 1 then amount else 0 end) as value from orders"
+    assert result.expected == 300.0
+    assert result.actual == 300.0
+    assert result.error is None
+
+
+# ---------------------------------------------------------------------------
+# Base metric parity fail
+# ---------------------------------------------------------------------------
+
+
+def test_base_metric_parity_fail(semantic_project_factory, backend_factory) -> None:
+    """Parity check with mismatched values should return ok=False."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_AND_MISMATCHED_METRIC_PY,
+        }
     )
-    assert result.source_dialect == "duckdb"
-    assert result.source_document == "kb://finance/revenue"
-    assert calls == ["warehouse"]
-
-
-def test_compare_metric_to_source_sql_reports_mismatch() -> None:
-    project = _project(source_sql="select sum(amount) as value from orders")
-    con = ibis.duckdb.connect()
-    con.create_table("orders", {"pay_status": [1, 0, 1], "amount": [10, 99, 7]})
-
-    result = compare_metric_to_source_sql(
-        project=project,
-        model="sales",
-        metric="paid_revenue",
-        backend_factory=lambda datasource_name: con,
-    )
-
+    result = project.parity_check("sales.total_amount", backend_factory=backend_factory)
     assert result.ok is False
-    assert result.metric_value == 17
-    assert result.sql_value == 116
+    assert result.actual == 300.0
+    assert result.expected == 999.0
 
 
-def test_comparison_is_exact_by_default_for_numeric_values() -> None:
-    assert _comparison_ok(0.1 + 0.2, 0.3, metric_ref="metric:sales.ratio") is False
-    assert _comparison_ok(10**12, 10**12 + 1, metric_ref="metric:sales.revenue") is False
+# ---------------------------------------------------------------------------
+# Base metric parity with rel_tol
+# ---------------------------------------------------------------------------
 
 
-def test_comparison_allows_explicit_small_numeric_drift() -> None:
-    assert (
-        _comparison_ok(
-            0.1 + 0.2,
-            0.3,
-            metric_ref="metric:sales.ratio",
-            abs_tol=1e-9,
-        )
-        is True
+def test_base_metric_parity_rel_tol(semantic_project_factory, backend_factory) -> None:
+    """Parity check with rel_tol should pass within tolerance."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_AND_MISMATCHED_METRIC_PY,
+        }
     )
-    assert _comparison_ok(1.0, 1.01, metric_ref="metric:sales.ratio") is False
+    # 300 vs 999 — way off, but with rel_tol=2.0 (200%), isclose considers them close
+    result = project.parity_check(
+        "sales.total_amount", backend_factory=backend_factory, rel_tol=2.0
+    )
+    assert result.ok is True
+    assert result.rel_tol == 2.0
 
 
-@pytest.mark.parametrize("source_sql", [None, "   "])
-def test_compare_metric_to_source_sql_requires_source_sql(source_sql: str | None) -> None:
-    project = _project(source_sql=source_sql)
-    con = ibis.duckdb.connect()
-    con.create_table("orders", {"pay_status": [1], "amount": [10]})
+# ---------------------------------------------------------------------------
+# Base metric parity with abs_tol
+# ---------------------------------------------------------------------------
 
-    with pytest.raises(SemanticParityError) as exc_info:
-        compare_metric_to_source_sql(
-            project=project,
-            model="sales",
-            metric="paid_revenue",
-            backend_factory=lambda datasource_name: con,
+
+def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -> None:
+    """Parity check with abs_tol should pass within tolerance."""
+    # Create a project where expected and actual differ by a small amount
+    small_mismatch_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="warehouse", backend_type="duckdb")
+
+        @ms.dataset(datasource=wh)
+        def orders(backend):
+            return backend.table("orders")
+
+        @ms.metric(
+            datasets=[orders],
+            decomposition=ms.sum(),
+            source_sql="SELECT 300.5 AS total_amount",
+            source_dialect="duckdb",
         )
+        def total_amount(table):
+            return table.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": small_mismatch_py,
+        }
+    )
+    result = project.parity_check(
+        "sales.total_amount", backend_factory=backend_factory, abs_tol=1.0
+    )
+    assert result.ok is True
+    assert result.abs_tol == 1.0
 
-    assert exc_info.value.phase == "parity"
-    assert exc_info.value.kind == "SourceSqlMissing"
-    assert exc_info.value.refs == ["metric:sales.paid_revenue"]
+
+# ---------------------------------------------------------------------------
+# Derived metric parity raises error
+# ---------------------------------------------------------------------------
 
 
-def test_compare_metric_to_source_sql_requires_source_dialect() -> None:
-    project = _project(source_dialect=None)
-
-    def backend_factory(datasource_name: str) -> Any:
-        raise AssertionError("backend should not be created when source_dialect is missing")
-
+def test_derived_metric_parity_raises(semantic_project_factory, backend_factory) -> None:
+    """Parity check on a derived metric should raise SemanticParityError."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DERIVED_METRIC_PY,
+        }
+    )
     with pytest.raises(SemanticParityError) as exc_info:
-        compare_metric_to_source_sql(
-            project=project,
-            model="sales",
-            metric="paid_revenue",
-            backend_factory=backend_factory,
-        )
-
-    assert exc_info.value.phase == "parity"
-    assert exc_info.value.kind == "SourceDialectMissing"
-    assert exc_info.value.refs == ["metric:sales.paid_revenue", "datasource:sales.warehouse"]
+        project.parity_check("sales.margin", backend_factory=backend_factory)
+    assert exc_info.value.kind == ErrorKind.SOURCE_SQL_MISSING
 
 
-def test_compare_metric_to_source_sql_requires_source_backend_type() -> None:
-    project = _project(source_dialect="duckdb", backend_type=None)
+# ---------------------------------------------------------------------------
+# Missing source_sql raises error
+# ---------------------------------------------------------------------------
 
-    def backend_factory(datasource_name: str) -> Any:
-        raise AssertionError("backend should not be created when backend_type is missing")
 
+def test_missing_source_sql_raises(semantic_project_factory, backend_factory) -> None:
+    """Parity check on metric without source_sql should raise."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_NO_SOURCE_SQL_PY,
+        }
+    )
     with pytest.raises(SemanticParityError) as exc_info:
-        compare_metric_to_source_sql(
-            project=project,
-            model="sales",
-            metric="paid_revenue",
-            backend_factory=backend_factory,
-        )
-
-    assert exc_info.value.phase == "parity"
-    assert exc_info.value.kind == "SourceBackendTypeMissing"
-    assert exc_info.value.refs == ["metric:sales.paid_revenue", "datasource:sales.warehouse"]
+        project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    assert exc_info.value.kind == ErrorKind.SOURCE_SQL_MISSING
 
 
-def test_compare_metric_to_source_sql_wraps_missing_metric() -> None:
-    project = _project()
-    con = ibis.duckdb.connect()
+# ---------------------------------------------------------------------------
+# Dialect mismatch raises error
+# ---------------------------------------------------------------------------
 
+
+def test_dialect_mismatch_raises(semantic_project_factory, backend_factory) -> None:
+    """Parity check when source_dialect != datasource.backend_type should raise."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DIALECT_MISMATCH_PY,
+        }
+    )
     with pytest.raises(SemanticParityError) as exc_info:
-        compare_metric_to_source_sql(
-            project=project,
-            model="sales",
-            metric="missing_revenue",
-            backend_factory=lambda datasource_name: con,
+        project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    assert exc_info.value.kind == ErrorKind.BACKEND_MISMATCH
+
+
+# ---------------------------------------------------------------------------
+# Cross-datasource metric raises error
+# ---------------------------------------------------------------------------
+
+
+def test_cross_datasource_metric_raises(semantic_project_factory, backend_factory) -> None:
+    """Parity check on metric with cross-datasource datasets should raise."""
+    cross_ds_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh1 = ms.datasource(name="warehouse1", backend_type="duckdb")
+        wh2 = ms.datasource(name="warehouse2", backend_type="duckdb")
+
+        @ms.dataset(datasource=wh1)
+        def orders_a(backend):
+            return backend.table("orders")
+
+        @ms.dataset(datasource=wh2)
+        def orders_b(backend):
+            return backend.table("orders")
+
+        @ms.metric(
+            datasets=[orders_a, orders_b],
+            decomposition=ms.sum(),
+            source_sql="SELECT SUM(amount) FROM orders",
+            source_dialect="duckdb",
         )
-
-    assert exc_info.value.phase == "parity"
-    assert exc_info.value.kind == "MetricMissing"
-    assert exc_info.value.refs == ["metric:sales.missing_revenue"]
-
-
-def test_compare_metric_to_source_sql_wraps_missing_metric_dataset() -> None:
-    project = _missing_dataset_project()
-    con = ibis.duckdb.connect()
-
+        def total_amount(table_a, table_b):
+            return table_a.amount.sum() + table_b.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": cross_ds_py,
+        }
+    )
     with pytest.raises(SemanticParityError) as exc_info:
-        compare_metric_to_source_sql(
-            project=project,
-            model="sales",
-            metric="paid_revenue",
-            backend_factory=lambda datasource_name: con,
+        project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    assert exc_info.value.kind == ErrorKind.CROSS_DATASOURCE_NOT_SUPPORTED
+
+
+# ---------------------------------------------------------------------------
+# Parity status: declared python_native -> PYTHON_NATIVE
+# ---------------------------------------------------------------------------
+
+
+def test_status_declared_python_native(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DECLARED_PYTHON_NATIVE_PY,
+        }
+    )
+    status = propagated_parity_status(project, "sales.total_amount")
+    assert status == ParityStatus.PYTHON_NATIVE
+
+
+# ---------------------------------------------------------------------------
+# Parity status: declared unverified -> UNVERIFIED
+# ---------------------------------------------------------------------------
+
+
+def test_status_declared_unverified(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DECLARED_UNVERIFIED_PY,
+        }
+    )
+    status = propagated_parity_status(project, "sales.total_amount")
+    assert status == ParityStatus.UNVERIFIED
+
+
+# ---------------------------------------------------------------------------
+# Parity status: no source_sql -> UNVERIFIED
+# ---------------------------------------------------------------------------
+
+
+def test_status_no_source_sql(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_NO_SOURCE_SQL_PY,
+        }
+    )
+    status = propagated_parity_status(project, "sales.total_amount")
+    assert status == ParityStatus.UNVERIFIED
+
+
+# ---------------------------------------------------------------------------
+# Parity status: parity_check ok -> VERIFIED
+# ---------------------------------------------------------------------------
+
+
+def test_status_parity_check_ok(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
+        }
+    )
+    # Before parity check, status is UNVERIFIED (has source_sql but not checked)
+    status_before = propagated_parity_status(project, "sales.total_amount")
+    assert status_before == ParityStatus.UNVERIFIED
+
+    # Run parity check
+    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+
+    # After parity check ok, status should be VERIFIED
+    status_after = propagated_parity_status(project, "sales.total_amount")
+    assert status_after == ParityStatus.VERIFIED
+
+
+# ---------------------------------------------------------------------------
+# Parity status: parity_check fail -> DRIFTED
+# ---------------------------------------------------------------------------
+
+
+def test_status_parity_check_fail(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_AND_MISMATCHED_METRIC_PY,
+        }
+    )
+    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+
+    status = propagated_parity_status(project, "sales.total_amount")
+    assert status == ParityStatus.DRIFTED
+
+
+# ---------------------------------------------------------------------------
+# Derived propagation: all verified -> VERIFIED
+# ---------------------------------------------------------------------------
+
+
+def test_derived_propagation_all_verified(semantic_project_factory, backend_factory) -> None:
+    """When all component metrics are verified, derived should be VERIFIED."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DERIVED_METRIC_PY,
+        }
+    )
+    # Run parity check on both components to make them verified
+    project.parity_check("sales.revenue", backend_factory=backend_factory)
+    project.parity_check("sales.cost", backend_factory=backend_factory)
+
+    status = propagated_parity_status(project, "sales.margin")
+    assert status == ParityStatus.VERIFIED
+
+
+# ---------------------------------------------------------------------------
+# Derived propagation: one drifted -> DRIFTED
+# ---------------------------------------------------------------------------
+
+
+def test_derived_propagation_one_drifted(semantic_project_factory, backend_factory) -> None:
+    """When one component metric is drifted, derived should be DRIFTED."""
+    drifted_component_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="warehouse", backend_type="duckdb")
+
+        @ms.dataset(datasource=wh)
+        def orders(backend):
+            return backend.table("orders")
+
+        @ms.metric(
+            datasets=[orders],
+            decomposition=ms.sum(),
+            source_sql="SELECT SUM(amount) FROM orders",
+            source_dialect="duckdb",
         )
+        def revenue(table):
+            return table.amount.sum()
 
-    assert exc_info.value.phase == "parity"
-    assert exc_info.value.kind == "MetricDatasetMissing"
-    assert exc_info.value.refs == ["metric:sales.paid_revenue", "dataset:sales.orders"]
-
-
-def test_compare_metric_to_source_sql_rejects_source_dialect_backend_mismatch() -> None:
-    project = _project(source_dialect="trino", backend_type="duckdb")
-    con = ibis.duckdb.connect()
-
-    with pytest.raises(SemanticParityError) as exc_info:
-        compare_metric_to_source_sql(
-            project=project,
-            model="sales",
-            metric="paid_revenue",
-            backend_factory=lambda datasource_name: con,
+        @ms.metric(
+            datasets=[orders],
+            decomposition=ms.sum(),
+            source_sql="SELECT 999.0 AS cost",
+            source_dialect="duckdb",
         )
+        def cost(table):
+            return table.amount.sum()
 
-    assert exc_info.value.phase == "parity"
-    assert exc_info.value.kind == "SourceDialectMismatch"
-    assert exc_info.value.refs == ["metric:sales.paid_revenue", "datasource:sales.warehouse"]
+        @ms.metric(
+            decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
+        )
+        def margin():
+            return ms.component("numerator") / ms.component("denominator")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": drifted_component_py,
+        }
+    )
+    project.parity_check("sales.revenue", backend_factory=backend_factory)
+    project.parity_check("sales.cost", backend_factory=backend_factory)
+
+    status = propagated_parity_status(project, "sales.margin")
+    assert status == ParityStatus.DRIFTED
 
 
-@pytest.mark.parametrize(
-    ("source_sql", "expected_kind"),
-    [
-        ("select amount from orders where pay_status = 9", "SourceSqlResultShapeInvalid"),
-        ("select amount from orders", "SourceSqlResultShapeInvalid"),
-        ("select amount, pay_status from orders limit 1", "SourceSqlResultShapeInvalid"),
-    ],
-)
-def test_compare_metric_to_source_sql_rejects_non_scalar_source_sql_result(
-    source_sql: str,
-    expected_kind: str,
+# ---------------------------------------------------------------------------
+# Derived propagation: one unverified -> UNVERIFIED
+# ---------------------------------------------------------------------------
+
+
+def test_derived_propagation_one_unverified(semantic_project_factory, backend_factory) -> None:
+    """When one component metric is unverified, derived should be UNVERIFIED."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DERIVED_METRIC_PY,
+        }
+    )
+    # Verify only revenue, leave cost unverified
+    project.parity_check("sales.revenue", backend_factory=backend_factory)
+
+    status = propagated_parity_status(project, "sales.margin")
+    assert status == ParityStatus.UNVERIFIED
+
+
+# ---------------------------------------------------------------------------
+# Derived propagation: mix of verified + python_native -> PYTHON_NATIVE
+# ---------------------------------------------------------------------------
+
+
+def test_derived_propagation_verified_and_python_native(
+    semantic_project_factory, backend_factory
 ) -> None:
-    project = _project(source_sql=source_sql)
-    con = ibis.duckdb.connect()
-    con.create_table("orders", {"pay_status": [1, 0], "amount": [10, 99]})
+    """When one component is verified and another is python_native, derived is PYTHON_NATIVE."""
+    mixed_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="warehouse", backend_type="duckdb")
 
-    with pytest.raises(SemanticParityError) as exc_info:
-        compare_metric_to_source_sql(
-            project=project,
-            model="sales",
-            metric="paid_revenue",
-            backend_factory=lambda datasource_name: con,
+        @ms.dataset(datasource=wh)
+        def orders(backend):
+            return backend.table("orders")
+
+        @ms.metric(
+            datasets=[orders],
+            decomposition=ms.sum(),
+            source_sql="SELECT SUM(amount) FROM orders",
+            source_dialect="duckdb",
         )
+        def revenue(table):
+            return table.amount.sum()
 
-    assert exc_info.value.kind == expected_kind
-    assert exc_info.value.refs == ["metric:sales.paid_revenue"]
-
-
-def test_compare_metric_to_source_sql_wraps_invalid_source_sql() -> None:
-    project = _project(source_sql="select missing_column from orders")
-    con = ibis.duckdb.connect()
-    con.create_table("orders", {"pay_status": [1], "amount": [10]})
-
-    with pytest.raises(SemanticParityError) as exc_info:
-        compare_metric_to_source_sql(
-            project=project,
-            model="sales",
-            metric="paid_revenue",
-            backend_factory=lambda datasource_name: con,
+        @ms.metric(
+            datasets=[orders],
+            decomposition=ms.sum(),
+            provenance="python_native",
         )
+        def cost(table):
+            return table.amount.sum()
 
-    assert exc_info.value.kind == "SourceSqlExecutionFailed"
-    assert exc_info.value.refs == ["metric:sales.paid_revenue"]
-
-
-def test_compare_metric_to_source_sql_wraps_metric_execution_failure() -> None:
-    project = _non_scalar_metric_project()
-    con = ibis.duckdb.connect()
-    con.create_table("orders", {"pay_status": [1, 0], "amount": [10, 99]})
-
-    with pytest.raises(SemanticParityError) as exc_info:
-        compare_metric_to_source_sql(
-            project=project,
-            model="sales",
-            metric="paid_revenue",
-            backend_factory=lambda datasource_name: con,
+        @ms.metric(
+            decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
         )
+        def margin():
+            return ms.component("numerator") / ms.component("denominator")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": mixed_py,
+        }
+    )
+    project.parity_check("sales.revenue", backend_factory=backend_factory)
 
-    assert exc_info.value.kind == "MetricResultShapeInvalid"
-    assert exc_info.value.refs == ["metric:sales.paid_revenue"]
+    status = propagated_parity_status(project, "sales.margin")
+    assert status == ParityStatus.PYTHON_NATIVE
 
 
-def test_compare_metric_to_source_sql_rejects_multi_datasource_metric() -> None:
-    project = _multi_datasource_project()
-    con = ibis.duckdb.connect()
+# ---------------------------------------------------------------------------
+# Parity results cached, cleared on reload
+# ---------------------------------------------------------------------------
 
+
+def test_parity_results_cached(semantic_project_factory, backend_factory) -> None:
+    """Parity results should be cached on the project."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
+        }
+    )
+    # First call
+    result1 = project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    # Second call should return cached result
+    result2 = project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    # Both should be the same object (cached)
+    assert result1 is result2
+
+
+def test_parity_results_cleared_on_reload(semantic_project_factory, backend_factory) -> None:
+    """Parity cache should be cleared on reload."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
+        }
+    )
+    result1 = project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    assert result1.ok is True
+
+    project.reload()
+
+    # After reload, parity cache should be empty, so status goes back to UNVERIFIED
+    status = propagated_parity_status(project, "sales.total_amount")
+    assert status == ParityStatus.UNVERIFIED
+
+
+# ---------------------------------------------------------------------------
+# list_metrics(provenance_status=...) filter works
+# ---------------------------------------------------------------------------
+
+
+def test_list_metrics_provenance_status_filter(semantic_project_factory, backend_factory) -> None:
+    """list_metrics(provenance_status=...) should filter by propagated status."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
+        }
+    )
+
+    # Before parity check: UNVERIFIED
+    unverified = project.list_metrics(provenance_status=ParityStatus.UNVERIFIED)
+    assert any(m.semantic_id == "sales.total_amount" for m in unverified)
+
+    verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED)
+    assert not any(m.semantic_id == "sales.total_amount" for m in verified)
+
+    # Run parity check
+    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+
+    # After parity check: VERIFIED
+    verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED)
+    assert any(m.semantic_id == "sales.total_amount" for m in verified)
+
+    unverified = project.list_metrics(provenance_status=ParityStatus.UNVERIFIED)
+    assert not any(m.semantic_id == "sales.total_amount" for m in unverified)
+
+
+# ---------------------------------------------------------------------------
+# Metric not found raises
+# ---------------------------------------------------------------------------
+
+
+def test_parity_check_metric_not_found(semantic_project_factory, backend_factory) -> None:
+    """Parity check on non-existent metric should raise."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
+        }
+    )
     with pytest.raises(SemanticParityError) as exc_info:
-        compare_metric_to_source_sql(
-            project=project,
-            model="sales",
-            metric="net_revenue",
-            backend_factory=lambda datasource_name: con,
-        )
-
-    assert exc_info.value.kind == "SourceSqlDatasourceAmbiguous"
-    assert exc_info.value.refs == [
-        "metric:sales.net_revenue",
-        "dataset:sales.orders",
-        "dataset:sales.refunds",
-    ]
+        project.parity_check("sales.nonexistent", backend_factory=backend_factory)
+    assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND

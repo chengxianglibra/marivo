@@ -6,6 +6,7 @@ import pytest
 import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
 from marivo.analysis_py.errors import CrossSessionFrameError, FrameRefNotFound
+from tests.conftest import bootstrap_sales_project
 
 
 @pytest.fixture(autouse=True)
@@ -15,33 +16,13 @@ def _chdir(tmp_path, monkeypatch):
     yield
 
 
-def _bootstrap(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
-    (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic_py as ms\nms.model(name='sales')\n"
-    )
-    (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse(): ...\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
-        "@ms.metric(decomposition=ms.sum())\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n"
-    )
-
-
 def _seed(con):
     con.raw_sql("CREATE TABLE orders (order_id INTEGER, amount DOUBLE)")
     con.raw_sql("INSERT INTO orders VALUES (1, 10.0), (2, 20.0)")
 
 
 def test_load_frame_cross_session_raises(tmp_path):
-    _bootstrap(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s_a = mv.session.create(name="a", backends={"warehouse": lambda: con})
@@ -53,7 +34,7 @@ def test_load_frame_cross_session_raises(tmp_path):
 
 
 def test_load_frame_same_session_succeeds(tmp_path):
-    _bootstrap(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = mv.session.create(name="a", backends={"warehouse": lambda: con})
@@ -64,7 +45,7 @@ def test_load_frame_same_session_succeeds(tmp_path):
 
 
 def test_load_frame_missing_ref_raises(tmp_path):
-    _bootstrap(tmp_path)
+    bootstrap_sales_project(tmp_path)
     s = mv.session.create(name="a")
     with pytest.raises(FrameRefNotFound):
         mv.load_frame("frame_nonexistent_ref", session=s)

@@ -80,7 +80,9 @@ class MetricNotFoundError(AnalysisError):
             "cause": f"metric_id={metric_ref} is not registered in the active semantic model.",
             "fix_snippet": (
                 "import marivo.semantic_py as ms\n"
-                "ms.list_metrics()  # confirm the exact id\n"
+                "project = ms.find_project()\n"
+                "project.load()\n"
+                "project.list_metrics()  # confirm the exact id\n"
                 'mv.observe(mv.MetricRef("<registered_metric_id>"), window="2026Q3")'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
@@ -229,7 +231,7 @@ class NoBackendFactoryError(AnalysisError):
                 "import ibis\n"
                 "import marivo.semantic_py as ms\n"
                 "\n"
-                '@ms.datasource(name="tiny_orders", backend_type="duckdb")\n'
+                'wh = ms.datasource(name="tiny_orders", backend_type="duckdb")\n'
                 "def tiny_orders():\n"
                 '    return ibis.duckdb.connect(":memory:")\n'
             ),
@@ -244,3 +246,6 @@ class NoActiveSessionError(AnalysisError): ...
 
 
 class SessionStateError(AnalysisError): ...
+
+
+class SemanticProjectNotReadyError(AnalysisError): ...
