@@ -185,6 +185,22 @@ class FrameMetaInvalidError(AnalysisError):
     pass
 
 
+class TransformOpUnsupportedError(AnalysisError):
+    """Raised when an op is unknown or invalid for the input frame family."""
+
+
+class TransformShapeUnsupportedError(AnalysisError):
+    """Raised when an op requires axes the input frame does not have."""
+
+
+class TransformArgError(AnalysisError):
+    """Raised when transform kwargs are missing, wrong type, or contradict the op."""
+
+
+class TransformDimensionNotFoundError(AnalysisError):
+    """Raised when a where / drop_axes target is not present in frame axes."""
+
+
 class CalendarNotFoundError(AnalysisError):
     pass
 

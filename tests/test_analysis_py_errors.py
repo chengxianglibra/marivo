@@ -75,3 +75,49 @@ def test_optional_hint_and_details():
     err = FrameMutationError(message="frame is immutable")
     assert err.hint is None
     assert err.details == {}
+
+
+def test_transform_op_unsupported_error_is_analysis_error():
+    from marivo.analysis_py.errors import AnalysisError, TransformOpUnsupportedError
+
+    err = TransformOpUnsupportedError(
+        message="op 'explode' is not supported",
+        hint="use one of: filter, slice, rollup, topk, bottomk, rank, normalize, window",
+        details={"op": "explode", "supported_ops": ["filter", "slice"]},
+    )
+    assert isinstance(err, AnalysisError)
+    assert err.kind == "TransformOpUnsupported"
+    assert err.hint == "use one of: filter, slice, rollup, topk, bottomk, rank, normalize, window"
+    assert err.details["op"] == "explode"
+    assert err.details["supported_ops"] == ["filter", "slice"]
+
+
+def test_transform_shape_unsupported_error_carries_axes():
+    from marivo.analysis_py.errors import TransformShapeUnsupportedError
+
+    err = TransformShapeUnsupportedError(
+        message="window requires a time axis",
+        details={"axes": {}, "required": "time"},
+    )
+    assert err.details["axes"] == {}
+    assert err.details["required"] == "time"
+
+
+def test_transform_arg_error_carries_op():
+    from marivo.analysis_py.errors import TransformArgError
+
+    err = TransformArgError(
+        message="topk requires a positive 'limit'",
+        details={"op": "topk", "limit": 0},
+    )
+    assert err.details["op"] == "topk"
+
+
+def test_transform_dimension_not_found_error_lists_axes():
+    from marivo.analysis_py.errors import TransformDimensionNotFoundError
+
+    err = TransformDimensionNotFoundError(
+        message="dimension 'platform' not in frame axes",
+        details={"dimension": "platform", "axes": ["country", "time"]},
+    )
+    assert err.details["axes"] == ["country", "time"]

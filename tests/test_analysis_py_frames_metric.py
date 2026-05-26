@@ -138,3 +138,52 @@ def test_from_dataframe_rejects_archived_session(tmp_path, monkeypatch):
             semantic_model="custom",
             session=s,
         )
+
+
+def test_metric_frame_meta_accepts_optional_normalization():
+    from datetime import UTC, datetime
+
+    from marivo.analysis_py.frames.metric import MetricFrameMeta
+
+    meta = MetricFrameMeta(
+        ref="frame_test",
+        session_id="sess_test",
+        project_root="/tmp/proj",
+        produced_by_job=None,
+        created_at=datetime.now(UTC),
+        row_count=0,
+        byte_size=0,
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "revenue"},
+        window=None,
+        slice={},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        normalization={"kind": "share", "base": None, "columns_affected": ["revenue"]},
+    )
+    assert meta.normalization == {"kind": "share", "base": None, "columns_affected": ["revenue"]}
+
+
+def test_metric_frame_meta_normalization_defaults_to_none():
+    from datetime import UTC, datetime
+
+    from marivo.analysis_py.frames.metric import MetricFrameMeta
+
+    meta = MetricFrameMeta(
+        ref="frame_test",
+        session_id="sess_test",
+        project_root="/tmp/proj",
+        produced_by_job=None,
+        created_at=datetime.now(UTC),
+        row_count=0,
+        byte_size=0,
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "revenue"},
+        window=None,
+        slice={},
+        semantic_kind="scalar",
+        semantic_model="sales",
+    )
+    assert meta.normalization is None

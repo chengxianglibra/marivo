@@ -20,6 +20,7 @@ class DeltaFrameMeta(BaseFrameMeta):
     alignment: dict[str, Any]
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str
+    normalization: dict[str, Any] | None = None
 
 
 @dataclass

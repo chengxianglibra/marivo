@@ -64,3 +64,27 @@ def test_delta_frame_wraps_df_and_meta():
     )
     d = DeltaFrame(_df=df, meta=meta)
     assert set(d.columns) >= {"current", "baseline", "delta", "pct_change"}
+
+
+def test_delta_frame_meta_accepts_optional_normalization():
+    from datetime import UTC, datetime
+
+    from marivo.analysis_py.frames.delta import DeltaFrameMeta
+
+    meta = DeltaFrameMeta(
+        ref="frame_test",
+        session_id="sess_test",
+        project_root="/tmp/proj",
+        produced_by_job=None,
+        created_at=datetime.now(UTC),
+        row_count=0,
+        byte_size=0,
+        metric_id="sales.revenue",
+        source_a_ref="a",
+        source_b_ref="b",
+        alignment={"kind": "calendar_bucket"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        normalization={"kind": "z_score", "base": None, "columns_affected": ["delta"]},
+    )
+    assert meta.normalization["kind"] == "z_score"
