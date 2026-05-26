@@ -1,6 +1,7 @@
 """Marivo Python-native analysis runtime (analysis_py)."""
 
 from marivo.analysis_py import errors as errors
+from marivo.analysis_py import profiles as profiles
 from marivo.analysis_py import session
 from marivo.analysis_py.calendar.model import CalendarPolicy
 from marivo.analysis_py.frames.association import AssociationResult, AssociationResultMeta
@@ -52,6 +53,7 @@ __all__ = [
     "help",
     "load_frame",
     "observe",
+    "profiles",
     "session",
     "transform",
 ]

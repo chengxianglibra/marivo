@@ -67,10 +67,19 @@ Important current return types:
    tiny in-memory semantic model using the installed `marivo` package. Examples
    that use DuckDB require `marivo[duckdb]` or an equivalent environment.
 
-3. Write a small script in the user's project or scratch area. Use one of the
+3. If live data is required, persist the connection once via
+   `mv.profiles.set(name, backend_type=..., **kwargs)`; `mv.session.create`
+   then resolves the backend automatically. Sensitive fields (password,
+   token, api_key, ...) go via `*_env="VAR_NAME"` and are read from
+   `os.environ` at backend-build time. For tests or explicit overrides, pass
+   `backends=` / `backend_factory=` and set `use_profiles=False`. See
+   `references/profiles.md` for the full registry contract and
+   `references/backend-setup.md` for templates.
+
+4. Write a small script in the user's project or scratch area. Use one of the
    templates below or adapt a runnable file from `references/examples/*.py`.
 
-4. Run the smallest script with the same Python interpreter/environment where
+5. Run the smallest script with the same Python interpreter/environment where
    `marivo` is installed.
 
    ```bash
@@ -80,10 +89,10 @@ Important current return types:
    If the surrounding project has stricter command rules, follow those local
    rules. This skill itself does not require the Marivo repository checkout.
 
-5. On Marivo exceptions, read the structured error text. It usually includes a
+6. On Marivo exceptions, read the structured error text. It usually includes a
    `正确写法` block. Apply that fix, then re-run the smallest script.
 
-6. Keep generated analysis outputs compact. Prefer `frame.summary()` and
+7. Keep generated analysis outputs compact. Prefer `frame.summary()` and
    `frame.head(n)` before materializing full data with `frame.to_pandas()`.
 
 ## Relative Windows And Timezone
@@ -119,6 +128,60 @@ runnable examples. The cleaning ops (`dedupe`, `impute_nulls`, `winsorize`,
 for follow-up.
 
 ## Fill-in templates
+
+### Attach live backend (profile-backed, recommended)
+
+Persist the connection once, then let the session resolve it. The profile
+file lives at `~/.marivo/profiles/profiles.json` (override with
+`$MARIVO_HOME`) and is user-scope — reused across every Marivo project on
+the machine. For Trino prompt-field mapping see `references/backend-setup.md`;
+for the full registry contract see `references/profiles.md`.
+
+```python
+import marivo.analysis_py as mv
+
+mv.profiles.set(
+    "warehouse",
+    backend_type="trino",
+    host="<trino_host>",
+    port=8080,
+    user="<user>",
+    catalog="<catalog>",
+    schema="<schema>",
+    http_scheme="https",
+    source="<source>",
+    client_tags=["standby", "routing_group=wide"],
+    password_env="WAREHOUSE_PWD",   # secret read from os.environ
+)
+
+mv.session.create(name="analysis")  # backend resolved from the profile
+```
+
+### Attach live backend (explicit override)
+
+Use this in tests / CI or when you need full control over the backend. Pair
+with `use_profiles=False` so a stray profile cannot mask a misconfigured
+fixture.
+
+```python
+import ibis
+import marivo.analysis_py as mv
+
+def make_backend(datasource_name: str):
+    if datasource_name not in {"warehouse", "sales.warehouse"}:
+        raise KeyError(datasource_name)
+    return ibis.trino.connect(
+        host="<trino_host>", port=80, user="<user>",
+        database="<catalog>", source="<source>",
+        client_tags=["standby", "routing_group=bsk_wide"],
+    )
+
+mv.session.create(
+    name="analysis",
+    backend_factory=make_backend,
+    use_profiles=False,
+)
+```
 
 ### Observe one metric window
 
@@ -278,4 +341,9 @@ Need raw pandas operations?
 - `references/examples/_fixtures/tiny_semantic.py` - tiny semantic model used by
   the examples; requires DuckDB support in the active Marivo environment
 - `references/cheatsheet.md` - compact intent/frame reference
+- `references/profiles.md` - user-scope datasource profile registry
+  (`mv.profiles.set / list / describe / test / remove`), env-var secret
+  contract, audit and error reference
+- `references/backend-setup.md` - profile-backed and explicit-override
+  backend flows, Trino connection-field mapping
 - `references/pitfalls.md` - expanded error recovery notes

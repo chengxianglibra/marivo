@@ -129,7 +129,7 @@ def test_observe_errored_project_raises(tmp_path, monkeypatch):
 
 def test_observe_read_only_session_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
-    s = session_attach.create(name="demo")
+    s = session_attach.create(name="demo", use_profiles=False)
     with pytest.raises(NoBackendFactoryError):
         observe(MetricRef("sales.revenue"), session=s)
 

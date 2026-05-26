@@ -135,5 +135,5 @@ def test_create_rejects_both_backends_and_backend_factory(tmp_path):
 
 
 def test_create_read_only_when_no_factory(tmp_path):
-    s = attach.create(name="demo")
+    s = attach.create(name="demo", use_profiles=False)
     assert s.is_read_only

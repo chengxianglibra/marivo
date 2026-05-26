@@ -88,6 +88,8 @@ def _now() -> str:
 def _compile_backend_factory(
     backends: dict[str, Callable[[], Any]] | None,
     backend_factory: Callable[[str], Any] | None,
+    *,
+    use_profiles: bool = True,
 ) -> Callable[[str], Any] | None:
     if backends is not None and backend_factory is not None:
         raise SessionStateError(
@@ -100,7 +102,16 @@ def _compile_backend_factory(
             return backend_map[name]()
 
         return from_mapping
-    return backend_factory
+    if backend_factory is not None:
+        return backend_factory
+    if use_profiles:
+        from marivo.analysis_py import profiles as _profiles
+
+        def from_profiles(name: str) -> Any:
+            return _profiles.build_backend(name)
+
+        return from_profiles
+    return None
 
 
 def _build_semantic_project(project_root: Path) -> Any:
@@ -212,9 +223,10 @@ def create(
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
+    use_profiles: bool = True,
 ) -> Session:
     project_root = resolve_project_root()
-    factory = _compile_backend_factory(backends, backend_factory)
+    factory = _compile_backend_factory(backends, backend_factory, use_profiles=use_profiles)
     sid = _gen_session_id()
     now = _now()
     cwd = str(Path.cwd())
@@ -278,6 +290,7 @@ def attach(
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
+    use_profiles: bool = True,
 ) -> Session:
     project_root = resolve_project_root()
     row = _lookup_session_by_name(project_root, name)
@@ -289,7 +302,7 @@ def attach(
     session = _session_from_row(
         project_root=project_root,
         row=row,
-        factory=_compile_backend_factory(backends, backend_factory),
+        factory=_compile_backend_factory(backends, backend_factory, use_profiles=use_profiles),
         tz=tz,
         default_calendar=default_calendar,
     )
@@ -305,6 +318,7 @@ def switch(
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
+    use_profiles: bool = True,
 ) -> Session:
     project_root = resolve_project_root()
     row = _lookup_session_by_name(project_root, name)
@@ -318,6 +332,7 @@ def switch(
         default_calendar=default_calendar,
         backends=backends,
         backend_factory=backend_factory,
+        use_profiles=use_profiles,
     )
     write_active_session_name(project_root, name)
     return session
@@ -374,6 +389,7 @@ def active_or_create(
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
+    use_profiles: bool = True,
 ) -> Session:
     try:
         sess = active()
@@ -385,6 +401,7 @@ def active_or_create(
             default_calendar=default_calendar,
             backends=backends,
             backend_factory=backend_factory,
+            use_profiles=use_profiles,
         )
     if tz is not None or default_calendar is not None:
         return attach(
@@ -393,6 +410,7 @@ def active_or_create(
             default_calendar=default_calendar,
             backends=backends,
             backend_factory=backend_factory,
+            use_profiles=use_profiles,
         )
     return sess
 

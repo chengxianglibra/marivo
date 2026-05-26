@@ -17,26 +17,24 @@ DatasourceNotRegisteredError: Dataset 'orders' references missing datasource 'ti
 正确写法:
   import marivo.semantic_py as ms
 
-  @ms.datasource(name="tiny_orders", backend_type="duckdb")
-  def tiny_orders():
-      import ibis
-      return ibis.duckdb.connect(":memory:")
+  warehouse = ms.datasource(name="tiny_orders", backend_type="duckdb")
 
-  @ms.dataset(name="orders", datasource=tiny_orders)
+  @ms.dataset(name="orders", datasource=warehouse)
   def orders(backend): ...
 ```
 
 **Why it happens:** the `datasource=` argument points at a datasource name that
-is not registered in the same model. The validator runs at `ms.reload(project)`
-time and raises this error.
+is not registered in the same model. The validator runs when the project loads
+or reloads and raises this error.
 
-**Fix:** declare the datasource with `@ms.datasource(name=..., backend_type=...)`
-and pass the decorated function into `@ms.dataset(datasource=...)`, or make the
-`ms.ref("datasource.name")` match an existing datasource.
+**Fix:** declare the datasource with
+`warehouse = ms.datasource(name=..., backend_type=...)` and pass that ref into
+`@ms.dataset(datasource=...)`, or make the `ms.ref("datasource.name")` match an
+existing datasource.
 
 **See:** `examples/99_pitfall_dataset_without_datasource.py`.
 
-## Forgot to call `ms.reload()` after editing source
+## Forgot to reload the project after editing source
 
 **Symptom:** the IR keeps reporting the previous datasource/dataset/metric list
 after a `.py` file changed.
@@ -45,30 +43,49 @@ The v1 SDK does not raise `IRReloadRequiredError` automatically, but the class
 exists for the future contract. Run:
 
 ```bash
-<active-python> -c 'import marivo.semantic_py as ms; ms.reload(); print(ms.list_metrics())'
+<active-python> -c 'import marivo.semantic_py as ms; project = ms.find_project(); assert project is not None; project.reload(); print(project.list_metrics())'
 ```
 
 Replace `<active-python>` with the interpreter for the environment where Marivo
 is installed, such as `.venv/bin/python`.
 
-## `@ms.datasource` returned `None`
+## Missing backend factory at execution time
 
 **Symptom:**
 
 ```text
-NoBackendFactoryError: @ms.datasource 'tiny_orders' did not return an ibis backend.
+NoBackendFactoryError: No backend factory provided for datasource 'tiny_orders'.
 
 正确写法:
-  import ibis
   import marivo.semantic_py as ms
 
-  @ms.datasource(name="tiny_orders", backend_type="duckdb")
-  def tiny_orders():
-      return ibis.duckdb.connect(":memory:")
+  warehouse = ms.datasource(name="tiny_orders", backend_type="duckdb")
+
+  expr = project.materialize_metric(
+      "sales.revenue",
+      backend_factory=lambda datasource_name: live_backend_for(datasource_name),
+  )
 ```
 
-**Fix:** the datasource function body must return the backend. A bare `pass` or
-implicit `None` return is the common offender.
+**Why it happens:** `ms.datasource(...)` declares metadata only. It does not
+open a connection or store credentials. Materialization and analysis need a
+live Ibis backend from the caller.
+
+**Fix:** keep the semantic declaration as metadata and provide the live backend
+through the project's materialization or analysis setup.
+
+## Backend type does not match the execution backend
+
+**Symptom:** parity, compilation, or materialization reports that a metric's
+`source_dialect` or live backend does not match the datasource `backend_type`.
+
+**Why it happens:** `backend_type` is part of the semantic contract. It tells
+Marivo which dialect the datasource represents and is used when checking SQL
+provenance.
+
+**Fix:** either correct `backend_type` on the datasource declaration or provide
+the matching live Ibis backend. Do not hide the mismatch by changing metric SQL
+or by omitting the datasource.
 
 ## Decorator outside `ms.model(...)` context
 
@@ -83,9 +100,9 @@ import marivo.semantic_py as ms
 
 ms.model(name="sales")
 
-@ms.datasource(name="tiny_orders", backend_type="duckdb")
-def tiny_orders(): ...
+warehouse = ms.datasource(name="tiny_orders", backend_type="duckdb")
 ```
 
-In tests/examples, use a fresh `SemanticProject` plus `use_registry(...)`, or the
-helper context in `references/examples/_fixtures/tiny_db.py`.
+In tests/examples, write files under a temporary `.marivo/semantic/<model>/`
+directory and load them with `ms.SemanticProject(root=...).load()`, as shown in
+the runnable files under `references/examples/`.

@@ -103,15 +103,27 @@ These rules apply to all changes inside `marivo/semantic_py/` and
   read-through accessors return pandas views without defensive copies.
   Do not add mutating methods, syntactic sugar that aliases mutation, or
   hidden copy-on-read behavior to Frame classes.
-- **Credentials and connections never persist.** `@ms.datasource` function
-  bodies read credentials from `os.environ` / project config helpers; the
-  `backend_factory` / `backends` passed to a session is never written to
-  `meta.json`, `index.db`, or the IR. Generated SQL is exposed in error
-  `details` only when `MARIVO_ANALYSIS_DEBUG=1`.
+- **Credentials and connections never enter project state.** Secrets are
+  read from `os.environ` at backend-build time. Non-secret connection
+  metadata may live in the user-scope profile registry at
+  `$MARIVO_HOME/profiles/profiles.json` (defaulting to
+  `~/.marivo/profiles/profiles.json`), written exclusively through
+  `mv.profiles.set(...)`. Sensitive field stems (`password`, `token`,
+  `secret`, `secret_key`, `access_key`, `private_key`, `passphrase`,
+  `api_key`) must use `*_env` references and never be persisted as
+  literals — `marivo.analysis_py.profiles` enforces this. Neither the
+  profile file, the `backend_factory` / `backends` passed to a session,
+  nor any resolved secret is written to `meta.json`, `index.db`, the IR,
+  or any file under `<project>/.marivo/`. Generated SQL is exposed in
+  error `details` only when `MARIVO_ANALYSIS_DEBUG=1`.
 - **Persistent state is project-local under `.marivo/`.** Sessions, frames,
   job records, and Python semantic models all live under
   `<project_root>/.marivo/{analysis,semantic}/`. Do not introduce a global
-  session registry, env-var session fallback, or cross-project state.
+  session registry, env-var session fallback, or cross-project state. The
+  user-scope profile registry at `$MARIVO_HOME/profiles/` is the single
+  explicit exception: it persists only datasource connection metadata
+  (not sessions, frames, jobs, IR, evidence, or any analysis output) and
+  remains user-private with `0600` file permissions.
 - **Cross-session frame ownership is mandatory.** Any intent or helper that
   consumes a frame validates `frame.meta.session_id == session.id` before
   doing work, and raises `CrossSessionFrameError` on mismatch. Do not relax
