@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from marivo.datasource_py import errors as _datasource_errors
+
+DatasourceFieldInvalidError = _datasource_errors.DatasourceFieldInvalidError
+DatasourceSecretInPlaintextError = _datasource_errors.DatasourceSecretInPlaintextError
+
 
 class AnalysisError(Exception):
     """Base class for all analysis_py errors."""
@@ -347,43 +352,41 @@ class NoBackendFactoryError(AnalysisError):
                 "location": "analysis runtime backend configuration",
                 "cause": (
                     "session has no backend factory configured; data-materializing "
-                    "analysis intents need a profile, backends={...}, or backend_factory=..."
+                    "analysis intents need a datasource, backends={...}, or backend_factory=..."
                 ),
                 "fix_snippet": (
                     "import marivo.analysis_py as mv\n"
                     "\n"
-                    "# Recommended: persist the connection once via the profile registry.\n"
-                    'mv.profiles.set("tiny_orders", backend_type="duckdb", path=":memory:")\n'
-                    'session = mv.session.create(name="analysis")  # auto-loads from profile\n'
+                    "# Recommended: persist the project datasource config once.\n"
+                    'mv.datasources.set("tiny_orders", backend_type="duckdb", path=":memory:")\n'
+                    'session = mv.session.create(name="analysis")  # auto-loads from datasource\n'
                     "\n"
-                    "# Or pass an explicit factory (no profile lookup):\n"
+                    "# Or pass an explicit factory (no datasource lookup):\n"
                     "import ibis\n"
                     "session = mv.session.attach("
                     'name="analysis", '
                     'backend_factory=lambda name: ibis.duckdb.connect(":memory:"), '
-                    "use_profiles=False)"
+                    "use_datasources=False)"
                 ),
                 "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
             }
         return {
-            "location": "@ms.datasource backend factory",
+            "location": "analysis runtime datasource backend factory",
             "cause": (
-                f"datasource={datasource!r} returned None "
+                f"datasource={datasource!r} resolved to None "
                 "or a non-ibis object; the analysis runtime needs a live ibis "
                 "backend."
             ),
             "fix_snippet": (
                 "import marivo.analysis_py as mv\n"
-                "import marivo.semantic_py as ms\n"
                 "\n"
-                'ms.datasource(name="tiny_orders", backend_type="duckdb")\n'
-                'mv.profiles.set("tiny_orders", backend_type="duckdb", path=":memory:")\n'
+                'mv.datasources.set("tiny_orders", backend_type="duckdb", path=":memory:")\n'
             ),
             "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
-class ProfileMissingError(AnalysisError):
+class DatasourceMissingError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         datasource = self.details.get("datasource")
         available = self.details.get("available")
@@ -392,26 +395,26 @@ class ProfileMissingError(AnalysisError):
         bt_arg = (
             f'backend_type="{backend_type}", '
             if isinstance(backend_type, str) and backend_type
-            else ""
+            else 'backend_type="<backend_type>", '
         )
         available_line = (
-            f"profile not found; configured profiles: {available}."
+            f"datasource not found; configured datasources: {available}."
             if isinstance(available, list) and available
-            else "profile not found; no profiles are configured yet."
+            else "datasource not found; no datasources are configured yet."
         )
         return {
-            "location": "mv.profiles registry (~/.marivo/profiles/profiles.json)",
-            "cause": f"datasource={ds_ref!r} {available_line}",
+            "location": ".marivo/datasource",
+            "cause": f"datasource {ds_ref!r} is not configured; {available_line}",
             "fix_snippet": (
                 "import marivo.analysis_py as mv\n"
-                f'mv.profiles.set({ds_ref!r}, {bt_arg}host="...", port=..., user="...")\n'
-                f'# Sensitive fields go via *_env: mv.profiles.set({ds_ref!r}, ..., password_env="PWD_VAR")'
+                f'mv.datasources.set("{ds_ref}", {bt_arg}host="...", port=..., user_env="USER_VAR")\n'
+                f'# Sensitive fields go via *_env: mv.datasources.set("{ds_ref}", ..., password_env="PWD_VAR")'
             ),
             "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
-class ProfileEnvVarMissingError(AnalysisError):
+class DatasourceEnvVarMissingError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         datasource = self.details.get("datasource")
         env_var = self.details.get("env_var")
@@ -420,9 +423,9 @@ class ProfileEnvVarMissingError(AnalysisError):
         var_ref = env_var if isinstance(env_var, str) and env_var else "<VAR_NAME>"
         field_ref = field_name if isinstance(field_name, str) and field_name else "<field>"
         return {
-            "location": f"mv.profiles entry {ds_ref!r} field {field_ref!r}",
+            "location": f".marivo/datasource entry {ds_ref!r} field {field_ref!r}",
             "cause": (
-                f"profile field {field_ref!r} resolves to env var {var_ref!r}, "
+                f"datasource field {field_ref!r} resolves to env var {var_ref!r}, "
                 "but that variable is not set in os.environ."
             ),
             "fix_snippet": f'export {var_ref}="<your secret>"',
@@ -430,44 +433,7 @@ class ProfileEnvVarMissingError(AnalysisError):
         }
 
 
-class ProfileSecretInPlaintextError(AnalysisError):
-    def _template_fields(self) -> dict[str, str]:
-        datasource = self.details.get("datasource")
-        field_name = self.details.get("field")
-        ds_ref = datasource if isinstance(datasource, str) and datasource else "<datasource>"
-        field_ref = field_name if isinstance(field_name, str) and field_name else "<field>"
-        env_ref = f"{field_ref}_env"
-        return {
-            "location": f"mv.profiles.set call for {ds_ref!r}",
-            "cause": (
-                f"field {field_ref!r} is a sensitive credential and must not be stored as a "
-                "literal in the profile file."
-            ),
-            "fix_snippet": (
-                "import marivo.analysis_py as mv\n"
-                f'mv.profiles.set({ds_ref!r}, ..., {env_ref}="MY_SECRET_VAR")\n'
-                f'# then: export MY_SECRET_VAR="<your secret>"'
-            ),
-            "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
-        }
-
-
-class ProfileFieldInvalidError(AnalysisError):
-    def _template_fields(self) -> dict[str, str]:
-        datasource = self.details.get("datasource")
-        field_name = self.details.get("field")
-        reason = self.details.get("reason")
-        ds_ref = datasource if isinstance(datasource, str) and datasource else "<datasource>"
-        field_ref = field_name if isinstance(field_name, str) and field_name else "<field>"
-        reason_ref = reason if isinstance(reason, str) and reason else "invalid value"
-        return {
-            "location": f"mv.profiles entry {ds_ref!r} field {field_ref!r}",
-            "cause": reason_ref,
-            "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
-        }
-
-
-class ProfileBackendTypeUnsupportedError(AnalysisError):
+class DatasourceBackendTypeUnsupportedError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         backend_type = self.details.get("backend_type")
         supported = self.details.get("supported")
@@ -480,31 +446,31 @@ class ProfileBackendTypeUnsupportedError(AnalysisError):
             else "no supported backend_type values registered."
         )
         return {
-            "location": "mv.profiles backend dispatch",
-            "cause": f"backend_type={bt_ref!r} is not handled by the profile registry; {supported_line}",
+            "location": "mv.datasources backend dispatch",
+            "cause": f"backend_type={bt_ref!r} is not handled by datasource backend dispatch; {supported_line}",
             "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
-class ProfileSchemaVersionError(AnalysisError):
+class DatasourceSchemaVersionError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         got = self.details.get("got")
         expected = self.details.get("expected")
         path = self.details.get("path")
         got_ref = str(got) if got is not None else "<missing>"
         expected_ref = str(expected) if expected is not None else "<expected>"
-        path_ref = path if isinstance(path, str) and path else "~/.marivo/profiles/profiles.json"
+        path_ref = path if isinstance(path, str) and path else ".marivo/datasource"
         return {
             "location": path_ref,
             "cause": (
-                f"profile registry schema_version={got_ref} is not supported by this "
+                f"datasource registry schema_version={got_ref} is not supported by this "
                 f"version of marivo.analysis_py (expected {expected_ref})."
             ),
             "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
-class ProfileConnectionError(AnalysisError):
+class DatasourceConnectionError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         datasource = self.details.get("datasource")
         cause = self.details.get("cause")
@@ -513,12 +479,12 @@ class ProfileConnectionError(AnalysisError):
             cause if isinstance(cause, str) and cause else "backend rejected the connection."
         )
         return {
-            "location": f"mv.profiles.test({ds_ref!r}) dial",
+            "location": f"mv.datasources.test({ds_ref!r}) dial",
             "cause": cause_ref,
             "fix_snippet": (
                 "# verify host/port reachability and that env_ref secrets are exported, then:\n"
                 "import marivo.analysis_py as mv\n"
-                f"mv.profiles.test({ds_ref!r})"
+                f"mv.datasources.test({ds_ref!r})"
             ),
             "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }

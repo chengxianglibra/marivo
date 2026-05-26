@@ -8,8 +8,7 @@ Public surface::
     project.load()
 
     ms.model(name="sales", default=True)
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-    orders = ms.dataset(name="orders", datasource=wh)
+    orders = ms.dataset(name="orders", datasource="warehouse")
     ms.metric(name="revenue", datasets=[orders], decomposition=ms.sum())
 """
 

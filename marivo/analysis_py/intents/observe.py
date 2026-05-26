@@ -296,20 +296,8 @@ def _dump_dimensions(dimensions: list[DimensionRef] | None) -> list[dict[str, An
     return [dimension.model_dump(mode="json") for dimension in dimensions]
 
 
-def _datasource_cache_key(datasource_semantic_id: str) -> str:
-    return (
-        datasource_semantic_id.rsplit(".", 1)[-1]
-        if "." in datasource_semantic_id
-        else datasource_semantic_id
-    )
-
-
-def _backend_for_datasource(session: Session, datasource_semantic_id: str) -> tuple[str, Any]:
-    try:
-        return datasource_semantic_id, session.backend_cache.get_or_create(datasource_semantic_id)
-    except KeyError:
-        short_name = _datasource_cache_key(datasource_semantic_id)
-        return short_name, session.backend_cache.get_or_create(short_name)
+def _backend_for_datasource(session: Session, datasource_name: str) -> tuple[str, Any]:
+    return datasource_name, session.backend_cache.get_or_create(datasource_name)
 
 
 def _call_metric(

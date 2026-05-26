@@ -11,13 +11,20 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal
 
+from marivo.datasource_py.ir import (
+    DatasourceAiContextIR,
+    DatasourceIR,
+    DatasourceSourceLocation,
+)
+
 __all__ = [
     "AiContextIR",
     "DatasetIR",
     "DatasetProvenance",
     "DatasetRef",
+    "DatasourceAiContextIR",
     "DatasourceIR",
-    "DatasourceRef",
+    "DatasourceSourceLocation",
     "DecompositionIR",
     "FieldIR",
     "FieldRef",
@@ -112,20 +119,6 @@ class ModelIR:
     description: str | None
     default: bool
     ai_context: AiContextIR
-    location: SourceLocation
-
-
-@dataclass(frozen=True)
-class DatasourceIR:
-    """Datasource (backend factory) declaration."""
-
-    semantic_id: str
-    model: str
-    name: str
-    backend_type: str
-    description: str | None
-    ai_context: AiContextIR
-    python_symbol: str
     location: SourceLocation
 
 
@@ -226,13 +219,6 @@ class _BaseRef:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.semantic_id!r})"
-
-
-class DatasourceRef(_BaseRef):
-    """Ref returned by ms.datasource().  Not callable."""
-
-    def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.DATASOURCE)
 
 
 class DatasetRef(_BaseRef):

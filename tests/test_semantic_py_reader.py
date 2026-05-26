@@ -49,9 +49,7 @@ _MODEL_PY = textwrap.dedent("""\
 
 _FULL_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
@@ -94,9 +92,7 @@ _FULL_MODEL_PY = textwrap.dedent("""\
 
 _DERIVED_METRIC_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
@@ -377,10 +373,21 @@ def test_get_datasource(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    ds = project.get_datasource("sales.warehouse")
+    ds = project.get_datasource("warehouse")
     assert ds is not None
     assert ds.name == "warehouse"
     assert isinstance(ds, DatasourceIR)
+
+
+def test_get_datasource_uses_global_name_not_model_qualified_id(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    assert project.get_datasource("sales.warehouse") is None
 
 
 def test_get_field(semantic_project_factory) -> None:
@@ -847,10 +854,7 @@ def test_describe_time_field_has_format(semantic_project_factory) -> None:
             "sales/_model.py": _MODEL_PY,
             "sales/objects.py": textwrap.dedent("""\
                 import marivo.semantic_py as ms
-
-                wh = ms.datasource(name="wh", backend_type="duckdb")
-
-                @ms.dataset(datasource=wh)
+                @ms.dataset(datasource="wh")
                 def orders(backend):
                     return backend.table("orders")
 

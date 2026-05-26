@@ -44,6 +44,12 @@ def _seed(con):
 def _bootstrap_sales(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
+    datasource_dir = semantic_dir.parent.parent / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource_py as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_model.py").write_text(
         "import marivo.semantic_py as ms\nms.model(name='sales')\n"
@@ -51,9 +57,7 @@ def _bootstrap_sales(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
-        "\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"
@@ -85,6 +89,22 @@ def _panel(session, *, start: str, end: str, grain: str = "day"):
         dimensions=[DimensionRef("region")],
         session=session,
     )
+
+
+def test_calendar_bucket_aligns_equal_length_panel_by_ordinal_bucket(tmp_path):
+    s = _session(tmp_path)
+    cur = _panel(s, start="2026-07-01", end="2026-07-02")
+    prev = _panel(s, start="2026-06-24", end="2026-06-25")
+
+    delta = compare(cur, prev, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+
+    df = delta.to_pandas()
+    assert {"bucket_start", "bucket_start_b", "region", "current", "baseline"} <= set(df.columns)
+    north = df[df["region"] == "NORTH"].sort_values("bucket_start").reset_index(drop=True)
+    assert list(north["bucket_start"].astype(str)) == ["2026-07-01", "2026-07-02"]
+    assert list(north["bucket_start_b"].astype(str)) == ["2026-06-24", "2026-06-25"]
+    assert list(north["delta"]) == [pytest.approx(2.0), pytest.approx(2.0)]
+    assert delta.meta.alignment["mode"] == "ordinal_bucket"
 
 
 def _panel_metric(session, rows, *, axes: dict[str, object] | None = None):

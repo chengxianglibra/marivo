@@ -27,7 +27,6 @@ from marivo.semantic_py.ir import (
     DatasetProvenance,
     DatasetRef,
     DatasourceIR,
-    DatasourceRef,
     DecompositionIR,
     FieldIR,
     FieldRef,
@@ -316,13 +315,6 @@ def test_parity_status_is_str_enum() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_datasource_ref() -> None:
-    ref = DatasourceRef("sales.warehouse")
-    assert ref.semantic_id == "sales.warehouse"
-    assert ref.kind == SymbolKind.DATASOURCE
-    assert "DatasourceRef" in repr(ref)
-
-
 def test_dataset_ref() -> None:
     ref = DatasetRef("sales.orders")
     assert ref.semantic_id == "sales.orders"
@@ -367,8 +359,8 @@ def test_relationship_ref() -> None:
 
 
 def test_base_ref_repr() -> None:
-    ref = DatasourceRef("sales.warehouse")
-    assert repr(ref) == "DatasourceRef('sales.warehouse')"
+    ref = DatasetRef("sales.orders")
+    assert repr(ref) == "DatasetRef('sales.orders')"
 
 
 # ---------------------------------------------------------------------------

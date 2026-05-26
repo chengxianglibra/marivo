@@ -14,6 +14,7 @@ from typing import Any, Literal
 import ibis
 import ibis.expr.types as ir
 
+from marivo.datasource_py.ir import DatasourceIR, DatasourceSourceLocation
 from marivo.semantic_py.errors import (
     ErrorKind,
     SemanticError,
@@ -24,7 +25,6 @@ from marivo.semantic_py.errors import (
 from marivo.semantic_py.ir import (
     DatasetIR,
     DatasetProvenance,
-    DatasourceIR,
     FieldIR,
     MetricIR,
     ParityStatus,
@@ -69,7 +69,6 @@ class DatasourceSummary:
     """Summary of a datasource returned by ``project.list_datasources()``."""
 
     semantic_id: str
-    model: str
     name: str
     backend_type: str
     description: str | None
@@ -164,7 +163,7 @@ class Description:
     compile_error: dict[str, Any] | None  # {kind, message, refs}
     dependencies: tuple[str, ...]
     dependents: tuple[str, ...]
-    source_location: SourceLocation
+    source_location: SourceLocation | DatasourceSourceLocation
     dataset_provenance: DatasetProvenance | None
     primary_key: tuple[str, ...] | None
     granularity: str | None
@@ -416,9 +415,7 @@ class SemanticProject:
                 if f.dataset.startswith(f"{model_ir.name}.") and f.is_time_field
             )
             obj_counts["metric"] = sum(1 for m in reg.metrics.values() if m.model == model_ir.name)
-            obj_counts["datasource"] = sum(
-                1 for d in reg.datasources.values() if d.model == model_ir.name
-            )
+            obj_counts["datasource"] = 0
             obj_counts["relationship"] = sum(
                 1 for r in reg.relationships.values() if r.model == model_ir.name
             )
@@ -438,7 +435,6 @@ class SemanticProject:
         return [
             DatasourceSummary(
                 semantic_id=ds_ir.semantic_id,
-                model=ds_ir.model,
                 name=ds_ir.name,
                 backend_type=ds_ir.backend_type,
                 description=ds_ir.description,
@@ -938,7 +934,7 @@ class SemanticProject:
         desc = Description(
             semantic_id=obj.semantic_id,
             kind=kind,
-            model=obj.model,
+            model=obj.model if hasattr(obj, "model") else "",
             name=obj.name,
             python_symbol=obj.python_symbol,
             description=obj.description,

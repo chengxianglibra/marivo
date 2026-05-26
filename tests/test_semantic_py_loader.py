@@ -32,15 +32,36 @@ _MINIMAL_MODEL_PY = textwrap.dedent("""\
 
 _MINIMAL_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic_py as ms
-    wh = ms.datasource(name="warehouse", backend_type="duckdb")
-
-    @ms.dataset(datasource=wh)
+    @ms.dataset(datasource="warehouse")
     def orders(backend):
         return backend.table("orders")
 
     @ms.metric(datasets=[orders], decomposition=ms.sum())
     def revenue(table):
         return table.amount.sum()
+""")
+
+_SHARED_DATASOURCE_MODEL_A = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    @ms.dataset(name="orders", datasource="warehouse")
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    def revenue(orders):
+        return orders.amount.sum()
+""")
+
+_SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+
+    @ms.dataset(name="refunds", datasource="warehouse")
+    def refunds(backend):
+        return backend.table("refunds")
+
+    @ms.metric(datasets=[refunds], decomposition=ms.sum())
+    def refunds_total(refunds):
+        return refunds.amount.sum()
 """)
 
 
@@ -57,6 +78,37 @@ def test_single_model_loads(semantic_project_factory) -> None:
         }
     )
     assert project.is_ready()
+
+
+def test_global_datasource_can_be_reused_across_models(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasets.py": _SHARED_DATASOURCE_MODEL_A,
+            "finance/_model.py": 'import marivo.semantic_py as ms\nms.model(name="finance")\n',
+            "finance/datasets.py": _SHARED_DATASOURCE_MODEL_B,
+        }
+    )
+
+    assert project.is_ready()
+    datasources = project.list_datasources()
+    assert [ds.semantic_id for ds in datasources] == ["warehouse"]
+    assert project.get_dataset("sales.orders").datasource == "warehouse"
+    assert project.get_dataset("finance.refunds").datasource == "warehouse"
+
+
+def test_duplicate_global_datasource_declaration_must_match(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "datasource/warehouse_a.py": 'import marivo.datasource_py as md\nmd.datasource(name="warehouse", backend_type="duckdb", path=":memory:")\n',
+            "datasource/warehouse_b.py": 'import marivo.datasource_py as md\nmd.datasource(name="warehouse", backend_type="duckdb", path="/tmp/other.duckdb")\n',
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "finance/_model.py": 'import marivo.semantic_py as ms\nms.model(name="finance")\n',
+        }
+    )
+
+    assert not project.is_ready()
+    assert any(error.kind == ErrorKind.DUPLICATE_NAME for error in project.errors())
 
 
 def test_single_model_load_result_ready(semantic_project_factory) -> None:
@@ -284,14 +336,10 @@ def test_reload_works(semantic_project_factory) -> None:
 
 
 def test_multiple_sibling_files(semantic_project_factory) -> None:
-    datasource_py = textwrap.dedent("""\
-        import marivo.semantic_py as ms
-        wh = ms.datasource(name="warehouse", backend_type="duckdb")
-    """)
     datasets_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.warehouse")
+        @ms.dataset(datasource="warehouse")
         def orders(backend):
             return backend.table("orders")
     """)
@@ -305,7 +353,6 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasource.py": datasource_py,
             "sales/datasets.py": datasets_py,
             "sales/metrics.py": metrics_py,
         }
@@ -383,14 +430,10 @@ def test_directory_with_py_but_no_model_file(semantic_project_factory) -> None:
 
 def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     """Dataset defined in one file, metric in another should resolve."""
-    datasource_py = textwrap.dedent("""\
-        import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-    """)
     datasets_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
     """)
@@ -404,7 +447,6 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasource.py": datasource_py,
             "sales/datasets.py": datasets_py,
             "sales/metrics.py": metrics_py,
         }
@@ -418,14 +460,10 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
 
 def test_relative_import_between_model_files(semantic_project_factory) -> None:
     """Sibling model files can import decorated refs with relative imports."""
-    datasource_py = textwrap.dedent("""\
-        import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-    """)
     dataset_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def query_info(backend):
             return backend.table("query_info")
     """)
@@ -440,7 +478,6 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasource.py": datasource_py,
             "sales/dataset.py": dataset_py,
             "sales/metrics.py": metrics_py,
         }
@@ -454,14 +491,10 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
 
 def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> None:
     """Reload should not reuse stale modules imported by sibling relative imports."""
-    datasource_py = textwrap.dedent("""\
-        import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-    """)
     dataset_v1 = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def query_info(backend):
             return backend.table("query_info")
     """)
@@ -476,7 +509,6 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasource.py": datasource_py,
             "sales/dataset.py": dataset_v1,
             "sales/metrics.py": metrics_py,
         }
@@ -539,9 +571,7 @@ def test_unverified_provenance_warning_in_result(semantic_project_factory) -> No
 
     metrics_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
 
@@ -582,7 +612,7 @@ def test_registry_accessible_after_load(semantic_project_factory) -> None:
     reg = project.registry()
     assert reg is not None
     assert "sales" in reg.models
-    assert "sales.warehouse" in reg.datasources
+    assert "warehouse" in reg.datasources
     assert "sales.orders" in reg.datasets
     assert "sales.revenue" in reg.metrics
 
@@ -600,7 +630,7 @@ def test_sidecar_accessible_after_load(semantic_project_factory) -> None:
     assert "sales.orders" in side
     assert "sales.revenue" in side
     # Datasource doesn't have a callable
-    assert "sales.warehouse" not in side
+    assert "warehouse" not in side
 
 
 def test_registry_none_on_errored_load(semantic_project_factory) -> None:
@@ -641,10 +671,6 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
     # File order: datasource.py -> metrics.py -> datasets.py
     # Metric references dataset that comes in the third file.
     # Pass 1 collects all objects, Pass 2 validates references.
-    datasource_py = textwrap.dedent("""\
-        import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-    """)
     # metrics.py comes before datasets.py alphabetically but references sales.orders
     metrics_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
@@ -656,14 +682,13 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
     datasets_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
     """)
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/a_datasource.py": datasource_py,
             "sales/b_metrics.py": metrics_py,
             "sales/c_datasets.py": datasets_py,
         }
@@ -682,18 +707,14 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
 
 def test_loading_with_relationships(semantic_project_factory) -> None:
     """Relationships should be loaded into the registry."""
-    datasource_py = textwrap.dedent("""\
-        import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-    """)
     datasets_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def items(backend):
             return backend.table("items")
     """)
@@ -722,7 +743,6 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasource.py": datasource_py,
             "sales/datasets.py": datasets_py,
             "sales/fields.py": fields_py,
             "sales/relationships.py": rels_py,
@@ -744,7 +764,7 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
     rels_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
 
@@ -755,8 +775,6 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
         @ms.field(dataset=orders)
         def other_id(table):
             return table.other_id
-
-        ms.datasource(name="wh", backend_type="duckdb")
 
         ms.relationship(
             name="bad_arity",
@@ -784,14 +802,10 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
 
 def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
     """FieldRef objects should have their _resolver set after loading."""
-    datasource_py = textwrap.dedent("""\
-        import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-    """)
     datasets_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
     """)
@@ -809,7 +823,6 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasource.py": datasource_py,
             "sales/datasets.py": datasets_py,
             "sales/fields.py": fields_py,
         }
@@ -838,21 +851,16 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
 
         region_ref = region
     """)
-    datasource_py = textwrap.dedent("""\
-        import marivo.semantic_py as ms
-        wh = ms.datasource(name="wh", backend_type="duckdb")
-    """)
     datasets_py = textwrap.dedent("""\
         import marivo.semantic_py as ms
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def orders(backend):
             return backend.table("orders")
     """)
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasource.py": datasource_py,
             "sales/datasets.py": datasets_py,
             "sales/fields.py": fields_py,
         }

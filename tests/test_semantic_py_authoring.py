@@ -30,7 +30,6 @@ from marivo.semantic_py.authoring import (
 from marivo.semantic_py.errors import ErrorKind, SemanticDecoratorError
 from marivo.semantic_py.ir import (
     DatasetRef,
-    DatasourceRef,
     FieldRef,
     MetricRef,
     RelationshipRef,
@@ -76,7 +75,7 @@ def test_model_outside_context_raises() -> None:
 
 def test_datasource_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.datasource(name="wh", backend_type="duckdb")
+        ms.datasource(name="wh")
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
 
@@ -132,39 +131,6 @@ def test_relationship_outside_context_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Model name resolution
-# ---------------------------------------------------------------------------
-
-
-def test_model_name_explicit_wins_over_default() -> None:
-    ctx = _enter_ctx(default_model="default_model")
-    try:
-        ds = ms.datasource(name="wh", backend_type="duckdb", model="explicit_model")
-        assert ds.semantic_id == "explicit_model.wh"
-    finally:
-        _exit_ctx()
-
-
-def test_model_name_uses_default_model() -> None:
-    ctx = _enter_ctx(default_model="sales")
-    try:
-        ds = ms.datasource(name="wh", backend_type="duckdb")
-        assert ds.semantic_id == "sales.wh"
-    finally:
-        _exit_ctx()
-
-
-def test_model_name_missing_raises() -> None:
-    ctx = _enter_ctx(default_model=None)
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.datasource(name="wh", backend_type="duckdb")
-        assert exc_info.value.kind == ErrorKind.MISSING_MODEL
-    finally:
-        _exit_ctx()
-
-
-# ---------------------------------------------------------------------------
 # ms.model() call
 # ---------------------------------------------------------------------------
 
@@ -214,63 +180,18 @@ def test_model_requires_keyword_args() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ms.datasource() call
+# ms.datasource() removed
 # ---------------------------------------------------------------------------
 
 
-def test_datasource_returns_ref() -> None:
+def test_datasource_call_raises_removed_error() -> None:
     _enter_ctx(default_model="sales")
     try:
-        ds = ms.datasource(name="warehouse", backend_type="duckdb")
-        assert isinstance(ds, DatasourceRef)
-        assert ds.semantic_id == "sales.warehouse"
-    finally:
-        _exit_ctx()
-
-
-def test_datasource_pushes_ir() -> None:
-    ctx = _enter_ctx(default_model="sales")
-    try:
-        ms.datasource(name="warehouse", backend_type="duckdb", description="Main WH")
-        assert len(ctx.pending_objects) == 1
-        ir, callable_ = ctx.pending_objects[0]
-        assert ir.semantic_id == "sales.warehouse"
-        assert ir.model == "sales"
-        assert ir.name == "warehouse"
-        assert ir.backend_type == "duckdb"
-        assert ir.description == "Main WH"
-        # datasource is not a decorator — no callable
-        assert callable_ is None
-    finally:
-        _exit_ctx()
-
-
-def test_datasource_with_explicit_model() -> None:
-    _enter_ctx(default_model="default_m")
-    try:
-        ds = ms.datasource(name="wh", backend_type="duckdb", model="other")
-        assert ds.semantic_id == "other.wh"
-    finally:
-        _exit_ctx()
-
-
-def test_datasource_requires_backend_type() -> None:
-    _enter_ctx(default_model="sales")
-    try:
-        with pytest.raises(TypeError):
-            ms.datasource(name="wh")  # type: ignore[call-arg]
-    finally:
-        _exit_ctx()
-
-
-def test_datasource_name_required() -> None:
-    """datasource is a top-level call; name must be provided."""
-    _enter_ctx(default_model="sales")
-    try:
-        # name is str | None in the signature, but None should be rejected
-        # since there's no function to infer from
-        with pytest.raises(SemanticDecoratorError):
-            ms.datasource(name=None, backend_type="duckdb")
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.datasource(name="warehouse")
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert ".marivo/datasource" in str(exc_info.value)
+        assert "@ms.dataset" in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -283,9 +204,8 @@ def test_datasource_name_required() -> None:
 def test_dataset_returns_ref() -> None:
     _enter_ctx(default_model="sales")
     try:
-        ds_ref = ms.datasource(name="wh", backend_type="duckdb")
 
-        @ms.dataset(datasource=ds_ref)
+        @ms.dataset(datasource="wh")
         def orders(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -298,9 +218,8 @@ def test_dataset_returns_ref() -> None:
 def test_dataset_name_defaults_to_function_name() -> None:
     _enter_ctx(default_model="sales")
     try:
-        wh = ms.datasource(name="wh", backend_type="duckdb")
 
-        @ms.dataset(datasource=wh)
+        @ms.dataset(datasource="wh")
         def orders(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -312,9 +231,8 @@ def test_dataset_name_defaults_to_function_name() -> None:
 def test_dataset_explicit_name() -> None:
     _enter_ctx(default_model="sales")
     try:
-        wh = ms.datasource(name="wh", backend_type="duckdb")
 
-        @ms.dataset(name="orders_tbl", datasource=wh)
+        @ms.dataset(name="orders_tbl", datasource="wh")
         def _orders_impl(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -327,18 +245,17 @@ def test_dataset_explicit_name() -> None:
 def test_dataset_pushes_ir_and_callable() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-        wh = ms.datasource(name="wh", backend_type="duckdb")
 
         def orders_fn(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ref = ms.dataset(datasource=wh)(orders_fn)
+        ref = ms.dataset(datasource="wh")(orders_fn)
         # Should be the second pending object (after datasource)
         ir, callable_ = ctx.pending_objects[-1]
         assert ir.semantic_id == "sales.orders_fn"
         assert ir.model == "sales"
         assert ir.name == "orders_fn"
-        assert ir.datasource == "sales.wh"
+        assert ir.datasource == "wh"
         assert callable_ is orders_fn
     finally:
         _exit_ctx()
@@ -348,12 +265,12 @@ def test_dataset_datasource_as_string() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def orders(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
         ir, _ = ctx.pending_objects[-1]
-        assert ir.datasource == "sales.wh"
+        assert ir.datasource == "wh"
     finally:
         _exit_ctx()
 
@@ -362,7 +279,7 @@ def test_dataset_primary_key() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.dataset(datasource="sales.wh", primary_key=["order_id"])
+        @ms.dataset(datasource="wh", primary_key=["order_id"])
         def orders(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -990,28 +907,17 @@ def test_base_metric_sidecar_stores_callable() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_duplicate_datasource_name_raises() -> None:
-    _enter_ctx(default_model="sales")
-    try:
-        ms.datasource(name="wh", backend_type="duckdb")
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.datasource(name="wh", backend_type="duckdb")
-        assert exc_info.value.kind == ErrorKind.DUPLICATE_NAME
-    finally:
-        _exit_ctx()
-
-
 def test_duplicate_dataset_name_raises() -> None:
     _enter_ctx(default_model="sales")
     try:
 
-        @ms.dataset(datasource="sales.wh")
+        @ms.dataset(datasource="wh")
         def orders(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.dataset(datasource="sales.wh")
+            @ms.dataset(datasource="wh")
             def orders(backend: object) -> object:  # type: ignore[misc]
                 return None  # type: ignore[unreachable]
 
@@ -1066,7 +972,7 @@ def test_dataset_keyword_only() -> None:
     _enter_ctx(default_model="sales")
     try:
         with pytest.raises(TypeError):
-            ms.dataset("sales.wh")  # type: ignore[misc]
+            ms.dataset("wh")  # type: ignore[misc]
     finally:
         _exit_ctx()
 
@@ -1083,20 +989,6 @@ def test_metric_keyword_only() -> None:
 # ---------------------------------------------------------------------------
 # AiContext handling
 # ---------------------------------------------------------------------------
-
-
-def test_datasource_with_ai_context() -> None:
-    ctx = _enter_ctx(default_model="sales")
-    try:
-        ms.datasource(
-            name="wh",
-            backend_type="duckdb",
-            ai_context={"business_definition": "Main warehouse"},
-        )
-        ir, _ = ctx.pending_objects[-1]
-        assert ir.ai_context.business_definition == "Main warehouse"
-    finally:
-        _exit_ctx()
 
 
 def test_metric_with_ai_context() -> None:
@@ -1130,23 +1022,27 @@ def test_ai_context_with_valid_keys_works() -> None:
     """ai_context with all valid keys should work."""
     ctx = _enter_ctx(default_model="sales")
     try:
-        ms.datasource(
-            name="wh",
-            backend_type="duckdb",
+
+        @ms.metric(
+            datasets=["sales.orders"],
+            decomposition=ms.sum(),
             ai_context={
-                "business_definition": "Main warehouse",
+                "business_definition": "Revenue",
                 "guardrails": ["Must be positive"],
-                "synonyms": ["wh", "warehouse"],
-                "examples": ["SELECT * FROM warehouse"],
+                "synonyms": ["rev", "sales"],
+                "examples": ["orders.amount.sum()"],
                 "instructions": "Use with care",
                 "owner_notes": "Team Data",
             },
         )
+        def revenue(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
         ir, _ = ctx.pending_objects[-1]
-        assert ir.ai_context.business_definition == "Main warehouse"
+        assert ir.ai_context.business_definition == "Revenue"
         assert ir.ai_context.guardrails == ("Must be positive",)
-        assert ir.ai_context.synonyms == ("wh", "warehouse")
-        assert ir.ai_context.examples == ("SELECT * FROM warehouse",)
+        assert ir.ai_context.synonyms == ("rev", "sales")
+        assert ir.ai_context.examples == ("orders.amount.sum()",)
         assert ir.ai_context.instructions == "Use with care"
         assert ir.ai_context.owner_notes == "Team Data"
     finally:
@@ -1158,11 +1054,15 @@ def test_ai_context_with_invalid_key_raises() -> None:
     _enter_ctx(default_model="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.datasource(
-                name="wh",
-                backend_type="duckdb",
+
+            @ms.metric(
+                datasets=["sales.orders"],
+                decomposition=ms.sum(),
                 ai_context={"invalid_key": "oops"},
             )
+            def revenue(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
         assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
     finally:
         _exit_ctx()
@@ -1173,11 +1073,15 @@ def test_ai_context_with_wrong_type_for_guardrails_raises() -> None:
     _enter_ctx(default_model="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.datasource(
-                name="wh",
-                backend_type="duckdb",
+
+            @ms.metric(
+                datasets=["sales.orders"],
+                decomposition=ms.sum(),
                 ai_context={"guardrails": "not a list"},
             )
+            def revenue(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
         assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
     finally:
         _exit_ctx()
@@ -1188,11 +1092,15 @@ def test_ai_context_with_wrong_type_for_business_definition_raises() -> None:
     _enter_ctx(default_model="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.datasource(
-                name="wh",
-                backend_type="duckdb",
+
+            @ms.metric(
+                datasets=["sales.orders"],
+                decomposition=ms.sum(),
                 ai_context={"business_definition": 42},
             )
+            def revenue(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
         assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
     finally:
         _exit_ctx()
@@ -1203,11 +1111,15 @@ def test_ai_context_with_non_string_in_list_raises() -> None:
     _enter_ctx(default_model="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.datasource(
-                name="wh",
-                backend_type="duckdb",
+
+            @ms.metric(
+                datasets=["sales.orders"],
+                decomposition=ms.sum(),
                 ai_context={"guardrails": [1, 2, 3]},
             )
+            def revenue(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
         assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
     finally:
         _exit_ctx()

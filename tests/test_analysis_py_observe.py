@@ -9,6 +9,7 @@ from marivo.analysis_py.errors import (
     NoBackendFactoryError,
     SemanticKindMismatchError,
     SessionStateError,
+    WindowInvalidError,
 )
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.intents.observe import observe
@@ -39,6 +40,51 @@ def _seed(con):
 
 def _backends(con):
     return {"warehouse": lambda: con}
+
+
+def _bootstrap_sales_with_two_time_fields(tmp_path):
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic_py as ms\nms.model(name='sales')\n"
+    )
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource_py as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic_py as ms\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "def orders(backend):\n"
+        "    return backend.table('orders')\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "def create_date(orders):\n"
+        "    return orders.created_at.cast('date')\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='timestamp', granularity='hour')\n"
+        "def create_time(orders):\n"
+        "    return orders.created_ts\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+
+
+def _seed_two_time_fields(con):
+    con.raw_sql(
+        "CREATE TABLE orders (order_id INTEGER, created_at DATE, created_ts TIMESTAMP, amount DOUBLE)"
+    )
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', TIMESTAMP '2026-07-01 08:00:00', 10.0),"
+        "(2, DATE '2026-07-02', TIMESTAMP '2026-07-02 09:00:00', 20.0)"
+    )
 
 
 def test_observe_returns_metric_frame(tmp_path):
@@ -78,6 +124,41 @@ def test_observe_applies_window(tmp_path):
         window={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
+    assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
+
+
+def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
+    _bootstrap_sales_with_two_time_fields(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_two_time_fields(con)
+    s = session_attach.create(name="demo", backends=_backends(con))
+
+    with pytest.raises(WindowInvalidError) as exc_info:
+        observe(
+            MetricRef("sales.revenue"),
+            window={"start": "2026-07-01", "end": "2026-07-31"},
+            session=s,
+        )
+
+    rendered = str(exc_info.value)
+    assert "multiple time_fields" in rendered
+    assert "create_date" in rendered
+    assert "create_time" in rendered
+    assert '"time_field": "create_date"' in rendered
+
+
+def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
+    _bootstrap_sales_with_two_time_fields(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_two_time_fields(con)
+    s = session_attach.create(name="demo", backends=_backends(con))
+
+    mf = observe(
+        MetricRef("sales.revenue"),
+        window={"start": "2026-07-01", "end": "2026-07-31", "time_field": "create_date"},
+        session=s,
+    )
+
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
 
 
@@ -129,7 +210,7 @@ def test_observe_errored_project_raises(tmp_path, monkeypatch):
 
 def test_observe_read_only_session_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
-    s = session_attach.create(name="demo", use_profiles=False)
+    s = session_attach.create(name="demo", use_datasources=False)
     with pytest.raises(NoBackendFactoryError):
         observe(MetricRef("sales.revenue"), session=s)
 

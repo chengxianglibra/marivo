@@ -1,10 +1,10 @@
 """
-Pitfall: declaring a dataset whose datasource= argument was never registered.
+Pitfall: declaring a dataset whose datasource= argument has no project datasource.
 When triggered: the loader reports a MISSING_DATASET_REF error because the
-datasource semantic_id has no matching ms.datasource() declaration.
+datasource name has no matching .marivo/datasource/*.py declaration.
 
 Expected output:
-    [missing_dataset_ref] Dataset 'sales.orders' references unknown datasource 'sales.tiny_orders'.
+    [missing_dataset_ref] Dataset 'sales.orders' references unknown datasource 'tiny_orders'.
 """
 
 from __future__ import annotations
@@ -19,20 +19,18 @@ import marivo.semantic_py as ms
 #   import marivo.semantic_py as ms
 #   ms.model(name="sales")
 #
-#   # datasets.py  (BUG: no ms.datasource declared!)
+#   # datasets.py  (BUG: no .marivo/datasource/tiny_orders.py exists!)
 #   import marivo.semantic_py as ms
 #
-#   @ms.dataset(name="orders", datasource="sales.tiny_orders")
+#   @ms.dataset(name="orders", datasource="tiny_orders")
 #   def orders(backend):
 #       return backend.table("orders")
 #
 # The loader will produce a MISSING_DATASET_REF error because
-# 'sales.tiny_orders' has no matching ms.datasource() declaration.
+# 'tiny_orders' has no matching project datasource declaration.
 #
-# Fix: declare the datasource first:
-#   warehouse = ms.datasource(name="tiny_orders", backend_type="duckdb")
-#
-#   @ms.dataset(datasource=warehouse)
+# Fix: create .marivo/datasource/tiny_orders.py, then reference it by name:
+#   @ms.dataset(datasource="tiny_orders")
 #   def orders(backend):
 #       return backend.table("orders")
 
@@ -45,7 +43,7 @@ with tempfile.TemporaryDirectory() as tmp:
     (root / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "@ms.dataset(name='orders', datasource='sales.tiny_orders')\n"
+        "@ms.dataset(name='orders', datasource='tiny_orders')\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
     )

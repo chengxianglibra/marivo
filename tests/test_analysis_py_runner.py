@@ -34,6 +34,12 @@ def _bootstrap_project(
     """Write semantic model files on disk and return a loaded SemanticProject."""
     semantic_dir = tmp_path / ".marivo" / "semantic" / model_name
     semantic_dir.mkdir(parents=True, exist_ok=True)
+    datasource_dir = semantic_dir.parent.parent / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / f"{datasource_name}.py").write_text(
+        "import marivo.datasource_py as md\n"
+        f"md.datasource(name='{datasource_name}', backend_type='duckdb', path=':memory:')\n"
+    )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_model.py").write_text(
         f"import marivo.semantic_py as ms\nms.model(name='{model_name}')\n"
@@ -51,9 +57,7 @@ def _bootstrap_project(
     (semantic_dir / "definitions.py").write_text(
         f"import marivo.semantic_py as ms\n"
         f"\n"
-        f"{datasource_name} = ms.datasource(name='{datasource_name}', backend_type='duckdb')\n"
-        f"\n"
-        f"@ms.dataset(name='{dataset_name}', datasource={datasource_name})\n"
+        f"@ms.dataset(name='{dataset_name}', datasource='{datasource_name}')\n"
         f"def {dataset_name}(backend):\n"
         f"    return backend.table('{dataset_name}')\n"
         f"\n"

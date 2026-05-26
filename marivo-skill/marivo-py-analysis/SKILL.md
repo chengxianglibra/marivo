@@ -73,11 +73,11 @@ Important current return types:
    tiny in-memory semantic model using the installed `marivo` package. Examples
    that use DuckDB require `marivo[duckdb]` or an equivalent environment.
 
-3. If live data is required, use an already configured datasource profile.
-   Profile definition and repair are owned by `marivo-py-semantic`; see
+3. If live data is required, use an already configured project datasource.
+   Datasource definition and repair are owned by `marivo-py-semantic`; see
    `../marivo-py-semantic/references/datasource.md`. For tests or explicit
    overrides, pass `backends=` / `backend_factory=` and set
-   `use_profiles=False`; see `references/backend-setup.md`.
+   `use_datasources=False`; see `references/backend-setup.md`.
 
 4. Write a small script in the user's project or scratch area. Use one of the
    templates below or adapt a runnable file from `references/examples/*.py`.
@@ -141,22 +141,22 @@ for follow-up.
 
 ## Fill-in templates
 
-### Attach live backend (profile-backed, recommended)
+### Attach live backend (project datasource, recommended)
 
 Use this only when `marivo-py-semantic` has already created the required
-datasource profile. This skill consumes profiles; it does not define or repair
+project datasource. This skill consumes datasources; it does not define or repair
 them.
 
 ```python
 import marivo.analysis_py as mv
 
-mv.session.create(name="analysis")  # backend resolved from the profile
+mv.session.create(name="analysis")  # backend resolved from .marivo/datasource
 ```
 
 ### Attach live backend (explicit override)
 
 Use this in tests / CI or when you need full control over the backend. Pair
-with `use_profiles=False` so a stray profile cannot mask a misconfigured
+with `use_datasources=False` so a stray project datasource cannot mask a misconfigured
 fixture.
 
 ```python
@@ -164,7 +164,7 @@ import ibis
 import marivo.analysis_py as mv
 
 def make_backend(datasource_name: str):
-    if datasource_name not in {"warehouse", "sales.warehouse"}:
+    if datasource_name != "warehouse":
         raise KeyError(datasource_name)
     return ibis.trino.connect(
         host="<trino_host>", port=80, user="<user>",
@@ -175,7 +175,7 @@ def make_backend(datasource_name: str):
 mv.session.create(
     name="analysis",
     backend_factory=make_backend,
-    use_profiles=False,
+    use_datasources=False,
 )
 ```
 
@@ -337,8 +337,8 @@ Need raw pandas operations?
 - `references/examples/_fixtures/tiny_semantic.py` - tiny semantic model used by
   the examples; requires DuckDB support in the active Marivo environment
 - `references/cheatsheet.md` - compact intent/frame reference
-- `../marivo-py-semantic/references/datasource.md` - profile-backed datasource
-  definition and required profile fields
-- `references/backend-setup.md` - how analysis consumes existing profiles or
+- `../marivo-py-semantic/references/datasource.md` - project datasource
+  definition and required fields
+- `references/backend-setup.md` - how analysis consumes existing datasources or
   uses explicit backend overrides
 - `references/pitfalls.md` - expanded error recovery notes

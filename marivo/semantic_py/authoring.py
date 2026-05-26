@@ -16,15 +16,13 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 
 from marivo.semantic_py.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic_py.ir import (
     AiContextIR,
     DatasetIR,
     DatasetRef,
-    DatasourceIR,
-    DatasourceRef,
     DecompositionIR,
     FieldIR,
     FieldRef,
@@ -363,7 +361,7 @@ def _caller_location() -> SourceLocation:
 
 
 def _resolve_ref_string(
-    ref: DatasourceRef | DatasetRef | FieldRef | TimeFieldRef | MetricRef | str,
+    ref: DatasetRef | FieldRef | TimeFieldRef | MetricRef | RelationshipRef | str,
 ) -> str:
     """Extract semantic_id string from a ref object or pass through a string."""
     if isinstance(ref, str):
@@ -421,41 +419,20 @@ def model(
 def datasource(
     *,
     name: str | None = None,
-    backend_type: str,
+    backend_type: str | None = None,
     model: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
-) -> DatasourceRef:
-    """Declare a datasource (backend factory). Top-level call, not a decorator."""
-    ctx = _require_ctx()
-    model_name = _resolve_model_name(model, ctx)
-
-    if name is None:
-        _raise(
-            ErrorKind.MISSING_MODEL,
-            "datasource requires a 'name' argument (it is a top-level call, not a decorator).",
-            cls=SemanticDecoratorError,
-        )
-
-    semantic_id = f"{model_name}.{name}"
-    _check_duplicate(ctx, semantic_id)
-
-    ai_ctx = _build_ai_context(ai_context)
-    location = _caller_location()
-
-    ir = DatasourceIR(
-        semantic_id=semantic_id,
-        model=model_name,
-        name=name,
-        backend_type=backend_type,
-        description=description,
-        ai_context=ai_ctx,
-        python_symbol=name,
-        location=location,
+) -> NoReturn:
+    """Removed: datasource declarations live in .marivo/datasource/*.py."""
+    _ = (name, backend_type, model, description, ai_context)
+    _require_ctx()
+    _raise(
+        ErrorKind.INVALID_REF,
+        "ms.datasource has been removed; declare datasources in .marivo/datasource/*.py with marivo.datasource_py.datasource(...) and reference them by string name in @ms.dataset(datasource=...).",
+        refs=(str(name),) if name is not None else (),
+        cls=SemanticDecoratorError,
     )
-    _push_ir(ctx, ir, None)
-
-    return DatasourceRef(semantic_id)
 
 
 # ---------------------------------------------------------------------------
@@ -466,7 +443,7 @@ def datasource(
 def dataset(
     *,
     name: str | None = None,
-    datasource: DatasourceRef | str,
+    datasource: str,
     primary_key: list[str] | None = None,
     model: str | None = None,
     description: str | None = None,
@@ -481,7 +458,14 @@ def dataset(
         semantic_id = f"{model_name}.{obj_name}"
         _check_duplicate(ctx, semantic_id)
 
-        ds_ref = _resolve_ref_string(datasource)
+        if not isinstance(datasource, str):
+            _raise(
+                ErrorKind.INVALID_REF,
+                "@ms.dataset(datasource=...) accepts only a global datasource name string.",
+                refs=(semantic_id,),
+                cls=SemanticDecoratorError,
+            )
+        ds_ref = datasource
         pk = tuple(primary_key) if primary_key else ()
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()

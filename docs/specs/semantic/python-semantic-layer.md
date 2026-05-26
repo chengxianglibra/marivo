@@ -11,7 +11,8 @@
 目标态满足以下要求：
 
 - Python 文件是语义定义的 source of truth。agent 修改业务口径时应改 Python authoring 文件，而不是编辑生成物或运行时存储。
-- 语义对象必须可被通用 agent 静态阅读：datasource、dataset、field、time field、metric、relationship、decomposition 和 provenance 都有显式 Python 声明。
+- Datasource 是项目级可分享配置，定义在 `.marivo/datasource/*.py`；semantic model 只通过全局 datasource name 引用它。
+- 语义对象必须可被通用 agent 静态阅读：dataset、field、time field、metric、relationship、decomposition 和 provenance 都有显式 Python 声明。
 - 业务口径不能靠字段名、表名或自然语言自动猜测。agent 必须通过 decorated refs、函数签名、`source_sql` / `source_dialect` / `source_document`、parity result 和结构化错误来收敛。
 - 归属、依赖和项目边界必须来自显式声明或显式 default model。model 不能由文件路径猜测，metric 不能由函数参数名推断 dataset，reader 不能靠 thread-local active project 隐式选项目。
 - Ibis 是 Python 语义层唯一表达计算口径的执行表达式层。SQL 可以作为 provenance 和 parity oracle 保留，但不作为主要 authoring 语言。
@@ -22,22 +23,28 @@
 
 ## Authoring 快速路径
 
-目标态支持 single-file 快速路径。agent 可以先在 `.marivo/semantic/sales/_model.py` 中完成从 datasource 到 metric 的最小声明；当模型变大时，再把相关对象拆到 sibling `.py` 文件中，而不需要改变已有 semantic ids。
+目标态支持 single-file 快速路径。agent 可以先在 `.marivo/semantic/sales/_model.py` 中完成从 dataset 到 metric 的最小声明；项目 datasource 单独放在 `.marivo/datasource/warehouse.py`。当模型变大时，再把相关对象拆到 sibling `.py` 文件中，而不需要改变已有 semantic ids。
 
 ```python
+# .marivo/datasource/warehouse.py
+import marivo.datasource_py as md
+
+md.datasource(
+    name="warehouse",
+    backend_type="duckdb",
+    path="/data/warehouse.duckdb",
+)
+```
+
+```python
+# .marivo/semantic/sales/_model.py
 import marivo.semantic_py as ms
 
 ms.model(name="sales", description="Sales analytics")
 
-warehouse = ms.datasource(
-    name="warehouse",
-    backend_type="duckdb",
-    description="Analytics warehouse identity.",
-)
-
 @ms.dataset(
     name="orders",
-    datasource=warehouse,
+    datasource="warehouse",
     primary_key=["order_id"],
     description="Order facts.",
     ai_context={
@@ -78,7 +85,7 @@ def revenue(order_rows):
 - `name=` 省略时，Python 变量名或函数名作为 fallback identity。
 - Python 符号名只是 local alias，不参与 semantic id。
 - `description=` 是短标签或一行说明；`ai_context.business_definition` 是完整业务定义，可多行，agent 用它判断对象是否匹配用户意图。
-- `ai_context` schema 适用于 model、datasource、dataset、field、time_field、metric 和 relationship 所有对象。所有字段可选，缺失时 `describe` 返回 `null` 或空列表。
+- `ai_context` schema 适用于 model、project datasource、dataset、field、time_field、metric 和 relationship 所有对象。所有字段可选，缺失时 `describe` 返回 `null` 或空列表。
 - `ai_context` 固定字段是 `business_definition: str | None`、`guardrails: list[str]`、`synonyms: list[str]`、`examples: list[str]`、`instructions: str | None`、`owner_notes: str | None`。
 - `business_definition` 和 `guardrails` 对 dataset 与 metric 最重要；跨 model 引用前，agent 应优先读取这两个字段判断是否可复用。
 - `examples` 只放自然语言示例问法，不放 SQL、Ibis snippet 或 expected values。
@@ -215,21 +222,28 @@ from .metrics import sessions, signups
 
 ### Datasource
 
-目标态：datasource 是纯 metadata 顶级调用，不带 function body，不保存连接代码。
+Datasource 是项目级配置，不属于任何 semantic model。它定义在 `.marivo/datasource/*.py`，可随 `.marivo/semantic` 一起复制到其他分析项目复用。
 
 ```python
-warehouse = ms.datasource(
-    model="sales",
+import marivo.datasource_py as md
+
+md.datasource(
     name="warehouse",
-    backend_type="duckdb",
-    description="Analytics warehouse identity.",
+    backend_type="trino",
+    host="trino.example.com",
+    port=8080,
+    catalog="hive",
+    schema="default",
+    user_env="WAREHOUSE_USER",
+    password_env="WAREHOUSE_PASSWORD",
 )
 ```
 
 设计约束：
 
-- `backend_type` 应明确，因为 parity 需要用它和 `source_dialect` 对齐。
-- credentials、连接池、部署环境不属于语义对象本身。
+- datasource name 是全局 key，禁止使用 `<model>.<datasource>`。
+- semantic model 不调用 `ms.datasource(...)`，只在 `@ms.dataset(datasource="warehouse")` 中引用全局 datasource name。
+- 非机密连接字段写在 datasource 文件里；`user`、`password`、`token`、`api_key`、`secret`、`private_key` 等机密字段只能通过 `<field>_env` 引用环境变量。
 - datasource 是 dataset 的执行来源，不是 metric 的业务口径。
 
 ### Dataset
@@ -589,7 +603,8 @@ parity 是 SQL provenance 与 Ibis 表达式的可比性检查。失败可能来
 
 - source SQL 缺失或 dialect 缺失。
 - metric 仍为 `unverified` 且当前 parity / CI 策略要求可信 provenance。
-- datasource backend type 缺失或不匹配。
+- datasource profile 缺失、backend type 不受支持，或 live backend 与
+  profile 配置不一致。
 - source SQL 或 metric expression 无法执行。
 - 任一侧不是 scalar。
 - scalar 值不相等。
@@ -634,7 +649,8 @@ typed frames + session persistence + lineage
 
 - `semantic_py` 不产出 `MetricFrame`、`DeltaFrame` 或 attribution artifact。
 - `analysis_py` 不重新定义 metric 口径，不猜 dataset/time field，不绕过 semantic registry 直接读表。
-- backend ownership 位于 session/execution 层；semantic object 只声明 datasource 身份和 backend type。
+- backend ownership 位于 profile/session/execution 层；semantic object 只声明
+  datasource 名称引用，不声明 backend type 或连接字段。
 - 下游 analysis operator 应通过 semantic refs 读取对象，例如 `sales.revenue`，并通过 materialization 获得 Ibis expression。
 
 如果一个分析需要新的业务对象，应先扩展 `semantic_py`，再让 `analysis_py` 消费它；不应把业务定义隐藏在一次性 analysis script 中。

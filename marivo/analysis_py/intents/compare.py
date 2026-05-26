@@ -151,6 +151,8 @@ def compare(
     elif a.meta.semantic_kind == "panel":
         df, segment_info, calendar_info = _align_panel(a, b, alignment=alignment, session=session)
     elif alignment.kind == "calendar_bucket":
+        if a.meta.semantic_kind == "time_series":
+            _require_matching_time_series_bucket_grain(a, b)
         df = _align_and_compute(a.to_pandas(), b.to_pandas())
     else:
         if a.meta.semantic_kind != "time_series" or b.meta.semantic_kind != "time_series":
@@ -224,6 +226,9 @@ def compare(
     frame_ref = _gen_ref("frame")
     job_ref = _gen_ref("job")
     alignment_dump = alignment.model_dump(mode="json")
+    if alignment.kind == "calendar_bucket" and "bucket_start_b" in df.columns:
+        alignment_dump["mode"] = "ordinal_bucket"
+        alignment_dump["baseline_bucket_column"] = "bucket_start_b"
     if calendar_info is not None:
         alignment_dump["calendar_info"] = calendar_info
     if segment_info is not None:
@@ -315,6 +320,30 @@ def _time_axis_column(frame: MetricFrame) -> str:
 
 def _time_column_for_frame(frame: MetricFrame) -> str:
     return _time_axis_column(frame)
+
+
+def _require_matching_time_series_bucket_grain(a: MetricFrame, b: MetricFrame) -> None:
+    a_time_column = _time_axis_column(a)
+    b_time_column = _time_axis_column(b)
+    if a_time_column != b_time_column:
+        raise AlignmentFailedError(
+            message="calendar_bucket time_series alignment requires matching time axis columns",
+            details={
+                "kind": "CalendarBucketTimeAxisMismatch",
+                "current_time_column": a_time_column,
+                "baseline_time_column": b_time_column,
+            },
+        )
+    a_grain, b_grain = _panel_grains(a, b)
+    if a_grain != b_grain:
+        raise AlignmentFailedError(
+            message="calendar_bucket ordinal alignment requires same-grain time_series windows",
+            details={
+                "kind": "CalendarBucketGrainMismatch",
+                "current_grain": a_grain,
+                "baseline_grain": b_grain,
+            },
+        )
 
 
 def _panel_grain(frame: MetricFrame) -> str | None:
@@ -568,7 +597,11 @@ def _align_panel(
         )
 
     if alignment.kind == "calendar_bucket":
-        result = result[[time_column, *dim_columns, "current", "baseline", "delta", "pct_change"]]
+        time_columns = [time_column]
+        baseline_time_column = f"{time_column}_b"
+        if baseline_time_column in result.columns:
+            time_columns.append(baseline_time_column)
+        result = result[[*time_columns, *dim_columns, "current", "baseline", "delta", "pct_change"]]
         sort_columns = [*dim_columns, time_column]
     else:
         leading_columns = [*dim_columns]
@@ -679,6 +712,42 @@ def _align_panel_calendar_bucket(
         .reset_index(drop=True)
     )
     merged = pd.merge(a_prepared, b_prepared, how="outer", on=time_column)
+    if (merged["current"].notna() & merged["baseline"].notna()).any():
+        merged = merged.sort_values(time_column).reset_index(drop=True)
+        merged["delta"] = merged["current"] - merged["baseline"]
+        baseline = merged["baseline"]
+        merged["pct_change"] = np.where(
+            baseline.notna() & (baseline != 0),
+            merged["delta"] / baseline,
+            np.nan,
+        )
+        return merged[[time_column, "current", "baseline", "delta", "pct_change"]]
+
+    if len(a_prepared) != len(b_prepared):
+        raise AlignmentFailedError(
+            message=(
+                "calendar_bucket alignment requires shared bucket_start values or "
+                "equal-length same-grain windows for ordinal bucket alignment"
+            ),
+            details={
+                "kind": "CalendarBucketNoComparableBuckets",
+                "current_rows": len(a_prepared),
+                "baseline_rows": len(b_prepared),
+            },
+        )
+    if a_prepared[time_column].duplicated().any() or b_prepared[time_column].duplicated().any():
+        raise AlignmentFailedError(
+            message="calendar_bucket ordinal alignment requires unique bucket_start values",
+            details={"kind": "CalendarBucketDuplicateBuckets"},
+        )
+    merged = pd.DataFrame(
+        {
+            time_column: a_prepared[time_column],
+            f"{time_column}_b": b_prepared[time_column],
+            "current": a_prepared["current"],
+            "baseline": b_prepared["baseline"],
+        }
+    )
     merged = merged.sort_values(time_column).reset_index(drop=True)
     merged["delta"] = merged["current"] - merged["baseline"]
     baseline = merged["baseline"]
@@ -687,7 +756,7 @@ def _align_panel_calendar_bucket(
         merged["delta"] / baseline,
         np.nan,
     )
-    return merged[[time_column, "current", "baseline", "delta", "pct_change"]]
+    return merged[[time_column, f"{time_column}_b", "current", "baseline", "delta", "pct_change"]]
 
 
 def _calendar_context(
@@ -760,6 +829,8 @@ def _align_and_compute(a_df: pd.DataFrame, b_df: pd.DataFrame) -> pd.DataFrame:
         return _sample_align(a_df, b_df)
     key = a_df.columns[0]
     merged = pd.merge(a_df, b_df, on=key, suffixes=("_a", "_b"))
+    if merged.empty:
+        return _ordinal_bucket_align(a_df, b_df, key=key)
     value_cols_a = [col for col in merged.columns if col.endswith("_a")]
     value_cols_b = [col for col in merged.columns if col.endswith("_b")]
     if not value_cols_a or not value_cols_b:
@@ -775,6 +846,52 @@ def _align_and_compute(a_df: pd.DataFrame, b_df: pd.DataFrame) -> pd.DataFrame:
             "baseline": baseline,
             "delta": current - baseline,
             "pct_change": np.where(baseline != 0, (current - baseline) / baseline, np.nan),
+        }
+    )
+
+
+def _ordinal_bucket_align(a_df: pd.DataFrame, b_df: pd.DataFrame, *, key: str) -> pd.DataFrame:
+    if len(a_df) != len(b_df):
+        raise AlignmentFailedError(
+            message=(
+                "calendar_bucket alignment requires shared bucket_start values or "
+                "equal-length same-grain windows for ordinal bucket alignment"
+            ),
+            details={
+                "kind": "CalendarBucketNoComparableBuckets",
+                "current_rows": len(a_df),
+                "baseline_rows": len(b_df),
+            },
+        )
+    if a_df[key].duplicated().any() or b_df[key].duplicated().any():
+        raise AlignmentFailedError(
+            message="calendar_bucket ordinal alignment requires unique bucket_start values",
+            details={"kind": "CalendarBucketDuplicateBuckets"},
+        )
+    value_cols_a = [column for column in a_df.columns if column != key]
+    value_cols_b = [column for column in b_df.columns if column != key]
+    if len(value_cols_a) != 1 or len(value_cols_b) != 1:
+        raise AlignmentFailedError(
+            message="calendar_bucket ordinal alignment requires exactly one value column per frame",
+            details={
+                "kind": "CalendarBucketValueColumnAmbiguous",
+                "current_value_columns": [str(column) for column in value_cols_a],
+                "baseline_value_columns": [str(column) for column in value_cols_b],
+            },
+        )
+    a_sorted = a_df.sort_values(key).reset_index(drop=True)
+    b_sorted = b_df.sort_values(key).reset_index(drop=True)
+    current = pd.to_numeric(a_sorted[value_cols_a[0]], errors="coerce")
+    baseline = pd.to_numeric(b_sorted[value_cols_b[0]], errors="coerce")
+    delta = current - baseline
+    return pd.DataFrame(
+        {
+            key: a_sorted[key],
+            f"{key}_b": b_sorted[key],
+            "current": current,
+            "baseline": baseline,
+            "delta": delta,
+            "pct_change": np.where(baseline != 0, delta / baseline, np.nan),
         }
     )
 

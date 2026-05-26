@@ -73,6 +73,12 @@ def _session_root() -> Path:
 
 def _bootstrap_semantic_project(root: Path) -> None:
     """Write a minimal semantic project to disk so the loader can find it."""
+    datasource_dir = root / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / f"{DATASOURCE_NAME}.py").write_text(
+        "import marivo.datasource_py as md\n"
+        f"md.datasource(name='{DATASOURCE_NAME}', backend_type='duckdb', path=':memory:')\n"
+    )
     semantic_dir = root / ".marivo" / "semantic" / MODEL_NAME
     semantic_dir.mkdir(parents=True, exist_ok=True)
     (semantic_dir / "__init__.py").write_text("")
@@ -82,9 +88,7 @@ def _bootstrap_semantic_project(root: Path) -> None:
     (semantic_dir / "definitions.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
-        "\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
+        f"@ms.dataset(name='orders', datasource='{DATASOURCE_NAME}')\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"
@@ -113,7 +117,7 @@ def _temporary_cwd(path: Path) -> Iterator[None]:
 
 
 def _backends() -> dict[str, Any]:
-    return {"warehouse": _connection}
+    return {DATASOURCE_NAME: _connection}
 
 
 def ensure_loaded(*, tz: str = "UTC", default_calendar: str | None = None) -> Any:

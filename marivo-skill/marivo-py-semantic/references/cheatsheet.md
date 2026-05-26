@@ -4,7 +4,6 @@
 
 | Decorator          | Lives on               | Required kwargs                         | Notes                                                 |
 |--------------------|------------------------|-----------------------------------------|-------------------------------------------------------|
-| `ms.datasource`    | top-level metadata call | `name=`, `backend_type=`                | Declares datasource identity; live backends come from the caller. |
 | `@ms.dataset`      | function taking backend | `name=`, `datasource=<ref>`             | `primary_key=` is optional but recommended.           |
 | `@ms.field`        | function taking dataset | `dataset=<ref or str>`                  | Non-aggregated per-row expression.                    |
 | `@ms.time_field`   | function taking dataset | `dataset=`, `data_type=`, `granularity=` | Calendar axis for time-aware analysis. Prefer partition time fields when available. |

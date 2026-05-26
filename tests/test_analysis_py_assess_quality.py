@@ -31,7 +31,8 @@ def _metric(session, rows, *, semantic_kind="time_series", axes=None, window=Non
         measure=measure or {"field": "value", "aggregation": "sum"},
         semantic_kind=semantic_kind,
         semantic_model="sales",
-        window=window or {"start": "2026-01-01", "end": "2026-01-05", "grain": "day", "time_field": "time"},
+        window=window
+        or {"start": "2026-01-01", "end": "2026-01-05", "grain": "day", "time_field": "time"},
         session=session,
     )
 

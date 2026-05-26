@@ -198,14 +198,14 @@ def test_no_backend_factory_default_template_fields_populated() -> None:
     from marivo.analysis_py.errors import NoBackendFactoryError
 
     err = NoBackendFactoryError(
-        message="@ms.datasource 'tiny_orders' did not return an ibis backend.",
+        message="datasource 'tiny_orders' did not resolve to an ibis backend.",
         details={"datasource": "tiny_orders"},
     )
     rendered = str(err)
     assert "正确写法:" in rendered
-    assert "datasource='tiny_orders' returned None or a non-ibis object" in rendered
-    assert "mv.profiles.set" in rendered
-    assert "@ms.datasource" in rendered
+    assert "datasource='tiny_orders' resolved to None or a non-ibis object" in rendered
+    assert "mv.datasources.set" in rendered
+    assert "@ms.datasource" not in rendered
     assert "相关文档: marivo-skill/marivo-py-semantic/references/datasource.md" in rendered
 
 
@@ -225,6 +225,6 @@ def test_no_backend_factory_without_details_uses_session_backend_template() -> N
     assert "session has no backend factory configured" in rendered
     assert "正确写法:" in rendered
     assert "mv.session.attach" in rendered
-    assert "mv.profiles.set" in rendered
+    assert "mv.datasources.set" in rendered
     assert "backend_factory=" in rendered
     assert "相关文档: marivo-skill/marivo-py-semantic/references/datasource.md" in rendered

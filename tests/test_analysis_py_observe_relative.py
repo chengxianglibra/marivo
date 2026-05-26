@@ -22,6 +22,12 @@ def _chdir(tmp_path, monkeypatch):
 def _bootstrap_sales(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
+    datasource_dir = semantic_dir.parent.parent / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource_py as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_model.py").write_text(
         "import marivo.semantic_py as ms\nms.model(name='sales')\n"
@@ -29,9 +35,7 @@ def _bootstrap_sales(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
-        "\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"
@@ -62,6 +66,12 @@ def test_observe_window_type_hint_matches_supported_window_input_forms():
 def _bootstrap_multi_dataset(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
+    datasource_dir = semantic_dir.parent.parent / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource_py as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_model.py").write_text(
         "import marivo.semantic_py as ms\nms.model(name='sales')\n"
@@ -69,9 +79,7 @@ def _bootstrap_multi_dataset(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
-        "\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"
@@ -79,7 +87,7 @@ def _bootstrap_multi_dataset(tmp_path):
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
-        "@ms.dataset(name='refunds', datasource=warehouse)\n"
+        "@ms.dataset(name='refunds', datasource='warehouse')\n"
         "def refunds(backend):\n"
         "    return backend.table('refunds')\n"
         "\n"
@@ -103,6 +111,12 @@ def _seed_multi_dataset(con):
 def _bootstrap_epoch_seconds(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
+    datasource_dir = semantic_dir.parent.parent / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource_py as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_model.py").write_text(
         "import marivo.semantic_py as ms\nms.model(name='sales')\n"
@@ -113,9 +127,7 @@ def _bootstrap_epoch_seconds(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
-        "\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"

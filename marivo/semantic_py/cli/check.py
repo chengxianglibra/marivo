@@ -231,22 +231,18 @@ def _build_backend_factory(
     if not datasources:
         return None
 
-    # Map datasource names to backend_type
-    ds_map: dict[str, str] = {ds.semantic_id: ds.backend_type for ds in datasources}
+    datasource_ids = {ds.semantic_id for ds in datasources}
 
-    # Cache backends by datasource semantic_id
+    # Cache backends by datasource name. Real project connections are owned by
+    # .marivo/datasource; check uses in-memory DuckDB only for dry-run shape checks.
     _cache: dict[str, Any] = {}
 
     def factory(datasource_id: str) -> Any:
         if datasource_id in _cache:
             return _cache[datasource_id]
-        backend_type = ds_map.get(datasource_id)
-        if backend_type is None:
+        if datasource_id not in datasource_ids:
             raise ValueError(f"Unknown datasource: {datasource_id}")
-        if backend_type == "duckdb":
-            con = ibis.duckdb.connect(":memory:")
-        else:
-            raise ValueError(f"Unsupported backend_type: {backend_type}")
+        con = ibis.duckdb.connect(":memory:")
         _cache[datasource_id] = con
         return con
 

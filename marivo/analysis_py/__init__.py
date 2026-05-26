@@ -1,7 +1,8 @@
 """Marivo Python-native analysis runtime (analysis_py)."""
 
+from typing import Any
+
 from marivo.analysis_py import errors as errors
-from marivo.analysis_py import profiles as profiles
 from marivo.analysis_py import session
 from marivo.analysis_py.calendar.model import CalendarPolicy
 from marivo.analysis_py.errors import PromotionFailedError
@@ -44,6 +45,15 @@ from marivo.analysis_py.refs import ArtifactRef, CalendarRef, DimensionRef, Metr
 from marivo.analysis_py.session._load import load_frame
 from marivo.analysis_py.windows.spec import AbsoluteWindow, RelativeWindow, WindowInput
 
+
+def __getattr__(name: str) -> Any:
+    if name == "datasources":
+        from importlib import import_module
+
+        return import_module("marivo.analysis_py.datasources")
+    raise AttributeError(name)
+
+
 __all__ = [
     "AbsoluteWindow",
     "AlignmentKind",
@@ -83,6 +93,7 @@ __all__ = [
     "assess_quality",
     "compare",
     "correlate",
+    "datasources",
     "decompose",
     "discover",
     "errors",
@@ -92,7 +103,6 @@ __all__ = [
     "help",
     "load_frame",
     "observe",
-    "profiles",
     "promote_attribution_frame",
     "promote_delta_frame",
     "promote_metric_frame",

@@ -99,7 +99,7 @@ def _hint_missing_datasets(**_kwargs: Any) -> str:
 
 
 def _hint_invalid_ref(**_kwargs: Any) -> str:
-    return "Use ref objects returned by ms.datasource/dataset/field/time_field/metric decorators."
+    return "Use datasource names as strings and ref objects returned by ms.dataset/field/time_field/metric decorators."
 
 
 def _hint_invalid_decomposition(**_kwargs: Any) -> str:
