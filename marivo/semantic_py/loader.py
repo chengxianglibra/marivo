@@ -1,249 +1,371 @@
+"""Project discovery and loading for marivo.semantic_py v1.1.
+
+Implements find_project and the two-pass loader pipeline.  This module
+absorbs the old registry.py LoaderContext management.
+"""
+
 from __future__ import annotations
 
-import hashlib
-import importlib
-import importlib.util
+import runpy
 import sys
-import types
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Literal
 
 from marivo.semantic_py.errors import (
-    SemanticAssemblyError,
+    ErrorKind,
     SemanticError,
     SemanticLoadError,
-    SourceLocation,
+    StructuredWarning,
+    _raise,
 )
-from marivo.semantic_py.registry import (
-    SemanticProject,
-    use_model,
-    use_model_candidates,
-    use_registry,
-)
-from marivo.semantic_py.validator import validate_all
+from marivo.semantic_py.ir import ModelIR
+from marivo.semantic_py.validator import Registry, Sidecar, assembly_validate
 
-_PROJECT_ROOTS: dict[int, tuple[str, Path]] = {}
+__all__ = [
+    "LoadResult",
+    "LoaderContext",
+    "find_project",
+]
 
 
-def load_project(project: SemanticProject, *, reload: bool = False) -> None:
-    """Load a trusted local semantic project.
+@dataclass
+class LoaderContext:
+    """Context active during loader execution.
 
-    Python files under the project root are executed directly; this loader is not
-    a sandbox.
+    Set via ``_LOADER_CTX`` ContextVar; decorator functions read
+    this to enforce outside-loader-context guards.
     """
-    with project.lock:
-        root = _project_root(project)
-        _clear_project_modules(project)
-        if not root.exists():
-            project.registry.clear()
-            project.registry.state = "ready"
-            return
 
-        project.registry.clear()
-        project.registry.state = "loading"
-        importlib.invalidate_caches()
-
-        try:
-            with _project_root_on_path(root), use_registry(project.registry):
-                if not root.is_dir():
-                    error = SemanticAssemblyError(
-                        phase="load",
-                        kind="ProjectRootInvalid",
-                        location=SourceLocation(file=str(root), line=1),
-                        function=None,
-                        message=f"Semantic project root '{root}' must be a directory.",
-                        hint="Set SemanticProject.root to a directory that contains semantic model subdirectories.",
-                        refs=[f"root:{root}"],
-                    )
-                    raise SemanticLoadError([error])
-                _install_namespace_packages(root)
-                for model_name, model_file, sibling_files in _semantic_model_files(root):
-                    model_dir_name = model_name.rsplit(".", 2)[-2]
-                    candidates = (model_dir_name, model_dir_name.replace("_", "-"))
-                    existing_models = set(project.registry.models)
-                    with use_model_candidates(candidates):
-                        _exec_module(model_name, model_file)
-                    registered_model = _registered_model_name(project, model_name)
-                    _reject_unexpected_models(
-                        project=project,
-                        module_name=model_name,
-                        existing_models=existing_models,
-                        registered_model=registered_model,
-                    )
-                    with use_model(registered_model):
-                        for module_name, file_path in sibling_files:
-                            _exec_module(module_name, file_path)
-                validate_all(project.registry)
-        except SemanticLoadError as exc:
-            _clear_project_modules(project)
-            errors = list(exc.errors)
-            project.registry.clear()
-            project.registry.state = "errored"
-            project.registry.load_errors = errors
-            raise
+    current_model_file: str | None = None
+    default_model: str | None = None
+    pending_objects: list[Any] = field(default_factory=list)
+    #: FieldRef/TimeFieldRef instances returned by decorators, to have
+    #: their _resolver wired up after the two-pass load completes.
+    pending_refs: list[Any] = field(default_factory=list)
 
 
-def _semantic_model_files(root: Path) -> Iterator[tuple[str, Path, list[tuple[str, Path]]]]:
-    namespace = _namespace(root)
-    for model_dir in sorted(path for path in root.iterdir() if path.is_dir()):
-        model_file = model_dir / "_model.py"
-        if not model_file.is_file():
-            error = SemanticAssemblyError(
-                phase="load",
-                kind="ModelFileMissing",
-                location=SourceLocation(file=str(model_dir), line=1),
-                function=None,
-                message=f"Semantic model directory '{model_dir.name}' must contain _model.py.",
-                hint="Add _model.py and register the model with marivo.semantic_py.model().",
-                refs=[f"model_dir:{model_dir.name}"],
-            )
-            raise SemanticLoadError([error])
-
-        package_name = f"{namespace}.{model_dir.name}"
-        model_module = f"{package_name}._model"
-        sibling_files: list[tuple[str, Path]] = []
-
-        for file_path in sorted(model_dir.glob("*.py")):
-            if file_path.name in {"__init__.py", "_model.py"}:
-                continue
-            sibling_files.append((f"{package_name}.{file_path.stem}", file_path))
-        yield model_module, model_file, sibling_files
+_LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(
+    "_LOADER_CTX",
+    default=None,
+)
 
 
-def _registered_model_name(project: SemanticProject, module_name: str) -> str:
-    candidates = [
-        module_name.rsplit(".", 2)[-2],
-        module_name.rsplit(".", 2)[-2].replace("_", "-"),
-    ]
-    for candidate in candidates:
-        if candidate in project.registry.models:
-            return candidate
-    error = SemanticAssemblyError(
-        phase="load",
-        kind="ModelRegistrationMissing",
-        location=None,
-        function=None,
-        message=f"Semantic module '{module_name}' did not register an unambiguous model.",
-        hint="Each model directory _model.py must call marivo.semantic_py.model().",
-        refs=[f"module:{module_name}"],
-    )
-    raise SemanticLoadError([error])
+@dataclass(frozen=True)
+class LoadResult:
+    """Result of a project load attempt."""
+
+    status: Literal["ready", "errored"]
+    errors: tuple[SemanticError, ...] = ()
+    warnings: tuple[StructuredWarning, ...] = ()
+    registry: Registry | None = None
+    sidecar: Sidecar | None = None
 
 
-def _reject_unexpected_models(
-    *,
-    project: SemanticProject,
-    module_name: str,
-    existing_models: set[str],
-    registered_model: str,
+# ---------------------------------------------------------------------------
+# File loading helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_excluded_file(filename: str) -> bool:
+    """Return True if a file should be excluded from loading."""
+    basename = filename
+    if basename == "_model.py":
+        return True  # Handled separately
+    if basename == "_exports.py":
+        return True
+    if basename.startswith("."):
+        return True
+    if basename.startswith("test_") and basename.endswith(".py"):
+        return True
+    return basename.endswith("_test.py")
+
+
+def _discover_model_dirs(root: Path) -> list[Path]:
+    """Find top-level subdirectories that could contain model definitions.
+
+    Returns directories sorted by name for deterministic load order.
+    """
+    if not root.exists():
+        return []
+    dirs = []
+    for child in sorted(root.iterdir()):
+        if child.is_dir() and not child.name.startswith("."):
+            dirs.append(child)
+    return dirs
+
+
+def _execute_file(
+    filepath: Path,
+    ctx: LoaderContext,
+    errors: list[SemanticError],
 ) -> None:
-    unexpected_models = sorted(set(project.registry.models) - existing_models - {registered_model})
-    if not unexpected_models:
-        return
-    error = SemanticAssemblyError(
-        phase="load",
-        kind="UnexpectedModelRegistration",
-        location=None,
-        function=None,
-        message=(
-            f"Semantic module '{module_name}' registered unexpected models: "
-            f"{', '.join(unexpected_models)}."
-        ),
-        hint="Each model directory _model.py must register only the model represented by that directory.",
-        refs=[f"module:{module_name}", *(f"model:{name}" for name in unexpected_models)],
-    )
-    raise SemanticLoadError([error])
+    """Execute a single Python file within the loader context.
 
-
-def _namespace(root: Path) -> str:
-    digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:16]
-    return f"_marivo_semantic_py_{digest}"
-
-
-def _project_root(project: SemanticProject) -> Path:
-    root = Path(project.root)
-    cache_key = id(project)
-    cached = _PROJECT_ROOTS.get(cache_key)
-    if root.exists():
-        resolved = root.resolve()
-        _PROJECT_ROOTS[cache_key] = (project.root, resolved)
-        return resolved
-    if cached is not None and cached[0] == project.root:
-        return cached[1]
-    return root
-
-
-def _install_namespace_packages(root: Path) -> None:
-    namespace = _namespace(root)
-    root_module = types.ModuleType(namespace)
-    root_module.__package__ = namespace
-    root_module.__file__ = str(root)
-    root_module.__path__ = [str(root)]
-    sys.modules[namespace] = root_module
-
-    for model_dir in sorted(path for path in root.iterdir() if path.is_dir()):
-        package_name = f"{namespace}.{model_dir.name}"
-        package_module = types.ModuleType(package_name)
-        package_module.__package__ = package_name
-        package_module.__file__ = str(model_dir)
-        package_module.__path__ = [str(model_dir)]
-        sys.modules[package_name] = package_module
-
-
-def _exec_module(module_name: str, file_path: Path) -> None:
-    if module_name in sys.modules:
-        return
-
-    spec = importlib.util.spec_from_file_location(module_name, file_path)
-    if spec is None or spec.loader is None:
-        error = SemanticAssemblyError(
-            phase="load",
-            kind="ModuleSpecUnavailable",
-            location=SourceLocation(file=str(file_path), line=1),
-            function=None,
-            message=f"Could not create an import spec for '{file_path}'.",
-            hint=None,
-            refs=[f"module:{module_name}"],
-        )
-        raise SemanticLoadError([error])
-
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
+    Errors are accumulated, not raised.
+    """
+    token = _LOADER_CTX.set(ctx)
     try:
-        spec.loader.exec_module(module)
-    except SemanticLoadError:
-        raise
-    except SemanticError as exc:
-        raise SemanticLoadError([exc]) from exc
+        # Use runpy for isolation
+        runpy.run_path(
+            str(filepath),
+            init_globals={"__name__": "__marivo_semantic__", "__file__": str(filepath)},
+            run_name="__marivo_semantic__",
+        )
     except Exception as exc:
-        error = SemanticAssemblyError(
-            phase="load",
-            kind="ModuleLoadFailed",
-            location=SourceLocation(file=str(file_path), line=1),
-            function=None,
-            message=f"Failed to load semantic module '{module_name}': {exc}",
-            hint="Check the semantic project Python module for import-time errors.",
-            refs=[f"module:{module_name}"],
-        )
-        raise SemanticLoadError([error]) from exc
-
-
-def _clear_project_modules(project: SemanticProject) -> None:
-    root = _project_root(project)
-    namespace = _namespace(root)
-    for module_name in list(sys.modules):
-        if module_name == namespace or module_name.startswith(f"{namespace}."):
-            del sys.modules[module_name]
-
-
-@contextmanager
-def _project_root_on_path(root: Path) -> Iterator[None]:
-    root_path = str(root)
-    original_path = list(sys.path)
-    if root_path not in sys.path:
-        sys.path.insert(0, root_path)
-    try:
-        yield
+        if isinstance(exc, SemanticError):
+            errors.append(exc)
+        else:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.ORGANIZATION_ERROR,
+                    message=f"Error executing {filepath}: {exc}",
+                    hint="Check the file for syntax or runtime errors.",
+                )
+            )
     finally:
-        sys.path[:] = original_path
+        _LOADER_CTX.reset(token)
+
+
+def _load_model_dir(
+    model_dir: Path,
+    root: Path,
+    errors: list[SemanticError],
+) -> LoaderContext | None:
+    """Load a single model directory.
+
+    Returns the LoaderContext with pending objects, or None on critical failure.
+    """
+    model_file = model_dir / "_model.py"
+    model_name = model_dir.name
+
+    # Check _model.py exists
+    if not model_file.exists():
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.MODEL_FILE_MISSING,
+                message=f"Model directory {model_name!r} is missing _model.py.",
+                refs=(model_name,),
+            )
+        )
+        return None
+
+    # Execute _model.py
+    ctx = LoaderContext()
+    _execute_file(model_file, ctx, errors)
+
+    # Validate ms.model() was called and name matches directory
+    model_names = [ir.name for ir, _ in ctx.pending_objects if isinstance(ir, ModelIR)]
+
+    if not model_names:
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.MODEL_FILE_MISSING,
+                message=f"_model.py in {model_name!r} did not call ms.model().",
+                refs=(model_name,),
+            )
+        )
+        return None
+
+    # Check model name matches directory name
+    if model_names[0] != model_name:
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.MODEL_FILE_MISMATCH,
+                message=f"Model name {model_names[0]!r} does not match directory name {model_name!r}.",
+                refs=(model_name, model_names[0]),
+            )
+        )
+        return None
+
+    # Set default_model from the model declaration
+    for ir, _ in ctx.pending_objects:
+        if isinstance(ir, ModelIR) and ir.default:
+            ctx.default_model = ir.name
+            break
+
+    # Execute sibling .py files (exclude _model.py, _exports.py, etc.)
+    sibling_files: list[Path] = []
+    for child in sorted(model_dir.iterdir()):
+        if not child.is_file():
+            continue
+        if child.suffix != ".py":
+            continue
+        if _is_excluded_file(child.name):
+            continue
+        sibling_files.append(child)
+
+    for sibling in sibling_files:
+        _execute_file(sibling, ctx, errors)
+
+    return ctx
+
+
+def _build_registry(all_contexts: list[LoaderContext]) -> tuple[Registry, Sidecar]:
+    """Build a Registry and Sidecar from all loader contexts.
+
+    Pass 2: assemble all pending IR objects into the registry.
+    """
+    from marivo.semantic_py.ir import (
+        DatasetIR,
+        DatasourceIR,
+        FieldIR,
+        FieldRef,
+        MetricIR,
+        RelationshipIR,
+        TimeFieldRef,
+    )
+
+    registry = Registry()
+    sidecar: Sidecar = {}
+
+    for ctx in all_contexts:
+        for ir, callable_ in ctx.pending_objects:
+            if not hasattr(ir, "semantic_id"):
+                # ModelIR doesn't have semantic_id
+                if isinstance(ir, ModelIR):
+                    registry.models[ir.name] = ir
+                continue
+
+            sid = ir.semantic_id
+
+            if isinstance(ir, DatasourceIR):
+                registry.datasources[sid] = ir
+            elif isinstance(ir, DatasetIR):
+                registry.datasets[sid] = ir
+                if callable_ is not None:
+                    sidecar[sid] = callable_
+            elif isinstance(ir, FieldIR):
+                registry.fields[sid] = ir
+                if callable_ is not None:
+                    sidecar[sid] = callable_
+            elif isinstance(ir, MetricIR):
+                registry.metrics[sid] = ir
+                if callable_ is not None:
+                    sidecar[sid] = callable_
+            elif isinstance(ir, RelationshipIR):
+                registry.relationships[sid] = ir
+
+    # Wire up FieldRef/TimeFieldRef resolvers so that calling
+    # field_ref(parent_table) in metric bodies resolves to the sidecar callable.
+    def _make_field_resolver(sidecar_dict: Sidecar) -> Callable[[str, Any], Any]:
+        def _resolver(semantic_id: str, parent_table: Any) -> Any:
+            callable_ = sidecar_dict.get(semantic_id)
+            if callable_ is None:
+                raise RuntimeError(
+                    f"FieldRef({semantic_id!r}) resolver: no sidecar callable found."
+                )
+            return callable_(parent_table)
+
+        return _resolver
+
+    resolver = _make_field_resolver(sidecar)
+
+    # Set _resolver on all FieldRef/TimeFieldRef instances that were
+    # registered during decorator execution via ctx.pending_refs.
+    for ctx in all_contexts:
+        for ref in ctx.pending_refs:
+            if isinstance(ref, (FieldRef, TimeFieldRef)):
+                ref._resolver = resolver
+
+    return registry, sidecar
+
+
+def load_project(root: Path) -> LoadResult:
+    """Load all models from the semantic project root.
+
+    Two-pass pipeline:
+    1. Discover model directories and execute their files.
+    2. Build registry, validate, and assemble the loaded objects.
+
+    Returns a LoadResult with status, errors, warnings, registry, and sidecar.
+    """
+    errors: list[SemanticError] = []
+    warnings: list[StructuredWarning] = []
+    registry: Registry | None = None
+    sidecar: Sidecar | None = None
+
+    # Inject root's parent into sys.path so model files can import each other
+    path_entry = str(root.parent)
+    sys.path.insert(0, path_entry)
+    try:
+        model_dirs = _discover_model_dirs(root)
+        all_contexts: list[LoaderContext] = []
+
+        # Pass 1: Discover + Collect
+        for model_dir in model_dirs:
+            ctx = _load_model_dir(model_dir, root, errors)
+            if ctx is not None:
+                all_contexts.append(ctx)
+
+        # Pass 2: Resolve + Validate
+        registry, sidecar = _build_registry(all_contexts)
+
+        # Duplicate semantic_id check
+        seen_ids: set[str] = set()
+        for ctx in all_contexts:
+            for ir, _ in ctx.pending_objects:
+                if hasattr(ir, "semantic_id"):
+                    sid = ir.semantic_id
+                    if sid in seen_ids:
+                        errors.append(
+                            SemanticLoadError(
+                                kind=ErrorKind.DUPLICATE_NAME,
+                                message=f"Duplicate semantic_id: {sid!r}",
+                                refs=(sid,),
+                            )
+                        )
+                    seen_ids.add(sid)
+
+        # Assembly validation
+        asm_errors, asm_warnings = assembly_validate(registry)
+        errors.extend(asm_errors)
+        warnings.extend(asm_warnings)
+
+    finally:
+        # Clean up sys.path
+        if path_entry in sys.path:
+            sys.path.remove(path_entry)
+
+    status: Literal["ready", "errored"] = "ready" if not errors else "errored"
+    return LoadResult(
+        status=status,
+        errors=tuple(errors),
+        warnings=tuple(warnings),
+        registry=registry if status == "ready" else None,
+        sidecar=sidecar if status == "ready" else None,
+    )
+
+
+def find_project(start_dir: str | Path = ".") -> Any:
+    """Discover a semantic project by walking up from *start_dir*.
+
+    Looks for a ``.marivo/semantic/`` directory.  Returns a
+    ``SemanticProject`` on success, or ``None`` if no project is found.
+
+    If ``.marivo/semantic`` exists but is a non-directory file,
+    raises ``SemanticLoadError`` with ``INVALID_PROJECT``.
+    """
+    from marivo.semantic_py.reader import SemanticProject
+
+    current = Path(start_dir).resolve()
+
+    while True:
+        candidate = current / ".marivo" / "semantic"
+        if candidate.exists():
+            if not candidate.is_dir():
+                _raise(
+                    ErrorKind.INVALID_PROJECT,
+                    f"{candidate} exists but is not a directory.",
+                    cls=SemanticLoadError,
+                    refs=(str(candidate),),
+                )
+            return SemanticProject(root=candidate)
+
+        parent = current.parent
+        if parent == current:
+            # Reached filesystem root
+            return None
+        current = parent

@@ -6,24 +6,23 @@ import inspect
 from typing import Any
 
 _TOP_LEVEL_ENTRIES: dict[str, str] = {
-    "model": "context - opens a model namespace for decorator registration",
-    "datasource": "decorator - declare a backend factory (returns ibis backend)",
+    "model": "context manager - opens a model namespace for decorator registration",
+    "datasource": "top-level call - declare a backend factory (returns DatasourceRef)",
     "dataset": "decorator - declare a dataset on top of a datasource",
     "field": "decorator - declare a non-aggregated field on a dataset",
     "time_field": "decorator - declare a time-aware field used as the calendar axis",
     "metric": "decorator - declare an aggregated metric",
-    "relationship": "decorator - declare a relationship between datasets",
+    "relationship": "top-level call - declare a relationship between datasets",
     "ratio": "builder - derived metric helper (a/b)",
     "ref": "builder - refer to another metric by qualified name",
     "sum": "builder - sum aggregation marker",
     "weighted_average": "builder - weighted-average aggregation marker",
-    "reload": "function - rebuild the IR from current .py source",
-    "list_models": "function - list registered models",
-    "list_datasources": "function - list registered datasources (model.ds)",
-    "list_datasets": "function - list registered datasets (model.dataset)",
-    "list_metrics": "function - list registered metrics (model.metric); accepts dataset=",
-    "describe": "function - return a typed dict for any datasource/dataset/metric id",
+    "component": "builder - refer to a decomposition component in derived metric body",
     "help": "function - this introspection entry point",
+    "find_project": "function - discover a semantic project by walking up from a directory",
+    "SemanticProject": "class - primary reader for a loaded semantic project",
+    "typing": "module - IbisBackend Protocol, ComponentExpr Protocol, AiContext TypedDict",
+    "errors": "module - SemanticError hierarchy and ErrorKind enum",
 }
 
 
@@ -54,11 +53,14 @@ def _describe_class(name: str, obj: type) -> str:
 def _resolve(symbol: str) -> Any | None:
     import marivo.semantic_py as ms
     from marivo.semantic_py import errors as errors_mod
+    from marivo.semantic_py import typing as typing_mod
 
     if hasattr(ms, symbol):
         return getattr(ms, symbol)
     if hasattr(errors_mod, symbol):
         return getattr(errors_mod, symbol)
+    if hasattr(typing_mod, symbol):
+        return getattr(typing_mod, symbol)
     return None
 
 

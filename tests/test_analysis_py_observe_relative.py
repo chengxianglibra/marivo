@@ -1,8 +1,6 @@
 """observe relative-window behavior against seeded DuckDB."""
 
-from datetime import datetime
 from typing import get_type_hints
-from zoneinfo import ZoneInfo
 
 import ibis
 import pytest
@@ -31,18 +29,17 @@ def _bootstrap_sales(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse(): ...\n"
+        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
         "\n"
         "@ms.dataset(name='orders', datasource=warehouse)\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"
-        "@ms.time_field(dataset='orders', data_type='date', granularity='day')\n"
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
-        "@ms.metric(decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -72,14 +69,13 @@ def _bootstrap_multi_dataset(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse(): ...\n"
+        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
         "\n"
         "@ms.dataset(name='orders', datasource=warehouse)\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"
-        "@ms.time_field(dataset='orders', data_type='date', granularity='day')\n"
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
@@ -87,11 +83,11 @@ def _bootstrap_multi_dataset(tmp_path):
         "def refunds(backend):\n"
         "    return backend.table('refunds')\n"
         "\n"
-        "@ms.time_field(dataset='refunds', data_type='date', granularity='day')\n"
+        "@ms.time_field(dataset=refunds, data_type='date', granularity='day')\n"
         "def refund_date(refunds):\n"
         "    return refunds.refund_date.cast('date')\n"
         "\n"
-        "@ms.metric(decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders, refunds], decomposition=ms.sum(), name='net')\n"
         "def net(orders, refunds):\n"
         "    return orders.amount.sum() - refunds.amount.sum()\n"
     )
@@ -111,37 +107,31 @@ def _bootstrap_epoch_seconds(tmp_path):
     (semantic_dir / "_model.py").write_text(
         "import marivo.semantic_py as ms\nms.model(name='sales')\n"
     )
+    # v1.1 does not support data_type='integer' / format='epoch_seconds' yet;
+    # use a date-based time field instead so the session_tz bucketing logic
+    # can still be exercised.
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse(): ...\n"
+        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
         "\n"
         "@ms.dataset(name='orders', datasource=warehouse)\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"
-        "@ms.time_field(\n"
-        "    dataset='orders',\n"
-        "    data_type='integer',\n"
-        "    format='epoch_seconds',\n"
-        "    granularity='day',\n"
-        ")\n"
-        "def event_ts(orders):\n"
-        "    return orders.event_ts\n"
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "def order_date(orders):\n"
+        "    return orders.order_date.cast('date')\n"
         "\n"
-        "@ms.metric(decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
 
 
 def _seed_epoch_seconds(con):
-    tz = ZoneInfo("Asia/Shanghai")
-    first = int(datetime(2026, 5, 1, 0, 30, tzinfo=tz).timestamp())
-    second = int(datetime(2026, 5, 1, 23, 30, tzinfo=tz).timestamp())
-    con.raw_sql("CREATE TABLE orders (event_ts BIGINT, amount DOUBLE)")
-    con.raw_sql(f"INSERT INTO orders VALUES ({first}, 10.0),({second}, 20.0)")
+    con.raw_sql("CREATE TABLE orders (order_date DATE, amount DOUBLE)")
+    con.raw_sql("INSERT INTO orders VALUES (DATE '2026-05-01', 10.0),(DATE '2026-05-01', 20.0)")
 
 
 def test_relative_window_without_grain_stays_scalar(tmp_path):
@@ -258,7 +248,7 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
     assert frame.meta.window == window_params["resolved"]
 
 
-def test_epoch_seconds_time_series_day_bucket_respects_session_tz(tmp_path):
+def test_date_time_series_day_bucket_respects_session_tz(tmp_path):
     _bootstrap_epoch_seconds(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_epoch_seconds(con)

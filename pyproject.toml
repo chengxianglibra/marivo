@@ -138,6 +138,10 @@ warn_no_return = true
 show_error_codes = true
 pretty = true
 
+[[tool.mypy.overrides]]
+module = ["ibis.*"]
+ignore_missing_imports = true
+
 [tool.coverage.run]
 source = ["marivo"]
 omit = [

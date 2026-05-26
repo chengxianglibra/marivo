@@ -1,422 +1,382 @@
+"""SQL parity checking and status propagation for marivo.semantic_py v1.1.
+
+Implements parity_check and the derived-metric parity status propagation
+algorithm.
+"""
+
 from __future__ import annotations
 
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from numbers import Number
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from marivo.semantic_py import reader
-from marivo.semantic_py.errors import PySemanticNotFound, SemanticParityError
-from marivo.semantic_py.registry import SemanticProject
+from marivo.semantic_py.errors import ErrorKind, SemanticParityError, _raise
+from marivo.semantic_py.ir import MetricIR, ParityStatus
+from marivo.semantic_py.materializer import IbisBackend
 
-BackendFactory = Callable[[str], Any]
+if TYPE_CHECKING:
+    from marivo.semantic_py.reader import SemanticProject
+
+__all__ = [
+    "ParityResult",
+    "parity_check",
+    "propagated_parity_status",
+]
 
 
 @dataclass(frozen=True)
 class ParityResult:
+    """Result of a single metric parity check."""
+
     ok: bool
-    metric_value: Any
-    sql_value: Any
-    source_sql: str
-    source_dialect: str | None
-    source_document: str | None
+    expected: float | int | None = None
+    actual: float | int | None = None
+    rel_tol: float | None = None
+    abs_tol: float | None = None
+    error: SemanticParityError | None = None
 
 
-def _scalar(value: Any) -> Any:
-    return _extract_scalar(value, kind="ResultShapeInvalid", refs=[])
+def _extract_scalar(
+    result: Any,
+    metric_id: str,
+    label: str,
+) -> float:
+    """Extract a single scalar float from an ibis to_pandas() result.
 
-
-def _extract_scalar(value: Any, *, kind: str, refs: list[str]) -> Any:
-    if hasattr(value, "iloc"):
-        shape = getattr(value, "shape", None)
-        if shape == (1, 1):
-            return value.iloc[0, 0]
-        if shape == (1,):
-            return value.iloc[0]
-        raise _parity_error(
-            kind=kind,
-            message=f"Expected a scalar result, got shape {shape}.",
-            hint="Parity checks require exactly one row and one column.",
-            refs=refs,
+    Scalar expressions return a plain number; table-like results return
+    a DataFrame.  Raises SemanticParityError if the result is not scalar.
+    """
+    if isinstance(result, (int, float)):
+        return float(result)
+    # DataFrame-like result — use duck-typing to avoid importing pandas
+    if hasattr(result, "iloc") and hasattr(result, "columns"):
+        if len(result) != 1 or len(result.columns) != 1:
+            _raise(
+                ErrorKind.PARITY_NOT_SCALAR,
+                f"{label} for metric {metric_id!r} did not produce a single scalar value.",
+                cls=SemanticParityError,
+                refs=(metric_id,),
+            )
+        return float(result.iloc[0, 0])
+    try:
+        return float(result)
+    except (TypeError, ValueError):
+        _raise(
+            ErrorKind.PARITY_NOT_SCALAR,
+            f"{label} for metric {metric_id!r} did not produce a scalar value: {type(result).__name__}",
+            cls=SemanticParityError,
+            refs=(metric_id,),
         )
-    if hasattr(value, "item"):
-        try:
-            return value.item()
-        except ValueError as exc:
-            raise _parity_error(
-                kind=kind,
-                message="Expected a scalar result, got a non-scalar array-like value.",
-                hint="Parity checks require exactly one scalar item.",
-                refs=refs,
-            ) from exc
-    if isinstance(value, list | tuple):
-        if len(value) == 1:
-            return _extract_scalar(value[0], kind=kind, refs=refs)
-        raise _parity_error(
-            kind=kind,
-            message=f"Expected a scalar result, got {len(value)} items.",
-            hint="Parity checks require exactly one scalar item.",
-            refs=refs,
+
+
+def _get_metric_or_raise(project: SemanticProject, metric_id: str) -> MetricIR:
+    """Look up a metric by ID or raise METRIC_NOT_FOUND."""
+    reg = project.registry()
+    if reg is None:
+        _raise(
+            ErrorKind.METRIC_NOT_FOUND,
+            f"Metric {metric_id!r} not found: project is not loaded.",
+            cls=SemanticParityError,
+            refs=(metric_id,),
         )
-    return value
+    metric_ir = reg.metrics.get(metric_id)
+    if metric_ir is None:
+        _raise(
+            ErrorKind.METRIC_NOT_FOUND,
+            f"Metric {metric_id!r} not found in registry.",
+            cls=SemanticParityError,
+            refs=(metric_id,),
+        )
+    return metric_ir
 
 
-def _parity_error(
-    *,
-    kind: str,
-    message: str,
-    refs: list[str],
-    hint: str | None = None,
-    function: str | None = None,
-) -> SemanticParityError:
-    return SemanticParityError(
-        phase="parity",
-        kind=kind,
-        location=None,
-        function=function,
-        message=message,
-        hint=hint,
-        refs=refs,
-    )
-
-
-def compare_metric_to_source_sql(
-    *,
+def parity_check(
     project: SemanticProject,
-    model: str,
-    metric: str,
-    backend_factory: BackendFactory,
-    rel_tol: float = 0.0,
-    abs_tol: float = 0.0,
+    metric_id: str,
+    *,
+    backend_factory: Callable[[str], IbisBackend],
+    rel_tol: float | None = None,
+    abs_tol: float | None = None,
 ) -> ParityResult:
-    try:
-        metric_ir = reader.get_metric(model=model, metric=metric, project=project)
-    except PySemanticNotFound as exc:
-        raise _not_found_parity_error(exc=exc, model=model, metric=metric) from exc
+    """Run parity check for a base metric against its source SQL.
 
-    if metric_ir.source is None or not metric_ir.source.sql or not metric_ir.source.sql.strip():
-        raise SemanticParityError(
-            phase="parity",
-            kind="SourceSqlMissing",
-            location=metric_ir.source_location,
-            function=metric_ir.fn.__name__,
-            message=f"Metric '{model}.{metric}' does not define source_sql.",
-            hint="Add source_sql to the metric decorator before running parity checks.",
-            refs=[f"metric:{model}.{metric}"],
+    Raises SemanticParityError for pre-condition violations:
+    - Metric not found
+    - Derived metric (not supported for direct SQL parity)
+    - Missing source_sql or source_dialect
+    - Dialect mismatch with datasource backend_type
+    - Cross-datasource metric
+
+    Returns ParityResult on success or value mismatch.
+    """
+    # Check cache first
+    cached = project._parity_results.get(metric_id)
+    if cached is not None:
+        return cached
+
+    metric_ir = _get_metric_or_raise(project, metric_id)
+
+    # Derived metrics don't support direct SQL parity
+    if metric_ir.is_derived:
+        _raise(
+            ErrorKind.SOURCE_SQL_MISSING,
+            f"Derived metric {metric_id!r} does not support direct SQL parity check. "
+            f"Check component metrics instead.",
+            cls=SemanticParityError,
+            refs=(metric_id,),
         )
 
-    metric_ref = f"metric:{model}.{metric}"
-    datasource_name = _metric_datasource(project=project, model=model, metric=metric)
-    datasource_backend_type = _datasource_backend_type(
-        project=project,
-        model=model,
-        datasource=datasource_name,
-        metric_ref=metric_ref,
-    )
-    _validate_source_dialect(
-        source_dialect=metric_ir.source.dialect,
-        backend_type=datasource_backend_type,
-        metric_ref=metric_ref,
-        datasource_ref=f"datasource:{model}.{datasource_name}",
-        function=metric_ir.fn.__name__,
-    )
-    backend_cache: dict[str, Any] = {}
-
-    def cached_backend_factory(name: str) -> Any:
-        if name not in backend_cache:
-            backend_cache[name] = backend_factory(name)
-        return backend_cache[name]
-
-    try:
-        metric_expr = reader.materialize_metric(
-            model=model,
-            metric=metric,
-            backend_factory=cached_backend_factory,
-            project=project,
+    # Must have source_sql
+    if not metric_ir.provenance.source_sql:
+        _raise(
+            ErrorKind.SOURCE_SQL_MISSING,
+            f"Metric {metric_id!r} has no source_sql. "
+            f"Add source_sql to the decorator before running parity checks.",
+            cls=SemanticParityError,
+            refs=(metric_id,),
         )
-    except PySemanticNotFound as exc:
-        raise _not_found_parity_error(
-            exc=exc,
-            model=model,
-            metric=metric,
-            function=metric_ir.fn.__name__,
-            location=metric_ir.source_location,
-        ) from exc
-    except Exception as exc:
-        raise SemanticParityError(
-            phase="parity",
-            kind="MetricExecutionFailed",
-            location=metric_ir.source_location,
-            function=metric_ir.fn.__name__,
-            message=f"Failed to materialize metric '{model}.{metric}': {exc}",
-            hint="Check the metric function, referenced datasets, and backend factory.",
-            refs=[metric_ref],
-        ) from exc
 
+    # Must have source_dialect
+    if not metric_ir.provenance.source_dialect:
+        _raise(
+            ErrorKind.SOURCE_SQL_MISSING,
+            f"Metric {metric_id!r} has no source_dialect. "
+            f"Add source_dialect to the decorator before running parity checks.",
+            cls=SemanticParityError,
+            refs=(metric_id,),
+        )
+
+    # Validate single datasource
+    reg = project.registry()
+    assert reg is not None  # Already validated above
+
+    datasource_ids: set[str] = set()
+    for ds_ref in metric_ir.datasets:
+        ds_ir = reg.datasets.get(ds_ref)
+        if ds_ir is not None:
+            datasource_ids.add(ds_ir.datasource)
+
+    if len(datasource_ids) > 1:
+        _raise(
+            ErrorKind.CROSS_DATASOURCE_NOT_SUPPORTED,
+            f"Metric {metric_id!r} references datasets from "
+            f"multiple datasources: {datasource_ids}. "
+            f"All datasets in a metric must share the same datasource.",
+            cls=SemanticParityError,
+            refs=(metric_id,),
+        )
+
+    # Determine the single datasource
+    if not datasource_ids:
+        _raise(
+            ErrorKind.SOURCE_SQL_MISSING,
+            f"Metric {metric_id!r} has no datasets; cannot determine datasource.",
+            cls=SemanticParityError,
+            refs=(metric_id,),
+        )
+
+    datasource_id = next(iter(datasource_ids))
+    datasource_ir = reg.datasources.get(datasource_id)
+
+    # Dialect mismatch check
+    if (
+        datasource_ir is not None
+        and metric_ir.provenance.source_dialect != datasource_ir.backend_type
+    ):
+        _raise(
+            ErrorKind.BACKEND_MISMATCH,
+            f"Metric {metric_id!r} source_dialect "
+            f"{metric_ir.provenance.source_dialect!r} does not match "
+            f"datasource {datasource_id!r} backend_type "
+            f"{datasource_ir.backend_type!r}.",
+            cls=SemanticParityError,
+            refs=(metric_id, datasource_id),
+        )
+
+    # Execute the ibis metric -> single scalar
     try:
-        backend = cached_backend_factory(datasource_name)
-        sql_expr = backend.sql(metric_ir.source.sql)
+        metric_expr = project.materialize_metric(metric_id, backend_factory=backend_factory)
+        actual_result = metric_expr.to_pandas()
+        actual_val = _extract_scalar(actual_result, metric_id, "Metric")
+    except SemanticParityError:
+        raise
     except Exception as exc:
-        raise SemanticParityError(
-            phase="parity",
-            kind="SourceSqlExecutionFailed",
-            location=metric_ir.source_location,
-            function=metric_ir.fn.__name__,
-            message=f"Failed to prepare source_sql for metric '{model}.{metric}': {exc}",
-            hint="Check the metric source_sql and source SQL datasource.",
-            refs=[metric_ref],
-        ) from exc
+        return ParityResult(
+            ok=False,
+            expected=None,
+            actual=None,
+            rel_tol=rel_tol,
+            abs_tol=abs_tol,
+            error=SemanticParityError(
+                kind=ErrorKind.MATERIALIZE_FAILED,
+                message=f"Failed to materialize metric {metric_id!r}: {exc}",
+                refs=(metric_id,),
+            ),
+        )
 
+    # Execute the source SQL -> single scalar
     try:
-        metric_raw_value = metric_expr.execute()
+        backend = backend_factory(datasource_id)
+        sql_result = backend.sql(metric_ir.provenance.source_sql)
+        sql_pandas = sql_result.to_pandas()
+        expected_val = _extract_scalar(sql_pandas, metric_id, "Source SQL")
+    except SemanticParityError:
+        raise
     except Exception as exc:
-        raise SemanticParityError(
-            phase="parity",
-            kind="MetricExecutionFailed",
-            location=metric_ir.source_location,
-            function=metric_ir.fn.__name__,
-            message=f"Failed to execute metric '{model}.{metric}': {exc}",
-            hint="Check the metric expression and backend connection.",
-            refs=[metric_ref],
-        ) from exc
+        return ParityResult(
+            ok=False,
+            expected=None,
+            actual=actual_val,
+            rel_tol=rel_tol,
+            abs_tol=abs_tol,
+            error=SemanticParityError(
+                kind=ErrorKind.COMPILE_ERROR,
+                message=f"Failed to execute source SQL for metric {metric_id!r}: {exc}",
+                refs=(metric_id,),
+            ),
+        )
 
-    try:
-        sql_raw_value = sql_expr.execute()
-    except Exception as exc:
-        raise SemanticParityError(
-            phase="parity",
-            kind="SourceSqlExecutionFailed",
-            location=metric_ir.source_location,
-            function=metric_ir.fn.__name__,
-            message=f"Failed to execute source_sql for metric '{model}.{metric}': {exc}",
-            hint="Check the metric source_sql and source SQL datasource.",
-            refs=[metric_ref],
-        ) from exc
+    # Compare values
+    ok = _values_match(actual_val, expected_val, rel_tol=rel_tol, abs_tol=abs_tol)
 
-    metric_value = _extract_scalar(
-        metric_raw_value,
-        kind="MetricResultShapeInvalid",
-        refs=[metric_ref],
-    )
-    sql_value = _extract_scalar(
-        sql_raw_value,
-        kind="SourceSqlResultShapeInvalid",
-        refs=[metric_ref],
-    )
-    ok = _comparison_ok(
-        metric_value,
-        sql_value,
-        metric_ref=metric_ref,
+    result = ParityResult(
+        ok=ok,
+        expected=expected_val,
+        actual=actual_val,
         rel_tol=rel_tol,
         abs_tol=abs_tol,
     )
-    return ParityResult(
-        ok=ok,
-        metric_value=metric_value,
-        sql_value=sql_value,
-        source_sql=metric_ir.source.sql,
-        source_dialect=metric_ir.source.dialect,
-        source_document=metric_ir.source.document,
-    )
+
+    # Cache the result
+    project._parity_results[metric_id] = result
+
+    return result
 
 
-def _comparison_ok(
-    metric_value: Any,
-    sql_value: Any,
+def _values_match(
+    actual: float,
+    expected: float,
     *,
-    metric_ref: str,
-    rel_tol: float = 0.0,
-    abs_tol: float = 0.0,
+    rel_tol: float | None = None,
+    abs_tol: float | None = None,
 ) -> bool:
-    if _is_numeric_scalar(metric_value) and _is_numeric_scalar(sql_value):
-        return math.isclose(
-            float(metric_value),
-            float(sql_value),
-            rel_tol=rel_tol,
-            abs_tol=abs_tol,
-        )
-    comparison = metric_value == sql_value
-    if isinstance(comparison, bool):
-        return comparison
-    if hasattr(comparison, "item"):
-        try:
-            item = comparison.item()
-        except ValueError as exc:
-            raise _parity_error(
-                kind="ComparisonResultInvalid",
-                message="Metric/source SQL comparison did not produce a scalar boolean.",
-                hint="Parity comparison requires scalar metric and source SQL values.",
-                refs=[metric_ref],
-            ) from exc
-        if isinstance(item, bool):
-            return item
-    raise _parity_error(
-        kind="ComparisonResultInvalid",
-        message="Metric/source SQL comparison did not produce a boolean.",
-        hint="Parity comparison requires scalar metric and source SQL values.",
-        refs=[metric_ref],
-    )
+    """Compare two numeric values with optional tolerances.
+
+    If both rel_tol and abs_tol are None, requires exact match.
+    Otherwise uses math.isclose with the provided tolerances.
+    """
+    if rel_tol is None and abs_tol is None:
+        return actual == expected
+
+    rt = rel_tol if rel_tol is not None else 0.0
+    at = abs_tol if abs_tol is not None else 0.0
+    return math.isclose(actual, expected, rel_tol=rt, abs_tol=at)
 
 
-def _is_numeric_scalar(value: Any) -> bool:
-    return isinstance(value, Number) and not isinstance(value, bool)
+def compute_self_status(
+    project: Any,
+    metric_id: str,
+) -> ParityStatus:
+    """Compute the self-status of a metric based on provenance and parity results.
+
+    This is Step 1 of the two-step status computation.
+
+    | declared_status    | last parity_check | self status  |
+    |--------------------|-------------------|-------------|
+    | "python_native"    | any               | PYTHON_NATIVE|
+    | "unverified"       | any               | UNVERIFIED   |
+    | None (SQL triple)  | no / not run      | UNVERIFIED   |
+    | None               | ok=True           | VERIFIED     |
+    | None               | ok=False          | DRIFTED      |
+
+    For derived metrics without a declared status and no parity check,
+    the self status defaults to UNVERIFIED. The propagated_parity_status
+    function then uses component statuses to determine the effective status.
+    """
+    metric_ir = _get_metric_or_raise(project, metric_id)
+    prov = metric_ir.provenance
+
+    # Declared statuses override everything
+    if prov.declared_status == "python_native":
+        return ParityStatus.PYTHON_NATIVE
+    if prov.declared_status == "unverified":
+        return ParityStatus.UNVERIFIED
+
+    # No declared status — compute from parity check result
+    parity_result = project._parity_results.get(metric_id)
+
+    if parity_result is None:
+        # No parity check has been run
+        return ParityStatus.UNVERIFIED
+
+    if parity_result.ok:
+        return ParityStatus.VERIFIED
+    else:
+        return ParityStatus.DRIFTED
 
 
-def _metric_datasource(*, project: SemanticProject, model: str, metric: str) -> str:
-    try:
-        metric_ir = reader.get_metric(model=model, metric=metric, project=project)
-    except PySemanticNotFound as exc:
-        raise _not_found_parity_error(exc=exc, model=model, metric=metric) from exc
+def propagated_parity_status(
+    project: Any,
+    metric_id: str,
+) -> ParityStatus:
+    """Compute the effective parity status for a metric, including propagation.
 
-    metric_ref = f"metric:{model}.{metric}"
-    if not metric_ir.references.datasets:
-        raise SemanticParityError(
-            phase="parity",
-            kind="MetricDatasetMissing",
-            location=metric_ir.source_location,
-            function=metric_ir.fn.__name__,
-            message=f"Metric '{model}.{metric}' does not reference a dataset for source SQL execution.",
-            hint="Source SQL parity checks need at least one referenced dataset datasource.",
-            refs=[metric_ref],
-        )
+    Step 1: Compute self-status from provenance and parity results.
+    Step 2: For derived metrics, propagate from component statuses.
 
-    datasources: dict[str, list[str]] = {}
-    dataset_refs: list[str] = []
-    for dataset_name in metric_ir.references.datasets:
-        dataset_ref = f"dataset:{model}.{dataset_name}"
-        dataset_refs.append(dataset_ref)
-        try:
-            dataset_ir = reader.get_dataset(model=model, dataset=dataset_name, project=project)
-        except PySemanticNotFound as exc:
-            raise _not_found_parity_error(
-                exc=exc,
-                model=model,
-                metric=metric,
-                function=metric_ir.fn.__name__,
-                location=metric_ir.source_location,
-            ) from exc
-        if not dataset_ir.datasource_name:
-            raise SemanticParityError(
-                phase="parity",
-                kind="SourceSqlDatasourceMissing",
-                location=dataset_ir.source_location,
-                function=dataset_ir.fn.__name__,
-                message=f"Dataset '{model}.{dataset_name}' does not define a datasource.",
-                hint="Attach the dataset to a datasource before running source SQL parity checks.",
-                refs=[metric_ref, dataset_ref],
-            )
-        datasources.setdefault(dataset_ir.datasource_name, []).append(dataset_name)
+    For derived metrics, the self-status UNVERIFIED (from no direct parity
+    check having been run) is not included in the propagation, since derived
+    metrics cannot be directly SQL-parity-checked. Only PYTHON_NATIVE and
+    DRIFTED self-statuses propagate upward from derived metrics.
 
-    if len(datasources) > 1:
-        raise SemanticParityError(
-            phase="parity",
-            kind="SourceSqlDatasourceAmbiguous",
-            location=metric_ir.source_location,
-            function=metric_ir.fn.__name__,
-            message=f"Metric '{model}.{metric}' references datasets from multiple datasources.",
-            hint="Source SQL parity checks require all referenced datasets to share one datasource.",
-            refs=[metric_ref, *dataset_refs],
-        )
+    Propagation rules (derived metrics only):
+    - If any status is DRIFTED -> DRIFTED
+    - If any component is UNVERIFIED -> UNVERIFIED
+    - If all components are VERIFIED -> VERIFIED
+    - If all components are PYTHON_NATIVE -> PYTHON_NATIVE
+    - Mix of VERIFIED + PYTHON_NATIVE -> PYTHON_NATIVE
+    """
+    metric_ir = _get_metric_or_raise(project, metric_id)
+    self_status = compute_self_status(project, metric_id)
 
-    return next(iter(datasources))
+    # Base metrics: just return self status
+    if not metric_ir.is_derived:
+        return self_status
 
+    # Derived metrics: collect component statuses
+    component_statuses: list[ParityStatus] = []
+    for comp_id in metric_ir.decomposition.components.values():
+        comp_status = propagated_parity_status(project, comp_id)
+        component_statuses.append(comp_status)
 
-def _datasource_backend_type(
-    *,
-    project: SemanticProject,
-    model: str,
-    datasource: str,
-    metric_ref: str,
-) -> str | None:
-    datasource_ref = f"datasource:{model}.{datasource}"
-    try:
-        return project.registry.models[model].datasources[datasource].backend_type
-    except KeyError as exc:
-        raise _parity_error(
-            kind="ParityReferenceMissing",
-            message=f"Datasource '{model}.{datasource}' referenced by parity inputs was not found.",
-            hint="Check dataset datasource references before running source SQL parity checks.",
-            refs=[metric_ref, datasource_ref],
-        ) from exc
+    # For derived metrics, the self_status from "no parity check" is
+    # UNVERIFIED, but since derived metrics can't be directly checked,
+    # that UNVERIFIED should not propagate. Only PYTHON_NATIVE and DRIFTED
+    # self-statuses are meaningful for propagation.
+    effective_self: ParityStatus | None = None
+    if self_status == ParityStatus.PYTHON_NATIVE:
+        effective_self = ParityStatus.PYTHON_NATIVE
+    elif self_status == ParityStatus.DRIFTED:
+        effective_self = ParityStatus.DRIFTED
+    elif self_status == ParityStatus.VERIFIED:
+        effective_self = ParityStatus.VERIFIED
+    # UNVERIFIED self-status from "no check" is excluded —
+    # derived metrics rely on component propagation.
 
+    all_statuses: list[ParityStatus] = []
+    if effective_self is not None:
+        all_statuses.append(effective_self)
+    all_statuses.extend(component_statuses)
 
-def _validate_source_dialect(
-    *,
-    source_dialect: str | None,
-    backend_type: str | None,
-    metric_ref: str,
-    datasource_ref: str,
-    function: str,
-) -> None:
-    normalized_source_dialect = source_dialect.strip().lower() if source_dialect else ""
-    if not normalized_source_dialect:
-        raise _parity_error(
-            kind="SourceDialectMissing",
-            message="Metric source_sql does not declare source_dialect.",
-            hint="Set source_dialect to the SQL dialect used by source_sql before running parity checks.",
-            refs=[metric_ref, datasource_ref],
-            function=function,
-        )
-    normalized_backend_type = backend_type.strip().lower() if backend_type else ""
-    if not normalized_backend_type:
-        raise _parity_error(
-            kind="SourceBackendTypeMissing",
-            message="Datasource used for source SQL parity does not declare backend_type.",
-            hint="Set backend_type on the datasource before running source SQL parity checks.",
-            refs=[metric_ref, datasource_ref],
-            function=function,
-        )
-    if normalized_source_dialect == normalized_backend_type:
-        return
-    raise _parity_error(
-        kind="SourceDialectMismatch",
-        message=(
-            f"Metric source_dialect '{source_dialect}' does not match datasource "
-            f"backend_type '{backend_type}'."
-        ),
-        hint="Use source_sql written for the datasource backend before running parity checks.",
-        refs=[metric_ref, datasource_ref],
-        function=function,
-    )
+    if not all_statuses:
+        return ParityStatus.UNVERIFIED
 
-
-def _not_found_parity_error(
-    *,
-    exc: PySemanticNotFound,
-    model: str,
-    metric: str,
-    function: str | None = None,
-    location: Any | None = None,
-) -> SemanticParityError:
-    metric_ref = f"metric:{model}.{metric}"
-    if exc.entity == "metric":
-        return SemanticParityError(
-            phase="parity",
-            kind="MetricMissing",
-            location=location,
-            function=function,
-            message=f"Metric '{model}.{metric}' was not found.",
-            hint="Check the model and metric name before running parity checks.",
-            refs=[metric_ref],
-        )
-    if exc.entity == "dataset":
-        dataset_ref = f"dataset:{exc.name}"
-        return SemanticParityError(
-            phase="parity",
-            kind="MetricDatasetMissing",
-            location=location,
-            function=function,
-            message=f"Dataset '{exc.name}' referenced by metric '{model}.{metric}' was not found.",
-            hint="Check the metric function parameters and registered datasets.",
-            refs=[metric_ref, dataset_ref],
-        )
-    return SemanticParityError(
-        phase="parity",
-        kind="ParityReferenceMissing",
-        location=location,
-        function=function,
-        message=f"Reference '{exc.name}' of kind '{exc.entity}' was not found.",
-        hint="Check semantic project references before running parity checks.",
-        refs=[metric_ref],
-    )
+    if any(s == ParityStatus.DRIFTED for s in all_statuses):
+        return ParityStatus.DRIFTED
+    if any(s == ParityStatus.UNVERIFIED for s in all_statuses):
+        return ParityStatus.UNVERIFIED
+    if all(s == ParityStatus.VERIFIED for s in all_statuses):
+        return ParityStatus.VERIFIED
+    # Remaining case: mix of VERIFIED and PYTHON_NATIVE (no DRIFTED or UNVERIFIED)
+    return ParityStatus.PYTHON_NATIVE

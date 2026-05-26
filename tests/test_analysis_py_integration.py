@@ -5,6 +5,7 @@ import pytest
 
 import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
+from tests.conftest import bootstrap_sales_project
 
 
 @pytest.fixture(autouse=True)
@@ -12,28 +13,6 @@ def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
     yield
-
-
-def _bootstrap_full_project(tmp_path):
-    (tmp_path / ".marivo").mkdir()
-    sem_dir = tmp_path / ".marivo" / "semantic" / "sales"
-    sem_dir.mkdir(parents=True)
-    (sem_dir / "__init__.py").write_text("")
-    (sem_dir / "_model.py").write_text("import marivo.semantic_py as ms\nms.model(name='sales')\n")
-    (sem_dir / "datasets.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse(): ...\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
-        "@ms.time_field(dataset='orders', data_type='date', granularity='day')\n"
-        "def order_date(orders):\n"
-        "    return orders.created_at.cast('date')\n"
-        "@ms.metric(decomposition=ms.sum())\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n"
-    )
 
 
 def _seed_warehouse():
@@ -51,7 +30,7 @@ def _seed_warehouse():
 
 
 def test_end_to_end_sales_observe_compare_load(tmp_path):
-    _bootstrap_full_project(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = _seed_warehouse()
     s = mv.session.create(
         name="qoq-investigation",

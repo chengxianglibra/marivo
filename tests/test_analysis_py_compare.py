@@ -11,6 +11,7 @@ from marivo.analysis_py.intents.compare import compare
 from marivo.analysis_py.intents.observe import observe
 from marivo.analysis_py.refs import MetricRef
 from marivo.analysis_py.session.persistence import read_frame_from_disk
+from tests.conftest import bootstrap_sales_project
 
 
 @pytest.fixture(autouse=True)
@@ -18,29 +19,6 @@ def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
     yield
-
-
-def _bootstrap_sales(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
-    (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic_py as ms\nms.model(name='sales')\n"
-    )
-    (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse(): ...\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
-        "@ms.time_field(dataset='orders', data_type='date', granularity='day')\n"
-        "def order_date(orders):\n"
-        "    return orders.created_at.cast('date')\n"
-        "@ms.metric(decomposition=ms.sum())\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n"
-    )
 
 
 def _seed(con):
@@ -55,7 +33,7 @@ def _seed(con):
 
 
 def test_compare_returns_delta_frame(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
@@ -82,7 +60,7 @@ def test_compare_returns_delta_frame(tmp_path):
 
 
 def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
@@ -101,7 +79,7 @@ def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
 
 
 def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
@@ -132,7 +110,7 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
 
 
 def test_compare_semantic_kind_mismatch_raises(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
@@ -147,7 +125,7 @@ def test_compare_semantic_kind_mismatch_raises(tmp_path):
 
 
 def test_compare_persists_job_and_frame(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
@@ -161,7 +139,7 @@ def test_compare_persists_job_and_frame(tmp_path):
 
 
 def test_compare_works_in_read_only_session(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s_write = session_attach.create(name="demo", backends={"warehouse": lambda: con})
@@ -183,7 +161,7 @@ def test_compare_works_in_read_only_session(tmp_path):
 
 
 def test_compare_archived_session_raises_for_cached_session(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
@@ -195,7 +173,7 @@ def test_compare_archived_session_raises_for_cached_session(tmp_path):
 
 
 def test_compare_stale_archived_session_raises(tmp_path):
-    _bootstrap_sales(tmp_path)
+    bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.create(name="demo", backends={"warehouse": lambda: con})

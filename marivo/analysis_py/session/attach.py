@@ -106,7 +106,11 @@ def _compile_backend_factory(
 def _build_semantic_project(project_root: Path) -> Any:
     from marivo.semantic_py import SemanticProject
 
-    return SemanticProject(root=str(project_root / ".marivo" / "semantic"))
+    project = SemanticProject(root=str(project_root / ".marivo" / "semantic"))
+    project.load()
+    # Return the project even if not ready; callers should check is_ready()
+    # and handle errors as needed.
+    return project
 
 
 def _resolve_session_tz(raw: str | None) -> ZoneInfo:

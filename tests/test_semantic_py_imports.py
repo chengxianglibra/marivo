@@ -1,0 +1,568 @@
+"""Slice 0 foundation test: all public symbols importable, type structure correct.
+
+This test verifies:
+- All symbols in ``__all__`` are importable from ``marivo.semantic_py``.
+- ``SemanticError`` subclasses exist and have the right fields.
+- ``ErrorKind`` enum has all expected values.
+- IR dataclasses are frozen.
+- Ref types have correct ``kind`` and ``semantic_id`` attributes.
+
+Note: pytest.ini sets ``python_classes =`` (empty), so only
+``unittest.TestCase`` subclasses are collected.  All tests here use
+plain functions to match the rest of the test suite.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+
+import pytest
+
+import marivo.semantic_py as ms
+from marivo.semantic_py import errors as errors_mod
+from marivo.semantic_py import typing as typing_mod
+from marivo.semantic_py.ir import (
+    AiContextIR,
+    DatasetIR,
+    DatasetProvenance,
+    DatasetRef,
+    DatasourceIR,
+    DatasourceRef,
+    DecompositionIR,
+    FieldIR,
+    FieldRef,
+    MetricIR,
+    MetricRef,
+    ModelIR,
+    ParityStatus,
+    ProvenanceIR,
+    RelationshipIR,
+    RelationshipRef,
+    SourceLocation,
+    SymbolKind,
+    TimeFieldRef,
+)
+
+# ---------------------------------------------------------------------------
+# __all__ importability
+# ---------------------------------------------------------------------------
+
+
+def test_all_symbols_importable() -> None:
+    for name in ms.__all__:
+        assert hasattr(ms, name), f"ms.{name} not found on module"
+
+
+def test_all_list_matches_expected() -> None:
+    expected = {
+        "SemanticProject",
+        "find_project",
+        "model",
+        "datasource",
+        "dataset",
+        "field",
+        "time_field",
+        "metric",
+        "relationship",
+        "sum",
+        "ratio",
+        "weighted_average",
+        "ref",
+        "component",
+        "help",
+        "typing",
+        "errors",
+    }
+    assert set(ms.__all__) == expected
+
+
+def test_semantic_project_class() -> None:
+    assert ms.SemanticProject is not None
+    project = ms.SemanticProject(root="/tmp/test")
+    assert not project.is_ready()
+
+
+def test_typing_submodule() -> None:
+    assert ms.typing is typing_mod
+
+
+def test_errors_submodule() -> None:
+    assert ms.errors is errors_mod
+
+
+# ---------------------------------------------------------------------------
+# Error hierarchy
+# ---------------------------------------------------------------------------
+
+
+def test_semantic_error_base() -> None:
+    err = errors_mod.SemanticError(
+        kind="test_kind",
+        message="test message",
+    )
+    assert err.kind == "test_kind"
+    assert err.message == "test message"
+    assert err.semantic_refs == ()
+    assert err.location is None
+    assert err.hint is None
+    assert err.details == {}
+    assert isinstance(err, Exception)
+
+
+def test_semantic_error_str_template() -> None:
+    loc = SourceLocation(file="/tmp/test.py", line=42)
+    err = errors_mod.SemanticError(
+        kind="test_kind",
+        message="something broke",
+        refs=("ref1", "ref2"),
+        location=loc,
+        hint="try this",
+    )
+    s = str(err)
+    assert "[test_kind] something broke" in s
+    assert "refs: ref1, ref2" in s
+    assert "at: /tmp/test.py:42" in s
+    assert "hint: try this" in s
+
+
+def test_decorator_error_is_semantic_error() -> None:
+    assert issubclass(errors_mod.SemanticDecoratorError, errors_mod.SemanticError)
+
+
+def test_load_error_is_semantic_error() -> None:
+    assert issubclass(errors_mod.SemanticLoadError, errors_mod.SemanticError)
+
+
+def test_runtime_error_is_semantic_error() -> None:
+    assert issubclass(errors_mod.SemanticRuntimeError, errors_mod.SemanticError)
+
+
+def test_parity_error_is_semantic_error() -> None:
+    assert issubclass(errors_mod.SemanticParityError, errors_mod.SemanticError)
+
+
+def test_load_failed_not_semantic_error() -> None:
+    assert not issubclass(errors_mod.SemanticLoadFailed, errors_mod.SemanticError)
+    assert issubclass(errors_mod.SemanticLoadFailed, Exception)
+
+
+def test_load_failed_wraps_errors() -> None:
+    err1 = errors_mod.SemanticError(kind="a", message="first")
+    err2 = errors_mod.SemanticError(kind="b", message="second")
+    failed = errors_mod.SemanticLoadFailed([err1, err2])
+    assert len(failed.errors) == 2
+    assert failed.errors[0] is err1
+
+
+def test_raise_helper() -> None:
+    with pytest.raises(errors_mod.SemanticDecoratorError) as exc_info:
+        errors_mod._raise(
+            errors_mod.ErrorKind.DUPLICATE_NAME,
+            "name already taken",
+            refs=["model.sales"],
+        )
+    err = exc_info.value
+    assert err.kind == "duplicate_name"
+    assert err.message == "name already taken"
+    assert err.semantic_refs == ("model.sales",)
+    assert err.hint is not None  # auto-populated from HINTS
+
+
+# ---------------------------------------------------------------------------
+# ErrorKind enum
+# ---------------------------------------------------------------------------
+
+_EXPECTED_DECORATOR_KINDS = {
+    "duplicate_name",
+    "missing_model",
+    "missing_datasets",
+    "invalid_ref",
+    "invalid_decomposition",
+    "invalid_component_body",
+    "invalid_component_name",
+    "outside_loader_context",
+    "outside_derived_metric_body",
+    "metric_body_not_single_return",
+    "invalid_ai_context",
+    "sql_escape_hatch",
+}
+
+_EXPECTED_ASSEMBLY_KINDS = {
+    "model_file_missing",
+    "model_file_mismatch",
+    "missing_dataset_ref",
+    "missing_field_ref",
+    "missing_metric_ref",
+    "cross_model_cycle",
+    "hour_time_field_prefix_missing",
+    "invalid_relationship_endpoint",
+    "organization_error",
+    "invalid_project",
+}
+
+_EXPECTED_RUNTIME_KINDS = {
+    "metric_not_found",
+    "materialize_failed",
+    "backend_mismatch",
+    "compile_error",
+    "cross_datasource_not_supported",
+}
+
+_EXPECTED_PARITY_KINDS = {
+    "source_sql_missing",
+    "unverified_provenance",
+    "parity_value_mismatch",
+    "parity_not_scalar",
+}
+
+
+def test_error_kind_decorator_kinds() -> None:
+    values = {k.value for k in errors_mod.ErrorKind if k.value in _EXPECTED_DECORATOR_KINDS}
+    assert values == _EXPECTED_DECORATOR_KINDS
+
+
+def test_error_kind_assembly_kinds() -> None:
+    values = {k.value for k in errors_mod.ErrorKind if k.value in _EXPECTED_ASSEMBLY_KINDS}
+    assert values == _EXPECTED_ASSEMBLY_KINDS
+
+
+def test_error_kind_runtime_kinds() -> None:
+    values = {k.value for k in errors_mod.ErrorKind if k.value in _EXPECTED_RUNTIME_KINDS}
+    assert values == _EXPECTED_RUNTIME_KINDS
+
+
+def test_error_kind_parity_kinds() -> None:
+    values = {k.value for k in errors_mod.ErrorKind if k.value in _EXPECTED_PARITY_KINDS}
+    assert values == _EXPECTED_PARITY_KINDS
+
+
+def test_error_kind_all_covered() -> None:
+    expected = (
+        _EXPECTED_DECORATOR_KINDS
+        | _EXPECTED_ASSEMBLY_KINDS
+        | _EXPECTED_RUNTIME_KINDS
+        | _EXPECTED_PARITY_KINDS
+    )
+    actual = {k.value for k in errors_mod.ErrorKind}
+    assert actual == expected
+
+
+def test_hints_cover_all_kinds() -> None:
+    """Every ErrorKind must have a corresponding hint factory."""
+    for kind in errors_mod.ErrorKind:
+        assert kind in errors_mod.HINTS, f"Missing hint for {kind.value}"
+
+
+# ---------------------------------------------------------------------------
+# IR dataclasses are frozen
+# ---------------------------------------------------------------------------
+
+_FROZEN_CLASSES = [
+    SourceLocation,
+    AiContextIR,
+    ProvenanceIR,
+    ModelIR,
+    DatasourceIR,
+    DatasetIR,
+    FieldIR,
+    DecompositionIR,
+    MetricIR,
+    RelationshipIR,
+]
+
+
+@pytest.mark.parametrize("cls", _FROZEN_CLASSES)
+def test_ir_frozen(cls: type) -> None:
+    assert dataclasses.is_dataclass(cls)
+    assert getattr(cls, "__dataclass_params__", None) is not None
+    assert cls.__dataclass_params__.frozen  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# IR enum types
+# ---------------------------------------------------------------------------
+
+
+def test_symbol_kind_values() -> None:
+    expected = {"model", "datasource", "dataset", "field", "time_field", "metric", "relationship"}
+    actual = {k.value for k in SymbolKind}
+    assert actual == expected
+
+
+def test_parity_status_values() -> None:
+    expected = {"verified", "python_native", "unverified", "drifted"}
+    actual = {k.value for k in ParityStatus}
+    assert actual == expected
+
+
+def test_dataset_provenance_values() -> None:
+    expected = {"ibis_table", "sql_view"}
+    actual = {k.value for k in DatasetProvenance}
+    assert actual == expected
+
+
+def test_symbol_kind_is_str_enum() -> None:
+    assert isinstance(SymbolKind.MODEL, str)
+    assert SymbolKind.MODEL == "model"
+
+
+def test_parity_status_is_str_enum() -> None:
+    assert isinstance(ParityStatus.VERIFIED, str)
+    assert ParityStatus.VERIFIED == "verified"
+
+
+# ---------------------------------------------------------------------------
+# Ref types
+# ---------------------------------------------------------------------------
+
+
+def test_datasource_ref() -> None:
+    ref = DatasourceRef("sales.warehouse")
+    assert ref.semantic_id == "sales.warehouse"
+    assert ref.kind == SymbolKind.DATASOURCE
+    assert "DatasourceRef" in repr(ref)
+
+
+def test_dataset_ref() -> None:
+    ref = DatasetRef("sales.orders")
+    assert ref.semantic_id == "sales.orders"
+    assert ref.kind == SymbolKind.DATASET
+    assert "DatasetRef" in repr(ref)
+
+
+def test_field_ref() -> None:
+    ref = FieldRef("sales.orders.amount")
+    assert ref.semantic_id == "sales.orders.amount"
+    assert ref.kind == SymbolKind.FIELD
+
+
+def test_field_ref_callable_without_resolver_raises() -> None:
+    ref = FieldRef("sales.orders.amount")
+    with pytest.raises(RuntimeError, match="no resolver"):
+        ref(None)
+
+
+def test_time_field_ref() -> None:
+    ref = TimeFieldRef("sales.orders.order_date")
+    assert ref.semantic_id == "sales.orders.order_date"
+    assert ref.kind == SymbolKind.TIME_FIELD
+
+
+def test_time_field_ref_callable_without_resolver_raises() -> None:
+    ref = TimeFieldRef("sales.orders.order_date")
+    with pytest.raises(RuntimeError, match="no resolver"):
+        ref(None)
+
+
+def test_metric_ref() -> None:
+    ref = MetricRef("sales.revenue")
+    assert ref.semantic_id == "sales.revenue"
+    assert ref.kind == SymbolKind.METRIC
+
+
+def test_relationship_ref() -> None:
+    ref = RelationshipRef("sales.orders_to_items")
+    assert ref.semantic_id == "sales.orders_to_items"
+    assert ref.kind == SymbolKind.RELATIONSHIP
+
+
+def test_base_ref_repr() -> None:
+    ref = DatasourceRef("sales.warehouse")
+    assert repr(ref) == "DatasourceRef('sales.warehouse')"
+
+
+# ---------------------------------------------------------------------------
+# typing module
+# ---------------------------------------------------------------------------
+
+
+def test_ibis_backend_protocol() -> None:
+    assert hasattr(typing_mod, "IbisBackend")
+
+
+def test_component_expr_protocol() -> None:
+    assert hasattr(typing_mod, "ComponentExpr")
+
+
+def test_ai_context_typed_dict() -> None:
+    assert hasattr(typing_mod, "AiContext")
+    annotations = typing_mod.AiContext.__annotations__
+    assert "business_definition" in annotations
+    assert "guardrails" in annotations
+    assert "synonyms" in annotations
+    assert "examples" in annotations
+    assert "instructions" in annotations
+    assert "owner_notes" in annotations
+
+
+# ---------------------------------------------------------------------------
+# Loader module
+# ---------------------------------------------------------------------------
+
+
+def test_find_project_exists() -> None:
+    assert callable(ms.find_project)
+
+
+def test_find_project_returns_none_without_project() -> None:
+    """find_project should return None when no .marivo/semantic/ is found."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result = ms.find_project(start_dir=tmp)
+        assert result is None
+
+
+def test_loader_context_dataclass() -> None:
+    from marivo.semantic_py.loader import LoaderContext
+
+    ctx = LoaderContext()
+    assert ctx.current_model_file is None
+    assert ctx.default_model is None
+    assert ctx.pending_objects == []
+
+
+def test_load_result_dataclass() -> None:
+    from marivo.semantic_py.loader import LoadResult
+
+    result = LoadResult(status="ready")
+    assert result.status == "ready"
+    assert result.errors == ()
+
+    # LoadResult is frozen
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.status = "errored"  # type: ignore[misc]
+
+
+def test_structured_warning_is_frozen() -> None:
+    from marivo.semantic_py.errors import StructuredWarning
+
+    warn = StructuredWarning(
+        kind="unverified_provenance",
+        message="test warning",
+        refs=("ref1",),
+        location=None,
+    )
+    assert warn.kind == "unverified_provenance"
+    assert warn.message == "test warning"
+    assert warn.refs == ("ref1",)
+    assert warn.location is None
+
+    # StructuredWarning is frozen
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        warn.kind = "string_ref"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Validator module
+# ---------------------------------------------------------------------------
+
+
+def test_validate_decorator_call_works() -> None:
+    from marivo.semantic_py.validator import validate_decorator_call
+
+    # No longer a stub; should not raise for valid input
+    validate_decorator_call("test", {})
+
+
+def test_validate_metric_body_ast_works() -> None:
+    from marivo.semantic_py.validator import validate_metric_body_ast
+
+    # No longer a stub; should return a hash string for valid bodies
+    def good_fn(table):
+        return table.amount.sum()
+
+    result = validate_metric_body_ast(good_fn, "base")
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_assembly_validate_works() -> None:
+    from marivo.semantic_py.validator import Registry, assembly_validate
+
+    # No longer a stub; should return (errors, warnings) for empty registry
+    registry = Registry()
+    errors, warnings = assembly_validate(registry)
+    assert isinstance(errors, list)
+    assert isinstance(warnings, list)
+
+
+# ---------------------------------------------------------------------------
+# Materializer module
+# ---------------------------------------------------------------------------
+
+
+def test_materializer_class_exists() -> None:
+    from marivo.semantic_py.errors import SemanticRuntimeError
+    from marivo.semantic_py.materializer import Materializer
+
+    m = Materializer(project=None, backend_factory=lambda x: None)
+    with pytest.raises(SemanticRuntimeError):
+        m.dataset("test")
+    with pytest.raises(SemanticRuntimeError):
+        m.field("test")
+    with pytest.raises(SemanticRuntimeError):
+        m.metric("test")
+
+
+# ---------------------------------------------------------------------------
+# Parity module
+# ---------------------------------------------------------------------------
+
+
+def test_parity_result_frozen() -> None:
+    from marivo.semantic_py.parity import ParityResult
+
+    result = ParityResult(ok=True)
+    assert result.ok is True
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.ok = False  # type: ignore[misc]
+
+
+def test_parity_check_callable() -> None:
+    from marivo.semantic_py.parity import parity_check
+
+    assert callable(parity_check)
+
+
+def test_propagated_parity_status_callable() -> None:
+    from marivo.semantic_py.parity import propagated_parity_status
+
+    assert callable(propagated_parity_status)
+
+
+# ---------------------------------------------------------------------------
+# SemanticProject basic
+# ---------------------------------------------------------------------------
+
+
+def test_semantic_project_init() -> None:
+    project = ms.SemanticProject(root="/tmp/test")
+    assert not project.is_ready()
+    assert project.errors() == ()
+
+
+def test_semantic_project_load_works() -> None:
+    """SemanticProject.load() now works (implemented in Slice 1)."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        semantic_root = Path(tmp) / ".marivo" / "semantic"
+        semantic_root.mkdir(parents=True)
+        project = ms.SemanticProject(root=semantic_root)
+        result = project.load()
+        assert result.status == "ready"
+
+
+def test_semantic_project_reload_works() -> None:
+    """SemanticProject.reload() now works (implemented in Slice 1)."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        semantic_root = Path(tmp) / ".marivo" / "semantic"
+        semantic_root.mkdir(parents=True)
+        project = ms.SemanticProject(root=semantic_root)
+        result = project.reload()
+        assert result.status == "ready"

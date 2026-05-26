@@ -32,34 +32,9 @@ def _seed(con):
 
 
 def _bootstrap_sales(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
-    (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic_py as ms\nms.model(name='sales')\n"
-    )
-    (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse(): ...\n"
-        "\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
-        "\n"
-        "@ms.time_field(dataset='orders', data_type='date', granularity='day')\n"
-        "def order_date(orders):\n"
-        "    return orders.created_at.cast('date')\n"
-        "\n"
-        "@ms.field(dataset='orders')\n"
-        "def region(orders):\n"
-        "    return orders.region.upper()\n"
-        "\n"
-        "@ms.metric(decomposition=ms.sum())\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n"
-    )
+    from tests.conftest import bootstrap_sales_project
+
+    bootstrap_sales_project(tmp_path)
 
 
 def _backends(con):

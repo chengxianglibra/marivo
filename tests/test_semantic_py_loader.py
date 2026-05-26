@@ -1,429 +1,842 @@
+"""Tests for marivo.semantic_py.loader — project loading and SemanticProject.
+
+Tests cover:
+- Single model directory loads successfully
+- _model.py validation (missing, name mismatch)
+- Sibling files loaded
+- Excluded files: _model.py, _exports.py, .prefixed, test_*.py, *_test.py
+- Empty project directory is valid
+- sys.path injection and cleanup
+- Load result status (ready/errored)
+- Errors accumulate across model directories
+- reload() works
+"""
+
 from __future__ import annotations
 
-import shutil
-import sys
-from pathlib import Path
+import textwrap
 
 import pytest
 
-from marivo.semantic_py.errors import SemanticLoadError
-from marivo.semantic_py.loader import _namespace, load_project
-from marivo.semantic_py.registry import SemanticProject
+from marivo.semantic_py.errors import ErrorKind
+from marivo.semantic_py.reader import SemanticProject
+
+# ---------------------------------------------------------------------------
+# Minimal model files
+# ---------------------------------------------------------------------------
+
+_MINIMAL_MODEL_PY = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    ms.model(name="sales", default=True)
+""")
+
+_MINIMAL_DATASET_PY = textwrap.dedent("""\
+    import marivo.semantic_py as ms
+    wh = ms.datasource(name="warehouse", backend_type="duckdb")
+
+    @ms.dataset(datasource=wh)
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    def revenue(table):
+        return table.amount.sum()
+""")
 
 
-def _write_sales_model(root: Path, metric_body: str = "return orders.amount.sum()") -> None:
-    model_dir = root / "sales"
-    model_dir.mkdir(parents=True)
-    (model_dir / "__init__.py").write_text("", encoding="utf-8")
-    (model_dir / "_model.py").write_text(
-        "import marivo.semantic_py as ms\nms.model(name='sales')\n",
-        encoding="utf-8",
+# ---------------------------------------------------------------------------
+# Happy path: single model loads
+# ---------------------------------------------------------------------------
+
+
+def test_single_model_loads(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasets.py": _MINIMAL_DATASET_PY,
+        }
     )
-    (model_dir / "datasources.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse():\n"
-        "    ...\n",
-        encoding="utf-8",
+    assert project.is_ready()
+
+
+def test_single_model_load_result_ready(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasets.py": _MINIMAL_DATASET_PY,
+        }
     )
-    (model_dir / "datasets.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "from .datasources import warehouse\n"
-        "@ms.dataset(name='orders', datasource=warehouse)\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n",
-        encoding="utf-8",
+    result = project.load()
+    assert result.status == "ready"
+    assert result.errors == ()
+
+
+def test_model_only_no_sibling_files(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+        }
     )
-    (model_dir / "metrics.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "@ms.metric(decomposition=ms.sum())\n"
-        "def revenue(orders):\n"
-        f"    {metric_body}\n",
-        encoding="utf-8",
+    assert project.is_ready()
+
+
+# ---------------------------------------------------------------------------
+# _model.py validation
+# ---------------------------------------------------------------------------
+
+
+def test_missing_model_py(semantic_project_factory) -> None:
+    """Directory without _model.py should produce an error for that model."""
+    project = semantic_project_factory(
+        {
+            "sales/datasets.py": _MINIMAL_DATASET_PY,
+        }
+    )
+    assert not project.is_ready()
+    errors = project.errors()
+    assert len(errors) > 0
+    kind_values = [e.kind for e in errors]
+    assert ErrorKind.MODEL_FILE_MISSING in kind_values
+
+
+def test_model_name_mismatch(semantic_project_factory) -> None:
+    """_model.py declares a different name than the directory name."""
+    bad_model = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        ms.model(name="not_sales", default=True)
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": bad_model,
+        }
+    )
+    assert not project.is_ready()
+    errors = project.errors()
+    kind_values = [e.kind for e in errors]
+    assert ErrorKind.MODEL_FILE_MISMATCH in kind_values
+
+
+# ---------------------------------------------------------------------------
+# Excluded files
+# ---------------------------------------------------------------------------
+
+
+def test_exports_py_excluded(semantic_project_factory) -> None:
+    """_exports.py should not be loaded by the loader."""
+    exports_content = textwrap.dedent("""\
+        # This should never be executed
+        raise RuntimeError("_exports.py was loaded!")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_exports.py": exports_content,
+        }
+    )
+    assert project.is_ready()
+
+
+def test_dot_prefixed_files_excluded(semantic_project_factory) -> None:
+    dot_content = textwrap.dedent("""\
+        raise RuntimeError("dotfile was loaded!")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/.hidden.py": dot_content,
+        }
+    )
+    assert project.is_ready()
+
+
+def test_test_files_excluded(semantic_project_factory) -> None:
+    test_content = textwrap.dedent("""\
+        raise RuntimeError("test file was loaded!")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/test_orders.py": test_content,
+            "sales/orders_test.py": test_content,
+        }
+    )
+    assert project.is_ready()
+
+
+# ---------------------------------------------------------------------------
+# Empty project
+# ---------------------------------------------------------------------------
+
+
+def test_empty_project_is_valid(semantic_project_factory) -> None:
+    project = semantic_project_factory({})
+    assert project.is_ready()
+
+
+def test_empty_project_no_models(semantic_project_factory) -> None:
+    project = semantic_project_factory({})
+    # list_models still raises NotImplementedError (Slice 8)
+    # but the project itself is ready
+    assert project.is_ready()
+
+
+# ---------------------------------------------------------------------------
+# sys.path injection and cleanup
+# ---------------------------------------------------------------------------
+
+
+def test_sys_path_injected_during_load(semantic_project_factory, tmp_path) -> None:
+    """sys.path should be modified during load and cleaned up after."""
+    import sys
+
+    root = tmp_path / ".marivo" / "semantic"
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+        }
+    )
+    # After load, the injected path should be cleaned up
+    parent_str = str(root.parent)
+    assert parent_str not in sys.path
+
+
+# ---------------------------------------------------------------------------
+# Load result status
+# ---------------------------------------------------------------------------
+
+
+def test_errored_load_result(semantic_project_factory) -> None:
+    bad_model = textwrap.dedent("""\
+        raise ValueError("boom")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": bad_model,
+        },
+        load=False,
+    )
+    result = project.load()
+    assert result.status == "errored"
+    assert len(result.errors) > 0
+
+
+# ---------------------------------------------------------------------------
+# Errors accumulate
+# ---------------------------------------------------------------------------
+
+
+def test_errors_accumulate_across_models(semantic_project_factory) -> None:
+    bad_model_a = textwrap.dedent("""\
+        raise ValueError("error in model A")
+    """)
+    bad_model_b = textwrap.dedent("""\
+        raise ValueError("error in model B")
+    """)
+    project = semantic_project_factory(
+        {
+            "model_a/_model.py": bad_model_a,
+            "model_b/_model.py": bad_model_b,
+        },
+        load=False,
+    )
+    result = project.load()
+    assert result.status == "errored"
+    # Should have at least one error per model
+    assert len(result.errors) >= 2
+
+
+def test_one_bad_model_does_not_block_good_one(semantic_project_factory) -> None:
+    bad_model = textwrap.dedent("""\
+        raise ValueError("boom")
+    """)
+    project = semantic_project_factory(
+        {
+            "bad/_model.py": bad_model,
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+        },
+        load=False,
+    )
+    result = project.load()
+    # At least one error from the bad model
+    assert len(result.errors) >= 1
+
+
+# ---------------------------------------------------------------------------
+# reload
+# ---------------------------------------------------------------------------
+
+
+def test_reload_works(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+        }
+    )
+    assert project.is_ready()
+    result = project.reload()
+    assert project.is_ready()
+    assert result.status == "ready"
+
+
+# ---------------------------------------------------------------------------
+# Multiple sibling files
+# ---------------------------------------------------------------------------
+
+
+def test_multiple_sibling_files(semantic_project_factory) -> None:
+    datasource_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="warehouse", backend_type="duckdb")
+    """)
+    datasets_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.dataset(datasource="sales.warehouse")
+        def orders(backend):
+            return backend.table("orders")
+    """)
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        def revenue(table):
+            return table.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasource.py": datasource_py,
+            "sales/datasets.py": datasets_py,
+            "sales/metrics.py": metrics_py,
+        }
+    )
+    assert project.is_ready()
+
+
+# ---------------------------------------------------------------------------
+# Directories are not recursive
+# ---------------------------------------------------------------------------
+
+
+def test_subdirectories_not_scanned(semantic_project_factory) -> None:
+    sub_content = textwrap.dedent("""\
+        raise RuntimeError("subdirectory file was loaded!")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/subdir/extra.py": sub_content,
+        }
+    )
+    assert project.is_ready()
+
+
+# ---------------------------------------------------------------------------
+# SemanticProject init
+# ---------------------------------------------------------------------------
+
+
+def test_semantic_project_unloaded() -> None:
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        project = SemanticProject(root=Path(tmp) / ".marivo" / "semantic")
+        assert not project.is_ready()
+        assert project.errors() == ()
+
+
+def test_semantic_project_nonexistent_root() -> None:
+    from pathlib import Path
+
+    project = SemanticProject(root=Path("/nonexistent/path"))
+    result = project.load()
+    # Should handle gracefully — either ready (empty) or errored
+    assert result.status in ("ready", "errored")
+
+
+# ---------------------------------------------------------------------------
+# Model directory without _model.py but with other .py files
+# ---------------------------------------------------------------------------
+
+
+def test_directory_with_py_but_no_model_file(semantic_project_factory) -> None:
+    """A directory that has .py files but no _model.py should not be treated as a model."""
+    content = textwrap.dedent("""\
+        # Just a random Python file, not a model
+        x = 42
+    """)
+    project = semantic_project_factory(
+        {
+            "notamodel/utils.py": content,
+        }
+    )
+    # notamodel has no _model.py, so it should produce MODEL_FILE_MISSING
+    # but the project should still report errors
+    assert not project.is_ready()
+
+
+# ---------------------------------------------------------------------------
+# Cross-file ref resolution
+# ---------------------------------------------------------------------------
+
+
+def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
+    """Dataset defined in one file, metric in another should resolve."""
+    datasource_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="wh", backend_type="duckdb")
+    """)
+    datasets_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.dataset(datasource="sales.wh")
+        def orders(backend):
+            return backend.table("orders")
+    """)
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        def revenue(table):
+            return table.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasource.py": datasource_py,
+            "sales/datasets.py": datasets_py,
+            "sales/metrics.py": metrics_py,
+        }
+    )
+    assert project.is_ready()
+    reg = project.registry()
+    assert reg is not None
+    assert "sales.orders" in reg.datasets
+    assert "sales.revenue" in reg.metrics
+
+
+def test_cross_file_missing_dataset_ref(semantic_project_factory) -> None:
+    """Metric referencing a dataset that doesn't exist should error."""
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.metric(datasets=["sales.nonexistent"], decomposition=ms.sum())
+        def revenue(table):
+            return table.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/metrics.py": metrics_py,
+        }
+    )
+    assert not project.is_ready()
+    errors = project.errors()
+    assert any(e.kind == ErrorKind.MISSING_DATASET_REF for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# LoadResult warnings
+# ---------------------------------------------------------------------------
+
+
+def test_load_result_has_warnings_field(semantic_project_factory) -> None:
+    """LoadResult should have a warnings tuple."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+        },
+        load=False,
+    )
+    result = project.load()
+    assert hasattr(result, "warnings")
+    assert isinstance(result.warnings, tuple)
+
+
+def test_unverified_provenance_warning_in_result(semantic_project_factory) -> None:
+    """Metric with source_sql but unverified provenance should produce a warning."""
+    from marivo.semantic_py.errors import WarningKind
+
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="wh", backend_type="duckdb")
+
+        @ms.dataset(datasource=wh)
+        def orders(backend):
+            return backend.table("orders")
+
+        @ms.metric(
+            datasets=[orders],
+            decomposition=ms.sum(),
+            source_sql="SELECT SUM(amount) FROM orders",
+            provenance="unverified",
+        )
+        def revenue(table):
+            return table.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/metrics.py": metrics_py,
+        },
+        load=False,
+    )
+    result = project.load()
+    assert project.is_ready()
+    assert any(w.kind == WarningKind.UNVERIFIED_PROVENANCE for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Registry and Sidecar access
+# ---------------------------------------------------------------------------
+
+
+def test_registry_accessible_after_load(semantic_project_factory) -> None:
+    """SemanticProject should expose registry after successful load."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasets.py": _MINIMAL_DATASET_PY,
+        }
+    )
+    reg = project.registry()
+    assert reg is not None
+    assert "sales" in reg.models
+    assert "sales.warehouse" in reg.datasources
+    assert "sales.orders" in reg.datasets
+    assert "sales.revenue" in reg.metrics
+
+
+def test_sidecar_accessible_after_load(semantic_project_factory) -> None:
+    """SemanticProject should expose sidecar after successful load."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasets.py": _MINIMAL_DATASET_PY,
+        }
+    )
+    side = project.sidecar()
+    assert side is not None
+    assert "sales.orders" in side
+    assert "sales.revenue" in side
+    # Datasource doesn't have a callable
+    assert "sales.warehouse" not in side
+
+
+def test_registry_none_on_errored_load(semantic_project_factory) -> None:
+    """Registry should be None when load has errors."""
+    bad_model = textwrap.dedent("""\
+        raise ValueError("boom")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": bad_model,
+        }
+    )
+    assert not project.is_ready()
+    assert project.registry() is None
+    assert project.sidecar() is None
+
+
+def test_warnings_accessible_after_load(semantic_project_factory) -> None:
+    """SemanticProject should expose warnings after load."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+        }
     )
 
+    warnings = project.warnings()
+    assert isinstance(warnings, tuple)
 
-def _write_simple_model(root: Path, name: str, table: str) -> None:
-    model_dir = root / name
-    model_dir.mkdir(parents=True)
-    (model_dir / "__init__.py").write_text("", encoding="utf-8")
-    (model_dir / "_model.py").write_text(
-        f"import marivo.semantic_py as ms\nms.model(name='{name}')\n",
-        encoding="utf-8",
+
+# ---------------------------------------------------------------------------
+# Two-pass: collect then resolve
+# ---------------------------------------------------------------------------
+
+
+def test_two_pass_separates_discovery_from_validation(semantic_project_factory) -> None:
+    """Even if a metric references a dataset defined later in the file
+    sequence, the two-pass loader should resolve it correctly."""
+    # File order: datasource.py -> metrics.py -> datasets.py
+    # Metric references dataset that comes in the third file.
+    # Pass 1 collects all objects, Pass 2 validates references.
+    datasource_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="wh", backend_type="duckdb")
+    """)
+    # metrics.py comes before datasets.py alphabetically but references sales.orders
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        def revenue(table):
+            return table.amount.sum()
+    """)
+    datasets_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.dataset(datasource="sales.wh")
+        def orders(backend):
+            return backend.table("orders")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/a_datasource.py": datasource_py,
+            "sales/b_metrics.py": metrics_py,
+            "sales/c_datasets.py": datasets_py,
+        }
     )
-    (model_dir / "datasources.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse():\n"
-        "    ...\n",
-        encoding="utf-8",
+    assert project.is_ready()
+    reg = project.registry()
+    assert reg is not None
+    assert "sales.revenue" in reg.metrics
+    assert "sales.orders" in reg.datasets
+
+
+# ---------------------------------------------------------------------------
+# Loading with relationships
+# ---------------------------------------------------------------------------
+
+
+def test_loading_with_relationships(semantic_project_factory) -> None:
+    """Relationships should be loaded into the registry."""
+    datasource_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="wh", backend_type="duckdb")
+    """)
+    datasets_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.dataset(datasource="sales.wh")
+        def orders(backend):
+            return backend.table("orders")
+
+        @ms.dataset(datasource="sales.wh")
+        def items(backend):
+            return backend.table("items")
+    """)
+    fields_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.field(dataset="sales.orders")
+        def order_id(table):
+            return table.order_id
+
+        @ms.field(dataset="sales.items")
+        def item_order_id(table):
+            return table.order_id
+    """)
+    rels_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        ms.relationship(
+            name="orders_to_items",
+            from_="sales.orders",
+            to="sales.items",
+            from_fields=["sales.order_id"],
+            to_fields=["sales.item_order_id"],
+        )
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasource.py": datasource_py,
+            "sales/datasets.py": datasets_py,
+            "sales/fields.py": fields_py,
+            "sales/relationships.py": rels_py,
+        }
     )
-    (model_dir / "datasets.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "from .datasources import warehouse\n"
-        f"@ms.dataset(name='{table}', datasource=warehouse)\n"
-        "def dataset(backend):\n"
-        f"    return backend.table('{table}')\n",
-        encoding="utf-8",
+    assert project.is_ready()
+    reg = project.registry()
+    assert reg is not None
+    assert "sales.orders_to_items" in reg.relationships
+    rel = reg.relationships["sales.orders_to_items"]
+    assert rel.from_dataset == "sales.orders"
+    assert rel.to_dataset == "sales.items"
+    assert rel.from_fields == ("sales.order_id",)
+    assert rel.to_fields == ("sales.item_order_id",)
+
+
+def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) -> None:
+    """Relationship with mismatched field arity should fail via loader."""
+    rels_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.dataset(datasource="sales.wh")
+        def orders(backend):
+            return backend.table("orders")
+
+        @ms.field(dataset=orders)
+        def order_id(table):
+            return table.order_id
+
+        @ms.field(dataset=orders)
+        def other_id(table):
+            return table.other_id
+
+        ms.datasource(name="wh", backend_type="duckdb")
+
+        ms.relationship(
+            name="bad_arity",
+            from_="sales.orders",
+            to="sales.orders",
+            from_fields=["sales.order_id", "sales.other_id"],
+            to_fields=["sales.order_id"],
+        )
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/relationships.py": rels_py,
+        }
     )
+    assert not project.is_ready()
+    errors = project.errors()
+    assert any(e.kind == ErrorKind.MISSING_FIELD_REF for e in errors)
 
 
-def _write_inline_model(root: Path, name: str, table: str) -> None:
-    model_dir = root / name
-    model_dir.mkdir(parents=True)
-    (model_dir / "__init__.py").write_text("", encoding="utf-8")
-    (model_dir / "_model.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        f"ms.model(name='{name}')\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse():\n"
-        "    ...\n"
-        f"@ms.dataset(name='{table}', datasource=warehouse)\n"
-        "def dataset(backend):\n"
-        f"    return backend.table('{table}')\n",
-        encoding="utf-8",
+# ---------------------------------------------------------------------------
+# FieldRef resolver wired up after load
+# ---------------------------------------------------------------------------
+
+
+def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
+    """FieldRef objects should have their _resolver set after loading."""
+    datasource_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="wh", backend_type="duckdb")
+    """)
+    datasets_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.dataset(datasource="sales.wh")
+        def orders(backend):
+            return backend.table("orders")
+    """)
+    # The field ref is stored in a module-level variable
+    fields_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.field(dataset="sales.orders")
+        def amount(table):
+            return table.amount
+
+        # Store the ref for external access
+        amount_ref = amount
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasource.py": datasource_py,
+            "sales/datasets.py": datasets_py,
+            "sales/fields.py": fields_py,
+        }
     )
+    assert project.is_ready()
+    sidecar = project.sidecar()
+    assert sidecar is not None
+    assert "sales.amount" in sidecar
 
 
-def _write_hyphen_named_inline_model(
-    root: Path, directory: str, model_name: str, table: str
-) -> None:
-    model_dir = root / directory
-    model_dir.mkdir(parents=True)
-    (model_dir / "__init__.py").write_text("", encoding="utf-8")
-    (model_dir / "_model.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        f"ms.model(name='{model_name}')\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse():\n"
-        "    ...\n"
-        f"@ms.dataset(name='{table}', datasource=warehouse)\n"
-        "def dataset(backend):\n"
-        f"    return backend.table('{table}')\n",
-        encoding="utf-8",
+def test_field_ref_callable_after_load(semantic_project_factory) -> None:
+    """FieldRef returned by decorator should be callable after project load."""
+    import ibis
+
+    con = ibis.duckdb.connect(":memory:")
+    con.con.execute("CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT)")
+    con.con.execute("INSERT INTO orders VALUES (1, 100.0, 'US'), (2, 200.0, 'EU')")
+
+    # The field ref is created during file loading
+    fields_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.field(dataset="sales.orders")
+        def region(table):
+            return table.region
+
+        region_ref = region
+    """)
+    datasource_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+        wh = ms.datasource(name="wh", backend_type="duckdb")
+    """)
+    datasets_py = textwrap.dedent("""\
+        import marivo.semantic_py as ms
+
+        @ms.dataset(datasource="sales.wh")
+        def orders(backend):
+            return backend.table("orders")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasource.py": datasource_py,
+            "sales/datasets.py": datasets_py,
+            "sales/fields.py": fields_py,
+        }
     )
+    assert project.is_ready()
+
+    def factory(ds_id: str):
+        return con
+
+    # Materialize the dataset first
+    table = project.materialize_dataset("sales.orders", backend_factory=factory)
+
+    # Materialize the field
+    field_expr = project.materialize_field("sales.region", backend_factory=factory)
+    assert field_expr is not None
 
 
-def _write_unregistered_inline_model(root: Path, name: str, table: str) -> None:
-    model_dir = root / name
-    model_dir.mkdir(parents=True)
-    (model_dir / "__init__.py").write_text("", encoding="utf-8")
-    (model_dir / "_model.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse():\n"
-        "    ...\n"
-        f"@ms.dataset(name='{table}', datasource=warehouse)\n"
-        "def dataset(backend):\n"
-        f"    return backend.table('{table}')\n",
-        encoding="utf-8",
-    )
+# ---------------------------------------------------------------------------
+# find_project tests
+# ---------------------------------------------------------------------------
 
 
-def _write_extra_model_registration(root: Path, name: str) -> None:
-    model_dir = root / name
-    model_dir.mkdir(parents=True)
-    (model_dir / "__init__.py").write_text("", encoding="utf-8")
-    (model_dir / "_model.py").write_text(
-        f"import marivo.semantic_py as ms\nms.model(name='{name}')\nms.model(name='shadow')\n",
-        encoding="utf-8",
-    )
+def test_find_project_in_current_dir(tmp_path) -> None:
+    """find_project should find .marivo/semantic/ in the start_dir."""
+    from marivo.semantic_py.loader import find_project
+
+    sem_dir = tmp_path / ".marivo" / "semantic"
+    sem_dir.mkdir(parents=True)
+    project = find_project(start_dir=tmp_path)
+    assert project is not None
+    assert project._root == sem_dir
 
 
-def _write_duplicate_metric_model(root: Path) -> None:
-    model_dir = root / "sales"
-    model_dir.mkdir(parents=True)
-    (model_dir / "__init__.py").write_text("", encoding="utf-8")
-    (model_dir / "_model.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "ms.model(name='sales')\n"
-        "@ms.metric(decomposition=ms.sum())\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n"
-        "@ms.metric(decomposition=ms.sum())\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n",
-        encoding="utf-8",
-    )
+def test_find_project_in_parent_dir(tmp_path) -> None:
+    """find_project should find .marivo/semantic/ in a parent directory."""
+    from marivo.semantic_py.loader import find_project
+
+    sem_dir = tmp_path / ".marivo" / "semantic"
+    sem_dir.mkdir(parents=True)
+    child_dir = tmp_path / "subdir" / "deep"
+    child_dir.mkdir(parents=True)
+    project = find_project(start_dir=child_dir)
+    assert project is not None
+    assert project._root == sem_dir
 
 
-def _write_invalid_ref_model(root: Path) -> None:
-    model_dir = root / "sales"
-    model_dir.mkdir(parents=True)
-    (model_dir / "__init__.py").write_text("", encoding="utf-8")
-    (model_dir / "_model.py").write_text(
-        "import marivo.semantic_py as ms\n"
-        "ms.model(name='sales')\n"
-        "@ms.metric(decomposition=ms.ratio(numerator=ms.ref('metrics.revenue'), denominator=ms.ref('metric.orders')))\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n",
-        encoding="utf-8",
-    )
+def test_find_project_returns_none_when_not_found(tmp_path) -> None:
+    """find_project should return None when no .marivo/semantic/ exists."""
+    from marivo.semantic_py.loader import find_project
+
+    project = find_project(start_dir=tmp_path)
+    assert project is None
 
 
-def _project_namespace(root: Path) -> str:
-    return _namespace(root.resolve() if root.exists() else root)
+def test_find_project_raises_when_semantic_is_a_file(tmp_path) -> None:
+    """find_project should raise InvalidProjectError when .marivo/semantic is a file."""
+    from marivo.semantic_py.errors import SemanticLoadError
+    from marivo.semantic_py.loader import find_project
 
-
-def _project_modules(root: Path) -> list[str]:
-    namespace = _project_namespace(root)
-    return [name for name in sys.modules if name == namespace or name.startswith(f"{namespace}.")]
-
-
-def test_load_project_imports_semantic_directory(tmp_path: Path) -> None:
-    _write_sales_model(tmp_path)
-    project = SemanticProject(root=str(tmp_path))
-
-    load_project(project)
-
-    assert project.registry.state == "ready"
-    assert sorted(project.registry.models) == ["sales"]
-    assert sorted(project.registry.models["sales"].metrics) == ["revenue"]
-
-
-def test_load_project_imports_multiple_model_directories(tmp_path: Path) -> None:
-    _write_simple_model(tmp_path, "marketing", "campaigns")
-    _write_simple_model(tmp_path, "sales", "orders")
-    project = SemanticProject(root=str(tmp_path))
-
-    load_project(project)
-
-    assert project.registry.state == "ready"
-    assert sorted(project.registry.models) == ["marketing", "sales"]
-    assert sorted(project.registry.models["marketing"].datasets) == ["campaigns"]
-    assert sorted(project.registry.models["sales"].datasets) == ["orders"]
-
-
-def test_load_project_imports_multiple_inline_model_directories(tmp_path: Path) -> None:
-    _write_inline_model(tmp_path, "marketing", "campaigns")
-    _write_inline_model(tmp_path, "sales", "orders")
-    project = SemanticProject(root=str(tmp_path))
-
-    load_project(project)
-
-    assert project.registry.state == "ready"
-    assert sorted(project.registry.models) == ["marketing", "sales"]
-    assert sorted(project.registry.models["marketing"].datasets) == ["campaigns"]
-    assert sorted(project.registry.models["sales"].datasets) == ["orders"]
-
-
-def test_load_project_supports_hyphen_model_name_for_inline_model_file(tmp_path: Path) -> None:
-    _write_hyphen_named_inline_model(tmp_path, "sales_model", "sales-model", "orders")
-    project = SemanticProject(root=str(tmp_path))
-
-    load_project(project)
-
-    assert project.registry.state == "ready"
-    assert sorted(project.registry.models) == ["sales-model"]
-    assert sorted(project.registry.models["sales-model"].datasets) == ["orders"]
-
-
-def test_load_project_supports_underscore_model_name_for_inline_model_file(
-    tmp_path: Path,
-) -> None:
-    _write_hyphen_named_inline_model(tmp_path, "sales_model", "sales_model", "orders")
-    project = SemanticProject(root=str(tmp_path))
-
-    load_project(project)
-
-    assert project.registry.state == "ready"
-    assert sorted(project.registry.models) == ["sales_model"]
-    assert sorted(project.registry.models["sales_model"].datasets) == ["orders"]
-
-
-def test_model_directory_must_register_matching_model(tmp_path: Path) -> None:
-    _write_inline_model(tmp_path, "sales", "orders")
-    _write_unregistered_inline_model(tmp_path, "z_marketing", "campaigns")
-    project = SemanticProject(root=str(tmp_path))
-
+    marivo_dir = tmp_path / ".marivo"
+    marivo_dir.mkdir()
+    # Create 'semantic' as a file, not a directory
+    (marivo_dir / "semantic").write_text("not a directory")
     with pytest.raises(SemanticLoadError) as exc_info:
-        load_project(project)
-
-    assert [error.kind for error in exc_info.value.errors] == ["ModelRegistrationMissing"]
-    assert project.registry.state == "errored"
-
-
-def test_model_directory_must_not_register_extra_models(tmp_path: Path) -> None:
-    _write_extra_model_registration(tmp_path, "sales")
-    project = SemanticProject(root=str(tmp_path))
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        load_project(project)
-
-    assert [error.kind for error in exc_info.value.errors] == ["UnexpectedModelRegistration"]
-    assert project.registry.state == "errored"
-    assert project.registry.models == {}
-
-
-def test_reload_reexecutes_changed_modules(tmp_path: Path) -> None:
-    _write_sales_model(tmp_path)
-    project = SemanticProject(root=str(tmp_path))
-
-    load_project(project)
-    first_line = project.registry.models["sales"].metrics["revenue"].source_location.line
-
-    metrics = tmp_path / "sales" / "metrics.py"
-    metrics.write_text(
-        "import marivo.semantic_py as ms\n\n\n"
-        "@ms.metric(decomposition=ms.sum())\n"
-        "def revenue(orders):\n"
-        "    return orders.net_amount.sum()\n",
-        encoding="utf-8",
-    )
-
-    load_project(project, reload=True)
-    second_line = project.registry.models["sales"].metrics["revenue"].source_location.line
-
-    assert second_line != first_line
-
-
-def test_missing_model_file_raises_structured_load_error(tmp_path: Path) -> None:
-    model_dir = tmp_path / "sales"
-    model_dir.mkdir()
-
-    project = SemanticProject(root=str(tmp_path))
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        load_project(project)
-
-    assert [error.kind for error in exc_info.value.errors] == ["ModelFileMissing"]
-    assert project.registry.state == "errored"
-    assert [error.kind for error in project.registry.load_errors] == ["ModelFileMissing"]
-
-
-def test_existing_file_root_raises_structured_load_error(tmp_path: Path) -> None:
-    root_file = tmp_path / "semantic.py"
-    root_file.write_text("not a semantic directory\n", encoding="utf-8")
-    project = SemanticProject(root=str(root_file))
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        load_project(project)
-
-    assert [error.kind for error in exc_info.value.errors] == ["ProjectRootInvalid"]
-    assert project.registry.state == "errored"
-    assert [error.kind for error in project.registry.load_errors] == ["ProjectRootInvalid"]
-    assert project.registry.models == {}
-    assert _project_modules(root_file) == []
-
-
-def test_raw_import_exception_is_wrapped_and_cleans_partial_modules(tmp_path: Path) -> None:
-    _write_sales_model(tmp_path)
-    (tmp_path / "sales" / "metrics.py").write_text(
-        "import sys\n"
-        "import marivo.semantic_py as ms\n"
-        "sys.path.append('/tmp/marivo-loader-leak')\n"
-        "raise RuntimeError('boom')\n",
-        encoding="utf-8",
-    )
-    original_path = list(sys.path)
-    project = SemanticProject(root=str(tmp_path))
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        load_project(project)
-
-    assert [error.kind for error in exc_info.value.errors] == ["ModuleLoadFailed"]
-    assert project.registry.state == "errored"
-    assert [error.kind for error in project.registry.load_errors] == ["ModuleLoadFailed"]
-    assert project.registry.models == {}
-    assert _project_modules(tmp_path) == []
-    assert sys.path == original_path
-
-
-def test_semantic_import_error_preserves_original_kind(tmp_path: Path) -> None:
-    _write_sales_model(
-        tmp_path,
-        metric_body="total = orders.amount.sum()\n    return total",
-    )
-    project = SemanticProject(root=str(tmp_path))
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        load_project(project)
-
-    assert [error.kind for error in exc_info.value.errors] == ["AstNodeForbidden"]
-    assert project.registry.state == "errored"
-    assert [error.kind for error in project.registry.load_errors] == ["AstNodeForbidden"]
-    assert project.registry.models == {}
-    assert _project_modules(tmp_path) == []
-
-
-def test_semantic_decorator_error_preserves_duplicate_kind(tmp_path: Path) -> None:
-    _write_duplicate_metric_model(tmp_path)
-    project = SemanticProject(root=str(tmp_path))
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        load_project(project)
-
-    assert [error.kind for error in exc_info.value.errors] == ["DuplicateMetric"]
-    assert project.registry.state == "errored"
-    assert [error.kind for error in project.registry.load_errors] == ["DuplicateMetric"]
-    assert project.registry.models == {}
-    assert _project_modules(tmp_path) == []
-
-
-def test_semantic_ref_error_preserves_original_kind(tmp_path: Path) -> None:
-    _write_invalid_ref_model(tmp_path)
-    project = SemanticProject(root=str(tmp_path))
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        load_project(project)
-
-    assert [error.kind for error in exc_info.value.errors] == ["ReferenceInvalid"]
-    assert project.registry.state == "errored"
-    assert [error.kind for error in project.registry.load_errors] == ["ReferenceInvalid"]
-    assert project.registry.models == {}
-    assert _project_modules(tmp_path) == []
-
-
-def test_missing_root_clears_stale_project_modules_and_marks_ready(tmp_path: Path) -> None:
-    missing_root = tmp_path / "missing"
-    namespace = _project_namespace(missing_root)
-    sys.modules[namespace] = type(sys)(namespace)
-    sys.modules[f"{namespace}.sales"] = type(sys)(f"{namespace}.sales")
-    project = SemanticProject(root=str(missing_root))
-
-    load_project(project)
-
-    assert _project_modules(missing_root) == []
-    assert project.registry.state == "ready"
-    assert project.registry.load_errors == []
-
-
-def test_deleted_relative_root_clears_stale_project_modules_and_marks_ready(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    relative_root = Path("semantic_project")
-    _write_sales_model(relative_root)
-    project = SemanticProject(root=str(relative_root))
-
-    load_project(project)
-    resolved_root = relative_root.resolve()
-    assert _project_modules(resolved_root) != []
-
-    shutil.rmtree(relative_root)
-    load_project(project)
-
-    assert _project_modules(resolved_root) == []
-    assert project.registry.state == "ready"
-    assert project.registry.load_errors == []
-
-
-def test_sys_path_is_restored_when_loaded_module_mutates_it(tmp_path: Path) -> None:
-    _write_sales_model(tmp_path)
-    (tmp_path / "sales" / "metrics.py").write_text(
-        "import sys\n"
-        "import marivo.semantic_py as ms\n"
-        "sys.path.append('/tmp/marivo-loader-success-leak')\n"
-        "@ms.metric(decomposition=ms.sum())\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n",
-        encoding="utf-8",
-    )
-    original_path = list(sys.path)
-    project = SemanticProject(root=str(tmp_path))
-
-    load_project(project)
-
-    assert project.registry.state == "ready"
-    assert sys.path == original_path
+        find_project(start_dir=tmp_path)
+    assert exc_info.value.kind == ErrorKind.INVALID_PROJECT

@@ -30,87 +30,81 @@ does not assume you have the Marivo source checkout.
 ```python
 import ibis
 import marivo.semantic_py as ms
-from marivo.semantic_py.registry import SemanticProject, use_registry
 
-project = SemanticProject(root=":example:")
-with use_registry(project.registry):
-    ms.model(name="sales")
+# In a _model.py file inside .marivo/semantic/sales/:
+ms.model(name="sales")
 
-    @ms.datasource(name="tiny_orders", backend_type="duckdb")
-    def tiny_orders():
-        return ibis.duckdb.connect(":memory:")
+# In a sibling .py file:
+warehouse = ms.datasource(name="tiny_orders", backend_type="duckdb")
 
-    @ms.dataset(name="orders", datasource=tiny_orders, primary_key=["order_id"])
-    def orders(backend):
-        return backend.table("orders")
+@ms.dataset(name="orders", datasource=warehouse, primary_key=["order_id"])
+def orders(backend):
+    return backend.table("orders")
 
-    @ms.time_field(dataset="orders", data_type="date", granularity="day")
-    def created_at(orders):
-        return orders.created_at.cast("date")
+@ms.time_field(dataset=orders, data_type="date", granularity="day")
+def created_at(orders):
+    return orders.created_at.cast("date")
 
-    @ms.field(dataset="orders")
-    def region(orders):
-        return orders.region
+@ms.field(dataset=orders)
+def region(orders):
+    return orders.region
 
-    @ms.metric(decomposition=ms.sum(), name="revenue")
-    def revenue(orders):
-        return orders.amount.sum()
+@ms.metric(datasets=[orders], decomposition=ms.sum(), name="revenue")
+def revenue(orders):
+    return orders.amount.sum()
 
-    @ms.metric(decomposition=ms.sum(), name="orders_count")
-    def orders_count(orders):
-        return orders.count()
+@ms.metric(datasets=[orders], decomposition=ms.sum(), name="orders_count")
+def orders_count(orders):
+    return orders.count()
 
-    @ms.metric(
-        decomposition=ms.ratio(
-            numerator=ms.ref("metric.revenue"),
-            denominator=ms.ref("metric.orders_count"),
-        ),
-        name="aov",
-    )
-    def aov(orders):
-        return revenue(orders) / orders_count(orders)
-
-project.registry.state = "ready"
-
-ms.list_datasources(project)
-ms.list_datasets(project=project)
-ms.list_metrics(project=project, dataset="sales.orders")
-ms.describe("sales.revenue", project=project)
-ms.help("metric")
+@ms.metric(
+    datasets=[],
+    decomposition=ms.ratio(
+        numerator="sales.revenue",
+        denominator="sales.orders_count",
+    ),
+    name="aov",
+)
+def aov():
+    return ms.component("numerator") / ms.component("denominator")
 ```
 
-Every decorator registers on the active model opened by `ms.model(name=...)` and
-the active registry. Use a fresh `SemanticProject` for isolated tests/examples;
-production projects usually load files from `.marivo/semantic/<model>/`.
+After loading the project:
+
+```python
+project = ms.find_project()  # or ms.SemanticProject(root="/path")
+project.load()
+project.list_datasources()
+project.list_metrics()
+project.describe("sales.revenue")
+```
+
+Every decorator registers on the active model opened by `ms.model(name=...)`.
+Production projects load files from `.marivo/semantic/<model>/`.
 
 ## Standard Workflow
 
-1. Inspect the current semantic surface before adding anything new.
+1. Check the project status before adding anything new.
 
    ```bash
-   <active-python> -c 'import marivo.semantic_py as ms; print(ms.list_models()); print(ms.list_datasources()); print(ms.list_metrics())'
+   python -m marivo.semantic_py check
    ```
 
-   Replace `<active-python>` with the interpreter for the environment where
-   Marivo is installed, such as `.venv/bin/python`.
+2. Write model declarations in Python files under
+   `.marivo/semantic/<model>/`. Each model directory needs a `_model.py`
+   that calls `ms.model(name=...)`.
 
-2. Write model declarations in Python files that your project imports. A common
-   layout is one model per directory under `.marivo/semantic/<model>/`.
+3. Typecheck before running. Marivo decorators preserve function signatures,
+   so type errors usually point at bad datasource/dataset wiring early.
 
-3. Typecheck before running. Marivo decorators preserve function signatures, so
-   type errors usually point at bad datasource/dataset wiring early.
-
-4. Reload after edits.
+4. Re-check after edits.
 
    ```bash
-   <active-python> -c 'import marivo.semantic_py as ms; ms.reload(); print(ms.list_metrics())'
+   python -m marivo.semantic_py check --format=json
    ```
-
-   The v1 SDK does not auto-detect stale source. After changing `.py` model
-   files, call `ms.reload()`.
 
 5. On Marivo exceptions, read the structured error text. Semantic exceptions
-   include a `正确写法` section when a copyable fix is known.
+   include a `hint` section when a copyable fix is known.
 
 ## Fill-In Templates
 
@@ -119,14 +113,10 @@ production projects usually load files from `.marivo/semantic/<model>/`.
 Runnable reference: `references/examples/01_register_datasource.py`.
 
 ```python
-import ibis
 import marivo.semantic_py as ms
 
 ms.model(name="<model_name>")
-
-@ms.datasource(name="<datasource_name>", backend_type="<duckdb|trino|mysql|...>")
-def <datasource_name>():
-    return ibis.<dialect>.connect(<connection_args>)
+warehouse = ms.datasource(name="<datasource_name>", backend_type="<duckdb|trino|mysql|...>")
 ```
 
 ### Declare a Dataset
@@ -136,7 +126,7 @@ Runnable reference: `references/examples/02_declare_dataset.py`.
 ```python
 import marivo.semantic_py as ms
 
-@ms.dataset(name="<dataset_name>", datasource=<datasource_fn>, primary_key=["<pk_col>"])
+@ms.dataset(name="<dataset_name>", datasource=warehouse, primary_key=["<pk_col>"])
 def <dataset_name>(backend):
     return backend.table("<physical_table>")
 ```
@@ -148,9 +138,9 @@ Runnable reference: `references/examples/03_define_metric_aggregate.py`.
 ```python
 import marivo.semantic_py as ms
 
-@ms.metric(decomposition=ms.sum(), name="<metric_name>")
-def <metric_name>(<dataset_name>):
-    return <dataset_name>.<column>.sum()
+@ms.metric(datasets=[orders], decomposition=ms.sum(), name="<metric_name>")
+def <metric_name>(orders):
+    return orders.<column>.sum()
 ```
 
 ### Define a Derived Ratio Metric
@@ -160,23 +150,24 @@ Runnable reference: `references/examples/04_define_metric_derived.py`.
 ```python
 import marivo.semantic_py as ms
 
-@ms.metric(decomposition=ms.sum(), name="numerator_metric")
+@ms.metric(datasets=[orders], decomposition=ms.sum(), name="numerator_metric")
 def numerator_metric(orders):
     return orders.amount.sum()
 
-@ms.metric(decomposition=ms.sum(), name="denominator_metric")
+@ms.metric(datasets=[orders], decomposition=ms.sum(), name="denominator_metric")
 def denominator_metric(orders):
     return orders.count()
 
 @ms.metric(
+    datasets=[],
     decomposition=ms.ratio(
-        numerator=ms.ref("metric.numerator_metric"),
-        denominator=ms.ref("metric.denominator_metric"),
+        numerator="sales.numerator_metric",
+        denominator="sales.denominator_metric",
     ),
     name="<derived_name>",
 )
-def <derived_name>(orders):
-    return numerator_metric(orders) / denominator_metric(orders)
+def <derived_name>():
+    return ms.component("numerator") / ms.component("denominator")
 ```
 
 ## Decision Tree
@@ -194,18 +185,15 @@ How is this value computed?
 ## Common Pitfalls
 
 - Dataset references a datasource that was never declared with
-  `@ms.datasource`. `ms.reload()` raises `DatasourceNotRegisteredError`.
+  `ms.datasource`. The loader reports a `missing_dataset_ref` error.
   Runnable reference:
   `references/examples/99_pitfall_dataset_without_datasource.py`.
-- Forgetting `ms.reload()` after editing source can leave old IR in memory. The
-  v1 SDK exposes `IRReloadRequiredError` for the future contract, but it does
-  not auto-raise it yet.
 - Decorators need an active model opened by `ms.model(name=...)`.
-- `@ms.datasource` must return a live ibis backend. Returning `None` causes
+- `ms.datasource` must return a live ibis backend. Returning `None` causes
   analysis runtime failures such as `NoBackendFactoryError`.
 
 ## Further Reading
 
-- `references/cheatsheet.md` -- decorators, builders, loaders, introspection
+- `references/cheatsheet.md` -- decorators, builders, CLI, introspection
 - `references/pitfalls.md` -- expanded exception explanations
 - `references/examples/` -- runnable files, one per template

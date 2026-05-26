@@ -1,49 +1,57 @@
 """
 Pitfall: declaring a dataset whose datasource= argument was never registered.
-When triggered: the agent passes a datasource ref that has no matching @ms.datasource declaration.
+When triggered: the loader reports a MISSING_DATASET_REF error because the
+datasource semantic_id has no matching ms.datasource() declaration.
 
 Expected output:
-    DatasourceNotRegisteredError: Dataset 'orders' references missing datasource
-    正确写法:
-      @ms.datasource(name="tiny_orders", backend_type="duckdb")
+    [missing_dataset_ref] Dataset 'sales.orders' references unknown datasource 'sales.tiny_orders'.
 """
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import marivo.semantic_py as ms
 
+# In a model directory, if you define:
+#   # _model.py
+#   import marivo.semantic_py as ms
+#   ms.model(name="sales")
+#
+#   # datasets.py  (BUG: no ms.datasource declared!)
+#   import marivo.semantic_py as ms
+#
+#   @ms.dataset(name="orders", datasource="sales.tiny_orders")
+#   def orders(backend):
+#       return backend.table("orders")
+#
+# The loader will produce a MISSING_DATASET_REF error because
+# 'sales.tiny_orders' has no matching ms.datasource() declaration.
+#
+# Fix: declare the datasource first:
+#   warehouse = ms.datasource(name="tiny_orders", backend_type="duckdb")
+#
+#   @ms.dataset(datasource=warehouse)
+#   def orders(backend):
+#       return backend.table("orders")
 
-def _write_broken_project(root: Path) -> None:
-    sales = root / "sales"
-    sales.mkdir()
-    (sales / "_model.py").write_text(
-        'import marivo.semantic_py as ms\nms.model(name="sales")\n',
-        encoding="utf-8",
-    )
-    (sales / "datasets.py").write_text(
+# --- executable demo ---
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp) / ".marivo" / "semantic" / "sales"
+    root.mkdir(parents=True)
+    (root / "__init__.py").write_text("")
+    (root / "_model.py").write_text("import marivo.semantic_py as ms\nms.model(name='sales')\n")
+    (root / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        '@ms.dataset(name="orders", datasource=ms.ref("datasource.tiny_orders"))\n'
+        "@ms.dataset(name='orders', datasource='sales.tiny_orders')\n"
         "def orders(backend):\n"
-        '    return backend.table("orders")\n',
-        encoding="utf-8",
+        "    return backend.table('orders')\n"
     )
-
-
-with TemporaryDirectory() as tmp:
-    project = ms.SemanticProject(root=tmp)
-    _write_broken_project(Path(tmp))
-    try:
-        ms.reload(project)
-    except ms.errors.SemanticLoadError as e:
-        for err in e.errors:
-            if isinstance(err, ms.errors.DatasourceNotRegisteredError):
-                print(err)
-                break
-        else:
-            raise
-    else:
-        raise AssertionError("expected DatasourceNotRegisteredError")
+    project = ms.SemanticProject(root=str(Path(tmp) / ".marivo" / "semantic"))
+    result = project.load()
+    for error in result.errors:
+        print(f"[{error.kind}] {error.message}")
+        if error.hint:
+            print(f"  hint: {error.hint}")
