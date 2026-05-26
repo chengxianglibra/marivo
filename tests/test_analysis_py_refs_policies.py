@@ -59,3 +59,17 @@ def test_lag_policy_supports_only_single_zero_offset_for_now():
 
     with pytest.raises(ValidationError):
         LagPolicy(mode="sweep", offset=0)
+
+
+def test_sampling_policy_defaults_and_forbids_extra():
+    from marivo.analysis_py import SamplingPolicy
+
+    policy = SamplingPolicy()
+    assert policy.unit == "bucket"
+    assert policy.method == "paired_numeric_summary"
+    assert policy.pairing == "calendar_bucket"
+    assert policy.null_handling == "drop_pair"
+    assert policy.min_n == 3
+
+    with pytest.raises(ValidationError):
+        SamplingPolicy(extra_field=True)  # type: ignore[call-arg]

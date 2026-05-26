@@ -13,6 +13,9 @@ active Python environment, not from a local Marivo source checkout.
 | `mv.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; the axis column must already be present in the delta. |
 | `mv.discover` | `MetricFrame` | `CandidateSet` | Use `objective="point_anomalies"` for anomaly candidates. |
 | `mv.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="calendar_bucket")`; default lag is zero. |
+| `mv.test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
+| `mv.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
+| `mv.assess_quality(frame)` | `MetricFrame` | `QualityReport` | Row count, null ratio, time coverage, duplicate key checks |
 
 ## Frame Flow
 
@@ -22,6 +25,9 @@ active Python environment, not from a local Marivo source checkout.
 | `DeltaFrame` | `mv.compare` | `mv.decompose` |
 | `CandidateSet` | `mv.discover` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
 | `AssociationResult` | `mv.correlate` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
+| `HypothesisTestResult` | `mv.test` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
+| `ForecastFrame` | `mv.forecast` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
+| `QualityReport` | `mv.assess_quality` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
 | `AttributionFrame` | `mv.decompose` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
 
 Frames are immutable. Use `frame.summary()` for a cheap read, `frame.head(n)`

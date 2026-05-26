@@ -47,3 +47,13 @@ class LagPolicy(BaseModel):
         if self.offset != 0:
             raise ValueError("only zero-lag correlation is supported")
         return self
+
+
+class SamplingPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    unit: Literal["bucket"] = "bucket"
+    method: Literal["paired_numeric_summary"] = "paired_numeric_summary"
+    pairing: Literal["calendar_bucket", "segment_key"] = "calendar_bucket"
+    null_handling: Literal["drop_pair"] = "drop_pair"
+    min_n: int = Field(default=3, ge=2)
