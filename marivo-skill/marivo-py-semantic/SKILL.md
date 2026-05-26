@@ -111,6 +111,15 @@ Production projects load files from `.marivo/semantic/<model>/`.
 ### Register a Datasource
 
 Runnable reference: `references/examples/01_register_datasource.py`.
+If the user has not provided enough datasource grounding, read
+`references/datasource.md` first and ask for the minimum missing identity,
+backend type, and physical relation details before writing the model.
+
+Credentials never enter the semantic file. After the user supplies the
+connection metadata, persist it once via `mv.profiles.set(...)` from
+`marivo.analysis_py` so analysis sessions resolve the backend automatically;
+sensitive fields use `<field>_env="VAR_NAME"`. See
+[`marivo-py-analysis/references/profiles.md`](../marivo-py-analysis/references/profiles.md).
 
 ```python
 import marivo.semantic_py as ms
@@ -189,11 +198,13 @@ How is this value computed?
   Runnable reference:
   `references/examples/99_pitfall_dataset_without_datasource.py`.
 - Decorators need an active model opened by `ms.model(name=...)`.
-- `ms.datasource` must return a live ibis backend. Returning `None` causes
-  analysis runtime failures such as `NoBackendFactoryError`.
+- `ms.datasource(...)` is a top-level metadata declaration, not a connection
+  factory. Runtime execution and analysis need a separate live Ibis backend
+  supplied by the caller, such as through `backend_factory`.
 
 ## Further Reading
 
+- `references/datasource.md` -- datasource intake, DuckDB/Trino examples, backend boundary
 - `references/cheatsheet.md` -- decorators, builders, CLI, introspection
 - `references/pitfalls.md` -- expanded exception explanations
 - `references/examples/` -- runnable files, one per template

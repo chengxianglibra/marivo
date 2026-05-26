@@ -4,7 +4,7 @@
 
 | Decorator          | Lives on               | Required kwargs                         | Notes                                                 |
 |--------------------|------------------------|-----------------------------------------|-------------------------------------------------------|
-| `ms.datasource`   | bare function          | `name=`, `backend_type=`                | Must return an ibis backend.                          |
+| `ms.datasource`    | top-level metadata call | `name=`, `backend_type=`                | Declares datasource identity; live backends come from the caller. |
 | `@ms.dataset`      | function taking backend | `name=`, `datasource=<ref>`             | `primary_key=` is optional but recommended.           |
 | `@ms.field`        | function taking dataset | `dataset=<ref or str>`                  | Non-aggregated per-row expression.                    |
 | `@ms.time_field`   | function taking dataset | `dataset=`, `data_type=`, `granularity=` | Calendar axis for time-aware analysis.                |
@@ -33,13 +33,13 @@
 
 | Call                                   | Output                                                        |
 |----------------------------------------|---------------------------------------------------------------|
-| `project.list_models()`                | ModelIR objects.                                              |
-| `project.list_datasources()`           | DatasourceIR objects.                                         |
-| `project.list_datasets(model=...)`     | DatasetIR objects, optionally filtered by model.              |
-| `project.list_metrics(dataset=...)`    | MetricIR objects, optionally filtered.                        |
-| `project.describe("model.x")`          | IR object or text description.                                |
-| `project.search("query")`              | SearchResult list.                                            |
-| `project.dependencies("model.x")`      | LineageGraph of upstream dependencies.                        |
+| `project.list_models()`                | ModelSummary objects.                                         |
+| `project.list_datasources()`           | DatasourceSummary objects.                                    |
+| `project.list_datasets(model=...)`     | DatasetSummary objects, optionally filtered by model.         |
+| `project.list_metrics(dataset=...)`    | MetricSummary objects, optionally filtered.                   |
+| `project.describe("model.x")`          | Description object; call `.to_text()` for human-readable text. |
+| `project.search("query")`              | SearchHit list.                                               |
+| `project.dependencies("model.x")`      | DependencyNode tree.                                          |
 
 ## CLI
 

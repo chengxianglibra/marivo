@@ -77,6 +77,40 @@ if mv.session.current() is None:
 `mv.session.history()` returns an empty list when there is no active session, so
 it is safe for quick context checks.
 
+## No backend factory
+
+**Symptom:**
+
+```text
+NoBackendFactoryError: session has no backend_factory; data-materializing intents need one
+```
+
+**Action:** create or attach the session with a live backend before calling
+`observe`, `compare`, `decompose`, `discover`, or `correlate`.
+
+```python
+import ibis
+import marivo.analysis_py as mv
+
+session = mv.session.create(
+    name="analysis",
+    backends={
+        "warehouse": lambda: ibis.trino.connect(
+            host="<trino_host>",
+            port=80,
+            user="<user>",
+            database="<catalog>",
+            source="<source>",
+            client_tags=["standby", "routing_group=bsk_wide"],
+        )
+    },
+)
+```
+
+For Trino JSON from a prompt, convert `catalog` to `database` and
+`client-tags` to `client_tags=[...]`. Full mapping:
+`references/backend-setup.md`.
+
 ## Unknown or guessed metric id
 
 **Symptom:**

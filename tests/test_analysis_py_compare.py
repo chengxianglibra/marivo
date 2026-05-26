@@ -188,7 +188,7 @@ def test_compare_works_in_read_only_session(tmp_path):
     b = observe(MetricRef("sales.revenue"), session=s_write)
     s_write.close()
     session_attach._reset_process_state()
-    s_read = session_attach.attach(name="demo")
+    s_read = session_attach.attach(name="demo", use_profiles=False)
     assert s_read.is_read_only
     df_a, meta_a = read_frame_from_disk(s_read.layout, a.ref)
     df_b, meta_b = read_frame_from_disk(s_read.layout, b.ref)
