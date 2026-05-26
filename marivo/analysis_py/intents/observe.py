@@ -83,6 +83,7 @@ class _FieldIRAdapter:
 
     def __init__(
         self,
+        semantic_id: str,
         name: str,
         dataset_name: str,
         fn: Callable[..., Any],
@@ -90,6 +91,7 @@ class _FieldIRAdapter:
         is_time: bool = False,
         time_meta: _TimeFieldMetaAdapter | None = None,
     ) -> None:
+        self.semantic_id = semantic_id
         self.name = name
         self.dataset_name = dataset_name
         self.fn = fn
@@ -136,13 +138,13 @@ def _build_dataset_adapter(
             raise RuntimeError(f"No sidecar callable for field {_sid!r}")
 
         adapter = _FieldIRAdapter(
+            semantic_id=field_ir.semantic_id,
             name=field_ir.name,
             dataset_name=dataset_ir.name,
             fn=field_fn if field_fn is not None else _default_field_fn,
             is_time=False,
         )
         field_adapters[field_ir.name] = adapter
-        field_adapters[field_ir.semantic_id] = adapter
 
     # Add time fields
     for tf_ir in sp.list_time_fields(dataset=dataset_ir.semantic_id):
@@ -159,6 +161,7 @@ def _build_dataset_adapter(
             required_prefix=tf_ir.required_prefix,
         )
         adapter = _FieldIRAdapter(
+            semantic_id=tf_ir.semantic_id,
             name=tf_ir.name,
             dataset_name=dataset_ir.name,
             fn=tf_fn if tf_fn is not None else _default_tf_fn,
@@ -166,7 +169,6 @@ def _build_dataset_adapter(
             time_meta=time_meta,
         )
         field_adapters[tf_ir.name] = adapter
-        field_adapters[tf_ir.semantic_id] = adapter
 
     return _DatasetIRAdapter(
         name=dataset_ir.name,
@@ -252,9 +254,10 @@ def _resolve_dimensions(
     resolved: list[tuple[str, Any]] = []
     for dimension in dimension_refs:
         matches = [
-            (dataset_name, dataset_ir.fields[dimension.id])
+            (dataset_name, field_ir)
             for dataset_name, dataset_ir in dataset_irs.items()
-            if dimension.id in dataset_ir.fields
+            for field_ir in dataset_ir.fields.values()
+            if dimension.id in {field_ir.name, field_ir.semantic_id}
         ]
         if not matches:
             raise DimensionFieldNotFoundError(

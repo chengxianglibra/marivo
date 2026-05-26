@@ -159,7 +159,7 @@ def test_metric_not_found_has_list_metrics_fix_template():
 
     assert "metric_id=revenu" in rendered
     assert "正确写法:" in rendered
-    assert "  ms.list_metrics()  # confirm the exact id" in rendered
+    assert "  project.list_metrics()  # confirm the exact id" in rendered
     assert (
         'mv.observe(mv.MetricRef("<registered_metric_id>"), '
         'window={"start": "2026-07-01", "end": "2026-09-30"})'
@@ -177,7 +177,7 @@ def test_metric_not_found_uses_model_and_metric_details_in_cause():
 
     assert "sales.revenu" in rendered
     assert "正确写法:" in rendered
-    assert "  ms.list_metrics()  # confirm the exact id" in rendered
+    assert "  project.list_metrics()  # confirm the exact id" in rendered
     assert "<metric_id>" not in rendered
 
 
