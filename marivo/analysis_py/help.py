@@ -13,6 +13,7 @@ _TOP_LEVEL_ENTRIES = {
     "decompose": "decompose a DeltaFrame into an AttributionFrame",
     "discover": "discover candidate follow-ups from analysis artifacts",
     "correlate": "correlate compatible analysis frames",
+    "transform": "family-preserving reshape of a MetricFrame / DeltaFrame",
     "session": "session lifecycle and persistence helpers",
     "help": "print top-level or symbol-specific introspection",
 }

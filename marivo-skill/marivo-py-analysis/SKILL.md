@@ -44,6 +44,8 @@ calendar-backed `compare`.
 Important current return types:
 
 - `mv.observe(...)` returns `MetricFrame`.
+- `mv.transform(metric_frame_or_delta_frame, op=...)` returns the same frame
+  family. In v1, `normalize` is MetricFrame-only.
 - `mv.compare(metric_frame, metric_frame, ...)` returns `DeltaFrame`.
 - `mv.decompose(delta_frame, ...)` returns `AttributionFrame`.
 - `mv.discover(metric_frame, objective="point_anomalies", ...)` returns
@@ -104,6 +106,17 @@ Important current return types:
   `mv.AlignmentPolicy(kind="dow_aligned", calendar=mv.CalendarRef("cn_holidays"), period="month")`.
 - Ensure the session timezone and selected calendar timezone match.
 - Runnable reference: `references/examples/compare_calendar.py`.
+
+### transform v1 ops
+
+`mv.transform` is the family-preserving reshape entrypoint. v1 supports
+`filter`, `slice`, `rollup`, `topk`, `bottomk`, `rank`, and `window` over
+`MetricFrame` and `DeltaFrame`; `normalize` is MetricFrame-only. DeltaFrame
+normalize is rejected in v1 until current/baseline/delta/pct_change invariants
+can be preserved together. See `references/examples/transform_*.py` for
+runnable examples. The cleaning ops (`dedupe`, `impute_nulls`, `winsorize`,
+`strip_outliers`), `align_time`, and `attribution_frame` inputs are reserved
+for follow-up.
 
 ## Fill-in templates
 

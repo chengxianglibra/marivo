@@ -104,7 +104,7 @@ if frame.meta.session_id != session.id:
 | rollup | ✓ | ✓ | `drop_axes` 必须是 axes 子集 |
 | topk / bottomk | ✓ | ✓ | `by` 必须是已有列 |
 | rank | ✓ | ✓ | 追加 `rank_column` 列 |
-| normalize | `index`/`share`/`pct_change`/`per_unit`/`z_score` | `index`/`pct_change`/`z_score` | `share` / `per_unit` 在 delta 上语义不闭合，v1 拒绝 |
+| normalize | `index`/`share`/`pct_change`/`per_unit`/`z_score` | ✗ | DeltaFrame normalize v1 fail-closed，直到能同时保持 `current` / `baseline` / `delta` / `pct_change` 不变量 |
 | window | 需要 `meta.axes["time"]` | 需要 `meta.axes["time"]` | 走现有 `windows.resolver` |
 
 矩阵在 dispatcher 入口校验，未命中直接 raise，不进入 op 实现。
@@ -161,9 +161,11 @@ if frame.meta.session_id != session.id:
 | --- | --- | --- | --- |
 | `index` | `m / base_value * 100` | 替换 measure 列 | 默认 base 为时间序列首点 |
 | `share` | `m / sum(m within group)` | 替换 measure 列 | metric_frame only；group 由 axes 决定 |
-| `pct_change` | `m.pct_change()` | 替换 measure 列 | 沿 time axis；segmented 则按 dim 分组 |
+| `pct_change` | `m.pct_change()` | 替换 measure 列 | metric_frame only；沿 time axis，缺 time axis 时 fail-closed |
 | `per_unit` | `m / base_value` | 替换 measure 列 | metric_frame only；base 必填 |
 | `z_score` | `(m − μ) / σ` | 替换 measure 列 | μ、σ 在每个 group 内独立计算 |
+
+DeltaFrame normalize 在 v1 中整体拒绝；不能只改写 `delta`，否则会让 `current` / `baseline` / `pct_change` 与 `delta` 失去同族列一致性。
 
 新增可选 meta 字段 `normalization: dict | None = None`，记录 `{kind, base, columns_affected}`。该字段加在 `MetricFrameMeta` 与 `DeltaFrameMeta` 上（带默认值，向后兼容已有 frame 读盘）。
 

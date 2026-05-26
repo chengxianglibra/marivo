@@ -391,7 +391,7 @@ same family as input
 | `rollup` | `metric_frame`, `delta_frame`, `attribution_frame` | same family | 沿已声明层级降低粒度或合并分组 |
 | `topk` / `bottomk` | `metric_frame`, `delta_frame`, `attribution_frame` | same family | 保留排序后的前 N 项 |
 | `rank` | `metric_frame`, `delta_frame`, `attribution_frame` | same family | 添加或更新排序 |
-| `normalize` | `metric_frame`, `delta_frame` | same family | index、share、pct_change、per-unit、z-score 等重表达 |
+| `normalize` | `metric_frame` | same family | index、share、pct_change、per-unit、z-score 等重表达；`delta_frame` 在 v1 中显式拒绝，直到能同时维护 current/baseline/delta/pct_change 不变量 |
 | `window` | time-axis `metric_frame`, time-axis `delta_frame` | same family | 收窄到指定时间窗口 |
 | `align_time` | time-axis `metric_frame`, time-axis `delta_frame` | same family | 按 `AlignmentPolicy` 重写单 frame 时间轴 |
 | `dedupe` | `metric_frame` | same family | 按 typed key policy 去重并记录影响 |
