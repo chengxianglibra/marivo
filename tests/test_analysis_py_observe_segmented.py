@@ -5,7 +5,6 @@ import pytest
 
 import marivo.analysis_py.session.attach as session_attach
 from marivo.analysis_py.errors import (
-    AmbiguousDimensionError,
     DimensionAcrossDatasetsError,
     DimensionFieldNotFoundError,
     MetricShapeUnsupportedError,
@@ -48,8 +47,7 @@ def _bootstrap_sales(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse(): ...\n"
+        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
         "\n"
         "@ms.dataset(name='orders', datasource=warehouse)\n"
         "def orders(backend):\n"
@@ -59,31 +57,31 @@ def _bootstrap_sales(tmp_path):
         "def users(backend):\n"
         "    return backend.table('users')\n"
         "\n"
-        "@ms.time_field(dataset='orders', data_type='date', granularity='day')\n"
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.field(dataset='orders')\n"
+        "@ms.field(dataset=orders)\n"
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.field(dataset='orders')\n"
+        "@ms.field(dataset=orders)\n"
         "def channel(orders):\n"
         "    return orders.channel\n"
         "\n"
-        "@ms.field(dataset='users')\n"
-        "def region(users):\n"
+        "@ms.field(name='user_region', dataset=users)\n"
+        "def user_region(users):\n"
         "    return users.tier\n"
         "\n"
-        "@ms.field(dataset='users')\n"
+        "@ms.field(dataset=users)\n"
         "def tier(users):\n"
         "    return users.tier\n"
         "\n"
-        "@ms.metric(decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
         "\n"
-        "@ms.metric(decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders, users], decomposition=ms.sum())\n"
         "def revenue_plus_user_count(orders, users):\n"
         "    return orders.amount.sum() + users.user_id.count()\n"
     )
@@ -177,7 +175,7 @@ def test_observe_segmented_rejects_multi_dataset_metric(tmp_path):
 
     assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
     assert exc_info.value.details["metric"] == "sales.revenue_plus_user_count"
-    assert exc_info.value.details["datasets"] == ["orders", "users"]
+    assert exc_info.value.details["datasets"] == ["sales.orders", "sales.users"]
     assert exc_info.value.details["dimensions"] == [{"id": "channel"}]
 
 
@@ -195,24 +193,23 @@ def test_observe_multi_dataset_missing_dimension_resolves_before_shape(tmp_path)
         )
 
     assert exc_info.value.details["dimension_id"] == "missing"
-    assert exc_info.value.details["searched_datasets"] == ["orders", "users"]
+    assert exc_info.value.details["searched_datasets"] == ["sales.orders", "sales.users"]
 
 
-def test_observe_multi_dataset_ambiguous_dimension_resolves_before_shape(tmp_path):
+def test_observe_multi_dataset_full_dimension_resolves_before_shape(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_users=False)
     s = session_attach.create(name="demo", backends=_backends(con))
 
-    with pytest.raises(AmbiguousDimensionError) as exc_info:
+    with pytest.raises(MetricShapeUnsupportedError) as exc_info:
         observe(
             MetricRef("sales.revenue_plus_user_count"),
-            dimensions=[DimensionRef("region")],
+            dimensions=[DimensionRef("sales.user_region")],
             session=s,
         )
 
-    assert exc_info.value.details["dimension_id"] == "region"
-    assert exc_info.value.details["candidates"] == ["orders.region", "users.region"]
+    assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
 
 
 def test_observe_multi_dataset_cross_dataset_dimensions_resolve_before_shape(tmp_path):
@@ -229,8 +226,8 @@ def test_observe_multi_dataset_cross_dataset_dimensions_resolve_before_shape(tmp
         )
 
     assert exc_info.value.details["dimensions_by_dataset"] == {
-        "orders": ["channel"],
-        "users": ["tier"],
+        "sales.orders": ["channel"],
+        "sales.users": ["tier"],
     }
 
 

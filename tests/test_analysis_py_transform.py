@@ -47,26 +47,25 @@ def _bootstrap_sales(tmp_path, *, with_country=False):
         "import marivo.semantic_py as ms\nms.model(name='sales')\n"
     )
     country_field = (
-        "@ms.field(dataset='orders')\ndef country(orders):\n    return orders.country\n\n"
+        "@ms.field(dataset=orders)\ndef country(orders):\n    return orders.country\n\n"
         if with_country
         else ""
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic_py as ms\n"
         "\n"
-        "@ms.datasource(name='warehouse')\n"
-        "def warehouse(): ...\n"
+        "warehouse = ms.datasource(name='warehouse', backend_type='duckdb')\n"
         "\n"
         "@ms.dataset(name='orders', datasource=warehouse)\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"
-        "@ms.time_field(dataset='orders', data_type='date', granularity='day')\n"
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
         f"{country_field}"
-        "@ms.metric(decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
         "def revenue(orders):\n"
         "    return orders.revenue.sum()\n"
     )
