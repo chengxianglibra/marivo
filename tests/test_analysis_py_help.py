@@ -88,3 +88,18 @@ def test_help_for_unknown_symbol_explains_how_to_list() -> None:
     out = _capture("nonexistent_thing_xyz")
     assert "unknown symbol" in out.lower() or "not found" in out.lower()
     assert "mv.help()" in out
+
+
+def test_help_lists_new_statistical_operators(capsys):
+    mv.help()
+    out = capsys.readouterr().out
+
+    assert "mv.test" in out
+    assert "mv.forecast" in out
+    assert "mv.assess_quality" in out
+
+
+def test_help_describes_new_statistical_operators(capsys):
+    for name in ("test", "forecast", "assess_quality"):
+        mv.help(name)
+        assert name in capsys.readouterr().out

@@ -25,6 +25,9 @@ mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))  # -
 mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))     # -> AttributionFrame
 mv.discover(series, objective="point_anomalies", threshold=1.0)  # -> CandidateSet
 mv.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))  # -> AssociationResult
+mv.test(cur, base)       # -> HypothesisTestResult
+mv.forecast(series, horizon=7)  # -> ForecastFrame
+mv.assess_quality(series)       # -> QualityReport
 
 mv.session.current()      # current session summary, or None
 mv.session.history()      # recent session/job history
@@ -52,6 +55,9 @@ Important current return types:
   `CandidateSet`.
 - `mv.correlate(metric_frame, metric_frame, ...)` returns
   `AssociationResult`.
+- Use `mv.test(cur, base)` for paired `mean_changed` tests over compatible metric frames.
+- Use `mv.forecast(history, horizon=N)` for time-series or panel metric forecasts.
+- Use `mv.assess_quality(frame)` before downstream operations when data quality is uncertain.
 
 ## Standard workflow
 

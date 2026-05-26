@@ -212,3 +212,11 @@ already exists in the `DeltaFrame`.
 delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
 attribution = mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 ```
+
+## test / forecast / assess_quality
+
+- `mv.test(cur, base)` v1 supports only `hypothesis="mean_changed"` and paired MetricFrames with matching `semantic_kind` and `semantic_model`; scalar MetricFrames are rejected because they do not contain paired samples.
+- `SamplingPolicy.pairing` must match the frame shape: use `calendar_bucket` for `time_series` / `panel`, and `segment_key` for `segmented`.
+- `mv.forecast(history, horizon=7)` v1 supports only `MetricFrame(time_series|panel)` with continuous time buckets and no NaN value rows; impute or re-observe before forecasting.
+- `seasonal_naive` needs at least `seasonality_period + 1` training rows for a time series.
+- `mv.assess_quality(frame)` v1 accepts only `MetricFrame`; reports for delta, candidate, forecast, and attribution frames are planned for later.

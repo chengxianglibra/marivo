@@ -16,7 +16,10 @@ from marivo.analysis_py.frames.attribution import AttributionFrame, AttributionF
 from marivo.analysis_py.frames.base import BaseFrame
 from marivo.analysis_py.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis_py.frames.forecast import ForecastFrame, ForecastFrameMeta
+from marivo.analysis_py.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis_py.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis_py.session.persistence import read_frame_from_disk
 from marivo.analysis_py.windows import AbsoluteWindow
 
@@ -29,6 +32,9 @@ _FRAME_CLASSES = {
     "attribution_frame": (AttributionFrame, AttributionFrameMeta),
     "candidate_set": (CandidateSet, CandidateSetMeta),
     "association_result": (AssociationResult, AssociationResultMeta),
+    "hypothesis_test_result": (HypothesisTestResult, HypothesisTestResultMeta),
+    "forecast_frame": (ForecastFrame, ForecastFrameMeta),
+    "quality_report": (QualityReport, QualityReportMeta),
 }
 
 

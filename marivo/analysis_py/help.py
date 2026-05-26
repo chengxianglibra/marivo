@@ -8,11 +8,14 @@ from types import ModuleType
 from typing import cast
 
 _TOP_LEVEL_ENTRIES = {
+    "assess_quality": "inspect MetricFrame quality and recommend follow-ups",
     "observe": "build a MetricFrame from a metric and window",
     "compare": "compare two MetricFrames into a DeltaFrame",
     "decompose": "decompose a DeltaFrame into an AttributionFrame",
     "discover": "discover candidate follow-ups from analysis artifacts",
+    "forecast": "project a time_series or panel MetricFrame forward",
     "correlate": "correlate compatible analysis frames",
+    "test": "run a mean_changed paired test over compatible MetricFrames",
     "transform": "family-preserving reshape of a MetricFrame / DeltaFrame",
     "session": "session lifecycle and persistence helpers",
     "help": "print top-level or symbol-specific introspection",

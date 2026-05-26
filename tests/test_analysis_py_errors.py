@@ -121,3 +121,17 @@ def test_transform_dimension_not_found_error_lists_axes():
         details={"dimension": "platform", "axes": ["country", "time"]},
     )
     assert err.details["axes"] == ["country", "time"]
+
+
+def test_new_operator_errors_are_structured():
+    from marivo.analysis_py.errors import (
+        AnalysisError,
+        ForecastPolicyError,
+        QualityShapeUnsupportedError,
+        TestPolicyError,
+    )
+
+    for cls in (TestPolicyError, ForecastPolicyError, QualityShapeUnsupportedError):
+        err = cls(message="bad policy", details={"operator": cls.__name__})
+        assert isinstance(err, AnalysisError)
+        assert err._template_fields()["doc"].endswith("references/pitfalls.md")

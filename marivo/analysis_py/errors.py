@@ -177,6 +177,90 @@ class SemanticKindMismatchError(AnalysisError):
 class AlignmentFailedError(AnalysisError): ...
 
 
+class TestShapeNotTestableError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        return {
+            "location": "mv.test call",
+            "cause": "mean_changed needs paired observations; scalar frames or too-small paired samples cannot be tested in v1.",
+            "fix_snippet": (
+                'cur = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-07-31", "grain": "day"})\n'
+                'base = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-07-31", "grain": "day"})\n'
+                "mv.test(cur, base)"
+            ),
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class TestPolicyError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        return {
+            "location": "mv.test policy arguments",
+            "cause": "test v1 only supports mean_changed, calendar_bucket alignment, and shape-compatible SamplingPolicy.pairing.",
+            "fix_snippet": "mv.test(cur, base, sampling=mv.SamplingPolicy(pairing='calendar_bucket'), alpha=0.05)",
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class TestAlignmentError(AlignmentFailedError):
+    def _template_fields(self) -> dict[str, str]:
+        return {
+            "location": "mv.test alignment",
+            "cause": "the input frames did not produce any paired samples after alignment and null dropping.",
+            "fix_snippet": "mv.test(cur, base, alignment=mv.AlignmentPolicy(kind='calendar_bucket'))",
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class ForecastShapeUnsupportedError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        return {
+            "location": "mv.forecast input frame",
+            "cause": "forecast v1 accepts only MetricFrame time_series or panel shapes.",
+            "fix_snippet": 'history = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-01-01", "end": "2026-03-31", "grain": "day"})\nmv.forecast(history, horizon=30)',
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class ForecastPolicyError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        return {
+            "location": "mv.forecast policy arguments",
+            "cause": "horizon, interval_level, model, seasonality_period, or grain is outside the v1 supported contract.",
+            "fix_snippet": "mv.forecast(history, horizon=30, model='seasonal_naive', seasonality_period=7, interval_level=0.95)",
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class ForecastInsufficientHistoryError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        return {
+            "location": "mv.forecast history",
+            "cause": "the time_series input has fewer training points than the selected model requires.",
+            "fix_snippet": 'history = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-01-01", "end": "2026-03-31", "grain": "day"})',
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class ForecastInputQualityError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        return {
+            "location": "mv.forecast history data",
+            "cause": "forecast does not silently impute NaN values or fill missing time buckets.",
+            "fix_snippet": "clean = mv.transform(history, op='window', order_by='time')  # or impute upstream before forecasting",
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class QualityShapeUnsupportedError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        return {
+            "location": "mv.assess_quality target",
+            "cause": "assess_quality v1 only supports MetricFrame targets; other frame families are planned for v1.1+.",
+            "fix_snippet": "report = mv.assess_quality(metric_frame)",
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
 class MetricShapeUnsupportedError(AnalysisError):
     pass
 
