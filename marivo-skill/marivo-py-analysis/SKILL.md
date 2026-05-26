@@ -73,14 +73,11 @@ Important current return types:
    tiny in-memory semantic model using the installed `marivo` package. Examples
    that use DuckDB require `marivo[duckdb]` or an equivalent environment.
 
-3. If live data is required, persist the connection once via
-   `mv.profiles.set(name, backend_type=..., **kwargs)`; `mv.session.create`
-   then resolves the backend automatically. Sensitive fields (password,
-   token, api_key, ...) go via `*_env="VAR_NAME"` and are read from
-   `os.environ` at backend-build time. For tests or explicit overrides, pass
-   `backends=` / `backend_factory=` and set `use_profiles=False`. See
-   `references/profiles.md` for the full registry contract and
-   `references/backend-setup.md` for templates.
+3. If live data is required, use an already configured datasource profile.
+   Profile definition and repair are owned by `marivo-py-semantic`; see
+   `../marivo-py-semantic/references/datasource.md`. For tests or explicit
+   overrides, pass `backends=` / `backend_factory=` and set
+   `use_profiles=False`; see `references/backend-setup.md`.
 
 4. Write a small script in the user's project or scratch area. Use one of the
    templates below or adapt a runnable file from `references/examples/*.py`.
@@ -137,28 +134,12 @@ for follow-up.
 
 ### Attach live backend (profile-backed, recommended)
 
-Persist the connection once, then let the session resolve it. The profile
-file lives at `~/.marivo/profiles/profiles.json` (override with
-`$MARIVO_HOME`) and is user-scope — reused across every Marivo project on
-the machine. For Trino prompt-field mapping see `references/backend-setup.md`;
-for the full registry contract see `references/profiles.md`.
+Use this only when `marivo-py-semantic` has already created the required
+datasource profile. This skill consumes profiles; it does not define or repair
+them.
 
 ```python
 import marivo.analysis_py as mv
-
-mv.profiles.set(
-    "warehouse",
-    backend_type="trino",
-    host="<trino_host>",
-    port=8080,
-    user="<user>",
-    catalog="<catalog>",
-    schema="<schema>",
-    http_scheme="https",
-    source="<source>",
-    client_tags=["standby", "routing_group=wide"],
-    password_env="WAREHOUSE_PWD",   # secret read from os.environ
-)
 
 mv.session.create(name="analysis")  # backend resolved from the profile
 ```
@@ -347,9 +328,8 @@ Need raw pandas operations?
 - `references/examples/_fixtures/tiny_semantic.py` - tiny semantic model used by
   the examples; requires DuckDB support in the active Marivo environment
 - `references/cheatsheet.md` - compact intent/frame reference
-- `references/profiles.md` - user-scope datasource profile registry
-  (`mv.profiles.set / list / describe / test / remove`), env-var secret
-  contract, audit and error reference
-- `references/backend-setup.md` - profile-backed and explicit-override
-  backend flows, Trino connection-field mapping
+- `../marivo-py-semantic/references/datasource.md` - profile-backed datasource
+  definition and required profile fields
+- `references/backend-setup.md` - how analysis consumes existing profiles or
+  uses explicit backend overrides
 - `references/pitfalls.md` - expanded error recovery notes

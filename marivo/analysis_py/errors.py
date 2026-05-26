@@ -332,7 +332,7 @@ class NoBackendFactoryError(AnalysisError):
                     'backend_factory=lambda name: ibis.duckdb.connect(":memory:"), '
                     "use_profiles=False)"
                 ),
-                "doc": "marivo-skill/marivo-py-analysis/references/profiles.md",
+                "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
             }
         return {
             "location": "@ms.datasource backend factory",
@@ -348,7 +348,7 @@ class NoBackendFactoryError(AnalysisError):
                 'ms.datasource(name="tiny_orders", backend_type="duckdb")\n'
                 'mv.profiles.set("tiny_orders", backend_type="duckdb", path=":memory:")\n'
             ),
-            "doc": "marivo-skill/marivo-py-analysis/references/profiles.md",
+            "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
@@ -376,7 +376,7 @@ class ProfileMissingError(AnalysisError):
                 f'mv.profiles.set({ds_ref!r}, {bt_arg}host="...", port=..., user="...")\n'
                 f'# Sensitive fields go via *_env: mv.profiles.set({ds_ref!r}, ..., password_env="PWD_VAR")'
             ),
-            "doc": "marivo-skill/marivo-py-analysis/references/profiles.md",
+            "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
@@ -395,7 +395,7 @@ class ProfileEnvVarMissingError(AnalysisError):
                 "but that variable is not set in os.environ."
             ),
             "fix_snippet": f'export {var_ref}="<your secret>"',
-            "doc": "marivo-skill/marivo-py-analysis/references/profiles.md",
+            "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
@@ -417,7 +417,7 @@ class ProfileSecretInPlaintextError(AnalysisError):
                 f'mv.profiles.set({ds_ref!r}, ..., {env_ref}="MY_SECRET_VAR")\n'
                 f'# then: export MY_SECRET_VAR="<your secret>"'
             ),
-            "doc": "marivo-skill/marivo-py-analysis/references/profiles.md",
+            "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
@@ -432,7 +432,7 @@ class ProfileFieldInvalidError(AnalysisError):
         return {
             "location": f"mv.profiles entry {ds_ref!r} field {field_ref!r}",
             "cause": reason_ref,
-            "doc": "marivo-skill/marivo-py-analysis/references/profiles.md",
+            "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
@@ -451,7 +451,7 @@ class ProfileBackendTypeUnsupportedError(AnalysisError):
         return {
             "location": "mv.profiles backend dispatch",
             "cause": f"backend_type={bt_ref!r} is not handled by the profile registry; {supported_line}",
-            "doc": "marivo-skill/marivo-py-analysis/references/profiles.md",
+            "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
@@ -469,7 +469,7 @@ class ProfileSchemaVersionError(AnalysisError):
                 f"profile registry schema_version={got_ref} is not supported by this "
                 f"version of marivo.analysis_py (expected {expected_ref})."
             ),
-            "doc": "marivo-skill/marivo-py-analysis/references/profiles.md",
+            "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 
@@ -489,7 +489,7 @@ class ProfileConnectionError(AnalysisError):
                 "import marivo.analysis_py as mv\n"
                 f"mv.profiles.test({ds_ref!r})"
             ),
-            "doc": "marivo-skill/marivo-py-analysis/references/profiles.md",
+            "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
 
 

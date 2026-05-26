@@ -277,6 +277,7 @@ time field 是特殊 field，显式承载时间轴元数据：
     dataset=orders,
     data_type="date",
     granularity="day",
+    format=None,
     description="Order creation date.",
 )
 def order_date(orders):
@@ -287,7 +288,8 @@ def order_date(orders):
 
 - 需要作为时间窗口、时间粒度或 calendar axis 使用的字段必须声明为 `time_field`。
 - 普通 `field` 不应靠名称如 `dt`、`date`、`event_time` 被自动推断为时间字段。
-- hour 粒度且需要日期上下文的字段必须显式声明 `required_prefix`。
+- `data_type` 支持 `date`、`datetime`、`timestamp`、`string`、`integer`；字符串或整数时间字段用可选 `format` 声明物理格式。
+- hour-only 字段（例如 `data_type="string", format="hh"` 或 `data_type="integer", format="h"`）必须显式声明 `required_prefix`；timestamp/datetime hour 字段或单列完整 hour 格式不需要。
 - 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `field` / `time_field`，再在 metric 中引用。
 - `@ms.field` / `@ms.time_field` 不要求 provenance status。它们的可信度来自所属 dataset、row-level 表达式可读性和 materialization 校验。`source_sql` 是可选审计字段；缺失时 `describe` 显示 `provenance=null`。
 

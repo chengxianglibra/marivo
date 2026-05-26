@@ -160,6 +160,7 @@ class FieldIR:
     required_prefix: str | None
     python_symbol: str
     location: SourceLocation
+    format: str | None = None
 
 
 @dataclass(frozen=True)

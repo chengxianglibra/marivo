@@ -6,11 +6,13 @@ absorbs the old registry.py LoaderContext management.
 
 from __future__ import annotations
 
-import runpy
 import sys
+import types
 from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from hashlib import sha1
+from importlib import util as importlib_util
 from pathlib import Path
 from typing import Any, Literal
 
@@ -97,10 +99,35 @@ def _discover_model_dirs(root: Path) -> list[Path]:
     return dirs
 
 
+def _module_prefix(root: Path) -> str:
+    """Return a stable synthetic package prefix for this semantic root."""
+    digest = sha1(str(root.resolve()).encode("utf-8")).hexdigest()[:12]
+    return f"_marivo_semantic_{digest}"
+
+
+def _purge_synthetic_modules(prefix: str) -> None:
+    """Remove previously loaded synthetic modules for a reload-safe project load."""
+    for name in list(sys.modules):
+        if name == prefix or name.startswith(f"{prefix}."):
+            del sys.modules[name]
+
+
+def _ensure_package(name: str, path: Path) -> None:
+    """Install a lightweight package module with a filesystem search path."""
+    package = types.ModuleType(name)
+    package.__file__ = str(path)
+    package.__package__ = name
+    package.__path__ = [str(path)]
+    sys.modules[name] = package
+
+
 def _execute_file(
     filepath: Path,
     ctx: LoaderContext,
     errors: list[SemanticError],
+    *,
+    module_name: str,
+    package_name: str,
 ) -> None:
     """Execute a single Python file within the loader context.
 
@@ -108,12 +135,13 @@ def _execute_file(
     """
     token = _LOADER_CTX.set(ctx)
     try:
-        # Use runpy for isolation
-        runpy.run_path(
-            str(filepath),
-            init_globals={"__name__": "__marivo_semantic__", "__file__": str(filepath)},
-            run_name="__marivo_semantic__",
-        )
+        spec = importlib_util.spec_from_file_location(module_name, filepath)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not create module spec for {filepath}")
+        module = importlib_util.module_from_spec(spec)
+        module.__package__ = package_name
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
     except Exception as exc:
         if isinstance(exc, SemanticError):
             errors.append(exc)
@@ -133,6 +161,8 @@ def _load_model_dir(
     model_dir: Path,
     root: Path,
     errors: list[SemanticError],
+    *,
+    module_prefix: str,
 ) -> LoaderContext | None:
     """Load a single model directory.
 
@@ -154,7 +184,15 @@ def _load_model_dir(
 
     # Execute _model.py
     ctx = LoaderContext()
-    _execute_file(model_file, ctx, errors)
+    model_package = f"{module_prefix}.{model_name}"
+    _ensure_package(model_package, model_dir)
+    _execute_file(
+        model_file,
+        ctx,
+        errors,
+        module_name=f"{model_package}._model",
+        package_name=model_package,
+    )
 
     # Validate ms.model() was called and name matches directory
     model_names = [ir.name for ir, _ in ctx.pending_objects if isinstance(ir, ModelIR)]
@@ -198,7 +236,13 @@ def _load_model_dir(
         sibling_files.append(child)
 
     for sibling in sibling_files:
-        _execute_file(sibling, ctx, errors)
+        _execute_file(
+            sibling,
+            ctx,
+            errors,
+            module_name=f"{model_package}.{sibling.stem}",
+            package_name=model_package,
+        )
 
     return ctx
 
@@ -287,16 +331,20 @@ def load_project(root: Path) -> LoadResult:
     registry: Registry | None = None
     sidecar: Sidecar | None = None
 
+    module_prefix = _module_prefix(root)
+    _purge_synthetic_modules(module_prefix)
+
     # Inject root's parent into sys.path so model files can import each other
     path_entry = str(root.parent)
     sys.path.insert(0, path_entry)
     try:
+        _ensure_package(module_prefix, root)
         model_dirs = _discover_model_dirs(root)
         all_contexts: list[LoaderContext] = []
 
         # Pass 1: Discover + Collect
         for model_dir in model_dirs:
-            ctx = _load_model_dir(model_dir, root, errors)
+            ctx = _load_model_dir(model_dir, root, errors, module_prefix=module_prefix)
             if ctx is not None:
                 all_contexts.append(ctx)
 

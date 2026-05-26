@@ -157,7 +157,7 @@ def _build_dataset_adapter(
         time_meta = _TimeFieldMetaAdapter(
             data_type=tf_ir.data_type or "date",
             granularity=tf_ir.granularity or "day",
-            format=None,
+            format=tf_ir.format,
             required_prefix=tf_ir.required_prefix,
         )
         adapter = _FieldIRAdapter(

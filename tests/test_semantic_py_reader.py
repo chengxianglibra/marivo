@@ -841,6 +841,36 @@ def test_describe_time_field_has_granularity(semantic_project_factory) -> None:
     assert desc.granularity == "day"
 
 
+def test_describe_time_field_has_format(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": textwrap.dedent("""\
+                import marivo.semantic_py as ms
+
+                wh = ms.datasource(name="wh", backend_type="duckdb")
+
+                @ms.dataset(datasource=wh)
+                def orders(backend):
+                    return backend.table("orders")
+
+                @ms.time_field(
+                    dataset=orders,
+                    data_type="string",
+                    granularity="day",
+                    format="yyyymmdd",
+                )
+                def log_date(table):
+                    return table.log_date
+            """),
+        }
+    )
+    desc = project.describe("sales.log_date")
+    assert isinstance(desc, Description)
+    assert desc.kind == SymbolKind.TIME_FIELD
+    assert desc.format == "yyyymmdd"
+
+
 # ---------------------------------------------------------------------------
 # reader on unloaded / errored project
 # ---------------------------------------------------------------------------

@@ -552,8 +552,9 @@ def time_field(
     *,
     name: str | None = None,
     dataset: DatasetRef | str,
-    data_type: Literal["date", "datetime", "timestamp"],
+    data_type: Literal["date", "datetime", "timestamp", "string", "integer"],
     granularity: Literal["year", "quarter", "month", "week", "day", "hour"],
+    format: str | None = None,
     required_prefix: str | None = None,
     model: str | None = None,
     description: str | None = None,
@@ -585,6 +586,7 @@ def time_field(
             required_prefix=required_prefix,
             python_symbol=fn.__name__,
             location=location,
+            format=format,
         )
         _push_ir(ctx, ir, fn)
 
