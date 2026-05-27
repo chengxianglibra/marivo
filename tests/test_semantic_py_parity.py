@@ -176,7 +176,7 @@ _DECLARED_PYTHON_NATIVE_PY = textwrap.dedent("""\
     @ms.metric(
         datasets=[orders],
         decomposition=ms.sum(),
-        provenance="python_native",
+        declared_status="python_native",
     )
     def total_amount(table):
         return table.amount.sum()
@@ -193,7 +193,7 @@ _DECLARED_UNVERIFIED_PY = textwrap.dedent("""\
         decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) FROM orders",
         source_dialect="duckdb",
-        provenance="unverified",
+        declared_status="unverified",
     )
     def total_amount(table):
         return table.amount.sum()
@@ -596,7 +596,7 @@ def test_derived_propagation_verified_and_python_native(
         @ms.metric(
             datasets=[orders],
             decomposition=ms.sum(),
-            provenance="python_native",
+            declared_status="python_native",
         )
         def cost(table):
             return table.amount.sum()

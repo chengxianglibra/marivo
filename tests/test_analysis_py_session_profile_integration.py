@@ -51,7 +51,7 @@ def test_observe_uses_global_datasource_name(tmp_path: Path, fake_home: Path) ->
     seeded = ibis.duckdb.connect(str(db_path))
     _seed(seeded)
     seeded.disconnect()
-    mv.datasources.set("warehouse", backend_type="duckdb", path=str(db_path))
+    mv.datasources.register("warehouse", backend_type="duckdb", path=str(db_path))
 
     session = mv.session.get_or_create(name="s")
     frame = mv.observe(mv.MetricRef("sales.revenue"), session=session)
@@ -62,14 +62,14 @@ def test_observe_uses_global_datasource_name(tmp_path: Path, fake_home: Path) ->
 
 def test_model_qualified_datasource_name_is_rejected(tmp_path: Path, fake_home: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        mv.datasources.set("sales.warehouse", backend_type="duckdb", path=":memory:")
+        mv.datasources.register("sales.warehouse", backend_type="duckdb", path=":memory:")
 
     assert exc_info.value.details["field"] == "<name>"
 
 
 def test_explicit_backend_factory_overrides_datasource(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
-    mv.datasources.set("warehouse", backend_type="duckdb", path=":memory:")
+    mv.datasources.register("warehouse", backend_type="duckdb", path=":memory:")
 
     sentinel = ibis.duckdb.connect(":memory:")
     _seed(sentinel)
@@ -91,12 +91,12 @@ def test_missing_datasource_raises_datasource_missing(tmp_path: Path, fake_home:
         session.backend_cache.get_or_create("warehouse")
     rendered = str(exc_info.value)
     assert "warehouse" in rendered
-    assert "mv.datasources.set" in rendered
+    assert "mv.datasources.register" in rendered
 
 
 def test_use_datasources_false_disables_auto_factory(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
-    mv.datasources.set("warehouse", backend_type="duckdb", path=":memory:")
+    mv.datasources.register("warehouse", backend_type="duckdb", path=":memory:")
     session = mv.session.get_or_create(name="s", use_datasources=False)
     with pytest.raises(NoBackendFactoryError):
         session.backend_cache.get_or_create("warehouse")

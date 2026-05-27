@@ -227,8 +227,8 @@ def _make_topk_delta_time_series() -> DeltaFrame:
             row_count=len(df),
             byte_size=0,
             metric_id="sales.revenue",
-            source_a_ref="frame_current",
-            source_b_ref="frame_baseline",
+            source_current_ref="frame_current",
+            source_baseline_ref="frame_baseline",
             alignment={"kind": "calendar_bucket", "axes": axes},
             semantic_kind="time_series",
             semantic_model="sales",
@@ -298,7 +298,7 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
         semantic_model="sales",
         session=session,
     )
-    share = transform.normalize(segmented, kind="share")
+    share = transform.normalize(segmented, mode="share")
     assert share.to_pandas()["revenue"].round(6).tolist() == [0.428571, 0.571429]
 
     panel = MetricFrame.from_dataframe(
@@ -360,8 +360,8 @@ def _make_one_sided_delta_panel() -> DeltaFrame:
             row_count=len(df),
             byte_size=0,
             metric_id="sales.revenue",
-            source_a_ref="frame_current",
-            source_b_ref="frame_baseline",
+            source_current_ref="frame_current",
+            source_baseline_ref="frame_baseline",
             alignment={"kind": "calendar_bucket", "axes": axes},
             semantic_kind="panel",
             semantic_model="sales",
@@ -401,8 +401,8 @@ def _make_current_only_delta_panel() -> DeltaFrame:
             row_count=len(df),
             byte_size=0,
             metric_id="sales.revenue",
-            source_a_ref="frame_current",
-            source_b_ref="frame_baseline",
+            source_current_ref="frame_current",
+            source_baseline_ref="frame_baseline",
             alignment={"kind": "calendar_bucket", "axes": axes},
             semantic_kind="panel",
             semantic_model="sales",
@@ -531,8 +531,8 @@ def test_transform_window_clips_delta_time_series_without_axes(tmp_path):
             row_count=3,
             byte_size=0,
             metric_id="sales.revenue",
-            source_a_ref="frame_current",
-            source_b_ref="frame_baseline",
+            source_current_ref="frame_current",
+            source_baseline_ref="frame_baseline",
             alignment={"kind": "calendar_bucket"},
             semantic_kind="time_series",
             semantic_model="sales",
@@ -562,7 +562,7 @@ def test_transform_window_rejects_zero_length_relative_window(tmp_path):
 
 
 def test_transform_window_resolves_relative_window_with_session_timezone():
-    session = session_attach.get_or_create(name="demo", tz="America/Los_Angeles")
+    session = session_attach.get_or_create(name="demo", timezone="America/Los_Angeles")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -608,7 +608,7 @@ def test_transform_window_absolute_invalid_timezone_raises(tmp_path):
 
 
 def test_transform_window_absolute_timezone_clips_tz_aware_axis():
-    session = session_attach.get_or_create(name="demo", tz="UTC")
+    session = session_attach.get_or_create(name="demo", timezone="UTC")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -735,13 +735,13 @@ def test_transform_normalize_param_value_converts_numpy_scalar():
 def test_transform_normalize_index_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
 
-    normalized = transform(frame, op="normalize", kind="index")
+    normalized = transform(frame, op="normalize", mode="index")
 
     df = normalized.to_pandas()
     assert df["revenue"].tolist() == [100.0, 200.0]
     assert normalized.meta.normalization == {
-        "kind": "index",
-        "base": None,
+        "mode": "index",
+        "baseline": None,
         "columns_affected": ["revenue"],
     }
 
@@ -771,7 +771,7 @@ def test_transform_normalize_prefers_declared_metric_measure_column():
         session=session,
     )
 
-    normalized = transform(frame, op="normalize", kind="index")
+    normalized = transform(frame, op="normalize", mode="index")
 
     df = normalized.to_pandas()
     assert df["rank"].tolist() == [1, 2]
@@ -804,7 +804,7 @@ def test_transform_normalize_prefers_metric_measure_name_when_column_absent():
         session=session,
     )
 
-    normalized = transform(frame, op="normalize", kind="index")
+    normalized = transform(frame, op="normalize", mode="index")
 
     df = normalized.to_pandas()
     assert df["rank"].tolist() == [1, 2]
@@ -815,17 +815,17 @@ def test_transform_normalize_prefers_metric_measure_name_when_column_absent():
 def test_transform_normalize_share_on_segmented(tmp_path):
     frame = _make_segmented(tmp_path)
 
-    normalized = transform(frame, op="normalize", kind="share")
+    normalized = transform(frame, op="normalize", mode="share")
 
     df = normalized.to_pandas()
-    assert normalized.meta.normalization["kind"] == "share"
+    assert normalized.meta.normalization["mode"] == "share"
     assert df["revenue"].sum() == pytest.approx(1.0)
 
 
 def test_transform_normalize_pct_change_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
 
-    normalized = transform(frame, op="normalize", kind="pct_change")
+    normalized = transform(frame, op="normalize", mode="pct_change")
 
     values = normalized.to_pandas()["revenue"]
     assert pd.isna(values.iloc[0])
@@ -860,7 +860,7 @@ def test_transform_normalize_pct_change_on_unsorted_panel_uses_time_order_per_di
         session=session,
     )
 
-    normalized = transform(frame, op="normalize", kind="pct_change")
+    normalized = transform(frame, op="normalize", mode="pct_change")
 
     values = normalized.to_pandas()["revenue"]
     assert values.iloc[0] == pytest.approx(1.0)
@@ -872,7 +872,7 @@ def test_transform_normalize_pct_change_on_unsorted_panel_uses_time_order_per_di
 def test_transform_normalize_share_on_panel_normalizes_within_each_time_bucket(tmp_path):
     frame = _make_panel(tmp_path)
 
-    normalized = transform(frame, op="normalize", kind="share")
+    normalized = transform(frame, op="normalize", mode="share")
 
     df = normalized.to_pandas()
     shares_by_bucket = df.groupby("bucket_start", dropna=False)["revenue"].sum()
@@ -885,11 +885,11 @@ def test_transform_normalize_pct_change_requires_time_axis(tmp_path):
     frame = _make_segmented(tmp_path)
 
     with pytest.raises(TransformShapeUnsupportedError) as excinfo:
-        transform(frame, op="normalize", kind="pct_change")
+        transform(frame, op="normalize", mode="pct_change")
 
     err = excinfo.value
     assert err.details["op"] == "normalize"
-    assert err.details["kind"] == "pct_change"
+    assert err.details["mode"] == "pct_change"
     assert err.details["required_axis"] == "time"
 
 
@@ -920,11 +920,11 @@ def test_transform_normalize_pct_change_rejects_zero_denominator():
     )
 
     with pytest.raises(TransformArgError) as excinfo:
-        transform(frame, op="normalize", kind="pct_change")
+        transform(frame, op="normalize", mode="pct_change")
 
     err = excinfo.value
     assert err.details["op"] == "normalize"
-    assert err.details["kind"] == "pct_change"
+    assert err.details["mode"] == "pct_change"
     assert err.details["column"] == "revenue"
 
 
@@ -933,13 +933,13 @@ def test_transform_normalize_per_unit_requires_base(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformArgError):
-        transform(frame, op="normalize", kind="per_unit")
+        transform(frame, op="normalize", mode="per_unit")
 
 
 def test_transform_normalize_z_score(tmp_path):
     frame = _make_time_series(tmp_path)
 
-    normalized = transform(frame, op="normalize", kind="z_score")
+    normalized = transform(frame, op="normalize", mode="z_score")
 
     values = normalized.to_pandas()["revenue"]
     assert values.mean() == pytest.approx(0.0)
@@ -951,7 +951,7 @@ def test_transform_normalize_share_rejected_on_delta():
 
     frame = _make_topk_delta_time_series()
     with pytest.raises(TransformArgError):
-        transform(frame, op="normalize", kind="share")
+        transform(frame, op="normalize", mode="share")
 
 
 def test_transform_normalize_index_rejected_on_delta():
@@ -959,7 +959,7 @@ def test_transform_normalize_index_rejected_on_delta():
 
     frame = _make_topk_delta_time_series()
     with pytest.raises(TransformArgError) as excinfo:
-        transform(frame, op="normalize", kind="index")
+        transform(frame, op="normalize", mode="index")
     assert excinfo.value.details["op"] == "normalize"
     assert excinfo.value.details["frame_kind"] == "delta_frame"
 
@@ -1171,7 +1171,7 @@ def test_transform_topk_on_delta_frame_orders_and_leaves_nan_last():
 
 def test_transform_topk_decrease_on_delta_frame_takes_most_negative_delta():
     delta = _make_topk_delta_time_series()
-    top = transform(delta, op="topk", by="delta", limit=1, direction="decrease")
+    top = transform(delta, op="topk", by="delta", limit=1, order="decrease")
     assert isinstance(top, DeltaFrame)
     assert top.meta.row_count == 1
     assert top.to_pandas()["delta"].tolist() == [-1.0]
@@ -1300,7 +1300,7 @@ def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
     )
     assert sliced.meta.semantic_kind == "scalar"
     assert "country" not in sliced.meta.axes
-    assert sliced.meta.slice["country"] == "US"
+    assert sliced.meta.where["country"] == "US"
 
 
 def test_transform_slice_string_dimension_key_demotes_on_single_value(tmp_path):
@@ -1308,7 +1308,7 @@ def test_transform_slice_string_dimension_key_demotes_on_single_value(tmp_path):
     sliced = transform(frame, op="slice", where={"country": "US"})
     assert sliced.meta.semantic_kind == "scalar"
     assert "country" not in sliced.meta.axes
-    assert sliced.meta.slice["country"] == "US"
+    assert sliced.meta.where["country"] == "US"
     assert "country" not in sliced.to_pandas().columns
 
 
@@ -1316,7 +1316,7 @@ def test_transform_slice_delta_dimension_selector_is_recorded_in_alignment(tmp_p
     frame = _make_delta_panel(tmp_path)
     sliced = transform(frame, op="slice", where={DimensionRef(id="country"): "US"})
     assert isinstance(sliced, DeltaFrame)
-    assert sliced.meta.alignment["slice"]["country"] == "US"
+    assert sliced.meta.alignment["where"]["country"] == "US"
     assert "country" not in sliced.meta.alignment["axes"]
     assert "country" not in sliced.to_pandas().columns
 

@@ -19,7 +19,7 @@ base = mv.observe(
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
     session=session,
 )
-result = mv.test(cur, base, session=session)
+result = mv.hypothesis_test(cur, base, session=session)
 
 assert result.meta.kind == "hypothesis_test_result"
 assert result.meta.hypothesis == "mean_changed"

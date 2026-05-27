@@ -36,7 +36,7 @@ shifts = mv.discover.period_shifts(delta, value="delta", session=session)
 print(f"shifts.objective={shifts.meta.objective!r}")
 print(f"shifts.row_count={shifts.meta.row_count}")
 if shifts.meta.row_count:
-    window = mv.select(shifts, rank=1, field="window")
+    window = mv.select(shifts, rank=1, attribute="window")
     print(f"first_shift_window={window.start}..{window.end}")
 
 # Expected output:

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from marivo.analysis_py.errors import (
     AmbiguousDimensionError,
@@ -43,6 +43,7 @@ from marivo.analysis_py.session.attach import active as session_active
 from marivo.analysis_py.session.core import Session, ensure_session_writable
 from marivo.analysis_py.session.persistence import (
     read_session_meta,
+    write_frame_to_disk,
     write_job_record,
     write_session_meta,
 )
@@ -497,7 +498,7 @@ def _observe_derived_segmented(
     session: Session,
     dimensions: list[Any] | None,
     resolved_window: AbsoluteWindow | None,
-    slice: dict[str, Any] | None,
+    where: dict[str, Any] | None,
 ) -> tuple[Any, dict[str, Any], Literal["segmented"]]:
     if resolved_window is not None:
         raise MetricShapeUnsupportedError(
@@ -566,7 +567,7 @@ def _observe_derived_segmented(
         ds_adapter = dataset_irs[base_dataset]
         datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
         table = ds_adapter.fn(backend)
-        table = apply_slice_to_dataset(table, slice, dataset_ir=ds_adapter)
+        table = apply_slice_to_dataset(table, where, dataset_ir=ds_adapter)
         if base_dataset != dimension_dataset:
             table = _join_related_dimension_table(
                 table,
@@ -642,13 +643,13 @@ def observe(
     *,
     window: WindowInput = None,
     dimensions: list[DimensionRef] | None = None,
-    slice: dict[str, SliceValue] | None = None,
+    where: dict[str, SliceValue] | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
     """Materialize a metric into a typed MetricFrame.
 
     Resolves ``metric`` against the active semantic project, applies the
-    optional ``window`` / ``dimensions`` / ``slice`` filters, executes against
+    optional ``window`` / ``dimensions`` / ``where`` filters, executes against
     the session's backend, and persists the result as a MetricFrame on disk.
 
     Args:
@@ -659,7 +660,7 @@ def observe(
             result a time series.
         dimensions: Segment axes. In v1 all dimensions must resolve to the same
             dataset as ``metric``.
-        slice: Pre-aggregation row filter. Values are either a scalar (``==``),
+        where: Pre-aggregation row filter. Values are either a scalar (``==``),
             a list (``in``), or ``{"op": "<op>", "value": ...}`` where op is
             one of ``==, !=, in, >, >=, <, <=, between``.
         session: Defaults to the currently-attached session.
@@ -731,7 +732,7 @@ def observe(
     dataset_tables: dict[str, Any] = {}
     dataset_irs: dict[str, _DatasetIRAdapter] = {}
     primary_datasource: str | None = None
-    stored_slice = normalize_slice_for_storage(slice)
+    stored_where = normalize_slice_for_storage(where)
     metric_datasets = tuple(metric_ir.datasets)
     dimension_refs = _validate_dimension_refs(dimensions)
     if metric_ir.is_derived and dimension_refs:
@@ -742,7 +743,7 @@ def observe(
             session=session,
             dimensions=dimensions,
             resolved_window=resolved_window,
-            slice=slice,
+            where=where,
         )
         finished_at = datetime.now(UTC)
         frame_ref = _gen_ref("frame")
@@ -759,7 +760,7 @@ def observe(
             "metric": metric_id,
             "window": params_window,
             "dimensions": _dump_dimensions(dimensions),
-            "slice": stored_slice,
+            "where": stored_where,
         }
         meta = MetricFrameMeta(
             kind="metric_frame",
@@ -784,7 +785,7 @@ def observe(
             axes=derived_axes,
             measure={"name": metric_name},
             window=dump_window(resolved_window),
-            slice=stored_slice,
+            where=stored_where,
             semantic_kind=derived_kind,
             semantic_model=model_name,
         )
@@ -852,7 +853,7 @@ def observe(
                 message=f"metric '{metric_id}' spans multiple datasources; v1 does not support it",
             )
         table = ds_adapter.fn(backend)
-        table = apply_slice_to_dataset(table, slice, dataset_ir=ds_adapter)
+        table = apply_slice_to_dataset(table, where, dataset_ir=ds_adapter)
         table = apply_window_to_dataset(
             table,
             resolved_window,
@@ -1004,7 +1005,7 @@ def observe(
         "metric": metric_id,
         "window": params_window,
         "dimensions": _dump_dimensions(dimensions),
-        "slice": stored_slice,
+        "where": stored_where,
     }
     meta = MetricFrameMeta(
         kind="metric_frame",
@@ -1029,7 +1030,7 @@ def observe(
         axes=axes,
         measure={"name": metric_name},
         window=dump_window(resolved_window),
-        slice=stored_slice,
+        where=stored_where,
         semantic_kind=semantic_kind,
         semantic_model=model_name,
     )
@@ -1038,11 +1039,13 @@ def observe(
     # --- Evidence pipeline: commit_result replaces write_frame_to_disk ---
     _grain_raw = resolved_window.grain if resolved_window is not None else None
     _subject_grain: Literal["hour", "day", "week", "month"] | None = (
-        _grain_raw if _grain_raw in ("hour", "day", "week", "month") else None
+        cast("Literal['hour', 'day', 'week', 'month']", _grain_raw)
+        if _grain_raw in ("hour", "day", "week", "month")
+        else None
     )
     subject = Subject(
         metric=metric_id,
-        slice=stored_slice or {},
+        slice=stored_where or {},
         grain=_subject_grain,
         analysis_axis=_analysis_axis_for_kind(semantic_kind),
     )

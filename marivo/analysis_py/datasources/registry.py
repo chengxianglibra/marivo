@@ -35,7 +35,7 @@ class DatasourceTestResult:
     latency_ms: int | None
 
 
-def set(name: str, *, backend_type: str, **fields: Any) -> DatasourceSummary:
+def register(name: str, *, backend_type: str, **fields: Any) -> DatasourceSummary:
     """Create or replace a project-level datasource file."""
     stored = _store.save_one(name=name, backend_type=backend_type, fields=fields)
     return DatasourceSummary(name=stored.name, backend_type=stored.backend_type)
@@ -46,7 +46,7 @@ def remove(name: str) -> bool:
     return _store.delete_one(name)
 
 
-def list() -> builtins.list[DatasourceSummary]:
+def all() -> builtins.list[DatasourceSummary]:
     """Return every project datasource, sorted by name."""
     return [
         DatasourceSummary(name=p.name, backend_type=p.backend_type)

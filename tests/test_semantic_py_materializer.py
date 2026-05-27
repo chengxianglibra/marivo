@@ -490,7 +490,7 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
         def count_metric(table):
             return table.count()
 
-        @ms.metric(datasets=[], decomposition=ms.weighted_average(numerator="sales.revenue", weight="sales.count_metric"))
+        @ms.metric(datasets=[], decomposition=ms.weighted_average(value="sales.revenue", weight="sales.count_metric"))
         def aov():
             return ms.component("numerator") / ms.component("weight")
     """)

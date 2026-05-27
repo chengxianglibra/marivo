@@ -75,11 +75,11 @@ class _TransformParams:
     drop_axes: Any
     by: Any
     limit: int | None
-    direction: str | None
+    order: str | None
     method: str
     rank_column: str
-    kind: str | None
-    base: Any
+    mode: str | None
+    baseline: Any
     window: Any
 
 
@@ -102,11 +102,11 @@ def _transform_dispatch(
     drop_axes: Any = None,
     by: Any = None,
     limit: int | None = None,
-    direction: str | None = None,
+    order: str | None = None,
     method: str = "ordinal",
     rank_column: str = "rank",
-    kind: str | None = None,
-    base: Any = None,
+    mode: str | None = None,
+    baseline: Any = None,
     window: Any = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> MetricFrame | DeltaFrame:
@@ -125,10 +125,10 @@ def _transform_dispatch(
             - ``rollup``: aggregate to coarser segments; pass ``by`` and
               optional ``drop_axes``.
             - ``topk`` / ``bottomk``: keep best/worst N rows; pass ``limit``,
-              optional ``direction``.
+              optional ``order``.
             - ``rank``: add a rank column; pass ``method``, ``rank_column``.
             - ``normalize``: convert metric values to a share (MetricFrame only
-              in v1); pass ``base``.
+              in v1); pass ``baseline``.
             - ``window``: re-bucket along time; pass ``window``.
         session: Defaults to the currently-attached session.
         where: ``op="slice"`` — mapping of axis → value or predicate dict.
@@ -136,11 +136,11 @@ def _transform_dispatch(
         drop_axes: ``op="rollup"`` — axes to drop after aggregation.
         by: ``op="rollup"`` — axes to retain.
         limit: ``op="topk"``/``"bottomk"`` — number of rows.
-        direction: ``op="topk"``/``"bottomk"`` — ``"asc"`` or ``"desc"``.
+        order: ``op="topk"``/``"bottomk"`` — ``"increase"`` or ``"decrease"``.
         method: ``op="rank"`` — ``"ordinal"`` (default) or other supported method.
         rank_column: ``op="rank"`` — output column name.
-        kind: ``op="normalize"`` — normalization kind.
-        base: ``op="normalize"`` — base/reference for normalization.
+        mode: ``op="normalize"`` — normalization mode.
+        baseline: ``op="normalize"`` — baseline/reference for normalization.
         window: ``op="window"`` — new window spec.
 
     Raises:
@@ -153,7 +153,7 @@ def _transform_dispatch(
         CrossSessionFrameError: ``frame`` belongs to a different session.
 
     Example:
-        >>> top = mv.transform(delta, op="topk", limit=10, direction="desc")
+        >>> top = mv.transform(delta, op="topk", limit=10, order="decrease")
         >>> top.summary()
     """
 
@@ -206,11 +206,11 @@ def _transform_dispatch(
         drop_axes=drop_axes,
         by=by,
         limit=limit,
-        direction=direction,
+        order=order,
         method=method,
         rank_column=rank_column,
-        kind=kind,
-        base=base,
+        mode=mode,
+        baseline=baseline,
         window=window,
     )
     started_at = datetime.now(UTC)
@@ -225,7 +225,7 @@ def _transform_dispatch(
         started_monotonic=started_monotonic,
         axes=meta_overrides.get("axes"),
         semantic_kind=meta_overrides.get("semantic_kind"),
-        slice_scope=meta_overrides.get("slice"),
+        where_scope=meta_overrides.get("where"),
         alignment=meta_overrides.get("alignment"),
         normalization=meta_overrides.get("normalization"),
         window=meta_overrides.get("window"),
@@ -247,14 +247,15 @@ class TransformAPI:
         drop_axes: Any = None,
         by: Any = None,
         limit: int | None = None,
-        direction: str | None = None,
+        order: str | None = None,
         method: str = "ordinal",
         rank_column: str = "rank",
-        kind: str | None = None,
-        base: Any = None,
+        mode: str | None = None,
+        baseline: Any = None,
         window: Any = None,
+        _triggered_by: TriggeredByFollowup | None = None,
     ) -> MetricFrame | DeltaFrame:
-        """Compatibility dispatcher for legacy ``mv.transform(frame, op=...)`` calls."""
+        """Dispatcher for ``mv.transform(frame, op=...)`` calls."""
 
         return _transform_dispatch(
             frame,
@@ -265,12 +266,13 @@ class TransformAPI:
             drop_axes=drop_axes,
             by=by,
             limit=limit,
-            direction=direction,
+            order=order,
             method=method,
             rank_column=rank_column,
-            kind=kind,
-            base=base,
+            mode=mode,
+            baseline=baseline,
             window=window,
+            _triggered_by=_triggered_by,
         )
 
     def filter(
@@ -306,7 +308,7 @@ class TransformAPI:
         *,
         by: str,
         limit: int,
-        direction: TopKDirection | None = None,
+        order: TopKDirection | None = None,
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
         return _transform_dispatch(
@@ -314,7 +316,7 @@ class TransformAPI:
             op="topk",
             by=by,
             limit=limit,
-            direction=direction,
+            order=order,
             session=session,
         )
 
@@ -350,15 +352,15 @@ class TransformAPI:
         self,
         frame: MetricFrame,
         *,
-        kind: NormalizeKind,
-        base: Any = None,
+        mode: NormalizeKind,
+        baseline: Any = None,
         session: Session | None = None,
     ) -> MetricFrame:
         result = _transform_dispatch(
             frame,
             op="normalize",
-            kind=kind,
-            base=base,
+            mode=mode,
+            baseline=baseline,
             session=session,
         )
         return cast("MetricFrame", result)
@@ -652,22 +654,22 @@ def _finite_non_zero(value: float) -> bool:
     return bool(np.isfinite(value) and value != 0)
 
 
-def _coerce_normalize_number(value: Any, *, argument: str, kind: str) -> float:
+def _coerce_normalize_number(value: Any, *, argument: str, mode: str) -> float:
     if isinstance(value, bool):
         raise TransformArgError(
             message=f"transform(op='normalize') {argument} must be numeric",
-            hint="Use an int or float value for normalize base values.",
-            details={"op": "normalize", "kind": kind, "argument": argument},
+            hint="Use an int or float value for normalize baseline values.",
+            details={"op": "normalize", "mode": mode, "argument": argument},
         )
     try:
         numeric = float(value)
     except (TypeError, ValueError) as exc:
         raise TransformArgError(
             message=f"transform(op='normalize') {argument} must be numeric",
-            hint="Use an int or float value for normalize base values.",
+            hint="Use an int or float value for normalize baseline values.",
             details={
                 "op": "normalize",
-                "kind": kind,
+                "mode": mode,
                 "argument": argument,
                 "actual_type": type(value).__name__,
             },
@@ -679,58 +681,58 @@ def _resolve_normalize_base(
     df: pd.DataFrame,
     *,
     column: str,
-    base: Any,
-    kind: str,
+    baseline: Any,
+    mode: str,
 ) -> float:
-    if base is None:
-        if kind == "per_unit":
+    if baseline is None:
+        if mode == "per_unit":
             raise TransformArgError(
-                message="transform(op='normalize', kind='per_unit') requires base",
-                hint="Pass base={'value': 100} or base={axis_column: axis_value}.",
-                details={"op": "normalize", "kind": kind, "argument": "base"},
+                message="transform(op='normalize', mode='per_unit') requires baseline",
+                hint="Pass baseline={'value': 100} or baseline={axis_column: axis_value}.",
+                details={"op": "normalize", "mode": mode, "argument": "baseline"},
             )
         if df.empty:
             raise TransformShapeUnsupportedError(
-                message="transform(op='normalize', kind='index') requires at least one row",
-                hint="Normalize index uses the first row as the default base.",
-                details={"op": "normalize", "kind": kind},
+                message="transform(op='normalize', mode='index') requires at least one row",
+                hint="Normalize index uses the first row as the default baseline.",
+                details={"op": "normalize", "mode": mode},
             )
-        return _coerce_normalize_number(df[column].iloc[0], argument="base", kind=kind)
+        return _coerce_normalize_number(df[column].iloc[0], argument="baseline", mode=mode)
 
-    if not isinstance(base, dict) or not base:
+    if not isinstance(baseline, dict) or not baseline:
         raise TransformArgError(
-            message="transform(op='normalize') base must be a non-empty dict",
-            hint="Pass base={'value': 100} or base={axis_column: axis_value}.",
-            details={"op": "normalize", "kind": kind, "argument": "base"},
+            message="transform(op='normalize') baseline must be a non-empty dict",
+            hint="Pass baseline={'value': 100} or baseline={axis_column: axis_value}.",
+            details={"op": "normalize", "mode": mode, "argument": "baseline"},
         )
 
-    if set(base) == {"value"}:
-        return _coerce_normalize_number(base["value"], argument="base.value", kind=kind)
+    if set(baseline) == {"value"}:
+        return _coerce_normalize_number(baseline["value"], argument="baseline.value", mode=mode)
 
-    missing_columns = [key for key in base if key not in df.columns]
+    missing_columns = [key for key in baseline if key not in df.columns]
     if missing_columns:
         raise TransformArgError(
-            message="transform(op='normalize') base selector references missing columns",
-            hint="Base selector keys must match persisted frame columns.",
+            message="transform(op='normalize') baseline selector references missing columns",
+            hint="Baseline selector keys must match persisted frame columns.",
             details={
                 "op": "normalize",
-                "kind": kind,
-                "argument": "base",
+                "mode": mode,
+                "argument": "baseline",
                 "missing_columns": missing_columns,
             },
         )
 
     mask = pd.Series(True, index=df.index)
-    for key, value in base.items():
+    for key, value in baseline.items():
         mask &= df[key] == value
     matches = df[mask]
     if matches.empty:
         raise TransformArgError(
-            message="transform(op='normalize') base selector matched no rows",
-            hint="Choose base selector values that identify at least one persisted frame row.",
-            details={"op": "normalize", "kind": kind, "argument": "base", "base": base},
+            message="transform(op='normalize') baseline selector matched no rows",
+            hint="Choose baseline selector values that identify at least one persisted frame row.",
+            details={"op": "normalize", "mode": mode, "argument": "baseline", "baseline": baseline},
         )
-    return _coerce_normalize_number(matches[column].iloc[0], argument="base", kind=kind)
+    return _coerce_normalize_number(matches[column].iloc[0], argument="baseline", mode=mode)
 
 
 def _sort_for_series_order(
@@ -749,7 +751,7 @@ def _reject_invalid_normalize_denominator(
     values: pd.Series,
     *,
     mask: pd.Series,
-    kind: str,
+    mode: str,
     column: str,
     message: str,
     hint: str,
@@ -768,7 +770,7 @@ def _reject_invalid_normalize_denominator(
             hint=hint,
             details={
                 "op": "normalize",
-                "kind": kind,
+                "mode": mode,
                 "column": column,
                 "invalid_row_count": int(invalid_denominator.sum()),
             },
@@ -779,81 +781,83 @@ def _resolve_grouped_normalize_base(
     df: pd.DataFrame,
     *,
     column: str,
-    base: Any,
-    kind: str,
+    baseline: Any,
+    mode: str,
     group_columns: list[str],
     time_columns: list[str],
 ) -> pd.Series:
     if not group_columns:
-        base_value = _resolve_normalize_base(df, column=column, base=base, kind=kind)
+        base_value = _resolve_normalize_base(df, column=column, baseline=baseline, mode=mode)
         return pd.Series(base_value, index=df.index)
 
-    if base is None:
+    if baseline is None:
         ordered = _sort_for_series_order(df, group_columns=group_columns, time_columns=time_columns)
         base_values = ordered.groupby(group_columns, dropna=False)[column].transform("first")
         return base_values.reindex(df.index)
 
-    if not isinstance(base, dict) or not base:
+    if not isinstance(baseline, dict) or not baseline:
         raise TransformArgError(
-            message="transform(op='normalize') base must be a non-empty dict",
-            hint="Pass base={'value': 100} or base={axis_column: axis_value}.",
-            details={"op": "normalize", "kind": kind, "argument": "base"},
+            message="transform(op='normalize') baseline must be a non-empty dict",
+            hint="Pass baseline={'value': 100} or baseline={axis_column: axis_value}.",
+            details={"op": "normalize", "mode": mode, "argument": "baseline"},
         )
 
-    if set(base) == {"value"}:
-        base_value = _coerce_normalize_number(base["value"], argument="base.value", kind=kind)
+    if set(baseline) == {"value"}:
+        base_value = _coerce_normalize_number(
+            baseline["value"], argument="baseline.value", mode=mode
+        )
         return pd.Series(base_value, index=df.index)
 
-    missing_columns = [key for key in base if key not in df.columns]
+    missing_columns = [key for key in baseline if key not in df.columns]
     if missing_columns:
         raise TransformArgError(
-            message="transform(op='normalize') base selector references missing columns",
-            hint="Base selector keys must match persisted frame columns.",
+            message="transform(op='normalize') baseline selector references missing columns",
+            hint="Baseline selector keys must match persisted frame columns.",
             details={
                 "op": "normalize",
-                "kind": kind,
-                "argument": "base",
+                "mode": mode,
+                "argument": "baseline",
                 "missing_columns": missing_columns,
             },
         )
 
-    grouped_selector_columns = [key for key in base if key in group_columns]
+    grouped_selector_columns = [key for key in baseline if key in group_columns]
     if grouped_selector_columns:
         raise TransformArgError(
-            message="transform(op='normalize') grouped base selector must not include group columns",
-            hint="Select the base row within each series, for example with a time column.",
+            message="transform(op='normalize') grouped baseline selector must not include group columns",
+            hint="Select the baseline row within each series, for example with a time column.",
             details={
                 "op": "normalize",
-                "kind": kind,
-                "argument": "base",
+                "mode": mode,
+                "argument": "baseline",
                 "group_columns": grouped_selector_columns,
             },
         )
 
     mask = pd.Series(True, index=df.index)
-    for key, value in base.items():
+    for key, value in baseline.items():
         mask &= df[key] == value
     matches = df[mask]
     if matches.empty:
         raise TransformArgError(
-            message="transform(op='normalize') base selector matched no rows",
-            hint="Choose base selector values that identify at least one persisted frame row.",
-            details={"op": "normalize", "kind": kind, "argument": "base", "base": base},
+            message="transform(op='normalize') baseline selector matched no rows",
+            hint="Choose baseline selector values that identify at least one persisted frame row.",
+            details={"op": "normalize", "mode": mode, "argument": "baseline", "baseline": baseline},
         )
 
     grouped_matches = matches.groupby(group_columns, dropna=False)[column].first().reset_index()
-    grouped_matches = grouped_matches.rename(columns={column: "__normalize_base"})
+    grouped_matches = grouped_matches.rename(columns={column: "__normalize_baseline"})
     merged = df[group_columns].merge(grouped_matches, on=group_columns, how="left")
-    base_values = pd.Series(merged["__normalize_base"].to_numpy(), index=df.index)
+    base_values = pd.Series(merged["__normalize_baseline"].to_numpy(), index=df.index)
     missing_groups = base_values.isna()
     if bool(missing_groups.any()):
         raise TransformArgError(
-            message="transform(op='normalize') base selector matched no rows for some groups",
-            hint="Choose selector values that identify a base row in every dimension group.",
+            message="transform(op='normalize') baseline selector matched no rows for some groups",
+            hint="Choose selector values that identify a baseline row in every dimension group.",
             details={
                 "op": "normalize",
-                "kind": kind,
-                "argument": "base",
+                "mode": mode,
+                "argument": "baseline",
                 "missing_group_count": int(missing_groups.sum()),
             },
         )
@@ -865,11 +869,11 @@ def _pct_change_series(frame: TransformFrame, df: pd.DataFrame, column: str) -> 
     time_columns = _axis_columns_by_role(frame, df, "time")
     if not time_columns:
         raise TransformShapeUnsupportedError(
-            message="transform(op='normalize', kind='pct_change') requires a time axis",
+            message="transform(op='normalize', mode='pct_change') requires a time axis",
             hint="Use pct_change only on time_series or panel frames with a persisted time axis.",
             details={
                 "op": "normalize",
-                "kind": "pct_change",
+                "mode": "pct_change",
                 "required_axis": "time",
                 "axes": _frame_axes(frame),
             },
@@ -886,10 +890,10 @@ def _pct_change_series(frame: TransformFrame, df: pd.DataFrame, column: str) -> 
     _reject_invalid_normalize_denominator(
         denominator,
         mask=computed_rows,
-        kind="pct_change",
+        mode="pct_change",
         column=column,
         message=(
-            "transform(op='normalize', kind='pct_change') denominator values "
+            "transform(op='normalize', mode='pct_change') denominator values "
             "must be finite and non-zero"
         ),
         hint="Remove or impute zero, NaN, inf, and -inf previous values before pct_change.",
@@ -988,7 +992,7 @@ def _align_window_bound_to_series(
 def _op_window(frame: TransformFrame, params: _TransformParams) -> _TransformHandlerResult:
     unsupported_kwargs = [
         name
-        for name in ("base", "by", "direction", "drop_axes", "kind", "limit", "predicate", "where")
+        for name in ("baseline", "by", "order", "drop_axes", "mode", "limit", "predicate", "where")
         if getattr(params, name) is not None
     ]
     if params.method != "ordinal":
@@ -1080,7 +1084,7 @@ _OP_DISPATCH["window"] = _op_window
 def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _TransformHandlerResult:
     unsupported_kwargs = [
         name
-        for name in ("by", "direction", "drop_axes", "limit", "predicate", "where", "window")
+        for name in ("by", "order", "drop_axes", "limit", "predicate", "where", "window")
         if getattr(params, name) is not None
     ]
     if params.method != "ordinal":
@@ -1094,16 +1098,16 @@ def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _Transform
                 "transform(op='normalize') received unsupported kwargs: "
                 f"{', '.join(unsupported_kwargs)}"
             ),
-            hint="Use only kind=... and optional base=... with normalize.",
+            hint="Use only mode=... and optional baseline=... with normalize.",
             details={"op": "normalize", "unsupported_kwargs": unsupported_kwargs},
         )
 
-    kind = params.kind
-    if not isinstance(kind, str):
+    mode = params.mode
+    if not isinstance(mode, str):
         raise TransformArgError(
-            message="transform(op='normalize') requires kind",
-            hint="Pass kind='index', 'share', 'pct_change', 'per_unit', or 'z_score'.",
-            details={"op": "normalize", "argument": "kind"},
+            message="transform(op='normalize') requires mode",
+            hint="Pass mode='index', 'share', 'pct_change', 'per_unit', or 'z_score'.",
+            details={"op": "normalize", "argument": "mode"},
         )
 
     if isinstance(frame, DeltaFrame):
@@ -1115,33 +1119,33 @@ def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _Transform
             ),
             details={
                 "op": "normalize",
-                "kind": kind,
-                "supported_kinds": [],
+                "mode": mode,
+                "supported_modes": [],
                 "frame_kind": frame.meta.kind,
             },
         )
 
-    metric_kinds = {"index", "share", "pct_change", "per_unit", "z_score"}
-    if kind not in metric_kinds:
+    metric_modes = {"index", "share", "pct_change", "per_unit", "z_score"}
+    if mode not in metric_modes:
         raise TransformArgError(
-            message=f"transform(op='normalize') kind {kind!r} is not supported for this frame",
+            message=f"transform(op='normalize') mode {mode!r} is not supported for this frame",
             hint=(
                 "MetricFrame normalize supports index, share, pct_change, per_unit, and z_score. "
                 "DeltaFrame normalize is rejected in v1."
             ),
             details={
                 "op": "normalize",
-                "kind": kind,
-                "supported_kinds": sorted(metric_kinds),
+                "mode": mode,
+                "supported_modes": sorted(metric_modes),
                 "frame_kind": frame.meta.kind,
             },
         )
 
-    if kind in {"share", "pct_change", "z_score"} and params.base is not None:
+    if mode in {"share", "pct_change", "z_score"} and params.baseline is not None:
         raise TransformArgError(
-            message=f"transform(op='normalize', kind={kind!r}) does not accept base",
-            hint="Use base only with kind='index' or kind='per_unit'.",
-            details={"op": "normalize", "kind": kind, "unsupported_kwargs": ["base"]},
+            message=f"transform(op='normalize', mode={mode!r}) does not accept baseline",
+            hint="Use baseline only with mode='index' or mode='per_unit'.",
+            details={"op": "normalize", "mode": mode, "unsupported_kwargs": ["baseline"]},
         )
 
     df = frame.to_pandas()
@@ -1153,62 +1157,62 @@ def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _Transform
         raise TransformShapeUnsupportedError(
             message=f"transform(op='normalize') column {column!r} is not numeric",
             hint="Normalize requires a numeric non-axis measure column.",
-            details={"op": "normalize", "kind": kind, "column": column},
+            details={"op": "normalize", "mode": mode, "column": column},
         )
 
-    if kind == "index":
+    if mode == "index":
         base_values = _resolve_grouped_normalize_base(
             df,
             column=column,
-            base=params.base,
-            kind=kind,
+            baseline=params.baseline,
+            mode=mode,
             group_columns=dimension_group_columns,
             time_columns=time_columns,
         )
         _reject_invalid_normalize_denominator(
             base_values,
             mask=pd.Series(True, index=new_df.index),
-            kind=kind,
+            mode=mode,
             column=column,
-            message="transform(op='normalize', kind='index') base must be finite and non-zero",
-            hint="Choose a non-zero base row or pass base={'value': number}.",
+            message="transform(op='normalize', mode='index') baseline must be finite and non-zero",
+            hint="Choose a non-zero baseline row or pass baseline={'value': number}.",
         )
         new_df[column] = new_df[column] / base_values * 100
-    elif kind == "share":
+    elif mode == "share":
         if time_columns and dimension_group_columns:
             totals = new_df.groupby(time_columns, dropna=False)[column].transform("sum")
             _reject_invalid_normalize_denominator(
                 totals,
                 mask=pd.Series(True, index=new_df.index),
-                kind=kind,
+                mode=mode,
                 column=column,
                 message=(
-                    "transform(op='normalize', kind='share') time bucket sums must be finite "
+                    "transform(op='normalize', mode='share') time bucket sums must be finite "
                     "and non-zero"
                 ),
                 hint="Normalize panel share requires a non-zero total measure value per time bucket.",
             )
             new_df[column] = new_df[column] / totals
         else:
-            total = _coerce_normalize_number(new_df[column].sum(), argument="sum", kind=kind)
+            total = _coerce_normalize_number(new_df[column].sum(), argument="sum", mode=mode)
             if not _finite_non_zero(total):
                 raise TransformArgError(
-                    message="transform(op='normalize', kind='share') sum must be finite and non-zero",
+                    message="transform(op='normalize', mode='share') sum must be finite and non-zero",
                     hint="Normalize share requires a non-zero total measure value.",
-                    details={"op": "normalize", "kind": kind, "column": column},
+                    details={"op": "normalize", "mode": mode, "column": column},
                 )
             new_df[column] = new_df[column] / total
-    elif kind == "pct_change":
+    elif mode == "pct_change":
         new_df[column] = _pct_change_series(frame, new_df, column)
-    elif kind == "per_unit":
-        base_value = _resolve_normalize_base(df, column=column, base=params.base, kind=kind)
+    elif mode == "per_unit":
+        base_value = _resolve_normalize_base(df, column=column, baseline=params.baseline, mode=mode)
         if not _finite_non_zero(base_value):
             raise TransformArgError(
                 message=(
-                    "transform(op='normalize', kind='per_unit') base must be finite and non-zero"
+                    "transform(op='normalize', mode='per_unit') baseline must be finite and non-zero"
                 ),
-                hint="Choose a non-zero base row or pass base={'value': number}.",
-                details={"op": "normalize", "kind": kind, "argument": "base"},
+                hint="Choose a non-zero baseline row or pass baseline={'value': number}.",
+                details={"op": "normalize", "mode": mode, "argument": "baseline"},
             )
         new_df[column] = new_df[column] / base_value
     else:
@@ -1220,10 +1224,10 @@ def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _Transform
             _reject_invalid_normalize_denominator(
                 stds,
                 mask=pd.Series(True, index=new_df.index),
-                kind=kind,
+                mode=mode,
                 column=column,
                 message=(
-                    "transform(op='normalize', kind='z_score') group std must be finite "
+                    "transform(op='normalize', mode='z_score') group std must be finite "
                     "and non-zero"
                 ),
                 hint=(
@@ -1233,28 +1237,30 @@ def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _Transform
             )
             new_df[column] = (new_df[column] - means) / stds
         else:
-            mean = _coerce_normalize_number(new_df[column].mean(), argument="mean", kind=kind)
-            std = _coerce_normalize_number(new_df[column].std(ddof=0), argument="std", kind=kind)
+            mean = _coerce_normalize_number(new_df[column].mean(), argument="mean", mode=mode)
+            std = _coerce_normalize_number(new_df[column].std(ddof=0), argument="std", mode=mode)
             if not _finite_non_zero(std):
                 raise TransformArgError(
                     message=(
-                        "transform(op='normalize', kind='z_score') std must be finite and non-zero"
+                        "transform(op='normalize', mode='z_score') std must be finite and non-zero"
                     ),
                     hint="Normalize z_score requires at least two non-identical measure values.",
-                    details={"op": "normalize", "kind": kind, "column": column},
+                    details={"op": "normalize", "mode": mode, "column": column},
                 )
             new_df[column] = (new_df[column] - mean) / std
 
-    normalized_base = _normalize_param_value(params.base) if params.base is not None else None
+    normalized_baseline = (
+        _normalize_param_value(params.baseline) if params.baseline is not None else None
+    )
     normalization = {
-        "kind": kind,
-        "base": normalized_base,
+        "mode": mode,
+        "baseline": normalized_baseline,
         "columns_affected": [column],
     }
     return (
         new_df,
         {"normalization": normalization},
-        {"op": "normalize", "kind": kind, "base": params.base, "column": column},
+        {"op": "normalize", "mode": mode, "baseline": params.baseline, "column": column},
     )
 
 
@@ -1341,7 +1347,7 @@ def _op_filter(
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
     unsupported_kwargs = [
         name
-        for name in ("base", "by", "direction", "drop_axes", "kind", "limit", "where", "window")
+        for name in ("baseline", "by", "order", "drop_axes", "mode", "limit", "where", "window")
         if getattr(params, name) is not None
     ]
     if params.method != "ordinal":
@@ -1413,7 +1419,7 @@ def _ordered_take(
 ) -> _TransformHandlerResult:
     unsupported_kwargs = [
         name
-        for name in ("base", "drop_axes", "kind", "predicate", "where", "window")
+        for name in ("baseline", "drop_axes", "mode", "predicate", "where", "window")
         if getattr(params, name) is not None
     ]
     if params.method != "ordinal":
@@ -1467,24 +1473,24 @@ def _ordered_take(
     return (
         sorted_df,
         {},
-        {"op": op_name, "by": by, "limit": limit, "direction": params.direction},
+        {"op": op_name, "by": by, "limit": limit, "order": params.order},
     )
 
 
 def _op_topk(frame: TransformFrame, params: _TransformParams) -> _TransformHandlerResult:
-    if params.direction not in (None, "decrease", "increase"):
+    if params.order not in (None, "decrease", "increase"):
         raise TransformArgError(
-            message="transform(op='topk') direction must be 'increase' or 'decrease'",
+            message="transform(op='topk') order must be 'increase' or 'decrease'",
             hint=(
-                "Omit direction for descending topk, pass direction='increase' "
-                "for largest positive deltas, or direction='decrease' for most negative deltas."
+                "Omit order for descending topk, pass order='increase' "
+                "for largest positive deltas, or order='decrease' for most negative deltas."
             ),
-            details={"op": "topk", "argument": "direction", "direction": params.direction},
+            details={"op": "topk", "argument": "order", "order": params.order},
         )
     return _ordered_take(
         frame,
         params,
-        ascending=params.direction == "decrease",
+        ascending=params.order == "decrease",
         op_name="topk",
     )
 
@@ -1493,11 +1499,11 @@ _OP_DISPATCH["topk"] = _op_topk
 
 
 def _op_bottomk(frame: TransformFrame, params: _TransformParams) -> _TransformHandlerResult:
-    if params.direction is not None:
+    if params.order is not None:
         raise TransformArgError(
-            message="transform(op='bottomk') does not accept direction",
-            hint="Use topk(direction='increase') if you need explicit increasing order semantics.",
-            details={"op": "bottomk", "unsupported_kwargs": ["direction"]},
+            message="transform(op='bottomk') does not accept order",
+            hint="Use topk(order='increase') if you need explicit increasing order semantics.",
+            details={"op": "bottomk", "unsupported_kwargs": ["order"]},
         )
     return _ordered_take(frame, params, ascending=True, op_name="bottomk")
 
@@ -1509,10 +1515,10 @@ def _op_rank(frame: TransformFrame, params: _TransformParams) -> _TransformHandl
     unsupported_kwargs = [
         name
         for name in (
-            "base",
-            "direction",
+            "baseline",
+            "order",
             "drop_axes",
-            "kind",
+            "mode",
             "limit",
             "predicate",
             "where",
@@ -1620,7 +1626,7 @@ def _op_rollup(
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
     unsupported_kwargs = [
         name
-        for name in ("base", "by", "direction", "kind", "limit", "predicate", "where", "window")
+        for name in ("baseline", "by", "order", "mode", "limit", "predicate", "where", "window")
         if getattr(params, name) is not None
     ]
     if params.method != "ordinal":
@@ -1688,11 +1694,11 @@ def _op_slice(
     unsupported_kwargs = [
         name
         for name in (
-            "base",
+            "baseline",
             "by",
-            "direction",
+            "order",
             "drop_axes",
-            "kind",
+            "mode",
             "limit",
             "predicate",
             "window",
@@ -1799,16 +1805,16 @@ def _op_slice(
             "semantic_kind": _semantic_kind_from_axes(new_axes),
         }
         if isinstance(frame, MetricFrame):
-            meta_overrides["slice"] = {
-                **copy.deepcopy(frame.meta.slice),
+            meta_overrides["where"] = {
+                **copy.deepcopy(frame.meta.where),
                 **selector,
             }
         else:
             alignment = copy.deepcopy(frame.meta.alignment)
-            existing_slice = alignment.get("slice", {})
-            if not isinstance(existing_slice, dict):
-                existing_slice = {}
-            alignment["slice"] = {**existing_slice, **selector}
+            existing_where = alignment.get("where", {})
+            if not isinstance(existing_where, dict):
+                existing_where = {}
+            alignment["where"] = {**existing_where, **selector}
             meta_overrides["alignment"] = alignment
 
     return new_df, meta_overrides, {"op": params.op, "where": where}
@@ -1827,7 +1833,7 @@ def _persist_transform_frame(
     started_monotonic: float,
     axes: dict[str, Any] | None = None,
     semantic_kind: str | None = None,
-    slice_scope: dict[str, Any] | None = None,
+    where_scope: dict[str, Any] | None = None,
     alignment: dict[str, Any] | None = None,
     normalization: dict[str, Any] | None = None,
     window: dict[str, Any] | None = None,
@@ -1865,8 +1871,8 @@ def _persist_transform_frame(
     )
     if semantic_kind is not None:
         meta_payload["semantic_kind"] = semantic_kind
-    if slice_scope is not None and isinstance(parent, MetricFrame):
-        meta_payload["slice"] = slice_scope
+    if where_scope is not None and isinstance(parent, MetricFrame):
+        meta_payload["where"] = where_scope
     if alignment is not None and isinstance(parent, DeltaFrame):
         meta_payload["alignment"] = alignment
     if normalization is not None:
@@ -1900,7 +1906,7 @@ def _persist_transform_frame(
                 semantic_anchors=CommitSemanticAnchors(values={"metric_id": metric_meta.metric_id}),
                 subject=Subject(
                     metric=metric_meta.metric_id,
-                    slice=metric_meta.slice,
+                    slice=metric_meta.where,
                     grain=grain,
                     analysis_axis=_analysis_axis_for_metric_kind(metric_meta.semantic_kind),
                 ),

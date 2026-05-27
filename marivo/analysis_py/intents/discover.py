@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from numbers import Real
 from time import monotonic
-from typing import Any, TypeGuard, cast
+from typing import Any, Literal, TypeGuard, cast
 
 import numpy as np
 
@@ -239,11 +239,23 @@ def _discover_dispatch(
     )
     frame = CandidateSet(_df=df, meta=meta)
     source_ref = source.meta.artifact_id or source.ref
-    axis = (
+    axis: Literal[
+        "scalar",
+        "time",
+        "segment",
+        "panel",
+        "change",
+        "decomposition",
+        "correlation",
+        "forecast",
+        "anomaly",
+    ] = (
         "time"
         if frame.meta.semantic_kind == "time_series"
         else "segment"
         if frame.meta.semantic_kind == "segmented"
+        else "panel"
+        if frame.meta.semantic_kind == "panel"
         else frame.meta.semantic_kind
     )
     observed_window = source.meta.window if hasattr(source.meta, "window") else None
@@ -306,6 +318,7 @@ class DiscoverAPI:
         search_space: list[DimensionRef] | None = None,
         peer_scope: list[DimensionRef] | None = None,
         session: Session | None = None,
+        _triggered_by: TriggeredByFollowup | None = None,
     ) -> CandidateSet:
         """Compatibility dispatcher for legacy ``mv.discover(source, objective=...)`` calls."""
 
@@ -320,6 +333,7 @@ class DiscoverAPI:
             search_space=search_space,
             peer_scope=peer_scope,
             session=session,
+            _triggered_by=_triggered_by,
         )
 
     def point_anomalies(

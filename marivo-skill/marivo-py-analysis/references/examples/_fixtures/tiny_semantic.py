@@ -118,14 +118,14 @@ def _backends() -> dict[str, Any]:
     return {DATASOURCE_NAME: _connection}
 
 
-def ensure_loaded(*, tz: str = "UTC", default_calendar: str | None = None) -> Any:
+def ensure_loaded(*, timezone: str = "UTC", default_calendar: str | None = None) -> Any:
     """Register the tiny semantic model and attach a writable examples session."""
     root = _session_root()
     _bootstrap_semantic_project(root)
     with _temporary_cwd(root):
         return mv.session.get_or_create(
             name=SESSION_NAME,
-            tz=tz,
+            timezone=timezone,
             default_calendar=default_calendar,
             backends=_backends(),
         )

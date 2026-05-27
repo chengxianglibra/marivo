@@ -43,7 +43,7 @@ slice_cands = mv.discover.interesting_slices(
 )
 print(f"slices.row_count={slice_cands.meta.row_count}")
 if slice_cands.meta.row_count:
-    selector = mv.select(slice_cands, rank=1, field="selector")
+    selector = mv.select(slice_cands, rank=1, attribute="selector")
     rendered = {ref.id: value for ref, value in selector.items()}
     print(f"selector={rendered}")
     focus = mv.transform.slice(delta, where=selector, session=session)

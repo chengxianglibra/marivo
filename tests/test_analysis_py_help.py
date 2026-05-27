@@ -105,13 +105,13 @@ def test_help_lists_new_statistical_operators(capsys):
     mv.help()
     out = capsys.readouterr().out
 
-    assert "mv.test" in out
+    assert "mv.hypothesis_test" in out
     assert "mv.forecast" in out
     assert "mv.assess_quality" in out
 
 
 def test_help_describes_new_statistical_operators(capsys):
-    for name in ("test", "forecast", "assess_quality"):
+    for name in ("hypothesis_test", "forecast", "assess_quality"):
         mv.help(name)
         assert name in capsys.readouterr().out
 
@@ -128,7 +128,7 @@ def test_help_discover_prints_objective_matrix() -> None:
 
 def test_help_select_prints_field_by_shape_matrix() -> None:
     out = _capture("select")
-    assert "field-by-shape matrix" in out
+    assert "attribute-by-shape matrix" in out
     assert "driver_axis" in out
     assert "axis" in out
     assert "point_anomaly" in out

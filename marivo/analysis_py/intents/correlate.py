@@ -48,8 +48,8 @@ def correlate(
     a: MetricFrame,
     b: MetricFrame,
     *,
-    value_a: str | None = None,
-    value_b: str | None = None,
+    measure_a: str | None = None,
+    measure_b: str | None = None,
     alignment: AlignmentPolicy | None = None,
     lag_policy: LagPolicy | None = None,
     method: Literal["pearson"] = "pearson",
@@ -64,8 +64,8 @@ def correlate(
     Args:
         a: First MetricFrame.
         b: Second MetricFrame.
-        value_a: Numeric column on ``a``. Defaults to the frame's measure column.
-        value_b: Numeric column on ``b``. Defaults to the frame's measure column.
+        measure_a: Numeric column on ``a``. Defaults to the frame's measure column.
+        measure_b: Numeric column on ``b``. Defaults to the frame's measure column.
         alignment: Defaults to ``AlignmentPolicy(kind="calendar_bucket")``.
         lag_policy: Defaults to ``LagPolicy(mode="single", offset=0)``.
         method: Only ``"pearson"`` in v1.
@@ -128,8 +128,8 @@ def correlate(
     started = monotonic()
     a_df = a.to_pandas()
     b_df = b.to_pandas()
-    a_value = require_numeric_column(a_df, value_a, purpose="correlate a")
-    b_value = require_numeric_column(b_df, value_b, purpose="correlate b")
+    a_value = require_numeric_column(a_df, measure_a, purpose="correlate a")
+    b_value = require_numeric_column(b_df, measure_b, purpose="correlate b")
     aligned, driver_field = _align(a_df, b_df, a_value=a_value, b_value=b_value)
     before_drop = len(aligned)
     aligned = aligned.dropna(subset=["value_a", "value_b"])
@@ -170,8 +170,8 @@ def correlate(
     params = {
         "source_a_ref": a.ref,
         "source_b_ref": b.ref,
-        "value_a": a_value,
-        "value_b": b_value,
+        "measure_a": a_value,
+        "measure_b": b_value,
         "alignment": alignment_dump,
         "lag_policy": lag_dump,
         "method": method,

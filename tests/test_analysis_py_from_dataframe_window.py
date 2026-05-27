@@ -34,7 +34,7 @@ def test_from_dataframe_accepts_absolute_window_dict():
 
 
 def test_from_dataframe_accepts_relative_window_instance():
-    session = session_attach.get_or_create(name="demo", tz="Asia/Shanghai")
+    session = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
@@ -52,7 +52,7 @@ def test_from_dataframe_accepts_relative_window_instance():
 
 
 def test_from_dataframe_relative_window_prefers_window_timezone_over_session():
-    session = session_attach.get_or_create(name="demo", tz="UTC")
+    session = session_attach.get_or_create(name="demo", timezone="UTC")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
@@ -76,7 +76,7 @@ def test_from_dataframe_relative_window_prefers_window_timezone_over_session():
 
 
 def test_from_dataframe_relative_window_invalid_timezone_raises_structured_error():
-    session = session_attach.get_or_create(name="demo", tz="UTC")
+    session = session_attach.get_or_create(name="demo", timezone="UTC")
 
     with pytest.raises(TimezoneInvalidError) as exc_info:
         MetricFrame.from_dataframe(

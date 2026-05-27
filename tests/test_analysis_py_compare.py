@@ -56,8 +56,8 @@ def test_compare_returns_delta_frame(tmp_path):
     d = compare(q3, q2, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
     assert isinstance(d, DeltaFrame)
     assert d.meta.alignment["kind"] == "calendar_bucket"
-    assert d.meta.source_a_ref == q3.ref
-    assert d.meta.source_b_ref == q2.ref
+    assert d.meta.source_current_ref == q3.ref
+    assert d.meta.source_baseline_ref == q2.ref
     df = d.to_pandas()
     assert set(df.columns) >= {"current", "baseline", "delta", "pct_change"}
     assert df.iloc[0]["current"] == pytest.approx(30.0)
@@ -106,7 +106,7 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
 
     rendered = str(exc_info.value)
     assert (
-        "SemanticKindMismatchError: compare(a, b) expected MetricFrame for `b`, got DeltaFrame."
+        "SemanticKindMismatchError: compare(current, baseline) expected MetricFrame for `baseline`, got DeltaFrame."
         in rendered
     )
     assert "Fix:" in rendered

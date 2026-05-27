@@ -92,7 +92,7 @@ checklist is done.
 
 1. Check existing project datasources.
 
-   Run `mv.datasources.list()` to see whether the datasource already exists in
+   Run `mv.datasources.all()` to see whether the datasource already exists in
    `.marivo/datasource`. Reuse an existing datasource without asking the user.
 
 2. Establish the backend connection.
@@ -179,7 +179,7 @@ Before declaring a dataset, read `references/datasource.md`: semantic models
 can only reference project datasources declared in `.marivo/datasource/*.py`.
 
 Credentials never enter the semantic file. Persist non-secret connection
-metadata with `mv.datasources.set(...)` or by writing
+metadata with `mv.datasources.register(...)` or by writing
 `.marivo/datasource/<name>.py`; sensitive fields use
 `<field>_env="VAR_NAME"`. See `references/datasource.md`.
 

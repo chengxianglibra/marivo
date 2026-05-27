@@ -129,7 +129,7 @@ delta.evidence_status
 `CandidateSet` 行级 `recommended_followups_json` 与 result-level `recommended_followups` 不同：
 
 - `result.recommended_followups` 是 artifact-level C1 / C2 followup，由 evidence pipeline 在 step commit 时生成。
-- `candidate_item.recommended_followups` 是 candidate row payload，通过 `select(..., field="recommended_followups")` 读取。
+- `candidate_item.recommended_followups` 是 candidate row payload，通过 `select(..., attribute="recommended_followups")` 读取。
 
 两者复用同一个 `FollowupAction` 类型，但来源、去重和执行 lineage 语义不同。
 

@@ -579,7 +579,7 @@ def test_unverified_provenance_warning_in_result(semantic_project_factory) -> No
             datasets=[orders],
             decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
-            provenance="unverified",
+            declared_status="unverified",
         )
         def revenue(table):
             return table.amount.sum()
@@ -734,8 +734,8 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
 
         ms.relationship(
             name="orders_to_items",
-            from_="sales.orders",
-            to="sales.items",
+            from_dataset="sales.orders",
+            to_dataset="sales.items",
             from_fields=["sales.order_id"],
             to_fields=["sales.item_order_id"],
         )
@@ -778,8 +778,8 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
 
         ms.relationship(
             name="bad_arity",
-            from_="sales.orders",
-            to="sales.orders",
+            from_dataset="sales.orders",
+            to_dataset="sales.orders",
             from_fields=["sales.order_id", "sales.other_id"],
             to_fields=["sales.order_id"],
         )

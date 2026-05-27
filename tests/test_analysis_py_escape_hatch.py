@@ -200,7 +200,7 @@ def test_explore_ibis_records_source_artifact_refs():
         lambda backend: backend.table("orders"),
         datasource="warehouse",
         session=session,
-        source_artifacts=[mv.ArtifactRef("frame_source")],
+        sources=[mv.ArtifactRef("frame_source")],
     )
 
     assert scratch.meta.source_artifact_refs == ["frame_source"]
@@ -260,7 +260,7 @@ def test_core_operators_reject_exploration_result_inputs():
         mv.discover(scratch, objective="point_anomalies", session=session)  # type: ignore[arg-type]
 
     with pytest.raises(mv.errors.SemanticKindMismatchError):
-        mv.test(metric, scratch, session=session)  # type: ignore[arg-type]
+        mv.hypothesis_test(metric, scratch, session=session)  # type: ignore[arg-type]
 
 
 def test_promote_metric_frame_creates_canonical_metric_frame():
@@ -702,8 +702,8 @@ def test_promote_delta_frame_inherits_source_metric_metadata():
     assert delta.meta.metric_id == "sales.revenue"
     assert delta.meta.semantic_kind == "scalar"
     assert delta.meta.semantic_model == "sales"
-    assert delta.meta.source_a_ref == current.ref
-    assert delta.meta.source_b_ref == baseline.ref
+    assert delta.meta.source_current_ref == current.ref
+    assert delta.meta.source_baseline_ref == baseline.ref
     assert delta.meta.alignment == {"kind": "calendar_bucket"}
     assert delta.lineage.steps[-1].intent == "promote_delta_frame"
     assert [step.intent for step in delta.lineage.steps].count("promote_metric_frame") == 2
@@ -1095,7 +1095,7 @@ def test_promote_attribution_frame_inherits_source_delta_metadata():
         value_column="value",
         contribution_column="contribution",
         method="manual",
-        params={"note": "scratch attribution"},
+        method_params={"note": "scratch attribution"},
     )
 
     assert isinstance(attribution, mv.AttributionFrame)
@@ -1230,7 +1230,7 @@ def test_promote_attribution_frame_lineage_digest_includes_method_and_params():
         value_column="value",
         contribution_column="contribution",
         method="manual",
-        params={"note": "manual"},
+        method_params={"note": "manual"},
     )
     model = mv.promote_attribution_frame(
         scratch,
@@ -1240,7 +1240,7 @@ def test_promote_attribution_frame_lineage_digest_includes_method_and_params():
         value_column="value",
         contribution_column="contribution",
         method="model",
-        params={"note": "model"},
+        method_params={"note": "model"},
     )
 
     assert manual.lineage.steps[-1].params_digest != model.lineage.steps[-1].params_digest

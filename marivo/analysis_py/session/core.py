@@ -206,6 +206,7 @@ class Session:
             return result
 
         if op == "discover":
+            from marivo.analysis_py.intents._types import DiscoverSensitivity
             from marivo.analysis_py.intents.discover import discover
 
             source_frame = load_frame(source_ref, session=self)
@@ -215,7 +216,10 @@ class Session:
                 strategy=cast("Any", action.params.get("strategy")),
                 value=cast("Any", action.params.get("value")),
                 threshold=cast("Any", action.params.get("threshold")),
-                sensitivity=str(action.params.get("sensitivity", "balanced")),
+                sensitivity=cast(
+                    "DiscoverSensitivity",
+                    str(action.params.get("sensitivity", "balanced")),
+                ),
                 limit=cast("Any", action.params.get("limit")),
                 search_space=cast("Any", action.params.get("search_space")),
                 peer_scope=cast("Any", action.params.get("peer_scope")),

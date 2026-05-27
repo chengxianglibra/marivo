@@ -14,7 +14,7 @@ calendar-backed `compare`.
 **Symptom from `references/examples/99_pitfall_pass_delta_to_compare.py`:**
 
 ```text
-SemanticKindMismatchError: compare(a, b) expected MetricFrame for `b`, got DeltaFrame.
+SemanticKindMismatchError: compare(current, baseline) expected MetricFrame for `baseline`, got DeltaFrame.
 
 Location: mv.compare call
 Cause: got kind delta_frame, expected metric_frame; this usually means passing a compare result where an observe result is required.
@@ -167,7 +167,7 @@ mv.observe(
 
 mv.observe(
     mv.MetricRef("sales.revenue"),
-    slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    where={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 ```
 
@@ -226,15 +226,15 @@ attribution = mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 
 ## test / forecast / assess_quality
 
-- `mv.test(cur, base)` v1 supports only `hypothesis="mean_changed"` and paired MetricFrames with matching `semantic_kind` and `semantic_model`; scalar MetricFrames are rejected because they do not contain paired samples.
+- `mv.hypothesis_test(cur, base)` v1 supports only `hypothesis="mean_changed"` and paired MetricFrames with matching `semantic_kind` and `semantic_model`; scalar MetricFrames are rejected because they do not contain paired samples.
 - `SamplingPolicy.pairing` must match the frame shape: use `calendar_bucket` for `time_series` / `panel`, and `segment_key` for `segmented`.
 - `mv.forecast(history, horizon=7)` v1 supports only `MetricFrame(time_series|panel)` with continuous time buckets and no NaN value rows; impute or re-observe before forecasting.
 - `seasonal_naive` needs at least `seasonality_period + 1` training rows for a time series.
 - `mv.assess_quality(frame)` v1 accepts only `MetricFrame`; reports for delta, candidate, forecast, and attribution frames are planned for later.
 
-## `select(field=...)` shape mismatch
+## `select(attribute=...)` shape mismatch
 
-`mv.select(candidates, field="axis")` only works on `CandidateSet[driver_axis]`.
+`mv.select(candidates, attribute="axis")` only works on `CandidateSet[driver_axis]`.
 Calling it on a `point_anomaly` set raises `SemanticKindMismatchError` with
 `details["shape"]` and `details["field"]`. Inspect `candidates.meta.shape` first
 or call `candidates.as_<shape>()` to assert.

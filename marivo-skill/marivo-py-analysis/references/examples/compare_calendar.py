@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 
-ensure_loaded(tz="Asia/Shanghai", default_calendar="cn_holidays")
+ensure_loaded(timezone="Asia/Shanghai", default_calendar="cn_holidays")
 
 import marivo.analysis_py as mv  # noqa: E402
 

@@ -197,7 +197,7 @@ def test_correlate_sample_alignment_truncates_and_drops_nulls():
         metric_id="sales.orders",
     )
 
-    out = mv.correlate(a, b, value_a="left", value_b="right", session=session)
+    out = mv.correlate(a, b, measure_a="left", measure_b="right", session=session)
 
     df = out.to_pandas()
     assert df.iloc[0]["aligned_row_count"] == 3
@@ -217,8 +217,8 @@ def test_correlate_writes_job_and_frame():
     assert jobs[0].output_frame_ref == out.ref
     assert (session.layout.frames_dir / out.ref / "data.parquet").is_file()
     params = session.job(jobs[0].id)["params"]
-    assert params["value_a"] == "value"
-    assert params["value_b"] == "value"
+    assert params["measure_a"] == "value"
+    assert params["measure_b"] == "value"
     assert params["alignment"] == {
         "kind": "calendar_bucket",
         "calendar": None,

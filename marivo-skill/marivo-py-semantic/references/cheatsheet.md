@@ -8,7 +8,7 @@
 | `@ms.field`        | function taking dataset | `dataset=<ref or str>`                  | Non-aggregated per-row expression.                    |
 | `@ms.time_field`   | function taking dataset | `dataset=`, `data_type=`, `granularity=` | Calendar axis for time-aware analysis. Prefer partition time fields when available. |
 | `@ms.metric`       | function taking datasets | `datasets=`, `decomposition=`, `name=`  | Body returns an ibis expression for the metric value. |
-| `@ms.relationship` | bare function          | `from_=`, `to=`, `from_fields=`, `to_fields=` | Declares cross-dataset joins.                  |
+| `@ms.relationship` | bare function          | `from_dataset=`, `to_dataset=`, `from_fields=`, `to_fields=` | Declares cross-dataset joins.                  |
 
 ## Builders
 
@@ -17,7 +17,7 @@
 | `ms.ref("metric.name")`            | Reference a registered metric by local name.      |
 | `ms.component("numerator")`        | Access a component inside a derived metric body.  |
 | `ms.ratio(numerator=..., denominator=...)` | Derived metric decomposition marker.       |
-| `ms.weighted_average(numerator=..., weight=...)` | Weighted-average decomposition marker. |
+| `ms.weighted_average(value=..., weight=...)` | Weighted-average decomposition marker. |
 | `ms.sum()`                         | Additive metric decomposition marker.             |
 
 ## Context

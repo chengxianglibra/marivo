@@ -30,7 +30,7 @@ def test_meta_kind_literal_is_metric_frame():
         axes={"time": {"column": "order_date", "grain": "day"}},
         measure={"name": "amount", "unit": "USD", "type": "scalar"},
         window={"start": "2026-07-01", "end": "2026-09-30"},
-        slice={"region": "north"},
+        where={"region": "north"},
         semantic_kind="time_series",
         semantic_model="sales",
     )
@@ -55,7 +55,7 @@ def test_metric_frame_wraps_df_and_meta():
         axes={"time": {"column": "bucket", "grain": "day"}},
         measure={"name": "value", "unit": "USD", "type": "scalar"},
         window=None,
-        slice={},
+        where={},
         semantic_kind="time_series",
         semantic_model="sales",
     )
@@ -93,7 +93,7 @@ def test_from_dataframe_creates_external_entry(tmp_path):
         axes={"segment": {"column": "region"}},
         measure={"name": "value", "unit": None, "type": "scalar"},
         window=None,
-        slice={},
+        where={},
         semantic_kind="segmented",
         semantic_model="custom",
     )
@@ -157,7 +157,7 @@ def test_metric_frame_meta_accepts_optional_normalization():
         axes={},
         measure={"name": "revenue"},
         window=None,
-        slice={},
+        where={},
         semantic_kind="scalar",
         semantic_model="sales",
         normalization={"kind": "share", "base": None, "columns_affected": ["revenue"]},
@@ -182,7 +182,7 @@ def test_metric_frame_meta_normalization_defaults_to_none():
         axes={},
         measure={"name": "revenue"},
         window=None,
-        slice={},
+        where={},
         semantic_kind="scalar",
         semantic_model="sales",
     )

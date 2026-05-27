@@ -12,6 +12,9 @@ every coding task.
   speculative flexibility, future placeholders, or unrelated abstractions.
 - Make surgical changes: touch only the files required, match existing style,
   and never clean up unrelated local changes.
+- Do not add Chinese text to source code, code comments, tests, fixtures,
+  generated code, or user-facing strings in code. Keep code artifacts in
+  English unless a task explicitly updates localized documentation.
 - Define verifiable success criteria for non-trivial work and loop until the
   relevant checks pass or explain why they could not run.
 - Treat committed specs, schemas, and docs as sources of truth. If code and

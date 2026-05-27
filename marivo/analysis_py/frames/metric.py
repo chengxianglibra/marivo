@@ -36,7 +36,7 @@ class MetricFrameMeta(BaseFrameMeta):
     axes: dict[str, Any]
     measure: dict[str, Any]
     window: dict[str, Any] | None
-    slice: dict[str, Any]
+    where: dict[str, Any]
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str
     normalization: dict[str, Any] | None = None
@@ -52,7 +52,7 @@ class MetricFrame(BaseFrame):
         "correlate",
         "transform",
         "assess_quality",
-        "test",
+        "hypothesis_test",
         "forecast",
     )
 
@@ -67,7 +67,7 @@ class MetricFrame(BaseFrame):
         semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
         semantic_model: str,
         window: object | None = None,
-        slice: dict[str, Any] | None = None,
+        where: dict[str, Any] | None = None,
         session: Session,
     ) -> MetricFrame:
         """Create and persist an external-entry MetricFrame from pandas."""
@@ -115,7 +115,7 @@ class MetricFrame(BaseFrame):
             axes=axes,
             measure=measure,
             window=meta_window,
-            slice=slice or {},
+            where=where or {},
             semantic_kind=semantic_kind,
             semantic_model=semantic_model,
         )

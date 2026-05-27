@@ -41,11 +41,11 @@ def select(
     candidate_set: CandidateSet,
     *,
     rank: int = 1,
-    field: SelectField | str,
+    attribute: SelectField | str,
 ) -> Any:
-    """Read one typed field from a single rank of a CandidateSet.
+    """Read one typed attribute from a single rank of a CandidateSet.
 
-    Each candidate ``shape`` exposes a different field set (e.g. ``axis`` is
+    Each candidate ``shape`` exposes a different attribute set (e.g. ``axis`` is
     only available on ``driver_axis``). Dot-paths into ``selector`` / ``keys``
     (``"selector.country"``) are supported.
 
@@ -53,10 +53,10 @@ def select(
         candidate_set: A CandidateSet returned by ``mv.discover``.
         rank: 1-indexed rank of the row to read. Must be in
             ``[1, candidate_set.meta.row_count]``.
-        field: One of the canonical fields (``axis``, ``selector``, ``window``,
+        attribute: One of the canonical attributes (``axis``, ``selector``, ``window``,
             ``baseline_window``, ``direction``, ``score``, ``item_id``,
             ``recommended_followups``) — or a dot-path under ``selector`` /
-            ``keys``. Only fields valid for the candidate's shape are accepted.
+            ``keys``. Only attributes valid for the candidate's shape are accepted.
 
     Returns:
         The typed value: ``DimensionRef`` for ``axis``, ``AbsoluteWindow`` for
@@ -65,11 +65,11 @@ def select(
 
     Raises:
         SemanticKindMismatchError: ``candidate_set`` is not a CandidateSet, ``rank``
-            is out of range, or ``field`` is not available for the candidate shape.
+            is out of range, or ``attribute`` is not available for the candidate shape.
 
     Example:
         >>> candidates = mv.discover(series, objective="point_anomalies", threshold=1.0)
-        >>> mv.select(candidates, rank=1, field="window")
+        >>> mv.select(candidates, rank=1, attribute="window")
     """
     if not isinstance(candidate_set, CandidateSet):
         raise SemanticKindMismatchError(
@@ -92,73 +92,73 @@ def select(
     row = candidate_set._df.iloc[rank - 1]
     shape = candidate_set.meta.shape
 
-    base_field, _, sub_field = field.partition(".")
-    if sub_field:
-        if base_field not in {"keys", "selector"}:
+    base_attr, _, sub_attr = attribute.partition(".")
+    if sub_attr:
+        if base_attr not in {"keys", "selector"}:
             raise SemanticKindMismatchError(
-                message=f"select dot-path field {field!r} is not supported",
-                details={"shape": shape, "field": field},
+                message=f"select dot-path attribute {attribute!r} is not supported",
+                details={"shape": shape, "attribute": attribute},
             )
-        return _select_dot_path(row, shape, base_field, sub_field)
+        return _select_dot_path(row, shape, base_attr, sub_attr)
 
-    if base_field not in _FIELD_BY_SHAPE.get(shape, set()):
+    if base_attr not in _FIELD_BY_SHAPE.get(shape, set()):
         raise SemanticKindMismatchError(
-            message=f"select field {field!r} is not available for shape {shape!r}",
+            message=f"select attribute {attribute!r} is not available for shape {shape!r}",
             details={
                 "shape": shape,
-                "field": field,
+                "attribute": attribute,
                 "valid_fields": sorted(_FIELD_BY_SHAPE.get(shape, set())),
             },
         )
 
-    if base_field == "axis":
+    if base_attr == "axis":
         return DimensionRef(id=str(row["axis"]))
-    if base_field == "selector":
+    if base_attr == "selector":
         raw = row["selector_json"]
         if not raw:
             raise SemanticKindMismatchError(
-                message="select(field='selector') row has empty selector_json",
-                details={"shape": shape, "field": field},
+                message="select(attribute='selector') row has empty selector_json",
+                details={"shape": shape, "attribute": attribute},
             )
         decoded = json.loads(raw)
         return {DimensionRef(id=name): value for name, value in decoded.items()}
-    if base_field == "window":
+    if base_attr == "window":
         return _absolute_window(row["window_start"], row["window_end"])
-    if base_field == "baseline_window":
+    if base_attr == "baseline_window":
         return _absolute_window(row["baseline_window_start"], row["baseline_window_end"])
-    if base_field == "direction":
+    if base_attr == "direction":
         return None if pd.isna(row["direction"]) else str(row["direction"])
-    if base_field == "score":
+    if base_attr == "score":
         return float(row["score"])
-    if base_field == "item_id":
+    if base_attr == "item_id":
         return str(row["item_id"])
-    if base_field == "recommended_followups":
+    if base_attr == "recommended_followups":
         return _parse_item_followups(
             row["recommended_followups_json"]
             if isinstance(row["recommended_followups_json"], str)
             else None
         )
     raise SemanticKindMismatchError(
-        message=f"select field {field!r} is not recognized",
-        details={"shape": shape, "field": field},
+        message=f"select attribute {attribute!r} is not recognized",
+        details={"shape": shape, "attribute": attribute},
     )
 
 
-def _select_dot_path(row: pd.Series, shape: CandidateShape, base_field: str, key: str) -> Any:
-    column = "selector_json" if base_field == "selector" else "keys_json"
+def _select_dot_path(row: pd.Series, shape: CandidateShape, base_attr: str, key: str) -> Any:
+    column = "selector_json" if base_attr == "selector" else "keys_json"
     raw = row[column]
     if not raw:
         raise SemanticKindMismatchError(
-            message=f"select(field='{base_field}.{key}') row has empty {column}",
-            details={"shape": shape, "field": f"{base_field}.{key}"},
+            message=f"select(attribute='{base_attr}.{key}') row has empty {column}",
+            details={"shape": shape, "attribute": f"{base_attr}.{key}"},
         )
     decoded = json.loads(raw)
     if key not in decoded:
         raise SemanticKindMismatchError(
-            message=f"select(field='{base_field}.{key}') key not present in row",
+            message=f"select(attribute='{base_attr}.{key}') key not present in row",
             details={
                 "shape": shape,
-                "field": f"{base_field}.{key}",
+                "attribute": f"{base_attr}.{key}",
                 "available_keys": sorted(decoded.keys()),
             },
         )

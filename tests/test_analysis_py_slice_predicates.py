@@ -63,13 +63,13 @@ def _session_with_sales(tmp_path):
 )
 def test_observe_structured_slice_predicates(tmp_path, slice_spec, expected):
     session = _session_with_sales(tmp_path)
-    frame = observe(MetricRef("sales.revenue"), slice=slice_spec, session=session)
+    frame = observe(MetricRef("sales.revenue"), where=slice_spec, session=session)
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(expected)
 
 
 def test_observe_equality_shorthand_still_works(tmp_path):
     session = _session_with_sales(tmp_path)
-    frame = observe(MetricRef("sales.revenue"), slice={"region": "NORTH"}, session=session)
+    frame = observe(MetricRef("sales.revenue"), where={"region": "NORTH"}, session=session)
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(70.0)
 
 
@@ -77,14 +77,14 @@ def test_in_predicate_with_set_is_json_safe_in_job_record(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
         MetricRef("sales.revenue"),
-        slice={"region": {"op": "in", "value": {"NORTH"}}},
+        where={"region": {"op": "in", "value": {"NORTH"}}},
         session=session,
     )
 
     job = next(item for item in session.jobs() if item.output_frame_ref == frame.ref)
     record = session.job(job.id)
-    assert record["params"]["slice"] == {"region": {"op": "in", "value": ["NORTH"]}}
-    assert frame.meta.slice == {"region": {"op": "in", "value": ["NORTH"]}}
+    assert record["params"]["where"] == {"region": {"op": "in", "value": ["NORTH"]}}
+    assert frame.meta.where == {"region": {"op": "in", "value": ["NORTH"]}}
 
 
 @pytest.mark.parametrize(
@@ -108,21 +108,21 @@ def test_in_predicate_with_set_is_json_safe_in_job_record(tmp_path):
 def test_invalid_structured_predicates_raise(tmp_path, slice_spec):
     session = _session_with_sales(tmp_path)
     with pytest.raises(SliceInvalidError):
-        observe(MetricRef("sales.revenue"), slice=slice_spec, session=session)
+        observe(MetricRef("sales.revenue"), where=slice_spec, session=session)
 
 
 def test_mixed_set_in_predicate_is_json_safe_and_normalized(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
         MetricRef("sales.revenue"),
-        slice={"user_id": {"op": "in", "value": {100, "200"}}},
+        where={"user_id": {"op": "in", "value": {100, "200"}}},
         session=session,
     )
 
     job = next(item for item in session.jobs() if item.output_frame_ref == frame.ref)
     record = session.job(job.id)
-    assert record["params"]["slice"] == {"user_id": {"op": "in", "value": ["200", 100]}}
-    assert frame.meta.slice == {"user_id": {"op": "in", "value": ["200", 100]}}
+    assert record["params"]["where"] == {"user_id": {"op": "in", "value": ["200", 100]}}
+    assert frame.meta.where == {"user_id": {"op": "in", "value": ["200", 100]}}
 
 
 def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
@@ -131,7 +131,7 @@ def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
     with pytest.raises(SliceInvalidError):
         observe(
             MetricRef("sales.revenue"),
-            slice={"region": {"op": "in", "value": [object()]}},
+            where={"region": {"op": "in", "value": [object()]}},
             session=session,
         )
 

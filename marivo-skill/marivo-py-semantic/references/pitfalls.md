@@ -64,7 +64,7 @@ an explicit `backends=` / `backend_factory=` override.
 ```python
 import marivo.analysis_py as mv
 
-mv.datasources.set("tiny_orders", backend_type="duckdb", path=":memory:")
+mv.datasources.register("tiny_orders", backend_type="duckdb", path=":memory:")
 session = mv.session.get_or_create(name="analysis")
 ```
 

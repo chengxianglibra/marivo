@@ -176,34 +176,34 @@ class SemanticKindMismatchError(AnalysisError):
                 ),
                 "fix_snippet": (
                     "if cands.meta.row_count >= 1:\n"
-                    '    value = mv.select(cands, rank=1, field="...")'
+                    '    value = mv.select(cands, rank=1, attribute="...")'
                 ),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         shape = self.details.get("shape")
-        field = self.details.get("field")
+        attribute = self.details.get("attribute")
         valid_fields = self.details.get("valid_fields")
-        if isinstance(shape, str) and isinstance(field, str):
+        if isinstance(shape, str) and isinstance(attribute, str):
             valid_list = (
                 ", ".join(sorted(valid_fields))
                 if isinstance(valid_fields, list) and valid_fields
                 else None
             )
             cause = (
-                f"select(field={field!r}) is not available on a CandidateSet[{shape}]; "
-                "see the field-by-shape matrix in SKILL.md."
+                f"select(attribute={attribute!r}) is not available on a CandidateSet[{shape}]; "
+                "see the attribute-by-shape matrix in SKILL.md."
             )
             if valid_list:
-                cause += f" Valid fields for shape {shape!r}: {valid_list}."
+                cause += f" Valid attributes for shape {shape!r}: {valid_list}."
             first_valid = (
                 sorted(valid_fields)[0]
                 if isinstance(valid_fields, list) and valid_fields
                 else "score"
             )
             return {
-                "location": "mv.select field argument",
+                "location": "mv.select attribute argument",
                 "cause": cause,
-                "fix_snippet": (f'value = mv.select(cands, rank=1, field="{first_valid}")'),
+                "fix_snippet": (f'value = mv.select(cands, rank=1, attribute="{first_valid}")'),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         objective = self.details.get("objective")
@@ -267,7 +267,7 @@ class SemanticKindMismatchError(AnalysisError):
                 ),
                 "fix_snippet": (
                     'cands = mv.discover(metric, objective="point_anomalies")\n'
-                    'window = mv.select(cands, rank=1, field="window")'
+                    'window = mv.select(cands, rank=1, attribute="window")'
                 ),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
@@ -571,7 +571,7 @@ class NoBackendFactoryError(AnalysisError):
                     "import marivo.analysis_py as mv\n"
                     "\n"
                     "# Recommended: persist the project datasource config once.\n"
-                    'mv.datasources.set("tiny_orders", backend_type="duckdb", path=":memory:")\n'
+                    'mv.datasources.register("tiny_orders", backend_type="duckdb", path=":memory:")\n'
                     'session = mv.session.get_or_create(name="analysis")  # auto-loads from datasource\n'
                     "\n"
                     "# Or pass an explicit factory (no datasource lookup):\n"
@@ -593,7 +593,7 @@ class NoBackendFactoryError(AnalysisError):
             "fix_snippet": (
                 "import marivo.analysis_py as mv\n"
                 "\n"
-                'mv.datasources.set("tiny_orders", backend_type="duckdb", path=":memory:")\n'
+                'mv.datasources.register("tiny_orders", backend_type="duckdb", path=":memory:")\n'
             ),
             "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }
@@ -620,8 +620,8 @@ class DatasourceMissingError(AnalysisError):
             "cause": f"datasource {ds_ref!r} is not configured; {available_line}",
             "fix_snippet": (
                 "import marivo.analysis_py as mv\n"
-                f'mv.datasources.set("{ds_ref}", {bt_arg}host="...", port=..., user_env="USER_VAR")\n'
-                f'# Sensitive fields go via *_env: mv.datasources.set("{ds_ref}", ..., password_env="PWD_VAR")'
+                f'mv.datasources.register("{ds_ref}", {bt_arg}host="...", port=..., user_env="USER_VAR")\n'
+                f'# Sensitive fields go via *_env: mv.datasources.register("{ds_ref}", ..., password_env="PWD_VAR")'
             ),
             "doc": "marivo-skill/marivo-py-semantic/references/datasource.md",
         }

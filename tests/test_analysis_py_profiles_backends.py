@@ -24,7 +24,7 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_build_duckdb_in_memory(project_root: Path) -> None:
-    mv.datasources.set("local", backend_type="duckdb", path=":memory:")
+    mv.datasources.register("local", backend_type="duckdb", path=":memory:")
     backend = mv.datasources.build_backend("local")
     # ibis DuckDB backend exposes list_tables(); empty for a fresh in-memory db.
     assert backend.list_tables() == []

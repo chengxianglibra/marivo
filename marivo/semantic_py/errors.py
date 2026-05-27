@@ -103,7 +103,7 @@ def _hint_invalid_ref(**_kwargs: Any) -> str:
 
 
 def _hint_invalid_decomposition(**_kwargs: Any) -> str:
-    return "Use ms.sum(), ms.ratio(numerator=..., denominator=...), or ms.weighted_average(numerator=..., weight=...)."
+    return "Use ms.sum(), ms.ratio(numerator=..., denominator=...), or ms.weighted_average(value=..., weight=...)."
 
 
 def _hint_invalid_component_body(**_kwargs: Any) -> str:

@@ -468,11 +468,11 @@ def from_pandas(
     *,
     session: Session | None = None,
     description: str | None = None,
-    source_artifacts: list[ArtifactRef] | None = None,
+    sources: list[ArtifactRef] | None = None,
 ) -> ExplorationResult:
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
-    source_refs = [ref.id for ref in source_artifacts or []]
+    source_refs = [ref.id for ref in sources or []]
     frame_ref = _new_frame_ref()
     copied = _isolate_dataframe(df)
     meta = ExplorationResultMeta(
@@ -511,23 +511,23 @@ def from_pandas(
 
 
 def explore_ibis(
-    builder: Callable[[Any], Any],
+    query_builder: Callable[[Any], Any],
     *,
     datasource: str,
     session: Session | None = None,
     description: str | None = None,
-    source_artifacts: list[ArtifactRef] | None = None,
+    sources: list[ArtifactRef] | None = None,
 ) -> ExplorationResult:
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
     backend = resolved_session.backend_cache.get_or_create(datasource)
-    expr = builder(backend)
+    expr = query_builder(backend)
     if not callable(getattr(expr, "compile", None)) and not callable(
         getattr(expr, "to_pandas", None)
     ):
-        raise TypeError("explore_ibis builder must return an Ibis expression")
+        raise TypeError("explore_ibis query_builder must return an Ibis expression")
     result = execute(expr, datasource_name=datasource, cache=resolved_session.backend_cache)
-    source_refs = [ref.id for ref in source_artifacts or []]
+    source_refs = [ref.id for ref in sources or []]
     frame_ref = _new_frame_ref()
     query = _compile_query(expr)
     copied = _isolate_dataframe(result.df)
@@ -578,7 +578,7 @@ def promote_metric_frame(
     time_axis: str | DimensionRef | None = None,
     semantic_model: str | None = None,
     window: WindowInput | None = None,
-    slice: dict[str, Any] | None = None,
+    where: dict[str, Any] | None = None,
 ) -> MetricFrame:
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
@@ -671,7 +671,7 @@ def promote_metric_frame(
         if time_axis_meta is not None
         else None,
         "window": dump_window(resolved_window),
-        "slice": slice or {},
+        "where": where or {},
     }
     meta = MetricFrameMeta(
         kind="metric_frame",
@@ -698,7 +698,7 @@ def promote_metric_frame(
         axes=resolved_axes,
         measure={"name": measure_column},
         window=dump_window(resolved_window),
-        slice=slice or {},
+        where=where or {},
         semantic_kind=semantic_kind,
         semantic_model=semantic_model,
     )
@@ -914,8 +914,8 @@ def promote_delta_frame(
             external_inputs=source_external_inputs,
         ),
         metric_id=metric_id,
-        source_a_ref=current_ref.id if current_ref else "",
-        source_b_ref=baseline_ref.id if baseline_ref else "",
+        source_current_ref=current_ref.id if current_ref else "",
+        source_baseline_ref=baseline_ref.id if baseline_ref else "",
         alignment=alignment_dump,
         semantic_kind=final_kind,
         semantic_model=final_model,
@@ -938,7 +938,7 @@ def promote_attribution_frame(
     contribution_column: str | None = None,
     value_column: str | None = None,
     method: str = "promotion",
-    params: dict[str, Any] | None = None,
+    method_params: dict[str, Any] | None = None,
 ) -> AttributionFrame:
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
@@ -986,7 +986,7 @@ def promote_attribution_frame(
             available_columns=list(map(str, df.columns)),
             source_refs=[delta_ref.id],
         )
-    resolved_params = params or {}
+    resolved_params = method_params or {}
     meta = AttributionFrameMeta(
         kind="attribution_frame",
         ref=_new_frame_ref(),
@@ -1009,7 +1009,7 @@ def promote_attribution_frame(
                         "contribution_column": contribution_column,
                         "value_column": value_column,
                         "method": method,
-                        "params": resolved_params,
+                        "method_params": resolved_params,
                     }
                 ),
             ),
