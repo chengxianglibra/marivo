@@ -128,6 +128,27 @@ def test_decompose_segmented_uses_axis_ref():
     assert list(df["rank"]) == [1, 2]
 
 
+def test_decompose_accepts_model_prefixed_axis_ref():
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "department": ["analytics", "search", "analytics"],
+                "delta": [10.0, -3.0, 4.0],
+            }
+        ),
+        semantic_kind="segmented",
+    )
+
+    out = mv.decompose(frame, axis=DimensionRef("trino_query.department"), session=session)
+
+    assert out.meta.driver_field == "department"
+    df = out.to_pandas()
+    assert list(df["department"]) == ["analytics", "search"]
+    assert list(df["contribution"]) == [pytest.approx(14.0), pytest.approx(-3.0)]
+
+
 def test_decompose_requires_axis_argument():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(
@@ -157,7 +178,9 @@ def test_decompose_scalar_rejects_missing_axis_column():
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         mv.decompose(frame, axis=DimensionRef("region"), session=session)
 
-    assert exc_info.value.details["axis"] == "region"
+    assert exc_info.value.details["requested_axis"] == "region"
+    assert exc_info.value.details["normalized_axis"] == "region"
+    assert exc_info.value.details["available_columns"] == ["delta"]
 
 
 def test_decompose_writes_job_and_frame():
@@ -213,8 +236,9 @@ def test_decompose_rejects_missing_axis_column():
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
 
-    assert exc_info.value.details["axis"] == "bucket"
-    assert exc_info.value.details["columns"] == ["delta"]
+    assert exc_info.value.details["requested_axis"] == "bucket"
+    assert exc_info.value.details["normalized_axis"] == "bucket"
+    assert exc_info.value.details["available_columns"] == ["delta"]
 
 
 def test_decompose_rejects_missing_value_column():

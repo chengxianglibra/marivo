@@ -13,7 +13,7 @@ import pytest
 
 import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
-from marivo.analysis_py.errors import SemanticKindMismatchError
+from marivo.analysis_py.errors import DiscoverInsufficientDataError, SemanticKindMismatchError
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.lineage import Lineage
@@ -173,6 +173,72 @@ def test_period_shifts_rejects_metric_frame():
         mv.discover(frame, objective="period_shifts", session=session)
     assert exc.value.details.get("objective") == "period_shifts"
     assert exc.value.details.get("source_kind") == "metric_frame"
+
+
+@pytest.mark.parametrize("row_count", [1, 3])
+def test_period_shifts_rejects_time_series_with_too_few_buckets(row_count: int):
+    session = session_attach.get_or_create(name="demo")
+    delta = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=row_count, freq="D", tz="UTC"),
+                "delta": [1.0] * row_count,
+            }
+        ),
+        semantic_kind="time_series",
+    )
+
+    with pytest.raises(DiscoverInsufficientDataError) as exc:
+        mv.discover.period_shifts(delta, session=session)
+
+    assert exc.value.details["minimum"] == 4
+    assert exc.value.details["row_count"] == row_count
+
+
+def test_period_shifts_rejects_panel_when_all_series_have_too_few_buckets():
+    session = session_attach.get_or_create(name="demo")
+    delta = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=3, freq="D", tz="UTC").tolist() * 2,
+                "region": ["north"] * 3 + ["south"] * 3,
+                "delta": [1.0, 2.0, 3.0, 1.0, 2.0, 3.0],
+            }
+        ),
+        semantic_kind="panel",
+    )
+
+    with pytest.raises(DiscoverInsufficientDataError) as exc:
+        mv.discover.period_shifts(delta, session=session)
+
+    assert exc.value.details["minimum"] == 4
+    assert exc.value.details["row_count"] == 3
+    assert exc.value.details["group_columns"] == ["region"]
+
+
+def test_period_shifts_allows_panel_when_one_series_has_enough_buckets():
+    session = session_attach.get_or_create(name="demo")
+    delta = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": [
+                    *pd.date_range("2026-01-01", periods=4, freq="D", tz="UTC"),
+                    *pd.date_range("2026-01-01", periods=2, freq="D", tz="UTC"),
+                ],
+                "region": ["north"] * 4 + ["south"] * 2,
+                "delta": [0.0, 1.0, 2.0, 3.0, 0.0, 1.0],
+            }
+        ),
+        semantic_kind="panel",
+    )
+
+    out = mv.discover.period_shifts(delta, session=session)
+
+    assert out.meta.objective == "period_shifts"
+    assert out.meta.shape == "period_shift"
 
 
 def test_driver_axes_rejects_metric_frame():

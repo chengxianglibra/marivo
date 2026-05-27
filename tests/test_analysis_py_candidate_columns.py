@@ -88,6 +88,22 @@ def test_build_union_columns_serializes_selector_and_keys() -> None:
     }
 
 
+def test_build_union_columns_keeps_non_ascii_json_readable() -> None:
+    rows = [
+        {
+            "item_id": "cand_0",
+            "score": 1.5,
+            "selector": {"department": "München Analytics"},
+            "keys": {"department": "München Analytics"},
+        }
+    ]
+    df = build_union_columns("slice", rows)
+
+    assert df.loc[0, "selector_json"] == '{"department": "München Analytics"}'
+    assert df.loc[0, "keys_json"] == '{"department": "München Analytics"}'
+    assert "\\u" not in df.loc[0, "keys_json"]
+
+
 def test_build_union_columns_serializes_window_to_datetime_columns() -> None:
     rows = [
         {

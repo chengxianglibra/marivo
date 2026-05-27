@@ -246,6 +246,7 @@ def test_calendar_bucket_no_overlap_unequal_lengths_explains_requirement(tmp_pat
         compare(cur, base, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
 
     assert "equal-length" in str(exc_info.value)
+    assert "current has 2 rows, baseline has 1 rows" in str(exc_info.value)
     assert exc_info.value.details["kind"] == "CalendarBucketNoComparableBuckets"
 
 

@@ -9,8 +9,9 @@ from time import monotonic
 from typing import Any, Literal, TypeGuard, cast
 
 import numpy as np
+import pandas as pd
 
-from marivo.analysis_py.errors import SemanticKindMismatchError
+from marivo.analysis_py.errors import DiscoverInsufficientDataError, SemanticKindMismatchError
 from marivo.analysis_py.evidence.pipeline import (
     CommitInputs,
     CommitParams,
@@ -360,6 +361,12 @@ class DiscoverAPI:
         threshold: float | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
+        """Find period-shift candidates from a DeltaFrame.
+
+        Requires at least four time buckets in a time-series delta, or at least
+        one panel series with four time buckets.
+        """
+
         return _discover_dispatch(
             source,
             objective="period_shifts",
@@ -520,6 +527,11 @@ def _run_scorer(
         bucket_column, group_columns = _delta_axes(cast("DeltaFrame", source))
         value_column = require_numeric_column(
             df.drop(columns=[bucket_column, *group_columns]), value, purpose="discover"
+        )
+        _validate_period_shift_min_buckets(
+            df,
+            bucket_column=bucket_column,
+            group_columns=group_columns,
         )
         rows = score_period_shifts(
             df,
@@ -690,6 +702,65 @@ def _validate_threshold(threshold: float) -> float:
             message="discover threshold must be a positive finite number"
         )
     return threshold_value
+
+
+def _validate_period_shift_min_buckets(
+    df: pd.DataFrame,
+    *,
+    bucket_column: str,
+    group_columns: list[str],
+) -> None:
+    minimum = 4
+    if bucket_column not in df.columns:
+        raise DiscoverInsufficientDataError(
+            message="discover(period_shifts) requires a time bucket column",
+            details={
+                "objective": "period_shifts",
+                "minimum": minimum,
+                "row_count": 0,
+                "bucket_column": bucket_column,
+            },
+        )
+
+    if not group_columns:
+        bucket_count = int(df[bucket_column].nunique(dropna=True))
+        if bucket_count >= minimum:
+            return
+        raise DiscoverInsufficientDataError(
+            message=(
+                f"discover(period_shifts) requires at least 4 time buckets; got {bucket_count}"
+            ),
+            details={
+                "objective": "period_shifts",
+                "minimum": minimum,
+                "row_count": bucket_count,
+                "bucket_column": bucket_column,
+            },
+        )
+
+    group_counts: dict[str, int] = {}
+    for group_keys, group_df in df.groupby(group_columns, dropna=False):
+        if not isinstance(group_keys, tuple):
+            group_keys = (group_keys,)
+        key = "|".join(str(value) for value in group_keys)
+        group_counts[key] = int(group_df[bucket_column].nunique(dropna=True))
+    if any(count >= minimum for count in group_counts.values()):
+        return
+    max_count = max(group_counts.values(), default=0)
+    raise DiscoverInsufficientDataError(
+        message=(
+            "discover(period_shifts) requires at least one panel series with "
+            f"4 time buckets; got max {max_count}"
+        ),
+        details={
+            "objective": "period_shifts",
+            "minimum": minimum,
+            "row_count": max_count,
+            "bucket_column": bucket_column,
+            "group_columns": group_columns,
+            "group_bucket_counts": group_counts,
+        },
+    )
 
 
 def _delta_axes(source: DeltaFrame) -> tuple[str, list[str]]:

@@ -98,7 +98,7 @@ def empty_candidate_frame() -> pd.DataFrame:
 
 
 def _json_dumps(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, default=str)
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
 def _to_utc_datetime(raw: Any) -> pd.Timestamp:

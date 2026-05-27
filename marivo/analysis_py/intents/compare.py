@@ -798,9 +798,9 @@ def _align_panel_calendar_bucket(
 
     if len(a_prepared) != len(b_prepared):
         raise AlignmentFailedError(
-            message=(
-                "calendar_bucket alignment requires shared bucket_start values or "
-                "equal-length same-grain windows for ordinal bucket alignment"
+            message=_calendar_bucket_unequal_length_message(
+                current_rows=len(a_prepared),
+                baseline_rows=len(b_prepared),
             ),
             details={
                 "kind": "CalendarBucketNoComparableBuckets",
@@ -926,9 +926,9 @@ def _align_and_compute(a_df: pd.DataFrame, b_df: pd.DataFrame) -> pd.DataFrame:
 def _ordinal_bucket_align(a_df: pd.DataFrame, b_df: pd.DataFrame, *, key: str) -> pd.DataFrame:
     if len(a_df) != len(b_df):
         raise AlignmentFailedError(
-            message=(
-                "calendar_bucket alignment requires shared bucket_start values or "
-                "equal-length same-grain windows for ordinal bucket alignment"
+            message=_calendar_bucket_unequal_length_message(
+                current_rows=len(a_df),
+                baseline_rows=len(b_df),
             ),
             details={
                 "kind": "CalendarBucketNoComparableBuckets",
@@ -966,6 +966,15 @@ def _ordinal_bucket_align(a_df: pd.DataFrame, b_df: pd.DataFrame, *, key: str) -
             "delta": delta,
             "pct_change": np.where(baseline != 0, delta / baseline, np.nan),
         }
+    )
+
+
+def _calendar_bucket_unequal_length_message(*, current_rows: int, baseline_rows: int) -> str:
+    return (
+        "calendar_bucket alignment requires shared bucket_start values or "
+        "equal-length same-grain windows for ordinal bucket alignment; "
+        f"current has {current_rows} rows, baseline has {baseline_rows} rows; "
+        "equal-length windows are required for ordinal bucket alignment"
     )
 
 
