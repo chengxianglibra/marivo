@@ -50,7 +50,7 @@ def _base_meta(session, *, kind, ref):
 
 
 def test_exploration_result_round_trips_through_load_frame():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = ExplorationResult(
         _df=pd.DataFrame({"country": ["US"], "value": [10.0]}),
         meta=ExplorationResultMeta(
@@ -74,7 +74,7 @@ def test_exploration_result_round_trips_through_load_frame():
 
 
 def test_exploration_result_to_pandas_returns_copy():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = ExplorationResult(
         _df=pd.DataFrame({"value": [10.0]}),
         meta=ExplorationResultMeta(
@@ -95,7 +95,7 @@ def test_exploration_result_to_pandas_returns_copy():
 
 
 def test_from_pandas_creates_persisted_scratch_result():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     df = pd.DataFrame({"country": ["US", "CA"], "value": [10.0, 5.0]})
 
     scratch = mv.from_pandas(df, session=session, description="manual cohort scan")
@@ -116,7 +116,7 @@ def test_from_pandas_creates_persisted_scratch_result():
 
 
 def test_from_pandas_isolates_object_column_containers():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     tags = ["baseline"]
     attrs = {"segment": "control"}
     df = pd.DataFrame({"tags": [tags], "attrs": [attrs]})
@@ -132,7 +132,7 @@ def test_from_pandas_isolates_object_column_containers():
 
 
 def test_exploration_result_to_pandas_isolates_object_column_containers():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(
         pd.DataFrame(
             {
@@ -153,7 +153,7 @@ def test_exploration_result_to_pandas_isolates_object_column_containers():
 
 
 def test_from_pandas_uses_active_session_when_session_is_omitted():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
 
     scratch = mv.from_pandas(pd.DataFrame({"value": [1.0]}))
 
@@ -164,7 +164,7 @@ def test_explore_ibis_materializes_scratch_and_records_provenance():
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE orders (country TEXT, revenue DOUBLE)")
     con.raw_sql("INSERT INTO orders VALUES ('US', 10.0), ('CA', 5.0), ('US', 3.0)")
-    session = mv.session.create(name="demo", backends={"warehouse": lambda: con})
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     def build_us_revenue(backend):
         table = backend.table("orders")
@@ -194,7 +194,7 @@ def test_explore_ibis_records_source_artifact_refs():
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE orders (value DOUBLE)")
     con.raw_sql("INSERT INTO orders VALUES (1.0)")
-    session = mv.session.create(name="demo", backends={"warehouse": lambda: con})
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     scratch = mv.explore_ibis(
         lambda backend: backend.table("orders"),
@@ -211,7 +211,7 @@ def test_explore_ibis_materializes_scalar_expression_as_value_column():
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE orders (value DOUBLE)")
     con.raw_sql("INSERT INTO orders VALUES (1.0), (2.0), (3.0)")
-    session = mv.session.create(name="demo", backends={"warehouse": lambda: con})
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     scratch = mv.explore_ibis(
         lambda backend: backend.table("orders").value.sum(),
@@ -227,7 +227,7 @@ def test_explore_ibis_materializes_scalar_expression_as_value_column():
 
 def test_explore_ibis_rejects_plain_builder_return():
     con = ibis.duckdb.connect(":memory:")
-    session = mv.session.create(name="demo", backends={"warehouse": lambda: con})
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     with pytest.raises(TypeError, match=r"Ibis expression|to_pandas|expression"):
         mv.explore_ibis(
@@ -238,7 +238,7 @@ def test_explore_ibis_rejects_plain_builder_return():
 
 
 def test_core_operators_reject_exploration_result_inputs():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(pd.DataFrame({"value": [1.0]}), session=session)
     metric = mv.promote_metric_frame(
         pd.DataFrame({"value": [1.0]}),
@@ -264,7 +264,7 @@ def test_core_operators_reject_exploration_result_inputs():
 
 
 def test_promote_metric_frame_creates_canonical_metric_frame():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(
         pd.DataFrame({"country": ["US", "CA"], "value": [10.0, 5.0]}),
         session=session,
@@ -295,7 +295,7 @@ def test_promote_metric_frame_creates_canonical_metric_frame():
 
 
 def test_promote_metric_frame_accepts_direct_dataframe():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
 
     metric = mv.promote_metric_frame(
         pd.DataFrame({"value": [42.0]}),
@@ -314,7 +314,7 @@ def test_promote_metric_frame_accepts_direct_dataframe():
 
 
 def test_promote_metric_frame_fails_closed_with_missing_metadata():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(pd.DataFrame({"value": [1.0]}), session=session)
 
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
@@ -331,7 +331,7 @@ def test_promote_metric_frame_fails_closed_with_missing_metadata():
 
 
 def test_promote_metric_frame_rejects_non_numeric_measure_column():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(pd.DataFrame({"value": ["not numeric"]}), session=session)
 
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
@@ -352,7 +352,7 @@ def test_promote_metric_frame_rejects_non_numeric_measure_column():
 
 
 def test_promote_metric_frame_rejects_missing_axis_column():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(pd.DataFrame({"value": [1.0]}), session=session)
 
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
@@ -373,7 +373,7 @@ def test_promote_metric_frame_rejects_missing_axis_column():
 
 
 def test_promote_metric_frame_rejects_segmented_without_axes():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(pd.DataFrame({"value": [1.0]}), session=session)
 
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
@@ -392,8 +392,8 @@ def test_promote_metric_frame_rejects_segmented_without_axes():
 
 
 def test_promote_metric_frame_rejects_cross_session_scratch():
-    session = mv.session.create(name="demo")
-    other_session = mv.session.create(name="other")
+    session = mv.session.get_or_create(name="demo")
+    other_session = mv.session.get_or_create(name="other")
     scratch = mv.from_pandas(pd.DataFrame({"value": [1.0]}), session=session)
 
     with pytest.raises(mv.errors.CrossSessionFrameError):
@@ -408,7 +408,7 @@ def test_promote_metric_frame_rejects_cross_session_scratch():
 
 
 def test_promote_metric_frame_resolves_relative_window_to_absolute():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(
         pd.DataFrame({"bucket_start": ["2026-05-25"], "value": [1.0]}),
         session=session,
@@ -444,7 +444,7 @@ def test_promote_metric_frame_resolves_relative_window_to_absolute():
 
 
 def test_promote_metric_frame_rejects_time_series_without_time_axis():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(pd.DataFrame({"value": [1.0]}), session=session)
 
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
@@ -463,7 +463,7 @@ def test_promote_metric_frame_rejects_time_series_without_time_axis():
 
 
 def test_promote_metric_frame_rejects_time_series_with_dimension_axes():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(
         pd.DataFrame({"bucket_start": ["2026-05-25"], "country": ["US"], "value": [1.0]}),
         session=session,
@@ -491,7 +491,7 @@ def test_promote_metric_frame_rejects_time_series_with_dimension_axes():
 
 
 def test_promote_metric_frame_rejects_segmented_with_time_axis():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(
         pd.DataFrame({"bucket_start": ["2026-05-25"], "country": ["US"], "value": [1.0]}),
         session=session,
@@ -514,7 +514,7 @@ def test_promote_metric_frame_rejects_segmented_with_time_axis():
 
 
 def test_promote_metric_frame_rejects_scalar_with_axes():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(pd.DataFrame({"country": ["US"], "value": [1.0]}), session=session)
 
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
@@ -533,7 +533,7 @@ def test_promote_metric_frame_rejects_scalar_with_axes():
 
 
 def test_promote_metric_frame_rejects_measure_column_used_as_axis():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(pd.DataFrame({"country": ["US"], "value": [1.0]}), session=session)
 
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
@@ -552,7 +552,7 @@ def test_promote_metric_frame_rejects_measure_column_used_as_axis():
 
 
 def test_promote_metric_frame_rejects_scalar_with_extra_columns():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(pd.DataFrame({"country": ["US"], "value": [1.0]}), session=session)
 
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
@@ -570,7 +570,7 @@ def test_promote_metric_frame_rejects_scalar_with_extra_columns():
 
 
 def test_promote_metric_frame_rejects_panel_time_axis_collision():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(
         pd.DataFrame({"bucket_start": ["2026-05-25"], "time": ["US"], "value": [1.0]}),
         session=session,
@@ -593,7 +593,7 @@ def test_promote_metric_frame_rejects_panel_time_axis_collision():
 
 
 def test_promote_metric_frame_rejects_panel_time_axis_ref_collision():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(
         pd.DataFrame({"bucket_start": ["2026-05-25"], "country": ["US"], "value": [1.0]}),
         session=session,
@@ -616,7 +616,7 @@ def test_promote_metric_frame_rejects_panel_time_axis_ref_collision():
 
 
 def test_promote_metric_frame_rejects_panel_time_axis_column_key_collision():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(
         pd.DataFrame({"bucket_start": ["2026-05-25"], "value": [1.0]}),
         session=session,
@@ -639,7 +639,7 @@ def test_promote_metric_frame_rejects_panel_time_axis_column_key_collision():
 
 
 def test_promote_metric_frame_rejects_panel_time_axis_column_ref_collision():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(
         pd.DataFrame({"bucket_start": ["2026-05-25"], "country": ["US"], "value": [1.0]}),
         session=session,
@@ -679,7 +679,7 @@ def _promoted_scalar_metric(session, value, *, semantic_kind="scalar", semantic_
 
 
 def test_promote_delta_frame_inherits_source_metric_metadata():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0)
     baseline = _promoted_scalar_metric(session, 20.0)
     scratch = mv.from_pandas(
@@ -713,7 +713,7 @@ def test_promote_delta_frame_inherits_source_metric_metadata():
 
 
 def test_promote_delta_frame_fails_when_delta_formula_does_not_match():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0)
     baseline = _promoted_scalar_metric(session, 20.0)
     scratch = mv.from_pandas(
@@ -737,7 +737,7 @@ def test_promote_delta_frame_fails_when_delta_formula_does_not_match():
 
 
 def test_promote_delta_frame_rejects_nullable_formula_values():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0)
     baseline = _promoted_scalar_metric(session, 20.0)
     scratch = mv.from_pandas(
@@ -767,7 +767,7 @@ def test_promote_delta_frame_rejects_nullable_formula_values():
 
 
 def test_promote_delta_frame_rejects_metric_override_mismatch():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0)
     baseline = _promoted_scalar_metric(session, 20.0)
     scratch = mv.from_pandas(
@@ -792,7 +792,7 @@ def test_promote_delta_frame_rejects_metric_override_mismatch():
 
 
 def test_promote_delta_frame_rejects_source_semantic_kind_mismatch():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0, semantic_kind="scalar")
     baseline = _promoted_scalar_metric(session, 20.0, semantic_kind="segmented")
     scratch = mv.from_pandas(
@@ -816,7 +816,7 @@ def test_promote_delta_frame_rejects_source_semantic_kind_mismatch():
 
 
 def test_promote_delta_frame_rejects_source_semantic_model_mismatch():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0, semantic_model="sales")
     baseline = _promoted_scalar_metric(session, 20.0, semantic_model="finance")
     scratch = mv.from_pandas(
@@ -840,7 +840,7 @@ def test_promote_delta_frame_rejects_source_semantic_model_mismatch():
 
 
 def test_promote_delta_frame_rejects_source_axes_mismatch():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = mv.promote_metric_frame(
         pd.DataFrame({"country": ["US"], "value": [30.0]}),
         session=session,
@@ -880,7 +880,7 @@ def test_promote_delta_frame_rejects_source_axes_mismatch():
 
 
 def test_promoted_segmented_delta_alignment_includes_axes_for_decompose():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0, semantic_kind="segmented")
     baseline = _promoted_scalar_metric(session, 20.0, semantic_kind="segmented")
 
@@ -909,7 +909,7 @@ def test_promoted_segmented_delta_alignment_includes_axes_for_decompose():
 
 
 def test_promote_delta_frame_rejects_missing_inherited_axis_column():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0, semantic_kind="segmented")
     baseline = _promoted_scalar_metric(session, 20.0, semantic_kind="segmented")
 
@@ -929,7 +929,7 @@ def test_promote_delta_frame_rejects_missing_inherited_axis_column():
 
 
 def test_promote_delta_frame_rejects_asymmetric_window_grain():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = mv.promote_metric_frame(
         pd.DataFrame({"value": [30.0]}),
         session=session,
@@ -965,7 +965,7 @@ def test_promote_delta_frame_rejects_asymmetric_window_grain():
 
 
 def test_promote_delta_frame_rejects_semantic_kind_override_mismatch():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0)
     baseline = _promoted_scalar_metric(session, 20.0)
     scratch = mv.from_pandas(
@@ -990,7 +990,7 @@ def test_promote_delta_frame_rejects_semantic_kind_override_mismatch():
 
 
 def test_promote_delta_frame_rejects_semantic_model_override_mismatch():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0)
     baseline = _promoted_scalar_metric(session, 20.0)
     scratch = mv.from_pandas(
@@ -1026,7 +1026,7 @@ def test_promote_delta_frame_rejects_partial_formula_columns(
     baseline_column,
     missing_column,
 ):
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0)
     baseline = _promoted_scalar_metric(session, 20.0)
     scratch = mv.from_pandas(
@@ -1050,7 +1050,7 @@ def test_promote_delta_frame_rejects_partial_formula_columns(
 
 
 def test_promote_delta_frame_fails_closed_without_provenance():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(pd.DataFrame({"delta": [10.0]}), session=session)
 
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
@@ -1080,7 +1080,7 @@ def _promoted_delta(session):
 
 
 def test_promote_attribution_frame_inherits_source_delta_metadata():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     delta = _promoted_delta(session)
     scratch = mv.from_pandas(
         pd.DataFrame({"country": ["US", "CA"], "value": [8.0, 2.0], "contribution": [8.0, 2.0]}),
@@ -1116,7 +1116,7 @@ def test_promote_attribution_frame_inherits_source_delta_metadata():
 
 
 def test_promote_attribution_frame_fails_closed_without_source_delta():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     scratch = mv.from_pandas(
         pd.DataFrame({"country": ["US"], "contribution": [10.0]}),
         session=session,
@@ -1136,7 +1136,7 @@ def test_promote_attribution_frame_fails_closed_without_source_delta():
 
 
 def test_promote_attribution_frame_rejects_non_delta_source():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     metric = _promoted_scalar_metric(session, 30.0)
     scratch = mv.from_pandas(
         pd.DataFrame({"country": ["US"], "contribution": [10.0]}),
@@ -1157,7 +1157,7 @@ def test_promote_attribution_frame_rejects_non_delta_source():
 
 
 def test_promote_attribution_frame_fails_for_missing_driver_column():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     delta = _promoted_delta(session)
     scratch = mv.from_pandas(pd.DataFrame({"contribution": [10.0]}), session=session)
 
@@ -1174,7 +1174,7 @@ def test_promote_attribution_frame_fails_for_missing_driver_column():
 
 
 def test_promote_attribution_frame_fails_for_non_numeric_contribution():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     delta = _promoted_delta(session)
     scratch = mv.from_pandas(
         pd.DataFrame({"country": ["US"], "contribution": ["bad"]}),
@@ -1194,7 +1194,7 @@ def test_promote_attribution_frame_fails_for_non_numeric_contribution():
 
 
 def test_promote_attribution_frame_fails_for_null_contribution():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     delta = _promoted_delta(session)
     scratch = mv.from_pandas(
         pd.DataFrame({"country": ["US", "CA"], "contribution": [10.0, float("nan")]}),
@@ -1215,7 +1215,7 @@ def test_promote_attribution_frame_fails_for_null_contribution():
 
 
 def test_promote_attribution_frame_lineage_digest_includes_method_and_params():
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     delta = _promoted_delta(session)
     scratch = mv.from_pandas(
         pd.DataFrame({"country": ["US"], "value": [10.0], "contribution": [10.0]}),

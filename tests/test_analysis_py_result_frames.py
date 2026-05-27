@@ -40,7 +40,7 @@ def _base_meta(session, *, kind, ref):
 def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     frame = CandidateSet(
         _df=pd.DataFrame(
             {
@@ -79,7 +79,7 @@ def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
 def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
-    session = mv.session.create(name="demo")
+    session = mv.session.get_or_create(name="demo")
     frame = AssociationResult(
         _df=pd.DataFrame({"correlation": [0.75], "aligned_row_count": [10]}),
         meta=AssociationResultMeta(

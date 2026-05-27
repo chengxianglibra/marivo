@@ -344,6 +344,26 @@ def _compute_body_ast_hash(fn: Callable[..., Any]) -> str:
         return hashlib.sha256(b"<unavailable>").hexdigest()[:16]
 
 
+def _metric_body_uses_component(fn: Callable[..., Any]) -> bool:
+    try:
+        source = textwrap.dedent(inspect.getsource(fn))
+        tree = ast.parse(source)
+    except (OSError, TypeError, IndentationError, SyntaxError):
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "ms"
+            and func.attr == "component"
+        ):
+            return True
+    return False
+
+
 def _caller_location() -> SourceLocation:
     """Best-effort source location from the caller's frame."""
     frame = inspect.currentframe()
@@ -606,6 +626,20 @@ def metric(
 
         ds_refs = _resolve_dataset_refs(datasets)
         is_derived = len(ds_refs) == 0 and bool(decomposition.components)
+        if len(ds_refs) == 0 and not decomposition.components:
+            _raise(
+                ErrorKind.INVALID_COMPONENT_BODY,
+                "@ms.metric(datasets=[]) is only valid for derived metrics with decomposition components.",
+                refs=(semantic_id,),
+                cls=SemanticDecoratorError,
+            )
+        if len(ds_refs) > 0 and _metric_body_uses_component(fn):
+            _raise(
+                ErrorKind.INVALID_COMPONENT_BODY,
+                "ms.component() can only be used in derived metric bodies; use datasets=[] with a component decomposition.",
+                refs=(semantic_id,),
+                cls=SemanticDecoratorError,
+            )
         body_hash = _compute_body_ast_hash(fn)
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()

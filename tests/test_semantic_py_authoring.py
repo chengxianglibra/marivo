@@ -864,6 +864,42 @@ def test_derived_metric_form_classification() -> None:
         _exit_ctx()
 
 
+def test_metric_rejects_empty_datasets_without_components() -> None:
+    """Empty datasets only make sense for derived metrics with components."""
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.metric(datasets=[], decomposition=ms.sum())
+            def orphan_metric():
+                return 1
+
+        assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+    finally:
+        _exit_ctx()
+
+
+def test_base_metric_rejects_component_body_at_definition_time() -> None:
+    """ms.component() cannot be hidden inside a dataset-backed metric."""
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.metric(
+                datasets=["sales.orders"],
+                decomposition=ms.ratio(
+                    numerator="sales.failed_count",
+                    denominator="sales.total_count",
+                ),
+            )
+            def failure_rate(orders):
+                return ms.component("numerator") / ms.component("denominator")
+
+        assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+    finally:
+        _exit_ctx()
+
+
 def test_derived_metric_sidecar_stores_sentinel_tree() -> None:
     """Derived metric stores sentinel tree (not raw callable) in sidecar."""
     ctx = _enter_ctx(default_model="sales")

@@ -27,8 +27,6 @@ from typing import Any
 import ibis
 
 import marivo.analysis_py as mv
-import marivo.analysis_py.session.attach as session_attach
-from marivo.analysis_py.errors import DuplicateSessionNameError
 
 MODEL_NAME = "sales"
 METRIC_ID = f"{MODEL_NAME}.revenue"
@@ -125,17 +123,9 @@ def ensure_loaded(*, tz: str = "UTC", default_calendar: str | None = None) -> An
     root = _session_root()
     _bootstrap_semantic_project(root)
     with _temporary_cwd(root):
-        try:
-            return mv.session.create(
-                name=SESSION_NAME,
-                tz=tz,
-                default_calendar=default_calendar,
-                backends=_backends(),
-            )
-        except DuplicateSessionNameError:
-            return session_attach.attach(
-                name=SESSION_NAME,
-                tz=tz,
-                default_calendar=default_calendar,
-                backends=_backends(),
-            )
+        return mv.session.get_or_create(
+            name=SESSION_NAME,
+            tz=tz,
+            default_calendar=default_calendar,
+            backends=_backends(),
+        )

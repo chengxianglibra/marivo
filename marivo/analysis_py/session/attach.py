@@ -255,7 +255,7 @@ def create(
         except sqlite3.IntegrityError as exc:
             raise DuplicateSessionNameError(
                 message=f"session name '{name}' already exists in this project",
-                hint="Use mv.session.attach(name=...) to open the existing session.",
+                hint="Use mv.session.get_or_create(name=...) for rerunnable scripts, or mv.session.attach(name=...) to open the existing session.",
             ) from exc
 
     layout = PersistenceLayout(project_root=project_root, session_id=sid)
@@ -311,7 +311,7 @@ def attach(
     if row is None:
         raise NoActiveSessionError(
             message=f"no session named '{name}' in project '{project_root}'",
-            hint="Use mv.session.create(name=...) to make one.",
+            hint="Use mv.session.get_or_create(name=...) to create or attach by name.",
         )
     session = _session_from_row(
         project_root=project_root,
@@ -324,6 +324,46 @@ def attach(
     )
     global _CURRENT_SESSION
     _CURRENT_SESSION = session
+    return session
+
+
+def get_or_create(
+    name: str,
+    question: str | None = None,
+    set_active: bool = True,
+    *,
+    tz: str | None = None,
+    timezone: str | None = None,
+    default_calendar: str | None = None,
+    backends: dict[str, Callable[[], Any]] | None = None,
+    backend_factory: Callable[[str], Any] | None = None,
+    use_datasources: bool = True,
+) -> Session:
+    project_root = resolve_project_root()
+    row = _lookup_session_by_name(project_root, name)
+    if row is None:
+        return create(
+            name=name,
+            question=question,
+            set_active=set_active,
+            tz=tz,
+            timezone=timezone,
+            default_calendar=default_calendar,
+            backends=backends,
+            backend_factory=backend_factory,
+            use_datasources=use_datasources,
+        )
+    session = attach(
+        name=name,
+        tz=tz,
+        timezone=timezone,
+        default_calendar=default_calendar,
+        backends=backends,
+        backend_factory=backend_factory,
+        use_datasources=use_datasources,
+    )
+    if set_active:
+        write_active_session_name(project_root, name)
     return session
 
 
@@ -364,7 +404,7 @@ def active() -> Session:
     if active_name is None:
         raise NoActiveSessionError(
             message="no active session and none set via attach()",
-            hint="Use mv.session.create(name=...) or mv.session.attach(name=...).",
+            hint="Use mv.session.get_or_create(name=...) or mv.session.attach(name=...).",
         )
     return attach(name=active_name)
 

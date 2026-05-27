@@ -82,7 +82,7 @@ NoActiveSessionError: no active session and none set via attach()
 
 ```python
 if mv.session.current() is None:
-    mv.session.create(name="my_investigation")
+    mv.session.get_or_create(name="my_investigation")
 ```
 
 `mv.session.history()` returns an empty list when there is no active session, so
@@ -103,7 +103,7 @@ NoBackendFactoryError: session has no backend_factory; data-materializing intent
 import ibis
 import marivo.analysis_py as mv
 
-session = mv.session.create(
+session = mv.session.get_or_create(
     name="analysis",
     backends={
         "warehouse": lambda: ibis.trino.connect(
