@@ -182,19 +182,28 @@ class SemanticKindMismatchError(AnalysisError):
             }
         shape = self.details.get("shape")
         field = self.details.get("field")
+        valid_fields = self.details.get("valid_fields")
         if isinstance(shape, str) and isinstance(field, str):
+            valid_list = (
+                ", ".join(sorted(valid_fields))
+                if isinstance(valid_fields, list) and valid_fields
+                else None
+            )
+            cause = (
+                f"select(field={field!r}) is not available on a CandidateSet[{shape}]; "
+                "see the field-by-shape matrix in SKILL.md."
+            )
+            if valid_list:
+                cause += f" Valid fields for shape {shape!r}: {valid_list}."
+            first_valid = (
+                sorted(valid_fields)[0]
+                if isinstance(valid_fields, list) and valid_fields
+                else "score"
+            )
             return {
                 "location": "mv.select field argument",
-                "cause": (
-                    f"select(field={field!r}) is not available on a CandidateSet[{shape}]; "
-                    "see the field-by-shape matrix in SKILL.md."
-                ),
-                "fix_snippet": (
-                    'if cands.meta.shape == "driver_axis":\n'
-                    '    axis = mv.select(cands, rank=1, field="axis")\n'
-                    'elif cands.meta.shape in {"point_anomaly", "period_shift", "window", "slice"}:\n'
-                    '    window = mv.select(cands, rank=1, field="window")'
-                ),
+                "cause": cause,
+                "fix_snippet": (f'value = mv.select(cands, rank=1, field="{first_valid}")'),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         objective = self.details.get("objective")
@@ -786,6 +795,9 @@ class AxisNotInPanelDimensionsError(SemanticKindMismatchError):
         available_list = (
             ", ".join(available) if isinstance(available, list) and available else "<dimensions>"
         )
+        first_available = (
+            available[0] if isinstance(available, list) and available else "<existing_dimension>"
+        )
         return {
             "location": "mv.decompose axis argument",
             "cause": (
@@ -793,6 +805,7 @@ class AxisNotInPanelDimensionsError(SemanticKindMismatchError):
                 f"({available_list}); decompose requires axis to be one of the frame's "
                 "segment dimensions."
             ),
+            "fix_snippet": (f'mv.decompose(delta, axis=mv.DimensionRef("{first_available}"))'),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
