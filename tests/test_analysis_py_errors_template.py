@@ -24,15 +24,15 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
     rendered = str(err)
 
     assert rendered.startswith("AnalysisError: something happened")
-    assert "发生位置: mv.compare call" in rendered
-    assert "原因: param a was invalid" in rendered
-    assert "建议: try fixing X" in rendered
-    assert "正确写法:" in rendered
+    assert "Location: mv.compare call" in rendered
+    assert "Cause: param a was invalid" in rendered
+    assert "Hint: try fixing X" in rendered
+    assert "Fix:" in rendered
     assert (
         '  delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
         in rendered
     )
-    assert "相关文档: marivo-skill/marivo-py-analysis/references/pitfalls.md" in rendered
+    assert "Docs: marivo-skill/marivo-py-analysis/references/pitfalls.md" in rendered
 
 
 def test_base_template_omits_missing_optional_sections():
@@ -41,11 +41,11 @@ def test_base_template_omits_missing_optional_sections():
     rendered = str(err)
 
     assert rendered == "AnalysisError: something happened"
-    assert "发生位置:" not in rendered
-    assert "原因:" not in rendered
-    assert "建议:" not in rendered
-    assert "正确写法:" not in rendered
-    assert "相关文档:" not in rendered
+    assert "Location:" not in rendered
+    assert "Cause:" not in rendered
+    assert "Hint:" not in rendered
+    assert "Fix:" not in rendered
+    assert "Docs:" not in rendered
 
 
 def test_metric_not_found_uses_class_name_head():
@@ -69,12 +69,12 @@ def test_subclass_template_defaults_are_used_when_details_are_missing():
     rendered = str(err)
 
     assert rendered.startswith("CustomAnalysisError: custom failed")
-    assert "发生位置: custom call" in rendered
-    assert "原因: custom cause" in rendered
-    assert "建议: custom hint" in rendered
-    assert "正确写法:" in rendered
+    assert "Location: custom call" in rendered
+    assert "Cause: custom cause" in rendered
+    assert "Hint: custom hint" in rendered
+    assert "Fix:" in rendered
     assert "  custom_fix()" in rendered
-    assert "相关文档: custom-doc.md" in rendered
+    assert "Docs: custom-doc.md" in rendered
 
 
 def test_semantic_kind_mismatch_has_compare_fix_template():
@@ -85,10 +85,10 @@ def test_semantic_kind_mismatch_has_compare_fix_template():
 
     rendered = str(err)
 
-    assert "发生位置:" in rendered
+    assert "Location:" in rendered
     assert "delta_frame" in rendered
     assert "metric_frame" in rendered
-    assert "正确写法:" in rendered
+    assert "Fix:" in rendered
     assert (
         'cur  = mv.observe(mv.MetricRef("sales.revenue"), '
         'window={"start": "2026-07-01", "end": "2026-09-30"})'
@@ -142,7 +142,7 @@ def test_window_invalid_has_window_fix_template():
     rendered = str(err)
 
     assert "last quarter" in rendered
-    assert "正确写法:" in rendered
+    assert "Fix:" in rendered
     assert (
         '  mv.observe(mv.MetricRef("sales.revenue"), '
         'window={"start": "2026-07-01", "end": "2026-09-30"})'
@@ -159,7 +159,7 @@ def test_metric_not_found_has_list_metrics_fix_template():
     rendered = str(err)
 
     assert "metric_id=revenu" in rendered
-    assert "正确写法:" in rendered
+    assert "Fix:" in rendered
     assert "  project.list_metrics()  # confirm the exact id" in rendered
     assert (
         'mv.observe(mv.MetricRef("<registered_metric_id>"), '
@@ -177,7 +177,7 @@ def test_metric_not_found_uses_model_and_metric_details_in_cause():
     rendered = str(err)
 
     assert "sales.revenu" in rendered
-    assert "正确写法:" in rendered
+    assert "Fix:" in rendered
     assert "  project.list_metrics()  # confirm the exact id" in rendered
     assert "<metric_id>" not in rendered
 
@@ -187,7 +187,7 @@ def test_metric_not_found_without_details_does_not_show_wrong_id_remediation():
 
     rendered = str(err)
 
-    assert "正确写法:" not in rendered
+    assert "Fix:" not in rendered
     assert "ms.list_metrics()" not in rendered
     assert "registered_metric_id" not in rendered
     assert "Requested metric is not registered" not in rendered
@@ -277,11 +277,11 @@ def test_no_backend_factory_default_template_fields_populated() -> None:
         details={"datasource": "tiny_orders"},
     )
     rendered = str(err)
-    assert "正确写法:" in rendered
+    assert "Fix:" in rendered
     assert "datasource='tiny_orders' resolved to None or a non-ibis object" in rendered
     assert "mv.datasources.set" in rendered
     assert "@ms.datasource" not in rendered
-    assert "相关文档: marivo-skill/marivo-py-semantic/references/datasource.md" in rendered
+    assert "Docs: marivo-skill/marivo-py-semantic/references/datasource.md" in rendered
 
 
 def test_no_backend_factory_without_details_uses_session_backend_template() -> None:
@@ -298,8 +298,8 @@ def test_no_backend_factory_without_details_uses_session_backend_template() -> N
     assert "@ms.datasource" not in rendered
     assert "returned None or a non-ibis object" not in rendered
     assert "session has no backend factory configured" in rendered
-    assert "正确写法:" in rendered
+    assert "Fix:" in rendered
     assert "mv.session.attach" in rendered
     assert "mv.datasources.set" in rendered
     assert "backend_factory=" in rendered
-    assert "相关文档: marivo-skill/marivo-py-semantic/references/datasource.md" in rendered
+    assert "Docs: marivo-skill/marivo-py-semantic/references/datasource.md" in rendered

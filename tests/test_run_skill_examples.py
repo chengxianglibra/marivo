@@ -127,11 +127,11 @@ _PITFALL_PASS = textwrap.dedent(
 
     Expected output:
         FakeError: something went wrong
-        正确写法:
+        Fix:
           do this instead
     \"\"\"
     print("FakeError: something went wrong")
-    print("正确写法:")
+    print("Fix:")
     print("  do this instead")
     """
 ).lstrip()
@@ -142,7 +142,7 @@ _PITFALL_FAIL = textwrap.dedent(
 
     Expected output:
         FakeError: something went wrong
-        正确写法:
+        Fix:
           do this instead
     \"\"\"
     print("everything is fine!")

@@ -55,6 +55,36 @@ def correlate(
     method: Literal["pearson"] = "pearson",
     session: Session | None = None,
 ) -> AssociationResult:
+    """Measure the association between two MetricFrames over aligned buckets.
+
+    v1 only supports Pearson correlation under ``calendar_bucket`` alignment with
+    zero-lag (``LagPolicy(mode="single", offset=0)``). Both frames must belong to
+    the active session.
+
+    Args:
+        a: First MetricFrame.
+        b: Second MetricFrame.
+        value_a: Numeric column on ``a``. Defaults to the frame's measure column.
+        value_b: Numeric column on ``b``. Defaults to the frame's measure column.
+        alignment: Defaults to ``AlignmentPolicy(kind="calendar_bucket")``.
+        lag_policy: Defaults to ``LagPolicy(mode="single", offset=0)``.
+        method: Only ``"pearson"`` in v1.
+        session: Defaults to the currently-attached session.
+
+    Raises:
+        SemanticKindMismatchError: Inputs are not MetricFrames, or alignment / lag policy
+            kinds are unsupported.
+        AlignmentFailedError: Frames cannot be aligned (e.g. no overlapping buckets).
+        CrossSessionFrameError: A frame belongs to a different session.
+
+    Example:
+        >>> result = mv.correlate(
+        ...     a, b,
+        ...     alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+        ...     lag_policy=mv.LagPolicy(mode="single", offset=0),
+        ... )
+        >>> result.summary()
+    """
     session = resolve_session(session)
     ensure_session_writable(session)
     if not isinstance(a, MetricFrame) or not isinstance(b, MetricFrame):

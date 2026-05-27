@@ -90,7 +90,7 @@ def _is_supported_op(op: str) -> TypeGuard[TransformOp]:
 
 
 def transform(
-    frame: object,
+    frame: TransformFrame,
     *,
     op: TransformOp,
     session: Session | None = None,
@@ -107,10 +107,51 @@ def transform(
     window: Any = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> MetricFrame | DeltaFrame:
-    """Apply a declared transform op to a MetricFrame or DeltaFrame.
+    """Family-preserving reshape of a MetricFrame or DeltaFrame.
 
-    Task 3 wires only the public dispatcher. Op implementations are registered
-    by later tasks.
+    The operator preserves the frame family: MetricFrame → MetricFrame and
+    DeltaFrame → DeltaFrame. Each ``op`` consumes a subset of the kwargs below;
+    pass only those listed for the chosen op.
+
+    Args:
+        frame: A MetricFrame or DeltaFrame to reshape.
+        op: One of:
+
+            - ``filter``: row filter on a derived ``predicate``.
+            - ``slice``: row filter on raw axis values; pass ``where``.
+            - ``rollup``: aggregate to coarser segments; pass ``by`` and
+              optional ``drop_axes``.
+            - ``topk`` / ``bottomk``: keep best/worst N rows; pass ``limit``,
+              optional ``direction``.
+            - ``rank``: add a rank column; pass ``method``, ``rank_column``.
+            - ``normalize``: convert metric values to a share (MetricFrame only
+              in v1); pass ``base``.
+            - ``window``: re-bucket along time; pass ``window``.
+        session: Defaults to the currently-attached session.
+        where: ``op="slice"`` — mapping of axis → value or predicate dict.
+        predicate: ``op="filter"`` — a derived boolean expression.
+        drop_axes: ``op="rollup"`` — axes to drop after aggregation.
+        by: ``op="rollup"`` — axes to retain.
+        limit: ``op="topk"``/``"bottomk"`` — number of rows.
+        direction: ``op="topk"``/``"bottomk"`` — ``"asc"`` or ``"desc"``.
+        method: ``op="rank"`` — ``"ordinal"`` (default) or other supported method.
+        rank_column: ``op="rank"`` — output column name.
+        kind: ``op="normalize"`` — normalization kind.
+        base: ``op="normalize"`` — base/reference for normalization.
+        window: ``op="window"`` — new window spec.
+
+    Raises:
+        TransformOpUnsupportedError: ``frame`` is not a MetricFrame/DeltaFrame, or
+            ``op`` is unknown / not implemented in v1.
+        TransformArgError: Kwargs are missing or invalid for the chosen ``op``.
+        TransformDimensionNotFoundError: A referenced axis is not in ``frame``.
+        TransformShapeUnsupportedError: The frame shape does not support ``op``.
+        WindowInvalidError: ``window`` argument is malformed.
+        CrossSessionFrameError: ``frame`` belongs to a different session.
+
+    Example:
+        >>> top = mv.transform(delta, op="topk", limit=10, direction="desc")
+        >>> top.summary()
     """
 
     if session is None:

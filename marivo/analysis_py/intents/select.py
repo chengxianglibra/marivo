@@ -43,6 +43,34 @@ def select(
     rank: int = 1,
     field: SelectField | str,
 ) -> Any:
+    """Read one typed field from a single rank of a CandidateSet.
+
+    Each candidate ``shape`` exposes a different field set (e.g. ``axis`` is
+    only available on ``driver_axis``). Dot-paths into ``selector`` / ``keys``
+    (``"selector.country"``) are supported.
+
+    Args:
+        candidate_set: A CandidateSet returned by ``mv.discover``.
+        rank: 1-indexed rank of the row to read. Must be in
+            ``[1, candidate_set.meta.row_count]``.
+        field: One of the canonical fields (``axis``, ``selector``, ``window``,
+            ``baseline_window``, ``direction``, ``score``, ``item_id``,
+            ``recommended_followups``) — or a dot-path under ``selector`` /
+            ``keys``. Only fields valid for the candidate's shape are accepted.
+
+    Returns:
+        The typed value: ``DimensionRef`` for ``axis``, ``AbsoluteWindow`` for
+        ``window`` / ``baseline_window``, ``dict[DimensionRef, Any]`` for
+        ``selector``, otherwise a primitive (``float`` / ``str`` / ``list``).
+
+    Raises:
+        SemanticKindMismatchError: ``candidate_set`` is not a CandidateSet, ``rank``
+            is out of range, or ``field`` is not available for the candidate shape.
+
+    Example:
+        >>> candidates = mv.discover(series, objective="point_anomalies", threshold=1.0)
+        >>> mv.select(candidates, rank=1, field="window")
+    """
     if not isinstance(candidate_set, CandidateSet):
         raise SemanticKindMismatchError(
             message="select requires a CandidateSet input",

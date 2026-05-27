@@ -36,6 +36,7 @@ from marivo.analysis_py.executor.runner import (
     resolve_window_time_field,
 )
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis_py.intents._types import SliceValue
 from marivo.analysis_py.lineage import Lineage, LineageStep
 from marivo.analysis_py.refs import DimensionRef, MetricRef
 from marivo.analysis_py.session.attach import active as session_active
@@ -641,9 +642,44 @@ def observe(
     *,
     window: WindowInput = None,
     dimensions: list[DimensionRef] | None = None,
-    slice: dict[str, Any] | None = None,
+    slice: dict[str, SliceValue] | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
+    """Materialize a metric into a typed MetricFrame.
+
+    Resolves ``metric`` against the active semantic project, applies the
+    optional ``window`` / ``dimensions`` / ``slice`` filters, executes against
+    the session's backend, and persists the result as a MetricFrame on disk.
+
+    Args:
+        metric: Wrap the registered metric id with ``mv.MetricRef("<model>.<metric>")``.
+            Bare strings are rejected.
+        window: ``RelativeWindow`` / ``AbsoluteWindow`` / ``{"start","end","grain"?}``
+            dict / or ``None`` to use the session default. ``grain`` makes the
+            result a time series.
+        dimensions: Segment axes. In v1 all dimensions must resolve to the same
+            dataset as ``metric``.
+        slice: Pre-aggregation row filter. Values are either a scalar (``==``),
+            a list (``in``), or ``{"op": "<op>", "value": ...}`` where op is
+            one of ``==, !=, in, >, >=, <, <=, between``.
+        session: Defaults to the currently-attached session.
+
+    Raises:
+        MetricNotFoundError: The metric id is unknown or not ``<model>.<metric>``.
+        SemanticKindMismatchError: ``metric`` is not a ``MetricRef``.
+        AmbiguousDimensionError: A dimension resolves to multiple datasets.
+        DimensionAcrossDatasetsError: Dimensions span more than one dataset.
+        DimensionFieldNotFoundError: A dimension field does not exist on the dataset.
+        CrossBackendMetricError: ``metric`` and ``dimensions`` resolve to different backends.
+
+    Example:
+        >>> frame = mv.observe(
+        ...     mv.MetricRef("sales.revenue"),
+        ...     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "day"},
+        ...     dimensions=[mv.DimensionRef("country")],
+        ... )
+        >>> frame.summary()
+    """
     if session is None:
         session = session_active()
     ensure_session_writable(session)

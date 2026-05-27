@@ -46,9 +46,8 @@ def test_detect_is_not_exported() -> None:
 def test_help_for_intent_includes_signature_and_docstring() -> None:
     out = _capture("compare")
     assert "compare(" in out
-    module = inspect.getmodule(compare_fn)
-    assert module is not None
-    first_doc_line = (inspect.getdoc(module) or "").strip().splitlines()[0]
+    first_doc_line = (inspect.getdoc(compare_fn) or "").strip().splitlines()[0]
+    assert first_doc_line, "compare should have a non-empty docstring"
     assert first_doc_line in out
 
 

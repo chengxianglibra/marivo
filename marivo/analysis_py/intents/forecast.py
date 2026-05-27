@@ -53,6 +53,38 @@ def forecast(
     session: Session | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> ForecastFrame:
+    """Project a time_series or panel MetricFrame forward by ``horizon`` buckets.
+
+    v1 requires continuous time buckets and no NaN values. Impute or re-observe
+    before forecasting. ``seasonal_naive`` needs at least
+    ``seasonality_period + 1`` training rows per series.
+
+    Args:
+        history: A ``time_series`` or ``panel`` MetricFrame.
+        horizon: Number of buckets to project. Must be >= 1.
+        model: Forecast strategy. ``seasonal_naive`` defaults to the grain-typical period.
+        seasonality_period: Override for the seasonality period. Defaults by grain
+            (day=7, week=52, month=12, quarter=4).
+        interval_level: Confidence level for prediction intervals. Must be in (0, 1).
+        value: Numeric column to forecast. Defaults to the frame's measure column.
+        session: Defaults to the currently-attached session.
+
+    Raises:
+        ForecastShapeUnsupportedError: ``history`` is not a time_series / panel MetricFrame,
+            or its grain is not in {day, week, month, quarter}.
+        ForecastPolicyError: ``horizon`` or ``interval_level`` is out of range.
+        ForecastInsufficientHistoryError: Not enough rows for the chosen model.
+        ForecastInputQualityError: ``history`` contains NaN values in ``value``.
+        CrossSessionFrameError: ``history`` belongs to a different session.
+
+    Example:
+        >>> history = mv.observe(
+        ...     mv.MetricRef("sales.revenue"),
+        ...     window={"start": "2026-01-01", "end": "2026-03-31", "grain": "day"},
+        ... )
+        >>> forecast = mv.forecast(history, horizon=30)
+        >>> forecast.summary()
+    """
     session = resolve_session(session)
     ensure_session_writable(session)
     if getattr(

@@ -4,7 +4,7 @@ When triggered: the agent uses `delta` instead of `base` for the second compare 
 
 Expected output:
     SemanticKindMismatchError
-    正确写法:
+    Fix:
     delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
 """
 

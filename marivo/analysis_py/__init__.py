@@ -52,6 +52,13 @@ from marivo.analysis_py.frames.hypothesis import HypothesisTestResult, Hypothesi
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis_py.help import help
+from marivo.analysis_py.intents._types import (
+    DiscoverSensitivity,
+    SlicePredicate,
+    SlicePredicateOp,
+    SliceScalar,
+    SliceValue,
+)
 from marivo.analysis_py.intents.assess_quality import assess_quality
 from marivo.analysis_py.intents.compare import compare
 from marivo.analysis_py.intents.correlate import correlate
@@ -109,6 +116,7 @@ __all__ = [
     "DeltaFrame",
     "DeltaFrameMeta",
     "DimensionRef",
+    "DiscoverSensitivity",
     "EvidenceTrace",
     "ExplorationResult",
     "ExplorationResultMeta",
@@ -136,6 +144,10 @@ __all__ = [
     "RelativeWindow",
     "SamplingPolicy",
     "SessionKnowledge",
+    "SlicePredicate",
+    "SlicePredicateOp",
+    "SliceScalar",
+    "SliceValue",
     "Subject",
     "TestedHypothesis",
     "TimeWindow",
