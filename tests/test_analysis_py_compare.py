@@ -42,7 +42,7 @@ def test_compare_returns_delta_frame(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-31"},
@@ -69,7 +69,7 @@ def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-31"},
@@ -88,7 +88,7 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-31"},
@@ -122,7 +122,7 @@ def test_compare_semantic_kind_mismatch_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     a = observe(MetricRef("sales.revenue"), session=s)
     b = observe(
         MetricRef("sales.revenue"),
@@ -137,7 +137,7 @@ def test_compare_rejects_non_alignment_policy(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     a = observe(MetricRef("sales.revenue"), session=s)
     b = observe(MetricRef("sales.revenue"), session=s)
 
@@ -152,7 +152,7 @@ def test_compare_rejects_loose_align_parameter(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-31"},
@@ -172,7 +172,7 @@ def test_calendar_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_p
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
@@ -196,7 +196,7 @@ def test_calendar_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_p
 
 def test_calendar_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
     bootstrap_sales_project(tmp_path)
-    s = session_attach.create(
+    s = session_attach.get_or_create(
         name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
     )
     cur = MetricFrame.from_dataframe(
@@ -230,7 +230,7 @@ def test_calendar_bucket_no_overlap_unequal_lengths_explains_requirement(tmp_pat
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
@@ -253,7 +253,7 @@ def test_compare_persists_job_and_frame(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     a = observe(MetricRef("sales.revenue"), session=s)
     b = observe(MetricRef("sales.revenue"), session=s)
     d = compare(a, b, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
@@ -269,12 +269,12 @@ def test_compare_works_in_read_only_session(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s_write = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s_write = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     a = observe(MetricRef("sales.revenue"), session=s_write)
     b = observe(MetricRef("sales.revenue"), session=s_write)
     s_write.close()
     session_attach._reset_process_state()
-    s_read = session_attach.attach(name="demo", use_datasources=False)
+    s_read = session_attach.get_or_create(name="demo", use_datasources=False)
     assert s_read.is_read_only
     df_a, meta_a = read_frame_from_disk(s_read.layout, a.ref)
     df_b, meta_b = read_frame_from_disk(s_read.layout, b.ref)
@@ -291,7 +291,7 @@ def test_compare_archived_session_raises_for_cached_session(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     a = observe(MetricRef("sales.revenue"), session=s)
     b = observe(MetricRef("sales.revenue"), session=s)
     session_attach.archive("demo")
@@ -303,7 +303,7 @@ def test_compare_stale_archived_session_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     a = observe(MetricRef("sales.revenue"), session=s)
     b = observe(MetricRef("sales.revenue"), session=s)
     session_attach._reset_process_state()

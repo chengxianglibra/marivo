@@ -79,7 +79,7 @@ def _session(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    return session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    return session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
 
 def _panel(session, *, start: str, end: str, grain: str = "day"):
@@ -173,7 +173,7 @@ def test_compare_panel_calendar_bucket(tmp_path):
 
 
 def test_compare_panel_calendar_bucket_outer_joins_bucket_keys():
-    s = session_attach.create(name="demo")
+    s = session_attach.get_or_create(name="demo")
     current = _panel_metric(
         s,
         [
@@ -214,7 +214,7 @@ def test_compare_panel_calendar_bucket_outer_joins_bucket_keys():
 
 def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_columns(tmp_path):
     _write_calendar(tmp_path)
-    s = session_attach.create(name="demo", tz="Asia/Shanghai")
+    s = session_attach.get_or_create(name="demo", tz="Asia/Shanghai")
     current = _panel_metric(
         s,
         [
@@ -269,7 +269,7 @@ def test_compare_panel_grain_mismatch(tmp_path):
 
 
 def test_compare_panel_grain_mismatch_uses_time_axis_role(tmp_path):
-    s = session_attach.create(name="demo")
+    s = session_attach.get_or_create(name="demo")
     current = _panel_metric(
         s,
         [{"bucket_start": "2026-07-01", "region": "NORTH", "value": 10.0}],

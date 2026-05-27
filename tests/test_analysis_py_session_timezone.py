@@ -15,7 +15,9 @@ def _chdir(tmp_path, monkeypatch):
 
 
 def test_create_timezone_round_trips_through_meta():
-    s = session_attach.create(name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays")
+    s = session_attach.get_or_create(
+        name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays"
+    )
     assert s.tz == ZoneInfo("Asia/Shanghai")
     assert s.default_calendar == "cn_holidays"
     meta = read_session_meta(s.layout)
@@ -25,7 +27,7 @@ def test_create_timezone_round_trips_through_meta():
 
 
 def test_create_accepts_timezone_alias():
-    s = session_attach.create(name="demo", timezone="Asia/Shanghai")
+    s = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
 
     assert s.tz == ZoneInfo("Asia/Shanghai")
     assert read_session_meta(s.layout)["tz"] == "Asia/Shanghai"
@@ -33,19 +35,19 @@ def test_create_accepts_timezone_alias():
 
 def test_create_rejects_conflicting_tz_and_timezone():
     with pytest.raises(TimezoneInvalidError) as exc_info:
-        session_attach.create(name="demo", tz="UTC", timezone="Asia/Shanghai")
+        session_attach.get_or_create(name="demo", tz="UTC", timezone="Asia/Shanghai")
 
     assert exc_info.value.details["kind"] == "TimezoneAliasConflict"
 
 
 def test_create_invalid_timezone_raises_structured_error():
     with pytest.raises(TimezoneInvalidError) as exc_info:
-        session_attach.create(name="demo", tz="Mars/Olympus")
+        session_attach.get_or_create(name="demo", tz="Mars/Olympus")
     assert exc_info.value.details["kind"] == "TimezoneNotFound"
 
 
 def test_attach_legacy_meta_defaults_timezone_and_writes_back():
-    s = session_attach.create(name="demo")
+    s = session_attach.get_or_create(name="demo")
     meta = read_session_meta(s.layout)
     meta.pop("tz", None)
     meta.pop("default_calendar", None)
@@ -53,7 +55,7 @@ def test_attach_legacy_meta_defaults_timezone_and_writes_back():
     write_session_meta(s.layout, meta)
     session_attach._reset_process_state()
 
-    attached = session_attach.attach(name="demo")
+    attached = session_attach.get_or_create(name="demo")
 
     assert attached.tz == ZoneInfo("UTC")
     assert attached.default_calendar is None
@@ -65,10 +67,10 @@ def test_attach_legacy_meta_defaults_timezone_and_writes_back():
 
 
 def test_attach_explicit_timezone_overrides_meta_and_writes_back():
-    s = session_attach.create(name="demo", tz="UTC")
+    s = session_attach.get_or_create(name="demo", tz="UTC")
     session_attach._reset_process_state()
 
-    attached = session_attach.attach(
+    attached = session_attach.get_or_create(
         name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays"
     )
 
@@ -80,10 +82,10 @@ def test_attach_explicit_timezone_overrides_meta_and_writes_back():
 
 
 def test_active_or_create_existing_active_applies_timezone_overrides():
-    s = session_attach.create(name="demo", tz="UTC")
+    s = session_attach.get_or_create(name="demo", tz="UTC")
 
-    attached = session_attach.active_or_create(
-        name_hint="ignored",
+    attached = session_attach.get_or_create(
+        name="demo",
         tz="Asia/Shanghai",
         default_calendar="cn_holidays",
     )

@@ -38,7 +38,7 @@ def _metric(session, df, *, semantic_kind="time_series"):
 
 
 def test_discover_point_anomalies_returns_candidate_set():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session,
         pd.DataFrame({"bucket": ["a", "b", "c", "d"], "value": [-100.0, 0.0, 0.0, 100.0]}),
@@ -77,7 +77,7 @@ def test_discover_point_anomalies_returns_candidate_set():
 
 
 def test_discover_zero_std_returns_empty_candidate_set():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"bucket": ["a", "b", "c"], "value": [5.0, 5.0, 5.0]}))
 
     out = mv.discover(frame, objective="point_anomalies", strategy="zscore", session=session)
@@ -88,7 +88,7 @@ def test_discover_zero_std_returns_empty_candidate_set():
 
 
 def test_discover_empty_candidate_set_round_trips_with_numeric_schema():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"bucket": ["a", "b", "c"], "value": [5.0, 5.0, 5.0]}))
 
     out = mv.discover(frame, objective="point_anomalies", strategy="zscore", session=session)
@@ -100,7 +100,7 @@ def test_discover_empty_candidate_set_round_trips_with_numeric_schema():
 
 
 def test_discover_single_non_null_value_returns_empty_candidate_set():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"bucket": ["a", "b"], "value": [None, 5.0]}))
 
     out = mv.discover(frame, objective="point_anomalies", session=session)
@@ -110,7 +110,7 @@ def test_discover_single_non_null_value_returns_empty_candidate_set():
 
 
 def test_discover_uses_explicit_numeric_value_column():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session, pd.DataFrame({"bucket": ["a", "b"], "value": [1.0, 2.0], "count": [3, 9]})
     )
@@ -124,7 +124,7 @@ def test_discover_uses_explicit_numeric_value_column():
 
 @pytest.mark.parametrize("semantic_kind", ["scalar", "segmented"])
 def test_discover_rejects_unsupported_point_anomaly_semantic_kinds(semantic_kind):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session, pd.DataFrame({"segment": ["a"], "value": [1.0]}), semantic_kind=semantic_kind
     )
@@ -134,7 +134,7 @@ def test_discover_rejects_unsupported_point_anomaly_semantic_kinds(semantic_kind
 
 
 def test_discover_accepts_panel_metric_frame():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session,
         pd.DataFrame(
@@ -150,14 +150,14 @@ def test_discover_accepts_panel_metric_frame():
 
 
 def test_discover_rejects_non_metric_frame():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
 
     with pytest.raises(SemanticKindMismatchError):
         mv.discover(object(), objective="point_anomalies", session=session)  # type: ignore[arg-type]
 
 
 def test_discover_rejects_ambiguous_numeric_columns():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
@@ -165,7 +165,7 @@ def test_discover_rejects_ambiguous_numeric_columns():
 
 
 def test_discover_rejects_missing_explicit_value_column():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
@@ -173,7 +173,7 @@ def test_discover_rejects_missing_explicit_value_column():
 
 
 def test_discover_rejects_non_numeric_explicit_value_column():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"bucket": ["a", "b"], "value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
@@ -181,7 +181,7 @@ def test_discover_rejects_non_numeric_explicit_value_column():
 
 
 def test_discover_rejects_unknown_objective():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
@@ -189,7 +189,7 @@ def test_discover_rejects_unknown_objective():
 
 
 def test_discover_rejects_unsupported_strategy():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
@@ -198,7 +198,7 @@ def test_discover_rejects_unsupported_strategy():
 
 @pytest.mark.parametrize("threshold", [0, -1, float("nan"), float("inf"), float("-inf")])
 def test_discover_rejects_invalid_threshold(threshold):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
@@ -207,7 +207,7 @@ def test_discover_rejects_invalid_threshold(threshold):
 
 @pytest.mark.parametrize("threshold", ["3", True])
 def test_discover_rejects_non_numeric_threshold(threshold):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
@@ -215,7 +215,7 @@ def test_discover_rejects_non_numeric_threshold(threshold):
 
 
 def test_discover_writes_job_and_frame():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 99.0]}))
 
     out = mv.discover(frame, objective="point_anomalies", threshold=1.0, session=session)
@@ -231,16 +231,16 @@ def test_discover_writes_job_and_frame():
 
 
 def test_discover_rejects_cross_session_frame():
-    session_a = session_attach.create(name="a")
+    session_a = session_attach.get_or_create(name="a")
     frame = _metric(session_a, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
-    session_b = session_attach.create(name="b")
+    session_b = session_attach.get_or_create(name="b")
 
     with pytest.raises(CrossSessionFrameError):
         mv.discover(frame, objective="point_anomalies", session=session_b)
 
 
 def test_discover_archived_session_raises():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
     session_attach.archive("demo")
 
@@ -249,7 +249,7 @@ def test_discover_archived_session_raises():
 
 
 def test_discover_stale_archived_session_raises():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
     session_attach._reset_process_state()
     session_attach.archive("demo")

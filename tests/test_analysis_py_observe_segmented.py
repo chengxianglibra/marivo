@@ -137,7 +137,7 @@ def test_observe_single_dimension_returns_segmented_frame(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
         MetricRef("sales.revenue"),
@@ -158,7 +158,7 @@ def test_observe_multi_dimension_segmented(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
         MetricRef("sales.revenue"),
@@ -175,7 +175,7 @@ def test_observe_derived_metric_dimension_from_component_dataset(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
         MetricRef("sales.failure_rate"),
@@ -195,7 +195,7 @@ def test_observe_derived_metric_dimension_via_relationship(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
         MetricRef("sales.failure_rate"),
@@ -216,7 +216,7 @@ def test_observe_empty_dimensions_list_is_rejected(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(SemanticKindMismatchError):
         observe(MetricRef("sales.revenue"), dimensions=[], session=s)
@@ -228,7 +228,7 @@ def test_observe_duplicate_dimensions_are_rejected(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
@@ -245,7 +245,7 @@ def test_observe_segmented_rejects_multi_dataset_metric(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(MetricShapeUnsupportedError) as exc_info:
         observe(
@@ -264,7 +264,7 @@ def test_observe_multi_dataset_missing_dimension_resolves_before_shape(tmp_path)
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_users=False)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(DimensionFieldNotFoundError) as exc_info:
         observe(
@@ -281,7 +281,7 @@ def test_observe_multi_dataset_full_dimension_resolves_before_shape(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_users=False)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(MetricShapeUnsupportedError) as exc_info:
         observe(
@@ -297,7 +297,7 @@ def test_observe_multi_dataset_cross_dataset_dimensions_resolve_before_shape(tmp
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_users=False)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(DimensionAcrossDatasetsError) as exc_info:
         observe(
@@ -316,7 +316,7 @@ def test_observe_segmented_rejects_multi_dataset_metric_before_materialization(t
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_users=False)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(MetricShapeUnsupportedError) as exc_info:
         observe(
@@ -333,7 +333,7 @@ def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     by_region = observe(
         MetricRef("sales.revenue"),
@@ -363,7 +363,7 @@ def test_observe_dimension_not_found(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(DimensionFieldNotFoundError) as exc_info:
         observe(
@@ -381,7 +381,7 @@ def test_observe_dimension_rejects_bare_string(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(

@@ -45,7 +45,7 @@ def _session_with_sales(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    return session_attach.create(name="demo", backends=_backends(con))
+    return session_attach.get_or_create(name="demo", backends=_backends(con))
 
 
 @pytest.mark.parametrize(

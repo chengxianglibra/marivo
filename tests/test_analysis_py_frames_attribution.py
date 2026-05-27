@@ -87,7 +87,7 @@ def test_to_pandas_returns_copy():
 
 
 def test_load_frame_round_trips_attribution_frame(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame({"region": ["north", "south"], "contribution": [10.0, -2.0]})
     meta = _meta(session_id=session.id, project_root=str(session.project_root))
     written = write_frame_to_disk(session.layout, AttributionFrame(_df=df, meta=meta))

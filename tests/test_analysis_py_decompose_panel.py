@@ -24,7 +24,7 @@ def _session_project(tmp_path, monkeypatch):
 
 def _panel_delta(tmp_path):
     _ = tmp_path
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     axes = {
         "time": {
             "role": "time",

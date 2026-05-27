@@ -61,14 +61,14 @@ def _delta(session, df, *, semantic_kind="time_series"):
 
 
 def test_unknown_objective_raises():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
     with pytest.raises(SemanticKindMismatchError):
         mv.discover(frame, objective="not_an_objective", session=session)  # type: ignore[arg-type]
 
 
 def test_period_shifts_rejects_metric_frame():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
     with pytest.raises(SemanticKindMismatchError) as exc:
         mv.discover(frame, objective="period_shifts", session=session)
@@ -77,14 +77,14 @@ def test_period_shifts_rejects_metric_frame():
 
 
 def test_driver_axes_rejects_metric_frame():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
     with pytest.raises(SemanticKindMismatchError):
         mv.discover(frame, objective="driver_axes", session=session)
 
 
 def test_driver_axes_requires_search_space():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     delta = _delta(session, pd.DataFrame({"country": ["US"], "delta": [1.0]}))
     with pytest.raises(SemanticKindMismatchError) as exc:
         mv.discover(delta, objective="driver_axes", session=session)
@@ -92,7 +92,7 @@ def test_driver_axes_requires_search_space():
 
 
 def test_cross_sectional_outliers_rejects_time_series():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session,
         pd.DataFrame({"bucket": ["a", "b"], "value": [1.0, 2.0]}),
@@ -114,7 +114,7 @@ def test_cross_sectional_outliers_rejects_time_series():
     ],
 )
 def test_non_default_strategy_rejected(objective, allowed_strategy, rejected_strategy):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session,
         pd.DataFrame({"bucket": ["a", "b", "c"], "value": [1.0, 2.0, 99.0]}),
@@ -130,7 +130,7 @@ def test_non_default_strategy_rejected(objective, allowed_strategy, rejected_str
 
 
 def test_period_shifts_segment_merging():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     rng = np.arange(30, dtype=float)
     delta = np.zeros(30)
     delta[10:17] = 5.0
@@ -156,7 +156,7 @@ def test_period_shifts_segment_merging():
 
 
 def test_period_shifts_panel_groups_independently():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     buckets = list(pd.date_range("2026-01-01", periods=15, freq="D", tz="UTC"))
     df = pd.DataFrame(
         {
@@ -178,7 +178,7 @@ def test_period_shifts_panel_groups_independently():
 
 
 def test_driver_axes_rank_one_is_largest_axis():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame(
         {
             "country": ["US", "US", "US", "JP", "DE"],
@@ -202,7 +202,7 @@ def test_driver_axes_rank_one_is_largest_axis():
 
 
 def test_driver_axes_records_reason_codes():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame(
         {
             "country": ["US", "JP", "DE"],
@@ -223,7 +223,7 @@ def test_driver_axes_records_reason_codes():
 
 
 def test_interesting_slices_returns_selector_dict_round_trip():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame(
         {
             "country": ["US", "US", "JP", "JP"],
@@ -247,7 +247,7 @@ def test_interesting_slices_returns_selector_dict_round_trip():
 
 
 def test_interesting_slices_metric_input_uses_zscore():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     metric = _metric(
         session,
         pd.DataFrame(
@@ -270,7 +270,7 @@ def test_interesting_slices_metric_input_uses_zscore():
 
 
 def test_interesting_windows_metric_input_finds_segment():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     values = [1.0] * 20 + [50.0] * 5 + [1.0] * 5
     df = pd.DataFrame(
         {
@@ -292,7 +292,7 @@ def test_interesting_windows_metric_input_finds_segment():
 
 
 def test_interesting_windows_delta_input_passes_dispatch():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     values = [0.0] * 20 + [10.0] * 5 + [0.0] * 5
     df = pd.DataFrame(
         {
@@ -306,7 +306,7 @@ def test_interesting_windows_delta_input_passes_dispatch():
 
 
 def test_cross_sectional_outliers_segmented():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     metric = _metric(
         session,
         pd.DataFrame(
@@ -330,7 +330,7 @@ def test_cross_sectional_outliers_segmented():
 
 
 def test_cross_sectional_outliers_records_peer_scope():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     metric = _metric(
         session,
         pd.DataFrame(
@@ -364,7 +364,7 @@ def test_cross_sectional_outliers_records_peer_scope():
     ],
 )
 def test_persistence_round_trip(objective, source_kind, builder):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     if builder == "metric_time_series":
         src = _metric(
             session,
