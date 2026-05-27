@@ -1,0 +1,181 @@
+"""Shared helpers for analysis_py derived intents."""
+
+from __future__ import annotations
+
+# mypy: disable-error-code=import-untyped
+import hashlib
+import json
+import secrets
+from collections.abc import Iterable
+from datetime import UTC, datetime
+from time import monotonic
+from typing import Any, cast
+
+import pandas as pd
+from pandas.api.types import is_numeric_dtype
+
+from marivo.analysis_py.errors import CrossSessionFrameError, SemanticKindMismatchError
+from marivo.analysis_py.evidence.pipeline import (
+    CommitInputs,
+    CommitParams,
+    CommitSemanticAnchors,
+    commit_result,
+)
+from marivo.analysis_py.evidence.types import Subject
+from marivo.analysis_py.frames.attribution import AttributionFrame, AttributionFrameMeta
+from marivo.analysis_py.frames.base import BaseFrame
+from marivo.analysis_py.lineage import Lineage, LineageStep
+from marivo.analysis_py.session.attach import active as session_active
+from marivo.analysis_py.session.core import Session
+from marivo.analysis_py.session.persistence import write_job_record
+
+
+def resolve_session(session: Session | None) -> Session:
+    return session if session is not None else session_active()
+
+
+def gen_ref(prefix: str) -> str:
+    return f"{prefix}_{secrets.token_hex(4)}"
+
+
+def params_digest(params: dict[str, Any]) -> str:
+    body = json.dumps(params, sort_keys=True, default=str).encode("utf-8")
+    return f"sha256:{hashlib.sha256(body).hexdigest()}"
+
+
+def ensure_frame_in_session(frame: BaseFrame, *, session: Session, label: str) -> None:
+    if frame.meta.session_id != session.id:
+        raise CrossSessionFrameError(
+            message=(f"{label} belongs to session {frame.meta.session_id!r}, not {session.id!r}"),
+        )
+
+
+def require_numeric_column(df: pd.DataFrame, value: str | None, *, purpose: str) -> str:
+    if value is not None:
+        if value not in df.columns:
+            raise SemanticKindMismatchError(
+                message=f"{purpose} value column {value!r} does not exist",
+                details={"columns": list(df.columns)},
+            )
+        if not is_numeric_dtype(df[value]):
+            raise SemanticKindMismatchError(
+                message=f"{purpose} value column {value!r} is not numeric",
+                details={"column": value, "dtype": str(df[value].dtype)},
+            )
+        return value
+
+    numeric = [column for column in df.columns if is_numeric_dtype(df[column])]
+    if len(numeric) != 1:
+        raise SemanticKindMismatchError(
+            message=f"{purpose} requires exactly one numeric column when value is omitted",
+            details={"numeric_columns": numeric},
+        )
+    return str(numeric[0])
+
+
+def first_non_numeric_column(df: pd.DataFrame) -> str | None:
+    for column in df.columns:
+        if not is_numeric_dtype(df[column]):
+            return cast("str", column)
+    return None
+
+
+def compose_lineage(sources: Iterable[BaseFrame], *, step: LineageStep) -> Lineage:
+    all_steps: list[LineageStep] = []
+    external_inputs: set[str] = set()
+    for source in sources:
+        all_steps.extend(source.lineage.steps)
+        external_inputs.update(source.lineage.external_inputs)
+    all_steps.append(step)
+    return Lineage(steps=all_steps, external_inputs=sorted(external_inputs))
+
+
+def persist_attribution_frame(
+    *,
+    session: Session,
+    df: pd.DataFrame,
+    intent: str,
+    params: dict[str, Any],
+    sources: list[BaseFrame],
+    metric_ids: list[str],
+    attribution_kind: str,
+    driver_field: str | None,
+    value_column: str | None,
+    contribution_column: str | None,
+    method: str,
+    semantic_kind: str,
+    semantic_model: str,
+    started_at: datetime,
+    started_monotonic: float,
+) -> AttributionFrame:
+    frame_ref = gen_ref("frame")
+    job_ref = gen_ref("job")
+    source_refs = [source.meta.artifact_id or source.ref for source in sources]
+    finished_at = datetime.now(UTC)
+    meta = AttributionFrameMeta(
+        kind="attribution_frame",
+        ref=frame_ref,
+        session_id=session.id,
+        project_root=str(session.project_root),
+        produced_by_job=job_ref,
+        created_at=finished_at,
+        row_count=len(df),
+        byte_size=0,
+        lineage=compose_lineage(
+            sources,
+            step=LineageStep(
+                intent=intent,
+                job_ref=job_ref,
+                inputs=source_refs,
+                params_digest=params_digest(params),
+            ),
+        ),
+        metric_ids=metric_ids,
+        source_refs=source_refs,
+        scope_delta_ref=source_refs[0] if source_refs else None,
+        attribution_kind=attribution_kind,  # type: ignore[arg-type]
+        driver_field=driver_field,
+        value_column=value_column,
+        contribution_column=contribution_column,
+        method=method,
+        params=params,
+        semantic_kind=semantic_kind,  # type: ignore[arg-type]
+        semantic_model=semantic_model,
+    )
+    frame = AttributionFrame(_df=df.copy(), meta=meta)
+    source_ref_values = [source.meta.artifact_id or source.ref for source in sources]
+    metric_id = metric_ids[0] if metric_ids else None
+    frame = cast(
+        "AttributionFrame",
+        commit_result(
+            store=session.evidence_store(),
+            frames_dir=session.layout.frames_dir,
+            frame=frame,
+            step_type=intent,
+            inputs=CommitInputs(input_refs=source_ref_values),
+            params=CommitParams(values=params),
+            semantic_anchors=CommitSemanticAnchors(values={"metric_id": metric_id or ""}),
+            subject=Subject(metric=metric_id, analysis_axis="decomposition"),
+            extractor_family="attribution_frame",
+            seeding_context={"observed_window": None},
+        ),
+    )
+    write_job_record(
+        session.layout,
+        {
+            "id": job_ref,
+            "session_id": session.id,
+            "intent": intent,
+            "params": params,
+            "input_frame_refs": source_refs,
+            "output_frame_ref": frame.meta.artifact_id or frame_ref,
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "duration_ms": int((monotonic() - started_monotonic) * 1000),
+            "status": "succeeded",
+            "error": None,
+            "semantic_project_root": session.semantic_project.root,
+            "semantic_model": semantic_model,
+        },
+    )
+    return frame

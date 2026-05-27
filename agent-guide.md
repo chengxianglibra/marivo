@@ -12,6 +12,9 @@ every coding task.
   speculative flexibility, future placeholders, or unrelated abstractions.
 - Make surgical changes: touch only the files required, match existing style,
   and never clean up unrelated local changes.
+- Do not add Chinese text to source code, code comments, tests, fixtures,
+  generated code, or user-facing strings in code. Keep code artifacts in
+  English unless a task explicitly updates localized documentation.
 - Define verifiable success criteria for non-trivial work and loop until the
   relevant checks pass or explain why they could not run.
 - Treat committed specs, schemas, and docs as sources of truth. If code and
@@ -63,6 +66,82 @@ every coding task.
 - Frontend OpenAPI types are generated at `frontend/src/api/openapi.generated.ts`.
   Regenerate them with the existing `frontend` script when HTTP API contracts
   change.
+
+## Marivo Python Track (`semantic_py` / `analysis_py`)
+
+These rules apply to all changes inside `marivo/semantic_py/` and
+`marivo/analysis_py/`, and to the skills under `marivo-skill/marivo-py-*/`.
+
+- **Dual-track isolation.** `marivo.semantic_py` and `marivo.analysis_py`
+  must not import from `marivo.runtime.*`, `marivo.adapters.*`,
+  `marivo.contracts.aoi_runtime`, `marivo.contracts.generated.aoi`,
+  `marivo.core.evidence`, `marivo.core.session`, or `marivo.core.intent`.
+  The inverse is also forbidden. The boundary is enforced by the
+  `analysis_py-independence` and `runtime-does-not-depend-on-analysis_py`
+  contracts in `.importlinter`; do not weaken or bypass them.
+- **One expression language.** Python-track expressions (dataset / field /
+  time_field / metric function bodies) return ibis expressions only.
+  Do not introduce raw SQL strings, dialect-specific SQL, or multi-dialect
+  expression structures into the Python track. SQL text only lives in the
+  `Provenance.source_sql` metadata field.
+- **Decorator function-body AST stays restricted.** `@ms.field`,
+  `@ms.time_field`, `@ms.metric`, `@ms.dataset`, and `@ms.datasource` bodies
+  follow the AST whitelist enforced in `marivo/semantic_py/validator.py`
+  (single-return style; no imports, control flow, local assignment, or
+  lambdas inside expression-bearing decorators). New decorators or changes
+  to existing ones must continue to pass through that whitelist.
+- **Provenance is a required field on expression-bearing decorators.**
+  `@ms.dataset`, `@ms.field`, `@ms.time_field`, and `@ms.metric` accept and
+  persist `source_sql` and `source_definition` into `Provenance` on the IR;
+  the `parity_status` field stays reserved for the v1.5+ parity engine.
+  Do not drop these kwargs or invent parallel provenance shapes.
+- **Structured exceptions over ad-hoc strings.** New exceptions in the
+  Python track subclass `SemanticError` or `AnalysisError`, carry
+  `kind` / `message` / `hint` / `details`, and render through the shared
+  `__str__` template via `_template_fields()`. `hint` should provide a
+  minimal pasteable correct snippet when feasible. Do not bypass the
+  template with bespoke `f"..."` error strings.
+- **Frame immutability is a public contract.** Top-level Frame APIs raise
+  `FrameMutationError`; only `frame.to_pandas()` returns an isolated copy;
+  read-through accessors return pandas views without defensive copies.
+  Do not add mutating methods, syntactic sugar that aliases mutation, or
+  hidden copy-on-read behavior to Frame classes.
+- **Credentials and connections never enter project state.** Secrets are
+  read from `os.environ` at backend-build time. Non-secret connection
+  metadata may live in the user-scope profile registry at
+  `$MARIVO_HOME/profiles/profiles.json` (defaulting to
+  `~/.marivo/profiles/profiles.json`), written exclusively through
+  `mv.profiles.set(...)`. Sensitive field stems (`password`, `token`,
+  `secret`, `secret_key`, `access_key`, `private_key`, `passphrase`,
+  `api_key`) must use `*_env` references and never be persisted as
+  literals — `marivo.analysis_py.profiles` enforces this. Neither the
+  profile file, the `backend_factory` / `backends` passed to a session,
+  nor any resolved secret is written to `meta.json`, `index.db`, the IR,
+  or any file under `<project>/.marivo/`. Generated SQL is exposed in
+  error `details` only when `MARIVO_ANALYSIS_DEBUG=1`.
+- **Persistent state is project-local under `.marivo/`.** Sessions, frames,
+  job records, and Python semantic models all live under
+  `<project_root>/.marivo/{analysis,semantic}/`. Do not introduce a global
+  session registry, env-var session fallback, or cross-project state. The
+  user-scope profile registry at `$MARIVO_HOME/profiles/` is the single
+  explicit exception: it persists only datasource connection metadata
+  (not sessions, frames, jobs, IR, evidence, or any analysis output) and
+  remains user-private with `0600` file permissions.
+- **Cross-session frame ownership is mandatory.** Any intent or helper that
+  consumes a frame validates `frame.meta.session_id == session.id` before
+  doing work, and raises `CrossSessionFrameError` on mismatch. Do not relax
+  this check for convenience.
+- **No new transports in regular PRs.** The Python track is exposed only via
+  `import marivo.{semantic_py,analysis_py}`. MCP / HTTP / CLI adapters for
+  this track require a dedicated transport design; do not add them
+  incidentally.
+- **Skill examples are an executable SDK contract.** Changes to public
+  symbols in `marivo.semantic_py` / `marivo.analysis_py` (signatures,
+  `Literal[...]` values, exception classes, `__str__` templates, Frame
+  `__repr__`) must update the corresponding files under
+  `marivo-skill/marivo-py-{semantic,analysis}/references/examples/` in the
+  same change. `make examples-check` is the gate (already wired into
+  `make check`). Each `marivo-py-*/SKILL.md` stays within the 600-line cap.
 
 ## Repository Entrypoints
 

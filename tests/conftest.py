@@ -23,6 +23,7 @@ They will be re-enabled as part of Task 7 (Fix Downstream Dependencies).
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 
@@ -97,3 +98,100 @@ def _fast_metadata_initialize(self: SQLiteMetadataStore) -> None:
 
 
 SQLiteMetadataStore.initialize = _fast_metadata_initialize
+
+
+# ---------------------------------------------------------------------------
+# semantic_py shared fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def semantic_project_factory(tmp_path):
+    """Factory that creates a SemanticProject from a dict of files.
+
+    Files are written under ``<tmp_path>/.marivo/semantic/``.
+    """
+
+    def _make(files: dict[str, str], load: bool = True):
+        from marivo.semantic_py.reader import SemanticProject
+
+        marivo_root = tmp_path / ".marivo"
+        root = marivo_root / "semantic"
+        root.mkdir(parents=True, exist_ok=True)
+        for rel, src in files.items():
+            full = marivo_root / rel if rel.startswith("datasource/") else root / rel
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_text(src)
+        declared_datasources = {
+            match.group("name")
+            for src in files.values()
+            for match in re.finditer(r"datasource=(?P<quote>['\"])(?P<name>[^'\"]+)(?P=quote)", src)
+            if "." not in match.group("name")
+        }
+        for datasource_name in declared_datasources:
+            datasource_file = marivo_root / "datasource" / f"{datasource_name}.py"
+            if datasource_file.exists():
+                continue
+            datasource_file.parent.mkdir(parents=True, exist_ok=True)
+            datasource_file.write_text(
+                "import marivo.datasource_py as md\n"
+                f"md.datasource(name={datasource_name!r}, backend_type='duckdb', path=':memory:')\n"
+            )
+        project = SemanticProject(root=root)
+        if load:
+            project.load()
+        return project
+
+    return _make
+
+
+# ---------------------------------------------------------------------------
+# analysis_py shared bootstrap helper
+# ---------------------------------------------------------------------------
+
+
+def bootstrap_sales_project(tmp_path, *, with_time: bool = True):
+    """Create a ready semantic project on disk for analysis_py tests.
+
+    Creates a 'sales' model with:
+    - warehouse datasource (duckdb)
+    - orders dataset
+    - created_at time field (if with_time=True)
+    - region field
+    - revenue metric
+    """
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True, exist_ok=True)
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource_py as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic_py as ms\nms.model(name='sales')\n"
+    )
+    time_field = (
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "def order_date(orders):\n"
+        "    return orders.created_at.cast('date')\n\n"
+        if with_time
+        else ""
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic_py as ms\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "def orders(backend):\n"
+        "    return backend.table('orders')\n"
+        "\n"
+        f"{time_field}"
+        "@ms.field(dataset=orders)\n"
+        "def region(orders):\n"
+        "    return orders.region.upper()\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
