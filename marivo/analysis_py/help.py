@@ -17,17 +17,21 @@ _TOP_LEVEL_ENTRIES = {
     "correlate": "correlate compatible analysis frames",
     "test": "run a mean_changed paired test over compatible MetricFrames",
     "transform": "family-preserving reshape of a MetricFrame / DeltaFrame",
+    "select": "pull a typed field out of a CandidateSet row",
+    "alignment": "AlignmentPolicy variants and required arguments",
     "session": "session lifecycle and persistence helpers",
     "help": "print top-level or symbol-specific introspection",
 }
+
+_MATRIX_TOPICS = {"discover", "select", "transform", "alignment"}
 
 
 def _list_top_level() -> str:
     lines = ["marivo.analysis_py - top-level entries:"]
     for name, summary in _TOP_LEVEL_ENTRIES.items():
-        lines.append(f"  mv.{name:<10} {summary}")
+        lines.append(f"  mv.{name:<14} {summary}")
     lines.append("")
-    lines.append('Call mv.help("<name>") for a signature, docstring, or class summary.')
+    lines.append('Call mv.help("<name>") for a signature, docstring, or reference matrix.')
     return "\n".join(lines)
 
 
@@ -68,6 +72,89 @@ def _describe_module(name: str, obj: ModuleType) -> str:
     return "\n".join(lines)
 
 
+def _format_discover_matrix() -> str:
+    from marivo.analysis_py.intents.discover import (
+        _OBJECTIVE_COMPATIBILITY,
+        _OBJECTIVE_REQUIRED_KWARGS,
+        _OBJECTIVE_TO_SHAPE,
+    )
+
+    lines = ["mv.discover objective matrix:", ""]
+    header = f"  {'objective':<26}{'source':<14}{'semantic_kind':<40}{'shape':<26}required"
+    lines.append(header)
+    lines.append("  " + "-" * (len(header) - 2))
+    for objective in sorted(_OBJECTIVE_COMPATIBILITY):
+        compat = _OBJECTIVE_COMPATIBILITY[objective]
+        shape = _OBJECTIVE_TO_SHAPE[objective]
+        required = ", ".join(_OBJECTIVE_REQUIRED_KWARGS.get(objective, ())) or "-"
+        for source in sorted(compat):
+            kinds = "|".join(sorted(compat[source]))
+            lines.append(f"  {objective:<26}{source:<14}{kinds:<40}{shape:<26}{required}")
+    lines.append("")
+    lines.append('Example: mv.discover(delta, objective="driver_axes",')
+    lines.append('                     search_space=[mv.DimensionRef("country")])')
+    return "\n".join(lines)
+
+
+def _format_select_matrix() -> str:
+    from marivo.analysis_py.intents.select import _FIELD_BY_SHAPE
+
+    lines = ["mv.select field-by-shape matrix:", ""]
+    for shape in sorted(_FIELD_BY_SHAPE):
+        valid = ", ".join(sorted(_FIELD_BY_SHAPE[shape]))
+        lines.append(f"  {shape:<28}{valid}")
+    lines.append("")
+    lines.append('Dot-paths "keys.<dim>" / "selector.<dim>" pull a single key out')
+    lines.append('of the candidate row. Example: mv.select(cs, rank=1, field="window")')
+    return "\n".join(lines)
+
+
+def _format_transform_matrix() -> str:
+    from marivo.analysis_py.intents.transform import _SUPPORTED_OPS
+
+    op_required: dict[str, tuple[str, ...]] = {
+        "filter": ("predicate",),
+        "slice": ("where",),
+        "rollup": ("drop_axes",),
+        "topk": ("by", "limit"),
+        "bottomk": ("by", "limit"),
+        "rank": ("by",),
+        "normalize": ("kind",),
+        "window": ("window",),
+    }
+    lines = ["mv.transform op matrix (v1):", ""]
+    for op in _SUPPORTED_OPS:
+        required = ", ".join(op_required.get(op, ())) or "-"
+        lines.append(f"  op={op!r:<14}required: {required}")
+    lines.append("")
+    lines.append('Example: mv.transform(delta, op="topk", by="delta", limit=3,')
+    lines.append('                      direction="decrease")')
+    lines.append("")
+    lines.append("normalize is MetricFrame-only in v1; DeltaFrame normalize is reserved.")
+    return "\n".join(lines)
+
+
+def _format_alignment_matrix() -> str:
+    lines = ["mv.AlignmentPolicy variants:", ""]
+    lines.append("  kind='calendar_bucket'         no calendar argument")
+    lines.append("  kind='dow_aligned'             calendar=mv.CalendarRef(...) required")
+    lines.append("  kind='holiday_aligned'         calendar=mv.CalendarRef(...) required")
+    lines.append("  kind='holiday_and_dow_aligned' calendar=mv.CalendarRef(...) required")
+    lines.append("")
+    lines.append("Example: mv.AlignmentPolicy(kind='dow_aligned',")
+    lines.append("                            calendar=mv.CalendarRef('cn_holidays'),")
+    lines.append("                            period='month')")
+    return "\n".join(lines)
+
+
+_MATRIX_FORMATTERS: dict[str, Callable[[], str]] = {
+    "discover": _format_discover_matrix,
+    "select": _format_select_matrix,
+    "transform": _format_transform_matrix,
+    "alignment": _format_alignment_matrix,
+}
+
+
 def _resolve(symbol: str) -> object | None:
     import marivo.analysis_py as mv
     import marivo.analysis_py.errors as errors_mod
@@ -84,6 +171,10 @@ def help(symbol: str | None = None) -> None:
 
     if symbol is None:
         print(_list_top_level())
+        return
+
+    if symbol in _MATRIX_FORMATTERS:
+        print(_MATRIX_FORMATTERS[symbol]())
         return
 
     obj = _resolve(symbol)

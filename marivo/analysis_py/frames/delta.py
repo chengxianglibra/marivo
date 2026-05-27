@@ -26,3 +26,5 @@ class DeltaFrameMeta(BaseFrameMeta):
 @dataclass
 class DeltaFrame(BaseFrame):
     meta: DeltaFrameMeta
+
+    _NEXT_INTENTS = ("decompose", "discover", "transform")

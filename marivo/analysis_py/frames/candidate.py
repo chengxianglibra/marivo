@@ -69,6 +69,8 @@ class CandidateSetMeta(BaseFrameMeta):
 class CandidateSet(BaseFrame):
     meta: CandidateSetMeta
 
+    _NEXT_INTENTS = ("select",)
+
     def _assert_shape(self, expected: CandidateShape) -> CandidateSet:
         if self.meta.shape != expected:
             from marivo.analysis_py.errors import SemanticKindMismatchError

@@ -73,6 +73,30 @@ _OBJECTIVE_TO_SHAPE: dict[CandidateObjective, CandidateShape] = {
 
 _VALID_OBJECTIVES = set(_OBJECTIVE_TO_SHAPE.keys())
 
+_OBJECTIVE_COMPATIBILITY: dict[CandidateObjective, dict[str, set[str]]] = {
+    "point_anomalies": {"metric_frame": {"time_series", "panel"}},
+    "period_shifts": {"delta_frame": {"time_series", "panel"}},
+    "driver_axes": {"delta_frame": {"scalar", "time_series", "segmented", "panel"}},
+    "interesting_slices": {
+        "metric_frame": {"scalar", "time_series", "segmented", "panel"},
+        "delta_frame": {"scalar", "time_series", "segmented", "panel"},
+    },
+    "interesting_windows": {
+        "metric_frame": {"time_series", "panel"},
+        "delta_frame": {"time_series", "panel"},
+    },
+    "cross_sectional_outliers": {"metric_frame": {"segmented", "panel"}},
+}
+
+_OBJECTIVE_REQUIRED_KWARGS: dict[CandidateObjective, tuple[str, ...]] = {
+    "point_anomalies": (),
+    "period_shifts": (),
+    "driver_axes": ("search_space",),
+    "interesting_slices": (),
+    "interesting_windows": (),
+    "cross_sectional_outliers": (),
+}
+
 
 def discover(
     source: MetricFrame | DeltaFrame,
@@ -243,20 +267,7 @@ def _check_objective_compatibility(
     source_kind: CandidateSourceKind,
     semantic_kind: str,
 ) -> None:
-    table: dict[CandidateObjective, dict[str, set[str]]] = {
-        "point_anomalies": {"metric_frame": {"time_series", "panel"}},
-        "period_shifts": {"delta_frame": {"time_series", "panel"}},
-        "driver_axes": {"delta_frame": {"scalar", "time_series", "segmented", "panel"}},
-        "interesting_slices": {
-            "metric_frame": {"scalar", "time_series", "segmented", "panel"},
-            "delta_frame": {"scalar", "time_series", "segmented", "panel"},
-        },
-        "interesting_windows": {
-            "metric_frame": {"time_series", "panel"},
-            "delta_frame": {"time_series", "panel"},
-        },
-        "cross_sectional_outliers": {"metric_frame": {"segmented", "panel"}},
-    }
+    table = _OBJECTIVE_COMPATIBILITY
     allowed_kinds = table[objective].get(source_kind)
     if allowed_kinds is None:
         raise SemanticKindMismatchError(

@@ -103,3 +103,36 @@ def test_help_describes_new_statistical_operators(capsys):
     for name in ("test", "forecast", "assess_quality"):
         mv.help(name)
         assert name in capsys.readouterr().out
+
+
+def test_help_discover_prints_objective_matrix() -> None:
+    out = _capture("discover")
+    assert "objective" in out
+    assert "point_anomalies" in out
+    assert "metric_frame" in out
+    assert "driver_axes" in out
+    assert "search_space" in out
+    assert "delta_frame" in out
+
+
+def test_help_select_prints_field_by_shape_matrix() -> None:
+    out = _capture("select")
+    assert "field-by-shape matrix" in out
+    assert "driver_axis" in out
+    assert "axis" in out
+    assert "point_anomaly" in out
+
+
+def test_help_transform_prints_op_matrix() -> None:
+    out = _capture("transform")
+    assert "topk" in out
+    assert "rollup" in out
+    assert "drop_axes" in out
+    assert "limit" in out
+
+
+def test_help_alignment_prints_variants() -> None:
+    out = _capture("alignment")
+    assert "calendar_bucket" in out
+    assert "dow_aligned" in out
+    assert "calendar=" in out
