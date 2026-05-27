@@ -718,3 +718,27 @@ class SegmentDimensionMismatchError(AlignmentFailedError):
 
 class AlignmentPolicyNotApplicableError(AlignmentFailedError):
     pass
+
+
+class EvidenceStoreUnavailableError(AnalysisError): ...
+
+
+class FindingExtractionFailedError(AnalysisError): ...
+
+
+class EvidencePartialError(AnalysisError): ...
+
+
+class FollowupGenerationRuleViolatedError(AnalysisError): ...
+
+
+class SchemaVersionMismatchError(AnalysisError): ...
+
+
+class MigrationFailedError(AnalysisError): ...
+
+
+class SessionLockedByAnotherProcessError(AnalysisError): ...
+
+
+class PropositionNotFoundError(AnalysisError): ...

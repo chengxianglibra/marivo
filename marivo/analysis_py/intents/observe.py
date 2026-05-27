@@ -9,7 +9,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from marivo.analysis_py.errors import (
     AmbiguousDimensionError,
@@ -20,6 +20,13 @@ from marivo.analysis_py.errors import (
     MetricShapeUnsupportedError,
     SemanticKindMismatchError,
 )
+from marivo.analysis_py.evidence.pipeline import (
+    CommitInputs,
+    CommitParams,
+    CommitSemanticAnchors,
+    commit_result,
+)
+from marivo.analysis_py.evidence.types import Subject
 from marivo.analysis_py.executor.runner import (
     apply_slice_to_dataset,
     apply_time_series_bucket,
@@ -35,7 +42,6 @@ from marivo.analysis_py.session.attach import active as session_active
 from marivo.analysis_py.session.core import Session, ensure_session_writable
 from marivo.analysis_py.session.persistence import (
     read_session_meta,
-    write_frame_to_disk,
     write_job_record,
     write_session_meta,
 )
@@ -591,7 +597,32 @@ def observe(
         semantic_model=model_name,
     )
     frame = MetricFrame(_df=result.df, meta=meta)
-    frame.meta = cast("MetricFrameMeta", write_frame_to_disk(session.layout, frame))
+
+    # --- Evidence pipeline: commit_result replaces write_frame_to_disk ---
+    _grain_raw = resolved_window.grain if resolved_window is not None else None
+    _subject_grain: Literal["hour", "day", "week", "month"] | None = (
+        _grain_raw if _grain_raw in ("hour", "day", "week", "month") else None
+    )
+    subject = Subject(
+        metric=metric_id,
+        slice=stored_slice or {},
+        grain=_subject_grain,
+        analysis_axis=_analysis_axis_for_kind(semantic_kind),
+    )
+    commit_result(
+        store=session.evidence_store(),
+        frames_dir=session.layout.frames_dir,
+        frame=frame,
+        step_type="observe",
+        inputs=CommitInputs(input_refs=[]),
+        params=CommitParams(values=params),
+        semantic_anchors=CommitSemanticAnchors(
+            values={"metric_id": metric_id, "model": model_name}
+        ),
+        subject=subject,
+        extractor_family="metric_frame",
+    )
+
     write_job_record(
         session.layout,
         {
@@ -600,7 +631,7 @@ def observe(
             "intent": "observe",
             "params": params,
             "input_frame_refs": [],
-            "output_frame_ref": frame_ref,
+            "output_frame_ref": frame.meta.artifact_id or frame.ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started) * 1000),
@@ -618,3 +649,16 @@ def _persist_known_datasources(session: Session) -> None:
     meta["known_datasources"] = sorted(session.known_datasources)
     meta["updated_at"] = datetime.now(UTC).isoformat()
     write_session_meta(session.layout, meta)
+
+
+def _analysis_axis_for_kind(
+    semantic_kind: str,
+) -> Literal["scalar", "time", "segment", "panel", "change", "decomposition", "correlation", "forecast", "anomaly"]:
+    """Map semantic_kind to the Subject.analysis_axis literal."""
+    mapping: dict[str, Literal["scalar", "time", "segment", "panel", "change", "decomposition", "correlation", "forecast", "anomaly"]] = {
+        "scalar": "scalar",
+        "time_series": "time",
+        "segmented": "segment",
+        "panel": "panel",
+    }
+    return mapping.get(semantic_kind, "scalar")

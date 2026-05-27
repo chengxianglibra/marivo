@@ -68,7 +68,7 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
     )
     blocking_report = mv.assess_quality(blocking, session=session)
     assert blocking_report.meta.overall_status == "blocking"
-    assert blocking_report.meta.recommended_followups[0]["operator"] == "observe"
+    assert blocking_report.meta.recommended_followups[0].operator == "observe"
 
 
 def test_metric_segmented_duplicate_keys_blocking(tmp_path):
@@ -85,7 +85,7 @@ def test_metric_segmented_duplicate_keys_blocking(tmp_path):
     duplicate = report.to_pandas().set_index("check_kind").loc["duplicate_keys"]
 
     assert duplicate["severity"] == "blocking"
-    assert report.meta.blocking_issues[0]["kind"] == "quality"
+    assert report.meta.blocking_issues[0].kind == "quality"
     assert json.loads(duplicate["details_json"])["duplicate_count"] == 2
 
 
@@ -102,12 +102,12 @@ def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
     report = mv.assess_quality(frame, session=session)
     ids = set(report.to_pandas()["check_id"])
     assert {"null_ratio:value", "null_ratio:value2"}.issubset(ids)
-    assert report.meta.recommended_followups[0]["params"] == {"op": "impute_nulls"}
+    assert report.meta.recommended_followups[0].params == {"op": "impute_nulls"}
 
     empty = _metric(session, [], semantic_kind="scalar", axes={})
     empty_report = mv.assess_quality(empty, session=session)
     assert empty_report.meta.overall_status == "blocking"
-    assert empty_report.meta.blocking_issues[0]["kind"] == "sample_size"
+    assert empty_report.meta.blocking_issues[0].kind == "sample_size"
 
 
 def test_panel_all_checks_and_persistence(tmp_path):

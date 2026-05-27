@@ -41,6 +41,26 @@ def test_followup_action_full_roundtrip() -> None:
     assert restored == action
 
 
+def test_followup_action_category_required() -> None:
+    action = mv.FollowupAction(
+        action_id="a1",
+        kind="submit_step",
+        category="dag_continuation",
+    )
+    assert action.category == "dag_continuation"
+    assert action.source_issue_id is None
+
+
+def test_followup_action_quality_remediation_with_source_issue_id() -> None:
+    action = mv.FollowupAction(
+        action_id="a1",
+        kind="submit_step",
+        category="quality_remediation",
+        source_issue_id="issue_123",
+    )
+    assert action.source_issue_id == "issue_123"
+
+
 def test_followup_action_rejects_extra_fields() -> None:
     with pytest.raises(ValidationError):
         mv.FollowupAction(action_id="a1", kind="submit_step", unknown_field=1)  # type: ignore[call-arg]

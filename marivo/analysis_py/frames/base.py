@@ -7,12 +7,13 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from html import escape
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from marivo.analysis_py.errors import FrameMutationError, FrameReadError
+from marivo.analysis_py.followups import BlockingIssue, ConfidenceScope, FollowupAction
 from marivo.analysis_py.lineage import Lineage
 
 _REPR_MAX_ROWS = 3
@@ -121,6 +122,12 @@ class BaseFrameMeta(BaseModel):
     row_count: int
     byte_size: int
     lineage: Lineage = Lineage()
+    artifact_id: str | None = None
+    evidence_status: Literal["complete", "partial", "unavailable"] = "unavailable"
+    confidence_scope: ConfidenceScope | None = None
+    quality: dict[str, Any] | None = None
+    blocking_issues: list[BlockingIssue] = Field(default_factory=list)
+    recommended_followups: list[FollowupAction] = Field(default_factory=list)
 
 
 @dataclass

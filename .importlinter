@@ -127,3 +127,18 @@ source_modules =
     marivo.adapters
 forbidden_modules =
     marivo.analysis_py
+
+[importlinter:contract:analysis_py-evidence-isolation]
+name = analysis_py.evidence must not import analysis_py internals beyond evidence + frames + lineage + refs + errors + followups + session.persistence
+type = forbidden
+source_modules =
+    marivo.analysis_py.evidence
+forbidden_modules =
+    marivo.analysis_py.intents
+    marivo.analysis_py.executor
+    marivo.analysis_py.calendar
+    marivo.analysis_py.windows
+    marivo.analysis_py.datasources
+    marivo.analysis_py.profiles
+    marivo.analysis_py.escape_hatch
+    marivo.analysis_py.policies

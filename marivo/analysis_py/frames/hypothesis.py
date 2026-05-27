@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict
 
 from marivo.analysis_py.frames.base import BaseFrame, BaseFrameMeta
 
@@ -27,8 +27,6 @@ class HypothesisTestResultMeta(BaseFrameMeta):
     segment_dimensions: list[str]
     rejected_count: int
     not_enough_data_count: int
-    recommended_followups: list[dict[str, Any]] = Field(default_factory=list)
-    blocking_issues: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @dataclass
