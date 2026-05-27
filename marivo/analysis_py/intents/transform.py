@@ -25,13 +25,20 @@ from marivo.analysis_py.errors import (
     TransformShapeUnsupportedError,
     WindowInvalidError,
 )
+from marivo.analysis_py.evidence.pipeline import (
+    CommitInputs,
+    CommitParams,
+    CommitSemanticAnchors,
+    commit_result,
+)
+from marivo.analysis_py.evidence.types import Subject, TriggeredByFollowup
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.lineage import Lineage, LineageStep
 from marivo.analysis_py.refs import DimensionRef
 from marivo.analysis_py.session.attach import active as session_active
 from marivo.analysis_py.session.core import Session, ensure_session_writable
-from marivo.analysis_py.session.persistence import write_frame_to_disk, write_job_record
+from marivo.analysis_py.session.persistence import write_job_record
 from marivo.analysis_py.windows import (
     AbsoluteWindow,
     coerce_as_of,
@@ -98,6 +105,7 @@ def transform(
     kind: str | None = None,
     base: Any = None,
     window: Any = None,
+    _triggered_by: TriggeredByFollowup | None = None,
 ) -> MetricFrame | DeltaFrame:
     """Apply a declared transform op to a MetricFrame or DeltaFrame.
 
@@ -177,6 +185,7 @@ def transform(
         alignment=meta_overrides.get("alignment"),
         normalization=meta_overrides.get("normalization"),
         window=meta_overrides.get("window"),
+        triggered_by_followup=_triggered_by,
     )
 
 
@@ -1635,6 +1644,7 @@ def _persist_transform_frame(
     alignment: dict[str, Any] | None = None,
     normalization: dict[str, Any] | None = None,
     window: dict[str, Any] | None = None,
+    triggered_by_followup: TriggeredByFollowup | None = None,
 ) -> MetricFrame | DeltaFrame:
     frame_ref = _gen_ref("frame")
     job_ref = _gen_ref("job")
@@ -1686,11 +1696,49 @@ def _persist_transform_frame(
     if isinstance(parent, MetricFrame):
         metric_meta = MetricFrameMeta(**meta_payload)
         frame: MetricFrame | DeltaFrame = MetricFrame(_df=df.copy(), meta=metric_meta)
-        frame.meta = cast("MetricFrameMeta", write_frame_to_disk(session.layout, frame))
+        grain = None
+        time_axis = metric_meta.axes.get("time")
+        if isinstance(time_axis, dict):
+            axis_grain = time_axis.get("grain")
+            grain = axis_grain if axis_grain in ("hour", "day", "week", "month") else None
+        frame = cast(
+            "MetricFrame",
+            commit_result(
+                store=session.evidence_store(),
+                frames_dir=session.layout.frames_dir,
+                frame=frame,
+                step_type="transform",
+                inputs=CommitInputs(input_refs=[parent.meta.artifact_id or parent.ref]),
+                params=CommitParams(values=normalized_params),
+                semantic_anchors=CommitSemanticAnchors(values={"metric_id": metric_meta.metric_id}),
+                subject=Subject(
+                    metric=metric_meta.metric_id,
+                    slice=metric_meta.slice,
+                    grain=grain,
+                    analysis_axis=_analysis_axis_for_metric_kind(metric_meta.semantic_kind),
+                ),
+                extractor_family="metric_frame",
+                triggered_by_followup=triggered_by_followup,
+            ),
+        )
     else:
         delta_meta = DeltaFrameMeta(**meta_payload)
         frame = DeltaFrame(_df=df.copy(), meta=delta_meta)
-        frame.meta = cast("DeltaFrameMeta", write_frame_to_disk(session.layout, frame))
+        frame = cast(
+            "DeltaFrame",
+            commit_result(
+                store=session.evidence_store(),
+                frames_dir=session.layout.frames_dir,
+                frame=frame,
+                step_type="transform",
+                inputs=CommitInputs(input_refs=[parent.meta.artifact_id or parent.ref]),
+                params=CommitParams(values=normalized_params),
+                semantic_anchors=CommitSemanticAnchors(values={"metric_id": delta_meta.metric_id}),
+                subject=Subject(metric=delta_meta.metric_id, analysis_axis="change"),
+                extractor_family="delta_frame",
+                triggered_by_followup=triggered_by_followup,
+            ),
+        )
 
     write_job_record(
         session.layout,
@@ -1700,7 +1748,7 @@ def _persist_transform_frame(
             "intent": "transform",
             "params": normalized_params,
             "input_frame_refs": source_refs,
-            "output_frame_ref": frame_ref,
+            "output_frame_ref": frame.meta.artifact_id or frame_ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started_monotonic) * 1000),
@@ -1711,3 +1759,15 @@ def _persist_transform_frame(
         },
     )
     return frame
+
+
+def _analysis_axis_for_metric_kind(
+    semantic_kind: str,
+) -> Literal["scalar", "time", "segment", "panel"]:
+    if semantic_kind == "time_series":
+        return "time"
+    if semantic_kind == "segmented":
+        return "segment"
+    if semantic_kind == "panel":
+        return "panel"
+    return "scalar"

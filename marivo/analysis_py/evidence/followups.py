@@ -1,4 +1,4 @@
-"""C1 dag_continuation + C2 quality_remediation followup generator (slice-1 whitelist)."""
+"""C1 dag_continuation + C2 quality_remediation followup generator."""
 
 from __future__ import annotations
 
@@ -58,9 +58,20 @@ _C1_DELTA_COMMON: list[tuple[str, dict[str, Any], _OutputFamily]] = [
     ("discover", {"objective": "driver_axes"}, "candidate_set"),
     ("discover", {"objective": "interesting_slices"}, "candidate_set"),
 ]
-_C1_DELTA_TIMEY: list[tuple[str, dict[str, Any], _OutputFamily]] = _C1_DELTA_COMMON + [
+_C1_DELTA_TIMEY: list[tuple[str, dict[str, Any], _OutputFamily]] = [
+    *_C1_DELTA_COMMON,
     ("discover", {"objective": "period_shifts"}, "candidate_set"),
 ]
+
+_C1_BY_FAMILY: dict[str, list[tuple[str, dict[str, Any], _OutputFamily]]] = {
+    "attribution_frame": [("assess_quality", {}, "quality_report")],
+    "candidate_set": [("assess_quality", {}, "quality_report")],
+    "association_result": [("assess_quality", {}, "quality_report")],
+    "hypothesis_test_result": [("assess_quality", {}, "quality_report")],
+    "forecast_frame": [("assess_quality", {}, "quality_report")],
+    "forecast_evaluation_result": [("assess_quality", {}, "quality_report")],
+    "quality_report": [],
+}
 
 
 def _c1_for_source(ctx: GenerationContext) -> list[tuple[str, dict[str, Any], _OutputFamily]]:
@@ -76,15 +87,15 @@ def _c1_for_source(ctx: GenerationContext) -> list[tuple[str, dict[str, Any], _O
         if ctx.source_semantic_kind in ("time_series", "panel"):
             return _C1_DELTA_TIMEY
         return _C1_DELTA_COMMON
+    if ctx.source_family in _C1_BY_FAMILY:
+        return _C1_BY_FAMILY[ctx.source_family]
     raise FollowupGenerationRuleViolatedError(
-        message=f"family {ctx.source_family!r} not in slice-1 C1 whitelist",
+        message=f"family {ctx.source_family!r} not in C1 whitelist",
         details={"family": ctx.source_family},
     )
 
 
-def _c2_for_issue(
-    issue: BlockingIssue, source_artifact_id: str
-) -> list[FollowupAction]:
+def _c2_for_issue(issue: BlockingIssue, source_artifact_id: str) -> list[FollowupAction]:
     if issue.kind == "null_rate_high":
         return [
             FollowupAction(
@@ -142,6 +153,58 @@ def _c2_for_issue(
                 params={"action": "retry_evidence_pipeline"},
                 category="quality_remediation",
                 source_issue_id=issue.issue_id,
+            )
+        ]
+    if issue.kind == "definition_drift_detected":
+        valid_range = (issue.payload or {}).get("definition_valid_range")
+        if not valid_range:
+            return []
+        return [
+            FollowupAction(
+                action_id=make_action_id(
+                    source_artifact_id=source_artifact_id,
+                    category="quality_remediation",
+                    operator="transform",
+                    input_refs=[source_artifact_id],
+                    params={
+                        "op": "window",
+                        "window": valid_range,
+                        "issue_id": issue.issue_id,
+                    },
+                ),
+                kind="submit_step",
+                operator="transform",
+                input_refs=[source_artifact_id],
+                params={"op": "window", "window": valid_range},
+                category="quality_remediation",
+                source_issue_id=issue.issue_id,
+                expected_output_family="metric_frame",
+            )
+        ]
+    if issue.kind == "outlier_winsorize_recommended":
+        suggested = (issue.payload or {}).get("suggested_policy")
+        if not suggested:
+            return []
+        return [
+            FollowupAction(
+                action_id=make_action_id(
+                    source_artifact_id=source_artifact_id,
+                    category="quality_remediation",
+                    operator="transform",
+                    input_refs=[source_artifact_id],
+                    params={
+                        "op": "winsorize",
+                        "policy": suggested,
+                        "issue_id": issue.issue_id,
+                    },
+                ),
+                kind="submit_step",
+                operator="transform",
+                input_refs=[source_artifact_id],
+                params={"op": "winsorize", "policy": suggested},
+                category="quality_remediation",
+                source_issue_id=issue.issue_id,
+                expected_output_family="metric_frame",
             )
         ]
     return []

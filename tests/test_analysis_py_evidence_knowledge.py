@@ -6,10 +6,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-
-from marivo.analysis_py.evidence.identity import make_assessment_id, to_microseconds_utc
-from marivo.analysis_py.evidence.knowledge import SessionKnowledge, build_session_knowledge
+from marivo.analysis_py.evidence.identity import to_microseconds_utc
+from marivo.analysis_py.evidence.knowledge import build_session_knowledge
 from marivo.analysis_py.evidence.store import open_judgment_store
 from marivo.analysis_py.evidence.types import ChangeFact
 
@@ -25,74 +23,130 @@ def _seed_session(db_path: Path, *, evidence_status: str = "complete") -> None:
                 "artifact_schema_version, subject_payload, lineage_payload, confidence_scope, "
                 "quality_summary, evidence_status, frame_path, committed_at_us) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                ("art_1", "sess_1", "compare", "delta_frame", "v1",
-                 json.dumps({"metric": "sales.revenue", "analysis_axis": "change"}),
-                 "{}", "{}", "{}", evidence_status, "/tmp/data.parquet", committed),
+                (
+                    "art_1",
+                    "sess_1",
+                    "compare",
+                    "delta_frame",
+                    "v1",
+                    json.dumps({"metric": "sales.revenue", "analysis_axis": "change"}),
+                    "{}",
+                    "{}",
+                    "{}",
+                    evidence_status,
+                    "/tmp/data.parquet",
+                    committed,
+                ),
             )
             tx.execute(
                 "INSERT INTO findings(finding_id, session_id, artifact_id, finding_type, "
                 "canonical_item_key, subject_axis, subject_payload, payload, committed_at_us) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
-                ("fnd_1", "sess_1", "art_1", "delta", "value", "change",
-                 json.dumps({"metric": "sales.revenue", "analysis_axis": "change"}),
-                 json.dumps({
-                     "direction": "increase",
-                     "magnitude": 20.0,
-                     "delta_kind": "scalar_delta",
-                 }),
-                 committed),
+                (
+                    "fnd_1",
+                    "sess_1",
+                    "art_1",
+                    "delta",
+                    "value",
+                    "change",
+                    json.dumps({"metric": "sales.revenue", "analysis_axis": "change"}),
+                    json.dumps(
+                        {
+                            "direction": "increase",
+                            "magnitude": 20.0,
+                            "delta_kind": "scalar_delta",
+                        }
+                    ),
+                    committed,
+                ),
             )
             tx.execute(
                 "INSERT INTO propositions(proposition_id, session_id, proposition_type, "
                 "origin_kind, derivation_version, subject_key, payload, seed_finding_refs, "
                 "created_at_us) VALUES (?,?,?,?,?,?,?,?,?)",
-                ("prop_1", "sess_1", "change", "system_seeded", "v1", "subjkey",
-                 json.dumps({
-                     "change_kind": "scalar_change",
-                     "comparison_basis": "left_vs_right",
-                 }),
-                 json.dumps(["fnd_1"]),
-                 committed),
+                (
+                    "prop_1",
+                    "sess_1",
+                    "change",
+                    "system_seeded",
+                    "v1",
+                    "subjkey",
+                    json.dumps(
+                        {
+                            "change_kind": "scalar_change",
+                            "comparison_basis": "left_vs_right",
+                        }
+                    ),
+                    json.dumps(["fnd_1"]),
+                    committed,
+                ),
             )
             tx.execute(
                 "INSERT INTO assessment_snapshots(snapshot_id, proposition_id, session_id, "
                 "status, confidence, confidence_basis, payload, created_at_us, is_latest) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
-                ("ass_1", "prop_1", "sess_1", "validated", 0.9,
-                 "seed_delta_direction_matches", "{}", committed, 1),
+                (
+                    "ass_1",
+                    "prop_1",
+                    "sess_1",
+                    "validated",
+                    0.9,
+                    "seed_delta_direction_matches",
+                    "{}",
+                    committed,
+                    1,
+                ),
             )
             tx.execute(
                 "INSERT INTO followups(followup_id, session_id, source_artifact_id, "
                 "category, source_issue_id, operator, payload, created_at_us) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                ("act_a", "sess_1", "art_1", "dag_continuation", None, "assess_quality",
-                 json.dumps({
-                     "action_id": "act_a",
-                     "kind": "submit_step",
-                     "operator": "assess_quality",
-                     "input_refs": ["art_1"],
-                     "params": {},
-                     "category": "dag_continuation",
-                     "source_issue_id": None,
-                 }),
-                 committed),
+                (
+                    "act_a",
+                    "sess_1",
+                    "art_1",
+                    "dag_continuation",
+                    None,
+                    "assess_quality",
+                    json.dumps(
+                        {
+                            "action_id": "act_a",
+                            "kind": "submit_step",
+                            "operator": "assess_quality",
+                            "input_refs": ["art_1"],
+                            "params": {},
+                            "category": "dag_continuation",
+                            "source_issue_id": None,
+                        }
+                    ),
+                    committed,
+                ),
             )
             tx.execute(
                 "INSERT INTO followups(followup_id, session_id, source_artifact_id, "
                 "category, source_issue_id, operator, payload, executed_step_id, "
                 "created_at_us) VALUES (?,?,?,?,?,?,?,?,?)",
-                ("act_b", "sess_1", "art_1", "dag_continuation", None, "discover",
-                 json.dumps({
-                     "action_id": "act_b",
-                     "kind": "submit_step",
-                     "operator": "discover",
-                     "input_refs": ["art_1"],
-                     "params": {"objective": "driver_axes"},
-                     "category": "dag_continuation",
-                     "source_issue_id": None,
-                 }),
-                 "step_already_done",
-                 committed),
+                (
+                    "act_b",
+                    "sess_1",
+                    "art_1",
+                    "dag_continuation",
+                    None,
+                    "discover",
+                    json.dumps(
+                        {
+                            "action_id": "act_b",
+                            "kind": "submit_step",
+                            "operator": "discover",
+                            "input_refs": ["art_1"],
+                            "params": {"objective": "driver_axes"},
+                            "category": "dag_continuation",
+                            "source_issue_id": None,
+                        }
+                    ),
+                    "step_already_done",
+                    committed,
+                ),
             )
     finally:
         store.close()

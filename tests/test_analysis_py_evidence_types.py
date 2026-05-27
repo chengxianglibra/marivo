@@ -9,13 +9,20 @@ from pydantic import ValidationError
 
 from marivo.analysis_py.evidence.types import (
     Assessment,
+    AssociationSummary,
+    AttributedDriver,
+    BlockedFollowup,
     ChangeFact,
     Finding,
+    ForecastSummary,
+    LagSweepSummary,
     OpenAnomaly,
     OpenQuestion,
     Proposition,
     QualitySummary,
     Subject,
+    TestedHypothesis,
+    TimeWindow,
     TriggeredByFollowup,
 )
 
@@ -145,3 +152,112 @@ def test_triggered_by_followup_via_enum() -> None:
         via="run_followup",
     )
     assert t.via == "run_followup"
+
+
+def test_attributed_driver_construction() -> None:
+    fact = AttributedDriver(
+        id="prop_1",
+        subject=Subject(metric="dau", analysis_axis="decomposition"),
+        status="validated",
+        confidence_basis="driver_role_primary_driver",
+        latest_assessment_id="ass_1",
+        dimension="country",
+        dimension_keys={"country": "us"},
+        contribution_value=12.0,
+        contribution_share=0.6,
+        contribution_role="primary_driver",
+        scope_change_id="prop_chg_1",
+    )
+    assert fact.kind == "driver"
+    assert fact.dimension == "country"
+    assert fact.contribution_role == "primary_driver"
+
+
+def test_tested_hypothesis_construction() -> None:
+    fact = TestedHypothesis(
+        id="prop_th1",
+        subject=Subject(metric="dau", analysis_axis="scalar"),
+        status="validated",
+        confidence_basis="test_p_lt_alpha",
+        latest_assessment_id="ass_2",
+        hypothesis_family="difference",
+        alternative="two_sided",
+        method_family="welch_t",
+        alpha=0.05,
+        p_value=0.02,
+        reject_null=True,
+    )
+    assert fact.kind == "tested_hypothesis"
+    assert fact.reject_null is True
+
+
+def test_forecast_summary_construction() -> None:
+    fact = ForecastSummary(
+        id="prop_fc1",
+        subject=Subject(metric="dau", analysis_axis="forecast"),
+        status="pending",
+        confidence_basis="forecast_pending_actual",
+        latest_assessment_id="ass_3",
+        forecast_window=TimeWindow(field="ds", start="2025-01-08", end="2025-01-15"),
+        horizon_index=1,
+        forecast_kind="interval",
+        prediction_interval=[1050.0, 1150.0],
+    )
+    assert fact.kind == "forecast"
+    assert fact.forecast_kind == "interval"
+
+
+def test_association_summary_construction() -> None:
+    fact = AssociationSummary(
+        id="prop_as1",
+        subject=Subject(metric=None, analysis_axis="correlation"),
+        status="validated",
+        confidence_basis="association_p_lt_alpha",
+        latest_assessment_id="ass_4",
+        left_subject={"metric": "dau"},
+        right_subject={"metric": "revenue"},
+        method_family="pearson",
+        coefficient=0.71,
+        lag_mode="single",
+        lag=None,
+        join_basis="calendar_bucket",
+    )
+    assert fact.kind == "association"
+    assert fact.coefficient == 0.71
+
+
+def test_lag_sweep_summary_construction() -> None:
+    lag_sweep = LagSweepSummary(grid_min=-7.0, grid_max=7.0, step=1.0, selected_lag=-1.0)
+    assert lag_sweep.selected_lag == -1.0
+
+
+def test_blocked_followup_construction() -> None:
+    blocked = BlockedFollowup(
+        action_id="act_1",
+        reason="missing_input_artifact",
+        operator="compare",
+        source_artifact_id="art_x",
+        blocking_issue_kind="comparability_incompatible",
+    )
+    assert blocked.reason == "missing_input_artifact"
+
+
+def test_top_level_reexports_typed_facts() -> None:
+    import marivo.analysis_py as ap
+
+    assert hasattr(ap, "ChangeFact")
+    assert hasattr(ap, "AttributedDriver")
+    assert hasattr(ap, "TestedHypothesis")
+    assert hasattr(ap, "ForecastSummary")
+    assert hasattr(ap, "AssociationSummary")
+    assert hasattr(ap, "OpenAnomaly")
+    assert hasattr(ap, "OpenQuestion")
+    assert hasattr(ap, "BlockedFollowup")
+    assert hasattr(ap, "EvidenceTrace")
+    assert hasattr(ap, "Finding")
+    assert hasattr(ap, "Proposition")
+    assert hasattr(ap, "Assessment")
+    assert hasattr(ap, "Subject")
+    assert hasattr(ap, "TimeWindow")
+    assert hasattr(ap, "FollowupAction")
+    assert hasattr(ap, "BlockingIssue")

@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
-
-from marivo.analysis_py.errors import FollowupGenerationRuleViolatedError
 from marivo.analysis_py.evidence.followups import (
-    generate_followups,
     GenerationContext,
+    generate_followups,
 )
-from marivo.analysis_py.followups import BlockingIssue, FollowupAction
+from marivo.analysis_py.followups import BlockingIssue
 
 
 def _ctx(
@@ -30,14 +27,14 @@ def _ctx(
 def test_c1_metric_time_series_emits_whitelist() -> None:
     actions = generate_followups(_ctx(family="metric_frame", semantic_kind="time_series"))
     operators = sorted({a.operator for a in actions if a.category == "dag_continuation"})
-    assert operators == ["assess_quality", "discover", "discover", "forecast"][:4] or set(operators) == {
+    assert operators == ["assess_quality", "discover", "discover", "forecast"][:4] or set(
+        operators
+    ) == {
         "assess_quality",
         "discover",
         "forecast",
     }
-    objectives = {
-        a.params.get("objective") for a in actions if a.operator == "discover"
-    }
+    objectives = {a.params.get("objective") for a in actions if a.operator == "discover"}
     assert objectives == {"point_anomalies", "interesting_windows"}
 
 
@@ -49,9 +46,7 @@ def test_c1_metric_scalar_only_emits_assess_quality() -> None:
 
 
 def test_c1_delta_emits_discover_and_assess_quality() -> None:
-    actions = generate_followups(
-        _ctx(family="delta_frame", semantic_kind="time_series")
-    )
+    actions = generate_followups(_ctx(family="delta_frame", semantic_kind="time_series"))
     operators = {a.operator for a in actions}
     assert "assess_quality" in operators
     assert "discover" in operators
@@ -78,8 +73,7 @@ def test_c2_null_rate_high_emits_remediation() -> None:
     )
     remediations = [a for a in actions if a.category == "quality_remediation"]
     assert any(
-        a.operator == "transform" and a.params.get("op") == "impute_nulls"
-        for a in remediations
+        a.operator == "transform" and a.params.get("op") == "impute_nulls" for a in remediations
     )
     assert all(a.source_issue_id == "iss_1" for a in remediations)
 
@@ -94,7 +88,9 @@ def test_c2_evidence_partial_emits_retry() -> None:
     actions = generate_followups(
         _ctx(family="delta_frame", semantic_kind="scalar", blocking_issues=[issue])
     )
-    retry = [a for a in actions if a.category == "quality_remediation" and a.kind == "adjust_policy"]
+    retry = [
+        a for a in actions if a.category == "quality_remediation" and a.kind == "adjust_policy"
+    ]
     assert len(retry) == 1
     assert retry[0].source_issue_id == "iss_2"
 
@@ -119,6 +115,6 @@ def test_action_id_is_replay_stable() -> None:
     assert [x.action_id for x in a1] == [x.action_id for x in a2]
 
 
-def test_forbidden_family_raises_violation() -> None:
-    with pytest.raises(FollowupGenerationRuleViolatedError):
-        generate_followups(_ctx(family="quality_report", semantic_kind="scalar"))
+def test_quality_report_family_is_leaf() -> None:
+    actions = generate_followups(_ctx(family="quality_report", semantic_kind="scalar"))
+    assert actions == []

@@ -68,6 +68,7 @@ class BlockingIssue(BaseModel):
     severity: Literal["warning", "blocking"]
     source_refs: list[str] = Field(default_factory=list)
     message: str
+    payload: dict[str, Any] | None = None
     remediation_followups: list[FollowupAction] = Field(default_factory=list)
 
 

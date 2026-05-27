@@ -43,9 +43,7 @@ def test_observe_writes_artifact_metadata(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = mv.session.attach.create(
-        name="t", backends=_backends(con), use_datasources=False
-    )
+    session = mv.session.attach.create(name="t", backends=_backends(con), use_datasources=False)
 
     frame = observe(
         mv.MetricRef("sales.revenue"),
@@ -58,9 +56,7 @@ def test_observe_writes_artifact_metadata(tmp_path) -> None:
     db_path = session.layout.session_dir / "judgment.db"
     assert db_path.exists()
     with sqlite3.connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT step_type, evidence_status FROM artifacts"
-        ).fetchall()
+        rows = conn.execute("SELECT step_type, evidence_status FROM artifacts").fetchall()
     assert rows == [("observe", "complete")]
 
 
@@ -68,9 +64,7 @@ def test_compare_seeds_change_proposition_and_emits_followups(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = mv.session.attach.create(
-        name="t", backends=_backends(con), use_datasources=False
-    )
+    session = mv.session.attach.create(name="t", backends=_backends(con), use_datasources=False)
 
     current = observe(
         mv.MetricRef("sales.revenue"),
@@ -99,9 +93,7 @@ def test_session_knowledge_returns_change_fact(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = mv.session.attach.create(
-        name="t", backends=_backends(con), use_datasources=False
-    )
+    session = mv.session.attach.create(name="t", backends=_backends(con), use_datasources=False)
     current = observe(
         mv.MetricRef("sales.revenue"),
         window={"start": "2026-05-01", "end": "2026-05-07"},

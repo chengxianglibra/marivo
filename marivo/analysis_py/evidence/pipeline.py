@@ -20,9 +20,25 @@ from typing import Any
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
 
-from marivo.analysis_py.evidence.assessment import recompute_change_assessment
+from marivo.analysis_py.evidence.assessment import (
+    recompute_anomaly_assessment,
+    recompute_association_assessment,
+    recompute_change_assessment,
+    recompute_driver_assessment,
+    recompute_forecast_assessment,
+    recompute_test_hypothesis_assessment,
+)
+from marivo.analysis_py.evidence.extraction.anomaly import (
+    extract_anomaly_candidate_findings,
+)
+from marivo.analysis_py.evidence.extraction.correlation import extract_correlation_findings
+from marivo.analysis_py.evidence.extraction.decomposition import (
+    extract_decomposition_findings,
+)
 from marivo.analysis_py.evidence.extraction.delta import extract_delta_findings
+from marivo.analysis_py.evidence.extraction.forecast import extract_forecast_point_findings
 from marivo.analysis_py.evidence.extraction.observation import extract_metric_value_findings
+from marivo.analysis_py.evidence.extraction.test import extract_test_result_findings
 from marivo.analysis_py.evidence.followups import GenerationContext, generate_followups
 from marivo.analysis_py.evidence.identity import (
     canonical_json,
@@ -30,7 +46,14 @@ from marivo.analysis_py.evidence.identity import (
     make_issue_id,
     to_microseconds_utc,
 )
-from marivo.analysis_py.evidence.seeding import seed_change_proposition
+from marivo.analysis_py.evidence.seeding import (
+    seed_anomaly_proposition,
+    seed_change_proposition,
+    seed_correlation_proposition,
+    seed_driver_proposition,
+    seed_forecast_proposition,
+    seed_test_hypothesis_proposition,
+)
 from marivo.analysis_py.evidence.store import JudgmentStore
 from marivo.analysis_py.evidence.types import Finding, Proposition, Subject, TriggeredByFollowup
 from marivo.analysis_py.followups import BlockingIssue, FollowupAction
@@ -83,15 +106,29 @@ def _dimension_columns_from_meta(meta: Any) -> list[str] | None:
     return sorted(columns) if columns else None
 
 
+def _time_column_from_meta(meta: Any) -> str | None:
+    axes = getattr(meta, "axes", None)
+    if isinstance(axes, dict):
+        for axis in axes.values():
+            if isinstance(axis, dict) and axis.get("role") == "time":
+                column = axis.get("column") or axis.get("field")
+                if isinstance(column, str) and column:
+                    return column
+        time_axis = axes.get("time")
+        if isinstance(time_axis, dict):
+            column = time_axis.get("column") or time_axis.get("field")
+            if isinstance(column, str) and column:
+                return column
+    return None
+
+
 def _atomic_write_parquet(df: pd.DataFrame, dest: Path) -> str:
     """Write DataFrame to Parquet atomically via .tmp + fsync + os.replace.
 
     Returns the SHA-256 hex digest of the written file.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path_str = tempfile.mkstemp(
-        suffix=".tmp", dir=str(dest.parent)
-    )
+    fd, tmp_path_str = tempfile.mkstemp(suffix=".tmp", dir=str(dest.parent))
     os.close(fd)
     tmp_path = Path(tmp_path_str)
     try:
@@ -130,7 +167,11 @@ def _extract_findings(
     semantic_kind = getattr(meta, "semantic_kind", "scalar")
     if extractor_family == "metric_frame":
         measure = getattr(meta, "measure", {})
-        measure_column = measure.get("name", "value") if isinstance(measure, dict) else "value"
+        measure_column = (
+            measure.get("name") or measure.get("column") or measure.get("field") or "value"
+            if isinstance(measure, dict)
+            else "value"
+        )
         # Fall back if measure_column is not in the DataFrame
         if measure_column not in df.columns:
             non_time = [c for c in df.columns if c != "bucket_start"]
@@ -138,6 +179,8 @@ def _extract_findings(
         time_column: str | None = None
         if semantic_kind == "time_series" and "bucket_start" in df.columns:
             time_column = "bucket_start"
+        elif semantic_kind == "time_series":
+            time_column = _time_column_from_meta(meta)
         return extract_metric_value_findings(
             df=df,
             artifact_id=artifact_id,
@@ -159,7 +202,167 @@ def _extract_findings(
             committed_at=committed_at,
             dimension_columns=dimension_columns,
         )
+    if extractor_family == "attribution_frame":
+        scope_delta_ref = getattr(meta, "scope_delta_ref", None)
+        if not scope_delta_ref:
+            source_refs = getattr(meta, "source_refs", [])
+            scope_delta_ref = source_refs[0] if source_refs else None
+        if not scope_delta_ref:
+            return []
+        decomp_df = df
+        driver_field = getattr(meta, "driver_field", None)
+        contribution_column = getattr(meta, "contribution_column", None)
+        if (
+            "dimension" not in decomp_df.columns
+            and isinstance(driver_field, str)
+            and driver_field in decomp_df.columns
+            and isinstance(contribution_column, str)
+            and contribution_column in decomp_df.columns
+        ):
+            decomp_df = decomp_df.copy()
+            decomp_df["dimension"] = driver_field
+            decomp_df["contribution_value"] = decomp_df[contribution_column]
+            share_column = "contribution_share"
+            if share_column not in decomp_df.columns:
+                if "pct_contribution" in decomp_df.columns:
+                    share_column = "pct_contribution"
+                elif "contribution_share" in decomp_df.columns:
+                    share_column = "contribution_share"
+            if share_column in decomp_df.columns:
+                decomp_df["contribution_share"] = decomp_df[share_column]
+            if "direction" not in decomp_df.columns:
+                decomp_df["direction"] = decomp_df["contribution_value"].map(
+                    lambda value: "increase" if value > 0 else "decrease" if value < 0 else "flat"
+                )
+        return extract_decomposition_findings(
+            df=decomp_df,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            subject=subject,
+            committed_at=committed_at,
+            scope_delta_ref=str(scope_delta_ref),
+        )
+    if extractor_family == "candidate_set":
+        objective = getattr(meta, "discovery_objective", None) or getattr(meta, "objective", None)
+        if objective != "point_anomalies":
+            return []
+        return extract_anomaly_candidate_findings(
+            df=df,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            subject=subject,
+            committed_at=committed_at,
+        )
+    if extractor_family == "association_result":
+        assoc_df = df
+        if "coefficient" not in assoc_df.columns and "correlation" in assoc_df.columns:
+            assoc_df = assoc_df.copy()
+            source_refs = getattr(meta, "source_refs", [])
+            assoc_df["left_ref"] = source_refs[0] if len(source_refs) > 0 else None
+            assoc_df["right_ref"] = source_refs[1] if len(source_refs) > 1 else None
+            assoc_df["coefficient"] = assoc_df["correlation"]
+            if "join_basis" not in assoc_df.columns:
+                alignment = getattr(meta, "alignment", {})
+                assoc_df["join_basis"] = (
+                    alignment.get("kind") if isinstance(alignment, dict) else None
+                )
+        return extract_correlation_findings(
+            df=assoc_df,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            subject=subject,
+            committed_at=committed_at,
+        )
+    if extractor_family == "hypothesis_test_result":
+        test_df = df
+        if "reject_null" not in test_df.columns and "rejected" in test_df.columns:
+            test_df = test_df.copy()
+            source_refs = getattr(meta, "source_refs", [])
+            test_df["current_ref"] = source_refs[0] if len(source_refs) > 0 else None
+            test_df["baseline_ref"] = source_refs[1] if len(source_refs) > 1 else None
+            test_df["method"] = getattr(meta, "method", None)
+            test_df["estimate_value"] = test_df.get("mean_diff")
+            test_df["statistic_name"] = "t"
+            test_df["statistic_value"] = test_df.get("test_statistic")
+            test_df["reject_null"] = test_df["rejected"]
+            test_df["alpha"] = getattr(meta, "alpha", None)
+        return extract_test_result_findings(
+            df=test_df,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            subject=subject,
+            committed_at=committed_at,
+        )
+    if extractor_family == "forecast_frame":
+        forecast_df = df
+        if "predicted_value" not in forecast_df.columns and "predicted" in forecast_df.columns:
+            forecast_df = forecast_df.copy()
+            if "bucket_start" not in forecast_df.columns and "time" in forecast_df.columns:
+                forecast_df["bucket_start"] = forecast_df["time"]
+            if "bucket_end" not in forecast_df.columns and "time" in forecast_df.columns:
+                forecast_df["bucket_end"] = forecast_df["time"]
+            forecast_df["predicted_value"] = forecast_df["predicted"]
+        return extract_forecast_point_findings(
+            df=forecast_df,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            subject=subject,
+            committed_at=committed_at,
+        )
+    if extractor_family == "quality_report":
+        return []
     return []
+
+
+def _seed_for_finding(
+    *,
+    finding: Finding,
+    step_type: str,
+    comparison_window: dict[str, Any] | None,
+    comparison_basis: str | None,
+    seeding_context: dict[str, Any] | None,
+) -> tuple[Proposition | None, Any]:
+    """Return the proposition and assessment recompute function for a finding."""
+    ctx = seeding_context or {}
+    if finding.finding_type == "delta" and step_type == "compare":
+        prop = seed_change_proposition(
+            finding=finding,
+            comparison_window=comparison_window or {},
+            comparison_basis=comparison_basis or "left_vs_right",
+        )
+        return prop, recompute_change_assessment
+    if finding.finding_type == "decomposition_item":
+        prop = seed_driver_proposition(
+            finding=finding,
+            observed_window=ctx.get("observed_window"),
+        )
+        return prop, recompute_driver_assessment
+    if finding.finding_type == "anomaly_candidate":
+        prop = seed_anomaly_proposition(
+            finding=finding,
+            observed_window=ctx.get("observed_window"),
+        )
+        return prop, recompute_anomaly_assessment
+    if finding.finding_type == "correlation_result":
+        prop = seed_correlation_proposition(
+            finding=finding,
+            aligned_window=ctx.get("aligned_window"),
+            left_subject=ctx.get("left_subject", {}),
+            right_subject=ctx.get("right_subject", {}),
+        )
+        return prop, recompute_association_assessment
+    if finding.finding_type == "test_result":
+        prop = seed_test_hypothesis_proposition(
+            finding=finding,
+            left_subject=ctx.get("left_subject", {}),
+            right_subject=ctx.get("right_subject", {}),
+            alternative=ctx.get("alternative", "two_sided"),
+        )
+        return prop, recompute_test_hypothesis_assessment
+    if finding.finding_type == "forecast_point":
+        prop = seed_forecast_proposition(finding=finding)
+        return prop, recompute_forecast_assessment
+    return None, None
 
 
 def _insert_artifact(
@@ -361,6 +564,7 @@ def commit_result(
     extractor_family: str,
     comparison_window: dict[str, Any] | None = None,
     comparison_basis: str | None = None,
+    seeding_context: dict[str, Any] | None = None,
     triggered_by_followup: TriggeredByFollowup | None = None,
 ) -> BaseFrame:
     """Commit a computed frame to the evidence store.
@@ -431,7 +635,7 @@ def commit_result(
     # 5. Open transaction: insert artifact + findings
     # Then SAVEPOINT for seeding + assessment + followups
     evidence_status = "complete"
-    blocking_issues: list[BlockingIssue] = []
+    blocking_issues: list[BlockingIssue] = list(frame.meta.blocking_issues)
     followups: list[FollowupAction] = []
 
     lineage_payload = canonical_json(
@@ -474,25 +678,25 @@ def commit_result(
         # SAVEPOINT: seeding + assessment + followups
         try:
             with tx.savepoint("evidence_phase2"):
-                # Seed propositions (compare step only)
-                if step_type == "compare" and findings:
+                if findings:
                     for finding in findings:
-                        if finding.finding_type == "delta":
-                            prop = seed_change_proposition(
-                                finding=finding,
-                                comparison_window=comparison_window or {},
-                                comparison_basis=comparison_basis or "left_vs_right",
-                            )
-                            if prop is not None:
-                                _insert_proposition(tx, prop)
-                                # Recompute assessment
-                                assessment, edges = recompute_change_assessment(
-                                    proposition=prop,
-                                    seed_findings=[finding],
-                                    snapshot_seq=1,
-                                    previous=None,
-                                )
-                                _insert_assessment(tx, assessment, edges)
+                        prop, assessment_fn = _seed_for_finding(
+                            finding=finding,
+                            step_type=step_type,
+                            comparison_window=comparison_window,
+                            comparison_basis=comparison_basis,
+                            seeding_context=seeding_context,
+                        )
+                        if prop is None or assessment_fn is None:
+                            continue
+                        _insert_proposition(tx, prop)
+                        assessment, edges = assessment_fn(
+                            proposition=prop,
+                            seed_findings=[finding],
+                            snapshot_seq=1,
+                            previous=None,
+                        )
+                        _insert_assessment(tx, assessment, edges)
 
                 # Generate followups
                 semantic_kind = getattr(frame.meta, "semantic_kind", "scalar")
@@ -500,7 +704,7 @@ def commit_result(
                     source_artifact_id=artifact_id,
                     source_family=extractor_family,
                     source_semantic_kind=semantic_kind,
-                    blocking_issues=blocking_issues,
+                    blocking_issues=[] if extractor_family == "quality_report" else blocking_issues,
                 )
                 followups = generate_followups(ctx)
 

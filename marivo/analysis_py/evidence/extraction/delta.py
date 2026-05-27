@@ -21,9 +21,7 @@ def _to_float(v: Any) -> float | None:
         return None
 
 
-def _classify_direction(
-    delta: float | None, current: float | None, baseline: float | None
-) -> str:
+def _classify_direction(delta: float | None, current: float | None, baseline: float | None) -> str:
     if delta is None:
         return "undefined"
     if delta > 0:
@@ -53,8 +51,7 @@ def _escape_seg_component(value: Any) -> str:
 
 def _segment_stable_key(keys: dict[str, Any]) -> str:
     parts = [
-        f"{_escape_seg_component(k)}={_escape_seg_component(v)}"
-        for k, v in sorted(keys.items())
+        f"{_escape_seg_component(k)}={_escape_seg_component(v)}" for k, v in sorted(keys.items())
     ]
     return "|".join(parts)
 

@@ -310,7 +310,9 @@ def _validate_metric_shape_columns(
     if measure_column in _axis_identifiers(axes=axes, time_axis_meta=time_axis_meta):
         ambiguous.append(f"measure_axis_collision:{measure_column}")
     if semantic_kind == "scalar":
-        extra_columns = sorted(str(column) for column in df.columns if str(column) != measure_column)
+        extra_columns = sorted(
+            str(column) for column in df.columns if str(column) != measure_column
+        )
         ambiguous.extend(f"scalar_extra_columns:{column}" for column in extra_columns)
     if ambiguous:
         _raise_promotion_failed(

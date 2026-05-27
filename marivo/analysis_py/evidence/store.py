@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from marivo.analysis_py.errors import (
     EvidenceStoreUnavailableError,
@@ -181,15 +182,11 @@ class JudgmentStore:
         self._conn.close()
 
 
-def open_judgment_store(
-    db_path: Path, *, busy_timeout_ms: int = 5000
-) -> JudgmentStore:
+def open_judgment_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> JudgmentStore:
     """Open or create a judgment.db at *db_path* with WAL mode and schema init."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        conn = sqlite3.connect(
-            str(db_path), isolation_level=None, timeout=busy_timeout_ms / 1000
-        )
+        conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=busy_timeout_ms / 1000)
     except sqlite3.OperationalError as exc:
         raise EvidenceStoreUnavailableError(
             message=f"cannot open judgment.db at {db_path}",
@@ -235,8 +232,7 @@ def run_startup_gc(store: JudgmentStore, frames_dir: Path) -> None:
     if not frames_dir.is_dir():
         return
     referenced: set[str] = {
-        row[0]
-        for row in store.read().execute("SELECT artifact_id FROM artifacts").fetchall()
+        row[0] for row in store.read().execute("SELECT artifact_id FROM artifacts").fetchall()
     }
     for child in frames_dir.iterdir():
         if not child.is_dir():

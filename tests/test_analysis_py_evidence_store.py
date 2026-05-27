@@ -8,14 +8,11 @@ from pathlib import Path
 import pytest
 
 from marivo.analysis_py.errors import (
-    EvidenceStoreUnavailableError,
-    MigrationFailedError,
     SchemaVersionMismatchError,
     SessionLockedByAnotherProcessError,
 )
 from marivo.analysis_py.evidence.store import (
     EXPECTED_SCHEMA_VERSION,
-    JudgmentStore,
     open_judgment_store,
     run_startup_gc,
 )
@@ -92,14 +89,13 @@ def test_lock_contention_raises_typed(tmp_path: Path) -> None:
     db_path = tmp_path / "judgment.db"
     store_a = open_judgment_store(db_path)
     try:
-        with store_a.transaction(immediate=True):
-            with pytest.raises(SessionLockedByAnotherProcessError):
-                store_b = open_judgment_store(db_path, busy_timeout_ms=50)
-                try:
-                    with store_b.transaction(immediate=True):
-                        pass
-                finally:
-                    store_b.close()
+        with store_a.transaction(immediate=True), pytest.raises(SessionLockedByAnotherProcessError):
+            store_b = open_judgment_store(db_path, busy_timeout_ms=50)
+            try:
+                with store_b.transaction(immediate=True):
+                    pass
+            finally:
+                store_b.close()
     finally:
         store_a.close()
 
