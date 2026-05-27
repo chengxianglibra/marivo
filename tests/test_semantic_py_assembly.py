@@ -735,7 +735,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
             datasets=[orders],
             decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
-            provenance="unverified",
+            declared_status="unverified",
         )
         def revenue(table):
             return table.amount.sum()
@@ -763,7 +763,7 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
             dataset="sales.orders",
             data_type="string",
             granularity="hour",
-            format="hh",
+            date_format="hh",
         )
         def order_hour(table):
             return table.order_hour
@@ -793,8 +793,8 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
 
         ms.relationship(
             name="bad_rel",
-            from_="sales.nonexistent",
-            to="sales.also_nonexistent",
+            from_dataset="sales.nonexistent",
+            to_dataset="sales.also_nonexistent",
             from_fields=["sales.f1"],
             to_fields=["sales.f2"],
         )

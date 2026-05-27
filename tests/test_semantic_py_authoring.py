@@ -122,8 +122,8 @@ def test_metric_outside_context_raises() -> None:
 def test_relationship_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
         ms.relationship(
-            from_="orders",
-            to="items",
+            from_dataset="orders",
+            to_dataset="items",
             from_fields=["id"],
             to_fields=["order_id"],
         )
@@ -483,7 +483,7 @@ def test_metric_provenance_fields() -> None:
             source_dialect="ansi",
             source_document="docs/revenue.md",
             source_notes="Excludes refunds",
-            provenance="python_native",
+            declared_status="python_native",
         )
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -544,7 +544,7 @@ def test_metric_decomposition_weighted_average() -> None:
         @ms.metric(
             datasets=["sales.orders"],
             decomposition=ms.weighted_average(
-                numerator=ms.ref("sales.revenue"),
+                value=ms.ref("sales.revenue"),
                 weight=ms.ref("sales.count"),
             ),
         )
@@ -583,8 +583,8 @@ def test_relationship_returns_ref() -> None:
     try:
         rel = ms.relationship(
             name="orders_to_items",
-            from_="sales.orders",
-            to="sales.items",
+            from_dataset="sales.orders",
+            to_dataset="sales.items",
             from_fields=["sales.orders.id"],
             to_fields=["sales.items.order_id"],
         )
@@ -599,8 +599,8 @@ def test_relationship_pushes_ir() -> None:
     try:
         ms.relationship(
             name="orders_to_items",
-            from_="sales.orders",
-            to="sales.items",
+            from_dataset="sales.orders",
+            to_dataset="sales.items",
             from_fields=["sales.orders.id"],
             to_fields=["sales.items.order_id"],
         )
@@ -625,8 +625,8 @@ def test_relationship_with_ref_objects() -> None:
 
         ms.relationship(
             name="orders_to_items",
-            from_=orders_ref,
-            to=items_ref,
+            from_dataset=orders_ref,
+            to_dataset=items_ref,
             from_fields=[id_ref],
             to_fields=[oid_ref],
         )
@@ -662,7 +662,7 @@ def test_ratio_builder() -> None:
 
 def test_weighted_average_builder() -> None:
     builder = ms.weighted_average(
-        numerator=ms.ref("sales.revenue"),
+        value=ms.ref("sales.revenue"),
         weight=ms.ref("sales.count"),
     )
     assert builder.kind == "weighted_average"

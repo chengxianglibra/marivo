@@ -461,12 +461,12 @@ def datasource(
     *,
     name: str | None = None,
     backend_type: str | None = None,
-    model: str | None = None,
+    model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> NoReturn:
     """Removed: datasource declarations live in .marivo/datasource/*.py."""
-    _ = (name, backend_type, model, description, ai_context)
+    _ = (name, backend_type, model_name, description, ai_context)
     _require_ctx()
     _raise(
         ErrorKind.INVALID_REF,
@@ -486,7 +486,7 @@ def dataset(
     name: str | None = None,
     datasource: str,
     primary_key: list[str] | None = None,
-    model: str | None = None,
+    model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], DatasetRef]:
@@ -502,7 +502,7 @@ def dataset(
             ``.marivo/datasource/*.py``. Bare references to non-string objects
             are rejected.
         primary_key: Optional list of column names forming the primary key.
-        model: Override the active model namespace. Defaults to the file's
+        model_name: Override the active model namespace. Defaults to the file's
             default model.
         description: Free-text description; surfaced in agent/help output.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
@@ -522,7 +522,7 @@ def dataset(
         ...     return ibis.table(name="orders", schema={...})
     """
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model, ctx)
+    model_name = _resolve_model_name(model_name, ctx)
 
     def decorator(fn: Callable[..., Any]) -> DatasetRef:
         obj_name = name or fn.__name__
@@ -563,7 +563,7 @@ def field(
     *,
     name: str | None = None,
     dataset: DatasetRef | str,
-    model: str | None = None,
+    model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], FieldRef]:
@@ -577,7 +577,7 @@ def field(
         name: Field name. Defaults to the function name.
         dataset: Owning dataset, either a ``DatasetRef`` or a qualified
             ``"<model>.<dataset>"`` string.
-        model: Override the active model namespace.
+        model_name: Override the active model namespace.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
@@ -594,7 +594,7 @@ def field(
         ...     return orders.amount * 100
     """
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model, ctx)
+    model_name = _resolve_model_name(model_name, ctx)
 
     def decorator(fn: Callable[..., Any]) -> FieldRef:
         obj_name = name or fn.__name__
@@ -634,9 +634,9 @@ def time_field(
     dataset: DatasetRef | str,
     data_type: Literal["date", "datetime", "timestamp", "string", "integer"],
     granularity: Literal["year", "quarter", "month", "week", "day", "hour"],
-    format: str | None = None,
+    date_format: str | None = None,
     required_prefix: str | None = None,
-    model: str | None = None,
+    model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], TimeFieldRef]:
@@ -645,7 +645,7 @@ def time_field(
     Time fields are the only fields usable as window axes by ``mv.observe``.
     The body must return an ibis expression yielding a temporal value
     matching ``data_type``; if the underlying column is a string, supply
-    ``format`` (and optionally ``required_prefix``).
+    ``date_format`` (and optionally ``required_prefix``).
 
     Args:
         name: Field name. Defaults to the function name.
@@ -653,9 +653,9 @@ def time_field(
         data_type: ``date | datetime | timestamp | string | integer``.
         granularity: ``year | quarter | month | week | day | hour`` — the
             finest grain at which queries are meaningful.
-        format: Required when ``data_type="string"`` (e.g. ``"%Y-%m-%d"``).
+        date_format: Required when ``data_type="string"`` (e.g. ``"%Y-%m-%d"``).
         required_prefix: Optional fixed prefix the source value must start with.
-        model: Override the active model namespace.
+        model_name: Override the active model namespace.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
@@ -673,7 +673,7 @@ def time_field(
         ...     return orders.created_at
     """
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model, ctx)
+    model_name = _resolve_model_name(model_name, ctx)
 
     def decorator(fn: Callable[..., Any]) -> TimeFieldRef:
         obj_name = name or fn.__name__
@@ -697,7 +697,7 @@ def time_field(
             required_prefix=required_prefix,
             python_symbol=fn.__name__,
             location=location,
-            format=format,
+            format=date_format,
         )
         _push_ir(ctx, ir, fn)
 
@@ -717,8 +717,8 @@ def metric(
     source_dialect: str | None = None,
     source_document: str | None = None,
     source_notes: str | None = None,
-    provenance: Literal["python_native", "unverified"] | None = None,
-    model: str | None = None,
+    declared_status: Literal["python_native", "unverified"] | None = None,
+    model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], MetricRef]:
@@ -746,8 +746,8 @@ def metric(
         source_dialect: SQL dialect tag for ``source_sql``.
         source_document: External doc reference for the metric.
         source_notes: Free-form provenance notes.
-        provenance: ``"python_native"`` (default) or ``"unverified"``.
-        model: Override the active model namespace.
+        declared_status: ``"python_native"`` (default) or ``"unverified"``.
+        model_name: Override the active model namespace.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
@@ -765,7 +765,7 @@ def metric(
         ...     return orders.amount.sum()
     """
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model, ctx)
+    model_name = _resolve_model_name(model_name, ctx)
 
     def decorator(fn: Callable[..., Any]) -> MetricRef:
         obj_name = name or fn.__name__
@@ -801,7 +801,7 @@ def metric(
             source_dialect=source_dialect,
             source_document=source_document,
             source_notes=source_notes,
-            declared_status=provenance,
+            declared_status=declared_status,
         )
 
         ir = MetricIR(
@@ -841,11 +841,11 @@ def metric(
 def relationship(
     *,
     name: str | None = None,
-    from_: DatasetRef | str,
-    to: DatasetRef | str,
+    from_dataset: DatasetRef | str,
+    to_dataset: DatasetRef | str,
     from_fields: list[FieldRef | str],
     to_fields: list[FieldRef | str],
-    model: str | None = None,
+    model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> RelationshipRef:
@@ -856,11 +856,11 @@ def relationship(
 
     Args:
         name: Required relationship name (no default).
-        from_: Source dataset (``DatasetRef`` or qualified string).
-        to: Target dataset (``DatasetRef`` or qualified string).
-        from_fields: Columns on ``from_`` (``FieldRef`` / qualified strings).
-        to_fields: Columns on ``to`` — must align positionally with ``from_fields``.
-        model: Override the active model namespace.
+        from_dataset: Source dataset (``DatasetRef`` or qualified string).
+        to_dataset: Target dataset (``DatasetRef`` or qualified string).
+        from_fields: Columns on ``from_dataset`` (``FieldRef`` / qualified strings).
+        to_fields: Columns on ``to_dataset`` — must align positionally with ``from_fields``.
+        model_name: Override the active model namespace.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
@@ -874,12 +874,12 @@ def relationship(
     Example:
         >>> ms.relationship(
         ...     name="orders_to_customers",
-        ...     from_=orders, to=customers,
+        ...     from_dataset=orders, to_dataset=customers,
         ...     from_fields=["customer_id"], to_fields=["id"],
         ... )
     """
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model, ctx)
+    model_name = _resolve_model_name(model_name, ctx)
 
     if name is None:
         _raise(
@@ -891,8 +891,8 @@ def relationship(
     semantic_id = f"{model_name}.{name}"
     _check_duplicate(ctx, semantic_id)
 
-    from_ds = _resolve_ref_string(from_)
-    to_ds = _resolve_ref_string(to)
+    from_ds = _resolve_ref_string(from_dataset)
+    to_ds = _resolve_ref_string(to_dataset)
     from_f = _resolve_field_refs(from_fields)
     to_f = _resolve_field_refs(to_fields)
     ai_ctx = _build_ai_context(ai_context)
@@ -956,16 +956,16 @@ def ratio(
 
 def weighted_average(
     *,
-    numerator: Any,
+    value: Any,
     weight: Any,
 ) -> DecompositionBuilder:
-    """Weighted-average decomposition: derived metric expressed as Σ(numerator)/Σ(weight).
+    """Weighted-average decomposition: derived metric expressed as Σ(value)/Σ(weight).
 
-    Both ``numerator`` and ``weight`` are ``MetricRef`` / qualified string
+    Both ``value`` and ``weight`` are ``MetricRef`` / qualified string
     references. Use when the underlying ratio needs to be averaged by an
     additive weight (e.g. revenue-weighted average price).
     """
-    num_id = _resolve_ref_string(numerator) if not isinstance(numerator, str) else numerator
+    num_id = _resolve_ref_string(value) if not isinstance(value, str) else value
     weight_id = _resolve_ref_string(weight) if not isinstance(weight, str) else weight
     return DecompositionBuilder(
         kind="weighted_average",
@@ -973,13 +973,13 @@ def weighted_average(
     )
 
 
-def ref(value: str) -> str:
+def ref(id: str) -> str:
     """Reference a semantic object by qualified ``"<model>.<object>"`` string.
 
-    Pass-through helper: it returns ``value`` unchanged but makes intent
+    Pass-through helper: it returns ``id`` unchanged but makes intent
     explicit at the call site (``datasets=[ms.ref("sales.orders")]``).
     """
-    return value
+    return id
 
 
 def component(name: str, /) -> _ComponentSentinel:

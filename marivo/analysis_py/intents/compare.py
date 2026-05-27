@@ -65,7 +65,7 @@ def _require_metric_frame(label: str, frame: object) -> MetricFrame:
         got_kind = type(frame).__name__
     raise SemanticKindMismatchError(
         message=(
-            f"compare(a, b) expected MetricFrame for `{label}`, got {_display_kind(got_kind)}."
+            f"compare(current, baseline) expected MetricFrame for `{label}`, got {_display_kind(got_kind)}."
         ),
         details={
             "parameter": label,
@@ -76,21 +76,20 @@ def _require_metric_frame(label: str, frame: object) -> MetricFrame:
 
 
 def compare(
-    a: MetricFrame,
-    b: MetricFrame,
+    current: MetricFrame,
+    baseline: MetricFrame,
     *,
     alignment: AlignmentPolicy | None = None,
     session: Session | None = None,
 ) -> DeltaFrame:
-    """Compute the typed delta between two MetricFrames (current vs baseline).
+    """Compute the typed delta between two MetricFrames (current minus baseline).
 
-    ``a`` is the current frame, ``b`` is the baseline. The two frames must
-    share ``metric_id`` and ``semantic_kind``. ``segmented`` frames must share
-    segment columns; ``panel`` frames must share grain.
+    The two frames must share ``metric_id`` and ``semantic_kind``. ``segmented``
+    frames must share segment columns; ``panel`` frames must share grain.
 
     Args:
-        a: Current MetricFrame.
-        b: Baseline MetricFrame.
+        current: Current-period MetricFrame.
+        baseline: Baseline-period MetricFrame.
         alignment: Defaults to ``AlignmentPolicy(kind="calendar_bucket")``. For
             ``segmented`` frames, only ``calendar_bucket`` is supported in v1.
         session: Defaults to the currently-attached session. Both frames must
@@ -98,7 +97,7 @@ def compare(
 
     Raises:
         SemanticKindMismatchError: Different ``metric_id``, ``semantic_kind``, or
-            ``a``/``b`` is not a MetricFrame.
+            ``current``/``baseline`` is not a MetricFrame.
         SegmentDimensionMismatchError: ``segmented`` frames disagree on segment columns.
         PanelGrainMismatchError: ``panel`` frames disagree on time grain.
         AlignmentPolicyNotApplicableError: Alignment kind incompatible with the frame shape.
@@ -122,9 +121,9 @@ def compare(
                 "got_kind": type(alignment).__name__,
             },
         )
-    a = _require_metric_frame("a", a)
-    b = _require_metric_frame("b", b)
-    for label, source_frame in (("a", a), ("b", b)):
+    current = _require_metric_frame("current", current)
+    baseline = _require_metric_frame("baseline", baseline)
+    for label, source_frame in (("current", current), ("baseline", baseline)):
         if source_frame.meta.session_id != session.id:
             raise CrossSessionFrameError(
                 message=(
@@ -132,38 +131,41 @@ def compare(
                     f"{source_frame.meta.session_id!r}, not {session.id!r}"
                 ),
             )
-    if a.meta.metric_id != b.meta.metric_id:
+    if current.meta.metric_id != baseline.meta.metric_id:
         raise SemanticKindMismatchError(
-            message=f"compare requires the same metric, got {a.meta.metric_id!r} and {b.meta.metric_id!r}",
+            message=(
+                "compare requires the same metric, got "
+                f"{current.meta.metric_id!r} and {baseline.meta.metric_id!r}"
+            ),
         )
-    if a.meta.semantic_kind != b.meta.semantic_kind:
+    if current.meta.semantic_kind != baseline.meta.semantic_kind:
         raise SemanticKindMismatchError(
             message=(
                 "compare requires matching semantic_kind, got "
-                f"{a.meta.semantic_kind!r} and {b.meta.semantic_kind!r}"
+                f"{current.meta.semantic_kind!r} and {baseline.meta.semantic_kind!r}"
             ),
         )
-    if a.meta.semantic_kind in {"segmented", "panel"}:
-        a_dimensions = _dimension_columns(a)
-        b_dimensions = _dimension_columns(b)
-        if a_dimensions != b_dimensions:
+    if current.meta.semantic_kind in {"segmented", "panel"}:
+        current_dimensions = _dimension_columns(current)
+        baseline_dimensions = _dimension_columns(baseline)
+        if current_dimensions != baseline_dimensions:
             raise SegmentDimensionMismatchError(
                 message="compare requires matching segment dimension columns",
                 details={
                     "kind": "SegmentDimensionMismatch",
-                    "current_dimensions": a_dimensions,
-                    "baseline_dimensions": b_dimensions,
+                    "current_dimensions": current_dimensions,
+                    "baseline_dimensions": baseline_dimensions,
                 },
             )
-    if a.meta.semantic_kind == "panel":
-        a_grain, b_grain = _panel_grains(a, b)
-        if a_grain != b_grain:
+    if current.meta.semantic_kind == "panel":
+        current_grain, baseline_grain = _panel_grains(current, baseline)
+        if current_grain != baseline_grain:
             raise PanelGrainMismatchError(
                 message="panel compare requires matching time grain",
                 details={
                     "kind": "PanelGrainMismatch",
-                    "current_grain": a_grain,
-                    "baseline_grain": b_grain,
+                    "current_grain": current_grain,
+                    "baseline_grain": baseline_grain,
                 },
             )
 
@@ -171,7 +173,7 @@ def compare(
     started = monotonic()
     calendar_info: dict[str, Any] | None = None
     segment_info: dict[str, Any] | None = None
-    if a.meta.semantic_kind == "segmented":
+    if current.meta.semantic_kind == "segmented":
         if alignment.kind != "calendar_bucket":
             raise AlignmentPolicyNotApplicableError(
                 message="segmented compare supports only calendar_bucket alignment",
@@ -181,23 +183,28 @@ def compare(
                     "alignment_kind": alignment.kind,
                 },
             )
-        df, segment_info = _align_segmented(a, b)
-    elif a.meta.semantic_kind == "panel":
-        df, segment_info, calendar_info = _align_panel(a, b, alignment=alignment, session=session)
+        df, segment_info = _align_segmented(current, baseline)
+    elif current.meta.semantic_kind == "panel":
+        df, segment_info, calendar_info = _align_panel(
+            current, baseline, alignment=alignment, session=session
+        )
     elif alignment.kind == "calendar_bucket":
-        if a.meta.semantic_kind == "time_series":
-            _require_matching_time_series_bucket_grain(a, b)
-        df = _align_and_compute(a.to_pandas(), b.to_pandas())
+        if current.meta.semantic_kind == "time_series":
+            _require_matching_time_series_bucket_grain(current, baseline)
+        df = _align_and_compute(current.to_pandas(), baseline.to_pandas())
     else:
-        if a.meta.semantic_kind != "time_series" or b.meta.semantic_kind != "time_series":
+        if (
+            current.meta.semantic_kind != "time_series"
+            or baseline.meta.semantic_kind != "time_series"
+        ):
             raise SemanticKindMismatchError(
                 message="calendar-backed compare alignment requires time_series MetricFrames",
                 details={
                     "kind": "CalendarAlignRequiresTimeSeries",
                     "expected_kind": "time_series",
                     "got_kind": {
-                        "a": a.meta.semantic_kind,
-                        "b": b.meta.semantic_kind,
+                        "current": current.meta.semantic_kind,
+                        "baseline": baseline.meta.semantic_kind,
                     },
                 },
             )
@@ -227,25 +234,29 @@ def compare(
             align_period=alignment.period,
             fallback=alignment.fallback,
         )
-        a_df = a.to_pandas()
-        b_df = b.to_pandas()
-        time_column = _time_axis_column(a)
-        b_time_column = _time_axis_column(b)
-        if b_time_column != time_column:
+        current_df = current.to_pandas()
+        baseline_df = baseline.to_pandas()
+        time_column = _time_axis_column(current)
+        baseline_time_column = _time_axis_column(baseline)
+        if baseline_time_column != time_column:
             raise AlignmentFailedError(
                 message="calendar-backed compare alignment requires matching time axis columns",
                 details={
                     "kind": "CalendarAlignTimeAxisMismatch",
                     "source_time_column": time_column,
-                    "baseline_time_column": b_time_column,
+                    "baseline_time_column": baseline_time_column,
                 },
             )
-        value_column = _value_column(a, a_df, time_column=time_column)
-        _require_calendar_columns(a_df, frame_label="a", columns=(time_column, value_column))
-        _require_calendar_columns(b_df, frame_label="b", columns=(time_column, value_column))
+        value_column = _value_column(current, current_df, time_column=time_column)
+        _require_calendar_columns(
+            current_df, frame_label="current", columns=(time_column, value_column)
+        )
+        _require_calendar_columns(
+            baseline_df, frame_label="baseline", columns=(time_column, value_column)
+        )
         df, info = align_calendar_frames(
-            a_df,
-            b_df,
+            current_df,
+            baseline_df,
             time_column=time_column,
             value_column=value_column,
             calendar=loaded_calendar,
@@ -267,11 +278,11 @@ def compare(
         alignment_dump["calendar_info"] = calendar_info
     if segment_info is not None:
         alignment_dump["segment_info"] = segment_info
-    if a.meta.semantic_kind in {"segmented", "panel"}:
-        alignment_dump["axes"] = a.meta.axes
+    if current.meta.semantic_kind in {"segmented", "panel"}:
+        alignment_dump["axes"] = current.meta.axes
     params = {
-        "source_a_ref": a.ref,
-        "source_b_ref": b.ref,
+        "source_current_ref": current.ref,
+        "source_baseline_ref": baseline.ref,
         "alignment": alignment_dump,
     }
     digest = f"sha256:{hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()}"
@@ -285,41 +296,41 @@ def compare(
         row_count=len(df),
         byte_size=0,
         lineage=Lineage.compose(
-            a.lineage,
-            b.lineage,
+            current.lineage,
+            baseline.lineage,
             new_step=LineageStep(
                 intent="compare",
                 job_ref=job_ref,
-                inputs=[a.ref, b.ref],
+                inputs=[current.ref, baseline.ref],
                 params_digest=digest,
             ),
         ),
-        metric_id=a.meta.metric_id,
-        source_a_ref=a.ref,
-        source_b_ref=b.ref,
+        metric_id=current.meta.metric_id,
+        source_current_ref=current.ref,
+        source_baseline_ref=baseline.ref,
         alignment=alignment_dump,
-        semantic_kind=a.meta.semantic_kind,
-        semantic_model=a.meta.semantic_model,
+        semantic_kind=current.meta.semantic_kind,
+        semantic_model=current.meta.semantic_model,
     )
     output_frame = DeltaFrame(_df=df, meta=meta)
 
     # --- Evidence pipeline: commit_result replaces write_frame_to_disk ---
     subject = Subject(
-        metric=a.meta.metric_id,
-        slice=getattr(a.meta, "slice", None) or {},
-        grain=_grain_from_axes(a),
+        metric=current.meta.metric_id,
+        slice=getattr(current.meta, "slice", None) or {},
+        grain=_grain_from_axes(current),
         analysis_axis="change",
     )
-    comparison_window_dict = _scope_for_window(a)
+    comparison_window_dict = _scope_for_window(current)
     commit_result(
         store=session.evidence_store(),
         frames_dir=session.layout.frames_dir,
         frame=output_frame,
         step_type="compare",
-        inputs=CommitInputs(input_refs=[a.ref, b.ref]),
+        inputs=CommitInputs(input_refs=[current.ref, baseline.ref]),
         params=CommitParams(values=params),
         semantic_anchors=CommitSemanticAnchors(
-            values={"metric_id": a.meta.metric_id, "model": a.meta.semantic_model}
+            values={"metric_id": current.meta.metric_id, "model": current.meta.semantic_model}
         ),
         subject=subject,
         extractor_family="delta_frame",
@@ -334,7 +345,7 @@ def compare(
             "session_id": session.id,
             "intent": "compare",
             "params": params,
-            "input_frame_refs": [a.ref, b.ref],
+            "input_frame_refs": [current.ref, baseline.ref],
             "output_frame_ref": output_frame.meta.artifact_id or output_frame.ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
@@ -342,7 +353,7 @@ def compare(
             "status": "succeeded",
             "error": None,
             "semantic_project_root": session.semantic_project.root,
-            "semantic_model": a.meta.semantic_model,
+            "semantic_model": current.meta.semantic_model,
         },
     )
     return output_frame
@@ -564,8 +575,12 @@ def _align_panel(
     b_df = b.to_pandas()
     a_value = _value_column_segmented(a, a_df, dim_columns=[*dim_columns, time_column])
     b_value = _value_column_segmented(b, b_df, dim_columns=[*dim_columns, time_column])
-    _require_calendar_columns(a_df, frame_label="a", columns=(*dim_columns, time_column, a_value))
-    _require_calendar_columns(b_df, frame_label="b", columns=(*dim_columns, time_column, b_value))
+    _require_calendar_columns(
+        a_df, frame_label="current", columns=(*dim_columns, time_column, a_value)
+    )
+    _require_calendar_columns(
+        b_df, frame_label="baseline", columns=(*dim_columns, time_column, b_value)
+    )
 
     a_groups = _panel_groups(a_df, dim_columns=dim_columns)
     b_groups = _panel_groups(b_df, dim_columns=dim_columns)

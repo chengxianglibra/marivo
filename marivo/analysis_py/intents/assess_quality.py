@@ -36,7 +36,7 @@ from marivo.analysis_py.session.persistence import write_job_record
 
 
 def assess_quality(
-    target: BaseFrame,
+    frame: BaseFrame,
     *,
     session: Session | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
@@ -49,12 +49,12 @@ def assess_quality(
     of recommended follow-up intents.
 
     Args:
-        target: A MetricFrame to inspect.
+        frame: A MetricFrame to inspect.
         session: Defaults to the currently-attached session.
 
     Raises:
-        QualityShapeUnsupportedError: ``target`` is not a MetricFrame.
-        CrossSessionFrameError: ``target`` belongs to a different session.
+        QualityShapeUnsupportedError: ``frame`` is not a MetricFrame.
+        CrossSessionFrameError: ``frame`` belongs to a different session.
 
     Example:
         >>> report = mv.assess_quality(frame)
@@ -63,26 +63,25 @@ def assess_quality(
     """
     session = resolve_session(session)
     ensure_session_writable(session)
-    if getattr(getattr(target, "meta", None), "kind", None) != "metric_frame":
+    if not isinstance(frame, MetricFrame):
         raise QualityShapeUnsupportedError(
-            message="assess_quality v1 only supports MetricFrame targets",
-            details={"target_kind": target.meta.kind},
+            message="assess_quality v1 only supports MetricFrame inputs",
+            details={"frame_kind": frame.meta.kind},
         )
-    target = cast("MetricFrame", target)
-    ensure_frame_in_session(target, session=session, label="assess_quality target")
+    ensure_frame_in_session(frame, session=session, label="assess_quality frame")
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    rows = run_metric_checks(target)
+    rows = run_metric_checks(frame)
     output = pd.DataFrame(rows)
     checks_run = output["check_id"].astype(str).tolist()
-    blocking_issues = _blocking_issues(target, output)
-    followups = _recommended_followups(target, output)
+    blocking_issues = _blocking_issues(frame, output)
+    followups = _recommended_followups(frame, output)
     overall = _overall_status(output)
     params = {
-        "source_ref": target.ref,
+        "source_ref": frame.ref,
         "report_shape": "metric",
-        "target_kind": target.meta.kind,
+        "frame_kind": frame.meta.kind,
         "checks_run": checks_run,
     }
     frame_ref = gen_ref("frame")
@@ -98,20 +97,20 @@ def assess_quality(
         row_count=len(output),
         byte_size=0,
         lineage=compose_lineage(
-            [target],
+            [frame],
             step=LineageStep(
                 intent="assess_quality",
                 job_ref=job_ref,
-                inputs=[target.ref],
+                inputs=[frame.ref],
                 params_digest=params_digest(params),
             ),
         ),
-        source_refs=[target.ref],
+        source_refs=[frame.ref],
         report_shape="metric",
         target_kind="metric_frame",
-        target_metric_id=target.meta.metric_id,
-        target_semantic_model=target.meta.semantic_model,
-        target_semantic_kind=target.meta.semantic_kind,
+        target_metric_id=frame.meta.metric_id,
+        target_semantic_model=frame.meta.semantic_model,
+        target_semantic_kind=frame.meta.semantic_kind,
         checks_run=checks_run,
         overall_status=overall,
         blocking_issue_count=int((output["severity"] == "blocking").sum()),
@@ -119,20 +118,20 @@ def assess_quality(
         recommended_followups=followups,
         blocking_issues=blocking_issues,
     )
-    frame = QualityReport(_df=output, meta=meta)
-    frame = cast(
+    result = QualityReport(_df=output, meta=meta)
+    result = cast(
         "QualityReport",
         commit_result(
             store=session.evidence_store(),
             frames_dir=session.layout.frames_dir,
-            frame=frame,
+            frame=result,
             step_type="assess_quality",
-            inputs=CommitInputs(input_refs=[target.meta.artifact_id or target.ref]),
+            inputs=CommitInputs(input_refs=[frame.meta.artifact_id or frame.ref]),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(values={"metric_id": target.meta.metric_id}),
+            semantic_anchors=CommitSemanticAnchors(values={"metric_id": frame.meta.metric_id}),
             subject=Subject(
-                metric=target.meta.metric_id,
-                grain=getattr(target.meta, "grain", None),
+                metric=frame.meta.metric_id,
+                grain=getattr(frame.meta, "grain", None),
                 analysis_axis="scalar",
             ),
             extractor_family="quality_report",
@@ -146,18 +145,18 @@ def assess_quality(
             "session_id": session.id,
             "intent": "assess_quality",
             "params": params,
-            "input_frame_refs": [target.ref],
-            "output_frame_ref": frame.meta.artifact_id or frame_ref,
+            "input_frame_refs": [frame.ref],
+            "output_frame_ref": result.meta.artifact_id or result.ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
             "semantic_project_root": session.semantic_project.root,
-            "semantic_model": target.meta.semantic_model,
+            "semantic_model": frame.meta.semantic_model,
         },
     )
-    return frame
+    return result
 
 
 def _overall_status(output: pd.DataFrame) -> Literal["ok", "warning", "blocking"]:
@@ -169,7 +168,7 @@ def _overall_status(output: pd.DataFrame) -> Literal["ok", "warning", "blocking"
     return "ok"
 
 
-def _recommended_followups(target: MetricFrame, output: pd.DataFrame) -> list[FollowupAction]:
+def _recommended_followups(frame: MetricFrame, output: pd.DataFrame) -> list[FollowupAction]:
     followups: list[FollowupAction] = []
     for row in output.to_dict("records"):
         if row["severity"] != "blocking":
@@ -180,7 +179,7 @@ def _recommended_followups(target: MetricFrame, output: pd.DataFrame) -> list[Fo
                     action_id=f"followup_{len(followups) + 1}",
                     kind="adjust_policy",
                     operator="transform",
-                    input_refs=[target.ref],
+                    input_refs=[frame.ref],
                     params={"op": "impute_nulls"},
                     preconditions=[],
                     expected_output_family="metric_frame",
@@ -192,7 +191,7 @@ def _recommended_followups(target: MetricFrame, output: pd.DataFrame) -> list[Fo
                     action_id=f"followup_{len(followups) + 1}",
                     kind="adjust_policy",
                     operator="observe",
-                    input_refs=[target.ref],
+                    input_refs=[frame.ref],
                     params={"narrow_window": True},
                     preconditions=[],
                     expected_output_family="metric_frame",
@@ -201,7 +200,7 @@ def _recommended_followups(target: MetricFrame, output: pd.DataFrame) -> list[Fo
     return followups
 
 
-def _blocking_issues(target: MetricFrame, output: pd.DataFrame) -> list[BlockingIssue]:
+def _blocking_issues(frame: MetricFrame, output: pd.DataFrame) -> list[BlockingIssue]:
     issues: list[BlockingIssue] = []
     for row in output.to_dict("records"):
         if row["severity"] != "blocking":
@@ -212,7 +211,7 @@ def _blocking_issues(target: MetricFrame, output: pd.DataFrame) -> list[Blocking
                     issue_id=f"issue_{len(issues) + 1}",
                     kind="quality",
                     severity="blocking",
-                    source_refs=[target.ref],
+                    source_refs=[frame.ref],
                     message="duplicate key tuples in metric frame",
                     remediation_followups=[],
                 )
@@ -225,7 +224,7 @@ def _blocking_issues(target: MetricFrame, output: pd.DataFrame) -> list[Blocking
                         issue_id=f"issue_{len(issues) + 1}",
                         kind="sample_size",
                         severity="blocking",
-                        source_refs=[target.ref],
+                        source_refs=[frame.ref],
                         message="metric frame has zero rows",
                         remediation_followups=[],
                     )

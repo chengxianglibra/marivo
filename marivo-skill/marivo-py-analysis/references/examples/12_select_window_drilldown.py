@@ -25,7 +25,7 @@ series = mv.observe(
 anomalies = mv.discover.point_anomalies(series, threshold=1.0, session=session)
 print(f"anomalies.row_count={anomalies.meta.row_count}")
 if anomalies.meta.row_count:
-    hit = mv.select(anomalies, rank=1, field="window")
+    hit = mv.select(anomalies, rank=1, attribute="window")
     assert isinstance(hit, mv.AbsoluteWindow)
     drill_end = (pd.Timestamp(hit.end) + pd.offsets.MonthBegin(1)).date().isoformat()
     drill = mv.AbsoluteWindow(start=hit.start, end=drill_end)

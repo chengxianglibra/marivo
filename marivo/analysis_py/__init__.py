@@ -67,7 +67,7 @@ from marivo.analysis_py.intents.discover import discover
 from marivo.analysis_py.intents.forecast import forecast
 from marivo.analysis_py.intents.observe import observe
 from marivo.analysis_py.intents.select import select
-from marivo.analysis_py.intents.test import hypothesis_test as test
+from marivo.analysis_py.intents.test import hypothesis_test
 from marivo.analysis_py.intents.transform import transform
 from marivo.analysis_py.policies import (
     AlignmentKind,
@@ -164,6 +164,7 @@ __all__ = [
     "forecast",
     "from_pandas",
     "help",
+    "hypothesis_test",
     "load_frame",
     "observe",
     "promote_attribution_frame",
@@ -171,6 +172,5 @@ __all__ = [
     "promote_metric_frame",
     "select",
     "session",
-    "test",
     "transform",
 ]

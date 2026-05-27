@@ -363,8 +363,8 @@ from marketing._exports import users, user_id
 
 ms.relationship(
     name="orders_to_users",
-    from_=orders,
-    to=users,
+    from_dataset=orders,
+    to_dataset=users,
     from_fields=[order_user_id],
     to_fields=[user_id],
 )
@@ -380,7 +380,7 @@ decomposition 描述 metric 在变化归因中的数学结构，不等同于 SQL
 | --- | --- | --- |
 | `ms.sum()` | 可加总数量，如 revenue、orders、users | 无组件 |
 | `ms.ratio(numerator=..., denominator=...)` | 比例/转化率，如 conversion_rate | numerator 和 denominator 都是 metric ref |
-| `ms.weighted_average(numerator=..., weight=...)` | ratio-of-sums 或带权均值，如 ARPU | numerator 和 weight 都是 metric ref |
+| `ms.weighted_average(value=..., weight=...)` | ratio-of-sums 或带权均值，如 ARPU | numerator 和 weight 都是 metric ref |
 
 目标态禁止在 metric body 内直接调用 decorated metric 函数来表达派生 metric。派生 metric body 应使用 `ms.component("numerator")`、`ms.component("denominator")`、`ms.component("weight")` 这类显式 sentinel call。
 
@@ -498,7 +498,7 @@ print(frame.summary())
 | --- | --- |
 | 可直接加总的绝对量 | `ms.sum()` |
 | `numerator / denominator`，如转化率、成功率 | `ms.ratio(numerator=..., denominator=...)` |
-| 分段均值需要权重解释 mix effect | `ms.weighted_average(numerator=..., weight=...)` |
+| 分段均值需要权重解释 mix effect | `ms.weighted_average(value=..., weight=...)` |
 
 如果 agent 不确定 decomposition，不能随便填 `ms.sum()`。应先从业务定义、source SQL、已有 metric components 或用户确认中确定结构。
 

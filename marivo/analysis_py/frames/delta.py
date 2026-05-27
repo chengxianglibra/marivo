@@ -15,8 +15,8 @@ class DeltaFrameMeta(BaseFrameMeta):
 
     kind: Literal["delta_frame"] = "delta_frame"
     metric_id: str
-    source_a_ref: str
-    source_b_ref: str
+    source_current_ref: str
+    source_baseline_ref: str
     alignment: dict[str, Any]
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str

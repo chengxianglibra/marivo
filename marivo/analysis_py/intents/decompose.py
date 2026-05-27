@@ -51,7 +51,7 @@ def decompose(
     frame: DeltaFrame,
     *,
     axis: DimensionRef,
-    value: str = "delta",
+    measure_column: str = "delta",
     session: Session | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> AttributionFrame:
@@ -63,7 +63,7 @@ def decompose(
     Args:
         frame: A DeltaFrame produced by ``mv.compare``.
         axis: The segment column to attribute over, wrapped in ``mv.DimensionRef``.
-        value: Numeric column on the delta to attribute. Defaults to ``"delta"``.
+        measure_column: Numeric column on the delta to attribute. Defaults to ``"delta"``.
         session: Defaults to the currently-attached session.
 
     Raises:
@@ -97,7 +97,7 @@ def decompose(
     started_at = datetime.now(UTC)
     started = monotonic()
     source_df = frame.to_pandas()
-    value_column = require_numeric_column(source_df, value, purpose="decompose")
+    value_column = require_numeric_column(source_df, measure_column, purpose="decompose")
     axis_column = axis.id
 
     if axis_column not in source_df.columns:
@@ -146,7 +146,7 @@ def decompose(
         params = {
             "source_ref": frame.ref,
             "axis": axis.model_dump(mode="json"),
-            "value": value,
+            "measure_column": measure_column,
             "bucket_column": bucket_column,
             "driver_field": axis_column,
             "value_column": value_column,
@@ -189,7 +189,7 @@ def decompose(
     params = {
         "source_ref": frame.ref,
         "axis": axis.model_dump(mode="json"),
-        "value": value,
+        "measure_column": value_column,
     }
     return persist_attribution_frame(
         session=session,

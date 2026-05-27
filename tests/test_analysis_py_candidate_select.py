@@ -56,8 +56,8 @@ def _delta(session, df, *, semantic_kind="segmented"):
         byte_size=0,
         lineage=Lineage(),
         metric_id="sales.revenue",
-        source_a_ref="frame_a",
-        source_b_ref="frame_b",
+        source_current_ref="frame_a",
+        source_baseline_ref="frame_b",
         alignment={},
         semantic_kind=semantic_kind,
         semantic_model="sales",
@@ -123,7 +123,7 @@ def test_select_axis_returns_dimension_ref():
             {"item_id": "axis_1", "score": 0.5, "axis": "platform"},
         ],
     )
-    selected = mv.select(cs, rank=1, field="axis")
+    selected = mv.select(cs, rank=1, attribute="axis")
     assert isinstance(selected, mv.DimensionRef)
     assert selected.id == "country"
 
@@ -144,7 +144,7 @@ def test_select_window_returns_absolute_window():
     )
     from marivo.analysis_py.windows import AbsoluteWindow
 
-    window = mv.select(cs, rank=1, field="window")
+    window = mv.select(cs, rank=1, attribute="window")
     assert isinstance(window, AbsoluteWindow)
     assert window.start.startswith("2026-01-15")
     assert window.end.startswith("2026-01-15")
@@ -167,7 +167,7 @@ def test_select_baseline_window_for_period_shift():
     )
     from marivo.analysis_py.windows import AbsoluteWindow
 
-    baseline = mv.select(cs, rank=1, field="baseline_window")
+    baseline = mv.select(cs, rank=1, attribute="baseline_window")
     assert isinstance(baseline, AbsoluteWindow)
     assert baseline.start.startswith("2026-02-03")
 
@@ -186,7 +186,7 @@ def test_select_selector_returns_dimension_ref_keyed_dict():
             }
         ],
     )
-    selector = mv.select(cs, rank=1, field="selector")
+    selector = mv.select(cs, rank=1, attribute="selector")
     assert isinstance(selector, dict)
     assert mv.DimensionRef("country") in selector
     assert selector[mv.DimensionRef("country")] == "US"
@@ -207,8 +207,8 @@ def test_select_keys_dot_path_returns_scalar():
             }
         ],
     )
-    assert mv.select(cs, rank=1, field="keys.country") == "US"
-    assert mv.select(cs, rank=1, field="selector.country") == "US"
+    assert mv.select(cs, rank=1, attribute="keys.country") == "US"
+    assert mv.select(cs, rank=1, attribute="selector.country") == "US"
 
 
 def test_select_recommended_followups_returns_typed_list():
@@ -226,7 +226,7 @@ def test_select_recommended_followups_returns_typed_list():
             }
         ],
     )
-    actions = mv.select(cs, rank=1, field="recommended_followups")
+    actions = mv.select(cs, rank=1, attribute="recommended_followups")
     assert isinstance(actions, list)
     assert len(actions) == 1
     assert isinstance(actions[0], mv.FollowupAction)
@@ -240,7 +240,7 @@ def test_select_empty_recommended_followups_returns_empty_list():
         shape="driver_axis",
         rows=[{"item_id": "axis_0", "score": 0.9, "axis": "country"}],
     )
-    assert mv.select(cs, rank=1, field="recommended_followups") == []
+    assert mv.select(cs, rank=1, attribute="recommended_followups") == []
 
 
 def test_select_field_incompatible_with_shape_raises():
@@ -258,9 +258,9 @@ def test_select_field_incompatible_with_shape_raises():
         ],
     )
     with pytest.raises(SemanticKindMismatchError) as exc:
-        mv.select(cs, rank=1, field="axis")
+        mv.select(cs, rank=1, attribute="axis")
     assert exc.value.details.get("shape") == "point_anomaly"
-    assert exc.value.details.get("field") == "axis"
+    assert exc.value.details.get("attribute") == "axis"
 
 
 def test_select_rank_out_of_range_raises():
@@ -271,7 +271,7 @@ def test_select_rank_out_of_range_raises():
         rows=[{"item_id": "axis_0", "score": 0.9, "axis": "country"}],
     )
     with pytest.raises(SemanticKindMismatchError) as exc:
-        mv.select(cs, rank=5, field="axis")
+        mv.select(cs, rank=5, attribute="axis")
     assert exc.value.details.get("row_count") == 1
     assert exc.value.details.get("requested_rank") == 5
 
@@ -291,7 +291,7 @@ def test_select_unknown_dot_path_key_raises():
         ],
     )
     with pytest.raises(SemanticKindMismatchError):
-        mv.select(cs, rank=1, field="keys.unknown")
+        mv.select(cs, rank=1, attribute="keys.unknown")
 
 
 def test_select_does_not_create_jobs_or_lineage():
@@ -302,7 +302,7 @@ def test_select_does_not_create_jobs_or_lineage():
         rows=[{"item_id": "axis_0", "score": 0.9, "axis": "country"}],
     )
     jobs_before = len(session.jobs())
-    mv.select(cs, rank=1, field="axis")
+    mv.select(cs, rank=1, attribute="axis")
     assert len(session.jobs()) == jobs_before
 
 
@@ -316,7 +316,7 @@ def test_select_axis_feeds_decompose():
         search_space=[mv.DimensionRef("country")],
         session=session,
     )
-    selected_axis = mv.select(axis_candidates, rank=1, field="axis")
+    selected_axis = mv.select(axis_candidates, rank=1, attribute="axis")
     drivers = mv.decompose(src, axis=selected_axis, session=session)
     assert drivers.meta.kind == "attribution_frame"
 
@@ -336,7 +336,7 @@ def test_select_window_feeds_transform_window():
         threshold=2.0,
         session=session,
     )
-    window = mv.select(windows, rank=1, field="window")
+    window = mv.select(windows, rank=1, attribute="window")
     local = mv.transform(metric, op="window", window=window, session=session)
     assert local.meta.kind == "metric_frame"
 
@@ -362,7 +362,7 @@ def test_select_selector_feeds_transform_slice():
         threshold=2.0,
         session=session,
     )
-    selector = mv.select(slice_cands, rank=1, field="selector")
+    selector = mv.select(slice_cands, rank=1, attribute="selector")
     focus = mv.transform(src, op="slice", where=selector, session=session)
     assert focus.meta.kind == "delta_frame"
 

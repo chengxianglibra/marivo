@@ -24,15 +24,15 @@ def test_delta_frame_meta_kind_literal():
         byte_size=128,
         lineage=Lineage(),
         metric_id="sales.revenue",
-        source_a_ref="frame_a",
-        source_b_ref="frame_b",
+        source_current_ref="frame_a",
+        source_baseline_ref="frame_b",
         alignment={"kind": "calendar_bucket"},
         semantic_kind="time_series",
         semantic_model="sales",
     )
     assert meta.kind == "delta_frame"
     assert meta.alignment["kind"] == "calendar_bucket"
-    assert meta.source_a_ref == "frame_a"
+    assert meta.source_current_ref == "frame_a"
 
 
 def test_delta_frame_wraps_df_and_meta():
@@ -56,8 +56,8 @@ def test_delta_frame_wraps_df_and_meta():
         byte_size=128,
         lineage=Lineage(),
         metric_id="sales.revenue",
-        source_a_ref="frame_a",
-        source_b_ref="frame_b",
+        source_current_ref="frame_a",
+        source_baseline_ref="frame_b",
         alignment={"kind": "calendar_bucket"},
         semantic_kind="time_series",
         semantic_model="sales",
@@ -80,11 +80,11 @@ def test_delta_frame_meta_accepts_optional_normalization():
         row_count=0,
         byte_size=0,
         metric_id="sales.revenue",
-        source_a_ref="a",
-        source_b_ref="b",
+        source_current_ref="a",
+        source_baseline_ref="b",
         alignment={"kind": "calendar_bucket"},
         semantic_kind="scalar",
         semantic_model="sales",
-        normalization={"kind": "z_score", "base": None, "columns_affected": ["delta"]},
+        normalization={"mode": "z_score", "baseline": None, "columns_affected": ["delta"]},
     )
-    assert meta.normalization["kind"] == "z_score"
+    assert meta.normalization["mode"] == "z_score"

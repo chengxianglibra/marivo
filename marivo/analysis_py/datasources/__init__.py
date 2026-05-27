@@ -7,11 +7,11 @@ from marivo.analysis_py.datasources.registry import (
     DatasourceDescription,
     DatasourceSummary,
     DatasourceTestResult,
+    all,
     build_backend,
     describe,
-    list,
+    register,
     remove,
-    set,
     test,
 )
 
@@ -20,11 +20,11 @@ __all__ = [
     "DatasourceDescription",
     "DatasourceSummary",
     "DatasourceTestResult",
+    "all",
     "audit_project",
     "build_backend",
     "describe",
-    "list",
+    "register",
     "remove",
-    "set",
     "test",
 ]

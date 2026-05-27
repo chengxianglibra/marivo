@@ -167,7 +167,7 @@ def test_observe_applies_slice(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
-    mf = observe(MetricRef("sales.revenue"), slice={"region": "NORTH"}, session=s)
+    mf = observe(MetricRef("sales.revenue"), where={"region": "NORTH"}, session=s)
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(70.0)
 
 

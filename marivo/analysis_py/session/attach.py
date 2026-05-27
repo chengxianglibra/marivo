@@ -19,7 +19,6 @@ from marivo.analysis_py.errors import (
     DuplicateSessionNameError,
     NoActiveSessionError,
     SessionStateError,
-    TimezoneInvalidError,
 )
 from marivo.analysis_py.session.active import (
     clear_active_session,
@@ -129,15 +128,6 @@ def _resolve_session_tz(raw: str | None) -> ZoneInfo:
     return zoneinfo_from_name(raw or "UTC")
 
 
-def _resolve_tz_alias(tz: str | None, timezone: str | None) -> str | None:
-    if tz is not None and timezone is not None and tz != timezone:
-        raise TimezoneInvalidError(
-            message="session timezone was supplied as both tz and timezone with different values",
-            details={"kind": "TimezoneAliasConflict", "tz": tz, "timezone": timezone},
-        )
-    return tz if tz is not None else timezone
-
-
 def _ensure_v1_2_meta(
     layout: PersistenceLayout,
     meta: dict[str, Any],
@@ -229,7 +219,6 @@ def create(
     question: str | None = None,
     set_active: bool = True,
     *,
-    tz: str | None = None,
     timezone: str | None = None,
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
@@ -237,12 +226,11 @@ def create(
     use_datasources: bool = True,
 ) -> Session:
     project_root = resolve_project_root()
-    tz = _resolve_tz_alias(tz, timezone)
     factory = _compile_backend_factory(backends, backend_factory, use_datasources=use_datasources)
     sid = _gen_session_id()
     now = _now()
     cwd = str(Path.cwd())
-    tz_name = str(_resolve_session_tz(tz))
+    tz_name = str(_resolve_session_tz(timezone))
 
     with closing(_connect_index(project_root)) as conn:
         try:
@@ -298,7 +286,6 @@ def create(
 def attach(
     name: str,
     *,
-    tz: str | None = None,
     timezone: str | None = None,
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
@@ -306,7 +293,6 @@ def attach(
     use_datasources: bool = True,
 ) -> Session:
     project_root = resolve_project_root()
-    tz = _resolve_tz_alias(tz, timezone)
     row = _lookup_session_by_name(project_root, name)
     if row is None:
         raise NoActiveSessionError(
@@ -319,7 +305,7 @@ def attach(
         factory=_compile_backend_factory(
             backends, backend_factory, use_datasources=use_datasources
         ),
-        tz=tz,
+        tz=timezone,
         default_calendar=default_calendar,
     )
     global _CURRENT_SESSION
@@ -332,7 +318,6 @@ def get_or_create(
     question: str | None = None,
     set_active: bool = True,
     *,
-    tz: str | None = None,
     timezone: str | None = None,
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
@@ -346,7 +331,6 @@ def get_or_create(
             name=name,
             question=question,
             set_active=set_active,
-            tz=tz,
             timezone=timezone,
             default_calendar=default_calendar,
             backends=backends,
@@ -355,7 +339,6 @@ def get_or_create(
         )
     session = attach(
         name=name,
-        tz=tz,
         timezone=timezone,
         default_calendar=default_calendar,
         backends=backends,
@@ -370,7 +353,6 @@ def get_or_create(
 def switch(
     name: str,
     *,
-    tz: str | None = None,
     timezone: str | None = None,
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
@@ -378,7 +360,6 @@ def switch(
     use_datasources: bool = True,
 ) -> Session:
     project_root = resolve_project_root()
-    tz = _resolve_tz_alias(tz, timezone)
     row = _lookup_session_by_name(project_root, name)
     if row is None:
         raise NoActiveSessionError(message=f"no session named '{name}'")
@@ -386,7 +367,7 @@ def switch(
         raise SessionStateError(message=f"session '{name}' is archived; cannot make it active")
     session = attach(
         name=name,
-        tz=tz,
+        timezone=timezone,
         default_calendar=default_calendar,
         backends=backends,
         backend_factory=backend_factory,
@@ -443,30 +424,28 @@ def active_or_create(
     name_hint: str,
     question: str | None = None,
     *,
-    tz: str | None = None,
     timezone: str | None = None,
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
     use_datasources: bool = True,
 ) -> Session:
-    tz = _resolve_tz_alias(tz, timezone)
     try:
         sess = active()
     except NoActiveSessionError:
         return create(
             name=name_hint,
             question=question,
-            tz=tz,
+            timezone=timezone,
             default_calendar=default_calendar,
             backends=backends,
             backend_factory=backend_factory,
             use_datasources=use_datasources,
         )
-    if tz is not None or default_calendar is not None:
+    if timezone is not None or default_calendar is not None:
         return attach(
             name=sess.name,
-            tz=tz,
+            timezone=timezone,
             default_calendar=default_calendar,
             backends=backends,
             backend_factory=backend_factory,

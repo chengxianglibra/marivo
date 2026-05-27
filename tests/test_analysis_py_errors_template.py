@@ -252,21 +252,21 @@ def test_axis_not_in_panel_dimensions_renders_paste_ready_fix_snippet():
     assert "region, country" in rendered
 
 
-def test_select_field_mismatch_lists_valid_fields_for_shape():
+def test_select_attribute_mismatch_lists_valid_attributes_for_shape():
     err = SemanticKindMismatchError(
-        message="select field 'axis' is not available for shape 'point_anomaly'",
+        message="select attribute 'axis' is not available for shape 'point_anomaly'",
         details={
             "shape": "point_anomaly",
-            "field": "axis",
+            "attribute": "axis",
             "valid_fields": ["direction", "item_id", "recommended_followups", "score", "window"],
         },
     )
 
     rendered = str(err)
 
-    assert "Valid fields for shape 'point_anomaly':" in rendered
+    assert "Valid attributes for shape 'point_anomaly':" in rendered
     assert "direction, item_id, recommended_followups, score, window" in rendered
-    assert 'mv.select(cands, rank=1, field="direction")' in rendered
+    assert 'mv.select(cands, rank=1, attribute="direction")' in rendered
 
 
 def test_no_backend_factory_default_template_fields_populated() -> None:
@@ -279,7 +279,7 @@ def test_no_backend_factory_default_template_fields_populated() -> None:
     rendered = str(err)
     assert "Fix:" in rendered
     assert "datasource='tiny_orders' resolved to None or a non-ibis object" in rendered
-    assert "mv.datasources.set" in rendered
+    assert "mv.datasources.register" in rendered
     assert "@ms.datasource" not in rendered
     assert "Docs: marivo-skill/marivo-py-semantic/references/datasource.md" in rendered
 
@@ -300,6 +300,6 @@ def test_no_backend_factory_without_details_uses_session_backend_template() -> N
     assert "session has no backend factory configured" in rendered
     assert "Fix:" in rendered
     assert "mv.session.attach" in rendered
-    assert "mv.datasources.set" in rendered
+    assert "mv.datasources.register" in rendered
     assert "backend_factory=" in rendered
     assert "Docs: marivo-skill/marivo-py-semantic/references/datasource.md" in rendered

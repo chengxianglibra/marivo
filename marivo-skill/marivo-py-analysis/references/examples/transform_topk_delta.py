@@ -50,7 +50,7 @@ delta_frame = mv.compare(
     alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
     session=session,
 )
-top_decreases = mv.transform.topk(delta_frame, by="delta", limit=3, direction="decrease")
+top_decreases = mv.transform.topk(delta_frame, by="delta", limit=3, order="decrease")
 print(top_decreases.summary())
 
 # Expected output:

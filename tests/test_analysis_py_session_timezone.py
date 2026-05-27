@@ -16,7 +16,7 @@ def _chdir(tmp_path, monkeypatch):
 
 def test_create_timezone_round_trips_through_meta():
     s = session_attach.get_or_create(
-        name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays"
+        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
     )
     assert s.tz == ZoneInfo("Asia/Shanghai")
     assert s.default_calendar == "cn_holidays"
@@ -33,16 +33,14 @@ def test_create_accepts_timezone_alias():
     assert read_session_meta(s.layout)["tz"] == "Asia/Shanghai"
 
 
-def test_create_rejects_conflicting_tz_and_timezone():
-    with pytest.raises(TimezoneInvalidError) as exc_info:
-        session_attach.get_or_create(name="demo", tz="UTC", timezone="Asia/Shanghai")
-
-    assert exc_info.value.details["kind"] == "TimezoneAliasConflict"
+def test_create_rejects_legacy_tz_kwarg():
+    with pytest.raises(TypeError):
+        session_attach.get_or_create(name="demo", tz="UTC")  # type: ignore[call-arg]
 
 
 def test_create_invalid_timezone_raises_structured_error():
     with pytest.raises(TimezoneInvalidError) as exc_info:
-        session_attach.get_or_create(name="demo", tz="Mars/Olympus")
+        session_attach.get_or_create(name="demo", timezone="Mars/Olympus")
     assert exc_info.value.details["kind"] == "TimezoneNotFound"
 
 
@@ -67,11 +65,11 @@ def test_attach_legacy_meta_defaults_timezone_and_writes_back():
 
 
 def test_attach_explicit_timezone_overrides_meta_and_writes_back():
-    s = session_attach.get_or_create(name="demo", tz="UTC")
+    s = session_attach.get_or_create(name="demo", timezone="UTC")
     session_attach._reset_process_state()
 
     attached = session_attach.get_or_create(
-        name="demo", tz="Asia/Shanghai", default_calendar="cn_holidays"
+        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
     )
 
     assert attached.tz == ZoneInfo("Asia/Shanghai")
@@ -82,11 +80,11 @@ def test_attach_explicit_timezone_overrides_meta_and_writes_back():
 
 
 def test_active_or_create_existing_active_applies_timezone_overrides():
-    s = session_attach.get_or_create(name="demo", tz="UTC")
+    s = session_attach.get_or_create(name="demo", timezone="UTC")
 
     attached = session_attach.get_or_create(
         name="demo",
-        tz="Asia/Shanghai",
+        timezone="Asia/Shanghai",
         default_calendar="cn_holidays",
     )
 

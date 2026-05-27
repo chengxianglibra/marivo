@@ -83,8 +83,8 @@ _FULL_MODEL_PY = textwrap.dedent("""\
 
     ms.relationship(
         name="orders_to_items",
-        from_=orders,
-        to=orders,
+        from_dataset=orders,
+        to_dataset=orders,
         from_fields=[amount],
         to_fields=[amount],
     )
@@ -106,7 +106,7 @@ _DERIVED_METRIC_MODEL_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[],
-        decomposition=ms.weighted_average(numerator="sales.revenue", weight="sales.count_metric"),
+        decomposition=ms.weighted_average(value="sales.revenue", weight="sales.count_metric"),
     )
     def aov():
         return ms.component("numerator") / ms.component("weight")
@@ -862,7 +862,7 @@ def test_describe_time_field_has_format(semantic_project_factory) -> None:
                     dataset=orders,
                     data_type="string",
                     granularity="day",
-                    format="yyyymmdd",
+                    date_format="yyyymmdd",
                 )
                 def log_date(table):
                     return table.log_date

@@ -39,7 +39,7 @@ axis_candidates = mv.discover.driver_axes(
     search_space=[mv.DimensionRef(id="region")],
     session=session,
 )
-top_axis = mv.select(axis_candidates, rank=1, field="axis")
+top_axis = mv.select(axis_candidates, rank=1, attribute="axis")
 assert isinstance(top_axis, mv.DimensionRef)
 print(f"top_axis={top_axis.id}")
 

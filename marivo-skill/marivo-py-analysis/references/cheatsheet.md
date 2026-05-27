@@ -8,13 +8,13 @@ active Python environment, not from a local Marivo source checkout.
 
 | Intent | Inputs | Output | Agent rule |
 | --- | --- | --- | --- |
-| `mv.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `window={"start": "...", "end": "..."}` or structured `slice={field: {"op": ..., "value": ...}}`. |
+| `mv.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `window={"start": "...", "end": "..."}` or structured `where={field: {"op": ..., "value": ...}}`. |
 | `mv.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
 | `mv.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; the axis column must already be present in the delta. |
 | `mv.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape`. |
-| `mv.select` | `CandidateSet` | typed value (`DimensionRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `field=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
+| `mv.select` | `CandidateSet` | typed value (`DimensionRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
 | `mv.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="calendar_bucket")`; default lag is zero. |
-| `mv.test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
+| `mv.hypothesis_test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
 | `mv.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
 | `mv.assess_quality(frame)` | `MetricFrame` | `QualityReport` | Row count, null ratio, time coverage, duplicate key checks |
 
@@ -26,7 +26,7 @@ active Python environment, not from a local Marivo source checkout.
 | `DeltaFrame` | `mv.compare` | `mv.decompose` |
 | `CandidateSet` | `mv.discover.<objective>` | `mv.select(...)` to pull a typed field; otherwise terminal. Inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
 | `AssociationResult` | `mv.correlate` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `HypothesisTestResult` | `mv.test` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `HypothesisTestResult` | `mv.hypothesis_test` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
 | `ForecastFrame` | `mv.forecast` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
 | `QualityReport` | `mv.assess_quality` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
 | `AttributionFrame` | `mv.decompose` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
@@ -62,7 +62,7 @@ print(attribution.summary())
 ```python
 series = mv.observe(
     mv.MetricRef("sales.revenue"),
-    slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    where={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 candidates = mv.discover.point_anomalies(series, threshold=1.0)
 print(candidates.meta.objective)  # "point_anomalies"
@@ -90,7 +90,7 @@ print(candidates.meta.objective)  # "point_anomalies"
 | `mv.discover.cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
 
 Pass `value="<column>"` to disambiguate when the source has more than one
-numeric column. `select(field=...)` accepts `"item_id"`, `"score"`, `"axis"`,
+numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`,
 `"window"`, `"baseline_window"`, `"selector"`, `"direction"`,
 `"recommended_followups"`, plus dotted `"keys.<dim>"` / `"selector.<dim>"`.
 

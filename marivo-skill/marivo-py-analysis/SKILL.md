@@ -32,7 +32,7 @@ mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))     
 mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))                        # -> AttributionFrame
 mv.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
 mv.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))         # -> AssociationResult
-mv.test(cur, base)                                                               # -> HypothesisTestResult
+mv.hypothesis_test(cur, base)                                                    # -> HypothesisTestResult
 mv.forecast(series, horizon=7)                                                   # -> ForecastFrame
 mv.assess_quality(series)                                                        # -> QualityReport
 
@@ -123,7 +123,7 @@ print(attribution.summary())
 ```python
 series = mv.observe(mv.MetricRef("<metric_id>"), window={"start": "2026-07-01", "end": "2026-09-30", "grain": "day"})
 candidates = mv.discover.point_anomalies(series, threshold=1.0)
-window = mv.select(candidates, rank=1, field="window")
+window = mv.select(candidates, rank=1, attribute="window")
 ```
 
 ### Correlate
@@ -172,6 +172,35 @@ script when the next intent depends on values you have not seen yet.
 Rule of thumb: if you cannot write the next `mv.*` call without first reading
 the printed `summary()`, that is a split point. Do not pre-write speculative
 downstream steps "in case" — they waste compute and obscure the judgment.
+
+## Walkthrough
+
+```python
+import marivo.analysis_py as ap
+
+session = ap.session()
+
+current = session.observe(
+    metric=ap.MetricRef("sales.revenue"),
+    time="this_week",
+    grain="day",
+    segment_by="country",
+)
+baseline = session.observe(
+    metric=ap.MetricRef("sales.revenue"),
+    time="previous_week",
+    grain="day",
+    segment_by="country",
+)
+delta = session.compare(current, baseline)
+print(delta.summary())
+
+for issue in delta.blocking_issues:
+    print(issue.kind, issue.message)
+
+for followup in delta.recommended_followups:
+    print(followup.category, followup.operator)
+```
 
 ## Further reading
 

@@ -55,7 +55,7 @@ Use `mv.datasources` for project datasource CRUD and backend checks:
 ```python
 import marivo.analysis_py as mv
 
-mv.datasources.set(
+mv.datasources.register(
     "warehouse",
     backend_type="duckdb",
     path="/data/warehouse.duckdb",

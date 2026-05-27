@@ -229,7 +229,7 @@ analysis.decompose(delta, axis="auto")
 
 ```python
 axis_candidates = analysis.discover.driver_axes(delta, search_space=[DimensionRef("country")])
-selected_axis = analysis.select(axis_candidates, rank=1, field="axis")
+selected_axis = analysis.select(axis_candidates, rank=1, attribute="axis")
 drivers = analysis.decompose(delta, axis=selected_axis)
 ```
 
@@ -668,9 +668,9 @@ Selector API 只保留一个概念：`select`。
 不再同时暴露 `select_item`、`select_candidate`、`projection.top()` 三套名字。
 
 ```python
-selected_axis = analysis.select(axis_candidates, rank=1, field="axis")
-selected_window = analysis.select(anomalies, rank=1, field="window")
-selected_slice = analysis.select(slice_candidates, rank=1, field="selector")
+selected_axis = analysis.select(axis_candidates, rank=1, attribute="axis")
+selected_window = analysis.select(anomalies, rank=1, attribute="window")
+selected_slice = analysis.select(slice_candidates, rank=1, attribute="selector")
 ```
 
 Typed shape narrowing 通过 accessor 完成：
@@ -795,7 +795,7 @@ axis_candidates = session.discover.driver_axes(
     search_space=[DimensionRef("country"), DimensionRef("platform"), DimensionRef("channel")],
 )
 
-selected_axis = axis_candidates.projection().select(rank=1, field="axis")
+selected_axis = axis_candidates.projection().select(rank=1, attribute="axis")
 drivers = session.decompose(delta, axis=selected_axis)
 ```
 
@@ -809,7 +809,7 @@ Materialized artifact 是已执行 step / job 的读取结果，可以通过 pro
 
 ```python
 axis_candidates = session.artifact("axis_candidates")
-selected_axis = axis_candidates.projection().select(rank=1, field="axis")
+selected_axis = axis_candidates.projection().select(rank=1, attribute="axis")
 drivers = session.decompose(delta, axis=selected_axis)
 ```
 
@@ -871,7 +871,7 @@ axis_candidates = session.discover.driver_axes(
     ],
 )
 
-selected_axis = axis_candidates.projection().select(rank=1, field="axis")
+selected_axis = axis_candidates.projection().select(rank=1, attribute="axis")
 drivers = session.decompose(delta, axis=selected_axis)
 ```
 
@@ -906,7 +906,7 @@ anomalies = session.discover.point_anomalies(
 )
 quality = session.assess_quality(anomalies)
 
-window = anomalies.projection().select(rank=1, field="window")
+window = anomalies.projection().select(rank=1, attribute="window")
 local_series = session.transform.window(series, window=window)
 ```
 
@@ -922,7 +922,7 @@ local_series = session.transform.window(series, window=window)
 delta = session.compare(current, baseline)
 
 country_attr = session.decompose(delta, axis=DimensionRef("country"))
-top_country = country_attr.projection().select(rank=1, field="keys.country")
+top_country = country_attr.projection().select(rank=1, attribute="keys.country")
 
 country_delta = session.transform.slice(
     delta,

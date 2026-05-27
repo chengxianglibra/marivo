@@ -345,11 +345,11 @@ def _validate_slice_value_shape(op: str, value: Any) -> None:
         return
 
 
-def normalize_slice_for_storage(slice: Mapping[str, Any] | None) -> dict[str, Any]:
-    if not slice:
+def normalize_slice_for_storage(where: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not where:
         return {}
     normalized: dict[str, Any] = {}
-    for field_name, raw_predicate in slice.items():
+    for field_name, raw_predicate in where.items():
         op, value = _normalize_slice_predicate(raw_predicate)
         if op == "==" and not isinstance(raw_predicate, Mapping):
             normalized[field_name] = _json_safe_value(value)
@@ -404,13 +404,13 @@ def _apply_slice_predicate(field_expr: Any, *, op: str, value: Any) -> Any:
 
 def apply_slice_to_dataset(
     table: ibis.Table,
-    slice: Mapping[str, Any] | None,
+    where: Mapping[str, Any] | None,
     *,
     dataset_ir: Any,
 ) -> ibis.Table:
-    if not slice:
+    if not where:
         return table
-    for field_name, raw_predicate in slice.items():
+    for field_name, raw_predicate in where.items():
         op, value = _normalize_slice_predicate(raw_predicate)
         field_expr = _resolve_slice_field(dataset_ir, field_name, table)
         table = table.filter(_apply_slice_predicate(field_expr, op=op, value=value))

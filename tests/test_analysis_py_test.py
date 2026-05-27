@@ -62,7 +62,7 @@ def test_mean_changed_time_series_basic(tmp_path):
     a = _metric_frame(session, [{"time": t, "value": 20.0 + i} for i, t in enumerate(times)])
     b = _metric_frame(session, [{"time": t, "value": 10.0 + i * 0.2} for i, t in enumerate(times)])
 
-    result = mv.test(a, b, session=session)
+    result = mv.hypothesis_test(a, b, session=session)
     row = result.to_pandas().iloc[0]
 
     assert result.meta.kind == "hypothesis_test_result"
@@ -79,7 +79,9 @@ def test_mean_changed_time_series_no_diff(tmp_path):
     times = pd.date_range("2026-01-01", periods=5, freq="D")
     rows = [{"time": t, "value": float(i)} for i, t in enumerate(times)]
 
-    result = mv.test(_metric_frame(session, rows), _metric_frame(session, rows), session=session)
+    result = mv.hypothesis_test(
+        _metric_frame(session, rows), _metric_frame(session, rows), session=session
+    )
     row = result.to_pandas().iloc[0]
 
     assert row["reason_code"] == "constant_diff"
@@ -102,7 +104,9 @@ def test_segmented_paired_across_segments(tmp_path):
         axes=axes,
     )
 
-    result = mv.test(a, b, sampling=mv.SamplingPolicy(pairing="segment_key"), session=session)
+    result = mv.hypothesis_test(
+        a, b, sampling=mv.SamplingPolicy(pairing="segment_key"), session=session
+    )
     assert result.meta.result_shape == "single"
     assert result.to_pandas().iloc[0]["sample_size"] == 3
 
@@ -132,7 +136,7 @@ def test_panel_per_segment_rows(tmp_path):
         axes=axes,
     )
 
-    result = mv.test(a, b, session=session)
+    result = mv.hypothesis_test(a, b, session=session)
     df = result.to_pandas()
     assert result.meta.result_shape == "per_segment"
     assert result.meta.segment_dimensions == ["segment"]
@@ -143,15 +147,17 @@ def test_test_operator_errors_and_persistence(tmp_path):
     session = session_attach.get_or_create(name="demo")
     a = _metric_frame(session, [{"value": 1.0}], semantic_kind="scalar", axes={})
     with pytest.raises(TestShapeNotTestableError):
-        mv.test(a, a, session=session)
+        mv.hypothesis_test(a, a, session=session)
 
     ts = seeded_time_series_metric_frame(session=session, n_buckets=4)
     with pytest.raises(TestPolicyError):
-        mv.test(ts, ts, sampling=mv.SamplingPolicy(pairing="segment_key"), session=session)
+        mv.hypothesis_test(
+            ts, ts, sampling=mv.SamplingPolicy(pairing="segment_key"), session=session
+        )
     with pytest.raises(TestPolicyError):
-        mv.test(ts, ts, alpha=0, session=session)
+        mv.hypothesis_test(ts, ts, alpha=0, session=session)
     with pytest.raises(TestPolicyError):
-        mv.test(
+        mv.hypothesis_test(
             ts,
             ts,
             alignment=mv.AlignmentPolicy(
@@ -163,7 +169,7 @@ def test_test_operator_errors_and_persistence(tmp_path):
     other = session_attach.get_or_create(name="other")
     foreign = seeded_time_series_metric_frame(session=other, n_buckets=4)
     with pytest.raises(CrossSessionFrameError):
-        mv.test(ts, foreign, session=session)
+        mv.hypothesis_test(ts, foreign, session=session)
 
     segmented = _metric_frame(
         session,
@@ -172,9 +178,9 @@ def test_test_operator_errors_and_persistence(tmp_path):
         axes={"dimensions": [{"field": "segment"}]},
     )
     with pytest.raises(SemanticKindMismatchError):
-        mv.test(ts, segmented, session=session)
+        mv.hypothesis_test(ts, segmented, session=session)
 
-    result = mv.test(ts, ts, session=session)
+    result = mv.hypothesis_test(ts, ts, session=session)
     loaded = load_frame(result.ref, session=session)
     assert loaded.meta.kind == "hypothesis_test_result"
     assert loaded.lineage.steps[-1].intent == "test"

@@ -49,7 +49,7 @@ def forecast(
     model: Literal["naive", "seasonal_naive", "drift"] = "seasonal_naive",
     seasonality_period: int | None = None,
     interval_level: float = 0.95,
-    value: str | None = None,
+    measure_column: str | None = None,
     session: Session | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> ForecastFrame:
@@ -66,7 +66,7 @@ def forecast(
         seasonality_period: Override for the seasonality period. Defaults by grain
             (day=7, week=52, month=12, quarter=4).
         interval_level: Confidence level for prediction intervals. Must be in (0, 1).
-        value: Numeric column to forecast. Defaults to the frame's measure column.
+        measure_column: Numeric column to forecast. Defaults to the frame's measure column.
         session: Defaults to the currently-attached session.
 
     Raises:
@@ -118,7 +118,7 @@ def forecast(
     )
 
     df = history.to_pandas()
-    value_col = require_numeric_column(df, value, purpose="forecast history")
+    value_col = require_numeric_column(df, measure_column, purpose="forecast history")
     if df[value_col].isna().any():
         raise ForecastInputQualityError(message="forecast history contains NaN values")
     _ensure_no_time_gap(df, time_col=time_col, grain=grain)
@@ -154,7 +154,7 @@ def forecast(
     output = pd.DataFrame(rows)
     params = {
         "source_ref": history.ref,
-        "value": value_col,
+        "measure_column": value_col,
         "horizon": horizon,
         "model": model,
         "seasonality_period": effective_seasonality,

@@ -214,7 +214,7 @@ def test_compare_panel_calendar_bucket_outer_joins_bucket_keys():
 
 def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_columns(tmp_path):
     _write_calendar(tmp_path)
-    s = session_attach.get_or_create(name="demo", tz="Asia/Shanghai")
+    s = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
     current = _panel_metric(
         s,
         [

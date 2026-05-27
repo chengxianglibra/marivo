@@ -47,7 +47,7 @@ def _metric_frame(
         axes={},
         measure={"name": "revenue"},
         window=None,
-        slice={},
+        where={},
         semantic_kind="scalar",
         semantic_model="sales",
     )
@@ -55,7 +55,7 @@ def _metric_frame(
 
 
 def _delta_frame(
-    *, session_id: str, project_root: Path, source_a: str, source_b: str
+    *, session_id: str, project_root: Path, source_current: str, source_baseline: str
 ) -> DeltaFrame:
     df = pd.DataFrame(
         {"current": [120.0], "baseline": [100.0], "delta": [20.0], "pct_change": [0.2]}
@@ -71,8 +71,8 @@ def _delta_frame(
         byte_size=0,
         lineage=Lineage(),
         metric_id="sales.revenue",
-        source_a_ref=source_a,
-        source_b_ref=source_b,
+        source_current_ref=source_current,
+        source_baseline_ref=source_baseline,
         alignment={"kind": "calendar_bucket"},
         semantic_kind="scalar",
         semantic_model="sales",
@@ -194,8 +194,8 @@ def test_commit_compare_seeds_change_proposition(tmp_session) -> None:
         delta = _delta_frame(
             session_id=session_id,
             project_root=session_dir,
-            source_a=a.meta.artifact_id,  # type: ignore[arg-type]
-            source_b=b.meta.artifact_id,  # type: ignore[arg-type]
+            source_current=a.meta.artifact_id,  # type: ignore[arg-type]
+            source_baseline=b.meta.artifact_id,  # type: ignore[arg-type]
         )
         result = commit_result(
             store=store,
@@ -300,8 +300,8 @@ def test_commit_partial_when_seeding_fails(tmp_session, monkeypatch) -> None:
         delta = _delta_frame(
             session_id=session_id,
             project_root=session_dir,
-            source_a=a.meta.artifact_id,  # type: ignore[arg-type]
-            source_b=b.meta.artifact_id,  # type: ignore[arg-type]
+            source_current=a.meta.artifact_id,  # type: ignore[arg-type]
+            source_baseline=b.meta.artifact_id,  # type: ignore[arg-type]
         )
         result = commit_result(
             store=store,

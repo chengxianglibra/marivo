@@ -87,7 +87,7 @@ def test_write_and_read_frame(tmp_path):
         axes={},
         measure={"name": "x"},
         window=None,
-        slice={},
+        where={},
         semantic_kind="scalar",
         semantic_model="sales",
     )

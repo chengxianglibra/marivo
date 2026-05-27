@@ -51,8 +51,8 @@ def _delta(session, df, *, semantic_kind="time_series", ref="frame_delta"):
             ]
         ),
         metric_id="sales.revenue",
-        source_a_ref="frame_a",
-        source_b_ref="frame_b",
+        source_current_ref="frame_a",
+        source_baseline_ref="frame_b",
         alignment={"kind": "calendar_bucket"},
         semantic_kind=semantic_kind,
         semantic_model="sales",
@@ -75,7 +75,7 @@ def _metric(session):
         axes={},
         measure={"name": "revenue"},
         window=None,
-        slice={},
+        where={},
         semantic_kind="scalar",
         semantic_model="sales",
     )
@@ -221,7 +221,7 @@ def test_decompose_rejects_missing_value_column():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     with pytest.raises(SemanticKindMismatchError):
-        mv.decompose(frame, axis=DimensionRef("bucket"), value="missing", session=session)
+        mv.decompose(frame, axis=DimensionRef("bucket"), measure_column="missing", session=session)
 
 
 def test_decompose_rejects_non_numeric_value_column():

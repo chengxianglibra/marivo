@@ -13,10 +13,10 @@ def test_namespace_alias_works():
     assert mv.__name__ == "marivo.analysis_py"
 
 
-def test_analysis_py_exports_test_operator():
+def test_analysis_py_exports_hypothesis_test_operator():
     import marivo.analysis_py as mv
 
-    assert callable(mv.test)
+    assert callable(mv.hypothesis_test)
     assert mv.SamplingPolicy().pairing == "calendar_bucket"
     assert mv.HypothesisTestResultMeta.model_fields["kind"].default == "hypothesis_test_result"
 

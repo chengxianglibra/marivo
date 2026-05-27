@@ -77,7 +77,7 @@ with tempfile.TemporaryDirectory(prefix="marivo-py-analysis-scratch-") as projec
             value_column="value",
             contribution_column="contribution",
             method="manual",
-            params={"note": "example attribution"},
+            method_params={"note": "example attribution"},
         )
         ibis_scratch = mv.explore_ibis(
             lambda backend: (

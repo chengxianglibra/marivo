@@ -15,7 +15,7 @@ _TOP_LEVEL_ENTRIES = {
     "discover": "discover candidate follow-ups from analysis artifacts",
     "forecast": "project a time_series or panel MetricFrame forward",
     "correlate": "correlate compatible analysis frames",
-    "test": "run a mean_changed paired test over compatible MetricFrames",
+    "hypothesis_test": "run a mean_changed paired test over compatible MetricFrames",
     "transform": "family-preserving reshape of a MetricFrame / DeltaFrame",
     "select": "pull a typed field out of a CandidateSet row",
     "alignment": "AlignmentPolicy variants and required arguments",
@@ -128,13 +128,13 @@ def _format_discover_matrix() -> str:
 def _format_select_matrix() -> str:
     from marivo.analysis_py.intents.select import _FIELD_BY_SHAPE
 
-    lines = ["mv.select field-by-shape matrix:", ""]
+    lines = ["mv.select attribute-by-shape matrix:", ""]
     for shape in sorted(_FIELD_BY_SHAPE):
         valid = ", ".join(sorted(_FIELD_BY_SHAPE[shape]))
         lines.append(f"  {shape:<28}{valid}")
     lines.append("")
     lines.append('Dot-paths "keys.<dim>" / "selector.<dim>" pull a single key out')
-    lines.append('of the candidate row. Example: mv.select(cs, rank=1, field="window")')
+    lines.append('of the candidate row. Example: mv.select(cs, rank=1, attribute="window")')
     return "\n".join(lines)
 
 
