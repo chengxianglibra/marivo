@@ -19,9 +19,8 @@ time_series_frame = mv.observe(
     window={"start": "2026-07-01", "end": "2026-07-04", "grain": "day"},
     session=session,
 )
-clipped = mv.transform(
+clipped = mv.transform.window(
     time_series_frame,
-    op="window",
     window={"start": "2026-07-02", "end": "2026-07-03"},
 )
 print(clipped.summary())

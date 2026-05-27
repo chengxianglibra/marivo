@@ -179,11 +179,11 @@ content. Wrap metric ids with `mv.MetricRef(...)`.
 **Symptom:** code calls the removed `mv.detect(...)` helper or expects anomaly
 results to be an `AttributionFrame`.
 
-**Action:** use `mv.discover(..., objective="point_anomalies")` and treat the
+**Action:** use `mv.discover.point_anomalies(...)` and treat the
 result as a `CandidateSet`.
 
 ```python
-candidates = mv.discover(series, objective="point_anomalies", threshold=1.0)
+candidates = mv.discover.point_anomalies(series, threshold=1.0)
 assert candidates.meta.objective == "point_anomalies"
 ```
 
@@ -239,10 +239,11 @@ Calling it on a `point_anomaly` set raises `SemanticKindMismatchError` with
 `details["shape"]` and `details["field"]`. Inspect `candidates.meta.shape` first
 or call `candidates.as_<shape>()` to assert.
 
-## `discover(objective="driver_axes")` requires `search_space`
+## `discover.driver_axes(...)` requires `search_space`
 
 `driver_axes` is the only objective that needs
-`search_space=[DimensionRef(...), ...]`. Without it, `mv.discover` raises
+`search_space=[DimensionRef(...), ...]`. Without it, `mv.discover.driver_axes`
+raises
 `SemanticKindMismatchError` with `details["missing"] = "search_space"`.
 
 ## `select(rank=...)` out of range

@@ -35,6 +35,17 @@ def test_analysis_py_exports_assess_quality_operator():
     assert mv.QualityReportMeta.model_fields["kind"].default == "quality_report"
 
 
+def test_analysis_py_exports_transform_and_discover_namespaces():
+    import marivo.analysis_py as mv
+
+    assert callable(mv.transform)
+    assert callable(mv.transform.topk)
+    assert callable(mv.transform.rollup)
+    assert callable(mv.discover)
+    assert callable(mv.discover.point_anomalies)
+    assert callable(mv.discover.driver_axes)
+
+
 def test_analysis_py_exports_escape_hatch_symbols():
     import marivo.analysis_py as mv
 

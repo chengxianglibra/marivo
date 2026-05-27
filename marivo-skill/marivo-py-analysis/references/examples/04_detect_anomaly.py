@@ -21,13 +21,7 @@ series = mv.observe(
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
     session=session,
 )
-candidates = mv.discover(
-    series,
-    objective="point_anomalies",
-    strategy="zscore",
-    threshold=1.0,
-    session=session,
-)
+candidates = mv.discover.point_anomalies(series, threshold=1.0, session=session)
 summary = candidates.summary()
 print(f"kind={summary.kind!r}")
 print(f"objective={candidates.meta.objective!r}")

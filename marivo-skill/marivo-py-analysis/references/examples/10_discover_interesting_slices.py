@@ -3,7 +3,7 @@
 When to use: you have a segmented delta and want to focus on the segment
 with the strongest signal, then drill into that segment with transform.
 Output shape: CandidateSet[slice]; selector is a DimensionRef -> value map
-that feeds straight into transform(op='slice').
+that feeds straight into transform.slice(...).
 """
 
 from __future__ import annotations
@@ -34,9 +34,8 @@ delta = mv.compare(
     alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
     session=session,
 )
-slice_cands = mv.discover(
+slice_cands = mv.discover.interesting_slices(
     delta,
-    objective="interesting_slices",
     value="delta",
     search_space=[mv.DimensionRef(id="region")],
     threshold=0.5,
@@ -47,7 +46,7 @@ if slice_cands.meta.row_count:
     selector = mv.select(slice_cands, rank=1, field="selector")
     rendered = {ref.id: value for ref, value in selector.items()}
     print(f"selector={rendered}")
-    focus = mv.transform(delta, op="slice", where=selector, session=session)
+    focus = mv.transform.slice(delta, where=selector, session=session)
     print(f"focus.kind={focus.meta.kind!r}")
 else:
     print("no slice candidates")

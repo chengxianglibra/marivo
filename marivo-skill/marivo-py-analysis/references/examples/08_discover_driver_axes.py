@@ -33,9 +33,8 @@ delta = mv.compare(
     session=session,
 )
 
-axis_candidates = mv.discover(
+axis_candidates = mv.discover.driver_axes(
     delta,
-    objective="driver_axes",
     value="delta",
     search_space=[mv.DimensionRef(id="region")],
     session=session,

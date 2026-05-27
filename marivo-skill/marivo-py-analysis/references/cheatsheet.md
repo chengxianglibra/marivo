@@ -11,7 +11,7 @@ active Python environment, not from a local Marivo source checkout.
 | `mv.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `window={"start": "...", "end": "..."}` or structured `slice={field: {"op": ..., "value": ...}}`. |
 | `mv.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
 | `mv.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; the axis column must already be present in the delta. |
-| `mv.discover` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Pick the objective from the table below; tabular row shape follows the `CandidateShape`. |
+| `mv.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape`. |
 | `mv.select` | `CandidateSet` | typed value (`DimensionRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `field=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
 | `mv.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="calendar_bucket")`; default lag is zero. |
 | `mv.test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
@@ -22,9 +22,9 @@ active Python environment, not from a local Marivo source checkout.
 
 | Frame | Created by | Valid next step |
 | --- | --- | --- |
-| `MetricFrame` | `mv.observe`, manual `MetricFrame.from_dataframe` for local series | `mv.compare`, `mv.discover`, `mv.correlate` |
+| `MetricFrame` | `mv.observe`, manual `MetricFrame.from_dataframe` for local series | `mv.compare`, `mv.discover.<objective>`, `mv.correlate` |
 | `DeltaFrame` | `mv.compare` | `mv.decompose` |
-| `CandidateSet` | `mv.discover` | `mv.select(...)` to pull a typed field; otherwise terminal. Inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `CandidateSet` | `mv.discover.<objective>` | `mv.select(...)` to pull a typed field; otherwise terminal. Inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
 | `AssociationResult` | `mv.correlate` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
 | `HypothesisTestResult` | `mv.test` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
 | `ForecastFrame` | `mv.forecast` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
@@ -64,7 +64,7 @@ series = mv.observe(
     mv.MetricRef("sales.revenue"),
     slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
-candidates = mv.discover(series, objective="point_anomalies", threshold=1.0)
+candidates = mv.discover.point_anomalies(series, threshold=1.0)
 print(candidates.meta.objective)  # "point_anomalies"
 ```
 
@@ -80,14 +80,14 @@ print(candidates.meta.objective)  # "point_anomalies"
 
 ## Discover Objectives
 
-| Objective | Source | Returns CandidateSet[shape] | Default strategy | Required kwargs |
+| Helper | Source | Returns CandidateSet[shape] | Default strategy | Required kwargs |
 | --- | --- | --- | --- | --- |
-| `point_anomalies` | `MetricFrame[time_series\|panel]` | `point_anomaly` | `zscore` | – |
-| `period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | – |
-| `driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[DimensionRef(...), ...]` |
-| `interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` | – (defaults to all dimension columns) |
-| `interesting_windows` | `MetricFrame[time_series\|panel]` or `DeltaFrame[time_series\|panel]` | `window` | `rolling_zscore` | – |
-| `cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
+| `mv.discover.point_anomalies` | `MetricFrame[time_series\|panel]` | `point_anomaly` | `zscore` | – |
+| `mv.discover.period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | – |
+| `mv.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[DimensionRef(...), ...]` |
+| `mv.discover.interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` | – (defaults to all dimension columns) |
+| `mv.discover.interesting_windows` | `MetricFrame[time_series\|panel]` or `DeltaFrame[time_series\|panel]` | `window` | `rolling_zscore` | – |
+| `mv.discover.cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
 
 Pass `value="<column>"` to disambiguate when the source has more than one
 numeric column. `select(field=...)` accepts `"item_id"`, `"score"`, `"axis"`,

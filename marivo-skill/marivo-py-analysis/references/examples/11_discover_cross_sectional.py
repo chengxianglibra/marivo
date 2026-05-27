@@ -22,9 +22,8 @@ metric = mv.observe(
     dimensions=[mv.DimensionRef(id="region")],
     session=session,
 )
-outliers = mv.discover(
+outliers = mv.discover.cross_sectional_outliers(
     metric,
-    objective="cross_sectional_outliers",
     threshold=3.0,
     peer_scope=[mv.DimensionRef(id="region")],
     session=session,

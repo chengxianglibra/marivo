@@ -49,7 +49,33 @@ def _describe_callable(name: str, obj: Callable[..., object]) -> str:
     if doc:
         lines.append("")
         lines.append(doc)
+    namespace_methods = _namespace_methods(obj)
+    if namespace_methods:
+        lines.append("")
+        lines.append("Methods:")
+        for method_name in namespace_methods:
+            method = getattr(obj, method_name)
+            try:
+                method_signature = str(inspect.signature(method))
+            except (TypeError, ValueError):
+                method_signature = "(...)"
+            lines.append(f"  {name}.{method_name}{method_signature}")
     return "\n".join(lines)
+
+
+def _namespace_methods(obj: object) -> tuple[str, ...]:
+    if obj.__class__.__name__ == "TransformAPI":
+        return ("filter", "slice", "rollup", "topk", "bottomk", "rank", "normalize", "window")
+    if obj.__class__.__name__ == "DiscoverAPI":
+        return (
+            "point_anomalies",
+            "period_shifts",
+            "driver_axes",
+            "interesting_slices",
+            "interesting_windows",
+            "cross_sectional_outliers",
+        )
+    return ()
 
 
 def _describe_class(name: str, obj: type[object]) -> str:
@@ -79,8 +105,8 @@ def _format_discover_matrix() -> str:
         _OBJECTIVE_TO_SHAPE,
     )
 
-    lines = ["mv.discover objective matrix:", ""]
-    header = f"  {'objective':<26}{'source':<14}{'semantic_kind':<40}{'shape':<26}required"
+    lines = ["mv.discover objective helper matrix:", ""]
+    header = f"  {'helper':<42}{'source':<14}{'semantic_kind':<40}{'shape':<26}required"
     lines.append(header)
     lines.append("  " + "-" * (len(header) - 2))
     for objective in sorted(_OBJECTIVE_COMPATIBILITY):
@@ -89,10 +115,13 @@ def _format_discover_matrix() -> str:
         required = ", ".join(_OBJECTIVE_REQUIRED_KWARGS.get(objective, ())) or "-"
         for source in sorted(compat):
             kinds = "|".join(sorted(compat[source]))
-            lines.append(f"  {objective:<26}{source:<14}{kinds:<40}{shape:<26}{required}")
+            helper = f"mv.discover.{objective}"
+            lines.append(f"  {helper:<42}{source:<14}{kinds:<40}{shape:<26}{required}")
     lines.append("")
-    lines.append('Example: mv.discover(delta, objective="driver_axes",')
-    lines.append('                     search_space=[mv.DimensionRef("country")])')
+    lines.append("Example: mv.discover.driver_axes(delta,")
+    lines.append('                                search_space=[mv.DimensionRef("country")])')
+    lines.append("")
+    lines.append('Compatibility: mv.discover(source, objective="...") still works.')
     return "\n".join(lines)
 
 
@@ -122,15 +151,15 @@ def _format_transform_matrix() -> str:
         "normalize": ("kind",),
         "window": ("window",),
     }
-    lines = ["mv.transform op matrix (v1):", ""]
+    lines = ["mv.transform op helper matrix (v1):", ""]
     for op in _SUPPORTED_OPS:
         required = ", ".join(op_required.get(op, ())) or "-"
-        lines.append(f"  op={op!r:<14}required: {required}")
+        lines.append(f"  mv.transform.{op:<12}required: {required}")
     lines.append("")
-    lines.append('Example: mv.transform(delta, op="topk", by="delta", limit=3,')
-    lines.append('                      direction="decrease")')
+    lines.append('Example: mv.transform.topk(delta, by="delta", limit=3, direction="decrease")')
     lines.append("")
     lines.append("normalize is MetricFrame-only in v1; DeltaFrame normalize is reserved.")
+    lines.append('Compatibility: mv.transform(frame, op="...") still works.')
     return "\n".join(lines)
 
 
