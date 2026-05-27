@@ -13,10 +13,19 @@ from marivo.analysis_py.escape_hatch import (
     promote_delta_frame,
     promote_metric_frame,
 )
+from marivo.analysis_py.followups import (
+    BlockingIssue,
+    ConfidenceScope,
+    FollowupAction,
+)
 from marivo.analysis_py.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis_py.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis_py.frames.base import BaseFrame, BaseFrameMeta
-from marivo.analysis_py.frames.candidate import CandidateSet, CandidateSetMeta
+from marivo.analysis_py.frames.candidate import (
+    CandidateSet,
+    CandidateSetMeta,
+    CandidateShape,
+)
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis_py.frames.exploration import ExplorationResult, ExplorationResultMeta
 from marivo.analysis_py.frames.forecast import ForecastFrame, ForecastFrameMeta
@@ -31,6 +40,7 @@ from marivo.analysis_py.intents.decompose import decompose
 from marivo.analysis_py.intents.discover import discover
 from marivo.analysis_py.intents.forecast import forecast
 from marivo.analysis_py.intents.observe import observe
+from marivo.analysis_py.intents.select import select
 from marivo.analysis_py.intents.test import hypothesis_test as test
 from marivo.analysis_py.intents.transform import transform
 from marivo.analysis_py.policies import (
@@ -65,15 +75,19 @@ __all__ = [
     "AttributionFrameMeta",
     "BaseFrame",
     "BaseFrameMeta",
+    "BlockingIssue",
     "CalendarPolicy",
     "CalendarRef",
     "CandidateSet",
     "CandidateSetMeta",
+    "CandidateShape",
+    "ConfidenceScope",
     "DeltaFrame",
     "DeltaFrameMeta",
     "DimensionRef",
     "ExplorationResult",
     "ExplorationResultMeta",
+    "FollowupAction",
     "ForecastFrame",
     "ForecastFrameMeta",
     "HypothesisTestResult",
@@ -106,6 +120,7 @@ __all__ = [
     "promote_attribution_frame",
     "promote_delta_frame",
     "promote_metric_frame",
+    "select",
     "session",
     "test",
     "transform",

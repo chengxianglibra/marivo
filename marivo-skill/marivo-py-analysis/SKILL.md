@@ -244,7 +244,30 @@ print(attribution.summary())
 Use this when you have a metric series and need candidate anomaly follow-ups.
 Runnable reference: `references/examples/04_detect_anomaly.py`.
 
-`mv.discover` returns a `CandidateSet` with `meta.objective == "point_anomalies"`.
+`mv.discover` returns a `CandidateSet`. The `objective` selects shape and the
+default scoring strategy:
+
+| Objective | Source | Returns CandidateSet[shape] | Default strategy |
+| --- | --- | --- | --- |
+| `point_anomalies` | `MetricFrame[time_series \| panel]` | `point_anomaly` | `zscore` |
+| `period_shifts` | `DeltaFrame[time_series \| panel]` | `period_shift` | `delta_window_zscore` |
+| `driver_axes` | `DeltaFrame[*]` (`search_space` required) | `driver_axis` | `variance_explained` |
+| `interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` |
+| `interesting_windows` | `MetricFrame[time_series \| panel]` or `DeltaFrame[time_series \| panel]` | `window` | `rolling_zscore` |
+| `cross_sectional_outliers` | `MetricFrame[segmented \| panel]` | `cross_sectional_outlier` | `mad` |
+
+#### `mv.select` and `as_<shape>()`
+
+Use `mv.select(candidate_set, rank=N, field=...)` to extract typed values for the
+next operator: `field="axis"` returns `DimensionRef`, `field="window"` returns
+`AbsoluteWindow`, `field="selector"` returns `dict[DimensionRef, Any]` (feed
+directly to `mv.transform(op="slice", where=...)`), `field="recommended_followups"`
+returns `list[FollowupAction]`. Use `field="keys.<dim>"` or
+`field="selector.<dim>"` for scalars. Use `cs.as_driver_axis()` etc. when you
+want to assert the candidate shape early. Runnable references:
+`references/examples/08_discover_driver_axes.py`,
+`references/examples/10_discover_interesting_slices.py`,
+`references/examples/12_select_window_drilldown.py`.
 
 ```python
 import marivo.analysis_py as mv

@@ -1,8 +1,10 @@
 """mv.discover emits candidate_set artifacts for point anomalies."""
 
+import json
+
 import pandas as pd
 import pytest
-from pandas.api.types import is_float_dtype, is_integer_dtype
+from pandas.api.types import is_float_dtype
 
 import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
@@ -13,6 +15,7 @@ from marivo.analysis_py.errors import (
 )
 from marivo.analysis_py.frames.candidate import CandidateSet
 from marivo.analysis_py.frames.metric import MetricFrame
+from marivo.analysis_py.intents._candidate_columns import CANDIDATE_COLUMNS
 
 
 @pytest.fixture(autouse=True)
@@ -63,24 +66,14 @@ def test_discover_point_anomalies_returns_candidate_set():
         "threshold": 1.0,
     }
     df = out.to_pandas()
-    assert list(df.columns) == [
-        "candidate_id",
-        "source_ref",
-        "source_row_index",
-        "value_column",
-        "observed_value",
-        "score",
-        "direction",
-        "threshold",
-        "keys_json",
-    ]
+    assert list(df.columns) == CANDIDATE_COLUMNS
+    assert list(df["item_id"]) == ["cand_0", "cand_3"]
     assert list(df["direction"]) == ["low", "high"]
-    assert list(df["threshold"]) == [1.0, 1.0]
-    assert list(df["source_row_index"]) == [0, 3]
-    assert list(df["source_ref"]) == [frame.ref, frame.ref]
-    assert list(df["value_column"]) == ["value", "value"]
-    assert list(df["observed_value"]) == [-100.0, 100.0]
-    assert list(df["keys_json"]) == ['{"bucket": "a"}', '{"bucket": "d"}']
+    keys = [json.loads(k) for k in df["keys_json"]]
+    assert keys == [{"bucket": "a"}, {"bucket": "d"}]
+    source_refs = [json.loads(s) for s in df["source_refs_json"]]
+    assert source_refs == [[f"{frame.ref}#row=0"], [f"{frame.ref}#row=3"]]
+    assert list(df["recommended_followups_json"]) == ["[]", "[]"]
 
 
 def test_discover_zero_std_returns_empty_candidate_set():
@@ -90,17 +83,7 @@ def test_discover_zero_std_returns_empty_candidate_set():
     out = mv.discover(frame, objective="point_anomalies", strategy="zscore", session=session)
 
     assert out.to_pandas().empty
-    assert list(out.to_pandas().columns) == [
-        "candidate_id",
-        "source_ref",
-        "source_row_index",
-        "value_column",
-        "observed_value",
-        "score",
-        "direction",
-        "threshold",
-        "keys_json",
-    ]
+    assert list(out.to_pandas().columns) == CANDIDATE_COLUMNS
     assert out.meta.row_count == 0
 
 
@@ -113,10 +96,7 @@ def test_discover_empty_candidate_set_round_trips_with_numeric_schema():
 
     df = loaded.to_pandas()
     assert df.empty
-    assert is_integer_dtype(df["source_row_index"])
-    assert is_float_dtype(df["observed_value"])
     assert is_float_dtype(df["score"])
-    assert is_float_dtype(df["threshold"])
 
 
 def test_discover_single_non_null_value_returns_empty_candidate_set():
@@ -139,7 +119,6 @@ def test_discover_uses_explicit_numeric_value_column():
         frame, objective="point_anomalies", value="count", threshold=1.0, session=session
     )
 
-    assert list(out.to_pandas()["value_column"]) == ["count", "count"]
     assert out.meta.params["value"] == "count"
 
 
@@ -226,7 +205,7 @@ def test_discover_rejects_invalid_threshold(threshold):
         mv.discover(frame, objective="point_anomalies", threshold=threshold, session=session)
 
 
-@pytest.mark.parametrize("threshold", ["3", None, True])
+@pytest.mark.parametrize("threshold", ["3", True])
 def test_discover_rejects_non_numeric_threshold(threshold):
     session = session_attach.create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))

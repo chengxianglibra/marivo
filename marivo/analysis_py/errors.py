@@ -129,6 +129,106 @@ class SliceAmbiguousError(AnalysisError): ...
 
 class SemanticKindMismatchError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
+        if str(self.details.get("missing")) == "search_space":
+            return {
+                "location": "mv.discover(driver_axes) arguments",
+                "cause": (
+                    "discover(objective='driver_axes') requires a non-empty "
+                    "search_space=[DimensionRef(...), ...]."
+                ),
+                "fix_snippet": (
+                    'mv.discover(delta, objective="driver_axes",\n'
+                    '            search_space=[mv.DimensionRef("country")])'
+                ),
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        got_shape = self.details.get("got_shape")
+        expected_shape = self.details.get("expected_shape")
+        if isinstance(got_shape, str) and isinstance(expected_shape, str):
+            return {
+                "location": "CandidateSet.as_<shape>() narrowing",
+                "cause": (
+                    f"CandidateSet.shape is {got_shape!r}, expected {expected_shape!r}; "
+                    f"as_{expected_shape}() is only valid on a {expected_shape} candidate set."
+                ),
+                "fix_snippet": (
+                    'if cands.meta.shape == "' + str(expected_shape) + '":\n'
+                    "    typed = cands.as_" + str(expected_shape) + "()"
+                ),
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        row_count = self.details.get("row_count")
+        requested_rank = self.details.get("requested_rank")
+        if isinstance(row_count, int) and isinstance(requested_rank, int):
+            return {
+                "location": "mv.select rank argument",
+                "cause": (
+                    f"select(rank={requested_rank}) is out of range; the candidate set has "
+                    f"{row_count} row(s)."
+                ),
+                "fix_snippet": (
+                    "if cands.meta.row_count >= 1:\n"
+                    '    value = mv.select(cands, rank=1, field="...")'
+                ),
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        shape = self.details.get("shape")
+        field = self.details.get("field")
+        if isinstance(shape, str) and isinstance(field, str):
+            return {
+                "location": "mv.select field argument",
+                "cause": (
+                    f"select(field={field!r}) is not available on a CandidateSet[{shape}]; "
+                    "see the field-by-shape matrix in SKILL.md."
+                ),
+                "fix_snippet": (
+                    'if cands.meta.shape == "driver_axis":\n'
+                    '    axis = mv.select(cands, rank=1, field="axis")\n'
+                    'elif cands.meta.shape in {"point_anomaly", "period_shift", "window", "slice"}:\n'
+                    '    window = mv.select(cands, rank=1, field="window")'
+                ),
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        objective = self.details.get("objective")
+        source_kind_value = self.details.get("source_kind")
+        semantic_kind_value = self.details.get("semantic_kind")
+        expected_kind_raw = self.details.get("expected_kind")
+        expected_kind_str = (
+            expected_kind_raw
+            if isinstance(expected_kind_raw, str) and expected_kind_raw
+            else "<allowed>"
+        )
+        if (
+            isinstance(objective, str)
+            and isinstance(source_kind_value, str)
+            and isinstance(semantic_kind_value, str)
+        ):
+            return {
+                "location": "mv.discover dispatch",
+                "cause": (
+                    f"discover objective {objective!r} does not accept "
+                    f"semantic_kind {semantic_kind_value!r} on a {source_kind_value}; "
+                    f"allowed semantic_kinds: {expected_kind_str}."
+                ),
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        if isinstance(objective, str) and isinstance(source_kind_value, str):
+            return {
+                "location": "mv.discover dispatch",
+                "cause": (
+                    f"discover objective {objective!r} does not accept source kind "
+                    f"{source_kind_value!r}; allowed source kinds: {expected_kind_str}."
+                ),
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        if expected_kind_raw == "implemented_objective":
+            return {
+                "location": "mv.discover dispatch",
+                "cause": (
+                    f"discover objective {objective!r} is not yet implemented in this build."
+                ),
+                "doc": "docs/specs/analysis/python-analysis-operator-design.md",
+            }
         got_kind = self.details.get("got_kind")
         expected_kind = self.details.get("expected_kind")
         if not (
@@ -139,6 +239,19 @@ class SemanticKindMismatchError(AnalysisError):
         ):
             return {
                 "cause": "Input frame kind or value shape does not match the requested analysis operation.",
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        if expected_kind == "candidate_set":
+            return {
+                "location": "mv.select call",
+                "cause": (
+                    f"got kind {got_kind}, expected {expected_kind}; mv.select only "
+                    "operates on CandidateSet artifacts."
+                ),
+                "fix_snippet": (
+                    'cands = mv.discover(metric, objective="point_anomalies")\n'
+                    'window = mv.select(cands, rank=1, field="window")'
+                ),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         if expected_kind == "MetricRef":
