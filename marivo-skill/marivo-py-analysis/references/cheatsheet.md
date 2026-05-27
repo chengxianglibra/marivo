@@ -99,10 +99,11 @@ numeric column. `select(field=...)` accepts `"item_id"`, `"score"`, `"axis"`,
 | Need | Call |
 | --- | --- |
 | Check active session without raising | `mv.session.current()` |
-| Read recent jobs without raising | `mv.session.history()` |
-| Create/attach, switch, or list sessions | `mv.session.get_or_create(name=..., timezone="Asia/Shanghai")`, `mv.session.switch(name=...)`, `mv.session.list_sessions()` |
-| Attach live data | `mv.session.get_or_create(name=..., backends=...)` or `mv.session.get_or_create(name=..., backend_factory=...)` |
-| Inspect SDK entrypoints | `mv.help()` or `mv.help("compare")` |
+| Read recent jobs | `session.recent_jobs(limit=5)` |
+| Create or attach a session (idempotent) | `mv.session.get_or_create(name=..., timezone="Asia/Shanghai")` |
+| List sessions | `mv.session.list()` |
+| Attach live data | `mv.session.get_or_create(name=..., backend_factory=...)` |
+| Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` |
 | Confirm metric ids | `import marivo.semantic_py as ms; ms.list_metrics()` |
 
 Metric refs wrap exact ids such as `mv.MetricRef("model.metric")`. Do not guess
