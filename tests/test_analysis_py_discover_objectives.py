@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -58,6 +59,104 @@ def _delta(session, df, *, semantic_kind="time_series"):
         semantic_model="sales",
     )
     return DeltaFrame(_df=df, meta=meta)
+
+
+def test_discover_api_exposes_typed_method_signatures():
+    assert callable(mv.discover)
+
+    driver_axes_signature = inspect.signature(mv.discover.driver_axes)
+    assert "objective" not in driver_axes_signature.parameters
+    assert driver_axes_signature.parameters["search_space"].default is inspect.Parameter.empty
+
+    point_signature = inspect.signature(mv.discover.point_anomalies)
+    assert "objective" not in point_signature.parameters
+    assert "threshold" in point_signature.parameters
+
+
+def test_discover_api_methods_set_objective_shape_and_strategy():
+    session = session_attach.get_or_create(name="demo")
+    metric_series = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=4, freq="D", tz="UTC"),
+                "value": [0.0, 0.0, 0.0, 10.0],
+            }
+        ),
+        semantic_kind="time_series",
+    )
+    metric_segmented = _metric(
+        session,
+        pd.DataFrame({"country": ["US", "CA", "JP"], "value": [10.0, 20.0, 100.0]}),
+        semantic_kind="segmented",
+    )
+    delta_series = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=8, freq="D", tz="UTC"),
+                "delta": [0.0, 0.0, 5.0, 5.0, 5.0, 0.0, 0.0, 0.0],
+            }
+        ),
+        semantic_kind="time_series",
+    )
+    delta_segmented = _delta(
+        session,
+        pd.DataFrame({"country": ["US", "CA"], "delta": [10.0, -2.0]}),
+        semantic_kind="segmented",
+    )
+
+    cases = [
+        (
+            mv.discover.point_anomalies(metric_series, threshold=1.0, session=session),
+            "point_anomalies",
+            "point_anomaly",
+            "zscore",
+        ),
+        (
+            mv.discover.period_shifts(delta_series, threshold=2.0, session=session),
+            "period_shifts",
+            "period_shift",
+            "delta_window_zscore",
+        ),
+        (
+            mv.discover.driver_axes(
+                delta_segmented,
+                search_space=[mv.DimensionRef("country")],
+                session=session,
+            ),
+            "driver_axes",
+            "driver_axis",
+            "variance_explained",
+        ),
+        (
+            mv.discover.interesting_slices(delta_segmented, threshold=1.0, session=session),
+            "interesting_slices",
+            "slice",
+            "delta_magnitude",
+        ),
+        (
+            mv.discover.interesting_windows(delta_series, threshold=2.0, session=session),
+            "interesting_windows",
+            "window",
+            "rolling_zscore",
+        ),
+        (
+            mv.discover.cross_sectional_outliers(
+                metric_segmented,
+                threshold=1.0,
+                session=session,
+            ),
+            "cross_sectional_outliers",
+            "cross_sectional_outlier",
+            "mad",
+        ),
+    ]
+    for candidate_set, objective, shape, strategy in cases:
+        assert candidate_set.meta.objective == objective
+        assert candidate_set.meta.shape == shape
+        assert candidate_set.meta.strategy == strategy
+        assert candidate_set.meta.params["objective"] == objective
 
 
 def test_unknown_objective_raises():

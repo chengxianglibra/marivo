@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import json
 from datetime import UTC, datetime
 from time import monotonic
@@ -255,6 +256,76 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
     return compare(
         current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"), session=session
     )
+
+
+def test_transform_api_exposes_typed_method_signatures():
+    assert callable(transform)
+
+    topk_signature = inspect.signature(transform.topk)
+    assert "op" not in topk_signature.parameters
+    assert topk_signature.parameters["by"].default is inspect.Parameter.empty
+    assert topk_signature.parameters["limit"].default is inspect.Parameter.empty
+
+    rollup_signature = inspect.signature(transform.rollup)
+    assert "op" not in rollup_signature.parameters
+    assert rollup_signature.parameters["drop_axes"].default is inspect.Parameter.empty
+
+
+def test_transform_api_methods_cover_supported_ops(tmp_path):
+    series = _make_time_series(tmp_path)
+    filtered = transform.filter(series, predicate=lambda d: d["revenue"] > 10)
+    assert filtered.to_pandas()["revenue"].tolist() == [20.0]
+
+    windowed = transform.window(series, window={"start": "2026-07-02", "end": "2026-07-03"})
+    assert windowed.to_pandas()["revenue"].tolist() == [20.0]
+
+    top = transform.topk(series, by="revenue", limit=1)
+    assert top.to_pandas()["revenue"].tolist() == [20.0]
+
+    bottom = transform.bottomk(series, by="revenue", limit=1)
+    assert bottom.to_pandas()["revenue"].tolist() == [10.0]
+
+    ranked = transform.rank(series, by="revenue", method="dense", rank_column="r")
+    assert ranked.to_pandas()["r"].tolist() == [2, 1]
+
+    session = session_attach.active()
+    segmented = MetricFrame.from_dataframe(
+        pd.DataFrame({"country": ["US", "CA"], "revenue": [30.0, 40.0]}),
+        metric_id="sales.revenue",
+        axes={"country": {"role": "dimension", "column": "country"}},
+        measure={"column": "revenue"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        session=session,
+    )
+    share = transform.normalize(segmented, kind="share")
+    assert share.to_pandas()["revenue"].round(6).tolist() == [0.428571, 0.571429]
+
+    panel = MetricFrame.from_dataframe(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-01"]),
+                "country": ["US", "CA"],
+                "revenue": [10.0, 20.0],
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={
+            "time": {"role": "time", "column": "bucket_start", "grain": "day"},
+            "country": {"role": "dimension", "column": "country"},
+        },
+        measure={"column": "revenue"},
+        semantic_kind="panel",
+        semantic_model="sales",
+        session=session,
+    )
+    rolled = transform.rollup(panel, drop_axes=[DimensionRef("country")])
+    assert rolled.meta.semantic_kind == "time_series"
+    assert "country" not in rolled.to_pandas().columns
+
+    sliced = transform.slice(panel, where={DimensionRef("country"): "US"})
+    assert sliced.meta.semantic_kind == "time_series"
+    assert "country" not in sliced.to_pandas().columns
 
 
 def _make_one_sided_delta_panel() -> DeltaFrame:

@@ -30,14 +30,14 @@ mv.session.get_or_create(name="investigation")
 mv.observe(mv.MetricRef("model.metric"), window={"start": "...", "end": "..."})  # -> MetricFrame
 mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))      # -> DeltaFrame
 mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))                        # -> AttributionFrame
-mv.discover(series, objective="point_anomalies", threshold=1.0)                  # -> CandidateSet
+mv.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
 mv.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))         # -> AssociationResult
 mv.test(cur, base)                                                               # -> HypothesisTestResult
 mv.forecast(series, horizon=7)                                                   # -> ForecastFrame
 mv.assess_quality(series)                                                        # -> QualityReport
 
 mv.session.current()     # safe probe, returns None when no active session
-mv.help("discover")      # prints objective x source x required-kwargs matrix
+mv.help("discover")      # prints typed objective helpers and compatibility dispatcher
 print(frame.summary())   # cheap next-step summary; repr shows next_intents
 ```
 
@@ -87,10 +87,10 @@ Use Surface 3 audit calls only when you need raw evidence objects:
 Value of a metric in one window?           -> observe
 Current vs baseline change?                -> observe x2 -> compare
 Why the change happened?                   -> compare -> decompose
-Spikes, drops, unusual buckets?            -> observe series -> discover
+Spikes, drops, unusual buckets?            -> observe series -> discover.<objective>
 Two metrics move together?                 -> observe both -> correlate
 Need auditable quality evidence?           -> assess_quality
-Reshape without changing frame family?     -> transform (topk, rollup, slice, ...)
+Reshape without changing frame family?     -> transform.<op> (topk, rollup, slice, ...)
 Raw pandas?                                -> frame.to_pandas()
 ```
 
@@ -122,7 +122,7 @@ print(attribution.summary())
 
 ```python
 series = mv.observe(mv.MetricRef("<metric_id>"), window={"start": "2026-07-01", "end": "2026-09-30", "grain": "day"})
-candidates = mv.discover(series, objective="point_anomalies", threshold=1.0)
+candidates = mv.discover.point_anomalies(series, threshold=1.0)
 window = mv.select(candidates, rank=1, field="window")
 ```
 

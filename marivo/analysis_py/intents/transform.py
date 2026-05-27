@@ -50,6 +50,9 @@ from marivo.analysis_py.windows import (
 
 TransformOp = Literal["filter", "slice", "rollup", "topk", "bottomk", "rank", "normalize", "window"]
 TransformFrame = MetricFrame | DeltaFrame
+TopKDirection = Literal["increase", "decrease"]
+RankMethod = Literal["ordinal", "dense", "min", "max"]
+NormalizeKind = Literal["index", "share", "pct_change", "per_unit", "z_score"]
 
 _SUPPORTED_OPS: tuple[TransformOp, ...] = (
     "filter",
@@ -89,10 +92,10 @@ def _is_supported_op(op: str) -> TypeGuard[TransformOp]:
     return op in _SUPPORTED_OPS
 
 
-def transform(
-    frame: TransformFrame,
+def _transform_dispatch(
+    frame: object,
     *,
-    op: TransformOp,
+    op: TransformOp | str,
     session: Session | None = None,
     where: Any = None,
     predicate: Any = None,
@@ -228,6 +231,149 @@ def transform(
         window=meta_overrides.get("window"),
         triggered_by_followup=_triggered_by,
     )
+
+
+class TransformAPI:
+    """Callable namespace for family-preserving MetricFrame / DeltaFrame transforms."""
+
+    def __call__(
+        self,
+        frame: object,
+        *,
+        op: TransformOp | str,
+        session: Session | None = None,
+        where: Any = None,
+        predicate: Any = None,
+        drop_axes: Any = None,
+        by: Any = None,
+        limit: int | None = None,
+        direction: str | None = None,
+        method: str = "ordinal",
+        rank_column: str = "rank",
+        kind: str | None = None,
+        base: Any = None,
+        window: Any = None,
+    ) -> MetricFrame | DeltaFrame:
+        """Compatibility dispatcher for legacy ``mv.transform(frame, op=...)`` calls."""
+
+        return _transform_dispatch(
+            frame,
+            op=op,
+            session=session,
+            where=where,
+            predicate=predicate,
+            drop_axes=drop_axes,
+            by=by,
+            limit=limit,
+            direction=direction,
+            method=method,
+            rank_column=rank_column,
+            kind=kind,
+            base=base,
+            window=window,
+        )
+
+    def filter(
+        self,
+        frame: object,
+        *,
+        predicate: Callable[[pd.DataFrame], pd.Series],
+        session: Session | None = None,
+    ) -> MetricFrame | DeltaFrame:
+        return _transform_dispatch(frame, op="filter", predicate=predicate, session=session)
+
+    def slice(
+        self,
+        frame: object,
+        *,
+        where: dict[DimensionRef | str, Any],
+        session: Session | None = None,
+    ) -> MetricFrame | DeltaFrame:
+        return _transform_dispatch(frame, op="slice", where=where, session=session)
+
+    def rollup(
+        self,
+        frame: object,
+        *,
+        drop_axes: list[DimensionRef | str],
+        session: Session | None = None,
+    ) -> MetricFrame | DeltaFrame:
+        return _transform_dispatch(frame, op="rollup", drop_axes=drop_axes, session=session)
+
+    def topk(
+        self,
+        frame: object,
+        *,
+        by: str,
+        limit: int,
+        direction: TopKDirection | None = None,
+        session: Session | None = None,
+    ) -> MetricFrame | DeltaFrame:
+        return _transform_dispatch(
+            frame,
+            op="topk",
+            by=by,
+            limit=limit,
+            direction=direction,
+            session=session,
+        )
+
+    def bottomk(
+        self,
+        frame: object,
+        *,
+        by: str,
+        limit: int,
+        session: Session | None = None,
+    ) -> MetricFrame | DeltaFrame:
+        return _transform_dispatch(frame, op="bottomk", by=by, limit=limit, session=session)
+
+    def rank(
+        self,
+        frame: object,
+        *,
+        by: str,
+        method: RankMethod = "ordinal",
+        rank_column: str = "rank",
+        session: Session | None = None,
+    ) -> MetricFrame | DeltaFrame:
+        return _transform_dispatch(
+            frame,
+            op="rank",
+            by=by,
+            method=method,
+            rank_column=rank_column,
+            session=session,
+        )
+
+    def normalize(
+        self,
+        frame: MetricFrame,
+        *,
+        kind: NormalizeKind,
+        base: Any = None,
+        session: Session | None = None,
+    ) -> MetricFrame:
+        result = _transform_dispatch(
+            frame,
+            op="normalize",
+            kind=kind,
+            base=base,
+            session=session,
+        )
+        return cast("MetricFrame", result)
+
+    def window(
+        self,
+        frame: object,
+        *,
+        window: Any,
+        session: Session | None = None,
+    ) -> MetricFrame | DeltaFrame:
+        return _transform_dispatch(frame, op="window", window=window, session=session)
+
+
+transform = TransformAPI()
 
 
 def _gen_ref(prefix: str) -> str:

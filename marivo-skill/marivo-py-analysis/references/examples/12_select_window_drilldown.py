@@ -1,4 +1,4 @@
-"""Pattern: select an anomaly window and drill into it with transform(op='window').
+"""Pattern: select an anomaly window and drill into it with transform.window(...).
 
 When to use: discover surfaced point anomalies, you want to clip the original
 series to the rank-1 anomaly window for closer inspection. Single-bucket
@@ -22,19 +22,14 @@ series = mv.observe(
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
     session=session,
 )
-anomalies = mv.discover(
-    series,
-    objective="point_anomalies",
-    threshold=1.0,
-    session=session,
-)
+anomalies = mv.discover.point_anomalies(series, threshold=1.0, session=session)
 print(f"anomalies.row_count={anomalies.meta.row_count}")
 if anomalies.meta.row_count:
     hit = mv.select(anomalies, rank=1, field="window")
     assert isinstance(hit, mv.AbsoluteWindow)
     drill_end = (pd.Timestamp(hit.end) + pd.offsets.MonthBegin(1)).date().isoformat()
     drill = mv.AbsoluteWindow(start=hit.start, end=drill_end)
-    local = mv.transform(series, op="window", window=drill, session=session)
+    local = mv.transform.window(series, window=drill, session=session)
     print(f"local.kind={local.meta.kind!r}")
     print(f"local.row_count={local.meta.row_count}")
 

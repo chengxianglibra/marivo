@@ -32,7 +32,7 @@ delta = mv.compare(
     alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
     session=session,
 )
-shifts = mv.discover(delta, objective="period_shifts", value="delta", session=session)
+shifts = mv.discover.period_shifts(delta, value="delta", session=session)
 print(f"shifts.objective={shifts.meta.objective!r}")
 print(f"shifts.row_count={shifts.meta.row_count}")
 if shifts.meta.row_count:

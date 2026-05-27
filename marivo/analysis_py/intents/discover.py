@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from numbers import Real
 from time import monotonic
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 import numpy as np
 
@@ -99,10 +99,14 @@ _OBJECTIVE_REQUIRED_KWARGS: dict[CandidateObjective, tuple[str, ...]] = {
 }
 
 
-def discover(
-    source: MetricFrame | DeltaFrame,
+def _is_valid_objective(objective: str) -> TypeGuard[CandidateObjective]:
+    return objective in _VALID_OBJECTIVES
+
+
+def _discover_dispatch(
+    source: object,
     *,
-    objective: CandidateObjective,
+    objective: CandidateObjective | str,
     strategy: CandidateStrategy | None = None,
     value: str | None = None,
     threshold: float | None = None,
@@ -160,7 +164,7 @@ def discover(
         )
     ensure_frame_in_session(source, session=session, label="discover source")
 
-    if objective not in _VALID_OBJECTIVES:
+    if not _is_valid_objective(objective):
         raise SemanticKindMismatchError(
             message=f"unsupported discover objective {objective!r}",
             details={
@@ -168,19 +172,20 @@ def discover(
                 "got_kind": str(objective),
             },
         )
+    discover_objective = objective
 
     source_kind: CandidateSourceKind = (
         "metric_frame" if isinstance(source, MetricFrame) else "delta_frame"
     )
-    _check_objective_compatibility(objective, source_kind, source.meta.semantic_kind)
+    _check_objective_compatibility(discover_objective, source_kind, source.meta.semantic_kind)
 
-    resolved_strategy = _resolve_strategy(objective, strategy)
-    shape = _OBJECTIVE_TO_SHAPE[objective]
+    resolved_strategy = _resolve_strategy(discover_objective, strategy)
+    shape = _OBJECTIVE_TO_SHAPE[discover_objective]
 
     started_at = datetime.now(UTC)
     started = monotonic()
     rows, params = _run_scorer(
-        objective=objective,
+        objective=discover_objective,
         source=source,
         source_kind=source_kind,
         value=value,
@@ -195,7 +200,7 @@ def discover(
 
     full_params: dict[str, Any] = {
         "source_ref": source.ref,
-        "objective": objective,
+        "objective": discover_objective,
         "strategy": resolved_strategy,
         **params,
     }
@@ -222,7 +227,7 @@ def discover(
             ),
         ),
         shape=shape,
-        objective=objective,
+        objective=discover_objective,
         strategy=resolved_strategy,
         source_ref=source.ref,
         source_kind=source_kind,
@@ -283,6 +288,146 @@ def discover(
         },
     )
     return frame
+
+
+class DiscoverAPI:
+    """Callable namespace for candidate discovery objectives."""
+
+    def __call__(
+        self,
+        source: object,
+        *,
+        objective: CandidateObjective | str,
+        strategy: CandidateStrategy | None = None,
+        value: str | None = None,
+        threshold: float | None = None,
+        sensitivity: DiscoverSensitivity = "balanced",
+        limit: int | None = None,
+        search_space: list[DimensionRef] | None = None,
+        peer_scope: list[DimensionRef] | None = None,
+        session: Session | None = None,
+    ) -> CandidateSet:
+        """Compatibility dispatcher for legacy ``mv.discover(source, objective=...)`` calls."""
+
+        return _discover_dispatch(
+            source,
+            objective=objective,
+            strategy=strategy,
+            value=value,
+            threshold=threshold,
+            sensitivity=sensitivity,
+            limit=limit,
+            search_space=search_space,
+            peer_scope=peer_scope,
+            session=session,
+        )
+
+    def point_anomalies(
+        self,
+        source: MetricFrame,
+        *,
+        value: str | None = None,
+        threshold: float | None = None,
+        session: Session | None = None,
+    ) -> CandidateSet:
+        return _discover_dispatch(
+            source,
+            objective="point_anomalies",
+            value=value,
+            threshold=threshold,
+            session=session,
+        )
+
+    def period_shifts(
+        self,
+        source: DeltaFrame,
+        *,
+        value: str | None = None,
+        threshold: float | None = None,
+        session: Session | None = None,
+    ) -> CandidateSet:
+        return _discover_dispatch(
+            source,
+            objective="period_shifts",
+            value=value,
+            threshold=threshold,
+            session=session,
+        )
+
+    def driver_axes(
+        self,
+        source: DeltaFrame,
+        *,
+        search_space: list[DimensionRef],
+        value: str | None = None,
+        limit: int | None = None,
+        session: Session | None = None,
+    ) -> CandidateSet:
+        return _discover_dispatch(
+            source,
+            objective="driver_axes",
+            value=value,
+            limit=limit,
+            search_space=search_space,
+            session=session,
+        )
+
+    def interesting_slices(
+        self,
+        source: MetricFrame | DeltaFrame,
+        *,
+        search_space: list[DimensionRef] | None = None,
+        value: str | None = None,
+        threshold: float | None = None,
+        limit: int | None = None,
+        session: Session | None = None,
+    ) -> CandidateSet:
+        return _discover_dispatch(
+            source,
+            objective="interesting_slices",
+            value=value,
+            threshold=threshold,
+            limit=limit,
+            search_space=search_space,
+            session=session,
+        )
+
+    def interesting_windows(
+        self,
+        source: MetricFrame | DeltaFrame,
+        *,
+        value: str | None = None,
+        threshold: float | None = None,
+        session: Session | None = None,
+    ) -> CandidateSet:
+        return _discover_dispatch(
+            source,
+            objective="interesting_windows",
+            value=value,
+            threshold=threshold,
+            session=session,
+        )
+
+    def cross_sectional_outliers(
+        self,
+        source: MetricFrame,
+        *,
+        peer_scope: list[DimensionRef] | None = None,
+        value: str | None = None,
+        threshold: float | None = None,
+        session: Session | None = None,
+    ) -> CandidateSet:
+        return _discover_dispatch(
+            source,
+            objective="cross_sectional_outliers",
+            value=value,
+            threshold=threshold,
+            peer_scope=peer_scope,
+            session=session,
+        )
+
+
+discover = DiscoverAPI()
 
 
 def _resolve_strategy(
