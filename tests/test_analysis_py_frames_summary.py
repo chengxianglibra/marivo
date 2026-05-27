@@ -122,7 +122,7 @@ def test_repr_shows_head3_when_dataframe_has_more_rows() -> None:
         if line.strip() and not line.lstrip().startswith("...")
     }
     assert {"a", "b", "c"}.issubset(rendered_buckets)
-    # head(3) means rows d..g are NOT in the repr.
+    # Repr preview is bounded to the first three rows.
     assert {"d", "e", "f", "g"}.isdisjoint(rendered_buckets)
     assert "use .to_pandas() to materialize" in r
 

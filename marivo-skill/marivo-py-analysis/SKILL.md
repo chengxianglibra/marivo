@@ -36,8 +36,8 @@ print(frame.summary())    # cheap next-step summary
 ```
 
 Every intent returns a typed frame. Stay in frame world until you intentionally
-materialize a copy with `frame.to_pandas()`. Prefer `frame.summary()` before
-printing full data into the agent context.
+materialize a copy with `frame.to_pandas()`. Prefer `frame.summary()` and
+`frame.preview(limit=...)` before printing full data into the agent context.
 
 Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`,
 `mv.AlignmentPolicy(...)`, and `mv.LagPolicy(...)` at public operator
@@ -96,7 +96,8 @@ Important current return types:
    `正确写法` block. Apply that fix, then re-run the smallest script.
 
 7. Keep generated analysis outputs compact. Prefer `frame.summary()` and
-   `frame.head(n)` before materializing full data with `frame.to_pandas()`.
+   `frame.preview(limit=n)` before materializing full data with
+   `frame.to_pandas()`.
 
 ### Escape Hatch
 

@@ -4,9 +4,10 @@ from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
+from pydantic import BaseModel, ValidationError
 
-from marivo.analysis_py.errors import FrameMutationError
-from marivo.analysis_py.frames.base import BaseFrame, BaseFrameMeta
+from marivo.analysis_py.errors import FrameMutationError, FrameReadError
+from marivo.analysis_py.frames.base import BaseFrame, BaseFrameMeta, FramePreview
 from marivo.analysis_py.lineage import Lineage
 
 
@@ -59,10 +60,112 @@ def test_getitem_delegates_to_df():
     assert list(f["x"]) == [1, 2]
 
 
-def test_head_delegates_to_df():
+def test_frame_preview_is_pydantic_model():
+    assert issubclass(FramePreview, BaseModel)
+
+
+def test_preview_default_limit_returns_bounded_dto():
+    df = pd.DataFrame({"x": list(range(12))})
+    f = BaseFrame(_df=df, meta=_meta(row_count=12))
+    preview = f.preview()
+    assert preview.kind == "metric_frame"
+    assert preview.ref == "frame_abc12345"
+    assert preview.row_count == 12
+    assert preview.returned_row_count == 10
+    assert preview.columns == ["x"]
+    assert preview.rows == [{"x": idx} for idx in range(10)]
+    assert preview.is_truncated is True
+
+
+def test_preview_custom_limit_matches_front_rows():
     df = pd.DataFrame({"x": [1, 2, 3, 4, 5]})
     f = BaseFrame(_df=df, meta=_meta())
-    assert len(f.head(2)) == 2
+    preview = f.preview(limit=2)
+    assert preview.returned_row_count == 2
+    assert preview.rows == [{"x": 1}, {"x": 2}]
+    assert preview.is_truncated is True
+
+
+def test_preview_not_truncated_when_limit_covers_frame():
+    df = pd.DataFrame({"x": [1, 2]})
+    f = BaseFrame(_df=df, meta=_meta())
+    preview = f.preview(limit=5)
+    assert preview.returned_row_count == 2
+    assert preview.is_truncated is False
+
+
+def test_preview_rejects_invalid_limits():
+    df = pd.DataFrame({"x": [1]})
+    f = BaseFrame(_df=df, meta=_meta())
+    with pytest.raises(FrameReadError):
+        f.preview(limit=0)
+    with pytest.raises(FrameReadError):
+        f.preview(limit=101)
+
+
+def test_preview_disambiguates_duplicate_columns():
+    df = pd.DataFrame([[1, 2, 3]], columns=["value", "value", "value#2"])
+    f = BaseFrame(_df=df, meta=_meta(row_count=1))
+    preview = f.preview(limit=1)
+    assert preview.columns == ["value", "value#2", "value#2#2"]
+    assert preview.rows == [{"value": 1, "value#2": 2, "value#2#2": 3}]
+
+
+def test_preview_normalizes_missing_values():
+    df = pd.DataFrame(
+        {
+            "float_nan": [float("nan")],
+            "none": [None],
+            "pd_na": [pd.NA],
+            "pd_nat": [pd.NaT],
+        },
+    )
+    f = BaseFrame(_df=df, meta=_meta(row_count=1))
+    assert f.preview(limit=1).rows == [
+        {
+            "float_nan": None,
+            "none": None,
+            "pd_na": None,
+            "pd_nat": None,
+        },
+    ]
+
+
+def test_preview_empty_frame_returns_columns_and_no_rows():
+    df = pd.DataFrame(columns=["x", "y"])
+    f = BaseFrame(_df=df, meta=_meta(row_count=0))
+    preview = f.preview(limit=5)
+    assert preview.row_count == 0
+    assert preview.returned_row_count == 0
+    assert preview.columns == ["x", "y"]
+    assert preview.rows == []
+    assert preview.is_truncated is False
+
+
+def test_frame_preview_forbids_extra_fields():
+    with pytest.raises(ValidationError):
+        FramePreview(
+            kind="metric_frame",
+            ref="frame_abc12345",
+            row_count=1,
+            returned_row_count=1,
+            columns=["x"],
+            rows=[{"x": 1}],
+            is_truncated=False,
+            extra_field=True,
+        )
+
+
+def test_frame_no_longer_exposes_head():
+    df = pd.DataFrame({"x": [1, 2]})
+    f = BaseFrame(_df=df, meta=_meta())
+    assert not hasattr(f, "head")
+
+
+def test_to_pandas_head_remains_available_for_pandas_workflows():
+    df = pd.DataFrame({"x": [1, 2, 3]})
+    f = BaseFrame(_df=df, meta=_meta(row_count=3))
+    assert f.to_pandas().head(2).to_dict("records") == [{"x": 1}, {"x": 2}]
 
 
 def test_shape_columns_len_iter():

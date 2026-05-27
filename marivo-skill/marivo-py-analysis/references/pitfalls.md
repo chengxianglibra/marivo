@@ -205,8 +205,8 @@ correlation = mv.correlate(
 assert correlation.meta.kind == "association_result"
 ```
 
-Use `.summary()` for compact inspection and `.to_pandas()` for downstream pandas
-work.
+Use `.summary()` for compact inspection, `.preview(limit=...)` for bounded row
+inspection, and `.to_pandas()` for downstream pandas work.
 
 ## Decompose without an explicit axis
 

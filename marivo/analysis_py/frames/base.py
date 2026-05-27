@@ -5,19 +5,21 @@ from __future__ import annotations
 # mypy: disable-error-code=import-untyped
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, time
 from html import escape
 from typing import Any, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
 
-from marivo.analysis_py.errors import FrameMutationError
+from marivo.analysis_py.errors import FrameMutationError, FrameReadError
 from marivo.analysis_py.lineage import Lineage
 
 _REPR_MAX_ROWS = 3
 _REPR_MAX_COLUMNS = 8
 _REPR_MAX_TEXT_WIDTH = 40
+_PREVIEW_DEFAULT_LIMIT = 10
+_PREVIEW_MAX_LIMIT = 100
 
 
 def _truncate_repr_text(value: Any) -> str:
@@ -25,6 +27,56 @@ def _truncate_repr_text(value: Any) -> str:
     if len(text) <= _REPR_MAX_TEXT_WIDTH:
         return text
     return f"{text[: _REPR_MAX_TEXT_WIDTH - 3]}..."
+
+
+def _display_column_names(columns: pd.Index) -> list[str]:
+    display_columns: list[str] = []
+    used_columns: set[str] = set()
+    for column in columns:
+        column_name = str(column)
+        display_name = column_name
+        suffix = 2
+        while display_name in used_columns:
+            display_name = f"{column_name}#{suffix}"
+            suffix += 1
+        used_columns.add(display_name)
+        display_columns.append(display_name)
+    return display_columns
+
+
+def _is_missing(value: Any) -> bool:
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    if isinstance(missing, bool):
+        return missing
+    item = getattr(missing, "item", None)
+    if callable(item):
+        try:
+            scalar = item()
+        except (TypeError, ValueError):
+            return False
+        return scalar if isinstance(scalar, bool) else False
+    return False
+
+
+def _preview_cell(value: Any) -> Any:
+    if _is_missing(value):
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, pd.Timedelta):
+        return str(value)
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return item()
+        except (TypeError, ValueError):
+            return value
+    return value
 
 
 class FrameSummary(BaseModel):
@@ -39,6 +91,20 @@ class FrameSummary(BaseModel):
     null_ratios: dict[str, float]
     produced_by_job: str | None
     lineage_oneliner: str
+
+
+class FramePreview(BaseModel):
+    """Bounded row projection for agent-facing frame inspection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str
+    ref: str
+    row_count: int
+    returned_row_count: int
+    columns: list[str]
+    rows: list[dict[str, Any]]
+    is_truncated: bool
 
 
 class BaseFrameMeta(BaseModel):
@@ -76,9 +142,6 @@ class BaseFrame:
 
     def __getitem__(self, key: Any) -> Any:
         return self._df[key]
-
-    def head(self, n: int = 10) -> pd.DataFrame:
-        return self._df.head(n)
 
     def describe(self) -> pd.DataFrame:
         return self._df.describe()
@@ -125,19 +188,36 @@ class BaseFrame:
             message="frame arithmetic is blocked; call .to_pandas() first",
         )
 
+    def preview(self, limit: int = _PREVIEW_DEFAULT_LIMIT) -> FramePreview:
+        if limit < 1 or limit > _PREVIEW_MAX_LIMIT:
+            raise FrameReadError(
+                message="preview limit must be between 1 and 100",
+                details={"limit": limit, "min": 1, "max": _PREVIEW_MAX_LIMIT},
+            )
+
+        row_count = len(self._df)
+        columns = _display_column_names(self._df.columns)
+        preview_source = self._df.head(limit)
+        rows = [
+            {
+                column: _preview_cell(value)
+                for column, value in zip(columns, row, strict=True)
+            }
+            for row in preview_source.itertuples(index=False, name=None)
+        ]
+        return FramePreview(
+            kind=self.meta.kind,
+            ref=self.meta.ref,
+            row_count=row_count,
+            returned_row_count=len(rows),
+            columns=columns,
+            rows=rows,
+            is_truncated=row_count > limit,
+        )
+
     def summary(self) -> FrameSummary:
         n = len(self._df)
-        columns: list[str] = []
-        used_columns: set[str] = set()
-        for column in self._df.columns:
-            column_name = str(column)
-            display_name = column_name
-            suffix = 2
-            while display_name in used_columns:
-                display_name = f"{column_name}#{suffix}"
-                suffix += 1
-            used_columns.add(display_name)
-            columns.append(display_name)
+        columns = _display_column_names(self._df.columns)
 
         null_ratios = {
             column: 0.0 if n == 0 else float(self._df.iloc[:, idx].isna().sum()) / n
