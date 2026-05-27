@@ -73,6 +73,7 @@ class MetricNotFoundError(AnalysisError):
         metric_id = self.details.get("metric_id")
         model = self.details.get("model")
         metric = self.details.get("metric")
+        available = self.details.get("available_ids")
         metric_ref = None
         if isinstance(metric_id, str) and metric_id:
             metric_ref = metric_id
@@ -80,9 +81,16 @@ class MetricNotFoundError(AnalysisError):
             metric_ref = f"{model}.{metric}"
         if not metric_ref:
             return {"location": "mv.observe call"}
+        cause = f"metric_id={metric_ref} is not registered in the active semantic model."
+        if isinstance(available, list) and available:
+            preview = ", ".join(str(item) for item in available[:10])
+            suffix = f" Available metrics: {preview}"
+            if len(available) > 10:
+                suffix += f" (+{len(available) - 10} more)"
+            cause += suffix
         return {
             "location": "mv.observe call",
-            "cause": f"metric_id={metric_ref} is not registered in the active semantic model.",
+            "cause": cause,
             "fix_snippet": (
                 "import marivo.semantic_py as ms\n"
                 "project = ms.find_project()\n"
@@ -703,6 +711,7 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
         dim = self.details.get("dimension_id")
         datasets = self.details.get("searched_datasets")
         metric_shape = self.details.get("metric_shape")
+        available = self.details.get("available_ids")
         dim_ref = dim if isinstance(dim, str) and dim else "<dimension>"
         dataset_list = (
             ", ".join(datasets) if isinstance(datasets, list) and datasets else "<datasets>"
@@ -717,6 +726,12 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                 f"DimensionRef({dim_ref!r}) is not a field on any of the metric's "
                 f"datasets ({dataset_list})."
             )
+        if isinstance(available, list) and available:
+            preview = ", ".join(str(item) for item in available[:10])
+            suffix = f" Available dimensions: {preview}"
+            if len(available) > 10:
+                suffix += f" (+{len(available) - 10} more)"
+            cause += suffix
         return {
             "location": "mv.observe dimensions argument",
             "cause": cause,

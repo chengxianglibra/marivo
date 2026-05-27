@@ -271,11 +271,19 @@ def _resolve_dimensions(
             if dimension.id in {field_ir.name, field_ir.semantic_id}
         ]
         if not matches:
+            available_ids = sorted(
+                {
+                    field_ir.name
+                    for dataset_ir in dataset_irs.values()
+                    for field_ir in dataset_ir.fields.values()
+                }
+            )
             raise DimensionFieldNotFoundError(
                 message=f"dimension '{dimension.id}' not found",
                 details={
                     "dimension_id": dimension.id,
                     "searched_datasets": sorted(dataset_irs),
+                    "available_ids": available_ids,
                 },
             )
         if len(matches) > 1:
@@ -313,12 +321,16 @@ def _resolve_dimensions_across_project(
             if dimension.id in {field_ir.name, field_ir.semantic_id}
         ]
         if not matches:
+            available_ids = sorted(
+                {field_ir.name for field_ir in [*sp.list_fields(), *sp.list_time_fields()]}
+            )
             raise DimensionFieldNotFoundError(
                 message=f"dimension '{dimension.id}' not found",
                 details={
                     "dimension_id": dimension.id,
                     "searched_datasets": sorted(d.semantic_id for d in sp.list_datasets()),
                     "metric_shape": "derived",
+                    "available_ids": available_ids,
                 },
             )
         if len(matches) > 1:
@@ -658,10 +670,15 @@ def observe(
     metric_semantic_id = f"{model_name}.{metric_name}"
     metric_ir = sp.get_metric(metric_semantic_id)
     if metric_ir is None:
+        available_ids = sorted(m.semantic_id for m in sp.list_metrics())
         raise MetricNotFoundError(
             message=f"metric '{metric_id}' not found",
             hint="Check <project_root>/.marivo/semantic/.",
-            details={"model": model_name, "metric": metric_name},
+            details={
+                "model": model_name,
+                "metric": metric_name,
+                "available_ids": available_ids,
+            },
         )
 
     # Get the metric callable from the sidecar
