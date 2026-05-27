@@ -54,12 +54,15 @@ def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
         ),
         meta=CandidateSetMeta(
             **_base_meta(session, kind="candidate_set", ref="frame_candidates"),
+            shape="point_anomaly",
             source_ref="frame_source",
+            source_kind="metric_frame",
             objective="point_anomalies",
             strategy="zscore",
             metric_ids=["sales.revenue"],
             semantic_kind="time_series",
             semantic_model="sales",
+            source_refs=["frame_source"],
             params={"threshold": 3.0},
         ),
     )

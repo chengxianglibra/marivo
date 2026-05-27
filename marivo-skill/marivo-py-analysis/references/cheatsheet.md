@@ -11,7 +11,8 @@ active Python environment, not from a local Marivo source checkout.
 | `mv.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `window={"start": "...", "end": "..."}` or structured `slice={field: {"op": ..., "value": ...}}`. |
 | `mv.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
 | `mv.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; the axis column must already be present in the delta. |
-| `mv.discover` | `MetricFrame` | `CandidateSet` | Use `objective="point_anomalies"` for anomaly candidates. |
+| `mv.discover` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Pick the objective from the table below; tabular row shape follows the `CandidateShape`. |
+| `mv.select` | `CandidateSet` | typed value (`DimensionRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `field=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
 | `mv.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="calendar_bucket")`; default lag is zero. |
 | `mv.test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
 | `mv.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
@@ -23,7 +24,7 @@ active Python environment, not from a local Marivo source checkout.
 | --- | --- | --- |
 | `MetricFrame` | `mv.observe`, manual `MetricFrame.from_dataframe` for local series | `mv.compare`, `mv.discover`, `mv.correlate` |
 | `DeltaFrame` | `mv.compare` | `mv.decompose` |
-| `CandidateSet` | `mv.discover` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
+| `CandidateSet` | `mv.discover` | `mv.select(...)` to pull a typed field; otherwise terminal. Inspect with `.summary()` or `.to_pandas()` |
 | `AssociationResult` | `mv.correlate` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
 | `HypothesisTestResult` | `mv.test` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
 | `ForecastFrame` | `mv.forecast` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
@@ -74,6 +75,22 @@ print(candidates.meta.objective)  # "point_anomalies"
 | Re-enter canonical metric flow | `mv.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": mv.DimensionRef("country")}, semantic_model="sales")` |
 | Re-enter delta flow | `mv.promote_delta_frame(scratch, current=mv.ArtifactRef("frame_current"), baseline=mv.ArtifactRef("frame_baseline"), delta_column="delta", current_column="current", baseline_column="baseline")` |
 | Re-enter attribution flow | `mv.promote_attribution_frame(scratch, source_delta=mv.ArtifactRef("frame_delta"), driver_field="country", contribution_column="contribution")` |
+
+## Discover Objectives
+
+| Objective | Source | Returns CandidateSet[shape] | Default strategy | Required kwargs |
+| --- | --- | --- | --- | --- |
+| `point_anomalies` | `MetricFrame[time_series\|panel]` | `point_anomaly` | `zscore` | – |
+| `period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | – |
+| `driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[DimensionRef(...), ...]` |
+| `interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` | – (defaults to all dimension columns) |
+| `interesting_windows` | `MetricFrame[time_series\|panel]` or `DeltaFrame[time_series\|panel]` | `window` | `rolling_zscore` | – |
+| `cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
+
+Pass `value="<column>"` to disambiguate when the source has more than one
+numeric column. `select(field=...)` accepts `"item_id"`, `"score"`, `"axis"`,
+`"window"`, `"baseline_window"`, `"selector"`, `"direction"`,
+`"recommended_followups"`, plus dotted `"keys.<dim>"` / `"selector.<dim>"`.
 
 ## Discovery Helpers
 

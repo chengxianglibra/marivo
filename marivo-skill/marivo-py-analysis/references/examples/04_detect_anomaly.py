@@ -1,8 +1,9 @@
 """Pattern: discover point-anomaly candidates from a MetricFrame.
 
 When to use: you want z-score anomaly candidates for a known metric series.
-Output shape: a CandidateSet with source row references, score, direction, and
-threshold.
+Output shape: a CandidateSet whose rows are item-shaped (item_id, score,
+direction, reason_codes_json, source_refs_json, keys_json, window_start /
+window_end, recommended_followups_json) in the union-of-columns layout.
 """
 
 from __future__ import annotations
@@ -37,4 +38,4 @@ print(f"columns={summary.columns!r}")
 # kind='candidate_set'
 # objective='point_anomalies'
 # row_count=2
-# columns=['candidate_id', 'source_ref', 'source_row_index', 'value_column', 'observed_value', 'score', 'direction', 'threshold', 'keys_json']
+# columns=['item_id', 'score', 'direction', 'reason_codes_json', 'source_refs_json', 'selector_json', 'keys_json', 'window_start', 'window_end', 'baseline_window_start', 'baseline_window_end', 'axis', 'peer_scope_json', 'recommended_followups_json']
