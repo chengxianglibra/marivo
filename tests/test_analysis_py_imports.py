@@ -44,6 +44,7 @@ def test_analysis_py_exports_transform_and_discover_namespaces():
     assert callable(mv.discover)
     assert callable(mv.discover.point_anomalies)
     assert callable(mv.discover.driver_axes)
+    assert mv.DiscoverInsufficientDataError is mv.errors.DiscoverInsufficientDataError
 
 
 def test_analysis_py_exports_escape_hatch_symbols():

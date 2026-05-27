@@ -165,10 +165,16 @@ def _format_transform_matrix() -> str:
 
 def _format_alignment_matrix() -> str:
     lines = ["mv.AlignmentPolicy variants:", ""]
+    lines.append("Valid kind values:")
     lines.append("  kind='calendar_bucket'         no calendar argument")
     lines.append("  kind='dow_aligned'             calendar=mv.CalendarRef(...) required")
     lines.append("  kind='holiday_aligned'         calendar=mv.CalendarRef(...) required")
     lines.append("  kind='holiday_and_dow_aligned' calendar=mv.CalendarRef(...) required")
+    lines.append("")
+    lines.append("calendar_bucket behavior:")
+    lines.append("  shared bucket_start values -> align by bucket date")
+    lines.append("  no shared dates + equal-length same-grain windows -> align by ordinal position")
+    lines.append("  there is no separate kind='ordinal'")
     lines.append("")
     lines.append("Example: mv.AlignmentPolicy(kind='dow_aligned',")
     lines.append("                            calendar=mv.CalendarRef('cn_holidays'),")

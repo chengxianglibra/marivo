@@ -10,7 +10,7 @@ active Python environment, not from a local Marivo source checkout.
 | --- | --- | --- | --- |
 | `mv.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `window={"start": "...", "end": "..."}` or structured `where={field: {"op": ..., "value": ...}}`. |
 | `mv.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
-| `mv.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; the axis column must already be present in the delta. |
+| `mv.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; `model.field` refs resolve to the persisted delta column `field`. |
 | `mv.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape`. |
 | `mv.select` | `CandidateSet` | typed value (`DimensionRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
 | `mv.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="calendar_bucket")`; default lag is zero. |
@@ -83,7 +83,7 @@ print(candidates.meta.objective)  # "point_anomalies"
 | Helper | Source | Returns CandidateSet[shape] | Default strategy | Required kwargs |
 | --- | --- | --- | --- | --- |
 | `mv.discover.point_anomalies` | `MetricFrame[time_series\|panel]` | `point_anomaly` | `zscore` | – |
-| `mv.discover.period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | – |
+| `mv.discover.period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | At least 4 time buckets in one series |
 | `mv.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[DimensionRef(...), ...]` |
 | `mv.discover.interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` | – (defaults to all dimension columns) |
 | `mv.discover.interesting_windows` | `MetricFrame[time_series\|panel]` or `DeltaFrame[time_series\|panel]` | `window` | `rolling_zscore` | – |
@@ -150,7 +150,9 @@ mv.observe(
 )
 ```
 
-`AlignmentPolicy(kind="calendar_bucket")` aligns by shared `bucket_start` when
-available. For equal-length same-grain WoW/YoY windows with no shared dates, it
-pairs buckets by ordinal position and preserves the baseline date as
-`bucket_start_b`.
+Valid `AlignmentPolicy.kind` values are `calendar_bucket`, `dow_aligned`,
+`holiday_aligned`, and `holiday_and_dow_aligned`; there is no separate
+`ordinal` kind. `AlignmentPolicy(kind="calendar_bucket")` aligns by shared
+`bucket_start` when available. For equal-length same-grain WoW/YoY windows with
+no shared dates, it pairs buckets by ordinal position and preserves the baseline
+date as `bucket_start_b`.

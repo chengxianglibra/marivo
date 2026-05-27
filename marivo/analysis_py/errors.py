@@ -312,6 +312,28 @@ class SemanticKindMismatchError(AnalysisError):
 class AlignmentFailedError(AnalysisError): ...
 
 
+class DiscoverInsufficientDataError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        objective = self.details.get("objective")
+        row_count = self.details.get("row_count")
+        minimum = self.details.get("minimum")
+        objective_ref = objective if isinstance(objective, str) and objective else "period_shifts"
+        count_ref = row_count if isinstance(row_count, int) else "<row_count>"
+        minimum_ref = minimum if isinstance(minimum, int) else 4
+        return {
+            "location": "mv.discover.period_shifts input",
+            "cause": (
+                f"discover objective {objective_ref!r} needs at least {minimum_ref} "
+                f"time buckets in one series; got {count_ref} usable bucket(s)."
+            ),
+            "fix_snippet": (
+                'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))\n'
+                'mv.discover.period_shifts(delta, value="delta")  # use a wider window'
+            ),
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
 class AlignmentPolicyValidationError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         case = self.details.get("case")

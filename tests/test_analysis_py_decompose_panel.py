@@ -100,6 +100,15 @@ def test_decompose_panel_per_bucket(tmp_path):
         assert finite_pct.sum() == pytest.approx(1.0)
 
 
+def test_decompose_panel_accepts_model_prefixed_axis_ref(tmp_path):
+    session, delta = _panel_delta(tmp_path)
+
+    out = decompose(delta, axis=DimensionRef("sales.region"), session=session)
+
+    assert out.meta.driver_field == "region"
+    assert "region" in out.to_pandas().columns
+
+
 def test_decompose_panel_axis_not_in_dimensions(tmp_path):
     session, delta = _panel_delta(tmp_path)
     delta._df = delta.to_pandas().assign(channel="WEB")

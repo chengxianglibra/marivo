@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis_py.session.attach as session_attach
-from marivo.analysis_py.errors import PanelGrainMismatchError
+from marivo.analysis_py.errors import AlignmentFailedError, PanelGrainMismatchError
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.intents.compare import compare
 from marivo.analysis_py.intents.observe import observe
@@ -105,6 +105,18 @@ def test_calendar_bucket_aligns_equal_length_panel_by_ordinal_bucket(tmp_path):
     assert list(north["bucket_start_b"].astype(str)) == ["2026-06-24", "2026-06-25"]
     assert list(north["delta"]) == [pytest.approx(2.0), pytest.approx(2.0)]
     assert delta.meta.alignment["mode"] == "ordinal_bucket"
+
+
+def test_calendar_bucket_panel_unequal_lengths_explains_row_counts(tmp_path):
+    s = _session(tmp_path)
+    cur = _panel(s, start="2026-07-01", end="2026-07-02")
+    prev = _panel(s, start="2026-06-24", end="2026-06-24")
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        compare(cur, prev, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+
+    assert "current has 2 rows, baseline has 1 rows" in str(exc_info.value)
+    assert exc_info.value.details["kind"] == "CalendarBucketNoComparableBuckets"
 
 
 def _panel_metric(session, rows, *, axes: dict[str, object] | None = None):

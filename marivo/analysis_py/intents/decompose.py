@@ -47,6 +47,32 @@ def _panel_dimension_columns(frame: DeltaFrame) -> list[str]:
     return sorted(columns)
 
 
+def _resolve_axis_column(frame: DeltaFrame, axis: DimensionRef, columns: list[str]) -> str | None:
+    requested = axis.id
+    if requested in columns:
+        return requested
+
+    axes = frame.meta.alignment.get("axes", {})
+    if isinstance(axes, dict):
+        for axis_id, axis_meta in axes.items():
+            if not isinstance(axis_meta, dict):
+                continue
+            column = axis_meta.get("column")
+            if not isinstance(column, str) or column not in columns:
+                continue
+            ref = axis_meta.get("ref")
+            candidates = [str(axis_id), column]
+            if isinstance(ref, str):
+                candidates.append(ref)
+            if requested in candidates:
+                return column
+
+    normalized = requested.rsplit(".", 1)[-1]
+    if normalized in columns:
+        return normalized
+    return None
+
+
 def decompose(
     frame: DeltaFrame,
     *,
@@ -63,6 +89,8 @@ def decompose(
     Args:
         frame: A DeltaFrame produced by ``mv.compare``.
         axis: The segment column to attribute over, wrapped in ``mv.DimensionRef``.
+            Dotted ids such as ``"model.field"`` resolve to the persisted
+            DeltaFrame column ``"field"`` when present.
         measure_column: Numeric column on the delta to attribute. Defaults to ``"delta"``.
         session: Defaults to the currently-attached session.
 
@@ -98,12 +126,22 @@ def decompose(
     started = monotonic()
     source_df = frame.to_pandas()
     value_column = require_numeric_column(source_df, measure_column, purpose="decompose")
-    axis_column = axis.id
+    available_columns = [str(column) for column in source_df.columns]
+    normalized_axis = axis.id.rsplit(".", 1)[-1]
+    axis_column = _resolve_axis_column(frame, axis, available_columns)
 
-    if axis_column not in source_df.columns:
+    if axis_column is None:
         raise SemanticKindMismatchError(
             message="decompose axis column does not exist in the DeltaFrame",
-            details={"axis": axis_column, "columns": list(source_df.columns)},
+            hint=(
+                f"Use axis=mv.DimensionRef({normalized_axis!r}) if that column exists in "
+                "the DeltaFrame."
+            ),
+            details={
+                "requested_axis": axis.id,
+                "normalized_axis": normalized_axis,
+                "available_columns": available_columns,
+            },
         )
 
     if frame.meta.semantic_kind == "panel":

@@ -5,7 +5,7 @@ from typing import Any
 from marivo.analysis_py import errors as errors
 from marivo.analysis_py import session
 from marivo.analysis_py.calendar.model import CalendarPolicy
-from marivo.analysis_py.errors import PromotionFailedError
+from marivo.analysis_py.errors import DiscoverInsufficientDataError, PromotionFailedError
 from marivo.analysis_py.escape_hatch import (
     explore_ibis,
     from_pandas,
@@ -116,6 +116,7 @@ __all__ = [
     "DeltaFrame",
     "DeltaFrameMeta",
     "DimensionRef",
+    "DiscoverInsufficientDataError",
     "DiscoverSensitivity",
     "EvidenceTrace",
     "ExplorationResult",
