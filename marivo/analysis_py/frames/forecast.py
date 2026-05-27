@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict
 
 from marivo.analysis_py.frames.base import BaseFrame, BaseFrameMeta
 
@@ -30,8 +30,6 @@ class ForecastFrameMeta(BaseFrameMeta):
     interval_method: Literal["normal_residual"]
     train_row_count_per_segment: dict[str, int]
     segment_dimensions: list[str]
-    recommended_followups: list[dict[str, Any]] = Field(default_factory=list)
-    blocking_issues: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @dataclass

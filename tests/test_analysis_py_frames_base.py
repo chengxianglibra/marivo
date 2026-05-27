@@ -34,6 +34,25 @@ def test_meta_construction_minimum_fields():
     assert meta.row_count == 2
 
 
+def test_base_frame_meta_evidence_fields_default() -> None:
+    meta = BaseFrameMeta(
+        kind="metric_frame",
+        ref="frame_abc",
+        session_id="sess_1",
+        project_root="/tmp",
+        produced_by_job=None,
+        created_at=datetime.now(UTC),
+        row_count=10,
+        byte_size=100,
+    )
+    assert meta.artifact_id is None
+    assert meta.evidence_status == "unavailable"
+    assert meta.blocking_issues == []
+    assert meta.recommended_followups == []
+    assert meta.quality is None
+    assert meta.confidence_scope is None
+
+
 def test_meta_kind_required():
     with pytest.raises(Exception):
         BaseFrameMeta()  # type: ignore[call-arg]

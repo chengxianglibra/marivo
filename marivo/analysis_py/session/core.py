@@ -56,6 +56,8 @@ class Session:
     calendars: Any = None
     known_datasources: set[str] = field(default_factory=set)
     backend_cache: Any = None
+    judgment_store: Any = None
+    judgment_store_unavailable: bool = False
 
     def __post_init__(self) -> None:
         if self.backend_cache is None:
@@ -103,8 +105,100 @@ class Session:
         return refs
 
     def close(self) -> None:
+        if self.judgment_store is not None:
+            self.judgment_store.close()
+            self.judgment_store = None
         if self.backend_cache is not None:
             self.backend_cache.close_all()
+
+    def evidence_store(self) -> Any:
+        """Return the lazily-opened JudgmentStore, or None if unavailable."""
+        if self.judgment_store is not None:
+            return self.judgment_store
+        if self.judgment_store_unavailable:
+            return None
+        from marivo.analysis_py.errors import EvidenceStoreUnavailableError
+        from marivo.analysis_py.evidence.store import open_judgment_store, run_startup_gc
+
+        db_path = self.layout.session_dir / "judgment.db"
+        try:
+            store = open_judgment_store(db_path)
+        except EvidenceStoreUnavailableError:
+            self.judgment_store_unavailable = True
+            return None
+        run_startup_gc(store, self.layout.frames_dir)
+        self.judgment_store = store
+        return store
+
+    def knowledge(self) -> Any:
+        """Return a SessionKnowledge projection for this session."""
+        from marivo.analysis_py.evidence.knowledge import build_session_knowledge
+
+        db_path = self.layout.session_dir / "judgment.db"
+        if not db_path.exists():
+            from datetime import UTC
+            from datetime import datetime as _dt
+
+            from marivo.analysis_py.evidence.knowledge import SessionKnowledge
+
+            now = _dt.now(UTC)
+            return SessionKnowledge(
+                session_id=self.id,
+                snapshot_id=f"snap_{self.id}_{int(now.timestamp() * 1_000_000)}",
+                snapshot_at=now,
+                evidence_completeness="unavailable",
+            )
+        return build_session_knowledge(db_path=db_path, session_id=self.id)
+
+    def run_followup(self, action: Any) -> Any:
+        """Dispatch a FollowupAction to the appropriate operator."""
+        from marivo.analysis_py.followups import FollowupAction
+
+        if not isinstance(action, FollowupAction):
+            raise TypeError(
+                f"run_followup expected FollowupAction, got {type(action).__name__}"
+            )
+
+        if action.operator == "assess_quality":
+            from marivo.analysis_py.intents.assess_quality import assess_quality
+            from marivo.analysis_py.session._load import load_frame
+
+            source_ref = action.input_refs[0]
+            source_frame = load_frame(source_ref, session=self)
+            try:
+                result = assess_quality(source_frame, session=self)
+            finally:
+                self._mark_followup_executed(
+                    action_id=action.action_id,
+                    executed_step_id="step_assess_quality",
+                )
+            return result
+
+        if action.operator == "compare":
+            raise NotImplementedError(
+                "run_followup(compare) requires another MetricFrame; agent must dispatch"
+            )
+        if action.operator == "observe":
+            raise NotImplementedError(
+                "run_followup(observe) requires explicit MetricRef; agent must dispatch"
+            )
+
+        raise NotImplementedError(
+            f"run_followup is not wired for operator={action.operator!r} in this slice"
+        )
+
+    def _mark_followup_executed(
+        self, *, action_id: str, executed_step_id: str
+    ) -> None:
+        """Mark a followup action as executed in the judgment store."""
+        store = self.evidence_store()
+        if store is None:
+            return
+        with store.transaction() as tx:
+            tx.execute(
+                "UPDATE followups SET executed_step_id=? WHERE followup_id=?",
+                (executed_step_id, action_id),
+            )
 
 
 def ensure_session_writable(session: Session) -> None:

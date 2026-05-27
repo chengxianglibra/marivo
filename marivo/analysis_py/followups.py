@@ -39,6 +39,8 @@ class FollowupAction(BaseModel):
         ]
         | None
     ) = None
+    category: Literal["dag_continuation", "quality_remediation"] | None = None
+    source_issue_id: str | None = None
 
 
 class BlockingIssue(BaseModel):
@@ -46,6 +48,15 @@ class BlockingIssue(BaseModel):
 
     issue_id: str
     kind: Literal[
+        "null_rate_high",
+        "sample_size_low",
+        "comparability_incompatible",
+        "definition_drift_detected",
+        "evidence_partial",
+        "evidence_store_unavailable",
+        "cross_session_window_mismatch",
+        "outlier_winsorize_recommended",
+        # legacy kinds kept for candidate_set row-level usage
         "quality",
         "sample_size",
         "comparability",

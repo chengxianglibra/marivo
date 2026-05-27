@@ -8,7 +8,7 @@ import json
 import secrets
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Any, cast
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -24,6 +24,13 @@ from marivo.analysis_py.errors import (
     SegmentDimensionMismatchError,
     SemanticKindMismatchError,
 )
+from marivo.analysis_py.evidence.pipeline import (
+    CommitInputs,
+    CommitParams,
+    CommitSemanticAnchors,
+    commit_result,
+)
+from marivo.analysis_py.evidence.types import Subject
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.lineage import Lineage, LineageStep
@@ -31,7 +38,7 @@ from marivo.analysis_py.policies import AlignmentPolicy
 from marivo.analysis_py.refs import CalendarRef
 from marivo.analysis_py.session.attach import active as session_active
 from marivo.analysis_py.session.core import Session, ensure_session_writable
-from marivo.analysis_py.session.persistence import write_frame_to_disk, write_job_record
+from marivo.analysis_py.session.persistence import write_job_record
 
 EXPECTED_METRIC_FRAME_KIND = "metric_frame"
 
@@ -268,7 +275,31 @@ def compare(
         semantic_model=a.meta.semantic_model,
     )
     output_frame = DeltaFrame(_df=df, meta=meta)
-    output_frame.meta = cast("DeltaFrameMeta", write_frame_to_disk(session.layout, output_frame))
+
+    # --- Evidence pipeline: commit_result replaces write_frame_to_disk ---
+    subject = Subject(
+        metric=a.meta.metric_id,
+        slice=getattr(a.meta, "slice", None) or {},
+        grain=_grain_from_axes(a),
+        analysis_axis="change",
+    )
+    comparison_window_dict = _scope_for_window(a)
+    commit_result(
+        store=session.evidence_store(),
+        frames_dir=session.layout.frames_dir,
+        frame=output_frame,
+        step_type="compare",
+        inputs=CommitInputs(input_refs=[a.ref, b.ref]),
+        params=CommitParams(values=params),
+        semantic_anchors=CommitSemanticAnchors(
+            values={"metric_id": a.meta.metric_id, "model": a.meta.semantic_model}
+        ),
+        subject=subject,
+        extractor_family="delta_frame",
+        comparison_window=comparison_window_dict,
+        comparison_basis="left_vs_right",
+    )
+
     write_job_record(
         session.layout,
         {
@@ -277,7 +308,7 @@ def compare(
             "intent": "compare",
             "params": params,
             "input_frame_refs": [a.ref, b.ref],
-            "output_frame_ref": frame_ref,
+            "output_frame_ref": output_frame.meta.artifact_id or output_frame.ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started) * 1000),
@@ -908,3 +939,24 @@ def _sample_align(a_df: pd.DataFrame, b_df: pd.DataFrame) -> pd.DataFrame:
             "pct_change": np.where(baseline != 0, (current - baseline) / baseline, np.nan),
         }
     )
+
+
+def _scope_for_window(frame: MetricFrame) -> dict[str, Any] | None:
+    """Extract comparison_window dict from a MetricFrame's window metadata."""
+    window = getattr(frame.meta, "window", None)
+    if window is None:
+        return None
+    if isinstance(window, dict):
+        return window
+    return None
+
+
+def _grain_from_axes(frame: MetricFrame) -> Literal["hour", "day", "week", "month"] | None:
+    """Extract grain from a MetricFrame's axes metadata."""
+    axes = getattr(frame.meta, "axes", {})
+    for axis in axes.values():
+        if isinstance(axis, dict) and axis.get("role") == "time":
+            grain = axis.get("grain")
+            if isinstance(grain, str) and grain in ("hour", "day", "week", "month"):
+                return grain  # type: ignore[return-value]
+    return None

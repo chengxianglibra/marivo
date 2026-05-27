@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict
 
 from marivo.analysis_py.frames.base import BaseFrame, BaseFrameMeta
 
@@ -24,8 +24,6 @@ class QualityReportMeta(BaseFrameMeta):
     overall_status: Literal["ok", "warning", "blocking"]
     blocking_issue_count: int
     warning_count: int
-    recommended_followups: list[dict[str, Any]] = Field(default_factory=list)
-    blocking_issues: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @dataclass

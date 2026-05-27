@@ -11,6 +11,7 @@ from typing import Literal, cast
 import pandas as pd
 
 from marivo.analysis_py.errors import QualityShapeUnsupportedError
+from marivo.analysis_py.followups import BlockingIssue, FollowupAction
 from marivo.analysis_py.frames.base import BaseFrame
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.frames.quality import QualityReport, QualityReportMeta
@@ -117,65 +118,65 @@ def _overall_status(output: pd.DataFrame) -> Literal["ok", "warning", "blocking"
     return "ok"
 
 
-def _recommended_followups(target: MetricFrame, output: pd.DataFrame) -> list[dict[str, object]]:
-    followups: list[dict[str, object]] = []
+def _recommended_followups(target: MetricFrame, output: pd.DataFrame) -> list[FollowupAction]:
+    followups: list[FollowupAction] = []
     for row in output.to_dict("records"):
         if row["severity"] != "blocking":
             continue
         if row["check_kind"] == "null_ratio":
             followups.append(
-                {
-                    "action_id": f"followup_{len(followups) + 1}",
-                    "kind": "adjust_policy",
-                    "operator": "transform",
-                    "input_refs": [target.ref],
-                    "params": {"op": "impute_nulls"},
-                    "preconditions": [],
-                    "expected_output_family": "metric_frame",
-                }
+                FollowupAction(
+                    action_id=f"followup_{len(followups) + 1}",
+                    kind="adjust_policy",
+                    operator="transform",
+                    input_refs=[target.ref],
+                    params={"op": "impute_nulls"},
+                    preconditions=[],
+                    expected_output_family="metric_frame",
+                )
             )
         if row["check_kind"] == "time_coverage":
             followups.append(
-                {
-                    "action_id": f"followup_{len(followups) + 1}",
-                    "kind": "adjust_policy",
-                    "operator": "observe",
-                    "input_refs": [target.ref],
-                    "params": {"narrow_window": True},
-                    "preconditions": [],
-                    "expected_output_family": "metric_frame",
-                }
+                FollowupAction(
+                    action_id=f"followup_{len(followups) + 1}",
+                    kind="adjust_policy",
+                    operator="observe",
+                    input_refs=[target.ref],
+                    params={"narrow_window": True},
+                    preconditions=[],
+                    expected_output_family="metric_frame",
+                )
             )
     return followups
 
 
-def _blocking_issues(target: MetricFrame, output: pd.DataFrame) -> list[dict[str, object]]:
-    issues: list[dict[str, object]] = []
+def _blocking_issues(target: MetricFrame, output: pd.DataFrame) -> list[BlockingIssue]:
+    issues: list[BlockingIssue] = []
     for row in output.to_dict("records"):
         if row["severity"] != "blocking":
             continue
         if row["check_kind"] == "duplicate_keys":
             issues.append(
-                {
-                    "issue_id": f"issue_{len(issues) + 1}",
-                    "kind": "quality",
-                    "severity": "blocking",
-                    "source_refs": [target.ref],
-                    "message": "duplicate key tuples in metric frame",
-                    "remediation_followups": [],
-                }
+                BlockingIssue(
+                    issue_id=f"issue_{len(issues) + 1}",
+                    kind="quality",
+                    severity="blocking",
+                    source_refs=[target.ref],
+                    message="duplicate key tuples in metric frame",
+                    remediation_followups=[],
+                )
             )
         if row["check_kind"] == "row_count":
             details = json.loads(str(row["details_json"]))
             if details.get("row_count") == 0:
                 issues.append(
-                    {
-                        "issue_id": f"issue_{len(issues) + 1}",
-                        "kind": "sample_size",
-                        "severity": "blocking",
-                        "source_refs": [target.ref],
-                        "message": "metric frame has zero rows",
-                        "remediation_followups": [],
-                    }
+                    BlockingIssue(
+                        issue_id=f"issue_{len(issues) + 1}",
+                        kind="sample_size",
+                        severity="blocking",
+                        source_refs=[target.ref],
+                        message="metric frame has zero rows",
+                        remediation_followups=[],
+                    )
                 )
     return issues
