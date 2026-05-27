@@ -1,0 +1,26 @@
+"""Shared public type aliases for analysis_py intents."""
+
+from __future__ import annotations
+
+from typing import Any, Literal, TypedDict
+
+SlicePredicateOp = Literal["==", "!=", "in", ">", ">=", "<", "<=", "between"]
+
+
+class SlicePredicate(TypedDict):
+    op: SlicePredicateOp
+    value: Any
+
+
+SliceScalar = str | int | float | bool | None
+SliceValue = SliceScalar | list[SliceScalar] | SlicePredicate
+
+DiscoverSensitivity = Literal["conservative", "balanced", "aggressive"]
+
+__all__ = [
+    "DiscoverSensitivity",
+    "SlicePredicate",
+    "SlicePredicateOp",
+    "SliceScalar",
+    "SliceValue",
+]
