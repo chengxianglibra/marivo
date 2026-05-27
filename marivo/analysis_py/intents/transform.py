@@ -92,7 +92,7 @@ def _is_supported_op(op: str) -> TypeGuard[TransformOp]:
 def transform(
     frame: object,
     *,
-    op: TransformOp | str,
+    op: TransformOp,
     session: Session | None = None,
     where: Any = None,
     predicate: Any = None,
