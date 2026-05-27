@@ -7,6 +7,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from marivo.analysis_py.calendar.model import AlignPeriod, CalendarFallback
+from marivo.analysis_py.errors import (
+    AlignmentPolicyValidationError,
+    LagPolicyValidationError,
+)
 from marivo.analysis_py.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
 
 AlignmentKind = Literal[
@@ -28,9 +32,15 @@ class AlignmentPolicy(BaseModel):
     @model_validator(mode="after")
     def validate_calendar_ref(self) -> AlignmentPolicy:
         if self.kind != "calendar_bucket" and self.calendar is None:
-            raise ValueError(f"alignment kind {self.kind!r} requires calendar=CalendarRef(...)")
+            raise AlignmentPolicyValidationError(
+                message=f"alignment kind {self.kind!r} requires calendar=CalendarRef(...)",
+                details={"case": "missing_calendar", "kind": self.kind},
+            )
         if self.kind == "calendar_bucket" and self.calendar is not None:
-            raise ValueError("calendar_bucket does not accept calendar")
+            raise AlignmentPolicyValidationError(
+                message="calendar_bucket does not accept calendar",
+                details={"case": "unexpected_calendar", "kind": self.kind},
+            )
         return self
 
 
@@ -43,9 +53,15 @@ class LagPolicy(BaseModel):
     @model_validator(mode="after")
     def validate_supported_policy(self) -> LagPolicy:
         if self.mode != "single":
-            raise ValueError("only LagPolicy(mode='single', offset=0) is supported")
+            raise LagPolicyValidationError(
+                message="only LagPolicy(mode='single', offset=0) is supported",
+                details={"case": "unsupported_mode", "mode": self.mode},
+            )
         if self.offset != 0:
-            raise ValueError("only zero-lag correlation is supported")
+            raise LagPolicyValidationError(
+                message="only zero-lag correlation is supported",
+                details={"case": "nonzero_offset", "offset": self.offset},
+            )
         return self
 
 

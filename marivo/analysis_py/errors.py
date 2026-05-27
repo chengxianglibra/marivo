@@ -295,6 +295,72 @@ class SemanticKindMismatchError(AnalysisError):
 class AlignmentFailedError(AnalysisError): ...
 
 
+class AlignmentPolicyValidationError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        case = self.details.get("case")
+        kind = self.details.get("kind")
+        if case == "missing_calendar":
+            kind_str = kind if isinstance(kind, str) and kind else "dow_aligned"
+            return {
+                "location": "mv.AlignmentPolicy(...)",
+                "cause": (
+                    f"alignment kind {kind_str!r} requires a calendar; calendar-backed "
+                    "alignment cannot resolve buckets without one."
+                ),
+                "fix_snippet": (
+                    f'mv.AlignmentPolicy(kind="{kind_str}",\n'
+                    '                   calendar=mv.CalendarRef("cn_holidays"),\n'
+                    '                   period="month")'
+                ),
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        if case == "unexpected_calendar":
+            return {
+                "location": "mv.AlignmentPolicy(...)",
+                "cause": (
+                    "calendar_bucket alignment infers buckets from the data and does not "
+                    "accept a calendar argument."
+                ),
+                "fix_snippet": (
+                    'mv.AlignmentPolicy(kind="calendar_bucket")  # no calendar argument'
+                ),
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        return {
+            "location": "mv.AlignmentPolicy(...)",
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
+class LagPolicyValidationError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        case = self.details.get("case")
+        if case == "unsupported_mode":
+            mode = self.details.get("mode")
+            mode_str = mode if isinstance(mode, str) and mode else "<mode>"
+            return {
+                "location": "mv.LagPolicy(...)",
+                "cause": f"lag mode {mode_str!r} is not supported; only mode='single' is implemented in v1.",
+                "fix_snippet": 'mv.LagPolicy(mode="single", offset=0)',
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        if case == "nonzero_offset":
+            offset = self.details.get("offset")
+            offset_str = str(offset) if isinstance(offset, int) else "<offset>"
+            return {
+                "location": "mv.LagPolicy(...)",
+                "cause": (
+                    f"offset={offset_str} is not supported in v1; only zero-lag correlation is implemented."
+                ),
+                "fix_snippet": 'mv.LagPolicy(mode="single", offset=0)',
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        return {
+            "location": "mv.LagPolicy(...)",
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
 class PromotionFailedError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         target_kind = self.details.get("target_kind")
