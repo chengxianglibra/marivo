@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix="marivo-py-analysis-scratch-") as projec
         con = ibis.duckdb.connect(":memory:")
         con.raw_sql("CREATE TABLE orders (country TEXT, revenue DOUBLE)")
         con.raw_sql("INSERT INTO orders VALUES ('US', 10.0), ('CA', 5.0), ('US', 3.0)")
-        session = mv.session.create(name="examples", backends={"warehouse": lambda: con})
+        session = mv.session.get_or_create(name="examples", backends={"warehouse": lambda: con})
         scratch = mv.from_pandas(
             pd.DataFrame({"country": ["US", "CA"], "value": [10.0, 5.0]}),
             session=session,

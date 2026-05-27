@@ -25,7 +25,7 @@ files and any referenced secret env vars are exported.
 ```python
 import marivo.analysis_py as mv
 
-session = mv.session.create(name="analysis")
+session = mv.session.get_or_create(name="analysis")
 ```
 
 If a datasource is missing or invalid, switch to `marivo-py-semantic` and
@@ -52,7 +52,7 @@ def make_backend(datasource_name: str):
         client_tags=["standby", "routing_group=wide"],
     )
 
-session = mv.session.create(
+session = mv.session.get_or_create(
     name="analysis",
     backend_factory=make_backend,
     use_datasources=False,

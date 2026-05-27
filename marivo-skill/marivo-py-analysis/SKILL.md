@@ -6,10 +6,10 @@ description: Use when the task involves Marivo analysis: observe, compare, decom
 # marivo-py-analysis
 
 Use this skill when writing or running Python code against
-`marivo.analysis_py`. Import it as `ap`:
+`marivo.analysis_py`. Import it as `mv`:
 
 ```python
-import marivo.analysis_py as ap
+import marivo.analysis_py as mv
 ```
 
 Assume the active Python environment already has `marivo` installed. Do not use
@@ -20,20 +20,44 @@ this skill for stdio MCP workflows, HTTP transports, or semantic model authoring
 Create or attach a project-local analysis session, then stay in session methods:
 
 ```python
-import marivo.analysis_py as ap
+import marivo.analysis_py as mv
 
-session = ap.session()
-current = session.observe(
-    metric=ap.MetricRef("sales.revenue"),
-    time="this_week",
+mv.session.get_or_create(name="analysis")  # backend resolved from .marivo/datasource
+current = mv.observe(
+    mv.MetricRef("sales.revenue"),
+    window={"expr": "this_week"},
     grain="day",
 )
 print(current.summary())
 ```
 
+Attach a live backend explicitly in tests / CI or when you need full control
+over the backend. Pair with `use_datasources=False` so a stray project
+datasource cannot mask a misconfigured fixture.
+
+```python
+import ibis
+import marivo.analysis_py as mv
+
+def make_backend(datasource_name: str):
+    if datasource_name != "warehouse":
+        raise KeyError(datasource_name)
+    return ibis.trino.connect(
+        host="<trino_host>", port=80, user="<user>",
+        database="<catalog>", source="<source>",
+        client_tags=["standby", "routing_group=bsk_wide"],
+    )
+
+mv.session.get_or_create(
+    name="analysis",
+    backend_factory=make_backend,
+    use_datasources=False,
+)
+```
+
 Use typed refs when an argument expects a public reference:
-`ap.MetricRef`, `ap.DimensionRef`, `ap.CalendarRef`, `ap.AlignmentPolicy`, and
-`ap.LagPolicy`. Some convenience parameters, such as `segment_by="country"`,
+`mv.MetricRef`, `mv.DimensionRef`, `mv.CalendarRef`, `mv.AlignmentPolicy`, and
+`mv.LagPolicy`. Some convenience parameters, such as `segment_by="country"`,
 accept strings and normalize them internally.
 
 ## Operators

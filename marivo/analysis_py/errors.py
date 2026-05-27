@@ -489,7 +489,7 @@ class NoBackendFactoryError(AnalysisError):
                     "\n"
                     "# Recommended: persist the project datasource config once.\n"
                     'mv.datasources.set("tiny_orders", backend_type="duckdb", path=":memory:")\n'
-                    'session = mv.session.create(name="analysis")  # auto-loads from datasource\n'
+                    'session = mv.session.get_or_create(name="analysis")  # auto-loads from datasource\n'
                     "\n"
                     "# Or pass an explicit factory (no datasource lookup):\n"
                     "import ibis\n"
@@ -636,16 +636,24 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
     def _template_fields(self) -> dict[str, str]:
         dim = self.details.get("dimension_id")
         datasets = self.details.get("searched_datasets")
+        metric_shape = self.details.get("metric_shape")
         dim_ref = dim if isinstance(dim, str) and dim else "<dimension>"
         dataset_list = (
             ", ".join(datasets) if isinstance(datasets, list) and datasets else "<datasets>"
         )
-        return {
-            "location": "mv.observe dimensions argument",
-            "cause": (
+        if metric_shape == "derived":
+            cause = (
+                f"DimensionRef({dim_ref!r}) was not found on the derived metric's "
+                f"component datasets or reachable relationship graph ({dataset_list})."
+            )
+        else:
+            cause = (
                 f"DimensionRef({dim_ref!r}) is not a field on any of the metric's "
                 f"datasets ({dataset_list})."
-            ),
+            )
+        return {
+            "location": "mv.observe dimensions argument",
+            "cause": cause,
             "fix_snippet": (
                 "import marivo.semantic_py as ms\n"
                 "project = ms.find_project()\n"

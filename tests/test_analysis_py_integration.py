@@ -32,7 +32,7 @@ def _seed_warehouse():
 def test_end_to_end_sales_observe_compare_load(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = _seed_warehouse()
-    s = mv.session.create(
+    s = mv.session.get_or_create(
         name="qoq-investigation",
         question="Why did Q3 revenue jump vs Q2?",
         backends={"warehouse": lambda: con},

@@ -23,7 +23,7 @@ def test_current_returns_none_when_no_active_session() -> None:
 
 
 def test_current_returns_summary_after_create() -> None:
-    mv.session.create(name="s_test")
+    mv.session.get_or_create(name="s_test")
     current = mv.session.current()
     assert current is not None
     assert current.name == "s_test"
@@ -34,12 +34,12 @@ def test_history_returns_empty_list_when_no_active_session() -> None:
 
 
 def test_history_returns_empty_list_when_no_jobs() -> None:
-    mv.session.create(name="s_test")
+    mv.session.get_or_create(name="s_test")
     assert mv.session.history() == []
 
 
 def test_history_respects_limit() -> None:
-    session = mv.session.create(name="s_test")
+    session = mv.session.get_or_create(name="s_test")
     for index in range(3):
         write_job_record(
             session.layout,
@@ -66,5 +66,5 @@ def test_history_respects_limit() -> None:
 
 
 def test_history_limit_zero_returns_empty_list() -> None:
-    mv.session.create(name="s_test")
+    mv.session.get_or_create(name="s_test")
     assert mv.session.history(limit=0) == []

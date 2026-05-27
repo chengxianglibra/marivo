@@ -240,6 +240,11 @@ def <derived_name>():
     return ms.component("numerator") / ms.component("denominator")
 ```
 
+`datasets=[]` marks a derived metric: the body combines registered component
+metrics with `ms.component(...)` instead of reading a dataset directly. Derived
+metrics can be observed with `dimensions=` only when every component metric can
+reach that dimension through its datasets and a unique relationship path.
+
 ## Decision Tree
 
 ```text
@@ -261,6 +266,12 @@ How is this value computed?
 - Decorators need an active model opened by `ms.model(name=...)`.
 - `ms.datasource(...)` has been removed. Put datasource config under
   `.marivo/datasource` and reference its name from `@ms.dataset`.
+- Metric bodies return ibis expressions. Do not aggregate an aggregate result:
+  `orders.count().mean()` is invalid; use a row-level boolean/float expression
+  followed by one aggregate, such as `(orders.state == "FAILED").cast("float64").mean()`.
+- For string time fields on Trino, build an instance expression explicitly
+  before parsing/casting. Do not call ibis expression methods as class methods,
+  such as `ibis.expr.types.StringValue.re_replace(...)`.
 
 ## Further Reading
 

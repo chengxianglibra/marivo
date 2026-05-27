@@ -1,4 +1,4 @@
-"""create / attach / switch / active / active_or_create / list / archive / delete."""
+"""session lifecycle helpers."""
 
 import ibis
 import pytest
@@ -45,6 +45,36 @@ def test_create_session_duplicate_raises(tmp_path):
     attach.create(name="demo", backends=_backends())
     with pytest.raises(DuplicateSessionNameError):
         attach.create(name="demo", backends=_backends())
+
+
+def test_get_or_create_creates_missing_session(tmp_path):
+    s = attach.get_or_create(name="demo", question="q", backends=_backends())
+
+    assert s.name == "demo"
+    assert s.question == "q"
+    assert read_active_session_name(resolve_project_root()) == "demo"
+
+
+def test_get_or_create_attaches_existing_session_and_sets_active(tmp_path):
+    a = attach.create(name="demo", backends=_backends())
+    attach.create(name="other", backends=_backends())
+    attach._reset_process_state()
+
+    b = attach.get_or_create(name="demo", backends=_backends())
+
+    assert b.id == a.id
+    assert b.name == "demo"
+    assert read_active_session_name(resolve_project_root()) == "demo"
+    assert attach.active().id == a.id
+
+
+def test_get_or_create_rebinds_backend_factory_on_attach(tmp_path):
+    attach.create(name="demo", use_datasources=False)
+    con = ibis.duckdb.connect(":memory:")
+
+    s = attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    assert s.backend_cache.get_or_create("warehouse") is con
 
 
 def test_attach_returns_existing(tmp_path):

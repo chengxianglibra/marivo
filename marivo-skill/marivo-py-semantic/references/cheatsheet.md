@@ -55,3 +55,13 @@
 |-------------------------------------------|---------------------------------------------|
 | `ms.help()`                               | Top-level entry list.                       |
 | `ms.help("dataset")`                      | Signature and docstring for a decorator.    |
+
+## Metric Body Rules
+
+- `datasets=[]` is only for derived metrics with component decompositions such
+  as `ms.ratio(...)`; `datasets=[]` with `ms.sum()` is invalid.
+- Dataset-backed metrics must not call `ms.component(...)`.
+- Derived metrics can use `dimensions=` when component metric datasets and
+  relationships provide a unique path to the requested dimension.
+- Return one ibis expression. Do not call an aggregate such as `.mean()` on the
+  result of `.count()` or `.sum()`.

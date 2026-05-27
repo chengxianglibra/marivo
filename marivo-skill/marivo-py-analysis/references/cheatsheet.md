@@ -100,8 +100,8 @@ numeric column. `select(field=...)` accepts `"item_id"`, `"score"`, `"axis"`,
 | --- | --- |
 | Check active session without raising | `mv.session.current()` |
 | Read recent jobs without raising | `mv.session.history()` |
-| Create, switch, or list sessions | `mv.session.create(name=..., timezone="Asia/Shanghai")`, `mv.session.switch(name=...)`, `mv.session.list_sessions()` |
-| Attach live data | `mv.session.create(name=..., backends=...)` or `mv.session.create(name=..., backend_factory=...)` |
+| Create/attach, switch, or list sessions | `mv.session.get_or_create(name=..., timezone="Asia/Shanghai")`, `mv.session.switch(name=...)`, `mv.session.list_sessions()` |
+| Attach live data | `mv.session.get_or_create(name=..., backends=...)` or `mv.session.get_or_create(name=..., backend_factory=...)` |
 | Inspect SDK entrypoints | `mv.help()` or `mv.help("compare")` |
 | Confirm metric ids | `import marivo.semantic_py as ms; ms.list_metrics()` |
 
@@ -131,7 +131,7 @@ def make_backend(datasource_name: str):
         client_tags=["standby", "routing_group=bsk_wide"],
     )
 
-mv.session.create(name="analysis", backend_factory=make_backend)
+mv.session.get_or_create(name="analysis", backend_factory=make_backend)
 ```
 
 For Trino, map prompt `catalog` to Ibis `database`, and map

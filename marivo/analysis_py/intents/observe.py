@@ -57,6 +57,11 @@ from marivo.analysis_py.windows.spec import (
     dump_window,
     normalize_window_input,
 )
+from marivo.semantic_py.authoring import (
+    _BinOpSentinel,
+    _ComponentSentinel,
+    _UnaryNegSentinel,
+)
 
 # ---------------------------------------------------------------------------
 # v1.1 -> runner adapter types
@@ -296,6 +301,310 @@ def _resolve_dimensions(
     return resolved
 
 
+def _resolve_dimensions_across_project(
+    dimensions: list[Any] | None, *, sp: Any
+) -> list[tuple[str, Any]]:
+    dimension_refs = _validate_dimension_refs(dimensions)
+    resolved: list[tuple[str, Any]] = []
+    for dimension in dimension_refs:
+        matches = [
+            (field_ir.dataset, field_ir)
+            for field_ir in [*sp.list_fields(), *sp.list_time_fields()]
+            if dimension.id in {field_ir.name, field_ir.semantic_id}
+        ]
+        if not matches:
+            raise DimensionFieldNotFoundError(
+                message=f"dimension '{dimension.id}' not found",
+                details={
+                    "dimension_id": dimension.id,
+                    "searched_datasets": sorted(d.semantic_id for d in sp.list_datasets()),
+                    "metric_shape": "derived",
+                },
+            )
+        if len(matches) > 1:
+            raise AmbiguousDimensionError(
+                message=f"dimension '{dimension.id}' is ambiguous",
+                details={
+                    "dimension_id": dimension.id,
+                    "candidates": sorted(
+                        f"{dataset_name}.{field_ir.name}" for dataset_name, field_ir in matches
+                    ),
+                },
+            )
+        resolved.append(matches[0])
+
+    dimensions_by_dataset: dict[str, list[str]] = {}
+    for dataset_name, field_ir in resolved:
+        dimensions_by_dataset.setdefault(dataset_name, []).append(field_ir.name)
+    if len(dimensions_by_dataset) > 1:
+        raise DimensionAcrossDatasetsError(
+            message="observe dimensions must resolve to one dataset",
+            details={"dimensions_by_dataset": dimensions_by_dataset},
+        )
+    return resolved
+
+
+def _relationship_neighbors(sp: Any, dataset_id: str) -> list[tuple[str, Any]]:
+    neighbors: list[tuple[str, Any]] = []
+    for relationship in sp.list_relationships():
+        if relationship.from_dataset == dataset_id:
+            neighbors.append((relationship.to_dataset, relationship))
+        elif relationship.to_dataset == dataset_id:
+            neighbors.append((relationship.from_dataset, relationship))
+    return neighbors
+
+
+def _unique_relationship_path(sp: Any, start_dataset: str, end_dataset: str) -> list[Any]:
+    if start_dataset == end_dataset:
+        return []
+    queue: list[tuple[str, list[Any]]] = [(start_dataset, [])]
+    paths: list[list[Any]] = []
+    shortest_len: int | None = None
+    while queue:
+        current, path = queue.pop(0)
+        if shortest_len is not None and len(path) >= shortest_len:
+            continue
+        for next_dataset, relationship in _relationship_neighbors(sp, current):
+            if any(relationship.semantic_id == existing.semantic_id for existing in path):
+                continue
+            next_path = [*path, relationship]
+            if next_dataset == end_dataset:
+                shortest_len = len(next_path)
+                paths.append(next_path)
+                continue
+            queue.append((next_dataset, next_path))
+    if not paths:
+        raise MetricShapeUnsupportedError(
+            message=(
+                f"dimension dataset '{end_dataset}' is not reachable from "
+                f"component dataset '{start_dataset}'"
+            ),
+            details={
+                "kind": "DerivedDimensionRelationshipMissing",
+                "from_dataset": start_dataset,
+                "to_dataset": end_dataset,
+            },
+        )
+    shortest_paths = [path for path in paths if len(path) == shortest_len]
+    if len(shortest_paths) > 1:
+        raise MetricShapeUnsupportedError(
+            message=(
+                f"dimension dataset '{end_dataset}' has multiple relationship paths "
+                f"from component dataset '{start_dataset}'"
+            ),
+            details={
+                "kind": "DerivedDimensionRelationshipAmbiguous",
+                "from_dataset": start_dataset,
+                "to_dataset": end_dataset,
+                "paths": [[rel.semantic_id for rel in path] for path in shortest_paths],
+            },
+        )
+    return shortest_paths[0]
+
+
+def _field_fn(sp: Any, field_id: str) -> Callable[..., Any]:
+    sidecar = sp.sidecar()
+    fn = sidecar.get(field_id) if sidecar else None
+    if fn is None:
+        raise MetricNotFoundError(
+            message=f"field callable for '{field_id}' not found",
+            details={"field": field_id},
+        )
+    return cast("Callable[..., Any]", fn)
+
+
+def _join_related_dimension_table(
+    table: Any,
+    *,
+    sp: Any,
+    session: Session,
+    dataset_irs: dict[str, _DatasetIRAdapter],
+    base_dataset: str,
+    dimension_dataset: str,
+) -> Any:
+    current_table = table
+    current_dataset = base_dataset
+    for relationship in _unique_relationship_path(sp, base_dataset, dimension_dataset):
+        if relationship.from_dataset == current_dataset:
+            next_dataset = relationship.to_dataset
+            left_fields = relationship.from_fields
+            right_fields = relationship.to_fields
+        else:
+            next_dataset = relationship.from_dataset
+            left_fields = relationship.to_fields
+            right_fields = relationship.from_fields
+
+        ds_adapter = dataset_irs[next_dataset]
+        _datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
+        next_table = ds_adapter.fn(backend)
+        predicates = [
+            _field_fn(sp, left_field)(current_table) == _field_fn(sp, right_field)(next_table)
+            for left_field, right_field in zip(left_fields, right_fields, strict=True)
+        ]
+        current_table = current_table.join(next_table, predicates)
+        current_dataset = next_dataset
+    return current_table
+
+
+def _evaluate_sentinel_on_frame(node: Any, metric_ir: Any, frame: Any) -> Any:
+    if isinstance(node, _ComponentSentinel):
+        component_metric_id = metric_ir.decomposition.components[node.name]
+        component_col = component_metric_id.rsplit(".", 1)[1]
+        return frame[component_col]
+    if isinstance(node, _BinOpSentinel):
+        left = _evaluate_sentinel_or_literal_on_frame(node.left, metric_ir, frame)
+        right = _evaluate_sentinel_or_literal_on_frame(node.right, metric_ir, frame)
+        if node.op == "+":
+            return left + right
+        if node.op == "-":
+            return left - right
+        if node.op == "*":
+            return left * right
+        if node.op == "/":
+            return left / right
+    if isinstance(node, _UnaryNegSentinel):
+        return -_evaluate_sentinel_on_frame(node.operand, metric_ir, frame)
+    raise MetricShapeUnsupportedError(
+        message=f"unsupported derived metric expression node {type(node).__name__}",
+        details={"kind": "DerivedMetricExpressionUnsupported"},
+    )
+
+
+def _evaluate_sentinel_or_literal_on_frame(node: Any, metric_ir: Any, frame: Any) -> Any:
+    if isinstance(node, (int, float)):
+        return node
+    return _evaluate_sentinel_on_frame(node, metric_ir, frame)
+
+
+def _observe_derived_segmented(
+    metric_ir: Any,
+    metric_name: str,
+    *,
+    sp: Any,
+    session: Session,
+    dimensions: list[Any] | None,
+    resolved_window: AbsoluteWindow | None,
+    slice: dict[str, Any] | None,
+) -> tuple[Any, dict[str, Any], Literal["segmented"]]:
+    if resolved_window is not None:
+        raise MetricShapeUnsupportedError(
+            message="windowed derived metric dimensions are not supported yet",
+            details={"kind": "DerivedWindowedDimensionsUnsupported"},
+        )
+    sidecar = sp.sidecar()
+    sentinel_tree = sidecar.get(metric_ir.semantic_id) if sidecar else None
+    if sentinel_tree is None:
+        raise MetricNotFoundError(
+            message=f"derived metric expression for '{metric_ir.semantic_id}' not found",
+            details={"metric": metric_ir.semantic_id},
+        )
+    resolved_dimensions = _resolve_dimensions_across_project(dimensions, sp=sp)
+    dimension_dataset = resolved_dimensions[0][0]
+    dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
+    component_ids = list(metric_ir.decomposition.components.values())
+    component_irs = []
+    dataset_ids: list[str] = []
+    for component_id in component_ids:
+        component_ir = sp.get_metric(component_id)
+        if component_ir is None:
+            raise MetricNotFoundError(message=f"component metric '{component_id}' not found")
+        if component_ir.is_derived:
+            raise MetricShapeUnsupportedError(
+                message="nested derived metric dimensions are not supported yet",
+                details={"kind": "NestedDerivedDimensionsUnsupported", "metric": component_id},
+            )
+        if len(component_ir.datasets) != 1:
+            raise MetricShapeUnsupportedError(
+                message="derived metric dimensions require single-dataset component metrics",
+                details={
+                    "kind": "DerivedComponentMultiDatasetUnsupported",
+                    "metric": component_id,
+                    "datasets": sorted(component_ir.datasets),
+                },
+            )
+        component_irs.append(component_ir)
+        for dataset_id in [*component_ir.datasets, dimension_dataset]:
+            if dataset_id not in dataset_ids:
+                dataset_ids.append(dataset_id)
+
+    dataset_irs: dict[str, _DatasetIRAdapter] = {}
+    primary_datasource: str | None = None
+    for dataset_id in dataset_ids:
+        dataset_ir = sp.get_dataset(dataset_id)
+        if dataset_ir is None:
+            raise MetricNotFoundError(message=f"dataset '{dataset_id}' not found")
+        adapter = _build_dataset_adapter(sp, dataset_ir)
+        dataset_irs[dataset_id] = adapter
+        datasource_name, _backend = _backend_for_datasource(session, adapter.datasource_name)
+        if primary_datasource is None:
+            primary_datasource = datasource_name
+        elif primary_datasource != datasource_name:
+            raise CrossBackendMetricError(
+                message=(
+                    f"derived metric '{metric_ir.semantic_id}' dimensions span multiple "
+                    "datasources; v1 does not support federation"
+                ),
+            )
+
+    pandas = __import__("pandas")
+    component_frames: list[Any] = []
+    for component_ir in component_irs:
+        base_dataset = component_ir.datasets[0]
+        ds_adapter = dataset_irs[base_dataset]
+        datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
+        table = ds_adapter.fn(backend)
+        table = apply_slice_to_dataset(table, slice, dataset_ir=ds_adapter)
+        if base_dataset != dimension_dataset:
+            table = _join_related_dimension_table(
+                table,
+                sp=sp,
+                session=session,
+                dataset_irs=dataset_irs,
+                base_dataset=base_dataset,
+                dimension_dataset=dimension_dataset,
+            )
+        dimension_exprs = {
+            field_ir.name: _field_fn(sp, field_ir.semantic_id)(table).name(field_ir.name)
+            for _, field_ir in resolved_dimensions
+        }
+        table = table.mutate(**dimension_exprs)
+        component_fn = sidecar.get(component_ir.semantic_id) if sidecar else None
+        if component_fn is None:
+            raise MetricNotFoundError(
+                message=f"metric callable for '{component_ir.semantic_id}' not found",
+                details={"metric": component_ir.semantic_id},
+            )
+        component_name = component_ir.name
+        metric_expr = component_fn(table)
+        grouped_expr = (
+            table.group_by(dimension_names)
+            .aggregate(**{component_name: metric_expr})
+            .order_by(dimension_names)
+            .select(*dimension_names, component_name)
+        )
+        component_frames.append(
+            execute(grouped_expr, datasource_name=datasource_name, cache=session.backend_cache).df
+        )
+
+    merged = component_frames[0]
+    for frame in component_frames[1:]:
+        merged = pandas.merge(merged, frame, on=dimension_names, how="outer")
+    merged[metric_name] = _evaluate_sentinel_on_frame(sentinel_tree, metric_ir, merged)
+    result_df = merged[[*dimension_names, metric_name]].sort_values(dimension_names)
+    result_df = result_df.reset_index(drop=True)
+
+    class _Result:
+        def __init__(self, df: Any) -> None:
+            self.df = df
+            self.row_count = len(df)
+
+    axes = {
+        field_ir.name: {"role": "dimension", "column": field_ir.name}
+        for _, field_ir in resolved_dimensions
+    }
+    return _Result(result_df), axes, "segmented"
+
+
 def _dump_dimensions(dimensions: list[DimensionRef] | None) -> list[dict[str, Any]] | None:
     if dimensions is None:
         return None
@@ -372,6 +681,81 @@ def observe(
     stored_slice = normalize_slice_for_storage(slice)
     metric_datasets = tuple(metric_ir.datasets)
     dimension_refs = _validate_dimension_refs(dimensions)
+    if metric_ir.is_derived and dimension_refs:
+        result, derived_axes, derived_kind = _observe_derived_segmented(
+            metric_ir,
+            metric_name,
+            sp=sp,
+            session=session,
+            dimensions=dimensions,
+            resolved_window=resolved_window,
+            slice=slice,
+        )
+        finished_at = datetime.now(UTC)
+        frame_ref = _gen_ref("frame")
+        job_ref = _gen_ref("job")
+        params_window = None
+        if resolved_window is not None:
+            params_window = {
+                "original": dump_window(original_window),
+                "resolved": dump_window(resolved_window),
+                "as_of_resolved": as_of_resolved,
+                "session_tz": str(session.tz),
+            }
+        params = {
+            "metric": metric_id,
+            "window": params_window,
+            "dimensions": _dump_dimensions(dimensions),
+            "slice": stored_slice,
+        }
+        meta = MetricFrameMeta(
+            kind="metric_frame",
+            ref=frame_ref,
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job=job_ref,
+            created_at=finished_at,
+            row_count=result.row_count,
+            byte_size=0,
+            lineage=Lineage(
+                steps=[
+                    LineageStep(
+                        intent="observe",
+                        job_ref=job_ref,
+                        inputs=[],
+                        params_digest=_params_digest(params),
+                    )
+                ]
+            ),
+            metric_id=metric_id,
+            axes=derived_axes,
+            measure={"name": metric_name},
+            window=dump_window(resolved_window),
+            slice=stored_slice,
+            semantic_kind=derived_kind,
+            semantic_model=model_name,
+        )
+        frame = MetricFrame(_df=result.df, meta=meta)
+        frame.meta = cast("MetricFrameMeta", write_frame_to_disk(session.layout, frame))
+        write_job_record(
+            session.layout,
+            {
+                "id": job_ref,
+                "session_id": session.id,
+                "intent": "observe",
+                "params": params,
+                "input_frame_refs": [],
+                "output_frame_ref": frame_ref,
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "duration_ms": int((monotonic() - started) * 1000),
+                "status": "succeeded",
+                "error": None,
+                "semantic_project_root": session.semantic_project.root,
+                "semantic_model": model_name,
+            },
+        )
+        return frame
     if is_time_series and not dimension_refs and len(metric_datasets) > 1:
         raise MetricShapeUnsupportedError(
             message=(

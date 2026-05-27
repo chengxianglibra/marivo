@@ -25,10 +25,10 @@ def test_load_frame_cross_session_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s_a = mv.session.create(name="a", backends={"warehouse": lambda: con})
+    s_a = mv.session.get_or_create(name="a", backends={"warehouse": lambda: con})
     mf = mv.observe(mv.MetricRef("sales.revenue"), session=s_a)
     session_attach._reset_process_state()
-    s_b = mv.session.create(name="b", backends={"warehouse": lambda: con})
+    s_b = mv.session.get_or_create(name="b", backends={"warehouse": lambda: con})
     with pytest.raises(CrossSessionFrameError):
         mv.load_frame(mf.ref, session=s_b)
 
@@ -37,7 +37,7 @@ def test_load_frame_same_session_succeeds(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = mv.session.create(name="a", backends={"warehouse": lambda: con})
+    s = mv.session.get_or_create(name="a", backends={"warehouse": lambda: con})
     mf = mv.observe(mv.MetricRef("sales.revenue"), session=s)
     loaded = mv.load_frame(mf.ref, session=s)
     assert loaded.ref == mf.ref
@@ -46,6 +46,6 @@ def test_load_frame_same_session_succeeds(tmp_path):
 
 def test_load_frame_missing_ref_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
-    s = mv.session.create(name="a")
+    s = mv.session.get_or_create(name="a")
     with pytest.raises(FrameRefNotFound):
         mv.load_frame("frame_nonexistent_ref", session=s)

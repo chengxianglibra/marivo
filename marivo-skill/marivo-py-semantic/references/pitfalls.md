@@ -65,8 +65,47 @@ an explicit `backends=` / `backend_factory=` override.
 import marivo.analysis_py as mv
 
 mv.datasources.set("tiny_orders", backend_type="duckdb", path=":memory:")
-session = mv.session.create(name="analysis")
+session = mv.session.get_or_create(name="analysis")
 ```
+
+## Invalid Metric Shape
+
+**Symptom:** `semantic_py check` reports an invalid component body or the
+loader rejects a metric using `datasets=[]`.
+
+**Why it happens:** `datasets=[]` is reserved for derived metrics whose
+decomposition has components, such as `ms.ratio(...)`. Dataset-backed metrics
+must return ibis expressions over their dataset arguments and must not call
+`ms.component(...)`.
+
+**Fix:** use one of the two valid shapes:
+
+```python
+@ms.metric(datasets=[orders], decomposition=ms.sum(), name="failed_count")
+def failed_count(orders):
+    return (orders.state == "FAILED").cast("int64").sum()
+
+@ms.metric(
+    datasets=[],
+    decomposition=ms.ratio(
+        numerator="sales.failed_count",
+        denominator="sales.total_count",
+    ),
+    name="failure_rate",
+)
+def failure_rate():
+    return ms.component("numerator") / ms.component("denominator")
+```
+
+For dimension drilldowns on a derived metric, make sure the component metrics'
+datasets can reach the requested dimension through a unique relationship path.
+
+## Ibis Expression Gotchas
+
+- Build string transformations on an expression instance. Do not call methods
+  like `ibis.expr.types.StringValue.re_replace(...)` as class methods.
+- Metric bodies return one ibis expression. `count()` and `sum()` already
+  produce aggregate expressions, so do not call another aggregate on them.
 
 ## Decorator Outside `ms.model(...)` Context
 
