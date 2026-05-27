@@ -48,3 +48,7 @@ class DimensionRef(_RefBase):
 
 class CalendarRef(_RefBase):
     """Calendar provider ref."""
+
+
+class ArtifactRef(_RefBase):
+    """Session-local analysis artifact ref."""

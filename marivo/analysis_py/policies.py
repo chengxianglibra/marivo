@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from marivo.analysis_py.calendar.model import AlignPeriod, CalendarFallback
-from marivo.analysis_py.refs import CalendarRef
+from marivo.analysis_py.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
 
 AlignmentKind = Literal[
     "calendar_bucket",
@@ -57,3 +57,25 @@ class SamplingPolicy(BaseModel):
     pairing: Literal["calendar_bucket", "segment_key"] = "calendar_bucket"
     null_handling: Literal["drop_pair"] = "drop_pair"
     min_n: int = Field(default=3, ge=2)
+
+
+class PromotionSemanticAnchors(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    metric: MetricRef | None = None
+    subject: DimensionRef | None = None
+    time_axis: DimensionRef | None = None
+    source_metric: ArtifactRef | None = None
+    source_delta: ArtifactRef | None = None
+    current: ArtifactRef | None = None
+    baseline: ArtifactRef | None = None
+    axis: DimensionRef | None = None
+
+
+class PromotionPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    auto_infer: bool = True
+    semantic_anchors: PromotionSemanticAnchors = Field(default_factory=PromotionSemanticAnchors)
+    required_fields: list[str] = Field(default_factory=list)
+    on_missing: Literal["fail_closed"] = "fail_closed"

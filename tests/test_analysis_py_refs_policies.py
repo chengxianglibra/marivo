@@ -2,8 +2,15 @@ import pytest
 from pydantic import ValidationError
 
 import marivo.analysis_py as mv
-from marivo.analysis_py.policies import AlignmentKind, AlignmentPolicy, LagPolicy
-from marivo.analysis_py.refs import CalendarRef, DimensionRef, MetricRef
+from marivo.analysis_py.errors import PromotionFailedError
+from marivo.analysis_py.policies import (
+    AlignmentKind,
+    AlignmentPolicy,
+    LagPolicy,
+    PromotionPolicy,
+    PromotionSemanticAnchors,
+)
+from marivo.analysis_py.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
 
 
 def test_refs_are_exported_and_preserve_ids():
@@ -16,8 +23,14 @@ def test_refs_are_exported_and_preserve_ids():
     assert CalendarRef("cn_holidays").id == "cn_holidays"
 
 
+def test_artifact_ref_is_exported_and_preserves_id():
+    assert mv.ArtifactRef is ArtifactRef
+    assert ArtifactRef("frame_abc123").id == "frame_abc123"
+    assert str(ArtifactRef("frame_abc123")) == "frame_abc123"
+
+
 def test_refs_reject_empty_ids():
-    for ref_cls in (MetricRef, DimensionRef, CalendarRef):
+    for ref_cls in (MetricRef, DimensionRef, CalendarRef, ArtifactRef):
         with pytest.raises(ValidationError):
             ref_cls(" ")
 
@@ -73,3 +86,50 @@ def test_sampling_policy_defaults_and_forbids_extra():
 
     with pytest.raises(ValidationError):
         SamplingPolicy(extra_field=True)  # type: ignore[call-arg]
+
+
+def test_promotion_policy_defaults_and_forbids_extra_fields():
+    policy = PromotionPolicy()
+
+    assert policy.auto_infer is True
+    assert policy.on_missing == "fail_closed"
+    assert policy.required_fields == []
+    assert policy.semantic_anchors == PromotionSemanticAnchors()
+
+    with pytest.raises(ValidationError):
+        PromotionPolicy(on_missing="warn")  # type: ignore[arg-type]
+
+    with pytest.raises(ValidationError):
+        PromotionPolicy(extra_field=True)  # type: ignore[call-arg]
+
+
+def test_promotion_policy_accepts_typed_anchors_only():
+    policy = PromotionPolicy(
+        semantic_anchors=PromotionSemanticAnchors(
+            metric=MetricRef("sales.revenue"),
+            subject=DimensionRef("account"),
+            time_axis=DimensionRef("order_day"),
+            source_metric=ArtifactRef("frame_metric"),
+            source_delta=ArtifactRef("frame_delta"),
+            current=ArtifactRef("frame_current"),
+            baseline=ArtifactRef("frame_baseline"),
+            axis=DimensionRef("country"),
+        ),
+        required_fields=["measure_column", "semantic_model"],
+    )
+
+    assert policy.semantic_anchors.metric == MetricRef("sales.revenue")
+    assert policy.semantic_anchors.current == ArtifactRef("frame_current")
+    assert policy.required_fields == ["measure_column", "semantic_model"]
+
+    with pytest.raises(ValidationError):
+        PromotionSemanticAnchors(metric={"id": "sales.revenue", "extra": 1})
+
+
+def test_promotion_failed_error_uses_metric_snippet_when_metric_field_is_later():
+    error = PromotionFailedError(
+        message="missing promotion metadata",
+        details={"target_kind": "metric_frame", "missing": ["subject", "metric"]},
+    )
+
+    assert "mv.promote_metric_frame(" in str(error)

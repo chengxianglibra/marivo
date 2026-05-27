@@ -16,6 +16,7 @@ from marivo.analysis_py.frames.attribution import AttributionFrame, AttributionF
 from marivo.analysis_py.frames.base import BaseFrame
 from marivo.analysis_py.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis_py.frames.exploration import ExplorationResult, ExplorationResultMeta
 from marivo.analysis_py.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis_py.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
@@ -35,6 +36,7 @@ _FRAME_CLASSES = {
     "hypothesis_test_result": (HypothesisTestResult, HypothesisTestResultMeta),
     "forecast_frame": (ForecastFrame, ForecastFrameMeta),
     "quality_report": (QualityReport, QualityReportMeta),
+    "exploration_result": (ExplorationResult, ExplorationResultMeta),
 }
 
 
