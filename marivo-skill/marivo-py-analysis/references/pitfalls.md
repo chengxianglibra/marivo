@@ -16,15 +16,15 @@ calendar-backed `compare`.
 ```text
 SemanticKindMismatchError: compare(a, b) expected MetricFrame for `b`, got DeltaFrame.
 
-发生位置: mv.compare call
-原因: got kind delta_frame, expected metric_frame; this usually means passing a compare result where an observe result is required.
+Location: mv.compare call
+Cause: got kind delta_frame, expected metric_frame; this usually means passing a compare result where an observe result is required.
 
-正确写法:
+Fix:
   cur  = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
   base = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
   delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
 
-相关文档: marivo-skill/marivo-py-analysis/references/pitfalls.md
+Docs: marivo-skill/marivo-py-analysis/references/pitfalls.md
 ```
 
 **Action:** pass two `MetricFrame`s into `mv.compare`, then pass the resulting

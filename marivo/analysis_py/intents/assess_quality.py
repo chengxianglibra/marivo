@@ -41,6 +41,26 @@ def assess_quality(
     session: Session | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> QualityReport:
+    """Run quality checks over a MetricFrame and return a structured report.
+
+    v1 accepts only MetricFrames. Reports for DeltaFrame / CandidateSet /
+    ForecastFrame / AttributionFrame are planned for later releases. The
+    returned QualityReport carries per-check rows, blocking issues, and a list
+    of recommended follow-up intents.
+
+    Args:
+        target: A MetricFrame to inspect.
+        session: Defaults to the currently-attached session.
+
+    Raises:
+        QualityShapeUnsupportedError: ``target`` is not a MetricFrame.
+        CrossSessionFrameError: ``target`` belongs to a different session.
+
+    Example:
+        >>> report = mv.assess_quality(frame)
+        >>> for issue in report.blocking_issues:
+        ...     print(issue)
+    """
     session = resolve_session(session)
     ensure_session_writable(session)
     if getattr(getattr(target, "meta", None), "kind", None) != "metric_frame":

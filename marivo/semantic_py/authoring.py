@@ -418,7 +418,28 @@ def model(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> None:
-    """Declare a semantic model. Must be called inside a loader context."""
+    """Declare a semantic model namespace inside a project file.
+
+    A model groups datasets, fields, metrics, and relationships under a single
+    qualified name (``<model>.<object>``). Must be called at module top-level
+    inside a ``.marivo/semantic/*.py`` project file.
+
+    Args:
+        name: Model namespace, e.g. ``"sales"``.
+        default: If True, subsequent decorators in this file resolve to this
+            model when no explicit ``model=`` kwarg is passed.
+        description: Free-text description; surfaced in agent/help output.
+        ai_context: Optional ``AiContext`` (or compatible dict) with extra
+            agent-facing hints.
+
+    Raises:
+        OutsideLoaderContextError: Called outside a semantic loader pass.
+        SemanticDecoratorError: ``name`` collides with another model in the project.
+
+    Example:
+        >>> import marivo.semantic_py as ms
+        >>> ms.model(name="sales", default=True)
+    """
     ctx = _require_ctx()
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
@@ -469,7 +490,37 @@ def dataset(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], DatasetRef]:
-    """Decorator: declare a dataset on top of a datasource."""
+    """Declare a dataset whose body returns an ibis expression.
+
+    The decorated function body is restricted to a single-return expression
+    over ibis primitives (enforced by the AST whitelist in ``validator.py``).
+    No imports, control flow, local assignments, or lambdas inside the body.
+
+    Args:
+        name: Dataset name. Defaults to the function name.
+        datasource: Global datasource name (string) declared in
+            ``.marivo/datasource/*.py``. Bare references to non-string objects
+            are rejected.
+        primary_key: Optional list of column names forming the primary key.
+        model: Override the active model namespace. Defaults to the file's
+            default model.
+        description: Free-text description; surfaced in agent/help output.
+        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+
+    Returns:
+        A decorator that returns a ``DatasetRef`` usable by ``@ms.field`` and
+        ``@ms.metric``.
+
+    Raises:
+        SemanticDecoratorError: ``datasource`` is not a string, ``name``
+            collides with another object, or the body violates the AST whitelist.
+
+    Example:
+        >>> orders = ms.dataset(name="orders", datasource="warehouse")
+        >>> @orders
+        ... def _():
+        ...     return ibis.table(name="orders", schema={...})
+    """
     ctx = _require_ctx()
     model_name = _resolve_model_name(model, ctx)
 
@@ -516,7 +567,32 @@ def field(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], FieldRef]:
-    """Decorator: declare a field on a dataset."""
+    """Declare a field whose body returns an ibis expression over its dataset.
+
+    The decorated function takes the dataset table and returns a single
+    expression (single-return AST). Use this for both raw columns and derived
+    expressions (e.g. ``table.amount * 100``).
+
+    Args:
+        name: Field name. Defaults to the function name.
+        dataset: Owning dataset, either a ``DatasetRef`` or a qualified
+            ``"<model>.<dataset>"`` string.
+        model: Override the active model namespace.
+        description: Free-text description.
+        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+
+    Returns:
+        A decorator that returns a ``FieldRef``.
+
+    Raises:
+        SemanticDecoratorError: ``dataset`` is unknown, ``name`` collides, or the
+            body violates the AST whitelist.
+
+    Example:
+        >>> @ms.field(name="amount_cents", dataset=orders)
+        ... def amount_cents(orders):
+        ...     return orders.amount * 100
+    """
     ctx = _require_ctx()
     model_name = _resolve_model_name(model, ctx)
 
@@ -564,7 +640,38 @@ def time_field(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], TimeFieldRef]:
-    """Decorator: declare a time-aware field on a dataset."""
+    """Declare a time-aware field that carries grain and parsing metadata.
+
+    Time fields are the only fields usable as window axes by ``mv.observe``.
+    The body must return an ibis expression yielding a temporal value
+    matching ``data_type``; if the underlying column is a string, supply
+    ``format`` (and optionally ``required_prefix``).
+
+    Args:
+        name: Field name. Defaults to the function name.
+        dataset: Owning dataset (``DatasetRef`` or qualified string).
+        data_type: ``date | datetime | timestamp | string | integer``.
+        granularity: ``year | quarter | month | week | day | hour`` — the
+            finest grain at which queries are meaningful.
+        format: Required when ``data_type="string"`` (e.g. ``"%Y-%m-%d"``).
+        required_prefix: Optional fixed prefix the source value must start with.
+        model: Override the active model namespace.
+        description: Free-text description.
+        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+
+    Returns:
+        A decorator that returns a ``TimeFieldRef``.
+
+    Raises:
+        SemanticDecoratorError: ``dataset`` is unknown, ``name`` collides, or the
+            body violates the AST whitelist.
+
+    Example:
+        >>> @ms.time_field(name="created_at", dataset=orders,
+        ...                data_type="datetime", granularity="day")
+        ... def created_at(orders):
+        ...     return orders.created_at
+    """
     ctx = _require_ctx()
     model_name = _resolve_model_name(model, ctx)
 
@@ -615,7 +722,48 @@ def metric(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], MetricRef]:
-    """Decorator: declare a metric with decomposition and provenance."""
+    """Declare a metric. Aggregate metrics carry datasets; derived metrics carry components.
+
+    Two flavors:
+
+    * **Aggregate**: ``datasets=[...]`` non-empty; the body returns an ibis
+      reduction (e.g. ``orders.amount.sum()``) and ``decomposition`` is
+      ``ms.sum()`` / ``ms.ratio(...)`` / ``ms.weighted_average(...)``.
+    * **Derived**: ``datasets=[]``; the body returns an arithmetic combination
+      of ``ms.component("name")`` references, and ``decomposition`` declares
+      those components.
+
+    ``source_sql`` / ``source_dialect`` / ``source_document`` / ``source_notes``
+    are persisted into ``Provenance`` on the IR.
+
+    Args:
+        name: Metric name. Defaults to the function name.
+        datasets: Aggregate metrics: list of ``DatasetRef`` / qualified strings.
+            Derived metrics: omit or ``[]``.
+        decomposition: ``ms.sum()`` / ``ms.ratio(numerator=..., denominator=...)``
+            / ``ms.weighted_average(...)`` builder.
+        source_sql: Original SQL definition, persisted to provenance.
+        source_dialect: SQL dialect tag for ``source_sql``.
+        source_document: External doc reference for the metric.
+        source_notes: Free-form provenance notes.
+        provenance: ``"python_native"`` (default) or ``"unverified"``.
+        model: Override the active model namespace.
+        description: Free-text description.
+        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+
+    Returns:
+        A decorator that returns a ``MetricRef``.
+
+    Raises:
+        SemanticDecoratorError: Both ``datasets`` and ``decomposition.components`` are
+            empty; or aggregate metric body calls ``ms.component()``; or the body
+            violates the AST whitelist.
+
+    Example:
+        >>> @ms.metric(name="revenue", datasets=[orders], decomposition=ms.sum())
+        ... def revenue(orders):
+        ...     return orders.amount.sum()
+    """
     ctx = _require_ctx()
     model_name = _resolve_model_name(model, ctx)
 
@@ -701,7 +849,35 @@ def relationship(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> RelationshipRef:
-    """Declare a relationship between two datasets. Top-level call, not a decorator."""
+    """Declare a join relationship between two datasets.
+
+    Top-level call (not a decorator). Used by the compiler to plan joins when a
+    metric or field references fields across related datasets.
+
+    Args:
+        name: Required relationship name (no default).
+        from_: Source dataset (``DatasetRef`` or qualified string).
+        to: Target dataset (``DatasetRef`` or qualified string).
+        from_fields: Columns on ``from_`` (``FieldRef`` / qualified strings).
+        to_fields: Columns on ``to`` — must align positionally with ``from_fields``.
+        model: Override the active model namespace.
+        description: Free-text description.
+        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+
+    Returns:
+        A ``RelationshipRef``.
+
+    Raises:
+        SemanticDecoratorError: ``name`` is missing, the datasets are unknown, or
+            ``from_fields`` / ``to_fields`` lengths disagree.
+
+    Example:
+        >>> ms.relationship(
+        ...     name="orders_to_customers",
+        ...     from_=orders, to=customers,
+        ...     from_fields=["customer_id"], to_fields=["id"],
+        ... )
+    """
     ctx = _require_ctx()
     model_name = _resolve_model_name(model, ctx)
 
@@ -745,7 +921,11 @@ def relationship(
 
 
 def sum() -> DecompositionBuilder:
-    """Return a sum decomposition builder."""
+    """Sum decomposition: aggregate metric over its dataset row set.
+
+    Pass to ``@ms.metric(decomposition=ms.sum())`` for aggregate metrics whose
+    body is a reduction (``orders.amount.sum()``).
+    """
     return DecompositionBuilder(kind="sum")
 
 
@@ -754,7 +934,18 @@ def ratio(
     numerator: Any,
     denominator: Any,
 ) -> DecompositionBuilder:
-    """Return a ratio decomposition builder."""
+    """Ratio decomposition: derived metric expressed as numerator / denominator.
+
+    ``numerator`` and ``denominator`` are ``MetricRef`` / qualified string
+    references to other metrics. The derived metric body should call
+    ``ms.component("numerator") / ms.component("denominator")``.
+
+    Example:
+        >>> @ms.metric(name="aov", datasets=[],
+        ...            decomposition=ms.ratio(numerator=revenue, denominator=orders_count))
+        ... def aov():
+        ...     return ms.component("numerator") / ms.component("denominator")
+    """
     num_id = _resolve_ref_string(numerator) if not isinstance(numerator, str) else numerator
     den_id = _resolve_ref_string(denominator) if not isinstance(denominator, str) else denominator
     return DecompositionBuilder(
@@ -768,7 +959,12 @@ def weighted_average(
     numerator: Any,
     weight: Any,
 ) -> DecompositionBuilder:
-    """Return a weighted_average decomposition builder."""
+    """Weighted-average decomposition: derived metric expressed as Σ(numerator)/Σ(weight).
+
+    Both ``numerator`` and ``weight`` are ``MetricRef`` / qualified string
+    references. Use when the underlying ratio needs to be averaged by an
+    additive weight (e.g. revenue-weighted average price).
+    """
     num_id = _resolve_ref_string(numerator) if not isinstance(numerator, str) else numerator
     weight_id = _resolve_ref_string(weight) if not isinstance(weight, str) else weight
     return DecompositionBuilder(
@@ -778,16 +974,34 @@ def weighted_average(
 
 
 def ref(value: str) -> str:
-    """Reference a semantic object by qualified name. Returns the string as-is."""
+    """Reference a semantic object by qualified ``"<model>.<object>"`` string.
+
+    Pass-through helper: it returns ``value`` unchanged but makes intent
+    explicit at the call site (``datasets=[ms.ref("sales.orders")]``).
+    """
     return value
 
 
 def component(name: str, /) -> _ComponentSentinel:
     """Reference a decomposition component inside a derived metric body.
 
-    Can ONLY be called during derived metric decoration phase when
-    ``_ACTIVE_DECOMPOSITION`` is set.  Returns a ``_ComponentSentinel``
-    that supports arithmetic operators to build an expression tree.
+    Resolvable only while the derived ``@ms.metric`` body is executing. Returns
+    a sentinel that supports ``+ - * /`` to build the expression tree consumed
+    by the compiler.
+
+    Args:
+        name: Component name, must match a key declared in the metric's
+            ``decomposition.components``.
+
+    Raises:
+        SemanticDecoratorError: Called outside a derived metric body, ``name`` is
+            empty, or ``name`` is not a declared component.
+
+    Example:
+        >>> @ms.metric(name="aov", datasets=[],
+        ...            decomposition=ms.ratio(numerator=revenue, denominator=orders_count))
+        ... def aov():
+        ...     return ms.component("numerator") / ms.component("denominator")
     """
     decomp = _ACTIVE_DECOMPOSITION.get()
     if decomp is None:

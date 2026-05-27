@@ -55,6 +55,27 @@ def decompose(
     session: Session | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> AttributionFrame:
+    """Attribute a DeltaFrame's movement across a chosen segment axis.
+
+    For ``panel`` deltas, ``axis`` must be one of the frame's segment dimensions.
+    For ``time_series`` deltas, ``axis`` is the bucket-start column.
+
+    Args:
+        frame: A DeltaFrame produced by ``mv.compare``.
+        axis: The segment column to attribute over, wrapped in ``mv.DimensionRef``.
+        value: Numeric column on the delta to attribute. Defaults to ``"delta"``.
+        session: Defaults to the currently-attached session.
+
+    Raises:
+        SemanticKindMismatchError: ``frame`` is not a DeltaFrame, or ``axis`` is not a DimensionRef.
+        AxisNotInPanelDimensionsError: ``axis`` is not a segment column of the panel.
+        CrossSessionFrameError: ``frame`` belongs to a different session.
+
+    Example:
+        >>> delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+        >>> attribution = mv.decompose(delta, axis=mv.DimensionRef("country"))
+        >>> attribution.summary()
+    """
     session = resolve_session(session)
     ensure_session_writable(session)
     if not isinstance(frame, DeltaFrame):

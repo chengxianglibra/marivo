@@ -109,7 +109,7 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
         "SemanticKindMismatchError: compare(a, b) expected MetricFrame for `b`, got DeltaFrame."
         in rendered
     )
-    assert "正确写法:" in rendered
+    assert "Fix:" in rendered
     assert (
         'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
         in rendered

@@ -47,23 +47,23 @@ class AnalysisError(Exception):
 
         context_lines = []
         if location := self._resolved_field("location"):
-            context_lines.append(f"发生位置: {location}")
+            context_lines.append(f"Location: {location}")
         if cause := self._resolved_field("cause"):
-            context_lines.append(f"原因: {cause}")
+            context_lines.append(f"Cause: {cause}")
         if self.hint:
-            context_lines.append(f"建议: {self.hint}")
+            context_lines.append(f"Hint: {self.hint}")
         if context_lines:
             lines.append("")
             lines.extend(context_lines)
 
         if fix_snippet := self._resolved_field("fix_snippet"):
             lines.append("")
-            lines.append("正确写法:")
+            lines.append("Fix:")
             lines.extend(f"  {line}" for line in fix_snippet.splitlines())
 
         if doc := self._resolved_field("doc"):
             lines.append("")
-            lines.append(f"相关文档: {doc}")
+            lines.append(f"Docs: {doc}")
 
         return "\n".join(lines)
 

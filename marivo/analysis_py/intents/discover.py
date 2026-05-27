@@ -48,6 +48,7 @@ from marivo.analysis_py.intents._discover_scorers import (
     score_period_shifts,
     score_point_anomalies,
 )
+from marivo.analysis_py.intents._types import DiscoverSensitivity
 from marivo.analysis_py.lineage import LineageStep
 from marivo.analysis_py.refs import DimensionRef
 from marivo.analysis_py.session.core import Session, ensure_session_writable
@@ -105,13 +106,47 @@ def discover(
     strategy: CandidateStrategy | None = None,
     value: str | None = None,
     threshold: float | None = None,
-    sensitivity: str = "balanced",
+    sensitivity: DiscoverSensitivity = "balanced",
     limit: int | None = None,
     search_space: list[DimensionRef] | None = None,
     peer_scope: list[DimensionRef] | None = None,
     session: Session | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> CandidateSet:
+    """Discover candidate follow-ups (anomalies, drivers, outliers) from a frame.
+
+    Each ``objective`` is compatible with specific source kinds and semantic
+    kinds; mismatches raise ``SemanticKindMismatchError``. ``driver_axes``
+    requires a non-empty ``search_space``.
+
+    Args:
+        source: A MetricFrame or DeltaFrame, depending on ``objective``.
+        objective: One of ``point_anomalies``, ``period_shifts``, ``driver_axes``,
+            ``interesting_slices``, ``interesting_windows``, ``cross_sectional_outliers``.
+        strategy: Scoring strategy. Defaults are picked per objective
+            (e.g. ``zscore`` for ``point_anomalies``).
+        value: Numeric column to score. Defaults to the frame's measure column.
+        threshold: Score cutoff. If omitted, all rows are returned (subject to ``limit``).
+        sensitivity: ``"conservative" | "balanced" | "aggressive"``.
+        limit: Maximum number of candidates to return.
+        search_space: Required for ``driver_axes`` — dimensions to consider as drivers.
+        peer_scope: Optional peer grouping for ``cross_sectional_outliers``.
+        session: Defaults to the currently-attached session.
+
+    Raises:
+        SemanticKindMismatchError: Wrong source kind/semantic_kind for the objective,
+            missing required kwargs (e.g. ``search_space`` for ``driver_axes``), or
+            unsupported ``objective``.
+        CrossSessionFrameError: ``source`` belongs to a different session.
+
+    Example:
+        >>> candidates = mv.discover(
+        ...     series,
+        ...     objective="point_anomalies",
+        ...     threshold=1.0,
+        ... )
+        >>> candidates.summary()
+    """
     session = resolve_session(session)
     ensure_session_writable(session)
 

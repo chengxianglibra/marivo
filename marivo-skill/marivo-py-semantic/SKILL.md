@@ -279,3 +279,19 @@ How is this value computed?
 - `references/cheatsheet.md` -- decorators, builders, CLI, introspection
 - `references/pitfalls.md` -- expanded exception explanations
 - `references/examples/` -- runnable files, one per template
+
+## Error → example reference
+
+When authoring raises one of the structured `SemanticError` subclasses below,
+open the listed example to see the correct pattern.
+
+| Error kind | What it means | See |
+|---|---|---|
+| `missing_dataset_ref` | Dataset references a datasource with no `.marivo/datasource/*.py` declaration | `references/examples/99_pitfall_dataset_without_datasource.py` |
+| `MISSING_MODEL` | Decorator called outside `ms.model(...)` namespace | `references/examples/02_declare_dataset.py` |
+| `INVALID_REF` | `@ms.dataset(datasource=...)` got a non-string, or `ms.datasource(...)` was called (removed) | `references/datasource.md` |
+| `INVALID_COMPONENT_BODY` | Aggregate metric body used `ms.component()`, or `datasets=[]` without components | `references/examples/04_define_metric_derived.py` |
+| `INVALID_COMPONENT_NAME` | `ms.component("x")` references a name not declared in the metric's decomposition | `references/examples/04_define_metric_derived.py` |
+| `OUTSIDE_DERIVED_METRIC_BODY` | `ms.component(...)` called outside a derived metric body | `references/examples/04_define_metric_derived.py` |
+| `DUPLICATE_NAME` | Two objects share the same `<model>.<name>` | `references/cheatsheet.md` |
+| AST whitelist violations | Body uses control flow, imports, or non-single-return form | `references/examples/03_define_metric_aggregate.py` |

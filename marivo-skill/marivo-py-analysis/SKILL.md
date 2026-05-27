@@ -160,3 +160,26 @@ promoted = mv.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue")
 - `references/pitfalls.md` — error recovery and common mistakes
 - `references/backend-setup.md` — datasource and backend wiring
 - `../marivo-py-semantic/references/datasource.md` — datasource definition
+
+## Error → example reference
+
+When an intent raises one of the structured errors below, open the listed
+example to see the correct pattern.
+
+| Error kind | What it means | See |
+|---|---|---|
+| `MetricNotFound` | Unknown metric id, missing `<model>.<metric>`, or semantic project not loaded | `references/examples/01_observe_single_window.py` |
+| `SemanticKindMismatch` (compare) | Passed a `DeltaFrame` where a `MetricFrame` was expected | `references/examples/99_pitfall_pass_delta_to_compare.py` |
+| `SegmentDimensionMismatch` | `compare` got two `segmented` frames with different segment columns | `references/examples/compare_segmented.py` |
+| `PanelGrainMismatch` | `compare` got two `panel` frames with different time grain | `references/examples/compare_panel.py` |
+| `AlignmentPolicyNotApplicable` | Alignment kind not allowed for the frame's semantic kind | `references/examples/compare_segmented.py` |
+| `CrossSessionFrame` | A frame was produced in another session | `references/examples/session_timezone.py` |
+| `AxisNotInPanelDimensions` | `decompose(axis=...)` axis is not a segment column of the panel | `references/examples/03_decompose_attribution.py` |
+| `ForecastShapeUnsupported` / `ForecastInsufficientHistory` | Bad shape, NaN values, or too little history | `references/examples/06_forecast_horizon.py` |
+| `TestPolicyError` / `TestShapeNotTestable` | Unsupported hypothesis, bad alpha, or scalar frame | `references/examples/05_test_hypothesis.py` |
+| `QualityShapeUnsupported` | Passed a non-MetricFrame to `assess_quality` | `references/examples/07_assess_metric_quality.py` |
+| `SemanticKindMismatch` (discover missing `search_space`) | `driver_axes` objective without a `search_space` | `references/examples/08_discover_driver_axes.py` |
+| `TransformOpUnsupported` / `TransformArgError` | Unknown op or missing op-specific kwargs | `references/examples/transform_slice.py`, `transform_rollup_panel.py` |
+| `WindowInvalid` | Malformed window dict or unsupported relative spec | `references/examples/window_relative.py` |
+| `NoBackendFactory` | Session attached without a backend factory | `references/backend-setup.md` |
+| `FrameMutation` | Tried to mutate a frame in place | `references/pitfalls.md` (Mutating a frame directly) |
