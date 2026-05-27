@@ -24,15 +24,17 @@ active Python environment, not from a local Marivo source checkout.
 | --- | --- | --- |
 | `MetricFrame` | `mv.observe`, manual `MetricFrame.from_dataframe` for local series | `mv.compare`, `mv.discover`, `mv.correlate` |
 | `DeltaFrame` | `mv.compare` | `mv.decompose` |
-| `CandidateSet` | `mv.discover` | `mv.select(...)` to pull a typed field; otherwise terminal. Inspect with `.summary()` or `.to_pandas()` |
-| `AssociationResult` | `mv.correlate` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
-| `HypothesisTestResult` | `mv.test` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
-| `ForecastFrame` | `mv.forecast` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
-| `QualityReport` | `mv.assess_quality` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
-| `AttributionFrame` | `mv.decompose` | Usually terminal; inspect with `.summary()` or `.to_pandas()` |
+| `CandidateSet` | `mv.discover` | `mv.select(...)` to pull a typed field; otherwise terminal. Inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `AssociationResult` | `mv.correlate` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `HypothesisTestResult` | `mv.test` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `ForecastFrame` | `mv.forecast` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `QualityReport` | `mv.assess_quality` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `AttributionFrame` | `mv.decompose` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
 
-Frames are immutable. Use `frame.summary()` for a cheap read, `frame.head(n)`
-for a small preview, and `frame.to_pandas()` when you need a mutable copy.
+Frames are immutable. Use `frame.summary()` for a cheap read,
+`frame.preview(limit=n)` for a bounded row projection, and
+`frame.to_pandas()` when you need a mutable copy. Use
+`frame.to_pandas().head(n)` only when you explicitly want pandas behavior.
 
 Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`,
 `mv.AlignmentPolicy(...)`, and `mv.LagPolicy(...)` at public operator

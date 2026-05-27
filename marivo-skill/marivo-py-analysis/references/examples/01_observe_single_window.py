@@ -20,6 +20,7 @@ cur = mv.observe(
     session=session,
 )
 print(cur.summary())
+print(cur.preview(limit=5))
 
 # Expected output:
 # kind='metric_frame'

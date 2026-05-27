@@ -451,6 +451,23 @@ class CrossSessionFrameError(AnalysisError): ...
 class FrameMutationError(AnalysisError): ...
 
 
+class FrameReadError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        limit = self.details.get("limit")
+        if isinstance(limit, int):
+            return {
+                "location": "frame.preview(limit=...)",
+                "cause": "preview limit must be between 1 and 100.",
+                "fix_snippet": "frame.preview(limit=10)",
+                "doc": "marivo-skill/marivo-py-analysis/references/cheatsheet.md",
+            }
+        return {
+            "location": "frame preview/read method",
+            "cause": "frame read arguments are invalid.",
+            "doc": "marivo-skill/marivo-py-analysis/references/cheatsheet.md",
+        }
+
+
 class FrameRefNotFound(AnalysisError): ...  # noqa: N818
 
 
