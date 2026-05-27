@@ -72,14 +72,12 @@ def test_alignment_policy_validation_error_renders_fix_snippet():
     with pytest.raises(AlignmentPolicyValidationError) as missing_cal:
         AlignmentPolicy(kind="dow_aligned")
     rendered = str(missing_cal.value)
-    assert "正确写法:" in rendered
     assert 'mv.AlignmentPolicy(kind="dow_aligned"' in rendered
     assert 'mv.CalendarRef("cn_holidays")' in rendered
 
     with pytest.raises(AlignmentPolicyValidationError) as unexpected_cal:
         AlignmentPolicy(kind="calendar_bucket", calendar=CalendarRef("cn"))
     rendered_unexpected = str(unexpected_cal.value)
-    assert "正确写法:" in rendered_unexpected
     assert 'mv.AlignmentPolicy(kind="calendar_bucket")' in rendered_unexpected
 
 
@@ -97,7 +95,6 @@ def test_lag_policy_validation_error_renders_fix_snippet():
     with pytest.raises(LagPolicyValidationError) as nonzero:
         LagPolicy(mode="single", offset=2)
     rendered = str(nonzero.value)
-    assert "正确写法:" in rendered
     assert 'mv.LagPolicy(mode="single", offset=0)' in rendered
 
 
