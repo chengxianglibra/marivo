@@ -153,6 +153,26 @@ promoted = mv.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue")
 4. Run the script; on errors, read the structured output and apply the fix.
 5. Use `frame.summary()` / `frame.head(n)` before materializing full data.
 
+## When to split scripts
+
+Bundle a chain into one script when the path is fixed. Stop and run a new
+script when the next intent depends on values you have not seen yet.
+
+- **Bundle** (one script, end with `print(frame.summary())`):
+  observe → compare → decompose with a pre-chosen axis; observe → forecast;
+  observe → assess_quality. The shape and the next call are decided before
+  you run.
+- **Split** (run, read, then write the next script):
+  - `discover` → which candidate to `select` and drill into.
+  - `correlate` → which of several associations is worth follow-up.
+  - `decompose` → which segment from the ranking to observe at finer grain.
+  - Any branch where `frame.summary()` or `next_intents` is the input to your
+    decision.
+
+Rule of thumb: if you cannot write the next `mv.*` call without first reading
+the printed `summary()`, that is a split point. Do not pre-write speculative
+downstream steps "in case" — they waste compute and obscure the judgment.
+
 ## Further reading
 
 - `references/examples/*.py` — runnable templates (primary reference)
