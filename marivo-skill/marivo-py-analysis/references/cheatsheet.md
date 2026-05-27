@@ -65,6 +65,16 @@ candidates = mv.discover(series, objective="point_anomalies", threshold=1.0)
 print(candidates.meta.objective)  # "point_anomalies"
 ```
 
+## Escape Hatch
+
+| Need | Use |
+| --- | --- |
+| Temporary pandas scratch work | `scratch = mv.from_pandas(df, session=session)` |
+| Temporary Ibis scratch query | `scratch = mv.explore_ibis(lambda con: con.table("orders"), datasource="warehouse", session=session)` |
+| Re-enter canonical metric flow | `mv.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": mv.DimensionRef("country")}, semantic_model="sales")` |
+| Re-enter delta flow | `mv.promote_delta_frame(scratch, current=mv.ArtifactRef("frame_current"), baseline=mv.ArtifactRef("frame_baseline"), delta_column="delta", current_column="current", baseline_column="baseline")` |
+| Re-enter attribution flow | `mv.promote_attribution_frame(scratch, source_delta=mv.ArtifactRef("frame_delta"), driver_field="country", contribution_column="contribution")` |
+
 ## Discovery Helpers
 
 | Need | Call |

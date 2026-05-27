@@ -177,6 +177,37 @@ class SemanticKindMismatchError(AnalysisError):
 class AlignmentFailedError(AnalysisError): ...
 
 
+class PromotionFailedError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        target_kind = self.details.get("target_kind")
+        missing = self.details.get("missing")
+        target = target_kind if isinstance(target_kind, str) and target_kind else "frame"
+        if isinstance(missing, list) and missing:
+            missing_fields = {str(field) for field in missing}
+            return {
+                "location": f"mv.promote_{target}",
+                "cause": f"promotion is missing required metadata: {', '.join(map(str, missing))}.",
+                "fix_snippet": (
+                    "mv.promote_metric_frame(\n"
+                    "    scratch,\n"
+                    '    metric=mv.MetricRef("sales.revenue"),\n'
+                    '    semantic_kind="segmented",\n'
+                    '    measure_column="value",\n'
+                    '    axes={"country": mv.DimensionRef("country")},\n'
+                    '    semantic_model="sales",\n'
+                    ")"
+                )
+                if missing_fields & {"metric", "measure_column", "semantic_model"}
+                else "Pass the missing typed ref or column name shown in error details.",
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
+        return {
+            "location": f"mv.promote_{target}",
+            "cause": "promotion metadata is incomplete or ambiguous.",
+            "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+        }
+
+
 class TestShapeNotTestableError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {

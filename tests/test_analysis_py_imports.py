@@ -33,3 +33,27 @@ def test_analysis_py_exports_assess_quality_operator():
 
     assert callable(mv.assess_quality)
     assert mv.QualityReportMeta.model_fields["kind"].default == "quality_report"
+
+
+def test_analysis_py_exports_escape_hatch_symbols():
+    import marivo.analysis_py as mv
+
+    assert callable(mv.from_pandas)
+    assert callable(mv.promote_attribution_frame)
+    assert mv.PromotionFailedError is mv.errors.PromotionFailedError
+    assert mv.ExplorationResult is not None
+    assert mv.ExplorationResultMeta.model_fields["kind"].default == "exploration_result"
+
+
+def test_analysis_py_exports_escape_hatch_api():
+    import marivo.analysis_py as mv
+
+    assert callable(mv.from_pandas)
+    assert callable(mv.explore_ibis)
+    assert callable(mv.promote_metric_frame)
+    assert callable(mv.promote_delta_frame)
+    assert callable(mv.promote_attribution_frame)
+    assert mv.ArtifactRef("frame_1").id == "frame_1"
+    assert mv.PromotionPolicy().on_missing == "fail_closed"
+    assert mv.ExplorationResultMeta.model_fields["kind"].default == "exploration_result"
+    assert hasattr(mv.errors, "PromotionFailedError")

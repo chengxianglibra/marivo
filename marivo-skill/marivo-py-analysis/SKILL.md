@@ -98,6 +98,15 @@ Important current return types:
 7. Keep generated analysis outputs compact. Prefer `frame.summary()` and
    `frame.head(n)` before materializing full data with `frame.to_pandas()`.
 
+### Escape Hatch
+
+Use `mv.from_pandas(df, session=session)` or
+`mv.explore_ibis(lambda con: con.table("orders"), datasource="warehouse",
+session=session)` only for scratch work that core operators cannot express.
+Scratch `ExplorationResult` objects are not canonical inputs. Promote them with
+`mv.promote_metric_frame`, `mv.promote_delta_frame`, or
+`mv.promote_attribution_frame` before feeding results back into core operators.
+
 ## Relative Windows And Timezone
 
 - For v1.2 relative windows, prefer explicit `window={"expr": ..., "as_of": ...}`

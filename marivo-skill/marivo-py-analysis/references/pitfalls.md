@@ -58,6 +58,17 @@ df["adjusted"] = df["value"] * 1.1
 Keep the original `MetricFrame`, `DeltaFrame`, or `AttributionFrame` unchanged
 when feeding Marivo intents.
 
+## PromotionFailedError
+
+**Cause:** A pandas/Ibis scratch result is missing the typed metadata needed to
+become a canonical frame.
+
+**Action:** Pass explicit typed refs and column names. For a metric frame, include
+`metric=mv.MetricRef("sales.revenue")`, `semantic_kind="segmented"`,
+`measure_column="value"`, `axes={"country": mv.DimensionRef("country")}`, and
+`semantic_model="sales"`. For delta and attribution promotion, include source
+artifact refs such as `mv.ArtifactRef("frame_delta")`.
+
 ## No active session
 
 **Symptom:**
