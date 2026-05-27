@@ -16,6 +16,7 @@ class AttributionFrameMeta(BaseFrameMeta):
     kind: Literal["attribution_frame"] = "attribution_frame"
     metric_ids: list[str]
     source_refs: list[str]
+    scope_delta_ref: str | None = None
     attribution_kind: Literal["decomposition", "correlation", "anomaly"]
     driver_field: str | None
     value_column: str | None

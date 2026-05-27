@@ -1,368 +1,230 @@
 ---
 name: marivo-py-analysis
-description: Use when the task involves Marivo analysis — observe, compare, decompose, discover, correlate, or any investigation/diagnosis flow over a Marivo semantic model.
+description: Use when the task involves Marivo analysis: observe, compare, decompose, discover, correlate, test, forecast, quality assessment, or evidence-aware investigation over a Marivo semantic model.
 ---
 
 # marivo-py-analysis
 
-Use this skill when writing or running Python code against an installed Marivo
-Python library: `marivo.analysis_py` as `mv`. Assume the current Python
-environment already has `marivo` available from PyPI or an equivalent install;
-do not assume access to the Marivo repository source tree.
-
-Do not use this skill for stdio MCP investigation workflows. Use the separate
-`marivo-analysis` skill for MCP session tools. Do not use this skill to author
-semantic models; use `marivo-py-semantic` or the semantic-layer skill for that
-work.
-
-## 30-second overview
+Use this skill when writing or running Python code against
+`marivo.analysis_py`. Import it as `ap`:
 
 ```python
-import marivo.analysis_py as mv
-
-mv.observe(mv.MetricRef(metric_id), window={"start": "...", "end": "..."})  # -> MetricFrame
-mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))  # -> DeltaFrame
-mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))     # -> AttributionFrame
-mv.discover(series, objective="point_anomalies", threshold=1.0)  # -> CandidateSet
-mv.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))  # -> AssociationResult
-mv.test(cur, base)       # -> HypothesisTestResult
-mv.forecast(series, horizon=7)  # -> ForecastFrame
-mv.assess_quality(series)       # -> QualityReport
-
-mv.session.current()      # current session summary, or None
-mv.session.history()      # recent session/job history
-mv.help("compare")        # signature and usage hint
-print(frame.summary())    # cheap next-step summary
+import marivo.analysis_py as ap
 ```
 
-Every intent returns a typed frame. Stay in frame world until you intentionally
-materialize a copy with `frame.to_pandas()`. Prefer `frame.summary()` and
-`frame.preview(limit=...)` before printing full data into the agent context.
+Assume the active Python environment already has `marivo` installed. Do not use
+this skill for stdio MCP workflows, HTTP transports, or semantic model authoring.
 
-Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`,
-`mv.AlignmentPolicy(...)`, and `mv.LagPolicy(...)` at public operator
-boundaries. Do not pass bare strings directly to `observe`, `decompose`, or
-calendar-backed `compare`.
+## Start
 
-Important current return types:
-
-- `mv.observe(...)` returns `MetricFrame`.
-- `mv.transform(metric_frame_or_delta_frame, op=...)` returns the same frame
-  family. In v1, `normalize` is MetricFrame-only.
-- `mv.compare(metric_frame, metric_frame, ...)` returns `DeltaFrame`.
-- `mv.decompose(delta_frame, ...)` returns `AttributionFrame`.
-- `mv.discover(metric_frame, objective="point_anomalies", ...)` returns
-  `CandidateSet`.
-- `mv.correlate(metric_frame, metric_frame, ...)` returns
-  `AssociationResult`.
-- Use `mv.test(cur, base)` for paired `mean_changed` tests over compatible metric frames.
-- Use `mv.forecast(history, horizon=N)` for time-series or panel metric forecasts.
-- Use `mv.assess_quality(frame)` before downstream operations when data quality is uncertain.
-
-## Standard workflow
-
-1. Check that the active Python environment can import Marivo, then inspect the
-   session and helper surface.
-
-   ```bash
-   python -c 'import marivo.analysis_py as mv; print(mv.session.current()); mv.help()'
-   ```
-
-2. Confirm metric ids from the semantic layer before calling `observe`. In the
-   runnable examples, `references/examples/_fixtures/tiny_semantic.py` builds a
-   tiny in-memory semantic model using the installed `marivo` package. Examples
-   that use DuckDB require `marivo[duckdb]` or an equivalent environment.
-
-3. If live data is required, use an already configured project datasource.
-   Datasource definition and repair are owned by `marivo-py-semantic`; see
-   `../marivo-py-semantic/references/datasource.md`. For tests or explicit
-   overrides, pass `backends=` / `backend_factory=` and set
-   `use_datasources=False`; see `references/backend-setup.md`.
-
-4. Write a small script in the user's project or scratch area. Use one of the
-   templates below or adapt a runnable file from `references/examples/*.py`.
-
-5. Run the smallest script with the same Python interpreter/environment where
-   `marivo` is installed.
-
-   ```bash
-   python my_analysis.py
-   ```
-
-   If the surrounding project has stricter command rules, follow those local
-   rules. This skill itself does not require the Marivo repository checkout.
-
-6. On Marivo exceptions, read the structured error text. It usually includes a
-   `正确写法` block. Apply that fix, then re-run the smallest script.
-
-7. Keep generated analysis outputs compact. Prefer `frame.summary()` and
-   `frame.preview(limit=n)` before materializing full data with
-   `frame.to_pandas()`.
-
-### Escape Hatch
-
-Use `mv.from_pandas(df, session=session)` or
-`mv.explore_ibis(lambda con: con.table("orders"), datasource="warehouse",
-session=session)` only for scratch work that core operators cannot express.
-Scratch `ExplorationResult` objects are not canonical inputs. Promote them with
-`mv.promote_metric_frame`, `mv.promote_delta_frame`, or
-`mv.promote_attribution_frame` before feeding results back into core operators.
-
-## Relative Windows And Timezone
-
-- For v1.2 relative windows, prefer explicit `window={"expr": ..., "as_of": ...}`
-  and set `grain` only when you need a time series.
-- No `grain` keeps `mv.observe(...)` scalar; adding `grain="day"` returns
-  `semantic_kind == "time_series"`.
-- Set session timezone/default calendar at session creation or attach time so
-  relative windows and calendar compare resolve consistently.
-- Runnable references:
-  `references/examples/window_relative.py`,
-  `references/examples/session_timezone.py`.
-
-## Calendar-Aware Compare
-
-- Calendar alignment requires two time-series `MetricFrame`s and
-  `alignment=mv.AlignmentPolicy(...)` on `mv.compare(...)`.
-- Supply a calendar-backed policy, for example
-  `mv.AlignmentPolicy(kind="dow_aligned", calendar=mv.CalendarRef("cn_holidays"), period="month")`.
-- Ensure the session timezone and selected calendar timezone match.
-- Runnable reference: `references/examples/compare_calendar.py`.
-
-### transform v1 ops
-
-`mv.transform` is the family-preserving reshape entrypoint. v1 supports
-`filter`, `slice`, `rollup`, `topk`, `bottomk`, `rank`, and `window` over
-`MetricFrame` and `DeltaFrame`; `normalize` is MetricFrame-only. DeltaFrame
-normalize is rejected in v1 until current/baseline/delta/pct_change invariants
-can be preserved together. See `references/examples/transform_*.py` for
-runnable examples. The cleaning ops (`dedupe`, `impute_nulls`, `winsorize`,
-`strip_outliers`), `align_time`, and `attribution_frame` inputs are reserved
-for follow-up.
-
-## Fill-in templates
-
-### Attach live backend (project datasource, recommended)
-
-Use this only when `marivo-py-semantic` has already created the required
-project datasource. This skill consumes datasources; it does not define or repair
-them.
+Create or attach a project-local analysis session, then stay in session methods:
 
 ```python
-import marivo.analysis_py as mv
+import marivo.analysis_py as ap
 
-mv.session.create(name="analysis")  # backend resolved from .marivo/datasource
-```
-
-### Attach live backend (explicit override)
-
-Use this in tests / CI or when you need full control over the backend. Pair
-with `use_datasources=False` so a stray project datasource cannot mask a misconfigured
-fixture.
-
-```python
-import ibis
-import marivo.analysis_py as mv
-
-def make_backend(datasource_name: str):
-    if datasource_name != "warehouse":
-        raise KeyError(datasource_name)
-    return ibis.trino.connect(
-        host="<trino_host>", port=80, user="<user>",
-        database="<catalog>", source="<source>",
-        client_tags=["standby", "routing_group=bsk_wide"],
-    )
-
-mv.session.create(
-    name="analysis",
-    backend_factory=make_backend,
-    use_datasources=False,
+session = ap.session()
+current = session.observe(
+    metric=ap.MetricRef("sales.revenue"),
+    time="this_week",
+    grain="day",
 )
+print(current.summary())
 ```
 
-### Observe one metric window
+Use typed refs when an argument expects a public reference:
+`ap.MetricRef`, `ap.DimensionRef`, `ap.CalendarRef`, `ap.AlignmentPolicy`, and
+`ap.LagPolicy`. Some convenience parameters, such as `segment_by="country"`,
+accept strings and normalize them internally.
 
-Use this when you need the value of a known metric inside a fixed time window.
-Runnable reference: `references/examples/01_observe_single_window.py`.
+## Operators
+
+- `session.observe(...)`: materialize a metric window as a `MetricFrame`.
+- `session.compare(current, baseline, ...)`: compute delta and percent change as a `DeltaFrame`.
+- `session.decompose(delta, axis=...)`: attribute a change to dimension values as an `AttributionFrame`.
+- `session.discover(frame, objective=...)`: find anomaly, slice, window, or driver candidates as a `CandidateSet`.
+- `session.correlate(left, right, ...)`: compute association and lag evidence as an `AssociationResult`.
+- `session.test(current, baseline, ...)`: run a statistical hypothesis test as a `HypothesisTestResult`.
+- `session.forecast(history, horizon=...)`: produce forecast points or intervals as a `ForecastFrame`.
+- `session.evaluate_forecast(forecast, actuals, ...)`: compare forecast output with actual observations.
+- `session.assess_quality(frame)`: create a formal `QualityReport` artifact.
+
+Every operator returns an immutable typed result. Prefer `result.summary()` and
+`result.preview(limit=...)` before materializing data with `result.to_pandas()`.
+
+## Surface 1: Result Evidence
+
+Every result exposes these flat fields directly:
 
 ```python
-import marivo.analysis_py as mv
-
-cur = mv.observe(
-    mv.MetricRef("<metric_id>"),
-    window={"start": "2026-07-01", "end": "2026-09-30"},
-)
-print(cur.summary())
+result.artifact_id
+result.subject
+result.evidence_status         # "complete" | "partial" | "unavailable"
+result.blocking_issues
+result.recommended_followups   # C1 + C2 only
+result.confidence_scope
+result.quality                 # lightweight summary, not assess_quality output
 ```
 
-### Compare aligned windows
+There is no `result.evidence.*` wrapper. Read these fields after each step to
+decide whether to continue, remediate quality, or inspect session knowledge.
 
-Use this when you need current, baseline, delta, and percent change for the same
-metric. Runnable reference: `references/examples/02_compare_yoy.py`.
+`recommended_followups` is intentionally narrow:
+
+- C1 `dag_continuation`: deterministic next operators from the allowed analysis DAG.
+- C2 `quality_remediation`: deterministic repair actions for blocking issues.
+
+Strategic, business, heuristic, and semantic-axis suggestions are agent-owned.
+Do not expect `recommended_followups` to suggest every useful next question.
+
+## Surface 2: Session Knowledge
+
+Use session knowledge when you need cross-step reasoning or recovery:
 
 ```python
-import marivo.analysis_py as mv
-
-cur = mv.observe(
-    mv.MetricRef("<metric_id>"),
-    window={"start": "2026-07-01", "end": "2026-09-30"},
-)
-base = mv.observe(
-    mv.MetricRef("<metric_id>"),
-    window={"start": "2025-07-01", "end": "2025-09-30"},
-)
-delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
-print(delta.summary())
+knowledge = session.knowledge()
+knowledge.facts(kind="change")
+knowledge.facts(kind="driver")
+knowledge.facts(kind="tested_hypothesis")
+knowledge.facts(kind="forecast")
+knowledge.facts(kind="association")
+knowledge.open_items(kind="anomaly")
+knowledge.open_items(kind="question")
+knowledge.next_steps(top=5)
+knowledge.blocked_followups()
+knowledge.for_subject(subject)
 ```
 
-### Decompose a delta
+The default agent entry points are `knowledge.facts(...)`,
+`knowledge.open_items(...)`, `knowledge.next_steps(...)`,
+`knowledge.blocked_followups()`, and `knowledge.for_subject(...)`. Full
+typed-field schemas live in `references/typed-facts.md`.
 
-Use this when you have a `DeltaFrame` and need attribution. Runnable reference:
-`references/examples/03_decompose_attribution.py`.
+## Surface 3: Audit
 
-Pass `axis=mv.DimensionRef("<column>")` for a column already present in the
-`DeltaFrame`; do not invent a segment such as `region` unless it exists in the
-delta.
+Use Surface 3 only when you need to inspect raw evidence objects:
 
 ```python
-import marivo.analysis_py as mv
-
-cur = mv.observe(
-    mv.MetricRef("<metric_id>"),
-    window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
-)
-base = mv.observe(
-    mv.MetricRef("<metric_id>"),
-    window={"start": "2025-07-01", "end": "2025-09-30", "grain": "month"},
-)
-delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
-attribution = mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))
-print(attribution.summary())
+session.findings(artifact=result.artifact_id)
+session.findings(finding_type="delta")
+session.propositions(type="change", status="validated")
+session.assessments(latest_only=True)
+session.evidence.proposition("prop_...")
+session.evidence.latest_assessment("prop_...")
+session.evidence.trace("prop_...")
 ```
 
-### Discover anomaly candidates
+Surface 3 returns `Finding`, `Proposition`, `Assessment`, and `EvidenceTrace`
+objects. It is for audit and explanation, not the default path for deciding the
+next operator.
 
-Use this when you have a metric series and need candidate anomaly follow-ups.
-Runnable reference: `references/examples/04_detect_anomaly.py`.
+## Quality Boundary
 
-`mv.discover` returns a `CandidateSet`. The `objective` selects shape and the
-default scoring strategy:
+`result.quality` is a lightweight summary attached automatically at commit time.
+It is useful for quick checks such as coverage, null rate, sample size, and
+compatibility hints. It does not create a new step or artifact.
 
-| Objective | Source | Returns CandidateSet[shape] | Default strategy |
-| --- | --- | --- | --- |
-| `point_anomalies` | `MetricFrame[time_series \| panel]` | `point_anomaly` | `zscore` |
-| `period_shifts` | `DeltaFrame[time_series \| panel]` | `period_shift` | `delta_window_zscore` |
-| `driver_axes` | `DeltaFrame[*]` (`search_space` required) | `driver_axis` | `variance_explained` |
-| `interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` |
-| `interesting_windows` | `MetricFrame[time_series \| panel]` or `DeltaFrame[time_series \| panel]` | `window` | `rolling_zscore` |
-| `cross_sectional_outliers` | `MetricFrame[segmented \| panel]` | `cross_sectional_outlier` | `mad` |
+`session.assess_quality(result)` is an explicit operator. It creates a
+canonical `QualityReport` artifact, enters the step DAG, and can participate in
+the evidence chain.
 
-#### `mv.select` and `as_<shape>()`
+Use `result.quality` by default. Call `session.assess_quality(...)` when quality
+must be auditable, lineage-bearing evidence.
 
-Use `mv.select(candidate_set, rank=N, field=...)` to extract typed values for the
-next operator: `field="axis"` returns `DimensionRef`, `field="window"` returns
-`AbsoluteWindow`, `field="selector"` returns `dict[DimensionRef, Any]` (feed
-directly to `mv.transform(op="slice", where=...)`), `field="recommended_followups"`
-returns `list[FollowupAction]`. Use `field="keys.<dim>"` or
-`field="selector.<dim>"` for scalars. Use `cs.as_driver_axis()` etc. when you
-want to assert the candidate shape early. Runnable references:
-`references/examples/08_discover_driver_axes.py`,
-`references/examples/10_discover_interesting_slices.py`,
-`references/examples/12_select_window_drilldown.py`.
+## Followups
+
+Run runtime-generated followups through the session so lineage records the
+trigger:
 
 ```python
-import marivo.analysis_py as mv
-
-series = mv.observe(
-    mv.MetricRef("<metric_id>"),
-    slice={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
-)
-candidates = mv.discover(series, objective="point_anomalies", threshold=1.0)
-print(candidates.summary())
+for action in session.knowledge().next_steps(top=3):
+    result = session.run_followup(action)
 ```
 
-### Correlate two metric frames
+An agent may call the corresponding operator directly instead, but that bypasses
+`triggered_by_followup` lineage. The same action may remain visible in
+`knowledge.next_steps()` because the runtime cannot tell it was satisfied.
 
-Use this when two compatible `MetricFrame`s should be tested for Pearson
-correlation. `mv.correlate` returns an `AssociationResult` with
-`meta.method == "pearson"`.
+## Decision Tree
+
+Need a metric value or time series?
+Use `session.observe(...)`.
+
+Need current versus baseline change?
+Observe both windows, then `session.compare(current, baseline)`.
+
+Need why a change happened?
+Compare first, then call `session.decompose(delta, axis=...)`.
+
+Need unusual points, slices, windows, or driver axes?
+Use `session.discover(...)` with the objective that matches the question.
+
+Need whether two metrics move together?
+Observe both, then `session.correlate(left, right, ...)`.
+
+Need a formal statistical answer?
+Use `session.test(...)`.
+
+Need future values?
+Use `session.forecast(...)`, then `session.evaluate_forecast(...)` when actuals
+are available.
+
+## Common Pitfalls
+
+- Do not mutate frames. Use `result.to_pandas()` for a defensive copy.
+- Do not pass a `DeltaFrame` back into `compare`; compare requires two metric frames.
+- Do not expect `recommended_followups` to choose decomposition axes or pair metrics for correlation.
+- Do not treat `result.quality` as a replacement for `session.assess_quality(...)` when auditability matters.
+- Do not write to or depend on global session state; analysis state is project-local.
+
+## Walkthrough
 
 ```python
-import marivo.analysis_py as mv
+import marivo.analysis_py as ap
 
-a = mv.observe(mv.MetricRef("<metric_a>"), window={"start": "2026-07-01", "end": "2026-09-30"})
-b = mv.observe(mv.MetricRef("<metric_b>"), window={"start": "2026-07-01", "end": "2026-09-30"})
-correlation = mv.correlate(
-    a,
-    b,
-    alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
-    lag_policy=mv.LagPolicy(mode="single", offset=0),
+session = ap.session()
+
+# Surface 1: every step returns a result with evidence fields populated
+current = session.observe(
+    metric=ap.MetricRef("sales.revenue"),
+    time="this_week",
+    grain="day",
+    segment_by="country",
 )
-print(correlation.summary())
+baseline = session.observe(
+    metric=ap.MetricRef("sales.revenue"),
+    time="previous_week",
+    grain="day",
+    segment_by="country",
+)
+delta = session.compare(current, baseline)
+
+if delta.blocking_issues:
+    for issue in delta.blocking_issues:
+        print(issue.kind, issue.message)
+
+for followup in delta.recommended_followups:
+    if followup.category == "quality_remediation":
+        print(f"remediation for {followup.source_issue_id}: {followup.operator}")
+    else:
+        print(f"valid next operator: {followup.operator}")
+
+# Surface 2: cross-step reasoning
+knowledge = session.knowledge()
+if knowledge.evidence_completeness == "unavailable":
+    raise RuntimeError("judgment store unavailable")
+
+for change in knowledge.facts(kind="change"):
+    print(change.subject, change.direction, change.magnitude, change.status)
+
+# Auto-execute a recommended next step
+for action in knowledge.next_steps(top=3):
+    result = session.run_followup(action)
 ```
 
-### Session and help helpers
+## Further Reading
 
-Use this at the top of exploratory scripts to avoid guessing SDK shape.
-
-```python
-import marivo.analysis_py as mv
-
-print(mv.session.current())
-print(mv.session.history())
-mv.help("observe")
-mv.help("SemanticKindMismatchError")
-```
-
-## Decision tree
-
-```text
-Need the value of a metric in one window?
-  -> observe
-
-Need current vs baseline change?
-  -> observe current -> observe baseline -> compare
-
-Need why the change happened?
-  -> compare first -> decompose
-
-Need spikes, drops, or unusual buckets?
-  -> observe a metric series -> discover
-
-Need whether two metric frames move together?
-  -> observe both -> correlate
-
-Need raw pandas operations?
-  -> call frame.to_pandas() and keep derived data outside the frame contract
-```
-
-## Common pitfalls
-
-- Passing a `DeltaFrame` back into `compare` is invalid. `mv.compare(cur, delta)`
-  raises `SemanticKindMismatchError`; pass two `MetricFrame`s instead. Runnable
-  reference: `references/examples/99_pitfall_pass_delta_to_compare.py`.
-- Do not mutate frames directly with `frame["col"] = ...`. Frames are immutable;
-  call `frame.to_pandas()` for a defensive copy.
-- Do not use window strings such as `"2026Q3"` as the default pattern. Current
-  examples use `window={"start": "...", "end": "..."}` or structured `slice`
-  filters such as `{"created_at": {"op": "between", "value": [...]}}`.
-- Do not call decomposition without an axis. Use
-  `axis=mv.DimensionRef("<column>")` for a grouping column already present in
-  the `DeltaFrame`.
-- Do not call `mv.detect`; use
-  `mv.discover(series, objective="point_anomalies")` for anomaly candidates.
-- Do not pass `align=` to correlate. Use
-  `alignment=mv.AlignmentPolicy(kind="calendar_bucket")`; correlation returns
-  `AssociationResult`.
-
-## Further reading
-
-- `references/examples/*.py` - runnable templates for installed-library usage
-- `references/examples/_fixtures/tiny_semantic.py` - tiny semantic model used by
-  the examples; requires DuckDB support in the active Marivo environment
-- `references/cheatsheet.md` - compact intent/frame reference
-- `../marivo-py-semantic/references/datasource.md` - project datasource
-  definition and required fields
-- `references/backend-setup.md` - how analysis consumes existing datasources or
-  uses explicit backend overrides
-- `references/pitfalls.md` - expanded error recovery notes
+- `references/examples/*.py`: executable SDK examples for installed-library usage.
+- `references/typed-facts.md`: Surface 2 typed fact and open item fields.
+- `references/judgment-db-schema.md`: local SQLite evidence store schema.
+- `references/backend-setup.md`: project datasource and explicit backend setup.
+- `references/pitfalls.md`: expanded error recovery notes.

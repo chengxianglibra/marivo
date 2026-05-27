@@ -17,6 +17,13 @@ from marivo.analysis_py.errors import (
     ForecastPolicyError,
     ForecastShapeUnsupportedError,
 )
+from marivo.analysis_py.evidence.pipeline import (
+    CommitInputs,
+    CommitParams,
+    CommitSemanticAnchors,
+    commit_result,
+)
+from marivo.analysis_py.evidence.types import Subject, TriggeredByFollowup
 from marivo.analysis_py.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.intents._derived import (
@@ -29,7 +36,7 @@ from marivo.analysis_py.intents._derived import (
 )
 from marivo.analysis_py.lineage import LineageStep
 from marivo.analysis_py.session.core import Session, ensure_session_writable
-from marivo.analysis_py.session.persistence import write_frame_to_disk, write_job_record
+from marivo.analysis_py.session.persistence import write_job_record
 
 _FREQ = {"day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
 _DEFAULT_SEASONALITY = {"day": 7, "week": 52, "month": 12, "quarter": 4}
@@ -44,10 +51,13 @@ def forecast(
     interval_level: float = 0.95,
     value: str | None = None,
     session: Session | None = None,
+    _triggered_by: TriggeredByFollowup | None = None,
 ) -> ForecastFrame:
     session = resolve_session(session)
     ensure_session_writable(session)
-    if not isinstance(history, MetricFrame) or history.meta.semantic_kind not in {
+    if getattr(
+        getattr(history, "meta", None), "kind", None
+    ) != "metric_frame" or history.meta.semantic_kind not in {
         "time_series",
         "panel",
     }:
@@ -162,7 +172,25 @@ def forecast(
         segment_dimensions=segment_dims,
     )
     frame = ForecastFrame(_df=output, meta=meta)
-    frame.meta = cast("ForecastFrameMeta", write_frame_to_disk(session.layout, frame))
+    frame = cast(
+        "ForecastFrame",
+        commit_result(
+            store=session.evidence_store(),
+            frames_dir=session.layout.frames_dir,
+            frame=frame,
+            step_type="forecast",
+            inputs=CommitInputs(input_refs=[history.meta.artifact_id or history.ref]),
+            params=CommitParams(values=params),
+            semantic_anchors=CommitSemanticAnchors(values={"metric_id": history.meta.metric_id}),
+            subject=Subject(
+                metric=history.meta.metric_id,
+                grain=cast("Any", grain),
+                analysis_axis="forecast",
+            ),
+            extractor_family="forecast_frame",
+            triggered_by_followup=_triggered_by,
+        ),
+    )
     write_job_record(
         session.layout,
         {
@@ -171,7 +199,7 @@ def forecast(
             "intent": "forecast",
             "params": params,
             "input_frame_refs": [history.ref],
-            "output_frame_ref": frame_ref,
+            "output_frame_ref": frame.meta.artifact_id or frame_ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started) * 1000),

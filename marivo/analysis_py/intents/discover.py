@@ -11,6 +11,13 @@ from typing import Any, cast
 import numpy as np
 
 from marivo.analysis_py.errors import SemanticKindMismatchError
+from marivo.analysis_py.evidence.pipeline import (
+    CommitInputs,
+    CommitParams,
+    CommitSemanticAnchors,
+    commit_result,
+)
+from marivo.analysis_py.evidence.types import Subject, TriggeredByFollowup
 from marivo.analysis_py.frames.candidate import (
     CandidateObjective,
     CandidateSet,
@@ -44,7 +51,7 @@ from marivo.analysis_py.intents._discover_scorers import (
 from marivo.analysis_py.lineage import LineageStep
 from marivo.analysis_py.refs import DimensionRef
 from marivo.analysis_py.session.core import Session, ensure_session_writable
-from marivo.analysis_py.session.persistence import write_frame_to_disk, write_job_record
+from marivo.analysis_py.session.persistence import write_job_record
 
 _DEFAULT_STRATEGY: dict[CandidateObjective, CandidateStrategy] = {
     "point_anomalies": "zscore",
@@ -79,6 +86,7 @@ def discover(
     search_space: list[DimensionRef] | None = None,
     peer_scope: list[DimensionRef] | None = None,
     session: Session | None = None,
+    _triggered_by: TriggeredByFollowup | None = None,
 ) -> CandidateSet:
     session = resolve_session(session)
     ensure_session_writable(session)
@@ -166,7 +174,37 @@ def discover(
         params=full_params,
     )
     frame = CandidateSet(_df=df, meta=meta)
-    frame.meta = cast("CandidateSetMeta", write_frame_to_disk(session.layout, frame))
+    source_ref = source.meta.artifact_id or source.ref
+    axis = (
+        "time"
+        if frame.meta.semantic_kind == "time_series"
+        else "segment"
+        if frame.meta.semantic_kind == "segmented"
+        else frame.meta.semantic_kind
+    )
+    observed_window = source.meta.window if hasattr(source.meta, "window") else None
+    frame = cast(
+        "CandidateSet",
+        commit_result(
+            store=session.evidence_store(),
+            frames_dir=session.layout.frames_dir,
+            frame=frame,
+            step_type="discover",
+            inputs=CommitInputs(input_refs=[source_ref]),
+            params=CommitParams(values=full_params),
+            semantic_anchors=CommitSemanticAnchors(
+                values={"metric_id": getattr(source.meta, "metric_id", "")}
+            ),
+            subject=Subject(
+                metric=getattr(source.meta, "metric_id", None),
+                grain=getattr(source.meta, "grain", None),
+                analysis_axis=axis,
+            ),
+            extractor_family="candidate_set",
+            seeding_context={"observed_window": observed_window},
+            triggered_by_followup=_triggered_by,
+        ),
+    )
     write_job_record(
         session.layout,
         {
@@ -175,7 +213,7 @@ def discover(
             "intent": "discover",
             "params": full_params,
             "input_frame_refs": [source.ref],
-            "output_frame_ref": frame_ref,
+            "output_frame_ref": frame.meta.artifact_id or frame_ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started) * 1000),

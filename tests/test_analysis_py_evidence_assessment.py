@@ -26,7 +26,9 @@ def _proposition() -> Proposition:
     )
 
 
-def _delta_finding(*, direction: str, magnitude: float = 20.0, finding_id: str = "fnd_seed") -> Finding:
+def _delta_finding(
+    *, direction: str, magnitude: float = 20.0, finding_id: str = "fnd_seed"
+) -> Finding:
     return Finding(
         finding_id=finding_id,
         finding_type="delta",
@@ -104,11 +106,21 @@ def test_recompute_assigns_supersede_metadata() -> None:
 
 def test_recompute_any_non_flat_validates_either_direction() -> None:
     prop = _proposition().model_copy(
-        update={"payload": {"change_kind": "scalar_change", "direction_of_interest": "any_non_flat", "comparison_basis": "left_vs_right"}}
+        update={
+            "payload": {
+                "change_kind": "scalar_change",
+                "direction_of_interest": "any_non_flat",
+                "comparison_basis": "left_vs_right",
+            }
+        }
     )
     seed_inc = _delta_finding(direction="increase")
-    snap_inc, _ = recompute_change_assessment(proposition=prop, seed_findings=[seed_inc], snapshot_seq=1)
+    snap_inc, _ = recompute_change_assessment(
+        proposition=prop, seed_findings=[seed_inc], snapshot_seq=1
+    )
     seed_dec = _delta_finding(direction="decrease", finding_id="fnd_dec")
-    snap_dec, _ = recompute_change_assessment(proposition=prop, seed_findings=[seed_dec], snapshot_seq=2)
+    snap_dec, _ = recompute_change_assessment(
+        proposition=prop, seed_findings=[seed_dec], snapshot_seq=2
+    )
     assert snap_inc.status == "validated"
     assert snap_dec.status == "validated"

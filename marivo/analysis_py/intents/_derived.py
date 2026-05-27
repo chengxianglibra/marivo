@@ -15,12 +15,19 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
 from marivo.analysis_py.errors import CrossSessionFrameError, SemanticKindMismatchError
+from marivo.analysis_py.evidence.pipeline import (
+    CommitInputs,
+    CommitParams,
+    CommitSemanticAnchors,
+    commit_result,
+)
+from marivo.analysis_py.evidence.types import Subject
 from marivo.analysis_py.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis_py.frames.base import BaseFrame
 from marivo.analysis_py.lineage import Lineage, LineageStep
 from marivo.analysis_py.session.attach import active as session_active
 from marivo.analysis_py.session.core import Session
-from marivo.analysis_py.session.persistence import write_frame_to_disk, write_job_record
+from marivo.analysis_py.session.persistence import write_job_record
 
 
 def resolve_session(session: Session | None) -> Session:
@@ -103,7 +110,7 @@ def persist_attribution_frame(
 ) -> AttributionFrame:
     frame_ref = gen_ref("frame")
     job_ref = gen_ref("job")
-    source_refs = [source.ref for source in sources]
+    source_refs = [source.meta.artifact_id or source.ref for source in sources]
     finished_at = datetime.now(UTC)
     meta = AttributionFrameMeta(
         kind="attribution_frame",
@@ -125,6 +132,7 @@ def persist_attribution_frame(
         ),
         metric_ids=metric_ids,
         source_refs=source_refs,
+        scope_delta_ref=source_refs[0] if source_refs else None,
         attribution_kind=attribution_kind,  # type: ignore[arg-type]
         driver_field=driver_field,
         value_column=value_column,
@@ -135,7 +143,23 @@ def persist_attribution_frame(
         semantic_model=semantic_model,
     )
     frame = AttributionFrame(_df=df.copy(), meta=meta)
-    frame.meta = cast("AttributionFrameMeta", write_frame_to_disk(session.layout, frame))
+    source_ref_values = [source.meta.artifact_id or source.ref for source in sources]
+    metric_id = metric_ids[0] if metric_ids else None
+    frame = cast(
+        "AttributionFrame",
+        commit_result(
+            store=session.evidence_store(),
+            frames_dir=session.layout.frames_dir,
+            frame=frame,
+            step_type=intent,
+            inputs=CommitInputs(input_refs=source_ref_values),
+            params=CommitParams(values=params),
+            semantic_anchors=CommitSemanticAnchors(values={"metric_id": metric_id or ""}),
+            subject=Subject(metric=metric_id, analysis_axis="decomposition"),
+            extractor_family="attribution_frame",
+            seeding_context={"observed_window": None},
+        ),
+    )
     write_job_record(
         session.layout,
         {
@@ -144,7 +168,7 @@ def persist_attribution_frame(
             "intent": intent,
             "params": params,
             "input_frame_refs": source_refs,
-            "output_frame_ref": frame_ref,
+            "output_frame_ref": frame.meta.artifact_id or frame_ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started_monotonic) * 1000),

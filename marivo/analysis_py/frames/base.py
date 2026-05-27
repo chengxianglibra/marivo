@@ -206,10 +206,7 @@ class BaseFrame:
         columns = _display_column_names(self._df.columns)
         preview_source = self._df.head(limit)
         rows = [
-            {
-                column: _preview_cell(value)
-                for column, value in zip(columns, row, strict=True)
-            }
+            {column: _preview_cell(value) for column, value in zip(columns, row, strict=True)}
             for row in preview_source.itertuples(index=False, name=None)
         ]
         return FramePreview(

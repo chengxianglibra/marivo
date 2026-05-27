@@ -8,7 +8,7 @@ import pandas as pd
 
 from marivo.analysis_py.evidence.extraction.delta import extract_delta_findings
 from marivo.analysis_py.evidence.extraction.observation import extract_metric_value_findings
-from marivo.analysis_py.evidence.types import Finding, Subject
+from marivo.analysis_py.evidence.types import Subject
 
 
 def _now() -> datetime:
@@ -34,9 +34,7 @@ def test_metric_value_scalar_emits_one_finding() -> None:
 
 
 def test_metric_value_time_series_emits_per_bucket_finding() -> None:
-    df = pd.DataFrame(
-        {"bucket_start": ["2026-05-01", "2026-05-02"], "revenue": [10.0, 20.0]}
-    )
+    df = pd.DataFrame({"bucket_start": ["2026-05-01", "2026-05-02"], "revenue": [10.0, 20.0]})
     subject = Subject(metric="sales.revenue", slice={}, grain="day", analysis_axis="time")
     findings = extract_metric_value_findings(
         df=df,
@@ -56,7 +54,9 @@ def test_metric_value_time_series_emits_per_bucket_finding() -> None:
 
 
 def test_delta_scalar_emits_change_finding() -> None:
-    df = pd.DataFrame({"current": [120.0], "baseline": [100.0], "delta": [20.0], "pct_change": [0.2]})
+    df = pd.DataFrame(
+        {"current": [120.0], "baseline": [100.0], "delta": [20.0], "pct_change": [0.2]}
+    )
     subject = Subject(metric="sales.revenue", slice={}, analysis_axis="change")
     findings = extract_delta_findings(
         df=df,
@@ -104,7 +104,9 @@ def test_delta_segmented_emits_per_segment_finding() -> None:
 
 
 def test_delta_flat_direction_when_zero() -> None:
-    df = pd.DataFrame({"current": [100.0], "baseline": [100.0], "delta": [0.0], "pct_change": [0.0]})
+    df = pd.DataFrame(
+        {"current": [100.0], "baseline": [100.0], "delta": [0.0], "pct_change": [0.0]}
+    )
     subject = Subject(metric="sales.revenue", slice={}, analysis_axis="change")
     findings = extract_delta_findings(
         df=df,
@@ -118,7 +120,9 @@ def test_delta_flat_direction_when_zero() -> None:
 
 
 def test_delta_finding_id_is_replay_stable() -> None:
-    df = pd.DataFrame({"current": [120.0], "baseline": [100.0], "delta": [20.0], "pct_change": [0.2]})
+    df = pd.DataFrame(
+        {"current": [120.0], "baseline": [100.0], "delta": [20.0], "pct_change": [0.2]}
+    )
     subject = Subject(metric="sales.revenue", slice={}, analysis_axis="change")
     f1 = extract_delta_findings(
         df=df,

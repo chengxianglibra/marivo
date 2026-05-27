@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from marivo.analysis_py.followups import BlockingIssue, ConfidenceScope, FollowupAction
 
@@ -48,9 +49,36 @@ class Subject(_FrozenModel):
     slice: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
     grain: Literal["hour", "day", "week", "month"] | None = None
     analysis_axis: Literal[
-        "scalar", "time", "segment", "panel", "change", "decomposition",
-        "correlation", "forecast", "anomaly",
+        "scalar",
+        "time",
+        "segment",
+        "panel",
+        "change",
+        "decomposition",
+        "correlation",
+        "forecast",
+        "anomaly",
     ]
+
+    @field_validator("slice", mode="before")
+    @classmethod
+    def _normalize_slice(cls, value: Any) -> dict[str, str | int | float | bool | None]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            return {}
+        normalized: dict[str, str | int | float | bool | None] = {}
+        for key, raw in value.items():
+            if raw is None or isinstance(raw, (str, int, float, bool)):
+                normalized[str(key)] = raw
+            else:
+                normalized[str(key)] = json.dumps(
+                    raw,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                )
+        return normalized
 
 
 class TimeWindow(_FrozenModel):
@@ -63,7 +91,9 @@ class QualitySummary(_FrozenModel):
     coverage: float | None = None
     null_rate: float | None = None
     sample_size: int | None = None
-    metric_definition_compatibility: Literal["exact", "compatible", "incompatible", "unknown"] | None = None
+    metric_definition_compatibility: (
+        Literal["exact", "compatible", "incompatible", "unknown"] | None
+    ) = None
 
 
 class Finding(_FrozenModel):
@@ -127,6 +157,58 @@ class ChangeFact(_FactBase):
     dimension_keys: dict[str, str] | None = None
 
 
+class LagSweepSummary(_FrozenModel):
+    grid_min: float
+    grid_max: float
+    step: float
+    selected_lag: float | None = None
+
+
+class AttributedDriver(_FactBase):
+    kind: Literal["driver"] = "driver"
+    dimension: str
+    dimension_keys: dict[str, str | int | float | bool | None]
+    contribution_value: float | None = None
+    contribution_share: float | None = None
+    contribution_role: Literal[
+        "offsetting_factor",
+        "primary_driver",
+        "secondary_driver",
+        "material_component",
+    ]
+    scope_change_id: str | None = None
+
+
+class TestedHypothesis(_FactBase):
+    kind: Literal["tested_hypothesis"] = "tested_hypothesis"
+    hypothesis_family: Literal["difference", "association"]
+    alternative: Literal["two_sided", "greater", "less"]
+    method_family: str
+    alpha: float
+    p_value: float | None = None
+    reject_null: bool | None = None
+
+
+class ForecastSummary(_FactBase):
+    kind: Literal["forecast"] = "forecast"
+    forecast_window: TimeWindow
+    horizon_index: int
+    forecast_kind: Literal["interval", "point"]
+    prediction_interval: list[float] | None = None
+
+
+class AssociationSummary(_FactBase):
+    kind: Literal["association"] = "association"
+    left_subject: dict[str, Any]
+    right_subject: dict[str, Any]
+    method_family: str
+    coefficient: float | None = None
+    lag_mode: Literal["single", "sweep"] = "single"
+    lag: float | None = None
+    lag_sweep: LagSweepSummary | None = None
+    join_basis: str
+
+
 class _OpenItemBase(_FrozenModel):
     id: str
     kind: OpenItemKind
@@ -154,6 +236,18 @@ class TriggeredByFollowup(_FrozenModel):
     via: Literal["run_followup", "manual"]
 
 
+class BlockedFollowup(_FrozenModel):
+    action_id: str
+    operator: str | None
+    source_artifact_id: str
+    reason: Literal[
+        "missing_input_artifact",
+        "blocking_issue_unresolved",
+        "downstream_of_unavailable_evidence",
+    ]
+    blocking_issue_kind: str | None = None
+
+
 class EvidenceTrace(_FrozenModel):
     proposition: Proposition
     latest_assessment: Assessment | None = None
@@ -167,6 +261,9 @@ class EvidenceTrace(_FrozenModel):
 __all__ = [
     "Assessment",
     "AssessmentStatus",
+    "AssociationSummary",
+    "AttributedDriver",
+    "BlockedFollowup",
     "BlockingIssue",
     "ChangeFact",
     "ConfidenceScope",
@@ -177,6 +274,8 @@ __all__ = [
     "Finding",
     "FindingType",
     "FollowupAction",
+    "ForecastSummary",
+    "LagSweepSummary",
     "OpenAnomaly",
     "OpenItemKind",
     "OpenQuestion",
@@ -185,6 +284,7 @@ __all__ = [
     "PropositionType",
     "QualitySummary",
     "Subject",
+    "TestedHypothesis",
     "TimeWindow",
     "TriggeredByFollowup",
 ]

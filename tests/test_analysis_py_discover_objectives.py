@@ -420,5 +420,5 @@ def test_persistence_round_trip(objective, source_kind, builder):
     assert loaded.meta.shape == out.meta.shape
     assert loaded.meta.objective == out.meta.objective
     assert loaded.meta.strategy == out.meta.strategy
-    assert loaded.meta.recommended_followups == []
+    assert [action.operator for action in loaded.meta.recommended_followups] == ["assess_quality"]
     assert list(loaded.to_pandas().columns) == list(out.to_pandas().columns)

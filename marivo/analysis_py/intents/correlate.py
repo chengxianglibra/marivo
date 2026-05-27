@@ -14,6 +14,13 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
 from marivo.analysis_py.errors import AlignmentFailedError, SemanticKindMismatchError
+from marivo.analysis_py.evidence.pipeline import (
+    CommitInputs,
+    CommitParams,
+    CommitSemanticAnchors,
+    commit_result,
+)
+from marivo.analysis_py.evidence.types import Subject
 from marivo.analysis_py.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis_py.frames.metric import MetricFrame
 from marivo.analysis_py.intents._derived import (
@@ -25,7 +32,7 @@ from marivo.analysis_py.intents._derived import (
 from marivo.analysis_py.lineage import LineageStep
 from marivo.analysis_py.policies import AlignmentPolicy, LagPolicy
 from marivo.analysis_py.session.core import Session, ensure_session_writable
-from marivo.analysis_py.session.persistence import write_frame_to_disk, write_job_record
+from marivo.analysis_py.session.persistence import write_job_record
 
 
 def _gen_ref(prefix: str) -> str:
@@ -173,7 +180,31 @@ def correlate(
         correlation=correlation,
     )
     result = AssociationResult(_df=output, meta=meta)
-    result.meta = cast("AssociationResultMeta", write_frame_to_disk(session.layout, result))
+    left_subject = {"metric": a.meta.metric_id}
+    right_subject = {"metric": b.meta.metric_id}
+    result = cast(
+        "AssociationResult",
+        commit_result(
+            store=session.evidence_store(),
+            frames_dir=session.layout.frames_dir,
+            frame=result,
+            step_type="correlate",
+            inputs=CommitInputs(
+                input_refs=[a.meta.artifact_id or a.ref, b.meta.artifact_id or b.ref]
+            ),
+            params=CommitParams(values=params),
+            semantic_anchors=CommitSemanticAnchors(
+                values={"left_metric_id": a.meta.metric_id, "right_metric_id": b.meta.metric_id}
+            ),
+            subject=Subject(metric=None, analysis_axis="correlation"),
+            extractor_family="association_result",
+            seeding_context={
+                "left_subject": left_subject,
+                "right_subject": right_subject,
+                "aligned_window": a.meta.window or b.meta.window or {"basis": alignment.kind},
+            },
+        ),
+    )
     write_job_record(
         session.layout,
         {
@@ -182,7 +213,7 @@ def correlate(
             "intent": "correlate",
             "params": params,
             "input_frame_refs": source_refs,
-            "output_frame_ref": frame_ref,
+            "output_frame_ref": result.meta.artifact_id or frame_ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started) * 1000),

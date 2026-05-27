@@ -9,6 +9,7 @@ from time import monotonic
 import numpy as np
 
 from marivo.analysis_py.errors import AxisNotInPanelDimensionsError, SemanticKindMismatchError
+from marivo.analysis_py.evidence.types import TriggeredByFollowup
 from marivo.analysis_py.frames.attribution import AttributionFrame
 from marivo.analysis_py.frames.delta import DeltaFrame
 from marivo.analysis_py.intents._derived import (
@@ -52,6 +53,7 @@ def decompose(
     axis: DimensionRef,
     value: str = "delta",
     session: Session | None = None,
+    _triggered_by: TriggeredByFollowup | None = None,
 ) -> AttributionFrame:
     session = resolve_session(session)
     ensure_session_writable(session)

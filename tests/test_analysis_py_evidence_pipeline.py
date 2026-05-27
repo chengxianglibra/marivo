@@ -19,6 +19,7 @@ from marivo.analysis_py.evidence.pipeline import (
 )
 from marivo.analysis_py.evidence.store import open_judgment_store
 from marivo.analysis_py.evidence.types import Subject
+from marivo.analysis_py.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.lineage import Lineage
@@ -28,7 +29,9 @@ def _now() -> datetime:
     return datetime(2026, 5, 27, 12, 0, 0, tzinfo=UTC)
 
 
-def _metric_frame(*, session_id: str, project_root: Path, metric: str = "sales.revenue") -> MetricFrame:
+def _metric_frame(
+    *, session_id: str, project_root: Path, metric: str = "sales.revenue"
+) -> MetricFrame:
     df = pd.DataFrame({"revenue": [100.0]})
     meta = MetricFrameMeta(
         kind="metric_frame",
@@ -51,7 +54,9 @@ def _metric_frame(*, session_id: str, project_root: Path, metric: str = "sales.r
     return MetricFrame(_df=df, meta=meta)
 
 
-def _delta_frame(*, session_id: str, project_root: Path, source_a: str, source_b: str) -> DeltaFrame:
+def _delta_frame(
+    *, session_id: str, project_root: Path, source_a: str, source_b: str
+) -> DeltaFrame:
     df = pd.DataFrame(
         {"current": [120.0], "baseline": [100.0], "delta": [20.0], "pct_change": [0.2]}
     )
@@ -73,6 +78,51 @@ def _delta_frame(*, session_id: str, project_root: Path, source_a: str, source_b
         semantic_model="sales",
     )
     return DeltaFrame(_df=df, meta=meta)
+
+
+def _attribution_frame(
+    *, session_id: str, project_root: Path, scope_delta_ref: str
+) -> AttributionFrame:
+    df = pd.DataFrame(
+        [
+            {
+                "dimension": "country",
+                "country": "us",
+                "contribution_value": 12.0,
+                "contribution_share": 0.6,
+                "direction": "increase",
+            },
+            {
+                "dimension": "country",
+                "country": "jp",
+                "contribution_value": -4.0,
+                "contribution_share": -0.2,
+                "direction": "decrease",
+            },
+        ]
+    )
+    meta = AttributionFrameMeta(
+        kind="attribution_frame",
+        ref="placeholder",
+        session_id=session_id,
+        project_root=str(project_root),
+        produced_by_job=None,
+        created_at=_now(),
+        row_count=len(df),
+        byte_size=0,
+        lineage=Lineage(),
+        metric_ids=["sales.revenue"],
+        source_refs=[scope_delta_ref],
+        attribution_kind="decomposition",
+        driver_field="country",
+        value_column="contribution_value",
+        contribution_column="contribution_share",
+        method="simple_contribution",
+        params={"axis": "country"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+    )
+    return AttributionFrame(_df=df, meta=meta)
 
 
 @pytest.fixture
@@ -168,9 +218,7 @@ def test_commit_compare_seeds_change_proposition(tmp_session) -> None:
 
     assert result.meta.evidence_status == "complete"
     with sqlite3.connect(db_path) as conn:
-        props = conn.execute(
-            "SELECT proposition_type, payload FROM propositions"
-        ).fetchall()
+        props = conn.execute("SELECT proposition_type, payload FROM propositions").fetchall()
     assert len(props) == 1
     prop_type, payload_json = props[0]
     assert prop_type == "change"
@@ -179,6 +227,40 @@ def test_commit_compare_seeds_change_proposition(tmp_session) -> None:
     assert payload["direction_of_interest"] == "increase"
     operators = sorted(a.operator for a in result.meta.recommended_followups)
     assert "assess_quality" in operators
+
+
+def test_pipeline_dispatches_decomposition_family(tmp_session) -> None:
+    session_id, session_dir, frames_dir, db_path = tmp_session
+    store = open_judgment_store(db_path)
+    try:
+        result = commit_result(
+            store=store,
+            frames_dir=frames_dir,
+            frame=_attribution_frame(
+                session_id=session_id,
+                project_root=session_dir,
+                scope_delta_ref="art_delta_parent",
+            ),
+            step_type="decompose",
+            inputs=CommitInputs(input_refs=["art_delta_parent"]),
+            params=CommitParams(values={"axis": "country"}),
+            semantic_anchors=CommitSemanticAnchors(values={"metric": "sales.revenue@v1"}),
+            subject=Subject(metric="sales.revenue", analysis_axis="decomposition"),
+            extractor_family="attribution_frame",
+        )
+    finally:
+        store.close()
+
+    assert result.meta.evidence_status == "complete"
+    with sqlite3.connect(db_path) as conn:
+        proposition_types = {
+            row[0]
+            for row in conn.execute(
+                "SELECT proposition_type FROM propositions WHERE session_id=?",
+                (session_id,),
+            ).fetchall()
+        }
+    assert "driver" in proposition_types
 
 
 def test_commit_partial_when_seeding_fails(tmp_session, monkeypatch) -> None:

@@ -1083,9 +1083,7 @@ def test_promote_attribution_frame_inherits_source_delta_metadata():
     session = mv.session.create(name="demo")
     delta = _promoted_delta(session)
     scratch = mv.from_pandas(
-        pd.DataFrame(
-            {"country": ["US", "CA"], "value": [8.0, 2.0], "contribution": [8.0, 2.0]}
-        ),
+        pd.DataFrame({"country": ["US", "CA"], "value": [8.0, 2.0], "contribution": [8.0, 2.0]}),
         session=session,
     )
 

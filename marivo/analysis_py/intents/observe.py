@@ -653,9 +653,32 @@ def _persist_known_datasources(session: Session) -> None:
 
 def _analysis_axis_for_kind(
     semantic_kind: str,
-) -> Literal["scalar", "time", "segment", "panel", "change", "decomposition", "correlation", "forecast", "anomaly"]:
+) -> Literal[
+    "scalar",
+    "time",
+    "segment",
+    "panel",
+    "change",
+    "decomposition",
+    "correlation",
+    "forecast",
+    "anomaly",
+]:
     """Map semantic_kind to the Subject.analysis_axis literal."""
-    mapping: dict[str, Literal["scalar", "time", "segment", "panel", "change", "decomposition", "correlation", "forecast", "anomaly"]] = {
+    mapping: dict[
+        str,
+        Literal[
+            "scalar",
+            "time",
+            "segment",
+            "panel",
+            "change",
+            "decomposition",
+            "correlation",
+            "forecast",
+            "anomaly",
+        ],
+    ] = {
         "scalar": "scalar",
         "time_series": "time",
         "segmented": "segment",

@@ -11,6 +11,13 @@ from typing import Literal, cast
 import pandas as pd
 
 from marivo.analysis_py.errors import QualityShapeUnsupportedError
+from marivo.analysis_py.evidence.pipeline import (
+    CommitInputs,
+    CommitParams,
+    CommitSemanticAnchors,
+    commit_result,
+)
+from marivo.analysis_py.evidence.types import Subject, TriggeredByFollowup
 from marivo.analysis_py.followups import BlockingIssue, FollowupAction
 from marivo.analysis_py.frames.base import BaseFrame
 from marivo.analysis_py.frames.metric import MetricFrame
@@ -25,17 +32,23 @@ from marivo.analysis_py.intents._derived import (
 from marivo.analysis_py.intents._quality_checks import run_metric_checks
 from marivo.analysis_py.lineage import LineageStep
 from marivo.analysis_py.session.core import Session, ensure_session_writable
-from marivo.analysis_py.session.persistence import write_frame_to_disk, write_job_record
+from marivo.analysis_py.session.persistence import write_job_record
 
 
-def assess_quality(target: BaseFrame, *, session: Session | None = None) -> QualityReport:
+def assess_quality(
+    target: BaseFrame,
+    *,
+    session: Session | None = None,
+    _triggered_by: TriggeredByFollowup | None = None,
+) -> QualityReport:
     session = resolve_session(session)
     ensure_session_writable(session)
-    if not isinstance(target, MetricFrame):
+    if getattr(getattr(target, "meta", None), "kind", None) != "metric_frame":
         raise QualityShapeUnsupportedError(
             message="assess_quality v1 only supports MetricFrame targets",
             details={"target_kind": target.meta.kind},
         )
+    target = cast("MetricFrame", target)
     ensure_frame_in_session(target, session=session, label="assess_quality target")
 
     started_at = datetime.now(UTC)
@@ -87,7 +100,25 @@ def assess_quality(target: BaseFrame, *, session: Session | None = None) -> Qual
         blocking_issues=blocking_issues,
     )
     frame = QualityReport(_df=output, meta=meta)
-    frame.meta = cast("QualityReportMeta", write_frame_to_disk(session.layout, frame))
+    frame = cast(
+        "QualityReport",
+        commit_result(
+            store=session.evidence_store(),
+            frames_dir=session.layout.frames_dir,
+            frame=frame,
+            step_type="assess_quality",
+            inputs=CommitInputs(input_refs=[target.meta.artifact_id or target.ref]),
+            params=CommitParams(values=params),
+            semantic_anchors=CommitSemanticAnchors(values={"metric_id": target.meta.metric_id}),
+            subject=Subject(
+                metric=target.meta.metric_id,
+                grain=getattr(target.meta, "grain", None),
+                analysis_axis="scalar",
+            ),
+            extractor_family="quality_report",
+            triggered_by_followup=_triggered_by,
+        ),
+    )
     write_job_record(
         session.layout,
         {
@@ -96,7 +127,7 @@ def assess_quality(target: BaseFrame, *, session: Session | None = None) -> Qual
             "intent": "assess_quality",
             "params": params,
             "input_frame_refs": [target.ref],
-            "output_frame_ref": frame_ref,
+            "output_frame_ref": frame.meta.artifact_id or frame_ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started) * 1000),
