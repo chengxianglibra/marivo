@@ -8,6 +8,7 @@ import marivo.analysis_py.session.attach as session_attach
 from marivo.analysis_py.errors import (
     AlignmentFailedError,
     CrossSessionFrameError,
+    LagPolicyValidationError,
     SemanticKindMismatchError,
 )
 from marivo.analysis_py.frames.association import AssociationResult
@@ -378,5 +379,5 @@ def test_correlate_rejects_non_lag_policy():
 
 
 def test_correlate_rejects_non_zero_lag_policy_construction():
-    with pytest.raises(ValueError):
+    with pytest.raises(LagPolicyValidationError):
         LagPolicy(mode="single", offset=1)
