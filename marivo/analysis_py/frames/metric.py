@@ -46,6 +46,16 @@ class MetricFrameMeta(BaseFrameMeta):
 class MetricFrame(BaseFrame):
     meta: MetricFrameMeta
 
+    _NEXT_INTENTS = (
+        "compare",
+        "discover",
+        "correlate",
+        "transform",
+        "assess_quality",
+        "test",
+        "forecast",
+    )
+
     @classmethod
     def from_dataframe(
         cls,

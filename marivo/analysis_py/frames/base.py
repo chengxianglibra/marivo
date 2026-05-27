@@ -135,6 +135,8 @@ class BaseFrame:
     _df: pd.DataFrame
     meta: BaseFrameMeta
 
+    _NEXT_INTENTS: tuple[str, ...] = ()
+
     @property
     def ref(self) -> str:
         return self.meta.ref
@@ -142,6 +144,10 @@ class BaseFrame:
     @property
     def lineage(self) -> Lineage:
         return self.meta.lineage
+
+    def next_intents(self) -> tuple[str, ...]:
+        """Return the intent names that accept this frame as input."""
+        return type(self)._NEXT_INTENTS
 
     def to_pandas(self) -> pd.DataFrame:
         """Return a defensive copy of the wrapped DataFrame."""
@@ -251,8 +257,12 @@ class BaseFrame:
             f"<{type(self).__name__} ref={self.meta.ref} kind={self.meta.kind} "
             f"rows={self.meta.row_count} cols=[{cols}]>"
         )
+        next_line: str | None = None
+        intents = self.next_intents()
+        if intents:
+            next_line = "  next: " + ", ".join(intents)
         if len(self._df) == 0:
-            return header
+            return header if next_line is None else f"{header}\n{next_line}"
 
         notes: list[str] = []
         if omitted_columns:
@@ -272,7 +282,10 @@ class BaseFrame:
             columns=[_truncate_repr_text(column) for column in preview_source.columns],
         )
         preview_text = preview.to_string(index=False)
-        return "\n".join([header, preview_text, *notes])
+        sections = [header, preview_text, *notes]
+        if next_line is not None:
+            sections.append(next_line)
+        return "\n".join(sections)
 
     def _repr_html_(self) -> str:
         return f"<pre>{escape(repr(self))}</pre>"

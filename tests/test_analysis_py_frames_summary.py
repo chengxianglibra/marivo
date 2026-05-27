@@ -237,3 +237,34 @@ def test_frame_summary_forbids_extra_fields() -> None:
             lineage_oneliner="(empty)",
             extra_field=True,
         )
+
+
+def test_metric_frame_advertises_next_intents() -> None:
+    from marivo.analysis_py.frames.metric import MetricFrame
+
+    intents = MetricFrame._NEXT_INTENTS
+    assert "compare" in intents
+    assert "discover" in intents
+    assert "transform" in intents
+
+
+def test_delta_frame_advertises_next_intents() -> None:
+    from marivo.analysis_py.frames.delta import DeltaFrame
+
+    assert DeltaFrame._NEXT_INTENTS == ("decompose", "discover", "transform")
+
+
+def test_candidate_set_advertises_next_intents() -> None:
+    from marivo.analysis_py.frames.candidate import CandidateSet
+
+    assert CandidateSet._NEXT_INTENTS == ("select",)
+
+
+def test_terminal_frame_has_empty_next_intents() -> None:
+    from marivo.analysis_py.frames.attribution import AttributionFrame
+    from marivo.analysis_py.frames.forecast import ForecastFrame
+    from marivo.analysis_py.frames.hypothesis import HypothesisTestResult
+
+    assert AttributionFrame._NEXT_INTENTS == ()
+    assert ForecastFrame._NEXT_INTENTS == ()
+    assert HypothesisTestResult._NEXT_INTENTS == ()
