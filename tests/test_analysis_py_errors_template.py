@@ -194,6 +194,51 @@ def test_metric_not_found_without_details_does_not_show_wrong_id_remediation():
     assert "<metric_id>" not in rendered
 
 
+def test_metric_not_found_renders_available_ids_preview():
+    err = MetricNotFoundError(
+        message="metric not found",
+        details={
+            "metric_id": "revenu",
+            "available_ids": ["sales.revenue", "sales.orders"],
+        },
+    )
+
+    rendered = str(err)
+
+    assert "Available metrics: sales.revenue, sales.orders" in rendered
+
+
+def test_metric_not_found_truncates_long_available_ids():
+    available = [f"m.metric_{i}" for i in range(15)]
+    err = MetricNotFoundError(
+        message="metric not found",
+        details={"metric_id": "absent", "available_ids": available},
+    )
+
+    rendered = str(err)
+
+    assert "m.metric_0, m.metric_1," in rendered
+    assert "m.metric_9" in rendered
+    assert "(+5 more)" in rendered
+
+
+def test_dimension_not_found_renders_available_ids_preview():
+    from marivo.analysis_py.errors import DimensionFieldNotFoundError
+
+    err = DimensionFieldNotFoundError(
+        message="dimension 'regn' not found",
+        details={
+            "dimension_id": "regn",
+            "searched_datasets": ["orders"],
+            "available_ids": ["region", "country"],
+        },
+    )
+
+    rendered = str(err)
+
+    assert "Available dimensions: region, country" in rendered
+
+
 def test_no_backend_factory_default_template_fields_populated() -> None:
     from marivo.analysis_py.errors import NoBackendFactoryError
 
