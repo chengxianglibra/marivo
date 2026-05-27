@@ -25,7 +25,7 @@ def _reset_session(tmp_path, monkeypatch):
 
 
 def test_seeded_time_series_metric_frame_fixture(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = seeded_time_series_metric_frame(
         session=session,
         n_buckets=7,
@@ -57,7 +57,7 @@ def _metric_frame(
 
 
 def test_mean_changed_time_series_basic(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     times = pd.date_range("2026-01-01", periods=6, freq="D")
     a = _metric_frame(session, [{"time": t, "value": 20.0 + i} for i, t in enumerate(times)])
     b = _metric_frame(session, [{"time": t, "value": 10.0 + i * 0.2} for i, t in enumerate(times)])
@@ -75,7 +75,7 @@ def test_mean_changed_time_series_basic(tmp_path):
 
 
 def test_mean_changed_time_series_no_diff(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     times = pd.date_range("2026-01-01", periods=5, freq="D")
     rows = [{"time": t, "value": float(i)} for i, t in enumerate(times)]
 
@@ -87,7 +87,7 @@ def test_mean_changed_time_series_no_diff(tmp_path):
 
 
 def test_segmented_paired_across_segments(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     axes = {"dimensions": [{"field": "segment"}]}
     a = _metric_frame(
         session,
@@ -108,7 +108,7 @@ def test_segmented_paired_across_segments(tmp_path):
 
 
 def test_panel_per_segment_rows(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     times = pd.date_range("2026-01-01", periods=4, freq="D")
     axes = {"time": {"field": "time", "grain": "day"}, "dimensions": [{"field": "segment"}]}
     a = _metric_frame(
@@ -140,7 +140,7 @@ def test_panel_per_segment_rows(tmp_path):
 
 
 def test_test_operator_errors_and_persistence(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric_frame(session, [{"value": 1.0}], semantic_kind="scalar", axes={})
     with pytest.raises(TestShapeNotTestableError):
         mv.test(a, a, session=session)
@@ -160,7 +160,7 @@ def test_test_operator_errors_and_persistence(tmp_path):
             session=session,
         )
 
-    other = session_attach.create(name="other")
+    other = session_attach.get_or_create(name="other")
     foreign = seeded_time_series_metric_frame(session=other, n_buckets=4)
     with pytest.raises(CrossSessionFrameError):
         mv.test(ts, foreign, session=session)

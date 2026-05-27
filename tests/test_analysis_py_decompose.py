@@ -83,7 +83,7 @@ def _metric(session):
 
 
 def test_decompose_time_series_uses_axis_ref():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(
         session,
         pd.DataFrame(
@@ -108,7 +108,7 @@ def test_decompose_time_series_uses_axis_ref():
 
 
 def test_decompose_segmented_uses_axis_ref():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(
         session,
         pd.DataFrame(
@@ -129,7 +129,7 @@ def test_decompose_segmented_uses_axis_ref():
 
 
 def test_decompose_requires_axis_argument():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(
         session,
         pd.DataFrame(
@@ -147,7 +147,7 @@ def test_decompose_requires_axis_argument():
 
 
 def test_decompose_scalar_rejects_missing_axis_column():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(
         session,
         pd.DataFrame({"delta": [8.0]}),
@@ -161,7 +161,7 @@ def test_decompose_scalar_rejects_missing_axis_column():
 
 
 def test_decompose_writes_job_and_frame():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
 
     out = mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
@@ -173,13 +173,13 @@ def test_decompose_writes_job_and_frame():
 
 
 def test_decompose_rejects_metric_frame():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     with pytest.raises(SemanticKindMismatchError):
         mv.decompose(_metric(session), axis=DimensionRef("bucket"), session=session)  # type: ignore[arg-type]
 
 
 def test_decompose_rejects_panel_delta():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(
         session,
         pd.DataFrame({"bucket": ["a"], "delta": [1.0]}),
@@ -190,7 +190,7 @@ def test_decompose_rejects_panel_delta():
 
 
 def test_decompose_rejects_non_dimension_ref_axis():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(
         session,
         pd.DataFrame({"region": ["north", "south"], "delta": [1.0, 2.0]}),
@@ -204,7 +204,7 @@ def test_decompose_rejects_non_dimension_ref_axis():
 
 
 def test_decompose_rejects_missing_axis_column():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(
         session,
         pd.DataFrame({"delta": [1.0, 2.0]}),
@@ -218,29 +218,29 @@ def test_decompose_rejects_missing_axis_column():
 
 
 def test_decompose_rejects_missing_value_column():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     with pytest.raises(SemanticKindMismatchError):
         mv.decompose(frame, axis=DimensionRef("bucket"), value="missing", session=session)
 
 
 def test_decompose_rejects_non_numeric_value_column():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": ["bad"]}))
     with pytest.raises(SemanticKindMismatchError):
         mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
 
 
 def test_decompose_rejects_cross_session_frame():
-    session_a = session_attach.create(name="a")
+    session_a = session_attach.get_or_create(name="a")
     frame = _delta(session_a, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
-    session_b = session_attach.create(name="b")
+    session_b = session_attach.get_or_create(name="b")
     with pytest.raises(CrossSessionFrameError):
         mv.decompose(frame, axis=DimensionRef("bucket"), session=session_b)
 
 
 def test_decompose_archived_session_raises():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     session_attach.archive("demo")
     with pytest.raises(SessionStateError):
@@ -248,7 +248,7 @@ def test_decompose_archived_session_raises():
 
 
 def test_decompose_stale_archived_session_raises():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     session_attach._reset_process_state()
     session_attach.archive("demo")

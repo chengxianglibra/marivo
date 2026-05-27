@@ -38,7 +38,7 @@ def _metric(session, rows, *, semantic_kind="time_series", axes=None, window=Non
 
 
 def test_metric_time_series_full_coverage_ok(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
 
     report = mv.assess_quality(frame, session=session)
@@ -51,7 +51,7 @@ def test_metric_time_series_full_coverage_ok(tmp_path):
 
 
 def test_metric_time_series_gap_warning_and_blocking(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     rows = [{"time": t, "value": 1.0} for t in pd.date_range("2026-01-01", periods=9, freq="D")]
     warning = _metric(
         session,
@@ -72,7 +72,7 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
 
 
 def test_metric_segmented_duplicate_keys_blocking(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session,
         [{"segment": "US", "value": 1.0}, {"segment": "US", "value": 2.0}],
@@ -90,7 +90,7 @@ def test_metric_segmented_duplicate_keys_blocking(tmp_path):
 
 
 def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session,
         [
@@ -111,7 +111,7 @@ def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
 
 
 def test_panel_all_checks_and_persistence(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5, segments=["US", "CA"])
 
     report = mv.assess_quality(frame, session=session)
@@ -125,7 +125,7 @@ def test_panel_all_checks_and_persistence(tmp_path):
 
 
 def test_non_metric_frame_raises(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     delta = DeltaFrame(
         _df=pd.DataFrame({"delta": [1.0]}),
         meta=DeltaFrameMeta(

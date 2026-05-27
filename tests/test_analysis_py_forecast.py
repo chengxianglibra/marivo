@@ -25,7 +25,7 @@ def _reset_session(tmp_path, monkeypatch):
 
 
 def test_naive_time_series_constant(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     history = seeded_time_series_metric_frame(
         session=session,
         n_buckets=10,
@@ -47,7 +47,7 @@ def test_naive_time_series_constant(tmp_path):
 
 
 def test_seasonal_naive_dow_period_7(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     history = seeded_time_series_metric_frame(
         session=session, n_buckets=21, value_pattern="seasonal_7"
     )
@@ -73,7 +73,7 @@ def test_seasonal_naive_dow_period_7(tmp_path):
 
 
 def test_drift_trending_series(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     history = seeded_time_series_metric_frame(session=session, n_buckets=5, value_pattern="linear")
 
     result = mv.forecast(history, horizon=2, model="drift", session=session)
@@ -82,7 +82,7 @@ def test_drift_trending_series(tmp_path):
 
 
 def test_interval_width_grows_with_horizon(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     history = seeded_time_series_metric_frame(session=session, n_buckets=20, value_pattern="noisy")
 
     df = mv.forecast(history, horizon=5, model="naive", session=session).to_pandas()
@@ -91,7 +91,7 @@ def test_interval_width_grows_with_horizon(tmp_path):
 
 
 def test_panel_per_segment_and_insufficient_history(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     full = seeded_time_series_metric_frame(
         session=session,
         n_buckets=4,
@@ -123,7 +123,7 @@ def test_panel_per_segment_and_insufficient_history(tmp_path):
 
 
 def test_forecast_errors_and_persistence(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     history = seeded_time_series_metric_frame(session=session, n_buckets=5)
 
     with pytest.raises(ForecastPolicyError):

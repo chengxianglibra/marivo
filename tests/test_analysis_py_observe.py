@@ -91,7 +91,7 @@ def test_observe_returns_metric_frame(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
     mf = observe(MetricRef("sales.revenue"), session=s)
     assert isinstance(mf, MetricFrame)
     assert mf.meta.metric_id == "sales.revenue"
@@ -102,7 +102,7 @@ def test_observe_rejects_bare_metric_string(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe("sales.revenue", session=s)  # type: ignore[arg-type]
@@ -118,7 +118,7 @@ def test_observe_applies_window(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
     mf = observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-31"},
@@ -131,7 +131,7 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
     _bootstrap_sales_with_two_time_fields(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_two_time_fields(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(WindowInvalidError) as exc_info:
         observe(
@@ -151,7 +151,7 @@ def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
     _bootstrap_sales_with_two_time_fields(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_two_time_fields(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
         MetricRef("sales.revenue"),
@@ -166,7 +166,7 @@ def test_observe_applies_slice(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
     mf = observe(MetricRef("sales.revenue"), slice={"region": "NORTH"}, session=s)
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(70.0)
 
@@ -175,7 +175,7 @@ def test_observe_unknown_metric_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
     with pytest.raises(MetricNotFoundError):
         observe(MetricRef("sales.nonexistent"), session=s)
 
@@ -184,7 +184,7 @@ def test_observe_errored_project_raises(tmp_path, monkeypatch):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
     # Simulate a project that re-loads and stays errored
     from marivo.semantic_py.errors import SemanticLoadFailed
 
@@ -210,7 +210,7 @@ def test_observe_errored_project_raises(tmp_path, monkeypatch):
 
 def test_observe_read_only_session_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
-    s = session_attach.create(name="demo", use_datasources=False)
+    s = session_attach.get_or_create(name="demo", use_datasources=False)
     with pytest.raises(NoBackendFactoryError):
         observe(MetricRef("sales.revenue"), session=s)
 
@@ -219,7 +219,7 @@ def test_observe_persists_job_and_frame(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
     mf = observe(MetricRef("sales.revenue"), session=s)
     summaries = s.jobs()
     assert len(summaries) == 1
@@ -232,7 +232,7 @@ def test_observe_archived_session_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
     session_attach.archive("demo")
     with pytest.raises(SessionStateError):
         observe(MetricRef("sales.revenue"), session=s)
@@ -242,7 +242,7 @@ def test_observe_stale_archived_session_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
     session_attach._reset_process_state()
     session_attach.archive("demo")
     assert s.state == "active"
@@ -254,8 +254,8 @@ def test_observe_persists_known_datasources(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
     observe(MetricRef("sales.revenue"), session=s)
     session_attach._reset_process_state()
-    reattached = session_attach.attach(name="demo")
+    reattached = session_attach.get_or_create(name="demo")
     assert reattached.known_datasources == {"warehouse"}

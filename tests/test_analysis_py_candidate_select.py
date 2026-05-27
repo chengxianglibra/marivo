@@ -114,7 +114,7 @@ def _hand_built_candidate_set(session, *, shape: str, rows: list[dict[str, Any]]
 
 
 def test_select_axis_returns_dimension_ref():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="driver_axis",
@@ -129,7 +129,7 @@ def test_select_axis_returns_dimension_ref():
 
 
 def test_select_window_returns_absolute_window():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="point_anomaly",
@@ -151,7 +151,7 @@ def test_select_window_returns_absolute_window():
 
 
 def test_select_baseline_window_for_period_shift():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="period_shift",
@@ -173,7 +173,7 @@ def test_select_baseline_window_for_period_shift():
 
 
 def test_select_selector_returns_dimension_ref_keyed_dict():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="slice",
@@ -194,7 +194,7 @@ def test_select_selector_returns_dimension_ref_keyed_dict():
 
 
 def test_select_keys_dot_path_returns_scalar():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="slice",
@@ -212,7 +212,7 @@ def test_select_keys_dot_path_returns_scalar():
 
 
 def test_select_recommended_followups_returns_typed_list():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     followup = mv.FollowupAction(action_id="a1", kind="submit_step")
     cs = _hand_built_candidate_set(
         session,
@@ -234,7 +234,7 @@ def test_select_recommended_followups_returns_typed_list():
 
 
 def test_select_empty_recommended_followups_returns_empty_list():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="driver_axis",
@@ -244,7 +244,7 @@ def test_select_empty_recommended_followups_returns_empty_list():
 
 
 def test_select_field_incompatible_with_shape_raises():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="point_anomaly",
@@ -264,7 +264,7 @@ def test_select_field_incompatible_with_shape_raises():
 
 
 def test_select_rank_out_of_range_raises():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="driver_axis",
@@ -277,7 +277,7 @@ def test_select_rank_out_of_range_raises():
 
 
 def test_select_unknown_dot_path_key_raises():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="slice",
@@ -295,7 +295,7 @@ def test_select_unknown_dot_path_key_raises():
 
 
 def test_select_does_not_create_jobs_or_lineage():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="driver_axis",
@@ -307,7 +307,7 @@ def test_select_does_not_create_jobs_or_lineage():
 
 
 def test_select_axis_feeds_decompose():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     delta_df = pd.DataFrame({"country": ["US", "JP", "DE"], "delta": [10.0, 5.0, 0.5]})
     src = _delta(session, delta_df, semantic_kind="segmented")
     axis_candidates = mv.discover(
@@ -322,7 +322,7 @@ def test_select_axis_feeds_decompose():
 
 
 def test_select_window_feeds_transform_window():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame(
         {
             "bucket": pd.date_range("2026-01-01", periods=30, freq="D", tz="UTC"),
@@ -342,7 +342,7 @@ def test_select_window_feeds_transform_window():
 
 
 def test_select_selector_feeds_transform_slice():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     delta_df = pd.DataFrame(
         {
             "country": ["US", "US", "JP", "JP"],
@@ -368,7 +368,7 @@ def test_select_selector_feeds_transform_slice():
 
 
 def test_as_driver_axis_passes_when_shape_matches():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="driver_axis",
@@ -378,7 +378,7 @@ def test_as_driver_axis_passes_when_shape_matches():
 
 
 def test_as_driver_axis_fails_when_shape_mismatches():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="point_anomaly",
@@ -409,7 +409,7 @@ def test_as_driver_axis_fails_when_shape_mismatches():
     ],
 )
 def test_all_six_as_methods_exposed(method, shape):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     rows: list[dict[str, Any]]
     if shape == "point_anomaly":
         rows = [

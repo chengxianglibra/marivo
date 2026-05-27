@@ -150,7 +150,7 @@ def test_relative_window_without_grain_stays_scalar(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_sales_orders(con)
-    s = session_attach.create(
+    s = session_attach.get_or_create(
         name="demo",
         tz="Asia/Shanghai",
         backends={"warehouse": lambda: con},
@@ -182,7 +182,7 @@ def test_relative_window_with_grain_returns_time_series(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_sales_orders(con)
-    s = session_attach.create(
+    s = session_attach.get_or_create(
         name="demo",
         tz="Asia/Shanghai",
         backends={"warehouse": lambda: con},
@@ -210,7 +210,7 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
     _bootstrap_multi_dataset(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_multi_dataset(con)
-    s = session_attach.create(
+    s = session_attach.get_or_create(
         name="demo",
         tz="Asia/Shanghai",
         backends={"warehouse": lambda: con},
@@ -232,7 +232,7 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_sales_orders(con)
-    s = session_attach.create(
+    s = session_attach.get_or_create(
         name="demo",
         tz="Asia/Shanghai",
         backends={"warehouse": lambda: con},
@@ -264,7 +264,7 @@ def test_date_time_series_day_bucket_respects_session_tz(tmp_path):
     _bootstrap_epoch_seconds(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_epoch_seconds(con)
-    s = session_attach.create(
+    s = session_attach.get_or_create(
         name="demo",
         tz="Asia/Shanghai",
         backends={"warehouse": lambda: con},

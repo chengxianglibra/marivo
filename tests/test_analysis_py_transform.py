@@ -106,7 +106,7 @@ def _make_time_series(tmp_path) -> MetricFrame:
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     return observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
@@ -118,7 +118,7 @@ def _make_panel(tmp_path) -> MetricFrame:
     _bootstrap_sales(tmp_path, with_country=True)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_country=True)
-    session = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     return observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
@@ -131,7 +131,7 @@ def _make_segmented(tmp_path) -> MetricFrame:
     _bootstrap_sales(tmp_path, with_country=True)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_country=True)
-    session = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     return observe(
         MetricRef("sales.revenue"),
         dimensions=[DimensionRef("country")],
@@ -143,7 +143,7 @@ def _make_delta_time_series(tmp_path) -> DeltaFrame:
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     current = observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
@@ -195,7 +195,7 @@ def _make_attribution_frame(tmp_path) -> AttributionFrame:
 
 
 def _make_topk_delta_time_series() -> DeltaFrame:
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame(
         {
             "bucket_start": pd.to_datetime(
@@ -239,7 +239,7 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
     _bootstrap_sales(tmp_path, with_country=True)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_country=True)
-    session = session_attach.create(name="demo", backends={"warehouse": lambda: con})
+    session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     current = observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
@@ -258,7 +258,7 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
 
 
 def _make_one_sided_delta_panel() -> DeltaFrame:
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame(
         {
             "bucket_start": [pd.Timestamp("2026-07-01"), pd.Timestamp("2026-07-01")],
@@ -299,7 +299,7 @@ def _make_one_sided_delta_panel() -> DeltaFrame:
 
 
 def _make_current_only_delta_panel() -> DeltaFrame:
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame(
         {
             "bucket_start": [pd.Timestamp("2026-07-01"), pd.Timestamp("2026-07-01")],
@@ -377,7 +377,7 @@ def test_transform_cross_session_rejected(tmp_path):
     session_attach._reset_process_state()
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session_b = session_attach.create(name="other", backends={"warehouse": lambda: con})
+    session_b = session_attach.get_or_create(name="other", backends={"warehouse": lambda: con})
 
     with pytest.raises(CrossSessionFrameError):
         transform(frame_a, op="filter", predicate=lambda d: d["revenue"] > 0, session=session_b)
@@ -411,7 +411,7 @@ def test_transform_window_clips_time_series(tmp_path):
 
 
 def test_transform_window_scans_role_based_time_axis_and_excludes_end():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -440,7 +440,7 @@ def test_transform_window_scans_role_based_time_axis_and_excludes_end():
 
 
 def test_transform_window_clips_delta_time_series_without_axes(tmp_path):
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = DeltaFrame(
         _df=pd.DataFrame(
             {
@@ -491,7 +491,7 @@ def test_transform_window_rejects_zero_length_relative_window(tmp_path):
 
 
 def test_transform_window_resolves_relative_window_with_session_timezone():
-    session = session_attach.create(name="demo", tz="America/Los_Angeles")
+    session = session_attach.get_or_create(name="demo", tz="America/Los_Angeles")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -537,7 +537,7 @@ def test_transform_window_absolute_invalid_timezone_raises(tmp_path):
 
 
 def test_transform_window_absolute_timezone_clips_tz_aware_axis():
-    session = session_attach.create(name="demo", tz="UTC")
+    session = session_attach.get_or_create(name="demo", tz="UTC")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -676,7 +676,7 @@ def test_transform_normalize_index_on_time_series(tmp_path):
 
 
 def test_transform_normalize_prefers_declared_metric_measure_column():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -709,7 +709,7 @@ def test_transform_normalize_prefers_declared_metric_measure_column():
 
 
 def test_transform_normalize_prefers_metric_measure_name_when_column_absent():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -762,7 +762,7 @@ def test_transform_normalize_pct_change_on_time_series(tmp_path):
 
 
 def test_transform_normalize_pct_change_on_unsorted_panel_uses_time_order_per_dimension():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -825,7 +825,7 @@ def test_transform_normalize_pct_change_requires_time_axis(tmp_path):
 def test_transform_normalize_pct_change_rejects_zero_denominator():
     from marivo.analysis_py.errors import TransformArgError
 
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -1051,7 +1051,7 @@ def test_transform_rank_requires_by(tmp_path):
 def test_transform_rank_rejects_null_by_values():
     from marivo.analysis_py.errors import TransformArgError
 
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame({"revenue": [10.0, np.nan]}),
         metric_id="sales.revenue",
@@ -1074,7 +1074,7 @@ def test_transform_rank_rejects_null_by_values():
 
 
 def test_transform_rank_dense_method_uses_dense_tie_ranks():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame({"revenue": [20.0, 20.0, 10.0]}),
         metric_id="sales.revenue",

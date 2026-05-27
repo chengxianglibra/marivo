@@ -35,7 +35,7 @@ def _segmented_metric(session, rows, *, dimension: str = "region") -> MetricFram
 
 
 def test_compare_segmented_outer_join_preserves_one_sided_segments():
-    s = session_attach.create(name="demo")
+    s = session_attach.get_or_create(name="demo")
     current = _segmented_metric(
         s,
         [
@@ -72,7 +72,7 @@ def test_compare_segmented_outer_join_preserves_one_sided_segments():
 
 
 def test_compare_segmented_null_metric_values_do_not_count_as_one_sided_segments():
-    s = session_attach.create(name="demo")
+    s = session_attach.get_or_create(name="demo")
     current = _segmented_metric(s, [{"region": "NORTH", "value": None}])
     baseline = _segmented_metric(s, [{"region": "NORTH", "value": 70.0}])
 
@@ -92,7 +92,7 @@ def test_compare_segmented_null_metric_values_do_not_count_as_one_sided_segments
 
 
 def test_compare_segmented_rejects_non_calendar_bucket_alignment():
-    s = session_attach.create(name="demo")
+    s = session_attach.get_or_create(name="demo")
     current = _segmented_metric(s, [{"region": "NORTH", "value": 100.0}])
     baseline = _segmented_metric(s, [{"region": "NORTH", "value": 70.0}])
 
@@ -110,7 +110,7 @@ def test_compare_segmented_rejects_non_calendar_bucket_alignment():
 
 
 def test_compare_segmented_rejects_dimension_mismatch():
-    s = session_attach.create(name="demo")
+    s = session_attach.get_or_create(name="demo")
     current = _segmented_metric(s, [{"region": "NORTH", "value": 100.0}], dimension="region")
     baseline = _segmented_metric(s, [{"channel": "WEB", "value": 70.0}], dimension="channel")
 

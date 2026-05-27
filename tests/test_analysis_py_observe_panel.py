@@ -75,7 +75,7 @@ def test_observe_panel_returns_time_and_dimension_axes(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
         MetricRef("sales.revenue"),
@@ -99,7 +99,7 @@ def test_observe_panel_multi_dimension(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    s = session_attach.create(name="demo", backends=_backends(con))
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
         MetricRef("sales.revenue"),

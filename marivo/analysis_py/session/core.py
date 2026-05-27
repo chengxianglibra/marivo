@@ -90,6 +90,11 @@ class Session:
         summaries.sort(key=lambda item: (item.started_at, item.id))
         return summaries
 
+    def recent_jobs(self, limit: int = 5) -> list[JobSummary]:
+        if limit <= 0:
+            return []
+        return self.jobs()[-limit:]
+
     def job(self, job_id: str) -> dict[str, Any]:
         return read_job_record(self.layout, job_id)
 

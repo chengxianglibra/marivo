@@ -105,7 +105,7 @@ def test_from_dataframe_creates_external_entry(tmp_path):
 def test_from_dataframe_persists_external_frame(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
-    s = session_attach.create(name="demo")
+    s = session_attach.get_or_create(name="demo")
     df = pd.DataFrame({"region": ["north"], "value": [1.0]})
 
     mf = MetricFrame.from_dataframe(
@@ -126,7 +126,7 @@ def test_from_dataframe_persists_external_frame(tmp_path, monkeypatch):
 def test_from_dataframe_rejects_archived_session(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
-    s = session_attach.create(name="demo")
+    s = session_attach.get_or_create(name="demo")
     session_attach.archive("demo")
     with pytest.raises(SessionStateError):
         MetricFrame.from_dataframe(

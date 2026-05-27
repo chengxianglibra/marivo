@@ -36,7 +36,7 @@ def _metric(session, df, *, metric_id, semantic_model="sales", semantic_kind="ti
 
 
 def test_correlate_sample_alignment_same_model_cross_metric():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     revenue = _metric(
         session,
         pd.DataFrame({"value": [10.0, 20.0, 30.0, 40.0]}),
@@ -79,7 +79,7 @@ def test_correlate_sample_alignment_same_model_cross_metric():
 
 
 def test_correlate_common_key_alignment():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(
         session,
         pd.DataFrame({"bucket": ["2026-07-01", "2026-07-02"], "value": [10.0, 20.0]}),
@@ -105,7 +105,7 @@ def test_correlate_common_key_alignment():
 
 
 def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(
         session,
         pd.DataFrame(
@@ -146,7 +146,7 @@ def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
 
 
 def test_correlate_rejects_duplicate_composite_keys_without_persisting():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(
         session,
         pd.DataFrame(
@@ -185,7 +185,7 @@ def test_correlate_rejects_duplicate_composite_keys_without_persisting():
 
 
 def test_correlate_sample_alignment_truncates_and_drops_nulls():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(
         session,
         pd.DataFrame({"left": [1.0, None, 3.0, 4.0]}),
@@ -206,7 +206,7 @@ def test_correlate_sample_alignment_truncates_and_drops_nulls():
 
 
 def test_correlate_writes_job_and_frame():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
 
@@ -230,7 +230,7 @@ def test_correlate_writes_job_and_frame():
 
 
 def test_correlate_output_round_trips_through_load_frame():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(
         session,
         pd.DataFrame({"bucket": ["2026-07-01", "2026-07-02"], "value": [1.0, 2.0]}),
@@ -251,7 +251,7 @@ def test_correlate_output_round_trips_through_load_frame():
 
 
 def test_correlate_sample_output_round_trips_with_null_driver_field():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
 
@@ -265,7 +265,7 @@ def test_correlate_sample_output_round_trips_with_null_driver_field():
 
 
 def test_correlate_rejects_constant_input_without_persisting():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [5.0, 5.0, 5.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}), metric_id="sales.orders")
 
@@ -276,7 +276,7 @@ def test_correlate_rejects_constant_input_without_persisting():
 
 
 def test_correlate_allows_cross_model_same_shape_frames():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(
         session,
@@ -300,7 +300,7 @@ def test_correlate_allows_cross_model_same_shape_frames():
 
 
 def test_correlate_rejects_mixed_semantic_kind():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(
         session,
@@ -313,7 +313,7 @@ def test_correlate_rejects_mixed_semantic_kind():
 
 
 def test_correlate_rejects_insufficient_aligned_rows():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [2.0]}), metric_id="sales.orders")
     with pytest.raises(AlignmentFailedError):
@@ -321,16 +321,16 @@ def test_correlate_rejects_insufficient_aligned_rows():
 
 
 def test_correlate_rejects_cross_session_frame():
-    session_a = session_attach.create(name="a")
+    session_a = session_attach.get_or_create(name="a")
     a = _metric(session_a, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
-    session_b = session_attach.create(name="b")
+    session_b = session_attach.get_or_create(name="b")
     b = _metric(session_b, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.orders")
     with pytest.raises(CrossSessionFrameError):
         mv.correlate(a, b, session=session_a)
 
 
 def test_correlate_rejects_loose_align_parameter():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
 
@@ -339,7 +339,7 @@ def test_correlate_rejects_loose_align_parameter():
 
 
 def test_correlate_rejects_non_alignment_policy():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
 
@@ -353,7 +353,7 @@ def test_correlate_rejects_non_alignment_policy():
 
 
 def test_correlate_rejects_calendar_backed_alignment_for_now():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
     alignment = AlignmentPolicy(kind="dow_aligned", calendar=mv.CalendarRef("cn_holidays"))
@@ -365,7 +365,7 @@ def test_correlate_rejects_calendar_backed_alignment_for_now():
 
 
 def test_correlate_rejects_non_lag_policy():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
 

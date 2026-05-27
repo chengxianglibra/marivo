@@ -45,7 +45,7 @@ def _base_meta(session, *, kind, ref):
 
 
 def test_load_frame_coerces_legacy_window_dict():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
@@ -74,7 +74,7 @@ def test_load_frame_coerces_legacy_window_dict():
 
 
 def test_load_frame_rejects_unparseable_legacy_window():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
@@ -96,7 +96,7 @@ def test_load_frame_rejects_unparseable_legacy_window():
 
 
 def test_load_frame_wraps_legacy_window_validation_error():
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
@@ -127,7 +127,7 @@ def test_load_frame_round_trips_hypothesis_test_result():
         HypothesisTestResultMeta,
     )
 
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = HypothesisTestResult(
         _df=pd.DataFrame({"p_value": [0.01], "rejected": [True]}),
         meta=HypothesisTestResultMeta(
@@ -160,7 +160,7 @@ def test_load_frame_round_trips_hypothesis_test_result():
 def test_load_frame_round_trips_forecast_frame():
     from marivo.analysis_py.frames.forecast import ForecastFrame, ForecastFrameMeta
 
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = ForecastFrame(
         _df=pd.DataFrame({"time": ["2026-06-01"], "forecast": [12.0]}),
         meta=ForecastFrameMeta(
@@ -196,7 +196,7 @@ def test_load_frame_round_trips_forecast_frame():
 def test_load_frame_round_trips_quality_report():
     from marivo.analysis_py.frames.quality import QualityReport, QualityReportMeta
 
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = QualityReport(
         _df=pd.DataFrame({"check": ["missing_values"], "status": ["ok"]}),
         meta=QualityReportMeta(
@@ -228,7 +228,7 @@ def test_loads_new_operator_frame_families(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
-    session = session_attach.create(name="demo")
+    session = session_attach.get_or_create(name="demo")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=10)
 
     outputs = [
