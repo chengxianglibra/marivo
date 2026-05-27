@@ -76,7 +76,11 @@ def select(
     if base_field not in _FIELD_BY_SHAPE.get(shape, set()):
         raise SemanticKindMismatchError(
             message=f"select field {field!r} is not available for shape {shape!r}",
-            details={"shape": shape, "field": field},
+            details={
+                "shape": shape,
+                "field": field,
+                "valid_fields": sorted(_FIELD_BY_SHAPE.get(shape, set())),
+            },
         )
 
     if base_field == "axis":

@@ -2,6 +2,7 @@
 
 from marivo.analysis_py.errors import (
     AnalysisError,
+    AxisNotInPanelDimensionsError,
     MetricNotFoundError,
     SemanticKindMismatchError,
     WindowInvalidError,
@@ -237,6 +238,35 @@ def test_dimension_not_found_renders_available_ids_preview():
     rendered = str(err)
 
     assert "Available dimensions: region, country" in rendered
+
+
+def test_axis_not_in_panel_dimensions_renders_paste_ready_fix_snippet():
+    err = AxisNotInPanelDimensionsError(
+        message="axis not in panel",
+        details={"axis": "channel", "available_dimensions": ["region", "country"]},
+    )
+
+    rendered = str(err)
+
+    assert 'mv.decompose(delta, axis=mv.DimensionRef("region"))' in rendered
+    assert "region, country" in rendered
+
+
+def test_select_field_mismatch_lists_valid_fields_for_shape():
+    err = SemanticKindMismatchError(
+        message="select field 'axis' is not available for shape 'point_anomaly'",
+        details={
+            "shape": "point_anomaly",
+            "field": "axis",
+            "valid_fields": ["direction", "item_id", "recommended_followups", "score", "window"],
+        },
+    )
+
+    rendered = str(err)
+
+    assert "Valid fields for shape 'point_anomaly':" in rendered
+    assert "direction, item_id, recommended_followups, score, window" in rendered
+    assert 'mv.select(cands, rank=1, field="direction")' in rendered
 
 
 def test_no_backend_factory_default_template_fields_populated() -> None:
