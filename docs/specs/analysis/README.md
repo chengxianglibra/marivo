@@ -22,6 +22,7 @@
 - [Marivo 分析操作总设计](foundations/analysis-operation-architecture.md) — 从接口、DSL、证据衔接到内部对象层的目标态总设计
 - [规范 Schema 设计原则](foundations/canonical-schema-principles.md) — canonical schema 的跨主题设计基线
 - [Python Analysis 算子集总体设计](python-analysis-operator-design.md) — `marivo.analysis` Python API 的目标态算子集合、固定输出 family 与组合方式
+- [Python 轨道 Evidence Access Surface 设计](python-track-evidence-surface.md) — `marivo.analysis_py` 对 agent 暴露的 evidence 三层访问面、与 Evidence Engine 主线的衔接与 dual-track 独立实现策略
 
 ## Evidence Engine 主线
 
