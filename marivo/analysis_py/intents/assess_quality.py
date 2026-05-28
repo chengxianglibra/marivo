@@ -43,6 +43,8 @@ def assess_quality(
 ) -> QualityReport:
     """Run quality checks over a MetricFrame and return a structured report.
 
+    When to use: check data quality (nulls, outliers, coverage) before analysis.
+
     v1 accepts only MetricFrames. Reports for DeltaFrame / CandidateSet /
     ForecastFrame / AttributionFrame are planned for later releases. The
     returned QualityReport carries per-check rows, blocking issues, and a list

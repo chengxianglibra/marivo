@@ -83,6 +83,8 @@ def decompose(
 ) -> AttributionFrame:
     """Attribute a DeltaFrame's movement across a chosen segment axis.
 
+    When to use: attribute a delta to dimension segments (why did revenue drop?).
+
     For ``panel`` deltas, ``axis`` must be one of the frame's segment dimensions.
     For ``time_series`` deltas, ``axis`` is the bucket-start column.
 

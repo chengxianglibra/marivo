@@ -84,6 +84,8 @@ def compare(
 ) -> DeltaFrame:
     """Compute the typed delta between two MetricFrames (current minus baseline).
 
+    When to use: quantify change between two periods; produces a DeltaFrame for decompose or discover.
+
     The two frames must share ``metric_id`` and ``semantic_kind``. ``segmented``
     frames must share segment columns; ``panel`` frames must share grain.
 

@@ -73,12 +73,6 @@ def test_model_outside_context_raises() -> None:
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
 
-def test_datasource_outside_context_raises() -> None:
-    with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.datasource(name="wh")
-    assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
-
-
 def test_dataset_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
 
@@ -180,22 +174,6 @@ def test_model_requires_keyword_args() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ms.datasource() removed
-# ---------------------------------------------------------------------------
-
-
-def test_datasource_call_raises_removed_error() -> None:
-    _enter_ctx(default_model="sales")
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.datasource(name="warehouse")
-        assert exc_info.value.kind == ErrorKind.INVALID_REF
-        assert ".marivo/datasource" in str(exc_info.value)
-        assert "@ms.dataset" in str(exc_info.value)
-    finally:
-        _exit_ctx()
-
-
 # ---------------------------------------------------------------------------
 # ms.dataset() decorator
 # ---------------------------------------------------------------------------
@@ -991,15 +969,6 @@ def test_model_keyword_only() -> None:
     try:
         with pytest.raises(TypeError):
             ms.model("sales")  # type: ignore[misc]
-    finally:
-        _exit_ctx()
-
-
-def test_datasource_keyword_only() -> None:
-    _enter_ctx(default_model="sales")
-    try:
-        with pytest.raises(TypeError):
-            ms.datasource("wh", "duckdb")  # type: ignore[misc]
     finally:
         _exit_ctx()
 

@@ -45,6 +45,8 @@ def select(
 ) -> Any:
     """Read one typed attribute from a single rank of a CandidateSet.
 
+    When to use: extract a typed value from a CandidateSet row returned by discover.
+
     Each candidate ``shape`` exposes a different attribute set (e.g. ``axis`` is
     only available on ``driver_axis``). Dot-paths into ``selector`` / ``keys``
     (``"selector.country"``) are supported.

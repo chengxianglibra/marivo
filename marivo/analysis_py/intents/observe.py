@@ -648,6 +648,8 @@ def observe(
 ) -> MetricFrame:
     """Materialize a metric into a typed MetricFrame.
 
+    When to use: starting point for any metric analysis workflow.
+
     Resolves ``metric`` against the active semantic project, applies the
     optional ``window`` / ``dimensions`` / ``where`` filters, executes against
     the session's backend, and persists the result as a MetricFrame on disk.

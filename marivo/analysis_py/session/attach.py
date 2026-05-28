@@ -225,6 +225,35 @@ def create(
     backend_factory: Callable[[str], Any] | None = None,
     use_datasources: bool = True,
 ) -> Session:
+    """Create a new analysis session with the given name.
+
+    When to use: call this when you need a fresh session and are certain no
+    session with this name exists yet. Raises on duplicate names. For
+    idempotent scripts, prefer ``get_or_create``.
+
+    Args:
+        name: Unique session name within the project.
+        question: Optional guiding question for the analysis.
+        set_active: Whether to mark this session as the project-wide active
+            session (persisted to disk).
+        timezone: IANA timezone string (e.g. ``"Asia/Shanghai"``). Defaults to
+            the system timezone.
+        default_calendar: Default calendar name for time-based analysis.
+        backends: Explicit mapping of datasource name to zero-arg factory
+            callable returning an ibis backend. Use for a fixed set of
+            backends.
+        backend_factory: Single callable taking a datasource name and returning
+            an ibis backend. Use for dynamic/lazy resolution.
+        use_datasources: When True (default), auto-discovers datasource
+            definitions from ``.marivo/datasource/*.py``. Set to False to
+            disable auto-discovery.
+
+    Raises:
+        DuplicateSessionNameError: A session with this name already exists.
+
+    Example:
+        >>> session = mv.session.create("q4-revenue", question="Why did Q4 drop?")
+    """
     project_root = resolve_project_root()
     factory = _compile_backend_factory(backends, backend_factory, use_datasources=use_datasources)
     sid = _gen_session_id()
@@ -292,6 +321,29 @@ def attach(
     backend_factory: Callable[[str], Any] | None = None,
     use_datasources: bool = True,
 ) -> Session:
+    """Attach to an existing session by name.
+
+    When to use: call this to resume work on a session that was previously
+    created. Does not create a new session if the name is missing. Use
+    ``get_or_create`` for idempotent attach-or-create semantics.
+
+    Args:
+        name: Name of the existing session to attach to.
+        timezone: Override the session timezone for this attachment.
+        default_calendar: Override the default calendar for this attachment.
+        backends: Explicit mapping of datasource name to zero-arg factory
+            callable returning an ibis backend.
+        backend_factory: Single callable taking a datasource name and returning
+            an ibis backend for dynamic resolution.
+        use_datasources: When True (default), auto-discovers datasource
+            definitions from ``.marivo/datasource/*.py``.
+
+    Raises:
+        NoActiveSessionError: No session with this name exists in the project.
+
+    Example:
+        >>> session = mv.session.attach("q4-revenue")
+    """
     project_root = resolve_project_root()
     row = _lookup_session_by_name(project_root, name)
     if row is None:
@@ -324,6 +376,30 @@ def get_or_create(
     backend_factory: Callable[[str], Any] | None = None,
     use_datasources: bool = True,
 ) -> Session:
+    """Attach to an existing session or create a new one if it does not exist.
+
+    When to use: the default choice for idempotent scripts and notebooks.
+    Safe to call repeatedly with the same name -- the first call creates,
+    subsequent calls attach. Prefer this over ``create`` unless you
+    specifically need duplicate-name detection.
+
+    Args:
+        name: Session name. Creates if absent, attaches if present.
+        question: Guiding question (only used when creating a new session).
+        set_active: Whether to mark this session as the project-wide active
+            session.
+        timezone: IANA timezone string for the session.
+        default_calendar: Default calendar name for time-based analysis.
+        backends: Explicit mapping of datasource name to zero-arg factory
+            callable returning an ibis backend.
+        backend_factory: Single callable taking a datasource name and returning
+            an ibis backend for dynamic resolution.
+        use_datasources: When True (default), auto-discovers datasource
+            definitions from ``.marivo/datasource/*.py``.
+
+    Example:
+        >>> session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
+    """
     project_root = resolve_project_root()
     row = _lookup_session_by_name(project_root, name)
     if row is None:
@@ -359,6 +435,31 @@ def switch(
     backend_factory: Callable[[str], Any] | None = None,
     use_datasources: bool = True,
 ) -> Session:
+    """Switch the project-wide active session to an existing session.
+
+    When to use: call this to change which session is active without creating
+    a new one. Unlike ``attach``, this always persists the active marker so
+    future ``active()`` calls return this session. Refuses to switch to
+    archived sessions.
+
+    Args:
+        name: Name of the existing session to switch to.
+        timezone: Override the session timezone for this attachment.
+        default_calendar: Override the default calendar for this attachment.
+        backends: Explicit mapping of datasource name to zero-arg factory
+            callable returning an ibis backend.
+        backend_factory: Single callable taking a datasource name and returning
+            an ibis backend for dynamic resolution.
+        use_datasources: When True (default), auto-discovers datasource
+            definitions from ``.marivo/datasource/*.py``.
+
+    Raises:
+        NoActiveSessionError: No session with this name exists.
+        SessionStateError: The session is archived and cannot be activated.
+
+    Example:
+        >>> session = mv.session.switch("q4-revenue")
+    """
     project_root = resolve_project_root()
     row = _lookup_session_by_name(project_root, name)
     if row is None:
@@ -378,6 +479,19 @@ def switch(
 
 
 def active() -> Session:
+    """Return the current in-process session, or load the project-wide active session.
+
+    When to use: call this to retrieve the session that is already active
+    without specifying a name. Useful in downstream helpers and intents that
+    expect a session to have been established earlier in the script.
+
+    Raises:
+        NoActiveSessionError: No session has been attached in this process and
+            no active session marker exists on disk.
+
+    Example:
+        >>> session = mv.session.active()
+    """
     if _CURRENT_SESSION is not None:
         return _CURRENT_SESSION
     project_root = resolve_project_root()

@@ -57,7 +57,6 @@ def test_all_list_matches_expected() -> None:
         "SemanticProject",
         "find_project",
         "model",
-        "datasource",
         "dataset",
         "field",
         "time_field",
@@ -69,6 +68,7 @@ def test_all_list_matches_expected() -> None:
         "ref",
         "component",
         "help",
+        "help_text",
         "typing",
         "errors",
     }
