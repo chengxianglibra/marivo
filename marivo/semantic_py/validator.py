@@ -74,7 +74,25 @@ def _requires_required_prefix(field_ir: FieldIR) -> bool:
         return False
     if field_ir.data_type not in {"string", "integer"}:
         return False
-    return _normalized_time_format(field_ir.format) in {"h", "hh"}
+    return _normalized_time_format(field_ir.format) in {"h", "hh", "int"}
+
+
+def _resolve_required_prefix_field(
+    registry: Registry,
+    *,
+    field_ir: FieldIR,
+) -> FieldIR | None:
+    if field_ir.required_prefix is None:
+        return None
+    direct = registry.fields.get(field_ir.required_prefix)
+    if direct is not None:
+        return direct
+    matches = [
+        candidate
+        for candidate in registry.fields.values()
+        if candidate.dataset == field_ir.dataset and candidate.name == field_ir.required_prefix
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 # ---------------------------------------------------------------------------
@@ -607,8 +625,8 @@ def assembly_validate(
             f_ir.is_time_field
             and f_ir.required_prefix
             and (
-                f_ir.required_prefix not in registry.fields
-                or not registry.fields[f_ir.required_prefix].is_time_field
+                (prefix_field := _resolve_required_prefix_field(registry, field_ir=f_ir)) is None
+                or not prefix_field.is_time_field
             )
         ):
             errors.append(
