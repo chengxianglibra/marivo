@@ -15,6 +15,11 @@ from tests.conftest import bootstrap_sales_project
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_PATH = REPO_ROOT / "marivo-skill/marivo-py-analysis/SKILL.md"
+ACTIVE_SKILL_DOCS = [
+    SKILL_PATH,
+    REPO_ROOT / "marivo-skill/marivo-py-analysis/references/cheatsheet.md",
+    REPO_ROOT / "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+]
 
 
 def _extract_walkthrough_block() -> str:
@@ -44,63 +49,15 @@ def _seed(con: Any) -> None:
     )
 
 
-class _ResultView:
-    """Expose target Surface 1 fields over today's meta-backed frames."""
-
-    def __init__(self, frame: Any) -> None:
-        self._frame = frame
-
-    def __getattr__(self, name: str) -> Any:
-        meta = getattr(self._frame, "meta", None)
-        if meta is not None and hasattr(meta, name):
-            return getattr(meta, name)
-        return getattr(self._frame, name)
-
-
-class _WalkthroughSession:
-    """Target session-method facade backed by the current public API."""
-
-    def __init__(self, project_root: Path) -> None:
-        bootstrap_sales_project(project_root)
-        con = ibis.duckdb.connect(":memory:")
-        _seed(con)
-        self._session = ap.session.attach.create(
-            name="walkthrough",
-            backends={"warehouse": lambda: con},
-            use_datasources=False,
-        )
-
-    def observe(
-        self,
-        *,
-        metric: ap.MetricRef,
-        time: str,
-        grain: str | None = None,
-        segment_by: str | None = None,
-    ) -> _ResultView:
-        windows = {
-            "this_week": {"start": "2026-05-01", "end": "2026-05-07", "grain": grain},
-            "previous_week": {
-                "start": "2026-04-24",
-                "end": "2026-04-30",
-                "grain": grain,
-            },
-        }
-        window = {k: v for k, v in windows[time].items() if v is not None}
-        fixture_dimension = "region" if segment_by == "country" else segment_by
-        dimensions = [ap.DimensionRef(fixture_dimension)] if fixture_dimension is not None else None
-        frame = self._session.observe(metric, window=window, dimensions=dimensions)
-        return _ResultView(frame)
-
-    def compare(self, current: _ResultView, baseline: _ResultView) -> _ResultView:
-        frame = self._session.compare(current._frame, baseline._frame)
-        return _ResultView(frame)
-
-    def knowledge(self) -> Any:
-        return self._session.knowledge()
-
-    def run_followup(self, action: Any) -> Any:
-        return self._session.run_followup(action)
+def _create_walkthrough_session(project_root: Path) -> ap.session.attach.Session:
+    bootstrap_sales_project(project_root)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    return ap.session.attach.create(
+        name="walkthrough",
+        backends={"warehouse": lambda: con},
+        use_datasources=False,
+    )
 
 
 def test_skill_walkthrough_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,9 +66,31 @@ def test_skill_walkthrough_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     code = _extract_walkthrough_block()
     namespace: dict[str, Any] = {
         "ap": ap,
-        "_WalkthroughSession": _WalkthroughSession,
+        "_create_walkthrough_session": _create_walkthrough_session,
         "_project_root": tmp_path,
     }
     code = code.replace("import marivo.analysis_py as ap\n\n", "")
-    code = code.replace("session = ap.session()", "session = _WalkthroughSession(_project_root)")
+    code = code.replace(
+        'session = ap.session.get_or_create(name="sales_weekly_revenue")',
+        "session = _create_walkthrough_session(_project_root)",
+    )
     exec(compile(code, str(SKILL_PATH), "exec"), namespace)
+
+
+def test_analysis_skill_docs_do_not_use_stale_api_patterns() -> None:
+    stale_patterns = {
+        "segment_by": re.compile(r"\bsegment_by\b"),
+        "module_level_list_metrics": re.compile(r"\bms\.list_metrics\("),
+        "top_level_evidence_field": re.compile(
+            r"\b(?:result|delta|frame)\."
+            r"(?:artifact_id|evidence_status|blocking_issues|recommended_followups|"
+            r"confidence_scope|quality)\b"
+        ),
+    }
+    failures: list[str] = []
+    for path in ACTIVE_SKILL_DOCS:
+        text = path.read_text()
+        for name, pattern in stale_patterns.items():
+            if pattern.search(text):
+                failures.append(f"{path.relative_to(REPO_ROOT)}: {name}")
+    assert failures == []

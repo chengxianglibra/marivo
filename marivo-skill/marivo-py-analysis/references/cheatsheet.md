@@ -104,10 +104,10 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 | List sessions | `mv.session.list()` |
 | Attach live data | `mv.session.get_or_create(name=..., backend_factory=...)` |
 | Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` |
-| Confirm metric ids | `import marivo.semantic_py as ms; ms.list_metrics()` |
+| Confirm metric ids | `import marivo.semantic_py as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()` |
 
 Metric refs wrap exact ids such as `mv.MetricRef("model.metric")`. Do not guess
-ids from metric display names; call `ms.list_metrics()` against the loaded
+ids from metric display names; call `project.list_metrics()` after loading the
 semantic project.
 
 ## Backend Setup
