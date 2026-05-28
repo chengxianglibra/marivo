@@ -624,6 +624,122 @@ def _observe_derived_segmented(
     return _Result(result_df), axes, "segmented"
 
 
+def _observe_derived_scalar(
+    metric_ir: Any,
+    metric_name: str,
+    *,
+    sp: Any,
+    session: Session,
+    resolved_window: AbsoluteWindow | None,
+    where: dict[str, Any] | None,
+) -> tuple[Any, dict[str, Any], Literal["scalar"]]:
+    if resolved_window is not None and resolved_window.grain is not None:
+        raise MetricShapeUnsupportedError(
+            message="time-series derived metrics are not supported yet",
+            details={"kind": "DerivedTimeSeriesUnsupported"},
+        )
+    sidecar = sp.sidecar()
+    sentinel_tree = sidecar.get(metric_ir.semantic_id) if sidecar else None
+    if sentinel_tree is None:
+        raise MetricNotFoundError(
+            message=f"derived metric expression for '{metric_ir.semantic_id}' not found",
+            details={"metric": metric_ir.semantic_id},
+        )
+
+    dataset_irs: dict[str, _DatasetIRAdapter] = {}
+    primary_datasource: str | None = None
+    component_values: dict[str, Any] = {}
+    for component_id in metric_ir.decomposition.components.values():
+        component_ir = sp.get_metric(component_id)
+        if component_ir is None:
+            raise MetricNotFoundError(message=f"component metric '{component_id}' not found")
+        if component_ir.is_derived:
+            raise MetricShapeUnsupportedError(
+                message="nested derived scalar metrics are not supported yet",
+                details={"kind": "NestedDerivedScalarUnsupported", "metric": component_id},
+            )
+        if len(component_ir.datasets) == 0:
+            raise MetricShapeUnsupportedError(
+                message="derived scalar metric components must reference datasets",
+                details={"kind": "DerivedComponentDatasetMissing", "metric": component_id},
+            )
+
+        dataset_tables: dict[str, Any] = {}
+        component_datasource: str | None = None
+        for dataset_id in component_ir.datasets:
+            ds_adapter = dataset_irs.get(dataset_id)
+            if ds_adapter is None:
+                dataset_ir = sp.get_dataset(dataset_id)
+                if dataset_ir is None:
+                    raise MetricNotFoundError(message=f"dataset '{dataset_id}' not found")
+                ds_adapter = _build_dataset_adapter(sp, dataset_ir)
+                dataset_irs[dataset_id] = ds_adapter
+
+            datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
+            if primary_datasource is None:
+                primary_datasource = datasource_name
+            elif primary_datasource != datasource_name:
+                raise CrossBackendMetricError(
+                    message=(
+                        f"derived metric '{metric_ir.semantic_id}' spans multiple "
+                        "datasources; v1 does not support federation"
+                    ),
+                )
+            component_datasource = datasource_name
+            table = ds_adapter.fn(backend)
+            table = apply_slice_to_dataset(table, where, dataset_ir=ds_adapter)
+            table = apply_window_to_dataset(
+                table,
+                resolved_window,
+                dataset_ir=ds_adapter,
+                session_tz=session.tz,
+            )
+            dataset_tables[dataset_id] = table
+            session.known_datasources.add(datasource_name)
+
+        component_fn = sidecar.get(component_ir.semantic_id) if sidecar else None
+        if component_fn is None:
+            raise MetricNotFoundError(
+                message=f"metric callable for '{component_ir.semantic_id}' not found",
+                details={"metric": component_ir.semantic_id},
+            )
+        if component_datasource is None:
+            raise MetricNotFoundError(
+                message=f"component metric '{component_id}' references no datasets"
+            )
+        metric_expr = _call_metric(
+            component_fn,
+            metric_datasets=tuple(component_ir.datasets),
+            dataset_tables=dataset_tables,
+        )
+        result = execute(
+            metric_expr,
+            datasource_name=component_datasource,
+            cache=session.backend_cache,
+            session_id=session.id,
+        )
+        if result.df.empty or len(result.df.columns) == 0:
+            raise MetricShapeUnsupportedError(
+                message=f"component metric '{component_id}' did not return a scalar value",
+                details={"kind": "DerivedComponentScalarEmpty", "metric": component_id},
+            )
+        component_values[component_ir.name] = result.df.iloc[0, 0]
+
+    pandas = __import__("pandas")
+    component_frame = pandas.DataFrame([component_values])
+    metric_value = _evaluate_sentinel_on_frame(sentinel_tree, metric_ir, component_frame)
+    if hasattr(metric_value, "iloc"):
+        metric_value = metric_value.iloc[0]
+    result_df = pandas.DataFrame([{metric_name: metric_value}])
+
+    class _Result:
+        def __init__(self, df: Any) -> None:
+            self.df = df
+            self.row_count = len(df)
+
+    return _Result(result_df), {}, "scalar"
+
+
 def _dump_dimensions(dimensions: list[DimensionRef] | None) -> list[dict[str, Any]] | None:
     if dimensions is None:
         return None
@@ -742,8 +858,102 @@ def observe(
     stored_where = normalize_slice_for_storage(where)
     metric_datasets = tuple(metric_ir.datasets)
     dimension_refs = _validate_dimension_refs(dimensions)
+    if metric_ir.is_derived and not dimension_refs:
+        result, scalar_axes, scalar_kind = _observe_derived_scalar(
+            metric_ir,
+            metric_name,
+            sp=sp,
+            session=session,
+            resolved_window=resolved_window,
+            where=where,
+        )
+        _persist_known_datasources(session)
+        finished_at = datetime.now(UTC)
+        frame_ref = _gen_ref("frame")
+        job_ref = _gen_ref("job")
+        params_window = None
+        if resolved_window is not None:
+            params_window = {
+                "original": dump_window(original_window),
+                "resolved": dump_window(resolved_window),
+                "as_of_resolved": as_of_resolved,
+                "session_tz": str(session.tz),
+            }
+        params = {
+            "metric": metric_id,
+            "window": params_window,
+            "dimensions": _dump_dimensions(dimensions),
+            "where": stored_where,
+        }
+        meta = MetricFrameMeta(
+            kind="metric_frame",
+            ref=frame_ref,
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job=job_ref,
+            created_at=finished_at,
+            row_count=result.row_count,
+            byte_size=0,
+            lineage=Lineage(
+                steps=[
+                    LineageStep(
+                        intent="observe",
+                        job_ref=job_ref,
+                        inputs=[],
+                        params_digest=_params_digest(params),
+                    )
+                ]
+            ),
+            metric_id=metric_id,
+            axes=scalar_axes,
+            measure={"name": metric_name},
+            window=dump_window(resolved_window),
+            where=stored_where,
+            semantic_kind=scalar_kind,
+            semantic_model=model_name,
+        )
+        frame = MetricFrame(_df=result.df, meta=meta)
+        frame = cast(
+            "MetricFrame",
+            commit_result(
+                store=session.evidence_store(),
+                frames_dir=session.layout.frames_dir,
+                frame=frame,
+                step_type="observe",
+                inputs=CommitInputs(input_refs=[]),
+                params=CommitParams(values=params),
+                semantic_anchors=CommitSemanticAnchors(
+                    values={"metric_id": metric_id, "model": model_name}
+                ),
+                subject=Subject(
+                    metric=metric_id,
+                    slice=stored_where or {},
+                    analysis_axis=_analysis_axis_for_kind(scalar_kind),
+                ),
+                extractor_family="metric_frame",
+            ),
+        )
+        write_job_record(
+            session.layout,
+            {
+                "id": job_ref,
+                "session_id": session.id,
+                "intent": "observe",
+                "params": params,
+                "input_frame_refs": [],
+                "output_frame_ref": frame.meta.artifact_id or frame.ref,
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "duration_ms": int((monotonic() - started) * 1000),
+                "status": "succeeded",
+                "error": None,
+                "semantic_project_root": session.semantic_project.root,
+                "semantic_model": model_name,
+            },
+        )
+        return frame
     if metric_ir.is_derived and dimension_refs:
-        result, derived_axes, derived_kind = _observe_derived_segmented(
+        result, segmented_axes, segmented_kind = _observe_derived_segmented(
             metric_ir,
             metric_name,
             sp=sp,
@@ -789,11 +999,11 @@ def observe(
                 ]
             ),
             metric_id=metric_id,
-            axes=derived_axes,
+            axes=segmented_axes,
             measure={"name": metric_name},
             window=dump_window(resolved_window),
             where=stored_where,
-            semantic_kind=derived_kind,
+            semantic_kind=segmented_kind,
             semantic_model=model_name,
         )
         frame = MetricFrame(_df=result.df, meta=meta)

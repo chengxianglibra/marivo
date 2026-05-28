@@ -191,6 +191,21 @@ def test_observe_derived_metric_dimension_from_component_dataset(tmp_path):
     assert by_region == {"NORTH": pytest.approx(1 / 3), "SOUTH": pytest.approx(1.0)}
 
 
+def test_observe_derived_metric_scalar_uses_component_datasets(tmp_path):
+    _bootstrap_sales(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    mf = observe(MetricRef("sales.failure_rate"), session=s)
+
+    assert mf.meta.semantic_kind == "scalar"
+    assert mf.meta.measure["name"] == "failure_rate"
+    df = mf.to_pandas()
+    assert set(df.columns) == {"failure_rate"}
+    assert df.iloc[0, 0] == pytest.approx(0.5)
+
+
 def test_observe_derived_metric_dimension_via_relationship(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
