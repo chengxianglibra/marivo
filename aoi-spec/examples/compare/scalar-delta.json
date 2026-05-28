@@ -1,9 +1,0 @@
-{
-  "artifact_id": "delta_revenue_yoy_q1",
-  "result": {
-    "current_value": 1250000.5,
-    "baseline_value": 1000000,
-    "delta": 250000.5,
-    "matched_time_scope": null
-  }
-}

@@ -24,8 +24,8 @@ def _load_runner_module() -> ModuleType:
 
 
 def _make_skill_tree(root: Path, skill_name: str, *, skill_md: str = "# placeholder\n") -> Path:
-    """Create a minimal marivo-skill/<skill_name>/... layout under root."""
-    skill_dir = root / "marivo-skill" / skill_name
+    """Create a minimal marivo-skills/<skill_name>/... layout under root."""
+    skill_dir = root / "marivo-skills" / skill_name
     examples_dir = skill_dir / "references" / "examples"
     (examples_dir / "_fixtures").mkdir(parents=True)
     (examples_dir / "_fixtures" / "__init__.py").write_text("")
@@ -44,16 +44,16 @@ def _run_runner(root: Path) -> subprocess.CompletedProcess[str]:
 
 
 def test_runner_succeeds_on_empty_tree(tmp_path: Path) -> None:
-    _make_skill_tree(tmp_path, "marivo-py-analysis")
-    _make_skill_tree(tmp_path, "marivo-py-semantic")
+    _make_skill_tree(tmp_path, "marivo-analysis")
+    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode == 0, result.stderr
 
 
 def test_runner_executes_passing_example(tmp_path: Path) -> None:
-    examples = _make_skill_tree(tmp_path, "marivo-py-analysis")
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "01_smoke.py").write_text('print("hello from example")\n')
-    _make_skill_tree(tmp_path, "marivo-py-semantic")
+    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode == 0, result.stderr
     assert "hello from example" not in result.stdout, (
@@ -62,33 +62,33 @@ def test_runner_executes_passing_example(tmp_path: Path) -> None:
 
 
 def test_runner_fails_when_example_exits_nonzero(tmp_path: Path) -> None:
-    examples = _make_skill_tree(tmp_path, "marivo-py-analysis")
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "01_bad.py").write_text("raise SystemExit(2)\n")
-    _make_skill_tree(tmp_path, "marivo-py-semantic")
+    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "01_bad.py" in result.stderr
 
 
 def test_runner_fails_when_example_stdout_empty(tmp_path: Path) -> None:
-    examples = _make_skill_tree(tmp_path, "marivo-py-analysis")
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "01_quiet.py").write_text("x = 1\n")
-    _make_skill_tree(tmp_path, "marivo-py-semantic")
+    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "01_quiet.py" in result.stderr
 
 
 def test_skill_md_within_cap_passes(tmp_path: Path) -> None:
-    _make_skill_tree(tmp_path, "marivo-py-analysis", skill_md="# ok\n" * 100)
-    _make_skill_tree(tmp_path, "marivo-py-semantic")
+    _make_skill_tree(tmp_path, "marivo-analysis", skill_md="# ok\n" * 100)
+    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode == 0, result.stderr
 
 
 def test_skill_md_over_cap_fails(tmp_path: Path) -> None:
-    _make_skill_tree(tmp_path, "marivo-py-analysis", skill_md="# x\n" * 700)
-    _make_skill_tree(tmp_path, "marivo-py-semantic")
+    _make_skill_tree(tmp_path, "marivo-analysis", skill_md="# x\n" * 700)
+    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "SKILL.md exceeds" in result.stderr
@@ -151,17 +151,17 @@ _PITFALL_FAIL = textwrap.dedent(
 
 
 def test_pitfall_passes_when_keywords_present(tmp_path: Path) -> None:
-    examples = _make_skill_tree(tmp_path, "marivo-py-analysis")
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "99_pitfall_x.py").write_text(_PITFALL_PASS)
-    _make_skill_tree(tmp_path, "marivo-py-semantic")
+    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode == 0, result.stderr
 
 
 def test_pitfall_fails_when_keywords_missing(tmp_path: Path) -> None:
-    examples = _make_skill_tree(tmp_path, "marivo-py-analysis")
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "99_pitfall_x.py").write_text(_PITFALL_FAIL)
-    _make_skill_tree(tmp_path, "marivo-py-semantic")
+    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "missing pitfall keyword" in result.stderr.lower()

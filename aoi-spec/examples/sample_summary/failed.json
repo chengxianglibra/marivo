@@ -1,7 +1,0 @@
-{
-  "artifact_id": "art_sample_failed",
-  "failure": {
-    "code": "UNSUPPORTED_SOURCE_SHAPE",
-    "message": "sample_summary numeric requires a time_series metric_frame source"
-  }
-}

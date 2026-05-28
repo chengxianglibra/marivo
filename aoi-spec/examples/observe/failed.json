@@ -1,7 +1,0 @@
-{
-  "artifact_id": "obs_scalar_revenue_invalid_filter",
-  "failure": {
-    "code": "observe.invalid_filter",
-    "message": "The filter references a field that cannot be resolved for the metric."
-  }
-}

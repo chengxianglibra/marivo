@@ -1,9 +1,0 @@
-{
-  "current_sample_artifact_id": "art_sample_current",
-  "baseline_sample_artifact_id": "art_sample_baseline",
-  "hypothesis": {
-    "family": "two_sample_mean",
-    "alternative": "two_sided",
-    "significance": "balanced"
-  }
-}
