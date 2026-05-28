@@ -19,6 +19,7 @@ from marivo.transports.cli._exitcodes import (
 )
 from marivo.transports.cli._manifest import RuntimeManifest
 from marivo.transports.cli._output import CliError
+from marivo.transports.cli.cmd_agent import handle as agent_handle
 from marivo.transports.cli.cmd_doctor import handle as doctor_handle
 from marivo.transports.cli.cmd_runtime import handle as runtime_handle
 from marivo.transports.http.app_factory import create_app
@@ -78,6 +79,68 @@ class LocalCliContractTests(unittest.TestCase):
             parser.parse_args(["calendar"])
 
         self.assertEqual(exc.exception.code, 2)
+
+    def test_agent_sync_skills_parser_accepts_supported_agents(self) -> None:
+        parser = _build_parser()
+
+        for agent in ("codex", "claude", "opencode", "openclaw", "hermes"):
+            args = parser.parse_args(["agent", "sync-skills", "--agent", agent, "--dry-run"])
+            self.assertEqual(args.command, "agent")
+            self.assertEqual(args.agent_command, "sync-skills")
+            self.assertEqual(args.agent, agent)
+            self.assertTrue(args.dry_run)
+
+    def test_agent_sync_skills_parser_rejects_unknown_agent(self) -> None:
+        parser = _build_parser()
+
+        with (
+            patch("sys.stderr", new_callable=io.StringIO),
+            self.assertRaises(SystemExit) as exc,
+        ):
+            parser.parse_args(["agent", "sync-skills", "--agent", "unknown"])
+
+        self.assertEqual(exc.exception.code, 2)
+
+    def test_agent_sync_skills_rejects_all_with_target(self) -> None:
+        with self.assertRaises(CliError) as exc:
+            agent_handle(
+                argparse.Namespace(
+                    agent_command="sync-skills",
+                    agent=None,
+                    all=True,
+                    target="/tmp/skills",
+                    dry_run=True,
+                    force=False,
+                    format="json",
+                )
+            )
+
+        self.assertEqual(exc.exception.exit_code, EXIT_INVALID_USAGE)
+
+    def test_agent_sync_skills_target_only_uses_custom_agent(self) -> None:
+        with patch("marivo.transports.cli.cmd_agent.sync_skills") as sync:
+            sync.return_value = {
+                "status": "ok",
+                "dry_run": True,
+                "marivo_version": "0.1.0",
+                "results": [],
+            }
+
+            result = agent_handle(
+                argparse.Namespace(
+                    agent_command="sync-skills",
+                    agent=None,
+                    all=False,
+                    target="/tmp/skills",
+                    dry_run=True,
+                    force=False,
+                    format="json",
+                )
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(sync.call_args.kwargs["agent"], "custom")
+        self.assertEqual(sync.call_args.kwargs["target_root"], Path("/tmp/skills"))
 
     def test_runtime_status_without_manifest_reports_stopped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

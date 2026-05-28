@@ -13,6 +13,7 @@ from marivo.transports.cli._output import (
     emit_text,
     format_error_json,
 )
+from marivo.transports.cli.cmd_agent import add_arguments as agent_add_arguments
 from marivo.transports.cli.cmd_doctor import add_arguments as doctor_add_arguments
 from marivo.transports.cli.cmd_doctor import handle as doctor_handle
 from marivo.transports.cli.cmd_init import add_arguments as init_add_arguments
@@ -90,6 +91,10 @@ def _build_parser() -> argparse.ArgumentParser:
     mcp_parser = subparsers.add_parser("mcp", help="Start stdio MCP server")
     mcp_add_arguments(mcp_parser)
     mcp_parser.set_defaults(handler=mcp_handle)
+
+    # marivo agent (subcommand group)
+    agent_parser = subparsers.add_parser("agent", help="Manage agent integrations")
+    agent_add_arguments(agent_parser)
 
     return parser
 
