@@ -71,9 +71,11 @@ print(components.summary())
 ```
 
 When two compatible component-aware metric frames are compared, the returned
-DeltaFrame also supports `delta.components()`. For segmented ratio or
-weighted-average deltas, `session.decompose(delta, axis=...)` emits value and
-mix effects with method `ratio_mix` or `weighted_mix`.
+DeltaFrame also supports `delta.components()`. For segmented, time-series, or
+panel ratio/weighted-average deltas, `session.decompose(delta, axis=...)` emits
+value and mix effects with method `ratio_mix` or `weighted_mix`. Time-series
+deltas decompose by `bucket_start`; panel deltas decompose by the requested
+dimension within each bucket.
 
 ## Evidence surfaces
 

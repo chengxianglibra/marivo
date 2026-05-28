@@ -80,6 +80,30 @@ def _resolve_axis_column(frame: DeltaFrame, axis: DimensionRef, columns: list[st
     return None
 
 
+def _effective_component_axis_column(
+    frame: DeltaFrame,
+    axis: DimensionRef,
+    columns: list[str],
+) -> str | None:
+    resolved = _resolve_axis_column(frame, axis, columns)
+    if resolved is not None:
+        return resolved
+    normalized = axis.id.rsplit(".", 1)[-1]
+    if normalized == "bucket_start" and "bucket_start_a" in columns:
+        return "bucket_start_a"
+    return None
+
+
+def _component_bucket_column(frame: DeltaFrame, columns: list[str]) -> str | None:
+    if frame.meta.semantic_kind not in {"time_series", "panel"}:
+        return None
+    if "bucket_start" in columns:
+        return "bucket_start"
+    if "bucket_start_a" in columns:
+        return "bucket_start_a"
+    return None
+
+
 def _load_delta_component_frame(frame: DeltaFrame, *, session: Session) -> ComponentFrame | None:
     if frame.meta.component_ref is None:
         return None
@@ -127,12 +151,12 @@ def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
     )
 
 
-def _component_mix_output(
+def _component_mix_output_for_df(
     *,
+    df: pd.DataFrame,
     component: ComponentFrame,
     axis_column: str,
 ) -> pd.DataFrame:
-    df = component.to_pandas()
     share_role = _component_measure_role(component)
     required = [
         axis_column,
@@ -207,6 +231,43 @@ def _component_mix_output(
     ]
 
 
+def _component_mix_output(
+    *,
+    component: ComponentFrame,
+    axis_column: str,
+    bucket_column: str | None = None,
+) -> pd.DataFrame:
+    df = component.to_pandas()
+    if bucket_column is None:
+        return _component_mix_output_for_df(
+            df=df,
+            component=component,
+            axis_column=axis_column,
+        )
+
+    if bucket_column not in df.columns:
+        raise ComponentDecompositionError(
+            message="component-aware panel decompose requires a bucket column",
+            details={"component_ref": component.ref, "bucket_column": bucket_column},
+        )
+
+    pieces: list[pd.DataFrame] = []
+    for bucket_value, bucket_df in df.groupby(bucket_column, dropna=False, sort=True):
+        piece = _component_mix_output_for_df(
+            df=bucket_df,
+            component=component,
+            axis_column=axis_column,
+        )
+        piece.insert(0, bucket_column, bucket_value)
+        pieces.append(piece)
+    if not pieces:
+        raise ComponentDecompositionError(
+            message="component-aware decompose could not form any bucket groups",
+            details={"component_ref": component.ref, "bucket_column": bucket_column},
+        )
+    return pd.concat(pieces, ignore_index=True)
+
+
 def decompose(
     frame: DeltaFrame,
     *,
@@ -264,7 +325,7 @@ def decompose(
     value_column = require_numeric_column(source_df, measure_column, purpose="decompose")
     available_columns = [str(column) for column in source_df.columns]
     normalized_axis = axis.id.rsplit(".", 1)[-1]
-    axis_column = _resolve_axis_column(frame, axis, available_columns)
+    axis_column = _effective_component_axis_column(frame, axis, available_columns)
 
     if axis_column is None:
         raise SemanticKindMismatchError(
@@ -291,7 +352,24 @@ def decompose(
                 ),
                 details={"measure_column": measure_column, "delta_ref": frame.ref},
             )
-        output = _component_mix_output(component=component, axis_column=axis_column)
+        component_columns = [str(column) for column in component.to_pandas().columns]
+        component_axis_column = _effective_component_axis_column(frame, axis, component_columns)
+        if component_axis_column is None:
+            component_axis_column = axis_column
+        bucket_column = None
+        if frame.meta.semantic_kind == "panel":
+            bucket_column = _component_bucket_column(frame, component_columns)
+            if bucket_column is None:
+                raise ComponentDecompositionError(
+                    message="component-aware panel decompose requires a bucket column",
+                    details={"delta_ref": frame.ref, "component_ref": component.ref},
+                )
+        output = _component_mix_output(
+            component=component,
+            axis_column=component_axis_column,
+            bucket_column=bucket_column,
+        )
+        axis_column = component_axis_column
         method = _component_method(component)
         params = {
             "source_ref": frame.ref,

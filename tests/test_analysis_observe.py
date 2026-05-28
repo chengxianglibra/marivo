@@ -544,3 +544,40 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
     assert component_df.iloc[0]["numerator"] == pytest.approx(2.0)
     assert component_df.iloc[0]["denominator"] == pytest.approx(4.0)
     assert component_df.iloc[0]["metric_value"] == pytest.approx(0.5)
+
+
+def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
+    _bootstrap_failure_rate(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_failure_rate(con)
+    session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    frame = observe(
+        MetricRef("sales.failure_rate"),
+        window={"start": "2026-07-01", "end": "2026-07-04", "grain": "day"},
+        session=session,
+    )
+
+    assert frame.meta.semantic_kind == "time_series"
+    assert frame.meta.component_ref is not None
+    assert frame.meta.axes["time"]["column"] == "bucket_start"
+    assert set(frame.to_pandas().columns) == {"bucket_start", "failure_rate"}
+
+    components = frame.components()
+    assert components.meta.parent_ref == frame.ref
+    assert components.meta.semantic_kind == "time_series"
+    assert components.meta.axes == frame.meta.axes
+    component_df = components.to_pandas()
+    assert list(component_df.columns) == [
+        "bucket_start",
+        "numerator",
+        "denominator",
+        "metric_value",
+    ]
+    by_bucket = {str(row.bucket_start): row for row in component_df.itertuples()}
+    assert by_bucket["2026-07-01"].numerator == pytest.approx(1.0)
+    assert by_bucket["2026-07-01"].denominator == pytest.approx(1.0)
+    assert by_bucket["2026-07-01"].metric_value == pytest.approx(1.0)
+    assert by_bucket["2026-07-02"].numerator == pytest.approx(0.0)
+    assert by_bucket["2026-07-02"].denominator == pytest.approx(1.0)
+    assert by_bucket["2026-07-02"].metric_value == pytest.approx(0.0)

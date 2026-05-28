@@ -12,6 +12,7 @@ from marivo.analysis.errors import (
     ComponentFrameUnavailableError,
 )
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
+from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
@@ -84,6 +85,71 @@ def _component_aware_metric(
             components=component_map,
             axes=axes,
             semantic_kind="segmented",
+            semantic_model="sales",
+        ),
+    )
+    component.meta = write_frame_to_disk(session.layout, component)
+    metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
+    metric.meta = write_frame_to_disk(session.layout, metric)
+    return metric
+
+
+def _component_aware_metric_with_axes(
+    session,
+    *,
+    ref: str,
+    rows: list[dict[str, object]],
+    component_rows: list[dict[str, object]],
+    axes: dict[str, object],
+    semantic_kind: str,
+    window: dict[str, object] | None = None,
+    decomposition_kind: str = "ratio",
+    components: dict[str, str] | None = None,
+):
+    component_map = components or {
+        "numerator": "sales.failed_count",
+        "denominator": "sales.total_count",
+    }
+    metric = MetricFrame(
+        _df=pd.DataFrame(rows),
+        meta=MetricFrameMeta(
+            ref=ref,
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_observe",
+            created_at=_now(),
+            row_count=len(rows),
+            byte_size=0,
+            lineage=Lineage(),
+            metric_id="sales.failure_rate",
+            axes=axes,
+            measure={"name": "failure_rate"},
+            window=window,
+            where={},
+            semantic_kind=semantic_kind,
+            semantic_model="sales",
+            decomposition={"kind": decomposition_kind, "components": component_map},
+        ),
+    )
+    metric.meta = write_frame_to_disk(session.layout, metric)
+    component = ComponentFrame(
+        _df=pd.DataFrame(component_rows),
+        meta=ComponentFrameMeta(
+            ref=f"{ref}_components",
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_observe",
+            created_at=_now(),
+            row_count=len(component_rows),
+            byte_size=0,
+            lineage=Lineage(),
+            parent_ref=metric.ref,
+            parent_kind="metric_frame",
+            metric_id="sales.failure_rate",
+            decomposition_kind=decomposition_kind,
+            components=component_map,
+            axes=axes,
+            semantic_kind=semantic_kind,
             semantic_model="sales",
         ),
     )
@@ -382,3 +448,436 @@ def test_decompose_component_aware_delta_rejects_non_default_measure_column():
 
     with pytest.raises(ComponentDecompositionError):
         session.decompose(delta, axis=DimensionRef("region"), measure_column="pct_change")
+
+
+def test_compare_time_series_ratio_window_bucket_persists_component_delta():
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_field": "order_date",
+        }
+    }
+    current = _component_aware_metric_with_axes(
+        session,
+        ref="frame_current_ts",
+        semantic_kind="time_series",
+        axes=axes,
+        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-07-01", "failure_rate": 0.25},
+            {"bucket_start": "2026-07-02", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-07-01",
+                "numerator": 25.0,
+                "denominator": 100.0,
+                "metric_value": 0.25,
+            },
+            {
+                "bucket_start": "2026-07-02",
+                "numerator": 50.0,
+                "denominator": 100.0,
+                "metric_value": 0.50,
+            },
+        ],
+    )
+    baseline = _component_aware_metric_with_axes(
+        session,
+        ref="frame_baseline_ts",
+        semantic_kind="time_series",
+        axes=axes,
+        window={"start": "2026-06-24", "end": "2026-06-25", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-06-24", "failure_rate": 0.10},
+            {"bucket_start": "2026-06-25", "failure_rate": 0.40},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-06-24",
+                "numerator": 10.0,
+                "denominator": 100.0,
+                "metric_value": 0.10,
+            },
+            {
+                "bucket_start": "2026-06-25",
+                "numerator": 20.0,
+                "denominator": 50.0,
+                "metric_value": 0.40,
+            },
+        ],
+    )
+
+    delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
+
+    assert delta.meta.component_ref is not None
+    component_df = delta.components().to_pandas()
+    assert list(component_df.columns) == [
+        "bucket_start",
+        "bucket_start_b",
+        "current_numerator",
+        "baseline_numerator",
+        "delta_numerator",
+        "current_denominator",
+        "baseline_denominator",
+        "delta_denominator",
+        "current_metric_value",
+        "baseline_metric_value",
+        "delta_metric_value",
+    ]
+    first = component_df.iloc[0]
+    assert str(first["bucket_start"]) == "2026-07-01"
+    assert str(first["bucket_start_b"]) == "2026-06-24"
+    assert first["current_numerator"] == pytest.approx(25.0)
+    assert first["baseline_numerator"] == pytest.approx(10.0)
+
+
+def test_compare_panel_ratio_window_bucket_persists_component_delta():
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_field": "order_date",
+        },
+        "region": {"role": "dimension", "column": "region"},
+    }
+    current = _component_aware_metric_with_axes(
+        session,
+        ref="frame_current_panel",
+        semantic_kind="panel",
+        axes=axes,
+        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-07-01", "region": "NORTH", "failure_rate": 0.25},
+            {"bucket_start": "2026-07-01", "region": "SOUTH", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-07-01",
+                "region": "NORTH",
+                "numerator": 25.0,
+                "denominator": 100.0,
+                "metric_value": 0.25,
+            },
+            {
+                "bucket_start": "2026-07-01",
+                "region": "SOUTH",
+                "numerator": 50.0,
+                "denominator": 100.0,
+                "metric_value": 0.50,
+            },
+        ],
+    )
+    baseline = _component_aware_metric_with_axes(
+        session,
+        ref="frame_baseline_panel",
+        semantic_kind="panel",
+        axes=axes,
+        window={"start": "2026-06-24", "end": "2026-06-25", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-06-24", "region": "NORTH", "failure_rate": 0.10},
+            {"bucket_start": "2026-06-24", "region": "SOUTH", "failure_rate": 0.40},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-06-24",
+                "region": "NORTH",
+                "numerator": 10.0,
+                "denominator": 100.0,
+                "metric_value": 0.10,
+            },
+            {
+                "bucket_start": "2026-06-24",
+                "region": "SOUTH",
+                "numerator": 20.0,
+                "denominator": 50.0,
+                "metric_value": 0.40,
+            },
+        ],
+    )
+
+    delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
+
+    component_df = delta.components().to_pandas()
+    assert {"bucket_start", "bucket_start_b", "region"}.issubset(component_df.columns)
+    north_data = component_df[component_df["region"] == "NORTH"].dropna(
+        subset=["current_denominator"]
+    )
+    south_data = component_df[component_df["region"] == "SOUTH"].dropna(
+        subset=["baseline_denominator"]
+    )
+    assert north_data.iloc[0]["current_denominator"] == pytest.approx(100.0)
+    assert south_data.iloc[0]["baseline_denominator"] == pytest.approx(50.0)
+
+
+def test_decompose_component_aware_time_series_ratio_delta_by_bucket():
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_field": "order_date",
+        }
+    }
+    current = _component_aware_metric_with_axes(
+        session,
+        ref="frame_current_ts_decomp",
+        semantic_kind="time_series",
+        axes=axes,
+        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-07-01", "failure_rate": 0.25},
+            {"bucket_start": "2026-07-02", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-07-01",
+                "numerator": 25.0,
+                "denominator": 100.0,
+                "metric_value": 0.25,
+            },
+            {
+                "bucket_start": "2026-07-02",
+                "numerator": 50.0,
+                "denominator": 100.0,
+                "metric_value": 0.50,
+            },
+        ],
+    )
+    baseline = _component_aware_metric_with_axes(
+        session,
+        ref="frame_baseline_ts_decomp",
+        semantic_kind="time_series",
+        axes=axes,
+        window={"start": "2026-06-24", "end": "2026-06-25", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-06-24", "failure_rate": 0.10},
+            {"bucket_start": "2026-06-25", "failure_rate": 0.40},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-06-24",
+                "numerator": 10.0,
+                "denominator": 100.0,
+                "metric_value": 0.10,
+            },
+            {
+                "bucket_start": "2026-06-25",
+                "numerator": 20.0,
+                "denominator": 50.0,
+                "metric_value": 0.40,
+            },
+        ],
+    )
+    delta = session.compare(current, baseline)
+
+    attribution = session.decompose(delta, axis=DimensionRef("bucket_start"))
+
+    assert attribution.meta.method == "ratio_mix"
+    df = attribution.to_pandas()
+    assert "bucket_start" in df.columns
+    assert "value_effect" in df.columns
+    assert "mix_effect" in df.columns
+    assert df["contribution"].sum() == pytest.approx(0.175)
+    assert sorted(df["rank"].tolist()) == [1, 2]
+
+
+def test_decompose_component_aware_panel_ratio_delta_per_bucket():
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_field": "order_date",
+        },
+        "region": {"role": "dimension", "column": "region"},
+    }
+    current = _component_aware_metric_with_axes(
+        session,
+        ref="frame_current_panel_decomp",
+        semantic_kind="panel",
+        axes=axes,
+        window={"start": "2026-07-01", "end": "2026-07-01", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-07-01", "region": "NORTH", "failure_rate": 0.25},
+            {"bucket_start": "2026-07-01", "region": "SOUTH", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-07-01",
+                "region": "NORTH",
+                "numerator": 25.0,
+                "denominator": 100.0,
+                "metric_value": 0.25,
+            },
+            {
+                "bucket_start": "2026-07-01",
+                "region": "SOUTH",
+                "numerator": 50.0,
+                "denominator": 100.0,
+                "metric_value": 0.50,
+            },
+        ],
+    )
+    baseline = _component_aware_metric_with_axes(
+        session,
+        ref="frame_baseline_panel_decomp",
+        semantic_kind="panel",
+        axes=axes,
+        window={"start": "2026-06-24", "end": "2026-06-24", "grain": "day"},
+        rows=[
+            {"bucket_start": "2026-06-24", "region": "NORTH", "failure_rate": 0.10},
+            {"bucket_start": "2026-06-24", "region": "SOUTH", "failure_rate": 0.40},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-06-24",
+                "region": "NORTH",
+                "numerator": 10.0,
+                "denominator": 100.0,
+                "metric_value": 0.10,
+            },
+            {
+                "bucket_start": "2026-06-24",
+                "region": "SOUTH",
+                "numerator": 20.0,
+                "denominator": 50.0,
+                "metric_value": 0.40,
+            },
+        ],
+    )
+    delta = session.compare(current, baseline)
+
+    attribution = session.decompose(delta, axis=DimensionRef("region"))
+
+    df = attribution.to_pandas()
+    assert list(df.columns) == [
+        "bucket_start",
+        "region",
+        "contribution",
+        "pct_contribution",
+        "value_effect",
+        "mix_effect",
+        "residual",
+        "current_numerator",
+        "baseline_numerator",
+        "current_denominator",
+        "baseline_denominator",
+        "current_metric_value",
+        "baseline_metric_value",
+        "current_share",
+        "baseline_share",
+        "rank",
+    ]
+    for _, bucket_df in df.groupby("bucket_start", sort=False):
+        assert sorted(bucket_df["rank"].tolist()) == list(range(1, len(bucket_df) + 1))
+        assert bucket_df["contribution"].sum() == pytest.approx(0.175)
+
+
+def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_field": "order_date",
+        }
+    }
+    compared = DeltaFrame(
+        _df=pd.DataFrame(
+            [
+                {
+                    "align_key": '["dow",2,0]',
+                    "align_quality": "exact",
+                    "bucket_start_a": "2026-05-05",
+                    "bucket_start_b": "2026-04-07",
+                    "current": 0.25,
+                    "baseline": 0.10,
+                    "delta": 0.15,
+                    "pct_change": 1.5,
+                }
+            ]
+        ),
+        meta=DeltaFrameMeta(
+            ref="frame_calendar_delta",
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_compare",
+            created_at=_now(),
+            row_count=1,
+            byte_size=0,
+            lineage=Lineage(),
+            metric_id="sales.failure_rate",
+            source_current_ref="frame_current",
+            source_baseline_ref="frame_baseline",
+            alignment={"kind": "dow_aligned", "axes": axes},
+            semantic_kind="time_series",
+            semantic_model="sales",
+            decomposition={
+                "kind": "ratio",
+                "components": {
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+            },
+        ),
+    )
+    compared.meta = write_frame_to_disk(session.layout, compared)
+    component = ComponentFrame(
+        _df=pd.DataFrame(
+            [
+                {
+                    "align_key": '["dow",2,0]',
+                    "align_quality": "exact",
+                    "bucket_start_a": "2026-05-05",
+                    "bucket_start_b": "2026-04-07",
+                    "current_numerator": 25.0,
+                    "baseline_numerator": 10.0,
+                    "delta_numerator": 15.0,
+                    "current_denominator": 100.0,
+                    "baseline_denominator": 100.0,
+                    "delta_denominator": 0.0,
+                    "current_metric_value": 0.25,
+                    "baseline_metric_value": 0.10,
+                    "delta_metric_value": 0.15,
+                }
+            ]
+        ),
+        meta=ComponentFrameMeta(
+            ref="frame_calendar_delta_components",
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_compare",
+            created_at=_now(),
+            row_count=1,
+            byte_size=0,
+            lineage=Lineage(),
+            parent_ref=compared.ref,
+            parent_kind="delta_frame",
+            metric_id="sales.failure_rate",
+            decomposition_kind="ratio",
+            components={
+                "numerator": "sales.failed_count",
+                "denominator": "sales.total_count",
+            },
+            axes=axes,
+            semantic_kind="time_series",
+            semantic_model="sales",
+        ),
+    )
+    component.meta = write_frame_to_disk(session.layout, component)
+    compared.meta = compared.meta.model_copy(update={"component_ref": component.ref})
+    compared.meta = write_frame_to_disk(session.layout, compared)
+
+    attribution = session.decompose(compared, axis=DimensionRef("bucket_start"))
+
+    assert "bucket_start_a" in attribution.to_pandas().columns
+    assert attribution.meta.driver_field == "bucket_start_a"

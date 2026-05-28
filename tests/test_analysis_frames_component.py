@@ -195,3 +195,70 @@ def test_ordinary_metric_frame_components_raise_structured_unavailable_error():
 
     assert exc_info.value.details["parent_ref"] == "frame_metric"
     assert exc_info.value.details["parent_kind"] == "metric_frame"
+
+
+def test_component_frame_meta_accepts_time_series_semantic_kind():
+    meta = ComponentFrameMeta(
+        ref="frame_component_ts",
+        session_id="sess_x",
+        project_root="/p",
+        produced_by_job="job_observe",
+        created_at=_now(),
+        row_count=1,
+        byte_size=0,
+        lineage=Lineage(),
+        parent_ref="frame_parent",
+        parent_kind="metric_frame",
+        metric_id="sales.failure_rate",
+        decomposition_kind="ratio",
+        components={
+            "numerator": "sales.failed_count",
+            "denominator": "sales.total_count",
+        },
+        axes={
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": "day",
+                "time_field": "order_date",
+            }
+        },
+        semantic_kind="time_series",
+        semantic_model="sales",
+    )
+
+    assert meta.semantic_kind == "time_series"
+
+
+def test_component_frame_meta_accepts_panel_semantic_kind():
+    meta = ComponentFrameMeta(
+        ref="frame_component_panel",
+        session_id="sess_x",
+        project_root="/p",
+        produced_by_job="job_observe",
+        created_at=_now(),
+        row_count=1,
+        byte_size=0,
+        lineage=Lineage(),
+        parent_ref="frame_parent",
+        parent_kind="metric_frame",
+        metric_id="sales.failure_rate",
+        decomposition_kind="weighted_average",
+        components={
+            "numerator": "sales.weighted_score",
+            "weight": "sales.weight",
+        },
+        axes={
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": "day",
+                "time_field": "order_date",
+            },
+            "region": {"role": "dimension", "column": "region"},
+        },
+        semantic_kind="panel",
+        semantic_model="sales",
+    )
+
+    assert meta.semantic_kind == "panel"
