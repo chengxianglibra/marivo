@@ -26,15 +26,47 @@ _SUPPORTED_FORMATS = {
     ("timestamp", None),
     ("string", "yyyy-mm-dd"),
     ("string", "yyyymmdd"),
+    ("string", "yyyymmddhh"),
+    ("string", "yyyymmdd-hh"),
+    ("string", "yyyy-mm-dd-hh"),
+    ("string", "yyyymmddthh"),
     ("integer", "yyyymmdd"),
+    ("integer", "yyyymmddhh"),
     ("integer", "epoch_seconds"),
 }
+_HOUR_PRECISION_FORMATS = frozenset({"yyyymmddhh", "yyyymmdd-hh", "yyyy-mm-dd-hh", "yyyymmddthh"})
+_HOUR_ONLY_FORMATS = frozenset({"hh", "h", "int"})
 UTC_ZONE = ZoneInfo("UTC")
+
+
+def _normalize_time_format(value: str | None) -> str | None:
+    if value is None:
+        return None
+    lowered = value.lower().strip()
+    compact = lowered.replace("_", "").replace(" ", "")
+    if compact in {"yyyy-mm-dd-hh", "yyyy/mm/dd/hh"}:
+        return "yyyy-mm-dd-hh"
+    if compact == "yyyymmdd-hh":
+        return "yyyymmdd-hh"
+    if compact == "yyyymmddthh":
+        return "yyyymmddthh"
+    if compact in {"%y-%m-%d", "%y/%m/%d", "yyyy-mm-dd", "yyyy/mm/dd"}:
+        return "yyyy-mm-dd"
+    normalized = compact.replace("-", "").replace("/", "")
+    if normalized in {"epochseconds"}:
+        return "epoch_seconds"
+    if normalized in {"yyyymmddhh"}:
+        return "yyyymmddhh"
+    if normalized in {"%y%m%d", "yyyymmdd"}:
+        return "yyyymmdd"
+    if normalized in _HOUR_ONLY_FORMATS:
+        return normalized
+    return normalized
 
 
 def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
     data_type = time_meta.data_type
-    fmt = time_meta.format
+    fmt = _normalize_time_format(time_meta.format)
     pair = (data_type, fmt)
     if pair not in _SUPPORTED_FORMATS:
         raise WindowInvalidError(
@@ -47,15 +79,177 @@ def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
     if data_type == "timestamp":
         return ibis.timestamp(iso_string)
     if data_type == "string":
+        if fmt in _HOUR_PRECISION_FORMATS:
+            parsed_dt, _is_date_bound = _parse_partition_datetime(
+                iso_string, fmt=fmt, tz=UTC_ZONE, bound_name="bound"
+            )
+            return _format_hour_precision_partition_literal(parsed_dt, fmt)
         if fmt == "yyyy-mm-dd":
             return iso_string
         return iso_string[:10].replace("-", "")
     if data_type == "integer":
+        if fmt == "yyyymmddhh":
+            parsed_dt, _is_date_bound = _parse_partition_datetime(
+                iso_string, fmt=fmt, tz=UTC_ZONE, bound_name="bound"
+            )
+            return int(_format_hour_precision_partition_literal(parsed_dt, fmt))
         if fmt == "yyyymmdd":
             return int(iso_string[:10].replace("-", ""))
         dt = datetime.fromisoformat(iso_string)
         return int(dt.timestamp())
     raise WindowInvalidError(message=f"unsupported window bound format {pair}")
+
+
+def _is_day_partition_meta(time_meta: Any) -> bool:
+    data_type = time_meta.data_type
+    fmt = _normalize_time_format(time_meta.format)
+    return (data_type, fmt) in {
+        ("string", "yyyy-mm-dd"),
+        ("string", "yyyymmdd"),
+        ("integer", "yyyymmdd"),
+    }
+
+
+def _is_hour_precision_partition_meta(time_meta: Any) -> bool:
+    data_type = time_meta.data_type
+    fmt = _normalize_time_format(time_meta.format)
+    return (data_type == "string" and fmt in _HOUR_PRECISION_FORMATS) or (
+        data_type == "integer" and fmt == "yyyymmddhh"
+    )
+
+
+def _is_hour_only_partition_meta(time_meta: Any) -> bool:
+    data_type = time_meta.data_type
+    fmt = _normalize_time_format(time_meta.format)
+    return data_type in {"string", "integer"} and fmt in _HOUR_ONLY_FORMATS
+
+
+def _next_day_bound(value: str, *, bound_name: str) -> str:
+    try:
+        base_day = date.fromisoformat(value[:10])
+    except (TypeError, ValueError) as exc:
+        _raise_window_bound_invalid(
+            bound_name=bound_name,
+            value=value,
+            tz=UTC_ZONE,
+            error=exc,
+        )
+    return (base_day + timedelta(days=1)).isoformat()
+
+
+def _parse_hour_precision_literal(value: str, fmt: str | None) -> datetime | None:
+    if fmt == "yyyymmddhh" and len(value) == 10 and value.isdigit():
+        return datetime(
+            int(value[0:4]),
+            int(value[4:6]),
+            int(value[6:8]),
+            int(value[8:10]),
+        )
+    if fmt == "yyyymmdd-hh" and len(value) == 11 and value[8] == "-":
+        return datetime(
+            int(value[0:4]),
+            int(value[4:6]),
+            int(value[6:8]),
+            int(value[9:11]),
+        )
+    if fmt == "yyyy-mm-dd-hh" and len(value) == 13 and value[10] == "-":
+        return datetime(
+            int(value[0:4]),
+            int(value[5:7]),
+            int(value[8:10]),
+            int(value[11:13]),
+        )
+    if fmt == "yyyymmddthh" and len(value) == 11 and value[8].lower() == "t":
+        return datetime(
+            int(value[0:4]),
+            int(value[4:6]),
+            int(value[6:8]),
+            int(value[9:11]),
+        )
+    return None
+
+
+def _parse_partition_datetime(
+    value: str,
+    *,
+    fmt: str | None,
+    tz: ZoneInfo,
+    bound_name: str,
+) -> tuple[datetime, bool]:
+    raw = str(value).strip()
+    try:
+        parsed_hour = _parse_hour_precision_literal(raw, fmt)
+        if parsed_hour is None and fmt not in _HOUR_PRECISION_FORMATS:
+            parsed_hour = _parse_hour_precision_literal(raw, "yyyymmddhh")
+    except (TypeError, ValueError) as exc:
+        _raise_window_bound_invalid(bound_name=bound_name, value=value, tz=tz, error=exc)
+    if parsed_hour is not None:
+        return parsed_hour.replace(tzinfo=tz), False
+    if "T" not in raw and "t" not in raw and ":" not in raw:
+        try:
+            parsed_date = date.fromisoformat(raw)
+        except ValueError:
+            pass
+        else:
+            return datetime.combine(parsed_date, time.min, tzinfo=tz), True
+
+    normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except (TypeError, ValueError) as exc:
+        _raise_window_bound_invalid(bound_name=bound_name, value=value, tz=tz, error=exc)
+    local = parsed.replace(tzinfo=tz) if parsed.tzinfo is None else parsed.astimezone(tz)
+    return local, False
+
+
+def _partition_start_datetime(
+    value: str, *, fmt: str | None, tz: ZoneInfo, bound_name: str
+) -> datetime:
+    parsed, _is_date_bound = _parse_partition_datetime(value, fmt=fmt, tz=tz, bound_name=bound_name)
+    return parsed.replace(minute=0, second=0, microsecond=0)
+
+
+def _partition_exclusive_end_datetime(
+    value: str, *, fmt: str | None, tz: ZoneInfo, bound_name: str
+) -> datetime:
+    parsed, is_date_bound = _parse_partition_datetime(value, fmt=fmt, tz=tz, bound_name=bound_name)
+    if is_date_bound:
+        next_day = parsed.date() + timedelta(days=1)
+        return datetime.combine(next_day, time.min, tzinfo=tz)
+    return parsed.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+
+def _format_hour_precision_partition_literal(value: datetime, fmt: str | None) -> str:
+    if fmt == "yyyymmddhh":
+        return value.strftime("%Y%m%d%H")
+    if fmt == "yyyymmdd-hh":
+        return value.strftime("%Y%m%d-%H")
+    if fmt == "yyyy-mm-dd-hh":
+        return value.strftime("%Y-%m-%d-%H")
+    if fmt == "yyyymmddthh":
+        return value.strftime("%Y%m%dT%H")
+    raise WindowInvalidError(message=f"unsupported hour partition format {fmt!r}")
+
+
+def _encode_hour_precision_bound(value: datetime, time_meta: Any) -> Any:
+    fmt = _normalize_time_format(time_meta.format)
+    literal = _format_hour_precision_partition_literal(value, fmt)
+    return int(literal) if time_meta.data_type == "integer" else literal
+
+
+def _encode_hour_only_bound(hour: int, time_meta: Any) -> Any:
+    fmt = _normalize_time_format(time_meta.format)
+    if fmt == "hh":
+        literal = f"{hour:02d}"
+    elif fmt in {"h", "int"}:
+        literal = str(hour)
+    else:
+        raise WindowInvalidError(message=f"unsupported hour partition format {fmt!r}")
+    return int(literal) if time_meta.data_type == "integer" else literal
+
+
+def _encode_partition_date_bound(value: date, time_meta: Any) -> Any:
+    return _encode_window_bound(value.isoformat(), time_meta)
 
 
 def _is_date_only(value: str) -> bool:
@@ -121,7 +315,7 @@ def _window_bound_predicates(
     session_tz: ZoneInfo,
 ) -> tuple[Any, Any]:
     data_type = time_meta.data_type
-    fmt = time_meta.format
+    fmt = _normalize_time_format(time_meta.format)
     if data_type == "timestamp":
         lower_dt = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
         if _is_date_only(window.end):
@@ -148,7 +342,20 @@ def _window_bound_predicates(
             _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end").timestamp()
         )
         return (field_expr >= lower_epoch, field_expr <= upper_epoch)
+    if _is_hour_precision_partition_meta(time_meta):
+        lower_dt = _partition_start_datetime(
+            window.start, fmt=fmt, tz=session_tz, bound_name="start"
+        )
+        upper_dt = _partition_exclusive_end_datetime(
+            window.end, fmt=fmt, tz=session_tz, bound_name="end"
+        )
+        lower = _encode_hour_precision_bound(lower_dt, time_meta)
+        upper = _encode_hour_precision_bound(upper_dt, time_meta)
+        return (field_expr >= lower, field_expr < upper)
     lower = _encode_window_bound(window.start, time_meta)
+    if _is_day_partition_meta(time_meta):
+        upper = _encode_window_bound(_next_day_bound(window.end, bound_name="end"), time_meta)
+        return (field_expr >= lower, field_expr < upper)
     upper = _encode_window_bound(window.end, time_meta)
     return (field_expr >= lower, field_expr <= upper)
 
@@ -206,6 +413,90 @@ def resolve_window_time_field(dataset_ir: Any, *, window: AbsoluteWindow) -> Any
     return _resolve_time_field(dataset_ir, time_field)
 
 
+def _resolve_required_prefix_time_field(dataset_ir: Any, hour_field_ir: Any) -> Any | None:
+    if hour_field_ir.time_meta is None:
+        return None
+    prefix = hour_field_ir.time_meta.required_prefix
+    if not prefix:
+        return None
+    for field in dataset_ir.fields.values():
+        if not getattr(field, "is_time", False):
+            continue
+        if field.name == prefix or field.semantic_id == prefix:
+            return field
+    return None
+
+
+def _combine_or(clauses: list[Any]) -> Any:
+    if not clauses:
+        raise WindowInvalidError(message="composite partition filter has no clauses")
+    combined = clauses[0]
+    for clause in clauses[1:]:
+        combined = combined | clause
+    return combined
+
+
+def _composite_hour_partition_predicate(
+    table: ibis.Table,
+    window: AbsoluteWindow,
+    *,
+    dataset_ir: Any,
+    hour_field_ir: Any,
+    session_tz: ZoneInfo,
+) -> Any | None:
+    if hour_field_ir.time_meta is None or not _is_hour_only_partition_meta(hour_field_ir.time_meta):
+        return None
+    date_field_ir = _resolve_required_prefix_time_field(dataset_ir, hour_field_ir)
+    if date_field_ir is None or date_field_ir.time_meta is None:
+        return None
+    if not _is_day_partition_meta(date_field_ir.time_meta):
+        return None
+
+    hour_fmt = _normalize_time_format(hour_field_ir.time_meta.format)
+    lower_dt = _partition_start_datetime(
+        window.start, fmt=hour_fmt, tz=session_tz, bound_name="start"
+    )
+    upper_dt = _partition_exclusive_end_datetime(
+        window.end, fmt=hour_fmt, tz=session_tz, bound_name="end"
+    )
+    last_day = (upper_dt - timedelta(microseconds=1)).date()
+    start_day = lower_dt.date()
+    date_expr = date_field_ir.fn(table)
+    hour_expr = hour_field_ir.fn(table)
+
+    def date_eq(value: date) -> Any:
+        return date_expr == _encode_partition_date_bound(value, date_field_ir.time_meta)
+
+    def date_gt(value: date) -> Any:
+        return date_expr > _encode_partition_date_bound(value, date_field_ir.time_meta)
+
+    def date_lt(value: date) -> Any:
+        return date_expr < _encode_partition_date_bound(value, date_field_ir.time_meta)
+
+    def hour_gte(value: int) -> Any:
+        return hour_expr >= _encode_hour_only_bound(value, hour_field_ir.time_meta)
+
+    def hour_lt(value: int) -> Any:
+        return hour_expr < _encode_hour_only_bound(value, hour_field_ir.time_meta)
+
+    if start_day == last_day:
+        clause = date_eq(start_day) & hour_gte(lower_dt.hour)
+        if upper_dt.date() == start_day:
+            clause = clause & hour_lt(upper_dt.hour)
+        return clause
+
+    clauses = [date_eq(start_day) & hour_gte(lower_dt.hour)]
+    first_middle_day = start_day + timedelta(days=1)
+    last_middle_day = last_day - timedelta(days=1)
+    if first_middle_day <= last_middle_day:
+        clauses.append(date_gt(start_day) & date_lt(last_day))
+    if upper_dt.time() == time.min:
+        clauses.append(date_eq(last_day))
+    else:
+        clauses.append(date_eq(last_day) & hour_lt(upper_dt.hour))
+    return _combine_or(clauses)
+
+
 def apply_window_to_dataset(
     table: ibis.Table,
     window: AbsoluteWindow | Mapping[str, Any] | None,
@@ -231,6 +522,15 @@ def apply_window_to_dataset(
     effective_tz = session_tz
     if normalized_window.tz is not None:
         effective_tz = zoneinfo_from_name(normalized_window.tz)
+    composite_predicate = _composite_hour_partition_predicate(
+        table,
+        normalized_window,
+        dataset_ir=dataset_ir,
+        hour_field_ir=time_field_ir,
+        session_tz=effective_tz,
+    )
+    if composite_predicate is not None:
+        return table.filter(composite_predicate)
     field_expr = time_field_ir.fn(table)
     lower_predicate, upper_predicate = _window_bound_predicates(
         field_expr,

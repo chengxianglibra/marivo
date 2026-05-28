@@ -87,6 +87,139 @@ def _seed_two_time_fields(con):
     )
 
 
+def _bootstrap_sales_with_string_partition_time_field(tmp_path):
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic_py as ms\nms.model(name='sales')\n"
+    )
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource_py as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic_py as ms\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "def orders(backend):\n"
+        "    return backend.table('orders')\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='string', granularity='day', "
+        "date_format='yyyymmdd')\n"
+        "def log_date(orders):\n"
+        "    return orders.log_date\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+
+
+def _seed_string_partition_orders(con):
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER, log_date VARCHAR, amount DOUBLE)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, '20241010', 5.0),"
+        "(2, '20241011', 10.0),"
+        "(3, '20250731', 20.0),"
+        "(4, '20250801', 30.0)"
+    )
+
+
+def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic_py as ms\nms.model(name='sales')\n"
+    )
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource_py as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic_py as ms\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "def orders(backend):\n"
+        "    return backend.table('orders')\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='string', granularity='hour', "
+        "date_format='yyyymmddhh')\n"
+        "def log_hour(orders):\n"
+        "    return orders.log_hour\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+
+
+def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic_py as ms\nms.model(name='sales')\n"
+    )
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource_py as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic_py as ms\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "def orders(backend):\n"
+        "    return backend.table('orders')\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='string', granularity='day', "
+        "date_format='yyyymmdd')\n"
+        "def log_date(orders):\n"
+        "    return orders.log_date\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='string', granularity='hour', "
+        "date_format='hh', required_prefix='log_date')\n"
+        "def log_hour(orders):\n"
+        "    return orders.log_hour\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+
+
+def _seed_single_hour_partition_orders(con):
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER, log_hour VARCHAR, amount DOUBLE)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, '2024101102', 5.0),"
+        "(2, '2024101103', 10.0),"
+        "(3, '2025073114', 20.0),"
+        "(4, '2025073115', 30.0)"
+    )
+
+
+def _seed_composite_hour_partition_orders(con):
+    con.raw_sql(
+        "CREATE TABLE orders (order_id INTEGER, log_date VARCHAR, log_hour VARCHAR, amount DOUBLE)"
+    )
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, '20241011', '02', 5.0),"
+        "(2, '20241011', '03', 10.0),"
+        "(3, '20250731', '14', 20.0),"
+        "(4, '20250731', '15', 30.0)"
+    )
+
+
 def test_observe_returns_metric_frame(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
@@ -125,6 +258,65 @@ def test_observe_applies_window(tmp_path):
         session=s,
     )
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
+
+
+def test_observe_string_partition_window_keeps_closed_result_semantics(tmp_path):
+    _bootstrap_sales_with_string_partition_time_field(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_string_partition_orders(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    mf = observe(
+        MetricRef("sales.revenue"),
+        window={"start": "2024-10-11", "end": "2025-07-31"},
+        session=s,
+    )
+
+    assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
+    assert mf.meta.window is not None
+    assert mf.meta.window["start"] == "2024-10-11"
+    assert mf.meta.window["end"] == "2025-07-31"
+
+
+def test_observe_single_hour_partition_window_keeps_closed_result_semantics(tmp_path):
+    _bootstrap_sales_with_single_hour_partition_time_field(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_single_hour_partition_orders(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    mf = observe(
+        MetricRef("sales.revenue"),
+        window={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
+        session=s,
+    )
+
+    assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
+    assert mf.meta.window is not None
+    assert mf.meta.window["start"] == "2024-10-11T03:00:00"
+    assert mf.meta.window["end"] == "2025-07-31T14:00:00"
+
+
+def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(tmp_path):
+    _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_composite_hour_partition_orders(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    mf = observe(
+        MetricRef("sales.revenue"),
+        window={
+            "start": "2024-10-11T03:00:00",
+            "end": "2025-07-31T14:00:00",
+            "time_field": "log_hour",
+        },
+        session=s,
+    )
+
+    assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
+    assert mf.meta.window is not None
+    assert mf.meta.window["start"] == "2024-10-11T03:00:00"
+    assert mf.meta.window["end"] == "2025-07-31T14:00:00"
+    assert mf.meta.window["time_field"] == "log_hour"
 
 
 def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
