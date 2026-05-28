@@ -1,0 +1,2 @@
+recursive-include marivo-skill *
+global-exclude __pycache__ *.py[cod] .DS_Store
