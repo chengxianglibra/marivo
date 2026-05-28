@@ -29,7 +29,7 @@ virtualenv path, then use `<venv>/bin/python`, `<venv>/bin/pip`, and
 ## How to start
 
 1. Find the closest runnable example in `references/examples/NN_*.py` and adapt.
-2. Confirm metric ids: `import marivo.semantic_py as ms; ms.list_metrics()`.
+2. Confirm metric ids: `import marivo.semantic_py as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()`.
 3. Use `mv.help("discover")` / `mv.help("select")` / `mv.help("transform")` /
    `mv.help("alignment")` for constraint matrices at runtime.
 4. On errors, read the structured output — it includes a fix snippet and the
@@ -61,19 +61,18 @@ call `frame.to_pandas()`. Prefer `frame.summary()` before printing full data.
 
 ## Evidence surfaces
 
-Every result exposes flat evidence fields directly:
+Every result exposes evidence fields on `frame.meta`:
 
 ```python
-result.artifact_id
-result.subject
-result.evidence_status         # "complete" | "partial" | "unavailable"
-result.blocking_issues
-result.recommended_followups   # C1 dag continuation + C2 quality remediation
-result.confidence_scope
-result.quality                 # lightweight summary, not assess_quality output
+result.meta.artifact_id
+result.meta.evidence_status         # "complete" | "partial" | "unavailable"
+result.meta.blocking_issues
+result.meta.recommended_followups   # C1 dag continuation + C2 quality remediation
+result.meta.confidence_scope
+result.meta.quality                 # lightweight summary, not assess_quality output
 ```
 
-There is no `result.evidence.*` wrapper. Read these fields after each step to
+There is no `result.evidence.*` wrapper. Read `result.meta` after each step to
 decide whether to continue, remediate quality, or inspect session knowledge.
 
 Use session knowledge when you need cross-step reasoning or recovery:
@@ -92,7 +91,7 @@ Use Surface 3 audit calls only when you need raw evidence objects:
 `session.findings(...)`, `session.propositions(...)`,
 `session.assessments(...)`, and `session.evidence.trace(...)`.
 
-`result.quality` is a lightweight summary attached automatically.
+`result.meta.quality` is a lightweight summary attached automatically.
 `session.assess_quality(result)` is an explicit auditable operator that creates a
 `QualityReport` and participates in lineage.
 
@@ -211,27 +210,25 @@ one.
 ```python
 import marivo.analysis_py as ap
 
-session = ap.session()
+session = ap.session.get_or_create(name="sales_weekly_revenue")
 
 current = session.observe(
     metric=ap.MetricRef("sales.revenue"),
-    time="this_week",
-    grain="day",
-    segment_by="country",
+    window={"start": "2026-05-01", "end": "2026-05-07", "grain": "day"},
+    dimensions=[ap.DimensionRef("region")],
 )
 baseline = session.observe(
     metric=ap.MetricRef("sales.revenue"),
-    time="previous_week",
-    grain="day",
-    segment_by="country",
+    window={"start": "2026-04-24", "end": "2026-04-30", "grain": "day"},
+    dimensions=[ap.DimensionRef("region")],
 )
-delta = session.compare(current, baseline)
+delta = session.compare(current, baseline, alignment=ap.AlignmentPolicy(kind="calendar_bucket"))
 print(delta.summary())
 
-for issue in delta.blocking_issues:
+for issue in delta.meta.blocking_issues:
     print(issue.kind, issue.message)
 
-for followup in delta.recommended_followups:
+for followup in delta.meta.recommended_followups:
     print(followup.category, followup.operator)
 ```
 

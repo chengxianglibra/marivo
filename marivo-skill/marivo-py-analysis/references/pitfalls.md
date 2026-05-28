@@ -175,7 +175,10 @@ MetricNotFoundError: metric 'sales.revenu' not found
 ```python
 import marivo.semantic_py as ms
 
-print(ms.list_metrics())
+project = ms.find_project()
+assert project is not None
+project.load()
+print(project.list_metrics())
 cur = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
 ```
 
