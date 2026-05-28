@@ -146,66 +146,222 @@ def _require_compatible_components(
                 "baseline_components": baseline_comp.meta.components,
             },
         )
+    if current_comp.meta.semantic_kind != baseline_comp.meta.semantic_kind:
+        raise ComponentFrameMismatchError(
+            message="compare inputs have incompatible component semantic kinds",
+            details={
+                "current_semantic_kind": current_comp.meta.semantic_kind,
+                "baseline_semantic_kind": baseline_comp.meta.semantic_kind,
+            },
+        )
+    if current_comp.meta.axes != baseline_comp.meta.axes:
+        raise ComponentFrameMismatchError(
+            message="compare inputs have incompatible component axes",
+            details={
+                "current_axes": current_comp.meta.axes,
+                "baseline_axes": baseline_comp.meta.axes,
+            },
+        )
+    if current_comp.meta.semantic_model != baseline_comp.meta.semantic_model:
+        raise ComponentFrameMismatchError(
+            message="compare inputs have incompatible component semantic models",
+            details={
+                "current_semantic_model": current_comp.meta.semantic_model,
+                "baseline_semantic_model": baseline_comp.meta.semantic_model,
+            },
+        )
 
 
 def _component_axis_columns(component: ComponentFrame) -> list[str]:
-    """Extract dimension column names from a component frame's axes."""
+    """Extract time and dimension column names from a component frame's axes."""
     columns: list[str] = []
     for axis in component.meta.axes.values():
         if not isinstance(axis, dict):
             continue
-        if axis.get("role") != "dimension":
+        role = axis.get("role")
+        if role not in {"time", "dimension"}:
             continue
         column = axis.get("column")
         if isinstance(column, str) and column:
             columns.append(column)
-    return sorted(columns)
+    return columns
+
+
+def _component_role_columns(component: ComponentFrame) -> list[str]:
+    axis_columns = set(_component_axis_columns(component))
+    return [
+        str(column) for column in component.to_pandas().columns if str(column) not in axis_columns
+    ]
+
+
+def _component_role_metric_frame(
+    parent: MetricFrame,
+    component: ComponentFrame,
+    *,
+    role_column: str,
+) -> MetricFrame:
+    axis_columns = _component_axis_columns(component)
+    df = component.to_pandas()[[*axis_columns, role_column]].copy()
+    meta = parent.meta.model_copy(
+        update={
+            "ref": f"{component.ref}_{role_column}",
+            "axes": component.meta.axes,
+            "measure": {"name": role_column},
+            "semantic_kind": component.meta.semantic_kind,
+            "component_ref": None,
+            "decomposition": None,
+        }
+    )
+    return MetricFrame(_df=df, meta=meta)
+
+
+def _align_component_role(
+    current_role: MetricFrame,
+    baseline_role: MetricFrame,
+    *,
+    alignment: AlignmentPolicy,
+    session: Session,
+) -> pd.DataFrame:
+    if current_role.meta.semantic_kind == "segmented":
+        aligned, _segment_info = _align_segmented(current_role, baseline_role)
+        return aligned
+    if current_role.meta.semantic_kind == "panel":
+        aligned, _segment_info, _calendar_info, _window_info = _align_panel(
+            current_role,
+            baseline_role,
+            alignment=alignment,
+            session=session,
+        )
+        return aligned
+    if current_role.meta.semantic_kind == "time_series":
+        if alignment.kind == "window_bucket":
+            aligned, _window_info = _align_time_series_window_bucket(current_role, baseline_role)
+            return aligned
+        calendar_ref = alignment.calendar
+        if not isinstance(calendar_ref, CalendarRef):
+            raise CalendarPolicyError(
+                message="calendar-backed alignment requires CalendarRef",
+                details={
+                    "kind": "CalendarRefMissing",
+                    "alignment": alignment.model_dump(mode="json"),
+                },
+            )
+        loaded_calendar = session.calendars.get(calendar_ref.id)
+        session_tz = str(session.tz)
+        if loaded_calendar.timezone != session_tz:
+            raise CalendarPolicyError(
+                message="calendar timezone must match session timezone",
+                details={
+                    "kind": "CalendarTimezoneMismatch",
+                    "calendar_name": calendar_ref.id,
+                    "calendar_timezone": loaded_calendar.timezone,
+                    "session_timezone": session_tz,
+                },
+            )
+        policy = CalendarPolicy(
+            mode=alignment.kind,
+            align_period=alignment.period,
+            fallback=alignment.fallback,
+        )
+        current_df = current_role.to_pandas()
+        baseline_df = baseline_role.to_pandas()
+        time_column = _time_axis_column(current_role)
+        value_column = _value_column(current_role, current_df, time_column=time_column)
+        baseline_value_column = _value_column(
+            baseline_role,
+            baseline_df,
+            time_column=time_column,
+        )
+        aligned, _info = align_calendar_frames(
+            current_df[[time_column, value_column]],
+            baseline_df[[time_column, baseline_value_column]].rename(
+                columns={baseline_value_column: value_column}
+            ),
+            time_column=time_column,
+            value_column=value_column,
+            calendar=loaded_calendar,
+            policy=policy,
+            session_tz=session_tz,
+        )
+        return aligned
+    return _align_and_compute(current_role.to_pandas(), baseline_role.to_pandas())
+
+
+def _aligned_key_columns(aligned: pd.DataFrame) -> list[str]:
+    return [
+        str(column)
+        for column in aligned.columns
+        if str(column) not in {"current", "baseline", "delta", "pct_change"}
+    ]
 
 
 def _align_component_frames(
     current_comp: ComponentFrame,
     baseline_comp: ComponentFrame,
+    current_parent: MetricFrame,
+    baseline_parent: MetricFrame,
+    *,
+    alignment: AlignmentPolicy,
+    session: Session,
 ) -> pd.DataFrame:
-    """Merge current/baseline component data with delta columns."""
-    dim_columns = _component_axis_columns(current_comp)
-    role_columns = [col for col in current_comp.to_pandas().columns if col not in dim_columns]
+    """Merge current/baseline component data with delta columns using parent alignment logic."""
+    role_columns = _component_role_columns(current_comp)
+    result: pd.DataFrame | None = None
+    key_columns: list[str] | None = None
 
-    current_df = current_comp.to_pandas()
-    baseline_df = baseline_comp.to_pandas()
-
-    if dim_columns:
-        merged = pd.merge(
-            current_df,
-            baseline_df,
-            on=dim_columns,
-            how="outer",
-            suffixes=("_current", "_baseline"),
+    for role_column in role_columns:
+        current_role = _component_role_metric_frame(
+            current_parent,
+            current_comp,
+            role_column=role_column,
         )
-    else:
-        merged = pd.concat(
-            [current_df.add_suffix("_current"), baseline_df.add_suffix("_baseline")],
-            axis=1,
+        baseline_role = _component_role_metric_frame(
+            baseline_parent,
+            baseline_comp,
+            role_column=role_column,
         )
-
-    result_cols: list[str] = list(dim_columns)
-    result_data: dict[str, object] = {col: merged[col] for col in dim_columns}
-
-    for role_col in role_columns:
-        current_col = f"{role_col}_current"
-        baseline_col = f"{role_col}_baseline"
-        if current_col not in merged.columns or baseline_col not in merged.columns:
+        aligned = _align_component_role(
+            current_role,
+            baseline_role,
+            alignment=alignment,
+            session=session,
+        )
+        role_keys = _aligned_key_columns(aligned)
+        renamed = aligned[[*role_keys, "current", "baseline", "delta"]].rename(
+            columns={
+                "current": f"current_{role_column}",
+                "baseline": f"baseline_{role_column}",
+                "delta": f"delta_{role_column}",
+            }
+        )
+        if result is None:
+            result = renamed
+            key_columns = role_keys
             continue
-        cur_name = f"current_{role_col}"
-        base_name = f"baseline_{role_col}"
-        delta_name = f"delta_{role_col}"
-        cur_series = pd.to_numeric(merged[current_col], errors="coerce")
-        base_series = pd.to_numeric(merged[baseline_col], errors="coerce")
-        result_data[cur_name] = cur_series
-        result_data[base_name] = base_series
-        result_data[delta_name] = cur_series - base_series
-        result_cols.extend([cur_name, base_name, delta_name])
+        if role_keys != key_columns:
+            raise ComponentFrameMismatchError(
+                message="component role alignment produced incompatible key columns",
+                details={
+                    "role_column": role_column,
+                    "expected_key_columns": key_columns,
+                    "got_key_columns": role_keys,
+                },
+            )
+        if not role_keys:
+            # Scalar (no-axis) component frames: merge by position instead of
+            # by key columns, since there are no axis columns to join on.
+            result = pd.concat(
+                [result.reset_index(drop=True), renamed.reset_index(drop=True)], axis=1
+            )
+        else:
+            result = pd.merge(result, renamed, on=role_keys, how="outer")
 
-    return pd.DataFrame(result_data, columns=result_cols)
+    if result is None:
+        raise ComponentFrameMismatchError(
+            message="component frame has no role columns to align",
+            details={"component_ref": current_comp.ref},
+        )
+    return result
 
 
 def _persist_delta_component_frame(
@@ -524,7 +680,14 @@ def compare(
 
     # --- Persist delta component frame if both inputs are component-aware ---
     if current_component is not None and baseline_component is not None:
-        comp_df = _align_component_frames(current_component, baseline_component)
+        comp_df = _align_component_frames(
+            current_component,
+            baseline_component,
+            current,
+            baseline,
+            alignment=alignment,
+            session=session,
+        )
         delta_comp = _persist_delta_component_frame(
             session,
             comp_df,

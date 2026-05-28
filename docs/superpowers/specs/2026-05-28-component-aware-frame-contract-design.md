@@ -4,6 +4,10 @@ Date: 2026-05-28
 
 Status: approved design for implementation planning
 
+Follow-up: `2026-05-29-derived-time-series-panel-components-design.md`
+extends this contract from scalar and segmented derived metrics to time-series
+and panel derived metrics.
+
 ## Problem
 
 Marivo's current `observe -> compare -> decompose` flow treats every metric as a

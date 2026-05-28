@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pandas as pd
 import pytest
@@ -14,11 +14,14 @@ from marivo.analysis.errors import (
     CalendarPolicyError,
     SemanticKindMismatchError,
 )
+from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.compare import compare
+from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
+from marivo.analysis.session.persistence import write_frame_to_disk
 
 
 @pytest.fixture
@@ -78,6 +81,71 @@ def _metric_frame(
         semantic_model="sales",
         session=session,
     )
+
+
+def _now():
+    return datetime(2026, 5, 29, 10, 0, 0, tzinfo=UTC)
+
+
+def _component_time_series_metric(session, *, ref, rows, component_rows):
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_field": "order_date",
+        }
+    }
+    metric = MetricFrame.from_dataframe(
+        pd.DataFrame(rows),
+        metric_id="sales.failure_rate",
+        axes=axes,
+        measure={"name": "failure_rate"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        session=session,
+    )
+    metric.meta = metric.meta.model_copy(
+        update={
+            "ref": ref,
+            "decomposition": {
+                "kind": "ratio",
+                "components": {
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+            },
+        }
+    )
+    metric.meta = write_frame_to_disk(session.layout, metric)
+    component = ComponentFrame(
+        _df=pd.DataFrame(component_rows),
+        meta=ComponentFrameMeta(
+            ref=f"{ref}_components",
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_observe",
+            created_at=_now(),
+            row_count=len(component_rows),
+            byte_size=0,
+            lineage=Lineage(),
+            parent_ref=metric.ref,
+            parent_kind="metric_frame",
+            metric_id="sales.failure_rate",
+            decomposition_kind="ratio",
+            components={
+                "numerator": "sales.failed_count",
+                "denominator": "sales.total_count",
+            },
+            axes=axes,
+            semantic_kind="time_series",
+            semantic_model="sales",
+        ),
+    )
+    component.meta = write_frame_to_disk(session.layout, component)
+    metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
+    metric.meta = write_frame_to_disk(session.layout, metric)
+    return metric
 
 
 def _calendar() -> Calendar:
@@ -672,3 +740,54 @@ def test_compare_calendar_rejects_missing_value_column(calendar_project):
         )
 
     assert exc_info.value.details["kind"] == "CalendarAlignValueColumnMissing"
+
+
+def test_compare_calendar_time_series_ratio_persists_component_delta(calendar_project):
+    calendar_path = calendar_project / ".marivo" / "calendar" / "cn_holidays.json"
+    calendar_path.write_text(_calendar().model_dump_json(), encoding="utf-8")
+    s = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
+    current = _component_time_series_metric(
+        s,
+        ref="frame_current_ratio",
+        rows=[{"bucket_start": "2026-05-05", "failure_rate": 0.25}],
+        component_rows=[
+            {
+                "bucket_start": "2026-05-05",
+                "numerator": 25.0,
+                "denominator": 100.0,
+                "metric_value": 0.25,
+            }
+        ],
+    )
+    baseline = _component_time_series_metric(
+        s,
+        ref="frame_baseline_ratio",
+        rows=[{"bucket_start": "2026-04-07", "failure_rate": 0.10}],
+        component_rows=[
+            {
+                "bucket_start": "2026-04-07",
+                "numerator": 10.0,
+                "denominator": 100.0,
+                "metric_value": 0.10,
+            }
+        ],
+    )
+
+    out = compare(
+        current,
+        baseline,
+        alignment=AlignmentPolicy(
+            kind="dow_aligned",
+            calendar=CalendarRef("cn_holidays"),
+            period="month",
+        ),
+        session=s,
+    )
+
+    component_df = out.components().to_pandas()
+    assert list(component_df["align_quality"]) == ["exact"]
+    assert component_df.iloc[0]["bucket_start_a"] == "2026-05-05"
+    assert component_df.iloc[0]["bucket_start_b"] == "2026-04-07"
+    assert component_df.iloc[0]["current_numerator"] == pytest.approx(25.0)
+    assert component_df.iloc[0]["baseline_numerator"] == pytest.approx(10.0)
+    assert component_df.iloc[0]["delta_metric_value"] == pytest.approx(0.15)

@@ -20,7 +20,7 @@ class ComponentFrameMeta(BaseFrameMeta):
     decomposition_kind: Literal["ratio", "weighted_average"]
     components: dict[str, str]
     axes: dict[str, Any]
-    semantic_kind: Literal["scalar", "segmented"]
+    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str
 
 

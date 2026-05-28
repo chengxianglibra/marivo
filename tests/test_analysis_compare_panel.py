@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import ibis
 import pandas as pd
@@ -8,11 +9,14 @@ import pytest
 
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import AlignmentFailedError, PanelGrainMismatchError
+from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
+from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef, DimensionRef, MetricRef
+from marivo.analysis.session.persistence import write_frame_to_disk
 
 
 @pytest.fixture(autouse=True)
@@ -145,6 +149,72 @@ def _panel_metric(
         window=window,
         session=session,
     )
+
+
+def _now():
+    return datetime(2026, 5, 29, 10, 0, 0, tzinfo=UTC)
+
+
+def _component_panel_metric(session, *, ref, rows, component_rows):
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": "day",
+            "time_field": "order_date",
+        },
+        "region": {"role": "dimension", "column": "region"},
+    }
+    metric = MetricFrame.from_dataframe(
+        pd.DataFrame(rows),
+        metric_id="sales.failure_rate",
+        axes=axes,
+        measure={"name": "failure_rate"},
+        semantic_kind="panel",
+        semantic_model="sales",
+        session=session,
+    )
+    metric.meta = metric.meta.model_copy(
+        update={
+            "ref": ref,
+            "decomposition": {
+                "kind": "ratio",
+                "components": {
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+            },
+        }
+    )
+    metric.meta = write_frame_to_disk(session.layout, metric)
+    component = ComponentFrame(
+        _df=pd.DataFrame(component_rows),
+        meta=ComponentFrameMeta(
+            ref=f"{ref}_components",
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_observe",
+            created_at=_now(),
+            row_count=len(component_rows),
+            byte_size=0,
+            lineage=Lineage(),
+            parent_ref=metric.ref,
+            parent_kind="metric_frame",
+            metric_id="sales.failure_rate",
+            decomposition_kind="ratio",
+            components={
+                "numerator": "sales.failed_count",
+                "denominator": "sales.total_count",
+            },
+            axes=axes,
+            semantic_kind="panel",
+            semantic_model="sales",
+        ),
+    )
+    component.meta = write_frame_to_disk(session.layout, component)
+    metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
+    metric.meta = write_frame_to_disk(session.layout, metric)
+    return metric
 
 
 def test_window_bucket_panel_sparse_segment_uses_window_spine():
@@ -362,3 +432,82 @@ def test_compare_panel_grain_mismatch_uses_time_axis_role(tmp_path):
 
     with pytest.raises(PanelGrainMismatchError):
         compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+
+def test_compare_calendar_panel_ratio_persists_component_delta(tmp_path):
+    calendar_dir = tmp_path / ".marivo" / "calendar"
+    calendar_dir.mkdir(parents=True)
+    (calendar_dir / "cn_holidays.json").write_text(
+        json.dumps(
+            {
+                "name": "cn_holidays",
+                "timezone": "Asia/Shanghai",
+                "holidays": [],
+                "adjusted_workdays": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    s = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
+    current = _component_panel_metric(
+        s,
+        ref="frame_current_panel_ratio",
+        rows=[
+            {"bucket_start": "2026-05-05", "region": "WEB", "failure_rate": 0.25},
+            {"bucket_start": "2026-05-05", "region": "APP", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-05-05",
+                "region": "WEB",
+                "numerator": 25.0,
+                "denominator": 100.0,
+                "metric_value": 0.25,
+            },
+            {
+                "bucket_start": "2026-05-05",
+                "region": "APP",
+                "numerator": 50.0,
+                "denominator": 100.0,
+                "metric_value": 0.50,
+            },
+        ],
+    )
+    baseline = _component_panel_metric(
+        s,
+        ref="frame_baseline_panel_ratio",
+        rows=[
+            {"bucket_start": "2026-04-07", "region": "WEB", "failure_rate": 0.10},
+        ],
+        component_rows=[
+            {
+                "bucket_start": "2026-04-07",
+                "region": "WEB",
+                "numerator": 10.0,
+                "denominator": 100.0,
+                "metric_value": 0.10,
+            },
+        ],
+    )
+
+    out = compare(
+        current,
+        baseline,
+        alignment=AlignmentPolicy(
+            kind="dow_aligned",
+            calendar=CalendarRef("cn_holidays"),
+            period="month",
+        ),
+        session=s,
+    )
+
+    component_df = out.components().to_pandas()
+    assert {"region", "align_key", "align_quality", "bucket_start_a", "bucket_start_b"}.issubset(
+        component_df.columns
+    )
+    by_region = component_df.set_index("region")
+    assert by_region.loc["WEB", "align_quality"] == "exact"
+    assert by_region.loc["WEB", "current_numerator"] == pytest.approx(25.0)
+    assert by_region.loc["WEB", "baseline_numerator"] == pytest.approx(10.0)
+    assert by_region.loc["APP", "align_quality"] == "unmatched"
+    assert pd.isna(by_region.loc["APP", "baseline_numerator"])
