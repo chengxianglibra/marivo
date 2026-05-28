@@ -14,7 +14,7 @@ from marivo.analysis_py.errors import (
 from marivo.analysis_py.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
 
 AlignmentKind = Literal[
-    "calendar_bucket",
+    "window_bucket",
     "dow_aligned",
     "holiday_aligned",
     "holiday_and_dow_aligned",
@@ -24,21 +24,31 @@ AlignmentKind = Literal[
 class AlignmentPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: AlignmentKind = "calendar_bucket"
+    kind: AlignmentKind = "window_bucket"
     calendar: CalendarRef | None = None
     period: AlignPeriod = "month"
     fallback: CalendarFallback = "drop"
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_legacy_calendar_bucket(cls, data: object) -> object:
+        if isinstance(data, dict) and data.get("kind") == "calendar_bucket":
+            raise AlignmentPolicyValidationError(
+                message="alignment kind 'calendar_bucket' was renamed to 'window_bucket'",
+                details={"case": "legacy_calendar_bucket", "kind": "calendar_bucket"},
+            )
+        return data
+
     @model_validator(mode="after")
     def validate_calendar_ref(self) -> AlignmentPolicy:
-        if self.kind != "calendar_bucket" and self.calendar is None:
+        if self.kind != "window_bucket" and self.calendar is None:
             raise AlignmentPolicyValidationError(
                 message=f"alignment kind {self.kind!r} requires calendar=CalendarRef(...)",
                 details={"case": "missing_calendar", "kind": self.kind},
             )
-        if self.kind == "calendar_bucket" and self.calendar is not None:
+        if self.kind == "window_bucket" and self.calendar is not None:
             raise AlignmentPolicyValidationError(
-                message="calendar_bucket does not accept calendar",
+                message="window_bucket does not accept calendar",
                 details={"case": "unexpected_calendar", "kind": self.kind},
             )
         return self
@@ -70,7 +80,7 @@ class SamplingPolicy(BaseModel):
 
     unit: Literal["bucket"] = "bucket"
     method: Literal["paired_numeric_summary"] = "paired_numeric_summary"
-    pairing: Literal["calendar_bucket", "segment_key"] = "calendar_bucket"
+    pairing: Literal["window_bucket", "segment_key"] = "window_bucket"
     null_handling: Literal["drop_pair"] = "drop_pair"
     min_n: int = Field(default=3, ge=2)
 

@@ -16,7 +16,7 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
         details={
             "location": "session.compare call",
             "cause": "param a was invalid",
-            "fix_snippet": 'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))',
+            "fix_snippet": 'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))',
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         },
     )
@@ -29,7 +29,7 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
     assert "Hint: try fixing X" in rendered
     assert "Fix:" in rendered
     assert (
-        '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
         in rendered
     )
     assert "Docs: marivo-skill/marivo-py-analysis/references/pitfalls.md" in rendered
@@ -98,7 +98,7 @@ def test_semantic_kind_mismatch_has_compare_fix_template():
         'window={"start": "2025-07-01", "end": "2025-09-30"})'
     ) in rendered
     assert (
-        '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
         in rendered
     )
     assert 'session.observe("revenue"' not in rendered
@@ -111,7 +111,7 @@ def test_semantic_kind_mismatch_without_kind_details_is_not_compare_specific():
 
     assert "session.compare call" not in rendered
     assert (
-        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
         not in rendered
     )
 
@@ -128,7 +128,7 @@ def test_semantic_kind_mismatch_for_delta_expected_is_not_compare_specific():
     assert "delta_frame" in rendered
     assert "session.compare call" not in rendered
     assert (
-        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
         not in rendered
     )
 

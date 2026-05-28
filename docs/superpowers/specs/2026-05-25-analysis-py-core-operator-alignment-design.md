@@ -50,7 +50,7 @@ Add the minimum typed objects needed for these operators:
 mv.MetricRef("sales.revenue")
 mv.DimensionRef("region")
 mv.CalendarRef("cn_holidays")
-mv.AlignmentPolicy(kind="calendar_bucket")
+mv.AlignmentPolicy(kind="window_bucket")
 mv.AlignmentPolicy(kind="dow_aligned", calendar=mv.CalendarRef("cn_holidays"))
 mv.AlignmentPolicy(kind="holiday_aligned", calendar=mv.CalendarRef("cn_holidays"))
 mv.AlignmentPolicy(kind="holiday_and_dow_aligned", calendar=mv.CalendarRef("cn_holidays"))
@@ -106,7 +106,7 @@ Required validation:
 
 Policy mapping for this slice:
 
-- `calendar_bucket`: ordinary bucket/sample alignment using existing local
+- `window_bucket`: ordinary bucket/sample alignment using existing local
   frame data
 - `dow_aligned`: existing calendar alignment helper with day-of-week logic
 - `holiday_aligned`: existing calendar alignment helper with holiday logic
@@ -196,7 +196,7 @@ Supported behavior:
 
 - `method="pearson"`
 - `LagPolicy(mode="single", offset=0)`
-- `AlignmentPolicy(kind="calendar_bucket")` over sample or shared-key aligned
+- `AlignmentPolicy(kind="window_bucket")` over sample or shared-key aligned
   data, using current local frame data
 
 Unsupported behavior should fail closed:

@@ -91,12 +91,12 @@ def _panel(session, *, start: str, end: str, grain: str = "day"):
     )
 
 
-def test_calendar_bucket_aligns_equal_length_panel_by_ordinal_bucket(tmp_path):
+def test_window_bucket_aligns_equal_length_panel_by_ordinal_bucket(tmp_path):
     s = _session(tmp_path)
     cur = _panel(s, start="2026-07-01", end="2026-07-02")
     prev = _panel(s, start="2026-06-24", end="2026-06-25")
 
-    delta = compare(cur, prev, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+    delta = compare(cur, prev, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
     df = delta.to_pandas()
     assert {"bucket_start", "bucket_start_b", "region", "current", "baseline"} <= set(df.columns)
@@ -107,19 +107,25 @@ def test_calendar_bucket_aligns_equal_length_panel_by_ordinal_bucket(tmp_path):
     assert delta.meta.alignment["mode"] == "ordinal_bucket"
 
 
-def test_calendar_bucket_panel_unequal_lengths_explains_row_counts(tmp_path):
+def test_window_bucket_panel_different_expected_counts_explains_requirement(tmp_path):
     s = _session(tmp_path)
     cur = _panel(s, start="2026-07-01", end="2026-07-02")
     prev = _panel(s, start="2026-06-24", end="2026-06-24")
 
     with pytest.raises(AlignmentFailedError) as exc_info:
-        compare(cur, prev, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+        compare(cur, prev, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
-    assert "current has 2 rows, baseline has 1 rows" in str(exc_info.value)
-    assert exc_info.value.details["kind"] == "CalendarBucketNoComparableBuckets"
+    assert "equal expected bucket counts" in str(exc_info.value)
+    assert exc_info.value.details["kind"] == "WindowBucketExpectedCountMismatch"
 
 
-def _panel_metric(session, rows, *, axes: dict[str, object] | None = None):
+def _panel_metric(
+    session,
+    rows,
+    *,
+    axes: dict[str, object] | None = None,
+    window: dict[str, object] | None = None,
+):
     return MetricFrame.from_dataframe(
         pd.DataFrame(rows),
         metric_id="sales.revenue",
@@ -136,8 +142,63 @@ def _panel_metric(session, rows, *, axes: dict[str, object] | None = None):
         measure={"name": "value"},
         semantic_kind="panel",
         semantic_model="sales",
+        window=window,
         session=session,
     )
+
+
+def test_window_bucket_panel_sparse_segment_uses_window_spine():
+    s = session_attach.get_or_create(name="demo")
+    current_rows = [
+        {
+            "bucket_start": f"2026-05-12 {hour:02d}:00:00",
+            "region": "WEB",
+            "value": float(hour),
+        }
+        for hour in range(24)
+    ]
+    baseline_rows = [
+        {
+            "bucket_start": f"2026-05-05 {hour:02d}:00:00",
+            "region": "WEB",
+            "value": float(hour + 100),
+        }
+        for hour in range(11)
+    ]
+    axes = {
+        "time": {"role": "time", "column": "bucket_start", "grain": "hour"},
+        "region": {"role": "dimension", "column": "region"},
+    }
+    current = _panel_metric(
+        s,
+        current_rows,
+        axes=axes,
+        window={"start": "2026-05-12", "end": "2026-05-12", "grain": "hour"},
+    )
+    baseline = _panel_metric(
+        s,
+        baseline_rows,
+        axes=axes,
+        window={"start": "2026-05-05", "end": "2026-05-05", "grain": "hour"},
+    )
+
+    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    df = out.to_pandas()
+    assert len(df) == 24
+    assert list(df["bucket_start"].astype(str).head(2)) == [
+        "2026-05-12 00:00:00",
+        "2026-05-12 01:00:00",
+    ]
+    assert list(df["bucket_start_b"].astype(str).head(2)) == [
+        "2026-05-05 00:00:00",
+        "2026-05-05 01:00:00",
+    ]
+    assert df.iloc[10]["baseline"] == pytest.approx(110.0)
+    assert pd.isna(df.iloc[11]["baseline"])
+    assert pd.isna(df.iloc[11]["delta"])
+    assert out.meta.alignment["coverage"]["baseline"]["missing_buckets"] == 13
+    assert out.meta.alignment["segment_info"]["coverage"]["baseline"]["missing_buckets"] == 13
 
 
 def _write_calendar(tmp_path):
@@ -156,12 +217,12 @@ def _write_calendar(tmp_path):
     )
 
 
-def test_compare_panel_calendar_bucket(tmp_path):
+def test_compare_panel_window_bucket(tmp_path):
     s = _session(tmp_path)
     current = _panel(s, start="2026-07-01", end="2026-07-03")
     baseline = _panel(s, start="2026-07-01", end="2026-07-03")
 
-    out = compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
     assert out.meta.semantic_kind == "panel"
     assert out.meta.alignment["segment_info"] == {
@@ -184,7 +245,7 @@ def test_compare_panel_calendar_bucket(tmp_path):
     assert by_key[("2026-07-02", "SOUTH")].delta == pytest.approx(0.0)
 
 
-def test_compare_panel_calendar_bucket_outer_joins_bucket_keys():
+def test_compare_panel_window_bucket_outer_joins_bucket_keys():
     s = session_attach.get_or_create(name="demo")
     current = _panel_metric(
         s,
@@ -201,7 +262,7 @@ def test_compare_panel_calendar_bucket_outer_joins_bucket_keys():
         ],
     )
 
-    out = compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
     df = out.to_pandas()
     assert list(df.columns) == [
@@ -277,7 +338,7 @@ def test_compare_panel_grain_mismatch(tmp_path):
     baseline = _panel(s, start="2026-06-01", end="2026-08-01", grain="month")
 
     with pytest.raises(PanelGrainMismatchError):
-        compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+        compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
 
 def test_compare_panel_grain_mismatch_uses_time_axis_role(tmp_path):
@@ -300,4 +361,4 @@ def test_compare_panel_grain_mismatch_uses_time_axis_role(tmp_path):
     )
 
     with pytest.raises(PanelGrainMismatchError):
-        compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+        compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)

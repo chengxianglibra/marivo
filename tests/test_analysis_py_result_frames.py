@@ -89,7 +89,7 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
             semantic_kinds=["time_series", "time_series"],
             semantic_models=["sales", "sales"],
             method="pearson",
-            alignment={"kind": "calendar_bucket"},
+            alignment={"kind": "window_bucket"},
             lag_policy={"mode": "single", "offset": 0},
             aligned_row_count=10,
             dropped_row_count=0,

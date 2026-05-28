@@ -670,7 +670,7 @@ def test_promote_delta_frame_inherits_source_metric_metadata():
     assert delta.meta.semantic_model == "sales"
     assert delta.meta.source_current_ref == current.ref
     assert delta.meta.source_baseline_ref == baseline.ref
-    assert delta.meta.alignment == {"kind": "calendar_bucket"}
+    assert delta.meta.alignment == {"kind": "window_bucket"}
     assert delta.lineage.steps[-1].intent == "promote_delta_frame"
     assert [step.intent for step in delta.lineage.steps].count("promote_metric_frame") == 2
     assert set(current.lineage.external_inputs).issubset(delta.lineage.external_inputs)

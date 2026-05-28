@@ -26,12 +26,12 @@ def test_delta_frame_meta_kind_literal():
         metric_id="sales.revenue",
         source_current_ref="frame_a",
         source_baseline_ref="frame_b",
-        alignment={"kind": "calendar_bucket"},
+        alignment={"kind": "window_bucket"},
         semantic_kind="time_series",
         semantic_model="sales",
     )
     assert meta.kind == "delta_frame"
-    assert meta.alignment["kind"] == "calendar_bucket"
+    assert meta.alignment["kind"] == "window_bucket"
     assert meta.source_current_ref == "frame_a"
 
 
@@ -58,7 +58,7 @@ def test_delta_frame_wraps_df_and_meta():
         metric_id="sales.revenue",
         source_current_ref="frame_a",
         source_baseline_ref="frame_b",
-        alignment={"kind": "calendar_bucket"},
+        alignment={"kind": "window_bucket"},
         semantic_kind="time_series",
         semantic_model="sales",
     )
@@ -82,7 +82,7 @@ def test_delta_frame_meta_accepts_optional_normalization():
         metric_id="sales.revenue",
         source_current_ref="a",
         source_baseline_ref="b",
-        alignment={"kind": "calendar_bucket"},
+        alignment={"kind": "window_bucket"},
         semantic_kind="scalar",
         semantic_model="sales",
         normalization={"mode": "z_score", "baseline": None, "columns_affected": ["delta"]},

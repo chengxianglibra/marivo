@@ -144,7 +144,7 @@ def test_help_transform_prints_op_matrix() -> None:
 
 def test_help_alignment_prints_variants() -> None:
     out = _capture("alignment")
-    assert "calendar_bucket" in out
+    assert "window_bucket" in out
     assert "dow_aligned" in out
     assert "holiday_aligned" in out
     assert "holiday_and_dow_aligned" in out

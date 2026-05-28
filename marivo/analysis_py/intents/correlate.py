@@ -59,7 +59,7 @@ def correlate(
 
     When to use: measure statistical association between two metrics over aligned time buckets.
 
-    v1 only supports Pearson correlation under ``calendar_bucket`` alignment with
+    v1 only supports Pearson correlation under ``window_bucket`` alignment with
     zero-lag (``LagPolicy(mode="single", offset=0)``). Both frames must belong to
     the active session.
 
@@ -68,7 +68,7 @@ def correlate(
         b: Second MetricFrame.
         measure_a: Numeric column on ``a``. Defaults to the frame's measure column.
         measure_b: Numeric column on ``b``. Defaults to the frame's measure column.
-        alignment: Defaults to ``AlignmentPolicy(kind="calendar_bucket")``.
+        alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``.
         lag_policy: Defaults to ``LagPolicy(mode="single", offset=0)``.
         method: Only ``"pearson"`` in v1.
         session: Defaults to the currently-attached session.
@@ -82,7 +82,7 @@ def correlate(
     Example:
         >>> result = session.correlate(
         ...     a, b,
-        ...     alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+        ...     alignment=mv.AlignmentPolicy(kind="window_bucket"),
         ...     lag_policy=mv.LagPolicy(mode="single", offset=0),
         ... )
         >>> result.summary()
@@ -94,7 +94,7 @@ def correlate(
     ensure_frame_in_session(a, session=session, label="correlate a")
     ensure_frame_in_session(b, session=session, label="correlate b")
     if alignment is None:
-        alignment = AlignmentPolicy(kind="calendar_bucket")
+        alignment = AlignmentPolicy(kind="window_bucket")
     if lag_policy is None:
         lag_policy = LagPolicy(mode="single", offset=0)
     if not isinstance(alignment, AlignmentPolicy):
@@ -113,9 +113,9 @@ def correlate(
                 "got_kind": type(lag_policy).__name__,
             },
         )
-    if alignment.kind != "calendar_bucket":
+    if alignment.kind != "window_bucket":
         raise SemanticKindMismatchError(
-            message="correlate only supports AlignmentPolicy(kind='calendar_bucket')",
+            message="correlate only supports AlignmentPolicy(kind='window_bucket')",
             details={"alignment": alignment.model_dump(mode="json")},
         )
     if a.meta.semantic_kind != b.meta.semantic_kind:

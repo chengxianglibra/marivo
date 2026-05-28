@@ -52,7 +52,7 @@ def _delta(session, df, *, semantic_kind="time_series", ref="frame_delta"):
         metric_id="sales.revenue",
         source_current_ref="frame_a",
         source_baseline_ref="frame_b",
-        alignment={"kind": "calendar_bucket"},
+        alignment={"kind": "window_bucket"},
         semantic_kind=semantic_kind,
         semantic_model="sales",
     )

@@ -102,7 +102,7 @@ def decompose(
         CrossSessionFrameError: ``frame`` belongs to a different session.
 
     Example:
-        >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+        >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
         >>> attribution = session.decompose(delta, axis=mv.DimensionRef("country"))
         >>> attribution.summary()
     """

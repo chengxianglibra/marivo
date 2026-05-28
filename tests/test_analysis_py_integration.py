@@ -50,7 +50,7 @@ def test_end_to_end_sales_observe_compare_load(tmp_path):
     d = s.compare(
         q3,
         q2,
-        alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+        alignment=mv.AlignmentPolicy(kind="window_bucket"),
     )
     df = d.to_pandas()
     assert df.iloc[0]["current"] == pytest.approx(60.0)
@@ -72,6 +72,6 @@ def test_end_to_end_sales_observe_compare_load(tmp_path):
     d_again = s_ro.compare(
         q3_again,
         q2_again,
-        alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+        alignment=mv.AlignmentPolicy(kind="window_bucket"),
     )
     assert d_again.to_pandas().iloc[0]["delta"] == pytest.approx(40.0)

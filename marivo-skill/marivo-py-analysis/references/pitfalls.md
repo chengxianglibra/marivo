@@ -39,7 +39,7 @@ Cause: got kind delta_frame, expected metric_frame; this usually means passing a
 Fix:
   cur  = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
   base = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
-  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 
 Docs: marivo-skill/marivo-py-analysis/references/pitfalls.md
 ```
@@ -50,7 +50,7 @@ Docs: marivo-skill/marivo-py-analysis/references/pitfalls.md
 ```python
 cur = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
 base = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 ```
 
@@ -236,7 +236,7 @@ assert candidates.meta.objective == "point_anomalies"
 correlation = session.correlate(
     a,
     b,
-    alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+    alignment=mv.AlignmentPolicy(kind="window_bucket"),
     lag_policy=mv.LagPolicy(mode="single", offset=0),
 )
 assert correlation.meta.kind == "association_result"
@@ -257,14 +257,14 @@ TypeError: decompose() missing 1 required keyword-only argument: 'axis'
 already exists in the `DeltaFrame`.
 
 ```python
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 ```
 
 ## test / forecast / assess_quality
 
 - `session.hypothesis_test(cur, base)` v1 supports only `hypothesis="mean_changed"` and paired MetricFrames with matching `semantic_kind` and `semantic_model`; scalar MetricFrames are rejected because they do not contain paired samples.
-- `SamplingPolicy.pairing` must match the frame shape: use `calendar_bucket` for `time_series` / `panel`, and `segment_key` for `segmented`.
+- `SamplingPolicy.pairing` must match the frame shape: use `window_bucket` for `time_series` / `panel`, and `segment_key` for `segmented`.
 - `session.forecast(history, horizon=7)` v1 supports only `MetricFrame(time_series|panel)` with continuous time buckets and no NaN value rows; impute or re-observe before forecasting.
 - `seasonal_naive` needs at least `seasonality_period + 1` training rows for a time series.
 - `session.assess_quality(frame)` v1 accepts only `MetricFrame`; reports for delta, candidate, forecast, and attribution frames are planned for later.

@@ -303,7 +303,7 @@ class SemanticKindMismatchError(AnalysisError):
                 'window={"start": "2026-07-01", "end": "2026-09-30"})\n'
                 'base = session.observe(mv.MetricRef("sales.revenue"), '
                 'window={"start": "2025-07-01", "end": "2025-09-30"})\n'
-                'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+                'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
@@ -327,7 +327,7 @@ class DiscoverInsufficientDataError(AnalysisError):
                 f"time buckets in one series; got {count_ref} usable bucket(s)."
             ),
             "fix_snippet": (
-                'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))\n'
+                'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))\n'
                 'session.discover.period_shifts(delta, value="delta")  # use a wider window'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
@@ -353,16 +353,24 @@ class AlignmentPolicyValidationError(AnalysisError):
                 ),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
+        if case == "legacy_calendar_bucket":
+            return {
+                "location": "mv.AlignmentPolicy(...)",
+                "cause": (
+                    "alignment kind 'calendar_bucket' was renamed; use 'window_bucket' "
+                    "for request-window bucket spine alignment."
+                ),
+                "fix_snippet": 'mv.AlignmentPolicy(kind="window_bucket")',
+                "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
+            }
         if case == "unexpected_calendar":
             return {
                 "location": "mv.AlignmentPolicy(...)",
                 "cause": (
-                    "calendar_bucket alignment infers buckets from the data and does not "
+                    "window_bucket alignment infers buckets from the input windows and does not "
                     "accept a calendar argument."
                 ),
-                "fix_snippet": (
-                    'mv.AlignmentPolicy(kind="calendar_bucket")  # no calendar argument'
-                ),
+                "fix_snippet": 'mv.AlignmentPolicy(kind="window_bucket")  # no calendar argument',
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         return {
@@ -449,8 +457,8 @@ class TestPolicyError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {
             "location": "session.hypothesis_test policy arguments",
-            "cause": "test v1 only supports mean_changed, calendar_bucket alignment, and shape-compatible SamplingPolicy.pairing.",
-            "fix_snippet": "session.hypothesis_test(cur, base, sampling=mv.SamplingPolicy(pairing='calendar_bucket'), alpha=0.05)",
+            "cause": "test v1 only supports mean_changed, window_bucket alignment, and shape-compatible SamplingPolicy.pairing.",
+            "fix_snippet": "session.hypothesis_test(cur, base, sampling=mv.SamplingPolicy(pairing='window_bucket'), alpha=0.05)",
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
@@ -460,7 +468,7 @@ class TestAlignmentError(AlignmentFailedError):
         return {
             "location": "session.hypothesis_test alignment",
             "cause": "the input frames did not produce any paired samples after alignment and null dropping.",
-            "fix_snippet": "session.hypothesis_test(cur, base, alignment=mv.AlignmentPolicy(kind='calendar_bucket'))",
+            "fix_snippet": "session.hypothesis_test(cur, base, alignment=mv.AlignmentPolicy(kind='window_bucket'))",
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 

@@ -37,13 +37,13 @@ def test_make_artifact_id_deterministic() -> None:
     aid1 = make_artifact_id(
         step_type="compare",
         normalized_inputs=["art_a", "art_b"],
-        normalized_params={"alignment": "calendar_bucket"},
+        normalized_params={"alignment": "window_bucket"},
         semantic_anchors={"metric": "dau@v1"},
     )
     aid2 = make_artifact_id(
         step_type="compare",
         normalized_inputs=["art_a", "art_b"],
-        normalized_params={"alignment": "calendar_bucket"},
+        normalized_params={"alignment": "window_bucket"},
         semantic_anchors={"metric": "dau@v1"},
     )
     assert aid1 == aid2

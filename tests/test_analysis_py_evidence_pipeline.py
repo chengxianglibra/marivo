@@ -73,7 +73,7 @@ def _delta_frame(
         metric_id="sales.revenue",
         source_current_ref=source_current,
         source_baseline_ref=source_baseline,
-        alignment={"kind": "calendar_bucket"},
+        alignment={"kind": "window_bucket"},
         semantic_kind="scalar",
         semantic_model="sales",
     )
@@ -203,7 +203,7 @@ def test_commit_compare_seeds_change_proposition(tmp_session) -> None:
             frame=delta,
             step_type="compare",
             inputs=CommitInputs(input_refs=[a.meta.artifact_id, b.meta.artifact_id]),  # type: ignore[list-item]
-            params=CommitParams(values={"alignment": "calendar_bucket"}),
+            params=CommitParams(values={"alignment": "window_bucket"}),
             semantic_anchors=CommitSemanticAnchors(values={"metric": "sales.revenue@v1"}),
             subject=Subject(metric="sales.revenue", slice={}, analysis_axis="change"),
             extractor_family="delta_frame",
@@ -309,7 +309,7 @@ def test_commit_partial_when_seeding_fails(tmp_session, monkeypatch) -> None:
             frame=delta,
             step_type="compare",
             inputs=CommitInputs(input_refs=[a.meta.artifact_id, b.meta.artifact_id]),  # type: ignore[list-item]
-            params=CommitParams(values={"alignment": "calendar_bucket"}),
+            params=CommitParams(values={"alignment": "window_bucket"}),
             semantic_anchors=CommitSemanticAnchors(values={"metric": "sales.revenue@v1"}),
             subject=Subject(metric="sales.revenue", slice={}, analysis_axis="change"),
             extractor_family="delta_frame",
