@@ -8,28 +8,28 @@ active Python environment, not from a local Marivo source checkout.
 
 | Intent | Inputs | Output | Agent rule |
 | --- | --- | --- | --- |
-| `mv.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `window={"start": "...", "end": "..."}` or structured `where={field: {"op": ..., "value": ...}}`. |
-| `mv.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
-| `mv.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; `model.field` refs resolve to the persisted delta column `field`. |
-| `mv.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape`. |
-| `mv.select` | `CandidateSet` | typed value (`DimensionRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
-| `mv.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="calendar_bucket")`; default lag is zero. |
-| `mv.hypothesis_test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
-| `mv.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
-| `mv.assess_quality(frame)` | `MetricFrame` | `QualityReport` | Row count, null ratio, time coverage, duplicate key checks |
+| `session.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `window={"start": "...", "end": "..."}` or structured `where={field: {"op": ..., "value": ...}}`. |
+| `session.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
+| `session.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; `model.field` refs resolve to the persisted delta column `field`. |
+| `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape`. |
+| `candidates.select(...)` | `CandidateSet` | typed value (`DimensionRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
+| `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="calendar_bucket")`; default lag is zero. |
+| `session.hypothesis_test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
+| `session.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
+| `session.assess_quality(frame)` | `MetricFrame` | `QualityReport` | Row count, null ratio, time coverage, duplicate key checks |
 
 ## Frame Flow
 
 | Frame | Created by | Valid next step |
 | --- | --- | --- |
-| `MetricFrame` | `mv.observe`, manual `MetricFrame.from_dataframe` for local series | `mv.compare`, `mv.discover.<objective>`, `mv.correlate` |
-| `DeltaFrame` | `mv.compare` | `mv.decompose` |
-| `CandidateSet` | `mv.discover.<objective>` | `mv.select(...)` to pull a typed field; otherwise terminal. Inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `AssociationResult` | `mv.correlate` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `HypothesisTestResult` | `mv.hypothesis_test` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `ForecastFrame` | `mv.forecast` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `QualityReport` | `mv.assess_quality` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `AttributionFrame` | `mv.decompose` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `MetricFrame` | `session.observe`, manual `MetricFrame.from_dataframe` for local series | `session.compare`, `session.discover.<objective>`, `session.correlate` |
+| `DeltaFrame` | `session.compare` | `session.decompose` |
+| `CandidateSet` | `session.discover.<objective>` | `candidates.select(...)` to pull a typed field; otherwise terminal. Inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `AssociationResult` | `session.correlate` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `HypothesisTestResult` | `session.hypothesis_test` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `ForecastFrame` | `session.forecast` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `QualityReport` | `session.assess_quality` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| `AttributionFrame` | `session.decompose` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
 
 Frames are immutable. Use `frame.summary()` for a cheap read,
 `frame.preview(limit=n)` for a bounded row projection, and
@@ -46,25 +46,25 @@ calendar-backed `compare`.
 ```python
 import marivo.analysis_py as mv
 
-cur = mv.observe(
+cur = session.observe(
     mv.MetricRef("sales.revenue"),
     window={"start": "2026-07-01", "end": "2026-09-30"},
 )
-base = mv.observe(
+base = session.observe(
     mv.MetricRef("sales.revenue"),
     window={"start": "2025-07-01", "end": "2025-09-30"},
 )
-delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
-attribution = mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))
+delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 print(attribution.summary())
 ```
 
 ```python
-series = mv.observe(
+series = session.observe(
     mv.MetricRef("sales.revenue"),
     where={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
-candidates = mv.discover.point_anomalies(series, threshold=1.0)
+candidates = session.discover.point_anomalies(series, threshold=1.0)
 print(candidates.meta.objective)  # "point_anomalies"
 ```
 
@@ -72,22 +72,22 @@ print(candidates.meta.objective)  # "point_anomalies"
 
 | Need | Use |
 | --- | --- |
-| Temporary pandas scratch work | `scratch = mv.from_pandas(df, session=session)` |
-| Temporary Ibis scratch query | `scratch = mv.explore_ibis(lambda con: con.table("orders"), datasource="warehouse", session=session)` |
-| Re-enter canonical metric flow | `mv.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": mv.DimensionRef("country")}, semantic_model="sales")` |
-| Re-enter delta flow | `mv.promote_delta_frame(scratch, current=mv.ArtifactRef("frame_current"), baseline=mv.ArtifactRef("frame_baseline"), delta_column="delta", current_column="current", baseline_column="baseline")` |
-| Re-enter attribution flow | `mv.promote_attribution_frame(scratch, source_delta=mv.ArtifactRef("frame_delta"), driver_field="country", contribution_column="contribution")` |
+| Temporary pandas scratch work | `scratch = session.from_pandas(df)` |
+| Temporary Ibis scratch query | `scratch = session.explore_ibis(lambda con: con.table("orders"), datasource="warehouse")` |
+| Re-enter canonical metric flow | `session.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": mv.DimensionRef("country")}, semantic_model="sales")` |
+| Re-enter delta flow | `session.promote_delta_frame(scratch, current=mv.ArtifactRef("frame_current"), baseline=mv.ArtifactRef("frame_baseline"), delta_column="delta", current_column="current", baseline_column="baseline")` |
+| Re-enter attribution flow | `session.promote_attribution_frame(scratch, source_delta=mv.ArtifactRef("frame_delta"), driver_field="country", contribution_column="contribution")` |
 
 ## Discover Objectives
 
 | Helper | Source | Returns CandidateSet[shape] | Default strategy | Required kwargs |
 | --- | --- | --- | --- | --- |
-| `mv.discover.point_anomalies` | `MetricFrame[time_series\|panel]` | `point_anomaly` | `zscore` | – |
-| `mv.discover.period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | At least 4 time buckets in one series |
-| `mv.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[DimensionRef(...), ...]` |
-| `mv.discover.interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` | – (defaults to all dimension columns) |
-| `mv.discover.interesting_windows` | `MetricFrame[time_series\|panel]` or `DeltaFrame[time_series\|panel]` | `window` | `rolling_zscore` | – |
-| `mv.discover.cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
+| `session.discover.point_anomalies` | `MetricFrame[time_series\|panel]` | `point_anomaly` | `zscore` | – |
+| `session.discover.period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | At least 4 time buckets in one series |
+| `session.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[DimensionRef(...), ...]` |
+| `session.discover.interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` | – (defaults to all dimension columns) |
+| `session.discover.interesting_windows` | `MetricFrame[time_series\|panel]` or `DeltaFrame[time_series\|panel]` | `window` | `rolling_zscore` | – |
+| `session.discover.cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
 
 Pass `value="<column>"` to disambiguate when the source has more than one
 numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`,
@@ -144,7 +144,7 @@ Datasource names are global, not model-qualified. Semantic datasets use `.datase
 When a dataset has multiple time fields, choose one in the observe window:
 
 ```python
-mv.observe(
+session.observe(
     mv.MetricRef("sales.revenue"),
     window={"start": "2026-07-01", "end": "2026-07-31", "time_field": "create_date"},
 )

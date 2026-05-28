@@ -13,58 +13,67 @@ def test_namespace_alias_works():
     assert mv.__name__ == "marivo.analysis_py"
 
 
-def test_analysis_py_exports_hypothesis_test_operator():
+def test_analysis_py_keeps_frame_and_policy_exports():
     import marivo.analysis_py as mv
 
-    assert callable(mv.hypothesis_test)
     assert mv.SamplingPolicy().pairing == "calendar_bucket"
     assert mv.HypothesisTestResultMeta.model_fields["kind"].default == "hypothesis_test_result"
-
-
-def test_analysis_py_exports_forecast_operator():
-    import marivo.analysis_py as mv
-
-    assert callable(mv.forecast)
     assert mv.ForecastFrameMeta.model_fields["kind"].default == "forecast_frame"
-
-
-def test_analysis_py_exports_assess_quality_operator():
-    import marivo.analysis_py as mv
-
-    assert callable(mv.assess_quality)
     assert mv.QualityReportMeta.model_fields["kind"].default == "quality_report"
 
 
-def test_analysis_py_exports_transform_and_discover_namespaces():
+def test_analysis_py_does_not_export_execution_operators():
     import marivo.analysis_py as mv
 
-    assert callable(mv.transform)
-    assert callable(mv.transform.topk)
-    assert callable(mv.transform.rollup)
-    assert callable(mv.discover)
-    assert callable(mv.discover.point_anomalies)
-    assert callable(mv.discover.driver_axes)
+    removed = [
+        "observe",
+        "compare",
+        "decompose",
+        "correlate",
+        "forecast",
+        "assess_quality",
+        "hypothesis_test",
+        "discover",
+        "transform",
+        "select",
+        "from_pandas",
+        "explore_ibis",
+        "promote_metric_frame",
+        "promote_delta_frame",
+        "promote_attribution_frame",
+    ]
+    for name in removed:
+        assert name not in mv.__all__
+        assert not hasattr(mv, name)
     assert mv.DiscoverInsufficientDataError is mv.errors.DiscoverInsufficientDataError
 
 
-def test_analysis_py_exports_escape_hatch_symbols():
+def test_session_class_exposes_execution_surface():
     import marivo.analysis_py as mv
+    from marivo.analysis_py.session.core import Session
 
-    assert callable(mv.from_pandas)
-    assert callable(mv.promote_attribution_frame)
+    assert callable(Session.observe)
+    assert callable(Session.compare)
+    assert callable(Session.decompose)
+    assert callable(Session.correlate)
+    assert callable(Session.forecast)
+    assert callable(Session.assess_quality)
+    assert callable(Session.hypothesis_test)
+    assert isinstance(Session.discover, property)
+    assert isinstance(Session.transform, property)
+    assert callable(Session.from_pandas)
+    assert callable(Session.explore_ibis)
+    assert callable(Session.promote_metric_frame)
+    assert callable(Session.promote_delta_frame)
+    assert callable(Session.promote_attribution_frame)
     assert mv.PromotionFailedError is mv.errors.PromotionFailedError
     assert mv.ExplorationResult is not None
     assert mv.ExplorationResultMeta.model_fields["kind"].default == "exploration_result"
 
 
-def test_analysis_py_exports_escape_hatch_api():
+def test_analysis_py_exports_non_execution_escape_hatch_types():
     import marivo.analysis_py as mv
 
-    assert callable(mv.from_pandas)
-    assert callable(mv.explore_ibis)
-    assert callable(mv.promote_metric_frame)
-    assert callable(mv.promote_delta_frame)
-    assert callable(mv.promote_attribution_frame)
     assert mv.ArtifactRef("frame_1").id == "frame_1"
     assert mv.PromotionPolicy().on_missing == "fail_closed"
     assert mv.ExplorationResultMeta.model_fields["kind"].default == "exploration_result"

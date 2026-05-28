@@ -44,13 +44,12 @@ baseline = mv.MetricFrame.from_dataframe(
     semantic_model="sales",
     session=session,
 )
-delta_frame = mv.compare(
+delta_frame = session.compare(
     current,
     baseline,
     alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
-    session=session,
 )
-top_decreases = mv.transform.topk(delta_frame, by="delta", limit=3, order="decrease")
+top_decreases = session.transform.topk(delta_frame, by="delta", limit=3, order="decrease")
 print(top_decreases.summary())
 
 # Expected output:

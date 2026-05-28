@@ -21,11 +21,12 @@ from marivo.analysis_py import (
     DimensionRef,
     MetricFrame,
     MetricRef,
-    compare,
-    observe,
-    transform,
 )
 from marivo.analysis_py.session.persistence import read_frame_from_disk, read_job_record
+
+
+def _active_transform(frame: object, **kwargs):
+    return session_attach.active().transform(frame, **kwargs)
 
 
 def _positive_delta_predicate(row):
@@ -108,10 +109,9 @@ def _make_time_series(tmp_path) -> MetricFrame:
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    return observe(
+    return session.observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
-        session=session,
     )
 
 
@@ -120,11 +120,10 @@ def _make_panel(tmp_path) -> MetricFrame:
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_country=True)
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    return observe(
+    return session.observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
         dimensions=[DimensionRef("country")],
-        session=session,
     )
 
 
@@ -133,10 +132,9 @@ def _make_segmented(tmp_path) -> MetricFrame:
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_country=True)
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    return observe(
+    return session.observe(
         MetricRef("sales.revenue"),
         dimensions=[DimensionRef("country")],
-        session=session,
     )
 
 
@@ -145,19 +143,15 @@ def _make_delta_time_series(tmp_path) -> DeltaFrame:
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    current = observe(
+    current = session.observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
-        session=session,
     )
-    baseline = observe(
+    baseline = session.observe(
         MetricRef("sales.revenue"),
         window={"start": "2025-07-01", "end": "2025-07-03", "grain": "day"},
-        session=session,
     )
-    return compare(
-        current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"), session=session
-    )
+    return session.compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"))
 
 
 def _make_attribution_frame(tmp_path) -> AttributionFrame:
@@ -241,54 +235,51 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_country=True)
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    current = observe(
+    current = session.observe(
         MetricRef("sales.revenue"),
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
         dimensions=[DimensionRef("country")],
-        session=session,
     )
-    baseline = observe(
+    baseline = session.observe(
         MetricRef("sales.revenue"),
         window={"start": "2025-07-01", "end": "2025-07-03", "grain": "day"},
         dimensions=[DimensionRef("country")],
-        session=session,
     )
-    return compare(
-        current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"), session=session
-    )
+    return session.compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"))
 
 
 def test_transform_api_exposes_typed_method_signatures():
-    assert callable(transform)
+    session = session_attach.get_or_create(name="demo")
+    assert callable(session.transform)
 
-    topk_signature = inspect.signature(transform.topk)
+    topk_signature = inspect.signature(session.transform.topk)
     assert "op" not in topk_signature.parameters
     assert topk_signature.parameters["by"].default is inspect.Parameter.empty
     assert topk_signature.parameters["limit"].default is inspect.Parameter.empty
 
-    rollup_signature = inspect.signature(transform.rollup)
+    rollup_signature = inspect.signature(session.transform.rollup)
     assert "op" not in rollup_signature.parameters
     assert rollup_signature.parameters["drop_axes"].default is inspect.Parameter.empty
 
 
 def test_transform_api_methods_cover_supported_ops(tmp_path):
     series = _make_time_series(tmp_path)
-    filtered = transform.filter(series, predicate=lambda d: d["revenue"] > 10)
+    session = session_attach.active()
+    filtered = session.transform.filter(series, predicate=lambda d: d["revenue"] > 10)
     assert filtered.to_pandas()["revenue"].tolist() == [20.0]
 
-    windowed = transform.window(series, window={"start": "2026-07-02", "end": "2026-07-03"})
+    windowed = session.transform.window(series, window={"start": "2026-07-02", "end": "2026-07-03"})
     assert windowed.to_pandas()["revenue"].tolist() == [20.0]
 
-    top = transform.topk(series, by="revenue", limit=1)
+    top = session.transform.topk(series, by="revenue", limit=1)
     assert top.to_pandas()["revenue"].tolist() == [20.0]
 
-    bottom = transform.bottomk(series, by="revenue", limit=1)
+    bottom = session.transform.bottomk(series, by="revenue", limit=1)
     assert bottom.to_pandas()["revenue"].tolist() == [10.0]
 
-    ranked = transform.rank(series, by="revenue", method="dense", rank_column="r")
+    ranked = session.transform.rank(series, by="revenue", method="dense", rank_column="r")
     assert ranked.to_pandas()["r"].tolist() == [2, 1]
 
-    session = session_attach.active()
     segmented = MetricFrame.from_dataframe(
         pd.DataFrame({"country": ["US", "CA"], "revenue": [30.0, 40.0]}),
         metric_id="sales.revenue",
@@ -298,7 +289,7 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
         semantic_model="sales",
         session=session,
     )
-    share = transform.normalize(segmented, mode="share")
+    share = session.transform.normalize(segmented, mode="share")
     assert share.to_pandas()["revenue"].round(6).tolist() == [0.428571, 0.571429]
 
     panel = MetricFrame.from_dataframe(
@@ -319,11 +310,11 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
         semantic_model="sales",
         session=session,
     )
-    rolled = transform.rollup(panel, drop_axes=[DimensionRef("country")])
+    rolled = session.transform.rollup(panel, drop_axes=[DimensionRef("country")])
     assert rolled.meta.semantic_kind == "time_series"
     assert "country" not in rolled.to_pandas().columns
 
-    sliced = transform.slice(panel, where={DimensionRef("country"): "US"})
+    sliced = session.transform.slice(panel, where={DimensionRef("country"): "US"})
     assert sliced.meta.semantic_kind == "time_series"
     assert "country" not in sliced.to_pandas().columns
 
@@ -426,7 +417,7 @@ def test_transform_unknown_op_raises_op_unsupported(tmp_path):
     frame = _make_time_series(tmp_path)
     _assert_persisted_metric_frame(frame)
     with pytest.raises(TransformOpUnsupportedError) as excinfo:
-        transform(frame, op="explode")
+        _active_transform(frame, op="explode")
     assert "explode" in str(excinfo.value)
 
 
@@ -436,7 +427,7 @@ def test_transform_rejects_attribution_frame(tmp_path):
     attribution = _make_attribution_frame(tmp_path)
 
     with pytest.raises(TransformOpUnsupportedError) as excinfo:
-        transform(attribution, op="filter", predicate=lambda d: d.index >= 0)
+        _active_transform(attribution, op="filter", predicate=lambda d: d.index >= 0)
 
     assert "AttributionFrame" in str(excinfo.value)
 
@@ -451,14 +442,14 @@ def test_transform_cross_session_rejected(tmp_path):
     session_b = session_attach.get_or_create(name="other", backends={"warehouse": lambda: con})
 
     with pytest.raises(CrossSessionFrameError):
-        transform(frame_a, op="filter", predicate=lambda d: d["revenue"] > 0, session=session_b)
+        _active_transform(frame_a, op="filter", predicate=lambda d: d["revenue"] > 0)
 
 
 def test_transform_lineage_and_job_record_persist(tmp_path):
     frame = _make_time_series(tmp_path)
     session = session_attach.active()
 
-    out = transform(frame, op="filter", predicate=lambda d: d["revenue"] > 10)
+    out = _active_transform(frame, op="filter", predicate=lambda d: d["revenue"] > 10)
 
     assert out.lineage.steps[-1].intent == "transform"
     assert out.lineage.steps[-1].inputs == [frame.ref]
@@ -475,7 +466,9 @@ def test_transform_lineage_and_job_record_persist(tmp_path):
 
 def test_transform_window_clips_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
-    clipped = transform(frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"})
+    clipped = _active_transform(
+        frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"}
+    )
     assert clipped.meta.semantic_kind == "time_series"
     df = clipped.to_pandas()
     assert df["bucket_start"].astype(str).tolist() == ["2026-07-02"]
@@ -505,7 +498,9 @@ def test_transform_window_scans_role_based_time_axis_and_excludes_end():
         session=session,
     )
 
-    clipped = transform(frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"})
+    clipped = _active_transform(
+        frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"}
+    )
 
     assert clipped.to_pandas()["order_day"].astype(str).tolist() == ["2026-07-02"]
 
@@ -540,7 +535,9 @@ def test_transform_window_clips_delta_time_series_without_axes(tmp_path):
     )
     assert "axes" not in frame.meta.alignment
 
-    clipped = transform(frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"})
+    clipped = _active_transform(
+        frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"}
+    )
 
     assert clipped.meta.semantic_kind == "time_series"
     assert clipped.to_pandas()["bucket_start"].astype(str).tolist() == ["2026-07-02"]
@@ -552,7 +549,7 @@ def test_transform_window_rejects_zero_length_relative_window(tmp_path):
     frame = _make_time_series(tmp_path)
 
     with pytest.raises(TransformArgError) as excinfo:
-        transform(
+        _active_transform(
             frame,
             op="window",
             window={"expr": "today", "as_of": "2026-07-02T12:00:00"},
@@ -585,7 +582,7 @@ def test_transform_window_resolves_relative_window_with_session_timezone():
         session=session,
     )
 
-    clipped = transform(
+    clipped = _active_transform(
         frame,
         op="window",
         window={"expr": "last 2 days", "as_of": "2026-07-03T01:00:00+00:00"},
@@ -600,7 +597,7 @@ def test_transform_window_absolute_invalid_timezone_raises(tmp_path):
     frame = _make_time_series(tmp_path)
 
     with pytest.raises(TimezoneInvalidError):
-        transform(
+        _active_transform(
             frame,
             op="window",
             window={"start": "2026-07-01", "end": "2026-07-02", "tz": "Mars/Olympus"},
@@ -633,7 +630,7 @@ def test_transform_window_absolute_timezone_clips_tz_aware_axis():
         session=session,
     )
 
-    clipped = transform(
+    clipped = _active_transform(
         frame,
         op="window",
         window={
@@ -653,12 +650,14 @@ def test_transform_window_requires_time_axis(tmp_path):
 
     frame = _make_segmented(tmp_path)
     with pytest.raises(TransformShapeUnsupportedError):
-        transform(frame, op="window", window={"start": "2026-07-01", "end": "2026-07-31"})
+        _active_transform(frame, op="window", window={"start": "2026-07-01", "end": "2026-07-31"})
 
 
 def test_transform_window_updates_meta_window(tmp_path):
     frame = _make_time_series(tmp_path)
-    clipped = transform(frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"})
+    clipped = _active_transform(
+        frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"}
+    )
     assert clipped.meta.window is not None
     assert clipped.meta.window["chained_from"] is not None
 
@@ -735,7 +734,7 @@ def test_transform_normalize_param_value_converts_numpy_scalar():
 def test_transform_normalize_index_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
 
-    normalized = transform(frame, op="normalize", mode="index")
+    normalized = _active_transform(frame, op="normalize", mode="index")
 
     df = normalized.to_pandas()
     assert df["revenue"].tolist() == [100.0, 200.0]
@@ -771,7 +770,7 @@ def test_transform_normalize_prefers_declared_metric_measure_column():
         session=session,
     )
 
-    normalized = transform(frame, op="normalize", mode="index")
+    normalized = _active_transform(frame, op="normalize", mode="index")
 
     df = normalized.to_pandas()
     assert df["rank"].tolist() == [1, 2]
@@ -804,7 +803,7 @@ def test_transform_normalize_prefers_metric_measure_name_when_column_absent():
         session=session,
     )
 
-    normalized = transform(frame, op="normalize", mode="index")
+    normalized = _active_transform(frame, op="normalize", mode="index")
 
     df = normalized.to_pandas()
     assert df["rank"].tolist() == [1, 2]
@@ -815,7 +814,7 @@ def test_transform_normalize_prefers_metric_measure_name_when_column_absent():
 def test_transform_normalize_share_on_segmented(tmp_path):
     frame = _make_segmented(tmp_path)
 
-    normalized = transform(frame, op="normalize", mode="share")
+    normalized = _active_transform(frame, op="normalize", mode="share")
 
     df = normalized.to_pandas()
     assert normalized.meta.normalization["mode"] == "share"
@@ -825,7 +824,7 @@ def test_transform_normalize_share_on_segmented(tmp_path):
 def test_transform_normalize_pct_change_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
 
-    normalized = transform(frame, op="normalize", mode="pct_change")
+    normalized = _active_transform(frame, op="normalize", mode="pct_change")
 
     values = normalized.to_pandas()["revenue"]
     assert pd.isna(values.iloc[0])
@@ -860,7 +859,7 @@ def test_transform_normalize_pct_change_on_unsorted_panel_uses_time_order_per_di
         session=session,
     )
 
-    normalized = transform(frame, op="normalize", mode="pct_change")
+    normalized = _active_transform(frame, op="normalize", mode="pct_change")
 
     values = normalized.to_pandas()["revenue"]
     assert values.iloc[0] == pytest.approx(1.0)
@@ -872,7 +871,7 @@ def test_transform_normalize_pct_change_on_unsorted_panel_uses_time_order_per_di
 def test_transform_normalize_share_on_panel_normalizes_within_each_time_bucket(tmp_path):
     frame = _make_panel(tmp_path)
 
-    normalized = transform(frame, op="normalize", mode="share")
+    normalized = _active_transform(frame, op="normalize", mode="share")
 
     df = normalized.to_pandas()
     shares_by_bucket = df.groupby("bucket_start", dropna=False)["revenue"].sum()
@@ -885,7 +884,7 @@ def test_transform_normalize_pct_change_requires_time_axis(tmp_path):
     frame = _make_segmented(tmp_path)
 
     with pytest.raises(TransformShapeUnsupportedError) as excinfo:
-        transform(frame, op="normalize", mode="pct_change")
+        _active_transform(frame, op="normalize", mode="pct_change")
 
     err = excinfo.value
     assert err.details["op"] == "normalize"
@@ -920,7 +919,7 @@ def test_transform_normalize_pct_change_rejects_zero_denominator():
     )
 
     with pytest.raises(TransformArgError) as excinfo:
-        transform(frame, op="normalize", mode="pct_change")
+        _active_transform(frame, op="normalize", mode="pct_change")
 
     err = excinfo.value
     assert err.details["op"] == "normalize"
@@ -933,13 +932,13 @@ def test_transform_normalize_per_unit_requires_base(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformArgError):
-        transform(frame, op="normalize", mode="per_unit")
+        _active_transform(frame, op="normalize", mode="per_unit")
 
 
 def test_transform_normalize_z_score(tmp_path):
     frame = _make_time_series(tmp_path)
 
-    normalized = transform(frame, op="normalize", mode="z_score")
+    normalized = _active_transform(frame, op="normalize", mode="z_score")
 
     values = normalized.to_pandas()["revenue"]
     assert values.mean() == pytest.approx(0.0)
@@ -951,7 +950,7 @@ def test_transform_normalize_share_rejected_on_delta():
 
     frame = _make_topk_delta_time_series()
     with pytest.raises(TransformArgError):
-        transform(frame, op="normalize", mode="share")
+        _active_transform(frame, op="normalize", mode="share")
 
 
 def test_transform_normalize_index_rejected_on_delta():
@@ -959,14 +958,14 @@ def test_transform_normalize_index_rejected_on_delta():
 
     frame = _make_topk_delta_time_series()
     with pytest.raises(TransformArgError) as excinfo:
-        transform(frame, op="normalize", mode="index")
+        _active_transform(frame, op="normalize", mode="index")
     assert excinfo.value.details["op"] == "normalize"
     assert excinfo.value.details["frame_kind"] == "delta_frame"
 
 
 def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
     frame = _make_time_series(tmp_path)
-    sliced = transform(
+    sliced = _active_transform(
         frame,
         op="slice",
         where={"bucket_start": np.datetime64("2026-07-01")},
@@ -995,7 +994,7 @@ def test_transform_dispatcher_persists_handler_result(tmp_path, monkeypatch):
 
     monkeypatch.setitem(transform_mod._OP_DISPATCH, "filter", handler)
 
-    out = transform(parent, op="filter")
+    out = _active_transform(parent, op="filter")
 
     assert isinstance(out, MetricFrame)
     assert out.ref != parent.ref
@@ -1016,7 +1015,7 @@ def test_transform_filter_preserves_metric_frame(tmp_path):
     df = frame.to_pandas()
     original_len = len(df)
 
-    filtered = transform(frame, op="filter", predicate=lambda d: d["revenue"] > 15)
+    filtered = _active_transform(frame, op="filter", predicate=lambda d: d["revenue"] > 15)
 
     assert isinstance(filtered, MetricFrame)
     assert filtered.meta.kind == "metric_frame"
@@ -1033,7 +1032,7 @@ def test_transform_filter_requires_predicate(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformArgError) as excinfo:
-        transform(frame, op="filter")
+        _active_transform(frame, op="filter")
     assert "predicate" in str(excinfo.value)
 
 
@@ -1046,7 +1045,7 @@ def test_transform_filter_rejects_misaligned_mask_index(tmp_path):
         return pd.Series([True] * len(d), index=range(100, 100 + len(d)))
 
     with pytest.raises(TransformArgError) as excinfo:
-        transform(frame, op="filter", predicate=predicate)
+        _active_transform(frame, op="filter", predicate=predicate)
     message = str(excinfo.value)
     assert "index" in message or "alignment" in message
 
@@ -1056,7 +1055,7 @@ def test_transform_filter_rejects_unsupported_kwargs(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformArgError) as excinfo:
-        transform(
+        _active_transform(
             frame,
             op="filter",
             where={"revenue": 10},
@@ -1078,27 +1077,27 @@ def test_transform_filter_rejects_non_default_rank_kwargs(tmp_path, kwargs, name
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformArgError) as excinfo:
-        transform(frame, op="filter", predicate=lambda d: d["revenue"] > 0, **kwargs)
+        _active_transform(frame, op="filter", predicate=lambda d: d["revenue"] > 0, **kwargs)
     assert name in str(excinfo.value)
 
 
 def test_transform_topk_by_measure_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
-    top = transform(frame, op="topk", by="revenue", limit=1)
+    top = _active_transform(frame, op="topk", by="revenue", limit=1)
     assert top.meta.row_count == 1
     assert top.to_pandas()["revenue"].tolist() == [20.0]
 
 
 def test_transform_bottomk_by_measure_on_time_series(tmp_path):
     frame = _make_time_series(tmp_path)
-    bottom = transform(frame, op="bottomk", by="revenue", limit=1)
+    bottom = _active_transform(frame, op="bottomk", by="revenue", limit=1)
     assert bottom.meta.row_count == 1
     assert bottom.to_pandas()["revenue"].tolist() == [10.0]
 
 
 def test_transform_rank_appends_rank_column(tmp_path):
     frame = _make_time_series(tmp_path)
-    ranked = transform(frame, op="rank", by="revenue")
+    ranked = _active_transform(frame, op="rank", by="revenue")
     df = ranked.to_pandas()
     assert "rank" in df.columns
     expected = df["revenue"].rank(method="first", ascending=False).astype(int).tolist()
@@ -1107,7 +1106,7 @@ def test_transform_rank_appends_rank_column(tmp_path):
 
 def test_transform_rank_custom_column_name(tmp_path):
     frame = _make_time_series(tmp_path)
-    ranked = transform(frame, op="rank", by="revenue", rank_column="r")
+    ranked = _active_transform(frame, op="rank", by="revenue", rank_column="r")
     assert "r" in ranked.to_pandas().columns
 
 
@@ -1116,7 +1115,7 @@ def test_transform_rank_requires_by(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformArgError):
-        transform(frame, op="rank")
+        _active_transform(frame, op="rank")
 
 
 def test_transform_rank_rejects_null_by_values():
@@ -1134,7 +1133,7 @@ def test_transform_rank_rejects_null_by_values():
     )
 
     with pytest.raises(TransformArgError) as excinfo:
-        transform(frame, op="rank", by="revenue")
+        _active_transform(frame, op="rank", by="revenue")
 
     err = excinfo.value
     assert "rank" in str(err)
@@ -1156,14 +1155,14 @@ def test_transform_rank_dense_method_uses_dense_tie_ranks():
         session=session,
     )
 
-    ranked = transform(frame, op="rank", by="revenue", method="dense")
+    ranked = _active_transform(frame, op="rank", by="revenue", method="dense")
 
     assert ranked.to_pandas()["rank"].tolist() == [1, 1, 2]
 
 
 def test_transform_topk_on_delta_frame_orders_and_leaves_nan_last():
     delta = _make_topk_delta_time_series()
-    top = transform(delta, op="topk", by="delta", limit=2)
+    top = _active_transform(delta, op="topk", by="delta", limit=2)
     assert isinstance(top, DeltaFrame)
     assert top.meta.row_count == 2
     assert top.to_pandas()["delta"].tolist() == [8.0, 3.0]
@@ -1171,7 +1170,7 @@ def test_transform_topk_on_delta_frame_orders_and_leaves_nan_last():
 
 def test_transform_topk_decrease_on_delta_frame_takes_most_negative_delta():
     delta = _make_topk_delta_time_series()
-    top = transform(delta, op="topk", by="delta", limit=1, order="decrease")
+    top = _active_transform(delta, op="topk", by="delta", limit=1, order="decrease")
     assert isinstance(top, DeltaFrame)
     assert top.meta.row_count == 1
     assert top.to_pandas()["delta"].tolist() == [-1.0]
@@ -1182,7 +1181,7 @@ def test_transform_topk_requires_positive_limit(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformArgError):
-        transform(frame, op="topk", by="revenue", limit=0)
+        _active_transform(frame, op="topk", by="revenue", limit=0)
 
 
 def test_transform_topk_rejects_unknown_column(tmp_path):
@@ -1190,12 +1189,12 @@ def test_transform_topk_rejects_unknown_column(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformArgError):
-        transform(frame, op="topk", by="not_a_column", limit=1)
+        _active_transform(frame, op="topk", by="not_a_column", limit=1)
 
 
 def test_transform_rollup_panel_drops_time_axis_to_segmented(tmp_path):
     frame = _make_panel(tmp_path)
-    rolled = transform(frame, op="rollup", drop_axes=["time"])
+    rolled = _active_transform(frame, op="rollup", drop_axes=["time"])
     assert rolled.meta.semantic_kind == "segmented"
     assert "time" not in rolled.meta.axes
     df = rolled.to_pandas()
@@ -1205,7 +1204,7 @@ def test_transform_rollup_panel_drops_time_axis_to_segmented(tmp_path):
 
 def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
     frame = _make_panel(tmp_path)
-    rolled = transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
+    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
     assert rolled.meta.semantic_kind == "time_series"
     assert "country" not in rolled.meta.axes
     df = rolled.to_pandas()
@@ -1218,7 +1217,7 @@ def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
 
 def test_transform_rollup_delta_panel_drops_dim_and_recomputes_pct_change(tmp_path):
     frame = _make_delta_panel(tmp_path)
-    rolled = transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
+    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
     assert isinstance(rolled, DeltaFrame)
     assert rolled.meta.semantic_kind == "time_series"
     assert "country" not in rolled.meta.alignment["axes"]
@@ -1243,7 +1242,7 @@ def test_transform_rollup_delta_panel_drops_dim_and_recomputes_pct_change(tmp_pa
 
 def test_transform_rollup_delta_recomputes_delta_from_current_and_baseline(tmp_path):
     frame = _make_one_sided_delta_panel()
-    rolled = transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
+    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
     df = rolled.to_pandas()
 
     assert df["current"].tolist() == [10.0]
@@ -1254,7 +1253,7 @@ def test_transform_rollup_delta_recomputes_delta_from_current_and_baseline(tmp_p
 
 def test_transform_rollup_delta_preserves_all_missing_baseline(tmp_path):
     frame = _make_current_only_delta_panel()
-    rolled = transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
+    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
     df = rolled.to_pandas()
 
     assert df["current"].tolist() == [17.0]
@@ -1268,7 +1267,7 @@ def test_transform_rollup_rejects_dropping_every_axis(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformShapeUnsupportedError):
-        transform(frame, op="rollup", drop_axes=["time"])
+        _active_transform(frame, op="rollup", drop_axes=["time"])
 
 
 def test_transform_rollup_rejects_unknown_axis(tmp_path):
@@ -1276,12 +1275,12 @@ def test_transform_rollup_rejects_unknown_axis(tmp_path):
 
     frame = _make_panel(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError):
-        transform(frame, op="rollup", drop_axes=[DimensionRef(id="platform")])
+        _active_transform(frame, op="rollup", drop_axes=[DimensionRef(id="platform")])
 
 
 def test_transform_slice_keeps_segmented_when_multi_value(tmp_path):
     frame = _make_segmented(tmp_path)
-    sliced = transform(
+    sliced = _active_transform(
         frame,
         op="slice",
         where={DimensionRef(id="country"): ["US", "CA"]},
@@ -1293,7 +1292,7 @@ def test_transform_slice_keeps_segmented_when_multi_value(tmp_path):
 
 def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
     frame = _make_segmented(tmp_path)
-    sliced = transform(
+    sliced = _active_transform(
         frame,
         op="slice",
         where={DimensionRef(id="country"): "US"},
@@ -1305,7 +1304,7 @@ def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
 
 def test_transform_slice_string_dimension_key_demotes_on_single_value(tmp_path):
     frame = _make_segmented(tmp_path)
-    sliced = transform(frame, op="slice", where={"country": "US"})
+    sliced = _active_transform(frame, op="slice", where={"country": "US"})
     assert sliced.meta.semantic_kind == "scalar"
     assert "country" not in sliced.meta.axes
     assert sliced.meta.where["country"] == "US"
@@ -1314,7 +1313,7 @@ def test_transform_slice_string_dimension_key_demotes_on_single_value(tmp_path):
 
 def test_transform_slice_delta_dimension_selector_is_recorded_in_alignment(tmp_path):
     frame = _make_delta_panel(tmp_path)
-    sliced = transform(frame, op="slice", where={DimensionRef(id="country"): "US"})
+    sliced = _active_transform(frame, op="slice", where={DimensionRef(id="country"): "US"})
     assert isinstance(sliced, DeltaFrame)
     assert sliced.meta.alignment["where"]["country"] == "US"
     assert "country" not in sliced.meta.alignment["axes"]
@@ -1326,7 +1325,7 @@ def test_transform_slice_rejects_unknown_dimension(tmp_path):
 
     frame = _make_segmented(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError) as excinfo:
-        transform(frame, op="slice", where={DimensionRef(id="platform"): "mobile"})
+        _active_transform(frame, op="slice", where={DimensionRef(id="platform"): "mobile"})
     assert "platform" in str(excinfo.value)
 
 
@@ -1335,7 +1334,7 @@ def test_transform_slice_supports_range_tuple(tmp_path):
     values = frame.to_pandas()["bucket_start"]
     start = values.iloc[0]
     end = values.iloc[-1]
-    sliced = transform(frame, op="slice", where={"bucket_start": (start, end)})
+    sliced = _active_transform(frame, op="slice", where={"bucket_start": (start, end)})
     expected = int(values.between(start, end, inclusive="both").sum())
     assert sliced.meta.row_count == expected
 
@@ -1345,7 +1344,7 @@ def test_transform_slice_rejects_string_key_that_is_not_axis_column(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError) as excinfo:
-        transform(frame, op="slice", where={"revenue": (15, 35)})
+        _active_transform(frame, op="slice", where={"revenue": (15, 35)})
     assert "revenue" in str(excinfo.value)
 
 
@@ -1354,7 +1353,7 @@ def test_transform_slice_rejects_incomparable_range_bounds(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformArgError) as excinfo:
-        transform(frame, op="slice", where={"bucket_start": ("x", "z")})
+        _active_transform(frame, op="slice", where={"bucket_start": ("x", "z")})
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
 
@@ -1365,7 +1364,7 @@ def test_transform_slice_rejects_non_range_tuple(tmp_path):
     frame = _make_time_series(tmp_path)
     values = frame.to_pandas()["bucket_start"]
     with pytest.raises(TransformArgError) as excinfo:
-        transform(
+        _active_transform(
             frame,
             op="slice",
             where={"bucket_start": (values.iloc[0], values.iloc[-1], values.iloc[-1])},
@@ -1379,6 +1378,6 @@ def test_transform_slice_rejects_range_tuple_on_dimension(tmp_path):
 
     frame = _make_segmented(tmp_path)
     with pytest.raises(TransformArgError) as excinfo:
-        transform(frame, op="slice", where={DimensionRef(id="country"): ("US", "CA")})
+        _active_transform(frame, op="slice", where={DimensionRef(id="country"): ("US", "CA")})
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message

@@ -1,4 +1,4 @@
-"""mv.observe end-to-end against a seeded DuckDB."""
+"""session.observe end-to-end against a seeded DuckDB."""
 
 import ibis
 import pytest

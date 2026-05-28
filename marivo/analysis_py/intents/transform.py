@@ -112,7 +112,7 @@ def _transform_dispatch(
 ) -> MetricFrame | DeltaFrame:
     """Family-preserving reshape of a MetricFrame or DeltaFrame.
 
-    When to use: reshape a frame without changing its family; prefer typed sub-methods (mv.transform.topk, etc.).
+    When to use: reshape a frame without changing its family; prefer typed sub-methods (session.transform.topk, etc.).
 
     The operator preserves the frame family: MetricFrame → MetricFrame and
     DeltaFrame → DeltaFrame. Each ``op`` consumes a subset of the kwargs below;
@@ -155,7 +155,7 @@ def _transform_dispatch(
         CrossSessionFrameError: ``frame`` belongs to a different session.
 
     Example:
-        >>> top = mv.transform(delta, op="topk", limit=10, order="decrease")
+        >>> top = session.transform(delta, op="topk", limit=10, order="decrease")
         >>> top.summary()
     """
 
@@ -257,7 +257,7 @@ class TransformAPI:
         window: Any = None,
         _triggered_by: TriggeredByFollowup | None = None,
     ) -> MetricFrame | DeltaFrame:
-        """Family-preserving reshape. Prefer typed sub-methods (mv.transform.topk, etc.) for precise signatures."""
+        """Family-preserving reshape. Prefer typed sub-methods (session.transform.topk, etc.) for precise signatures."""
 
         return _transform_dispatch(
             frame,

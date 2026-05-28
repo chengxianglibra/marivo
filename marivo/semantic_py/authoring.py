@@ -625,7 +625,7 @@ def time_field(
 ) -> Callable[[Callable[..., Any]], TimeFieldRef]:
     """Declare a time-aware field that carries grain and parsing metadata.
 
-    Time fields are the only fields usable as window axes by ``mv.observe``.
+    Time fields are the only fields usable as window axes by ``session.observe``.
     The body must return an ibis expression yielding a temporal value
     matching ``data_type``; if the underlying column is a string, supply
     ``date_format`` (and optionally ``required_prefix``).

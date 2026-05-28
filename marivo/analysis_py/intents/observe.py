@@ -676,7 +676,7 @@ def observe(
         CrossBackendMetricError: ``metric`` and ``dimensions`` resolve to different backends.
 
     Example:
-        >>> frame = mv.observe(
+        >>> frame = session.observe(
         ...     mv.MetricRef("sales.revenue"),
         ...     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "day"},
         ...     dimensions=[mv.DimensionRef("country")],

@@ -3,7 +3,6 @@ from pathlib import Path
 import ibis
 import pytest
 
-import marivo.analysis_py as ap
 import marivo.analysis_py.session.attach as session_attach
 from marivo.analysis_py.errors import PropositionNotFoundError
 from marivo.analysis_py.evidence.types import Assessment, Finding, Proposition, Subject
@@ -31,26 +30,26 @@ def _seed(con: ibis.BaseBackend) -> None:
 
 
 def _session(tmp_path: Path, *, name: str = "t"):
+    import marivo.analysis_py.session.attach as attach
+
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     bootstrap_sales_project(tmp_path)
-    return ap.session.attach.create(
-        name=name, backends={"warehouse": lambda: con}, use_datasources=False
-    )
+    return attach.create(name=name, backends={"warehouse": lambda: con}, use_datasources=False)
 
 
 def _compare(session):
-    cur = ap.observe(
-        metric=ap.MetricRef("sales.revenue"),
+    from marivo.analysis_py.refs import MetricRef
+
+    cur = session.observe(
+        metric=MetricRef("sales.revenue"),
         window={"start": "2026-05-01", "end": "2026-05-07"},
-        session=session,
     )
-    bas = ap.observe(
-        metric=ap.MetricRef("sales.revenue"),
+    bas = session.observe(
+        metric=MetricRef("sales.revenue"),
         window={"start": "2026-04-24", "end": "2026-04-30"},
-        session=session,
     )
-    return ap.compare(cur, bas, session=session)
+    return session.compare(cur, bas)
 
 
 def test_session_findings_returns_iterable_of_finding(tmp_path: Path) -> None:

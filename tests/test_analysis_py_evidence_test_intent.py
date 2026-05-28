@@ -7,7 +7,6 @@ import sqlite3
 import pandas as pd
 import pytest
 
-import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
 from marivo.analysis_py.frames.metric import MetricFrame
 
@@ -38,7 +37,7 @@ def test_hypothesis_test_populates_surface1_and_test_finding() -> None:
     current = _metric(session, [20.0, 21.0, 22.0, 23.0, 24.0, 25.0])
     baseline = _metric(session, [10.0, 10.2, 10.4, 10.6, 10.8, 11.0])
 
-    result = mv.hypothesis_test(current, baseline, session=session)
+    result = session.hypothesis_test(current, baseline)
 
     assert result.meta.artifact_id is not None
     assert result.meta.ref == result.meta.artifact_id

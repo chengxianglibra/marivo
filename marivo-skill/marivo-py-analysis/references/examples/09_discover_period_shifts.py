@@ -17,24 +17,21 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-current = mv.observe(
+current = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
-    session=session,
 )
-baseline = mv.observe(
+baseline = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2025-07-01", "end": "2025-09-30", "grain": "month"},
-    session=session,
 )
-delta = mv.compare(
+delta = session.compare(
     current,
     baseline,
     alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
-    session=session,
 )
 try:
-    shifts = mv.discover.period_shifts(delta, value="delta", session=session)
+    shifts = session.discover.period_shifts(delta, value="delta")
 except mv.errors.DiscoverInsufficientDataError as exc:
     print(f"period_shifts_error={exc.kind}")
     print(f"minimum_buckets={exc.details['minimum']}")
@@ -42,7 +39,7 @@ else:
     print(f"shifts.objective={shifts.meta.objective!r}")
     print(f"shifts.row_count={shifts.meta.row_count}")
     if shifts.meta.row_count:
-        window = mv.select(shifts, rank=1, attribute="window")
+        window = shifts.select(rank=1, attribute="window")
         print(f"first_shift_window={window.start}..{window.end}")
 
 # Expected output:

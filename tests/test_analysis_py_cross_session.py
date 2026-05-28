@@ -26,7 +26,7 @@ def test_load_frame_cross_session_raises(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s_a = mv.session.get_or_create(name="a", backends={"warehouse": lambda: con})
-    mf = mv.observe(mv.MetricRef("sales.revenue"), session=s_a)
+    mf = s_a.observe(mv.MetricRef("sales.revenue"))
     session_attach._reset_process_state()
     s_b = mv.session.get_or_create(name="b", backends={"warehouse": lambda: con})
     with pytest.raises(CrossSessionFrameError):
@@ -38,7 +38,7 @@ def test_load_frame_same_session_succeeds(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = mv.session.get_or_create(name="a", backends={"warehouse": lambda: con})
-    mf = mv.observe(mv.MetricRef("sales.revenue"), session=s)
+    mf = s.observe(mv.MetricRef("sales.revenue"))
     loaded = mv.load_frame(mf.ref, session=s)
     assert loaded.ref == mf.ref
     assert loaded.meta.metric_id == "sales.revenue"

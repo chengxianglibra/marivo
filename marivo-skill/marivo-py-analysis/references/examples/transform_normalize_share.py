@@ -29,7 +29,7 @@ segmented_frame = mv.MetricFrame.from_dataframe(
     semantic_model="sales",
     session=session,
 )
-share = mv.transform.normalize(segmented_frame, mode="share")
+share = session.transform.normalize(segmented_frame, mode="share")
 print(share.summary())
 
 # Expected output:

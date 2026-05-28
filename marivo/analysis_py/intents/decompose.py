@@ -89,7 +89,7 @@ def decompose(
     For ``time_series`` deltas, ``axis`` is the bucket-start column.
 
     Args:
-        frame: A DeltaFrame produced by ``mv.compare``.
+        frame: A DeltaFrame produced by ``session.compare``.
         axis: The segment column to attribute over, wrapped in ``mv.DimensionRef``.
             Dotted ids such as ``"model.field"`` resolve to the persisted
             DeltaFrame column ``"field"`` when present.
@@ -102,8 +102,8 @@ def decompose(
         CrossSessionFrameError: ``frame`` belongs to a different session.
 
     Example:
-        >>> delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
-        >>> attribution = mv.decompose(delta, axis=mv.DimensionRef("country"))
+        >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+        >>> attribution = session.decompose(delta, axis=mv.DimensionRef("country"))
         >>> attribution.summary()
     """
     session = resolve_session(session)

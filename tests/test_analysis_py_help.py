@@ -34,7 +34,7 @@ def test_help_lists_discover_and_not_detect(capsys) -> None:
     mv.help()
     output = capsys.readouterr().out
 
-    assert "mv.discover" in output
+    assert "session.discover" in output
     assert "mv.detect" not in output
 
 
@@ -53,14 +53,14 @@ def test_help_for_intent_includes_signature_and_docstring() -> None:
 
 def test_help_for_transform_and_discover_lists_namespace_methods() -> None:
     transform_out = _capture("transform")
-    assert "transform(" in transform_out
-    assert "transform.topk" in transform_out
-    assert "transform.rollup" in transform_out
+    assert "session.transform op helper matrix" in transform_out
+    assert "session.transform.topk" in transform_out
+    assert "session.transform.rollup" in transform_out
 
     discover_out = _capture("discover")
-    assert "discover(" in discover_out
-    assert "discover.point_anomalies" in discover_out
-    assert "discover.driver_axes" in discover_out
+    assert "session.discover objective helper matrix" in discover_out
+    assert "session.discover.point_anomalies" in discover_out
+    assert "session.discover.driver_axes" in discover_out
 
 
 def test_help_for_intent_does_not_mutate_callable_docstring() -> None:
@@ -105,9 +105,9 @@ def test_help_lists_new_statistical_operators(capsys):
     mv.help()
     out = capsys.readouterr().out
 
-    assert "mv.hypothesis_test" in out
-    assert "mv.forecast" in out
-    assert "mv.assess_quality" in out
+    assert "session.hypothesis_test" in out
+    assert "session.forecast" in out
+    assert "session.assess_quality" in out
 
 
 def test_help_describes_new_statistical_operators(capsys):

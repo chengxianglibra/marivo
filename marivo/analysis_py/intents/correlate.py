@@ -80,7 +80,7 @@ def correlate(
         CrossSessionFrameError: A frame belongs to a different session.
 
     Example:
-        >>> result = mv.correlate(
+        >>> result = session.correlate(
         ...     a, b,
         ...     alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
         ...     lag_policy=mv.LagPolicy(mode="single", offset=0),

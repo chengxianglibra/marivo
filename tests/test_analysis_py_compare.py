@@ -1,4 +1,4 @@
-"""mv.compare against two MetricFrames."""
+"""session.compare against two MetricFrames."""
 
 import ibis
 import pandas as pd
@@ -111,7 +111,7 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
     )
     assert "Fix:" in rendered
     assert (
-        'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
         in rendered
     )
     assert exc_info.value.details["expected_kind"] == "metric_frame"

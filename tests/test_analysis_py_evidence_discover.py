@@ -38,12 +38,11 @@ def test_discover_point_anomalies_populates_surface1_and_anomaly_findings() -> N
         pd.DataFrame({"bucket": ["a", "b", "c", "d"], "value": [-100.0, 0.0, 0.0, 100.0]}),
     )
 
-    candidates = mv.discover(
+    candidates = session.discover(
         frame,
         objective="point_anomalies",
         strategy="zscore",
         threshold=1.0,
-        session=session,
     )
 
     assert candidates.meta.artifact_id is not None
@@ -73,12 +72,11 @@ def test_discover_non_anomaly_objective_commits_without_seeding() -> None:
         semantic_kind="segmented",
     )
 
-    candidates = mv.discover(
+    candidates = session.discover(
         frame,
         objective="interesting_slices",
         search_space=[mv.DimensionRef("country")],
         threshold=1.0,
-        session=session,
     )
 
     assert candidates.meta.artifact_id is not None

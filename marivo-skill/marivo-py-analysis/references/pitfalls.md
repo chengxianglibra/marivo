@@ -33,25 +33,25 @@ with that project's actual virtualenv path.
 ```text
 SemanticKindMismatchError: compare(current, baseline) expected MetricFrame for `baseline`, got DeltaFrame.
 
-Location: mv.compare call
+Location: session.compare call
 Cause: got kind delta_frame, expected metric_frame; this usually means passing a compare result where an observe result is required.
 
 Fix:
-  cur  = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
-  base = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
-  delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+  cur  = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
+  base = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
+  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
 
 Docs: marivo-skill/marivo-py-analysis/references/pitfalls.md
 ```
 
-**Action:** pass two `MetricFrame`s into `mv.compare`, then pass the resulting
-`DeltaFrame` to `mv.decompose`.
+**Action:** pass two `MetricFrame`s into `session.compare`, then pass the resulting
+`DeltaFrame` to `session.decompose`.
 
 ```python
-cur = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
-base = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
-delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
-attribution = mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))
+cur = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
+base = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
+delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 ```
 
 Use explicit dict windows or structured slices in new examples and
@@ -176,7 +176,7 @@ MetricNotFoundError: metric 'sales.revenu' not found
 import marivo.semantic_py as ms
 
 print(ms.list_metrics())
-cur = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
+cur = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
 ```
 
 Metric ids are case-sensitive strings in `<model>.<metric>` form.
@@ -194,12 +194,12 @@ or a slice validation error while applying filters.
 **Action:** use the current explicit shapes.
 
 ```python
-mv.observe(
+session.observe(
     mv.MetricRef("sales.revenue"),
     window={"start": "2026-07-01", "end": "2026-09-30"},
 )
 
-mv.observe(
+session.observe(
     mv.MetricRef("sales.revenue"),
     where={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
@@ -213,24 +213,24 @@ content. Wrap metric ids with `mv.MetricRef(...)`.
 **Symptom:** code calls the removed `mv.detect(...)` helper or expects anomaly
 results to be an `AttributionFrame`.
 
-**Action:** use `mv.discover.point_anomalies(...)` and treat the
+**Action:** use `session.discover.point_anomalies(...)` and treat the
 result as a `CandidateSet`.
 
 ```python
-candidates = mv.discover.point_anomalies(series, threshold=1.0)
+candidates = session.discover.point_anomalies(series, threshold=1.0)
 assert candidates.meta.objective == "point_anomalies"
 ```
 
 ## Correlate returns AssociationResult
 
 **Symptom:** code passes the removed `align=` argument or checks for
-`AttributionFrame` / `CorrelationFrame` after `mv.correlate`.
+`AttributionFrame` / `CorrelationFrame` after `session.correlate`.
 
 **Action:** pass an `AlignmentPolicy` and treat correlation as an
 `AssociationResult`.
 
 ```python
-correlation = mv.correlate(
+correlation = session.correlate(
     a,
     b,
     alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
@@ -254,21 +254,21 @@ TypeError: decompose() missing 1 required keyword-only argument: 'axis'
 already exists in the `DeltaFrame`.
 
 ```python
-delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
-attribution = mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))
+delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 ```
 
 ## test / forecast / assess_quality
 
-- `mv.hypothesis_test(cur, base)` v1 supports only `hypothesis="mean_changed"` and paired MetricFrames with matching `semantic_kind` and `semantic_model`; scalar MetricFrames are rejected because they do not contain paired samples.
+- `session.hypothesis_test(cur, base)` v1 supports only `hypothesis="mean_changed"` and paired MetricFrames with matching `semantic_kind` and `semantic_model`; scalar MetricFrames are rejected because they do not contain paired samples.
 - `SamplingPolicy.pairing` must match the frame shape: use `calendar_bucket` for `time_series` / `panel`, and `segment_key` for `segmented`.
-- `mv.forecast(history, horizon=7)` v1 supports only `MetricFrame(time_series|panel)` with continuous time buckets and no NaN value rows; impute or re-observe before forecasting.
+- `session.forecast(history, horizon=7)` v1 supports only `MetricFrame(time_series|panel)` with continuous time buckets and no NaN value rows; impute or re-observe before forecasting.
 - `seasonal_naive` needs at least `seasonality_period + 1` training rows for a time series.
-- `mv.assess_quality(frame)` v1 accepts only `MetricFrame`; reports for delta, candidate, forecast, and attribution frames are planned for later.
+- `session.assess_quality(frame)` v1 accepts only `MetricFrame`; reports for delta, candidate, forecast, and attribution frames are planned for later.
 
 ## `select(attribute=...)` shape mismatch
 
-`mv.select(candidates, attribute="axis")` only works on `CandidateSet[driver_axis]`.
+`candidates.select(attribute="axis")` only works on `CandidateSet[driver_axis]`.
 Calling it on a `point_anomaly` set raises `SemanticKindMismatchError` with
 `details["shape"]` and `details["field"]`. Inspect `candidates.meta.shape` first
 or call `candidates.as_<shape>()` to assert.
@@ -276,13 +276,13 @@ or call `candidates.as_<shape>()` to assert.
 ## `discover.driver_axes(...)` requires `search_space`
 
 `driver_axes` is the only objective that needs
-`search_space=[DimensionRef(...), ...]`. Without it, `mv.discover.driver_axes`
+`search_space=[DimensionRef(...), ...]`. Without it, `session.discover.driver_axes`
 raises
 `SemanticKindMismatchError` with `details["missing"] = "search_space"`.
 
 ## `select(rank=...)` out of range
 
 `rank` is 1-indexed. If a candidate set has fewer rows than the requested rank,
-`mv.select` raises `SemanticKindMismatchError` with `details["row_count"]` and
+`CandidateSet.select` raises `SemanticKindMismatchError` with `details["row_count"]` and
 `details["requested_rank"]`. Check `candidates.meta.row_count` before calling
 `select(rank=N)` with N > 1.

@@ -232,9 +232,9 @@ def test_loads_new_operator_frame_families(tmp_path, monkeypatch):
     frame = seeded_time_series_metric_frame(session=session, n_buckets=10)
 
     outputs = [
-        mv.hypothesis_test(frame, frame, session=session),
-        mv.forecast(frame, horizon=2, model="naive", session=session),
-        mv.assess_quality(frame, session=session),
+        session.hypothesis_test(frame, frame),
+        session.forecast(frame, horizon=2, model="naive"),
+        session.assess_quality(frame),
     ]
 
     assert [mv.load_frame(output.ref, session=session).meta.kind for output in outputs] == [

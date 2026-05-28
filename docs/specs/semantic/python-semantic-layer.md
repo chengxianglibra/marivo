@@ -473,7 +473,7 @@ agent 在新增或修改语义前应先运行确定性的 check 或读取当前 
 import marivo.analysis_py as mv
 
 session = mv.session.get_or_create(name="revenue-investigation")
-frame = mv.observe(mv.MetricRef("sales.revenue"), session=session)
+frame = session.observe(mv.MetricRef("sales.revenue"))
 print(frame.summary())
 ```
 

@@ -6,13 +6,6 @@ from marivo.analysis_py import errors as errors
 from marivo.analysis_py import session
 from marivo.analysis_py.calendar.model import CalendarPolicy
 from marivo.analysis_py.errors import DiscoverInsufficientDataError, PromotionFailedError
-from marivo.analysis_py.escape_hatch import (
-    explore_ibis,
-    from_pandas,
-    promote_attribution_frame,
-    promote_delta_frame,
-    promote_metric_frame,
-)
 from marivo.analysis_py.evidence import (
     Assessment,
     AssociationSummary,
@@ -60,16 +53,6 @@ from marivo.analysis_py.intents._types import (
     SliceScalar,
     SliceValue,
 )
-from marivo.analysis_py.intents.assess_quality import assess_quality
-from marivo.analysis_py.intents.compare import compare
-from marivo.analysis_py.intents.correlate import correlate
-from marivo.analysis_py.intents.decompose import decompose
-from marivo.analysis_py.intents.discover import discover
-from marivo.analysis_py.intents.forecast import forecast
-from marivo.analysis_py.intents.observe import observe
-from marivo.analysis_py.intents.select import select
-from marivo.analysis_py.intents.test import hypothesis_test
-from marivo.analysis_py.intents.transform import transform
 from marivo.analysis_py.policies import (
     AlignmentKind,
     AlignmentPolicy,
@@ -156,25 +139,10 @@ __all__ = [
     "TimeWindow",
     "TriggeredByFollowup",
     "WindowInput",
-    "assess_quality",
-    "compare",
-    "correlate",
     "datasources",
-    "decompose",
-    "discover",
     "errors",
-    "explore_ibis",
-    "forecast",
-    "from_pandas",
     "help",
     "help_text",
-    "hypothesis_test",
     "load_frame",
-    "observe",
-    "promote_attribution_frame",
-    "promote_delta_frame",
-    "promote_metric_frame",
-    "select",
     "session",
-    "transform",
 ]

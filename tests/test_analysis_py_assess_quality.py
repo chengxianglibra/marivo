@@ -5,7 +5,6 @@ import json
 import pandas as pd
 import pytest
 
-import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
 from marivo.analysis_py.errors import QualityShapeUnsupportedError
 from marivo.analysis_py.frames.delta import DeltaFrame, DeltaFrameMeta
@@ -41,7 +40,7 @@ def test_metric_time_series_full_coverage_ok(tmp_path):
     session = session_attach.get_or_create(name="demo")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
 
-    report = mv.assess_quality(frame, session=session)
+    report = session.assess_quality(frame)
     df = report.to_pandas()
 
     assert report.meta.kind == "quality_report"
@@ -58,7 +57,7 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
         rows,
         window={"start": "2026-01-01", "end": "2026-01-10", "grain": "day", "time_field": "time"},
     )
-    warning_report = mv.assess_quality(warning, session=session)
+    warning_report = session.assess_quality(warning)
     assert warning_report.meta.overall_status == "warning"
 
     blocking = _metric(
@@ -66,7 +65,7 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
         rows[:6],
         window={"start": "2026-01-01", "end": "2026-01-10", "grain": "day", "time_field": "time"},
     )
-    blocking_report = mv.assess_quality(blocking, session=session)
+    blocking_report = session.assess_quality(blocking)
     assert blocking_report.meta.overall_status == "blocking"
     assert blocking_report.meta.recommended_followups == []
 
@@ -81,7 +80,7 @@ def test_metric_segmented_duplicate_keys_blocking(tmp_path):
         window=None,
     )
 
-    report = mv.assess_quality(frame, session=session)
+    report = session.assess_quality(frame)
     duplicate = report.to_pandas().set_index("check_kind").loc["duplicate_keys"]
 
     assert duplicate["severity"] == "blocking"
@@ -99,13 +98,13 @@ def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
         ],
         measure={"fields": ["value", "value2"]},
     )
-    report = mv.assess_quality(frame, session=session)
+    report = session.assess_quality(frame)
     ids = set(report.to_pandas()["check_id"])
     assert {"null_ratio:value", "null_ratio:value2"}.issubset(ids)
     assert report.meta.recommended_followups == []
 
     empty = _metric(session, [], semantic_kind="scalar", axes={})
-    empty_report = mv.assess_quality(empty, session=session)
+    empty_report = session.assess_quality(empty)
     assert empty_report.meta.overall_status == "blocking"
     assert empty_report.meta.blocking_issues[0].kind == "sample_size"
 
@@ -114,7 +113,7 @@ def test_panel_all_checks_and_persistence(tmp_path):
     session = session_attach.get_or_create(name="demo")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5, segments=["US", "CA"])
 
-    report = mv.assess_quality(frame, session=session)
+    report = session.assess_quality(frame)
     loaded = load_frame(report.ref, session=session)
 
     assert {"row_count", "time_coverage", "duplicate_keys"}.issubset(
@@ -147,4 +146,4 @@ def test_non_metric_frame_raises(tmp_path):
         ),
     )
     with pytest.raises(QualityShapeUnsupportedError):
-        mv.assess_quality(delta, session=session)
+        session.assess_quality(delta)

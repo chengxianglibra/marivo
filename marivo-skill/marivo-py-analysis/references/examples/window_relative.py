@@ -18,15 +18,13 @@ ensure_loaded(timezone="UTC")
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-scalar = mv.observe(
+scalar = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"expr": "mtd", "as_of": "2026-09-15T12:00:00+00:00"},
-    session=session,
 )
-series = mv.observe(
+series = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"expr": "mtd", "grain": "day", "as_of": "2026-09-15T12:00:00+00:00"},
-    session=session,
 )
 
 assert scalar.meta.semantic_kind == "scalar"

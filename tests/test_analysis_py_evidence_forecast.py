@@ -6,7 +6,6 @@ import sqlite3
 
 import pytest
 
-import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
 from tests.shared_fixtures import seeded_time_series_metric_frame
 
@@ -26,7 +25,7 @@ def test_forecast_populates_surface1_and_forecast_findings() -> None:
         value_pattern="linear",
     )
 
-    forecast = mv.forecast(history, horizon=3, model="naive", session=session)
+    forecast = session.forecast(history, horizon=3, model="naive")
 
     assert forecast.meta.artifact_id is not None
     assert forecast.meta.ref == forecast.meta.artifact_id

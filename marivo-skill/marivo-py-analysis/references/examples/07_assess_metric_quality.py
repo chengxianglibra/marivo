@@ -9,12 +9,11 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-frame = mv.observe(
+frame = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-07-14", "grain": "day"},
-    session=session,
 )
-report = mv.assess_quality(frame, session=session)
+report = session.assess_quality(frame)
 
 assert report.meta.kind == "quality_report"
 assert report.meta.report_shape == "metric"

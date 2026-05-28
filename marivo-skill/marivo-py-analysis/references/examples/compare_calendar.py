@@ -33,17 +33,15 @@ calendar_dir.mkdir(parents=True, exist_ok=True)
     encoding="utf-8",
 )
 
-cur = mv.observe(
+cur = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"expr": "mtd", "grain": "day", "as_of": "2026-09-15T12:00:00+08:00"},
-    session=session,
 )
-base = mv.observe(
+base = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2025-07-01", "end": "2025-07-31", "grain": "day"},
-    session=session,
 )
-delta = mv.compare(
+delta = session.compare(
     cur,
     base,
     alignment=mv.AlignmentPolicy(
@@ -51,7 +49,6 @@ delta = mv.compare(
         calendar=mv.CalendarRef(id="cn_holidays"),
         period="month",
     ),
-    session=session,
 )
 
 assert delta.meta.alignment["kind"] == "holiday_and_dow_aligned"

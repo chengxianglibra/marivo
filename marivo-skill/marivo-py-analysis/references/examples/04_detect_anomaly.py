@@ -16,12 +16,11 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-series = mv.observe(
+series = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
-    session=session,
 )
-candidates = mv.discover.point_anomalies(series, threshold=1.0, session=session)
+candidates = session.discover.point_anomalies(series, threshold=1.0)
 summary = candidates.summary()
 print(f"kind={summary.kind!r}")
 print(f"objective={candidates.meta.objective!r}")

@@ -14,12 +14,11 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-time_series_frame = mv.observe(
+time_series_frame = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-07-04", "grain": "day"},
-    session=session,
 )
-clipped = mv.transform.window(
+clipped = session.transform.window(
     time_series_frame,
     window={"start": "2026-07-02", "end": "2026-07-03"},
 )

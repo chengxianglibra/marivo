@@ -6,7 +6,6 @@ import sqlite3
 
 import pytest
 
-import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
 from tests.shared_fixtures import seeded_time_series_metric_frame
 
@@ -22,7 +21,7 @@ def test_assess_quality_populates_surface1_without_findings_or_followups() -> No
     session = session_attach.create(name="quality_evidence")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
 
-    quality = mv.assess_quality(frame, session=session)
+    quality = session.assess_quality(frame)
 
     assert quality.meta.artifact_id is not None
     assert quality.meta.ref == quality.meta.artifact_id

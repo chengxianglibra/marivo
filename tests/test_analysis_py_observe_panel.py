@@ -1,4 +1,4 @@
-"""mv.observe panel shape (dimensions + window grain)."""
+"""session.observe panel shape (dimensions + window grain)."""
 
 import ibis
 import pytest
