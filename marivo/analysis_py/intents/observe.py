@@ -597,7 +597,12 @@ def _observe_derived_segmented(
             .select(*dimension_names, component_name)
         )
         component_frames.append(
-            execute(grouped_expr, datasource_name=datasource_name, cache=session.backend_cache).df
+            execute(
+                grouped_expr,
+                datasource_name=datasource_name,
+                cache=session.backend_cache,
+                session_id=session.id,
+            ).df
         )
 
     merged = component_frames[0]
@@ -901,7 +906,10 @@ def observe(
             .select(*group_names, metric_name)
         )
         result = execute(
-            grouped_expr, datasource_name=primary_datasource, cache=session.backend_cache
+            grouped_expr,
+            datasource_name=primary_datasource,
+            cache=session.backend_cache,
+            session_id=session.id,
         )
         if resolved_window.grain == "day" and "bucket_start" in result.df:
             with suppress(AttributeError):
@@ -942,7 +950,10 @@ def observe(
             .select("bucket_start", metric_name)
         )
         result = execute(
-            grouped_expr, datasource_name=primary_datasource, cache=session.backend_cache
+            grouped_expr,
+            datasource_name=primary_datasource,
+            cache=session.backend_cache,
+            session_id=session.id,
         )
         axes = {
             "time": {
@@ -975,7 +986,10 @@ def observe(
             .select(*dimension_names, metric_name)
         )
         result = execute(
-            grouped_expr, datasource_name=primary_datasource, cache=session.backend_cache
+            grouped_expr,
+            datasource_name=primary_datasource,
+            cache=session.backend_cache,
+            session_id=session.id,
         )
         axes = {
             field_ir.name: {"role": "dimension", "column": field_ir.name}
@@ -989,7 +1003,10 @@ def observe(
             dataset_tables=dataset_tables,
         )
         result = execute(
-            metric_expr, datasource_name=primary_datasource, cache=session.backend_cache
+            metric_expr,
+            datasource_name=primary_datasource,
+            cache=session.backend_cache,
+            session_id=session.id,
         )
     finished_at = datetime.now(UTC)
 
@@ -1041,9 +1058,7 @@ def observe(
     # --- Evidence pipeline: commit_result replaces write_frame_to_disk ---
     _grain_raw = resolved_window.grain if resolved_window is not None else None
     _subject_grain: Literal["hour", "day", "week", "month"] | None = (
-        cast("Literal['hour', 'day', 'week', 'month']", _grain_raw)
-        if _grain_raw in ("hour", "day", "week", "month")
-        else None
+        _grain_raw if _grain_raw in ("hour", "day", "week", "month") else None
     )
     subject = Subject(
         metric=metric_id,

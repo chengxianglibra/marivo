@@ -1582,7 +1582,7 @@ def _op_rank(frame: TransformFrame, params: _TransformParams) -> _TransformHandl
             details={"op": "rank", "argument": "by", "actual_type": type(by).__name__},
         )
 
-    method_map = {
+    method_map: dict[str, Literal["dense", "first", "min", "max"]] = {
         "dense": "dense",
         "ordinal": "first",
         "min": "min",

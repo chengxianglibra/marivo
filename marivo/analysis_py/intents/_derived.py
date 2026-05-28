@@ -76,7 +76,7 @@ def require_numeric_column(df: pd.DataFrame, value: str | None, *, purpose: str)
 def first_non_numeric_column(df: pd.DataFrame) -> str | None:
     for column in df.columns:
         if not is_numeric_dtype(df[column]):
-            return cast("str", column)
+            return str(column)
     return None
 
 

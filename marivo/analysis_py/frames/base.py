@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from html import escape
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
@@ -161,7 +161,7 @@ class BaseFrame:
 
     @property
     def shape(self) -> tuple[int, int]:
-        return cast("tuple[int, int]", self._df.shape)
+        return self._df.shape
 
     @property
     def columns(self) -> list[str]:
@@ -174,7 +174,7 @@ class BaseFrame:
         return len(self._df)
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self._df)
+        return iter(self.columns)
 
     def __setitem__(self, key: Any, value: Any) -> None:
         raise FrameMutationError(

@@ -24,6 +24,7 @@ dependencies = [
     "ibis-framework>=12.0.0",
     "jinja2>=3.1.0",
     "mcp>=1.0.0",
+    "pandas>=2.2.0",
     "pydantic>=2.9.0",
     "pyyaml>=6.0",
     "scipy>=1.13.0",
@@ -36,12 +37,20 @@ Repository = "https://github.com/lumendata/marivo"
 Issues = "https://github.com/lumendata/marivo/issues"
 
 [project.optional-dependencies]
-duckdb = ["duckdb>=1.2.2"]
+duckdb = ["duckdb>=1.2.2", "pyarrow>=15.0.0", "pyarrow-hotfix>=0.6"]
 mysql = ["PyMySQL>=1.1"]
 trino = ["trino>=0.330"]
-all = ["duckdb>=1.2.2", "PyMySQL>=1.1", "trino>=0.330"]
+all = [
+    "duckdb>=1.2.2",
+    "pyarrow>=15.0.0",
+    "pyarrow-hotfix>=0.6",
+    "PyMySQL>=1.1",
+    "trino>=0.330",
+]
 dev = [
     "duckdb>=1.2.2",
+    "pyarrow>=15.0.0",
+    "pyarrow-hotfix>=0.6",
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "pytest-xdist>=3",
@@ -49,6 +58,8 @@ dev = [
     "datamodel-code-generator>=0.26",
     "ruff>=0.3.0",
     "mypy>=1.9",
+    "pandas-stubs>=2.2.0",
+    "scipy-stubs>=1.14.1.0",
     "types-PyYAML>=6.0",
     "import-linter>=2.0",
 ]
