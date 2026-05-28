@@ -147,7 +147,7 @@ def _discover_dispatch(
         CrossSessionFrameError: ``source`` belongs to a different session.
 
     Example:
-        >>> candidates = mv.discover(
+        >>> candidates = session.discover(
         ...     series,
         ...     objective="point_anomalies",
         ...     threshold=1.0,
@@ -323,7 +323,7 @@ class DiscoverAPI:
         session: Session | None = None,
         _triggered_by: TriggeredByFollowup | None = None,
     ) -> CandidateSet:
-        """Discover candidate follow-ups. Prefer typed sub-methods (mv.discover.point_anomalies, etc.) for precise signatures."""
+        """Discover candidate follow-ups. Prefer typed sub-methods (session.discover.point_anomalies, etc.) for precise signatures."""
 
         return _discover_dispatch(
             source,

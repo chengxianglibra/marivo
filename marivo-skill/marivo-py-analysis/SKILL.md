@@ -42,14 +42,14 @@ import marivo.analysis_py as mv
 
 mv.session.get_or_create(name="investigation")
 
-mv.observe(mv.MetricRef("model.metric"), window={"start": "...", "end": "..."})  # -> MetricFrame
-mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))      # -> DeltaFrame
-mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))                        # -> AttributionFrame
-mv.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
-mv.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))         # -> AssociationResult
-mv.hypothesis_test(cur, base)                                                    # -> HypothesisTestResult
-mv.forecast(series, horizon=7)                                                   # -> ForecastFrame
-mv.assess_quality(series)                                                        # -> QualityReport
+session.observe(mv.MetricRef("model.metric"), window={"start": "...", "end": "..."})  # -> MetricFrame
+session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))      # -> DeltaFrame
+session.decompose(delta, axis=mv.DimensionRef("bucket_start"))                        # -> AttributionFrame
+session.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
+session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))         # -> AssociationResult
+session.hypothesis_test(cur, base)                                                    # -> HypothesisTestResult
+session.forecast(series, horizon=7)                                                   # -> ForecastFrame
+session.assess_quality(series)                                                        # -> QualityReport
 
 mv.session.current()     # safe probe, returns None when no active session
 mv.help("discover")      # prints typed objective helpers and compatibility dispatcher
@@ -93,7 +93,7 @@ Use Surface 3 audit calls only when you need raw evidence objects:
 `session.assessments(...)`, and `session.evidence.trace(...)`.
 
 `result.quality` is a lightweight summary attached automatically.
-`mv.assess_quality(result)` is an explicit auditable operator that creates a
+`session.assess_quality(result)` is an explicit auditable operator that creates a
 `QualityReport` and participates in lineage.
 
 ## Decision tree
@@ -137,35 +137,35 @@ session.recent_jobs(limit=5)                           # recent job history
 ```python
 import marivo.analysis_py as mv
 
-cur = mv.observe(mv.MetricRef("<metric_id>"), window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"})
-base = mv.observe(mv.MetricRef("<metric_id>"), window={"start": "2025-07-01", "end": "2025-09-30", "grain": "month"})
-delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
-attribution = mv.decompose(delta, axis=mv.DimensionRef("bucket_start"))
+cur = session.observe(mv.MetricRef("<metric_id>"), window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"})
+base = session.observe(mv.MetricRef("<metric_id>"), window={"start": "2025-07-01", "end": "2025-09-30", "grain": "month"})
+delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 print(attribution.summary())
 ```
 
 ### Discover + select
 
 ```python
-series = mv.observe(mv.MetricRef("<metric_id>"), window={"start": "2026-07-01", "end": "2026-09-30", "grain": "day"})
-candidates = mv.discover.point_anomalies(series, threshold=1.0)
-window = mv.select(candidates, rank=1, attribute="window")
+series = session.observe(mv.MetricRef("<metric_id>"), window={"start": "2026-07-01", "end": "2026-09-30", "grain": "day"})
+candidates = session.discover.point_anomalies(series, threshold=1.0)
+window = candidates.select(rank=1, attribute="window")
 ```
 
 ### Correlate
 
 ```python
-a = mv.observe(mv.MetricRef("<metric_a>"), window={"start": "2026-07-01", "end": "2026-09-30"})
-b = mv.observe(mv.MetricRef("<metric_b>"), window={"start": "2026-07-01", "end": "2026-09-30"})
-result = mv.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+a = session.observe(mv.MetricRef("<metric_a>"), window={"start": "2026-07-01", "end": "2026-09-30"})
+b = session.observe(mv.MetricRef("<metric_b>"), window={"start": "2026-07-01", "end": "2026-09-30"})
+result = session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
 print(result.summary())
 ```
 
 ### Escape hatch
 
 ```python
-scratch = mv.from_pandas(df, session=session)
-promoted = mv.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"),
+scratch = session.from_pandas(df)
+promoted = session.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"),
                                    semantic_kind="segmented", measure_column="value",
                                    axes={"country": mv.DimensionRef("country")},
                                    semantic_model="sales")

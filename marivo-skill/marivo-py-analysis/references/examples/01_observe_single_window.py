@@ -14,10 +14,9 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-cur = mv.observe(
+cur = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30"},
-    session=session,
 )
 print(cur.summary())
 print(cur.preview(limit=5))

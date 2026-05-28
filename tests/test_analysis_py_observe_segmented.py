@@ -1,4 +1,4 @@
-"""mv.observe segmented shape (dimensions, no window grain)."""
+"""session.observe segmented shape (dimensions, no window grain)."""
 
 import ibis
 import pytest

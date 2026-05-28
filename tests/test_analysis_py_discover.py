@@ -1,4 +1,4 @@
-"""mv.discover emits candidate_set artifacts for point anomalies."""
+"""session.discover emits candidate_set artifacts for point anomalies."""
 
 import json
 
@@ -44,12 +44,11 @@ def test_discover_point_anomalies_returns_candidate_set():
         pd.DataFrame({"bucket": ["a", "b", "c", "d"], "value": [-100.0, 0.0, 0.0, 100.0]}),
     )
 
-    out = mv.discover(
+    out = session.discover(
         frame,
         objective="point_anomalies",
         strategy="zscore",
         threshold=1.0,
-        session=session,
     )
 
     assert isinstance(out, CandidateSet)
@@ -80,7 +79,7 @@ def test_discover_zero_std_returns_empty_candidate_set():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"bucket": ["a", "b", "c"], "value": [5.0, 5.0, 5.0]}))
 
-    out = mv.discover(frame, objective="point_anomalies", strategy="zscore", session=session)
+    out = session.discover(frame, objective="point_anomalies", strategy="zscore")
 
     assert out.to_pandas().empty
     assert list(out.to_pandas().columns) == CANDIDATE_COLUMNS
@@ -91,7 +90,7 @@ def test_discover_empty_candidate_set_round_trips_with_numeric_schema():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"bucket": ["a", "b", "c"], "value": [5.0, 5.0, 5.0]}))
 
-    out = mv.discover(frame, objective="point_anomalies", strategy="zscore", session=session)
+    out = session.discover(frame, objective="point_anomalies", strategy="zscore")
     loaded = mv.load_frame(out.ref, session=session)
 
     df = loaded.to_pandas()
@@ -103,7 +102,7 @@ def test_discover_single_non_null_value_returns_empty_candidate_set():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"bucket": ["a", "b"], "value": [None, 5.0]}))
 
-    out = mv.discover(frame, objective="point_anomalies", session=session)
+    out = session.discover(frame, objective="point_anomalies")
 
     assert out.to_pandas().empty
     assert out.meta.row_count == 0
@@ -115,9 +114,7 @@ def test_discover_uses_explicit_numeric_value_column():
         session, pd.DataFrame({"bucket": ["a", "b"], "value": [1.0, 2.0], "count": [3, 9]})
     )
 
-    out = mv.discover(
-        frame, objective="point_anomalies", value="count", threshold=1.0, session=session
-    )
+    out = session.discover(frame, objective="point_anomalies", value="count", threshold=1.0)
 
     assert out.meta.params["value"] == "count"
 
@@ -130,7 +127,7 @@ def test_discover_rejects_unsupported_point_anomaly_semantic_kinds(semantic_kind
     )
 
     with pytest.raises(SemanticKindMismatchError):
-        mv.discover(frame, objective="point_anomalies", session=session)
+        session.discover(frame, objective="point_anomalies")
 
 
 def test_discover_accepts_panel_metric_frame():
@@ -143,7 +140,7 @@ def test_discover_accepts_panel_metric_frame():
         semantic_kind="panel",
     )
 
-    out = mv.discover(frame, objective="point_anomalies", threshold=1.0, session=session)
+    out = session.discover(frame, objective="point_anomalies", threshold=1.0)
 
     assert isinstance(out, CandidateSet)
     assert out.meta.semantic_kind == "panel"
@@ -153,7 +150,7 @@ def test_discover_rejects_non_metric_frame():
     session = session_attach.get_or_create(name="demo")
 
     with pytest.raises(SemanticKindMismatchError):
-        mv.discover(object(), objective="point_anomalies", session=session)  # type: ignore[arg-type]
+        session.discover(object(), objective="point_anomalies")  # type: ignore[arg-type]
 
 
 def test_discover_rejects_ambiguous_numeric_columns():
@@ -161,7 +158,7 @@ def test_discover_rejects_ambiguous_numeric_columns():
     frame = _metric(session, pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
-        mv.discover(frame, objective="point_anomalies", session=session)
+        session.discover(frame, objective="point_anomalies")
 
 
 def test_discover_rejects_missing_explicit_value_column():
@@ -169,7 +166,7 @@ def test_discover_rejects_missing_explicit_value_column():
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
-        mv.discover(frame, objective="point_anomalies", value="missing", session=session)
+        session.discover(frame, objective="point_anomalies", value="missing")
 
 
 def test_discover_rejects_non_numeric_explicit_value_column():
@@ -177,7 +174,7 @@ def test_discover_rejects_non_numeric_explicit_value_column():
     frame = _metric(session, pd.DataFrame({"bucket": ["a", "b"], "value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
-        mv.discover(frame, objective="point_anomalies", value="bucket", session=session)
+        session.discover(frame, objective="point_anomalies", value="bucket")
 
 
 def test_discover_rejects_unknown_objective():
@@ -185,7 +182,7 @@ def test_discover_rejects_unknown_objective():
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
-        mv.discover(frame, objective="driver_axes", session=session)  # type: ignore[arg-type]
+        session.discover(frame, objective="driver_axes")  # type: ignore[arg-type]
 
 
 def test_discover_rejects_unsupported_strategy():
@@ -193,7 +190,7 @@ def test_discover_rejects_unsupported_strategy():
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
-        mv.discover(frame, objective="point_anomalies", strategy="iqr", session=session)  # type: ignore[arg-type]
+        session.discover(frame, objective="point_anomalies", strategy="iqr")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("threshold", [0, -1, float("nan"), float("inf"), float("-inf")])
@@ -202,7 +199,7 @@ def test_discover_rejects_invalid_threshold(threshold):
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
-        mv.discover(frame, objective="point_anomalies", threshold=threshold, session=session)
+        session.discover(frame, objective="point_anomalies", threshold=threshold)
 
 
 @pytest.mark.parametrize("threshold", ["3", True])
@@ -211,14 +208,14 @@ def test_discover_rejects_non_numeric_threshold(threshold):
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
     with pytest.raises(SemanticKindMismatchError):
-        mv.discover(frame, objective="point_anomalies", threshold=threshold, session=session)  # type: ignore[arg-type]
+        session.discover(frame, objective="point_anomalies", threshold=threshold)  # type: ignore[arg-type]
 
 
 def test_discover_writes_job_and_frame():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 99.0]}))
 
-    out = mv.discover(frame, objective="point_anomalies", threshold=1.0, session=session)
+    out = session.discover(frame, objective="point_anomalies", threshold=1.0)
 
     jobs = [job for job in session.jobs() if job.intent == "discover"]
     assert len(jobs) == 1
@@ -236,7 +233,7 @@ def test_discover_rejects_cross_session_frame():
     session_b = session_attach.get_or_create(name="b")
 
     with pytest.raises(CrossSessionFrameError):
-        mv.discover(frame, objective="point_anomalies", session=session_b)
+        session_b.discover(frame, objective="point_anomalies")
 
 
 def test_discover_archived_session_raises():
@@ -245,7 +242,7 @@ def test_discover_archived_session_raises():
     session_attach.archive("demo")
 
     with pytest.raises(SessionStateError):
-        mv.discover(frame, objective="point_anomalies", session=session)
+        session.discover(frame, objective="point_anomalies")
 
 
 def test_discover_stale_archived_session_raises():
@@ -256,9 +253,9 @@ def test_discover_stale_archived_session_raises():
     assert session.state == "active"
 
     with pytest.raises(SessionStateError):
-        mv.discover(frame, objective="point_anomalies", session=session)
+        session.discover(frame, objective="point_anomalies")
 
 
 def test_detect_is_not_public_api():
-    assert hasattr(mv, "discover")
+    assert not hasattr(mv, "discover")
     assert not hasattr(mv, "detect")

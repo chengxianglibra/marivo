@@ -9,16 +9,14 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-history = mv.observe(
+history = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
-    session=session,
 )
-forecast = mv.forecast(
+forecast = session.forecast(
     history,
     horizon=2,
     model="naive",
-    session=session,
 )
 
 assert forecast.meta.kind == "forecast_frame"

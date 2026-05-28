@@ -24,30 +24,27 @@ with tempfile.TemporaryDirectory(prefix="marivo-py-analysis-scratch-") as projec
         con.raw_sql("CREATE TABLE orders (country TEXT, revenue DOUBLE)")
         con.raw_sql("INSERT INTO orders VALUES ('US', 10.0), ('CA', 5.0), ('US', 3.0)")
         session = mv.session.get_or_create(name="examples", backends={"warehouse": lambda: con})
-        scratch = mv.from_pandas(
+        scratch = session.from_pandas(
             pd.DataFrame({"country": ["US", "CA"], "value": [10.0, 5.0]}),
-            session=session,
             description="manual cohort scan",
         )
-        metric = mv.promote_metric_frame(
+        metric = session.promote_metric_frame(
             scratch,
-            session=session,
             metric=mv.MetricRef(id="sales.revenue"),
             semantic_kind="segmented",
             measure_column="value",
             axes={"country": mv.DimensionRef(id="country")},
             semantic_model="sales",
         )
-        baseline_metric = mv.promote_metric_frame(
+        baseline_metric = session.promote_metric_frame(
             pd.DataFrame({"country": ["US", "CA"], "value": [7.0, 4.0]}),
-            session=session,
             metric=mv.MetricRef(id="sales.revenue"),
             semantic_kind="segmented",
             measure_column="value",
             axes={"country": mv.DimensionRef(id="country")},
             semantic_model="sales",
         )
-        delta = mv.promote_delta_frame(
+        delta = session.promote_delta_frame(
             pd.DataFrame(
                 {
                     "country": ["US", "CA"],
@@ -56,14 +53,13 @@ with tempfile.TemporaryDirectory(prefix="marivo-py-analysis-scratch-") as projec
                     "delta": [3.0, 1.0],
                 }
             ),
-            session=session,
             current=mv.ArtifactRef(id=metric.ref),
             baseline=mv.ArtifactRef(id=baseline_metric.ref),
             delta_column="delta",
             current_column="current",
             baseline_column="baseline",
         )
-        attribution = mv.promote_attribution_frame(
+        attribution = session.promote_attribution_frame(
             pd.DataFrame(
                 {
                     "country": ["US", "CA"],
@@ -71,7 +67,6 @@ with tempfile.TemporaryDirectory(prefix="marivo-py-analysis-scratch-") as projec
                     "contribution": [8.0, 2.0],
                 }
             ),
-            session=session,
             source_delta=mv.ArtifactRef(id=delta.ref),
             driver_field="country",
             value_column="value",
@@ -79,14 +74,13 @@ with tempfile.TemporaryDirectory(prefix="marivo-py-analysis-scratch-") as projec
             method="manual",
             method_params={"note": "example attribution"},
         )
-        ibis_scratch = mv.explore_ibis(
+        ibis_scratch = session.explore_ibis(
             lambda backend: (
                 backend.table("orders")
                 .filter(lambda t: t.country == "US")
                 .aggregate(value=lambda t: t.revenue.sum())
             ),
             datasource="warehouse",
-            session=session,
             description="manual Ibis scan",
         )
 

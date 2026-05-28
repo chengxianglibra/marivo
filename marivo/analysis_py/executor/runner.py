@@ -386,7 +386,7 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
             details={
                 "candidates": candidates,
                 "fix_snippet": (
-                    'mv.observe(mv.MetricRef("sales.revenue"), '
+                    'session.observe(mv.MetricRef("sales.revenue"), '
                     'window={"start": "2026-07-01", "end": "2026-07-31", '
                     f'"time_field": "{first_candidate}"}})'
                 ),
@@ -400,7 +400,7 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
         details={
             "candidates": candidates,
             "fix_snippet": (
-                'mv.observe(mv.MetricRef("sales.revenue"), '
+                'session.observe(mv.MetricRef("sales.revenue"), '
                 'window={"start": "2026-07-01", "end": "2026-07-31", '
                 f'"time_field": "{first_candidate}"}})'
             ),

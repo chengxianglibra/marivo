@@ -16,17 +16,15 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-metric = mv.observe(
+metric = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30"},
     dimensions=[mv.DimensionRef(id="region")],
-    session=session,
 )
-outliers = mv.discover.cross_sectional_outliers(
+outliers = session.discover.cross_sectional_outliers(
     metric,
     threshold=3.0,
     peer_scope=[mv.DimensionRef(id="region")],
-    session=session,
 )
 print(f"outliers.objective={outliers.meta.objective!r}")
 print(f"outliers.row_count={outliers.meta.row_count}")

@@ -82,7 +82,7 @@ def hypothesis_test(
         CrossSessionFrameError: A frame belongs to a different session.
 
     Example:
-        >>> result = mv.test(cur, base)
+        >>> result = session.hypothesis_test(cur, base)
         >>> result.summary()
     """
     session = resolve_session(session)

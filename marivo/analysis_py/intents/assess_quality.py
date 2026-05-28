@@ -59,7 +59,7 @@ def assess_quality(
         CrossSessionFrameError: ``frame`` belongs to a different session.
 
     Example:
-        >>> report = mv.assess_quality(frame)
+        >>> report = session.assess_quality(frame)
         >>> for issue in report.blocking_issues:
         ...     print(issue)
     """

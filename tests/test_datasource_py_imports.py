@@ -2,23 +2,28 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 
 
 def test_datasource_py_import_does_not_load_semantic_or_analysis() -> None:
-    for name in list(sys.modules):
-        if name == "marivo.datasource_py" or name.startswith("marivo.datasource_py."):
-            del sys.modules[name]
-        if name == "marivo.semantic_py" or name.startswith("marivo.semantic_py."):
-            del sys.modules[name]
-        if name == "marivo.analysis_py" or name.startswith("marivo.analysis_py."):
-            del sys.modules[name]
+    code = """
+import sys
+for name in list(sys.modules):
+    if name == "marivo.datasource_py" or name.startswith("marivo.datasource_py."):
+        del sys.modules[name]
+    if name == "marivo.semantic_py" or name.startswith("marivo.semantic_py."):
+        del sys.modules[name]
+    if name == "marivo.analysis_py" or name.startswith("marivo.analysis_py."):
+        del sys.modules[name]
 
-    import marivo.datasource_py as md
+import marivo.datasource_py as md
 
-    assert md.datasource is not None
-    assert "marivo.semantic_py" not in sys.modules
-    assert "marivo.analysis_py" not in sys.modules
+assert md.datasource is not None
+assert "marivo.semantic_py" not in sys.modules
+assert "marivo.analysis_py" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_load_datasources_returns_datasource_py_ir(tmp_path) -> None:

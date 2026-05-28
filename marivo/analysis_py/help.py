@@ -8,16 +8,16 @@ from types import ModuleType
 from typing import cast
 
 _TOP_LEVEL_ENTRIES = {
-    "assess_quality": "inspect MetricFrame quality and recommend follow-ups",
-    "observe": "build a MetricFrame from a metric and window",
-    "compare": "compare two MetricFrames into a DeltaFrame",
-    "decompose": "decompose a DeltaFrame into an AttributionFrame",
-    "discover": "discover candidate follow-ups from analysis artifacts",
-    "forecast": "project a time_series or panel MetricFrame forward",
-    "correlate": "correlate compatible analysis frames",
-    "hypothesis_test": "run a mean_changed paired test over compatible MetricFrames",
-    "transform": "family-preserving reshape of a MetricFrame / DeltaFrame",
-    "select": "pull a typed field out of a CandidateSet row",
+    "session.observe": "build a MetricFrame from a metric and window",
+    "session.compare": "compare two MetricFrames into a DeltaFrame",
+    "session.decompose": "decompose a DeltaFrame into an AttributionFrame",
+    "session.discover": "discover candidate follow-ups from analysis artifacts",
+    "session.transform": "family-preserving reshape of a MetricFrame / DeltaFrame",
+    "session.correlate": "correlate compatible analysis frames",
+    "session.forecast": "project a time_series or panel MetricFrame forward",
+    "session.assess_quality": "inspect MetricFrame quality and recommend follow-ups",
+    "session.hypothesis_test": "run a mean_changed paired test over compatible MetricFrames",
+    "CandidateSet.select": "pull a typed field out of a CandidateSet row",
     "alignment": "AlignmentPolicy variants and required arguments",
     "session": "session lifecycle and persistence helpers",
     "help": "print top-level or symbol-specific introspection",
@@ -29,7 +29,8 @@ _MATRIX_TOPICS = {"discover", "select", "transform", "alignment"}
 def _list_top_level() -> str:
     lines = ["marivo.analysis_py - top-level entries:"]
     for name, summary in _TOP_LEVEL_ENTRIES.items():
-        lines.append(f"  mv.{name:<14} {summary}")
+        prefix = "mv." if name in {"alignment", "session", "help"} else ""
+        lines.append(f"  {prefix}{name:<22} {summary}")
     lines.append("")
     lines.append('Call mv.help("<name>") for a signature, docstring, or reference matrix.')
     return "\n".join(lines)
@@ -86,7 +87,7 @@ def _describe_class(name: str, obj: type[object]) -> str:
         lines.append(doc)
     if name == "SemanticKindMismatchError":
         lines.append("")
-        lines.append("Common compare case: pass two MetricFrame inputs to mv.compare(...).")
+        lines.append("Common compare case: pass two MetricFrame inputs to session.compare(...).")
     return "\n".join(lines)
 
 
@@ -105,7 +106,7 @@ def _format_discover_matrix() -> str:
         _OBJECTIVE_TO_SHAPE,
     )
 
-    lines = ["mv.discover objective helper matrix:", ""]
+    lines = ["session.discover objective helper matrix:", ""]
     header = f"  {'helper':<42}{'source':<14}{'semantic_kind':<40}{'shape':<26}required"
     lines.append(header)
     lines.append("  " + "-" * (len(header) - 2))
@@ -115,26 +116,24 @@ def _format_discover_matrix() -> str:
         required = ", ".join(_OBJECTIVE_REQUIRED_KWARGS.get(objective, ())) or "-"
         for source in sorted(compat):
             kinds = "|".join(sorted(compat[source]))
-            helper = f"mv.discover.{objective}"
+            helper = f"session.discover.{objective}"
             lines.append(f"  {helper:<42}{source:<14}{kinds:<40}{shape:<26}{required}")
     lines.append("")
-    lines.append("Example: mv.discover.driver_axes(delta,")
-    lines.append('                                search_space=[mv.DimensionRef("country")])')
-    lines.append("")
-    lines.append('Compatibility: mv.discover(source, objective="...") still works.')
+    lines.append("Example: session.discover.driver_axes(delta,")
+    lines.append('                                     search_space=[mv.DimensionRef("country")])')
     return "\n".join(lines)
 
 
 def _format_select_matrix() -> str:
     from marivo.analysis_py.intents.select import _FIELD_BY_SHAPE
 
-    lines = ["mv.select attribute-by-shape matrix:", ""]
+    lines = ["CandidateSet.select attribute-by-shape matrix:", ""]
     for shape in sorted(_FIELD_BY_SHAPE):
         valid = ", ".join(sorted(_FIELD_BY_SHAPE[shape]))
         lines.append(f"  {shape:<28}{valid}")
     lines.append("")
     lines.append('Dot-paths "keys.<dim>" / "selector.<dim>" pull a single key out')
-    lines.append('of the candidate row. Example: mv.select(cs, rank=1, attribute="window")')
+    lines.append('of the candidate row. Example: cs.select(rank=1, attribute="window")')
     return "\n".join(lines)
 
 
@@ -151,15 +150,14 @@ def _format_transform_matrix() -> str:
         "normalize": ("kind",),
         "window": ("window",),
     }
-    lines = ["mv.transform op helper matrix (v1):", ""]
+    lines = ["session.transform op helper matrix (v1):", ""]
     for op in _SUPPORTED_OPS:
         required = ", ".join(op_required.get(op, ())) or "-"
-        lines.append(f"  mv.transform.{op:<12}required: {required}")
+        lines.append(f"  session.transform.{op:<12}required: {required}")
     lines.append("")
-    lines.append('Example: mv.transform.topk(delta, by="delta", limit=3, direction="decrease")')
+    lines.append('Example: session.transform.topk(delta, by="delta", limit=3, order="decrease")')
     lines.append("")
     lines.append("normalize is MetricFrame-only in v1; DeltaFrame normalize is reserved.")
-    lines.append('Compatibility: mv.transform(frame, op="...") still works.')
     return "\n".join(lines)
 
 
@@ -196,6 +194,34 @@ def _resolve(symbol: str) -> object | None:
 
     if hasattr(mv, symbol):
         return cast("object", getattr(mv, symbol))
+    if symbol == "observe":
+        from marivo.analysis_py.intents.observe import observe
+
+        return observe
+    if symbol == "compare":
+        from marivo.analysis_py.intents.compare import compare
+
+        return compare
+    if symbol == "decompose":
+        from marivo.analysis_py.intents.decompose import decompose
+
+        return decompose
+    if symbol == "correlate":
+        from marivo.analysis_py.intents.correlate import correlate
+
+        return correlate
+    if symbol == "forecast":
+        from marivo.analysis_py.intents.forecast import forecast
+
+        return forecast
+    if symbol == "assess_quality":
+        from marivo.analysis_py.intents.assess_quality import assess_quality
+
+        return assess_quality
+    if symbol == "hypothesis_test":
+        from marivo.analysis_py.intents.test import hypothesis_test
+
+        return hypothesis_test
     if hasattr(errors_mod, symbol):
         return cast("object", getattr(errors_mod, symbol))
     return None

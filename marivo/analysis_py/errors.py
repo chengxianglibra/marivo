@@ -80,7 +80,7 @@ class MetricNotFoundError(AnalysisError):
         elif isinstance(model, str) and model and isinstance(metric, str) and metric:
             metric_ref = f"{model}.{metric}"
         if not metric_ref:
-            return {"location": "mv.observe call"}
+            return {"location": "session.observe call"}
         cause = f"metric_id={metric_ref} is not registered in the active semantic model."
         if isinstance(available, list) and available:
             preview = ", ".join(str(item) for item in available[:10])
@@ -89,14 +89,14 @@ class MetricNotFoundError(AnalysisError):
                 suffix += f" (+{len(available) - 10} more)"
             cause += suffix
         return {
-            "location": "mv.observe call",
+            "location": "session.observe call",
             "cause": cause,
             "fix_snippet": (
                 "import marivo.semantic_py as ms\n"
                 "project = ms.find_project()\n"
                 "project.load()\n"
                 "project.list_metrics()  # confirm the exact id\n"
-                'mv.observe(mv.MetricRef("<registered_metric_id>"), '
+                'session.observe(mv.MetricRef("<registered_metric_id>"), '
                 'window={"start": "2026-07-01", "end": "2026-09-30"})'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
@@ -108,10 +108,10 @@ class WindowInvalidError(AnalysisError):
         window = self.details.get("window")
         window_ref = window if isinstance(window, str) and window else "<window>"
         return {
-            "location": "mv.observe / mv.compare window argument",
+            "location": "session.observe / session.compare window argument",
             "cause": f"window={window_ref} could not be parsed by the active calendar.",
             "fix_snippet": (
-                'mv.observe(mv.MetricRef("sales.revenue"), '
+                'session.observe(mv.MetricRef("sales.revenue"), '
                 'window={"start": "2026-07-01", "end": "2026-09-30"})'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
@@ -139,13 +139,13 @@ class SemanticKindMismatchError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         if str(self.details.get("missing")) == "search_space":
             return {
-                "location": "mv.discover(driver_axes) arguments",
+                "location": "session.discover(driver_axes) arguments",
                 "cause": (
                     "discover(objective='driver_axes') requires a non-empty "
                     "search_space=[DimensionRef(...), ...]."
                 ),
                 "fix_snippet": (
-                    'mv.discover(delta, objective="driver_axes",\n'
+                    'session.discover(delta, objective="driver_axes",\n'
                     '            search_space=[mv.DimensionRef("country")])'
                 ),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
@@ -169,14 +169,14 @@ class SemanticKindMismatchError(AnalysisError):
         requested_rank = self.details.get("requested_rank")
         if isinstance(row_count, int) and isinstance(requested_rank, int):
             return {
-                "location": "mv.select rank argument",
+                "location": "CandidateSet.select rank argument",
                 "cause": (
                     f"select(rank={requested_rank}) is out of range; the candidate set has "
                     f"{row_count} row(s)."
                 ),
                 "fix_snippet": (
                     "if cands.meta.row_count >= 1:\n"
-                    '    value = mv.select(cands, rank=1, attribute="...")'
+                    '    value = cands.select(rank=1, attribute="...")'
                 ),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
@@ -201,9 +201,9 @@ class SemanticKindMismatchError(AnalysisError):
                 else "score"
             )
             return {
-                "location": "mv.select attribute argument",
+                "location": "CandidateSet.select attribute argument",
                 "cause": cause,
-                "fix_snippet": (f'value = mv.select(cands, rank=1, attribute="{first_valid}")'),
+                "fix_snippet": (f'value = cands.select(rank=1, attribute="{first_valid}")'),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         objective = self.details.get("objective")
@@ -221,7 +221,7 @@ class SemanticKindMismatchError(AnalysisError):
             and isinstance(semantic_kind_value, str)
         ):
             return {
-                "location": "mv.discover dispatch",
+                "location": "session.discover dispatch",
                 "cause": (
                     f"discover objective {objective!r} does not accept "
                     f"semantic_kind {semantic_kind_value!r} on a {source_kind_value}; "
@@ -231,7 +231,7 @@ class SemanticKindMismatchError(AnalysisError):
             }
         if isinstance(objective, str) and isinstance(source_kind_value, str):
             return {
-                "location": "mv.discover dispatch",
+                "location": "session.discover dispatch",
                 "cause": (
                     f"discover objective {objective!r} does not accept source kind "
                     f"{source_kind_value!r}; allowed source kinds: {expected_kind_str}."
@@ -240,7 +240,7 @@ class SemanticKindMismatchError(AnalysisError):
             }
         if expected_kind_raw == "implemented_objective":
             return {
-                "location": "mv.discover dispatch",
+                "location": "session.discover dispatch",
                 "cause": (
                     f"discover objective {objective!r} is not yet implemented in this build."
                 ),
@@ -260,26 +260,26 @@ class SemanticKindMismatchError(AnalysisError):
             }
         if expected_kind == "candidate_set":
             return {
-                "location": "mv.select call",
+                "location": "CandidateSet.select call",
                 "cause": (
-                    f"got kind {got_kind}, expected {expected_kind}; mv.select only "
+                    f"got kind {got_kind}, expected {expected_kind}; CandidateSet.select only "
                     "operates on CandidateSet artifacts."
                 ),
                 "fix_snippet": (
-                    'cands = mv.discover(metric, objective="point_anomalies")\n'
-                    'window = mv.select(cands, rank=1, attribute="window")'
+                    'cands = session.discover(metric, objective="point_anomalies")\n'
+                    'window = cands.select(rank=1, attribute="window")'
                 ),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         if expected_kind == "MetricRef":
             return {
-                "location": "mv.observe call",
+                "location": "session.observe call",
                 "cause": (
                     f"got {got_kind}, expected {expected_kind}; observe requires "
                     "metric=mv.MetricRef(...)."
                 ),
                 "fix_snippet": (
-                    'mv.observe(mv.MetricRef("sales.revenue"), '
+                    'session.observe(mv.MetricRef("sales.revenue"), '
                     'window={"start": "2026-07-01", "end": "2026-09-30"})'
                 ),
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
@@ -293,17 +293,17 @@ class SemanticKindMismatchError(AnalysisError):
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         return {
-            "location": "mv.compare call",
+            "location": "session.compare call",
             "cause": (
                 f"got kind {got_kind}, expected {expected_kind}; this usually means passing a "
                 "compare result where an observe result is required."
             ),
             "fix_snippet": (
-                'cur  = mv.observe(mv.MetricRef("sales.revenue"), '
+                'cur  = session.observe(mv.MetricRef("sales.revenue"), '
                 'window={"start": "2026-07-01", "end": "2026-09-30"})\n'
-                'base = mv.observe(mv.MetricRef("sales.revenue"), '
+                'base = session.observe(mv.MetricRef("sales.revenue"), '
                 'window={"start": "2025-07-01", "end": "2025-09-30"})\n'
-                'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+                'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
@@ -321,14 +321,14 @@ class DiscoverInsufficientDataError(AnalysisError):
         count_ref = row_count if isinstance(row_count, int) else "<row_count>"
         minimum_ref = minimum if isinstance(minimum, int) else 4
         return {
-            "location": "mv.discover.period_shifts input",
+            "location": "session.discover.period_shifts input",
             "cause": (
                 f"discover objective {objective_ref!r} needs at least {minimum_ref} "
                 f"time buckets in one series; got {count_ref} usable bucket(s)."
             ),
             "fix_snippet": (
-                'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))\n'
-                'mv.discover.period_shifts(delta, value="delta")  # use a wider window'
+                'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))\n'
+                'session.discover.period_shifts(delta, value="delta")  # use a wider window'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
@@ -408,10 +408,10 @@ class PromotionFailedError(AnalysisError):
         if isinstance(missing, list) and missing:
             missing_fields = {str(field) for field in missing}
             return {
-                "location": f"mv.promote_{target}",
+                "location": f"session.promote_{target}",
                 "cause": f"promotion is missing required metadata: {', '.join(map(str, missing))}.",
                 "fix_snippet": (
-                    "mv.promote_metric_frame(\n"
+                    "session.promote_metric_frame(\n"
                     "    scratch,\n"
                     '    metric=mv.MetricRef("sales.revenue"),\n'
                     '    semantic_kind="segmented",\n'
@@ -425,7 +425,7 @@ class PromotionFailedError(AnalysisError):
                 "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
             }
         return {
-            "location": f"mv.promote_{target}",
+            "location": f"session.promote_{target}",
             "cause": "promotion metadata is incomplete or ambiguous.",
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
@@ -434,12 +434,12 @@ class PromotionFailedError(AnalysisError):
 class TestShapeNotTestableError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {
-            "location": "mv.test call",
+            "location": "session.hypothesis_test call",
             "cause": "mean_changed needs paired observations; scalar frames or too-small paired samples cannot be tested in v1.",
             "fix_snippet": (
-                'cur = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-07-31", "grain": "day"})\n'
-                'base = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-07-31", "grain": "day"})\n'
-                "mv.test(cur, base)"
+                'cur = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-07-31", "grain": "day"})\n'
+                'base = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-07-31", "grain": "day"})\n'
+                "session.hypothesis_test(cur, base)"
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
@@ -448,9 +448,9 @@ class TestShapeNotTestableError(AnalysisError):
 class TestPolicyError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {
-            "location": "mv.test policy arguments",
+            "location": "session.hypothesis_test policy arguments",
             "cause": "test v1 only supports mean_changed, calendar_bucket alignment, and shape-compatible SamplingPolicy.pairing.",
-            "fix_snippet": "mv.test(cur, base, sampling=mv.SamplingPolicy(pairing='calendar_bucket'), alpha=0.05)",
+            "fix_snippet": "session.hypothesis_test(cur, base, sampling=mv.SamplingPolicy(pairing='calendar_bucket'), alpha=0.05)",
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
@@ -458,9 +458,9 @@ class TestPolicyError(AnalysisError):
 class TestAlignmentError(AlignmentFailedError):
     def _template_fields(self) -> dict[str, str]:
         return {
-            "location": "mv.test alignment",
+            "location": "session.hypothesis_test alignment",
             "cause": "the input frames did not produce any paired samples after alignment and null dropping.",
-            "fix_snippet": "mv.test(cur, base, alignment=mv.AlignmentPolicy(kind='calendar_bucket'))",
+            "fix_snippet": "session.hypothesis_test(cur, base, alignment=mv.AlignmentPolicy(kind='calendar_bucket'))",
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
@@ -468,9 +468,9 @@ class TestAlignmentError(AlignmentFailedError):
 class ForecastShapeUnsupportedError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {
-            "location": "mv.forecast input frame",
+            "location": "session.forecast input frame",
             "cause": "forecast v1 accepts only MetricFrame time_series or panel shapes.",
-            "fix_snippet": 'history = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-01-01", "end": "2026-03-31", "grain": "day"})\nmv.forecast(history, horizon=30)',
+            "fix_snippet": 'history = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-01-01", "end": "2026-03-31", "grain": "day"})\nsession.forecast(history, horizon=30)',
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
@@ -478,9 +478,9 @@ class ForecastShapeUnsupportedError(AnalysisError):
 class ForecastPolicyError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {
-            "location": "mv.forecast policy arguments",
+            "location": "session.forecast policy arguments",
             "cause": "horizon, interval_level, model, seasonality_period, or grain is outside the v1 supported contract.",
-            "fix_snippet": "mv.forecast(history, horizon=30, model='seasonal_naive', seasonality_period=7, interval_level=0.95)",
+            "fix_snippet": "session.forecast(history, horizon=30, model='seasonal_naive', seasonality_period=7, interval_level=0.95)",
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
@@ -488,9 +488,9 @@ class ForecastPolicyError(AnalysisError):
 class ForecastInsufficientHistoryError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {
-            "location": "mv.forecast history",
+            "location": "session.forecast history",
             "cause": "the time_series input has fewer training points than the selected model requires.",
-            "fix_snippet": 'history = mv.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-01-01", "end": "2026-03-31", "grain": "day"})',
+            "fix_snippet": 'history = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-01-01", "end": "2026-03-31", "grain": "day"})',
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
@@ -498,9 +498,9 @@ class ForecastInsufficientHistoryError(AnalysisError):
 class ForecastInputQualityError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {
-            "location": "mv.forecast history data",
+            "location": "session.forecast history data",
             "cause": "forecast does not silently impute NaN values or fill missing time buckets.",
-            "fix_snippet": "clean = mv.transform(history, op='window', order_by='time')  # or impute upstream before forecasting",
+            "fix_snippet": "clean = session.transform(history, op='window', order_by='time')  # or impute upstream before forecasting",
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
@@ -508,9 +508,9 @@ class ForecastInputQualityError(AnalysisError):
 class QualityShapeUnsupportedError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {
-            "location": "mv.assess_quality target",
+            "location": "session.assess_quality target",
             "cause": "assess_quality v1 only supports MetricFrame targets; other frame families are planned for v1.1+.",
-            "fix_snippet": "report = mv.assess_quality(metric_frame)",
+            "fix_snippet": "report = session.assess_quality(metric_frame)",
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 
@@ -764,14 +764,14 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                 suffix += f" (+{len(available) - 10} more)"
             cause += suffix
         return {
-            "location": "mv.observe dimensions argument",
+            "location": "session.observe dimensions argument",
             "cause": cause,
             "fix_snippet": (
                 "import marivo.semantic_py as ms\n"
                 "project = ms.find_project()\n"
                 "project.load()\n"
                 "project.list_fields()  # confirm available fields per dataset\n"
-                'mv.observe(mv.MetricRef("sales.revenue"), '
+                'session.observe(mv.MetricRef("sales.revenue"), '
                 'dimensions=[mv.DimensionRef("<existing_field>")])'
             ),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
@@ -787,7 +787,7 @@ class AmbiguousDimensionError(SemanticKindMismatchError):
             ", ".join(candidates) if isinstance(candidates, list) and candidates else "<candidates>"
         )
         return {
-            "location": "mv.observe dimensions argument",
+            "location": "session.observe dimensions argument",
             "cause": (
                 f"DimensionRef({dim_ref!r}) matches multiple datasets ({candidate_list}); "
                 "v1 requires unique dimension names across a metric's datasets."
@@ -800,7 +800,7 @@ class DimensionAcrossDatasetsError(SemanticKindMismatchError):
     def _template_fields(self) -> dict[str, str]:
         mapping = self.details.get("dimensions_by_dataset")
         return {
-            "location": "mv.observe dimensions argument",
+            "location": "session.observe dimensions argument",
             "cause": (
                 "all dimensions must resolve to the same dataset in v1; "
                 f"got dimensions_by_dataset={mapping!r}."
@@ -821,13 +821,13 @@ class AxisNotInPanelDimensionsError(SemanticKindMismatchError):
             available[0] if isinstance(available, list) and available else "<existing_dimension>"
         )
         return {
-            "location": "mv.decompose axis argument",
+            "location": "session.decompose axis argument",
             "cause": (
                 f"axis={axis_ref!r} is not in the panel frame dimensions "
                 f"({available_list}); decompose requires axis to be one of the frame's "
                 "segment dimensions."
             ),
-            "fix_snippet": (f'mv.decompose(delta, axis=mv.DimensionRef("{first_available}"))'),
+            "fix_snippet": (f'session.decompose(delta, axis=mv.DimensionRef("{first_available}"))'),
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         }
 

@@ -156,4 +156,4 @@ def test_promotion_failed_error_uses_metric_snippet_when_metric_field_is_later()
         details={"target_kind": "metric_frame", "missing": ["subject", "metric"]},
     )
 
-    assert "mv.promote_metric_frame(" in str(error)
+    assert "session.promote_metric_frame(" in str(error)

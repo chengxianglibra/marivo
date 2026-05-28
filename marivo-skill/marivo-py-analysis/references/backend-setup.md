@@ -1,7 +1,7 @@
 # marivo-py-analysis backend setup
 
-Use this reference before running `mv.observe`, `mv.compare`, `mv.decompose`,
-`mv.discover`, or `mv.correlate` when the session needs live data.
+Use this reference before running `session.observe`, `session.compare`, `session.decompose`,
+`session.discover`, or `session.correlate` when the session needs live data.
 
 Datasource definition and repair are owned by `marivo-py-semantic`; see
 `../marivo-py-semantic/references/datasource.md`. This analysis skill consumes

@@ -1,4 +1,4 @@
-"""mv.select - typed read of one CandidateSet row's field."""
+"""CandidateSet.select - typed read of one CandidateSet row's field."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def select(
     (``"selector.country"``) are supported.
 
     Args:
-        candidate_set: A CandidateSet returned by ``mv.discover``.
+        candidate_set: A CandidateSet returned by ``session.discover``.
         rank: 1-indexed rank of the row to read. Must be in
             ``[1, candidate_set.meta.row_count]``.
         attribute: One of the canonical attributes (``axis``, ``selector``, ``window``,
@@ -70,8 +70,8 @@ def select(
             is out of range, or ``attribute`` is not available for the candidate shape.
 
     Example:
-        >>> candidates = mv.discover(series, objective="point_anomalies", threshold=1.0)
-        >>> mv.select(candidates, rank=1, attribute="window")
+        >>> candidates = session.discover(series, objective="point_anomalies", threshold=1.0)
+        >>> candidates.select(rank=1, attribute="window")
     """
     if not isinstance(candidate_set, CandidateSet):
         raise SemanticKindMismatchError(

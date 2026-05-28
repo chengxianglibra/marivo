@@ -9,17 +9,15 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-cur = mv.observe(
+cur = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
-    session=session,
 )
-base = mv.observe(
+base = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
-    session=session,
 )
-result = mv.hypothesis_test(cur, base, session=session)
+result = session.hypothesis_test(cur, base)
 
 assert result.meta.kind == "hypothesis_test_result"
 assert result.meta.hypothesis == "mean_changed"

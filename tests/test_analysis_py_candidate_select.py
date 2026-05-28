@@ -1,4 +1,4 @@
-"""mv.select extracts typed values from CandidateSet rows."""
+"""CandidateSet.select extracts typed values from CandidateSet rows."""
 
 from __future__ import annotations
 
@@ -123,7 +123,7 @@ def test_select_axis_returns_dimension_ref():
             {"item_id": "axis_1", "score": 0.5, "axis": "platform"},
         ],
     )
-    selected = mv.select(cs, rank=1, attribute="axis")
+    selected = cs.select(rank=1, attribute="axis")
     assert isinstance(selected, mv.DimensionRef)
     assert selected.id == "country"
 
@@ -144,7 +144,7 @@ def test_select_window_returns_absolute_window():
     )
     from marivo.analysis_py.windows import AbsoluteWindow
 
-    window = mv.select(cs, rank=1, attribute="window")
+    window = cs.select(rank=1, attribute="window")
     assert isinstance(window, AbsoluteWindow)
     assert window.start.startswith("2026-01-15")
     assert window.end.startswith("2026-01-15")
@@ -167,7 +167,7 @@ def test_select_baseline_window_for_period_shift():
     )
     from marivo.analysis_py.windows import AbsoluteWindow
 
-    baseline = mv.select(cs, rank=1, attribute="baseline_window")
+    baseline = cs.select(rank=1, attribute="baseline_window")
     assert isinstance(baseline, AbsoluteWindow)
     assert baseline.start.startswith("2026-02-03")
 
@@ -186,7 +186,7 @@ def test_select_selector_returns_dimension_ref_keyed_dict():
             }
         ],
     )
-    selector = mv.select(cs, rank=1, attribute="selector")
+    selector = cs.select(rank=1, attribute="selector")
     assert isinstance(selector, dict)
     assert mv.DimensionRef("country") in selector
     assert selector[mv.DimensionRef("country")] == "US"
@@ -207,8 +207,8 @@ def test_select_keys_dot_path_returns_scalar():
             }
         ],
     )
-    assert mv.select(cs, rank=1, attribute="keys.country") == "US"
-    assert mv.select(cs, rank=1, attribute="selector.country") == "US"
+    assert cs.select(rank=1, attribute="keys.country") == "US"
+    assert cs.select(rank=1, attribute="selector.country") == "US"
 
 
 def test_select_recommended_followups_returns_typed_list():
@@ -226,7 +226,7 @@ def test_select_recommended_followups_returns_typed_list():
             }
         ],
     )
-    actions = mv.select(cs, rank=1, attribute="recommended_followups")
+    actions = cs.select(rank=1, attribute="recommended_followups")
     assert isinstance(actions, list)
     assert len(actions) == 1
     assert isinstance(actions[0], mv.FollowupAction)
@@ -240,7 +240,7 @@ def test_select_empty_recommended_followups_returns_empty_list():
         shape="driver_axis",
         rows=[{"item_id": "axis_0", "score": 0.9, "axis": "country"}],
     )
-    assert mv.select(cs, rank=1, attribute="recommended_followups") == []
+    assert cs.select(rank=1, attribute="recommended_followups") == []
 
 
 def test_select_field_incompatible_with_shape_raises():
@@ -258,7 +258,7 @@ def test_select_field_incompatible_with_shape_raises():
         ],
     )
     with pytest.raises(SemanticKindMismatchError) as exc:
-        mv.select(cs, rank=1, attribute="axis")
+        cs.select(rank=1, attribute="axis")
     assert exc.value.details.get("shape") == "point_anomaly"
     assert exc.value.details.get("attribute") == "axis"
 
@@ -271,7 +271,7 @@ def test_select_rank_out_of_range_raises():
         rows=[{"item_id": "axis_0", "score": 0.9, "axis": "country"}],
     )
     with pytest.raises(SemanticKindMismatchError) as exc:
-        mv.select(cs, rank=5, attribute="axis")
+        cs.select(rank=5, attribute="axis")
     assert exc.value.details.get("row_count") == 1
     assert exc.value.details.get("requested_rank") == 5
 
@@ -291,7 +291,7 @@ def test_select_unknown_dot_path_key_raises():
         ],
     )
     with pytest.raises(SemanticKindMismatchError):
-        mv.select(cs, rank=1, attribute="keys.unknown")
+        cs.select(rank=1, attribute="keys.unknown")
 
 
 def test_select_does_not_create_jobs_or_lineage():
@@ -302,7 +302,7 @@ def test_select_does_not_create_jobs_or_lineage():
         rows=[{"item_id": "axis_0", "score": 0.9, "axis": "country"}],
     )
     jobs_before = len(session.jobs())
-    mv.select(cs, rank=1, attribute="axis")
+    cs.select(rank=1, attribute="axis")
     assert len(session.jobs()) == jobs_before
 
 
@@ -310,14 +310,13 @@ def test_select_axis_feeds_decompose():
     session = session_attach.get_or_create(name="demo")
     delta_df = pd.DataFrame({"country": ["US", "JP", "DE"], "delta": [10.0, 5.0, 0.5]})
     src = _delta(session, delta_df, semantic_kind="segmented")
-    axis_candidates = mv.discover(
+    axis_candidates = session.discover(
         src,
         objective="driver_axes",
         search_space=[mv.DimensionRef("country")],
-        session=session,
     )
-    selected_axis = mv.select(axis_candidates, rank=1, attribute="axis")
-    drivers = mv.decompose(src, axis=selected_axis, session=session)
+    selected_axis = axis_candidates.select(rank=1, attribute="axis")
+    drivers = session.decompose(src, axis=selected_axis)
     assert drivers.meta.kind == "attribution_frame"
 
 
@@ -330,14 +329,13 @@ def test_select_window_feeds_transform_window():
         }
     )
     metric = _metric(session, df, semantic_kind="time_series")
-    windows = mv.discover(
+    windows = session.discover(
         metric,
         objective="interesting_windows",
         threshold=2.0,
-        session=session,
     )
-    window = mv.select(windows, rank=1, attribute="window")
-    local = mv.transform(metric, op="window", window=window, session=session)
+    window = windows.select(rank=1, attribute="window")
+    local = session.transform(metric, op="window", window=window)
     assert local.meta.kind == "metric_frame"
 
 
@@ -355,15 +353,14 @@ def test_select_selector_feeds_transform_slice():
         "country": {"role": "dimension", "column": "country"},
         "platform": {"role": "dimension", "column": "platform"},
     }
-    slice_cands = mv.discover(
+    slice_cands = session.discover(
         src,
         objective="interesting_slices",
         search_space=[mv.DimensionRef("country"), mv.DimensionRef("platform")],
         threshold=2.0,
-        session=session,
     )
-    selector = mv.select(slice_cands, rank=1, attribute="selector")
-    focus = mv.transform(src, op="slice", where=selector, session=session)
+    selector = slice_cands.select(rank=1, attribute="selector")
+    focus = session.transform(src, op="slice", where=selector)
     assert focus.meta.kind == "delta_frame"
 
 

@@ -60,10 +60,9 @@ def _delta(session) -> DeltaFrame:
 def test_decompose_populates_surface1_and_decomposition_findings() -> None:
     session = session_attach.create(name="decompose_evidence")
 
-    attribution = mv.decompose(
+    attribution = session.decompose(
         _delta(session),
         axis=mv.DimensionRef("country"),
-        session=session,
     )
 
     assert attribution.meta.artifact_id is not None

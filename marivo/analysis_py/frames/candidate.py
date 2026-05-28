@@ -101,3 +101,9 @@ class CandidateSet(BaseFrame):
 
     def as_cross_sectional_outlier(self) -> CandidateSet:
         return self._assert_shape("cross_sectional_outlier")
+
+    def select(self, *, rank: int = 1, attribute: str) -> Any:
+        """Read one typed attribute from a single ranked candidate row."""
+        from marivo.analysis_py.intents.select import select
+
+        return select(self, rank=rank, attribute=attribute)

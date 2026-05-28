@@ -54,7 +54,7 @@ def test_observe_uses_global_datasource_name(tmp_path: Path, fake_home: Path) ->
     mv.datasources.register("warehouse", backend_type="duckdb", path=str(db_path))
 
     session = mv.session.get_or_create(name="s")
-    frame = mv.observe(mv.MetricRef("sales.revenue"), session=session)
+    frame = session.observe(mv.MetricRef("sales.revenue"))
 
     assert frame.to_pandas().iloc[0, 0] == 10.0
     assert session.known_datasources == {"warehouse"}

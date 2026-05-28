@@ -340,6 +340,250 @@ class Session:
         """Return Surface 3 evidence lookup helpers."""
         return EvidenceNamespace(self)
 
+    @property
+    def discover(self) -> SessionDiscoverNamespace:
+        """Return session-bound candidate discovery helpers."""
+        return SessionDiscoverNamespace(self)
+
+    @property
+    def transform(self) -> SessionTransformNamespace:
+        """Return session-bound transform helpers."""
+        return SessionTransformNamespace(self)
+
+    def observe(
+        self,
+        metric: Any,
+        *,
+        window: Any = None,
+        dimensions: list[Any] | None = None,
+        where: dict[str, Any] | None = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.observe import observe
+
+        return observe(
+            metric,
+            window=window,
+            dimensions=dimensions,
+            where=where,
+            session=self,
+        )
+
+    def compare(
+        self,
+        current: Any,
+        baseline: Any,
+        *,
+        alignment: Any = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.compare import compare
+
+        return compare(current, baseline, alignment=alignment, session=self)
+
+    def decompose(
+        self,
+        frame: Any,
+        *,
+        axis: Any,
+        measure_column: str = "delta",
+    ) -> Any:
+        from marivo.analysis_py.intents.decompose import decompose
+
+        return decompose(frame, axis=axis, measure_column=measure_column, session=self)
+
+    def correlate(
+        self,
+        a: Any,
+        b: Any,
+        *,
+        measure_a: str | None = None,
+        measure_b: str | None = None,
+        alignment: Any = None,
+        lag_policy: Any = None,
+        method: str = "pearson",
+    ) -> Any:
+        from marivo.analysis_py.intents.correlate import correlate
+
+        return correlate(
+            a,
+            b,
+            measure_a=measure_a,
+            measure_b=measure_b,
+            alignment=alignment,
+            lag_policy=lag_policy,
+            method=cast("Any", method),
+            session=self,
+        )
+
+    def forecast(
+        self,
+        history: Any,
+        *,
+        horizon: int,
+        model: str = "seasonal_naive",
+        seasonality_period: int | None = None,
+        interval_level: float = 0.95,
+        measure_column: str | None = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.forecast import forecast
+
+        return forecast(
+            history,
+            horizon=horizon,
+            model=cast("Any", model),
+            seasonality_period=seasonality_period,
+            interval_level=interval_level,
+            measure_column=measure_column,
+            session=self,
+        )
+
+    def assess_quality(self, frame: Any) -> Any:
+        from marivo.analysis_py.intents.assess_quality import assess_quality
+
+        return assess_quality(frame, session=self)
+
+    def hypothesis_test(
+        self,
+        a: Any,
+        b: Any,
+        *,
+        hypothesis: str = "mean_changed",
+        value_a: str | None = None,
+        value_b: str | None = None,
+        alignment: Any = None,
+        sampling: Any = None,
+        alpha: float = 0.05,
+    ) -> Any:
+        from marivo.analysis_py.intents.test import hypothesis_test
+
+        return hypothesis_test(
+            a,
+            b,
+            hypothesis=cast("Any", hypothesis),
+            value_a=value_a,
+            value_b=value_b,
+            alignment=alignment,
+            sampling=sampling,
+            alpha=alpha,
+            session=self,
+        )
+
+    def from_pandas(
+        self,
+        df: Any,
+        *,
+        description: str | None = None,
+        sources: list[Any] | None = None,
+    ) -> Any:
+        from marivo.analysis_py.escape_hatch import from_pandas
+
+        return from_pandas(df, session=self, description=description, sources=sources)
+
+    def explore_ibis(
+        self,
+        query_builder: Callable[[Any], Any],
+        *,
+        datasource: str,
+        description: str | None = None,
+        sources: list[Any] | None = None,
+    ) -> Any:
+        from marivo.analysis_py.escape_hatch import explore_ibis
+
+        return explore_ibis(
+            query_builder,
+            datasource=datasource,
+            session=self,
+            description=description,
+            sources=sources,
+        )
+
+    def promote_metric_frame(
+        self,
+        source: Any,
+        *,
+        policy: Any = None,
+        metric: Any = None,
+        semantic_kind: str | None = None,
+        measure_column: str | None = None,
+        axes: dict[str, Any] | None = None,
+        time_axis: str | Any | None = None,
+        semantic_model: str | None = None,
+        window: Any = None,
+        where: dict[str, Any] | None = None,
+    ) -> Any:
+        from marivo.analysis_py.escape_hatch import promote_metric_frame
+
+        return promote_metric_frame(
+            source,
+            policy=policy,
+            session=self,
+            metric=metric,
+            semantic_kind=cast("Any", semantic_kind),
+            measure_column=measure_column,
+            axes=axes,
+            time_axis=time_axis,
+            semantic_model=semantic_model,
+            window=window,
+            where=where,
+        )
+
+    def promote_delta_frame(
+        self,
+        source: Any,
+        *,
+        policy: Any = None,
+        current: Any = None,
+        baseline: Any = None,
+        metric: Any = None,
+        semantic_kind: str | None = None,
+        semantic_model: str | None = None,
+        delta_column: str | None = None,
+        current_column: str | None = None,
+        baseline_column: str | None = None,
+        alignment: Any = None,
+    ) -> Any:
+        from marivo.analysis_py.escape_hatch import promote_delta_frame
+
+        return promote_delta_frame(
+            source,
+            policy=policy,
+            session=self,
+            current=current,
+            baseline=baseline,
+            metric=metric,
+            semantic_kind=cast("Any", semantic_kind),
+            semantic_model=semantic_model,
+            delta_column=delta_column,
+            current_column=current_column,
+            baseline_column=baseline_column,
+            alignment=alignment,
+        )
+
+    def promote_attribution_frame(
+        self,
+        source: Any,
+        *,
+        policy: Any = None,
+        source_delta: Any = None,
+        driver_field: str | None = None,
+        contribution_column: str | None = None,
+        value_column: str | None = None,
+        method: str = "promotion",
+        method_params: dict[str, Any] | None = None,
+    ) -> Any:
+        from marivo.analysis_py.escape_hatch import promote_attribution_frame
+
+        return promote_attribution_frame(
+            source,
+            policy=policy,
+            session=self,
+            source_delta=source_delta,
+            driver_field=driver_field,
+            contribution_column=contribution_column,
+            value_column=value_column,
+            method=method,
+            method_params=method_params,
+        )
+
     def _mark_followup_executed(self, *, action_id: str, executed_step_id: str) -> None:
         """Mark a followup action as executed in the judgment store."""
         store = self.evidence_store()
@@ -389,6 +633,265 @@ def ensure_session_writable(session: Session) -> None:
     if state == "archived":
         session.state = "archived"
         raise SessionStateError(message=f"session '{session.name}' is archived")
+
+
+@dataclass(frozen=True)
+class SessionDiscoverNamespace:
+    """Session-bound candidate discovery helpers."""
+
+    _session: Session
+
+    def __call__(
+        self,
+        source: object,
+        *,
+        objective: Any,
+        strategy: Any = None,
+        value: str | None = None,
+        threshold: float | None = None,
+        sensitivity: str = "balanced",
+        limit: int | None = None,
+        search_space: list[Any] | None = None,
+        peer_scope: list[Any] | None = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.discover import discover
+
+        return discover(
+            source,
+            objective=objective,
+            strategy=strategy,
+            value=value,
+            threshold=threshold,
+            sensitivity=cast("Any", sensitivity),
+            limit=limit,
+            search_space=search_space,
+            peer_scope=peer_scope,
+            session=self._session,
+        )
+
+    def point_anomalies(
+        self,
+        source: Any,
+        *,
+        value: str | None = None,
+        threshold: float | None = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.discover import discover
+
+        return discover.point_anomalies(
+            source,
+            value=value,
+            threshold=threshold,
+            session=self._session,
+        )
+
+    def period_shifts(
+        self,
+        source: Any,
+        *,
+        value: str | None = None,
+        threshold: float | None = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.discover import discover
+
+        return discover.period_shifts(
+            source,
+            value=value,
+            threshold=threshold,
+            session=self._session,
+        )
+
+    def driver_axes(
+        self,
+        source: Any,
+        *,
+        search_space: list[Any],
+        value: str | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.discover import discover
+
+        return discover.driver_axes(
+            source,
+            search_space=search_space,
+            value=value,
+            limit=limit,
+            session=self._session,
+        )
+
+    def interesting_slices(
+        self,
+        source: Any,
+        *,
+        search_space: list[Any] | None = None,
+        value: str | None = None,
+        threshold: float | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.discover import discover
+
+        return discover.interesting_slices(
+            source,
+            search_space=search_space,
+            value=value,
+            threshold=threshold,
+            limit=limit,
+            session=self._session,
+        )
+
+    def interesting_windows(
+        self,
+        source: Any,
+        *,
+        value: str | None = None,
+        threshold: float | None = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.discover import discover
+
+        return discover.interesting_windows(
+            source,
+            value=value,
+            threshold=threshold,
+            session=self._session,
+        )
+
+    def cross_sectional_outliers(
+        self,
+        source: Any,
+        *,
+        peer_scope: list[Any] | None = None,
+        value: str | None = None,
+        threshold: float | None = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.discover import discover
+
+        return discover.cross_sectional_outliers(
+            source,
+            peer_scope=peer_scope,
+            value=value,
+            threshold=threshold,
+            session=self._session,
+        )
+
+
+@dataclass(frozen=True)
+class SessionTransformNamespace:
+    """Session-bound family-preserving transform helpers."""
+
+    _session: Session
+
+    def __call__(
+        self,
+        frame: object,
+        *,
+        op: Any,
+        where: Any = None,
+        predicate: Any = None,
+        drop_axes: Any = None,
+        by: Any = None,
+        limit: int | None = None,
+        order: str | None = None,
+        method: str = "ordinal",
+        rank_column: str = "rank",
+        mode: str | None = None,
+        baseline: Any = None,
+        window: Any = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.transform import transform
+
+        return transform(
+            frame,
+            op=op,
+            where=where,
+            predicate=predicate,
+            drop_axes=drop_axes,
+            by=by,
+            limit=limit,
+            order=order,
+            method=method,
+            rank_column=rank_column,
+            mode=mode,
+            baseline=baseline,
+            window=window,
+            session=self._session,
+        )
+
+    def filter(self, frame: object, *, predicate: Callable[[Any], Any]) -> Any:
+        from marivo.analysis_py.intents.transform import transform
+
+        return transform.filter(frame, predicate=predicate, session=self._session)
+
+    def slice(self, frame: object, *, where: dict[Any, Any]) -> Any:
+        from marivo.analysis_py.intents.transform import transform
+
+        return transform.slice(frame, where=where, session=self._session)
+
+    def rollup(self, frame: object, *, drop_axes: list[Any]) -> Any:
+        from marivo.analysis_py.intents.transform import transform
+
+        return transform.rollup(frame, drop_axes=drop_axes, session=self._session)
+
+    def topk(
+        self,
+        frame: object,
+        *,
+        by: str,
+        limit: int,
+        order: str | None = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.transform import transform
+
+        return transform.topk(
+            frame,
+            by=by,
+            limit=limit,
+            order=cast("Any", order),
+            session=self._session,
+        )
+
+    def bottomk(self, frame: object, *, by: str, limit: int) -> Any:
+        from marivo.analysis_py.intents.transform import transform
+
+        return transform.bottomk(frame, by=by, limit=limit, session=self._session)
+
+    def rank(
+        self,
+        frame: object,
+        *,
+        by: str,
+        method: str = "ordinal",
+        rank_column: str = "rank",
+    ) -> Any:
+        from marivo.analysis_py.intents.transform import transform
+
+        return transform.rank(
+            frame,
+            by=by,
+            method=cast("Any", method),
+            rank_column=rank_column,
+            session=self._session,
+        )
+
+    def normalize(
+        self,
+        frame: Any,
+        *,
+        mode: str,
+        baseline: Any = None,
+    ) -> Any:
+        from marivo.analysis_py.intents.transform import transform
+
+        return transform.normalize(
+            frame,
+            mode=cast("Any", mode),
+            baseline=baseline,
+            session=self._session,
+        )
+
+    def window(self, frame: object, *, window: Any) -> Any:
+        from marivo.analysis_py.intents.transform import transform
+
+        return transform.window(frame, window=window, session=self._session)
 
 
 @dataclass(frozen=True)

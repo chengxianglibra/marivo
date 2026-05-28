@@ -15,20 +15,18 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-cur = mv.observe(
+cur = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "day"},
     dimensions=[mv.DimensionRef(id="region")],
-    session=session,
 )
-prev = mv.observe(
+prev = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2025-07-01", "end": "2025-09-30", "grain": "day"},
     dimensions=[mv.DimensionRef(id="region")],
-    session=session,
 )
-delta = mv.compare(cur, prev, alignment=mv.AlignmentPolicy(kind="calendar_bucket"), session=session)
-attribution = mv.decompose(delta, axis=mv.DimensionRef(id="region"), session=session)
+delta = session.compare(cur, prev, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+attribution = session.decompose(delta, axis=mv.DimensionRef(id="region"))
 print(attribution.summary())
 
 # Expected output:

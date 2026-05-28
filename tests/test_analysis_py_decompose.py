@@ -1,11 +1,10 @@
-"""mv.decompose for scalar, time-series, and segmented DeltaFrames."""
+"""session.decompose for scalar, time-series, and segmented DeltaFrames."""
 
 from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
 
-import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
 from marivo.analysis_py.errors import (
     CrossSessionFrameError,
@@ -95,7 +94,7 @@ def test_decompose_time_series_uses_axis_ref():
         semantic_kind="time_series",
     )
 
-    out = mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
+    out = session.decompose(frame, axis=DimensionRef("bucket"))
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.attribution_kind == "decomposition"
@@ -120,7 +119,7 @@ def test_decompose_segmented_uses_axis_ref():
         semantic_kind="segmented",
     )
 
-    out = mv.decompose(frame, axis=DimensionRef("region"), session=session)
+    out = session.decompose(frame, axis=DimensionRef("region"))
 
     df = out.to_pandas()
     assert list(df["region"]) == ["north", "south"]
@@ -141,7 +140,7 @@ def test_decompose_accepts_model_prefixed_axis_ref():
         semantic_kind="segmented",
     )
 
-    out = mv.decompose(frame, axis=DimensionRef("trino_query.department"), session=session)
+    out = session.decompose(frame, axis=DimensionRef("trino_query.department"))
 
     assert out.meta.driver_field == "department"
     df = out.to_pandas()
@@ -164,7 +163,7 @@ def test_decompose_requires_axis_argument():
     )
 
     with pytest.raises(TypeError):
-        mv.decompose(frame, session=session)
+        session.decompose(frame)
 
 
 def test_decompose_scalar_rejects_missing_axis_column():
@@ -176,7 +175,7 @@ def test_decompose_scalar_rejects_missing_axis_column():
     )
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        mv.decompose(frame, axis=DimensionRef("region"), session=session)
+        session.decompose(frame, axis=DimensionRef("region"))
 
     assert exc_info.value.details["requested_axis"] == "region"
     assert exc_info.value.details["normalized_axis"] == "region"
@@ -187,7 +186,7 @@ def test_decompose_writes_job_and_frame():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
 
-    out = mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
+    out = session.decompose(frame, axis=DimensionRef("bucket"))
 
     jobs = [job for job in session.jobs() if job.intent == "decompose"]
     assert len(jobs) == 1
@@ -198,7 +197,7 @@ def test_decompose_writes_job_and_frame():
 def test_decompose_rejects_metric_frame():
     session = session_attach.get_or_create(name="demo")
     with pytest.raises(SemanticKindMismatchError):
-        mv.decompose(_metric(session), axis=DimensionRef("bucket"), session=session)  # type: ignore[arg-type]
+        session.decompose(_metric(session), axis=DimensionRef("bucket"))  # type: ignore[arg-type]
 
 
 def test_decompose_rejects_panel_delta():
@@ -209,7 +208,7 @@ def test_decompose_rejects_panel_delta():
         semantic_kind="panel",
     )
     with pytest.raises(SemanticKindMismatchError):
-        mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
+        session.decompose(frame, axis=DimensionRef("bucket"))
 
 
 def test_decompose_rejects_non_dimension_ref_axis():
@@ -220,7 +219,7 @@ def test_decompose_rejects_non_dimension_ref_axis():
         semantic_kind="segmented",
     )
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        mv.decompose(frame, axis="region", session=session)  # type: ignore[arg-type]
+        session.decompose(frame, axis="region")  # type: ignore[arg-type]
 
     assert exc_info.value.details["expected_kind"] == "DimensionRef"
     assert exc_info.value.details["got_kind"] == "str"
@@ -234,7 +233,7 @@ def test_decompose_rejects_missing_axis_column():
         semantic_kind="time_series",
     )
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
+        session.decompose(frame, axis=DimensionRef("bucket"))
 
     assert exc_info.value.details["requested_axis"] == "bucket"
     assert exc_info.value.details["normalized_axis"] == "bucket"
@@ -245,14 +244,14 @@ def test_decompose_rejects_missing_value_column():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     with pytest.raises(SemanticKindMismatchError):
-        mv.decompose(frame, axis=DimensionRef("bucket"), measure_column="missing", session=session)
+        session.decompose(frame, axis=DimensionRef("bucket"), measure_column="missing")
 
 
 def test_decompose_rejects_non_numeric_value_column():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": ["bad"]}))
     with pytest.raises(SemanticKindMismatchError):
-        mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
+        session.decompose(frame, axis=DimensionRef("bucket"))
 
 
 def test_decompose_rejects_cross_session_frame():
@@ -260,7 +259,7 @@ def test_decompose_rejects_cross_session_frame():
     frame = _delta(session_a, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     session_b = session_attach.get_or_create(name="b")
     with pytest.raises(CrossSessionFrameError):
-        mv.decompose(frame, axis=DimensionRef("bucket"), session=session_b)
+        session_b.decompose(frame, axis=DimensionRef("bucket"))
 
 
 def test_decompose_archived_session_raises():
@@ -268,7 +267,7 @@ def test_decompose_archived_session_raises():
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     session_attach.archive("demo")
     with pytest.raises(SessionStateError):
-        mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
+        session.decompose(frame, axis=DimensionRef("bucket"))
 
 
 def test_decompose_stale_archived_session_raises():
@@ -278,4 +277,4 @@ def test_decompose_stale_archived_session_raises():
     session_attach.archive("demo")
     assert session.state == "active"
     with pytest.raises(SessionStateError):
-        mv.decompose(frame, axis=DimensionRef("bucket"), session=session)
+        session.decompose(frame, axis=DimensionRef("bucket"))

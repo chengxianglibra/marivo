@@ -17,19 +17,18 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-series = mv.observe(
+series = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
-    session=session,
 )
-anomalies = mv.discover.point_anomalies(series, threshold=1.0, session=session)
+anomalies = session.discover.point_anomalies(series, threshold=1.0)
 print(f"anomalies.row_count={anomalies.meta.row_count}")
 if anomalies.meta.row_count:
-    hit = mv.select(anomalies, rank=1, attribute="window")
+    hit = anomalies.select(rank=1, attribute="window")
     assert isinstance(hit, mv.AbsoluteWindow)
     drill_end = (pd.Timestamp(hit.end) + pd.offsets.MonthBegin(1)).date().isoformat()
     drill = mv.AbsoluteWindow(start=hit.start, end=drill_end)
-    local = mv.transform.window(series, window=drill, session=session)
+    local = session.transform.window(series, window=drill)
     print(f"local.kind={local.meta.kind!r}")
     print(f"local.row_count={local.meta.row_count}")
 

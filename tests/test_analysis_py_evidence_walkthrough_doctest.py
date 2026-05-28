@@ -89,11 +89,11 @@ class _WalkthroughSession:
         window = {k: v for k, v in windows[time].items() if v is not None}
         fixture_dimension = "region" if segment_by == "country" else segment_by
         dimensions = [ap.DimensionRef(fixture_dimension)] if fixture_dimension is not None else None
-        frame = ap.observe(metric, window=window, dimensions=dimensions, session=self._session)
+        frame = self._session.observe(metric, window=window, dimensions=dimensions)
         return _ResultView(frame)
 
     def compare(self, current: _ResultView, baseline: _ResultView) -> _ResultView:
-        frame = ap.compare(current._frame, baseline._frame, session=self._session)
+        frame = self._session.compare(current._frame, baseline._frame)
         return _ResultView(frame)
 
     def knowledge(self) -> Any:

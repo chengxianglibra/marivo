@@ -80,11 +80,11 @@ def forecast(
         CrossSessionFrameError: ``history`` belongs to a different session.
 
     Example:
-        >>> history = mv.observe(
+        >>> history = session.observe(
         ...     mv.MetricRef("sales.revenue"),
         ...     window={"start": "2026-01-01", "end": "2026-03-31", "grain": "day"},
         ... )
-        >>> forecast = mv.forecast(history, horizon=30)
+        >>> forecast = session.forecast(history, horizon=30)
         >>> forecast.summary()
     """
     session = resolve_session(session)

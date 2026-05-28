@@ -14,9 +14,9 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
         message="something happened",
         hint="try fixing X",
         details={
-            "location": "mv.compare call",
+            "location": "session.compare call",
             "cause": "param a was invalid",
-            "fix_snippet": 'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))',
+            "fix_snippet": 'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))',
             "doc": "marivo-skill/marivo-py-analysis/references/pitfalls.md",
         },
     )
@@ -24,12 +24,12 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
     rendered = str(err)
 
     assert rendered.startswith("AnalysisError: something happened")
-    assert "Location: mv.compare call" in rendered
+    assert "Location: session.compare call" in rendered
     assert "Cause: param a was invalid" in rendered
     assert "Hint: try fixing X" in rendered
     assert "Fix:" in rendered
     assert (
-        '  delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
         in rendered
     )
     assert "Docs: marivo-skill/marivo-py-analysis/references/pitfalls.md" in rendered
@@ -90,18 +90,18 @@ def test_semantic_kind_mismatch_has_compare_fix_template():
     assert "metric_frame" in rendered
     assert "Fix:" in rendered
     assert (
-        'cur  = mv.observe(mv.MetricRef("sales.revenue"), '
+        'cur  = session.observe(mv.MetricRef("sales.revenue"), '
         'window={"start": "2026-07-01", "end": "2026-09-30"})'
     ) in rendered
     assert (
-        'base = mv.observe(mv.MetricRef("sales.revenue"), '
+        'base = session.observe(mv.MetricRef("sales.revenue"), '
         'window={"start": "2025-07-01", "end": "2025-09-30"})'
     ) in rendered
     assert (
-        '  delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
         in rendered
     )
-    assert 'mv.observe("revenue"' not in rendered
+    assert 'session.observe("revenue"' not in rendered
 
 
 def test_semantic_kind_mismatch_without_kind_details_is_not_compare_specific():
@@ -109,9 +109,9 @@ def test_semantic_kind_mismatch_without_kind_details_is_not_compare_specific():
 
     rendered = str(err)
 
-    assert "mv.compare call" not in rendered
+    assert "session.compare call" not in rendered
     assert (
-        'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
         not in rendered
     )
 
@@ -126,9 +126,9 @@ def test_semantic_kind_mismatch_for_delta_expected_is_not_compare_specific():
 
     assert "metric_frame" in rendered
     assert "delta_frame" in rendered
-    assert "mv.compare call" not in rendered
+    assert "session.compare call" not in rendered
     assert (
-        'delta = mv.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
         not in rendered
     )
 
@@ -144,10 +144,10 @@ def test_window_invalid_has_window_fix_template():
     assert "last quarter" in rendered
     assert "Fix:" in rendered
     assert (
-        '  mv.observe(mv.MetricRef("sales.revenue"), '
+        '  session.observe(mv.MetricRef("sales.revenue"), '
         'window={"start": "2026-07-01", "end": "2026-09-30"})'
     ) in rendered
-    assert 'mv.observe("revenue", window=' not in rendered
+    assert 'session.observe("revenue", window=' not in rendered
 
 
 def test_metric_not_found_has_list_metrics_fix_template():
@@ -162,10 +162,10 @@ def test_metric_not_found_has_list_metrics_fix_template():
     assert "Fix:" in rendered
     assert "  project.list_metrics()  # confirm the exact id" in rendered
     assert (
-        'mv.observe(mv.MetricRef("<registered_metric_id>"), '
+        'session.observe(mv.MetricRef("<registered_metric_id>"), '
         'window={"start": "2026-07-01", "end": "2026-09-30"})'
     ) in rendered
-    assert 'mv.observe("<registered_metric_id>", window=' not in rendered
+    assert 'session.observe("<registered_metric_id>", window=' not in rendered
 
 
 def test_metric_not_found_uses_model_and_metric_details_in_cause():
@@ -248,7 +248,7 @@ def test_axis_not_in_panel_dimensions_renders_paste_ready_fix_snippet():
 
     rendered = str(err)
 
-    assert 'mv.decompose(delta, axis=mv.DimensionRef("region"))' in rendered
+    assert 'session.decompose(delta, axis=mv.DimensionRef("region"))' in rendered
     assert "region, country" in rendered
 
 
@@ -266,7 +266,7 @@ def test_select_attribute_mismatch_lists_valid_attributes_for_shape():
 
     assert "Valid attributes for shape 'point_anomaly':" in rendered
     assert "direction, item_id, recommended_followups, score, window" in rendered
-    assert 'mv.select(cands, rank=1, attribute="direction")' in rendered
+    assert 'cands.select(rank=1, attribute="direction")' in rendered
 
 
 def test_no_backend_factory_default_template_fields_populated() -> None:

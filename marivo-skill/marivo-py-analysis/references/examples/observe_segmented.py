@@ -15,11 +15,10 @@ ensure_loaded()
 import marivo.analysis_py as mv  # noqa: E402
 
 session = mv.session.active()
-by_region = mv.observe(
+by_region = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30"},
     dimensions=[mv.DimensionRef(id="region")],
-    session=session,
 )
 print(by_region.summary())
 

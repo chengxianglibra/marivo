@@ -7,7 +7,6 @@ import sqlite3
 import pandas as pd
 import pytest
 
-import marivo.analysis_py as mv
 import marivo.analysis_py.session.attach as session_attach
 from marivo.analysis_py.frames.metric import MetricFrame
 
@@ -48,7 +47,7 @@ def test_correlate_populates_surface1_and_correlation_finding() -> None:
         metric_id="sales.orders",
     )
 
-    result = mv.correlate(revenue, orders, method="pearson", session=session)
+    result = session.correlate(revenue, orders, method="pearson")
 
     assert result.meta.artifact_id is not None
     assert result.meta.ref == result.meta.artifact_id
