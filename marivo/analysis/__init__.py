@@ -39,6 +39,7 @@ from marivo.analysis.frames.candidate import (
     CandidateSetMeta,
     CandidateShape,
 )
+from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.exploration import ExplorationResult, ExplorationResultMeta
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
@@ -97,6 +98,8 @@ __all__ = [
     "CandidateSetMeta",
     "CandidateShape",
     "ChangeFact",
+    "ComponentFrame",
+    "ComponentFrameMeta",
     "ConfidenceScope",
     "DeltaFrame",
     "DeltaFrameMeta",

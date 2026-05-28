@@ -88,3 +88,23 @@ def test_delta_frame_meta_accepts_optional_normalization():
         normalization={"mode": "z_score", "baseline": None, "columns_affected": ["delta"]},
     )
     assert meta.normalization["mode"] == "z_score"
+
+
+def test_delta_frame_meta_component_links_default_to_none():
+    meta = DeltaFrameMeta(
+        ref="frame_test",
+        session_id="sess_test",
+        project_root="/tmp/proj",
+        produced_by_job=None,
+        created_at=datetime.now(UTC),
+        row_count=0,
+        byte_size=0,
+        metric_id="sales.revenue",
+        source_current_ref="a",
+        source_baseline_ref="b",
+        alignment={"kind": "window_bucket"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+    )
+    assert meta.component_ref is None
+    assert meta.decomposition is None

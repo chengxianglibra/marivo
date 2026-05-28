@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ConfigDict
 
+from marivo.analysis.errors import ComponentFrameUnavailableError
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+
+if TYPE_CHECKING:
+    from marivo.analysis.frames.component import ComponentFrame
 
 
 class DeltaFrameMeta(BaseFrameMeta):
@@ -21,6 +25,8 @@ class DeltaFrameMeta(BaseFrameMeta):
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str
     normalization: dict[str, Any] | None = None
+    component_ref: str | None = None
+    decomposition: dict[str, Any] | None = None
 
 
 @dataclass
@@ -28,3 +34,30 @@ class DeltaFrame(BaseFrame):
     meta: DeltaFrameMeta
 
     _NEXT_INTENTS = ("decompose", "discover", "transform")
+
+    def components(self) -> ComponentFrame:
+        """Load the linked ComponentFrame for component-aware deltas."""
+        from marivo.analysis.frames.component import ComponentFrame
+        from marivo.analysis.session._load import load_frame
+        from marivo.analysis.session.attach import active
+
+        if self.meta.component_ref is None:
+            raise ComponentFrameUnavailableError(
+                message=(
+                    "components are only available for derived ratio or "
+                    "weighted-average delta frames produced by component-aware compare"
+                ),
+                details={"parent_ref": self.ref, "parent_kind": self.meta.kind},
+            )
+        loaded = load_frame(self.meta.component_ref, session=active())
+        if not isinstance(loaded, ComponentFrame):
+            raise ComponentFrameUnavailableError(
+                message="linked component_ref did not resolve to a ComponentFrame",
+                details={
+                    "parent_ref": self.ref,
+                    "parent_kind": self.meta.kind,
+                    "component_ref": self.meta.component_ref,
+                    "loaded_kind": loaded.meta.kind,
+                },
+            )
+        return loaded

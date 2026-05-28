@@ -451,3 +451,96 @@ def test_observe_persists_known_datasources(tmp_path):
     session_attach._reset_process_state()
     reattached = session_attach.get_or_create(name="demo")
     assert reattached.known_datasources == {"warehouse"}
+
+
+# ---------------------------------------------------------------------------
+# Component-aware derived metric tests
+# ---------------------------------------------------------------------------
+
+
+def _bootstrap_failure_rate(tmp_path):
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "def orders(backend):\n"
+        "    return backend.table('orders')\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "def order_date(orders):\n"
+        "    return orders.created_at.cast('date')\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
+        "def failed_count(orders):\n"
+        "    return (orders.state == 'FAILED').cast('int64').sum()\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
+        "def total_count(orders):\n"
+        "    return orders.count()\n"
+        "\n"
+        "@ms.metric(\n"
+        "    datasets=[],\n"
+        "    decomposition=ms.ratio(\n"
+        "        numerator='sales.failed_count',\n"
+        "        denominator='sales.total_count',\n"
+        "    ),\n"
+        ")\n"
+        "def failure_rate():\n"
+        "    return ms.component('numerator') / ms.component('denominator')\n"
+    )
+
+
+def _seed_failure_rate(con):
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER, created_at DATE, state VARCHAR)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', 'FAILED'),"
+        "(2, DATE '2026-07-02', 'SUCCEEDED'),"
+        "(3, DATE '2026-07-03', 'FAILED'),"
+        "(4, DATE '2026-07-04', 'SUCCEEDED')"
+    )
+
+
+def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
+    _bootstrap_failure_rate(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_failure_rate(con)
+    session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    frame = observe(MetricRef("sales.failure_rate"), session=session)
+
+    assert frame.meta.component_ref is not None
+    assert frame.meta.decomposition == {
+        "kind": "ratio",
+        "components": {
+            "numerator": "sales.failed_count",
+            "denominator": "sales.total_count",
+        },
+    }
+    assert set(frame.to_pandas().columns) == {"failure_rate"}
+    assert "numerator" not in frame.summary().columns
+    components = frame.components()
+    assert components.meta.parent_ref == frame.ref
+    assert components.meta.parent_kind == "metric_frame"
+    assert components.meta.decomposition_kind == "ratio"
+    assert components.meta.components == {
+        "numerator": "sales.failed_count",
+        "denominator": "sales.total_count",
+    }
+    component_df = components.to_pandas()
+    assert list(component_df.columns) == ["numerator", "denominator", "metric_value"]
+    assert component_df.iloc[0]["numerator"] == pytest.approx(2.0)
+    assert component_df.iloc[0]["denominator"] == pytest.approx(4.0)
+    assert component_df.iloc[0]["metric_value"] == pytest.approx(0.5)

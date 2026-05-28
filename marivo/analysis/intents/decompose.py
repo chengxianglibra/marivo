@@ -7,10 +7,16 @@ from datetime import UTC, datetime
 from time import monotonic
 
 import numpy as np
+import pandas as pd
 
-from marivo.analysis.errors import AxisNotInPanelDimensionsError, SemanticKindMismatchError
+from marivo.analysis.errors import (
+    AxisNotInPanelDimensionsError,
+    ComponentDecompositionError,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.evidence.types import TriggeredByFollowup
 from marivo.analysis.frames.attribution import AttributionFrame
+from marivo.analysis.frames.component import ComponentFrame
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.intents._derived import (
     ensure_frame_in_session,
@@ -19,6 +25,7 @@ from marivo.analysis.intents._derived import (
     resolve_session,
 )
 from marivo.analysis.refs import DimensionRef
+from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.core import Session, ensure_session_writable
 
 
@@ -71,6 +78,133 @@ def _resolve_axis_column(frame: DeltaFrame, axis: DimensionRef, columns: list[st
     if normalized in columns:
         return normalized
     return None
+
+
+def _load_delta_component_frame(frame: DeltaFrame, *, session: Session) -> ComponentFrame | None:
+    if frame.meta.component_ref is None:
+        return None
+    loaded = load_frame(frame.meta.component_ref, session=session)
+    if not isinstance(loaded, ComponentFrame):
+        raise ComponentDecompositionError(
+            message="delta component_ref did not resolve to a ComponentFrame",
+            details={
+                "delta_ref": frame.ref,
+                "component_ref": frame.meta.component_ref,
+                "loaded_kind": loaded.meta.kind,
+            },
+        )
+    return loaded
+
+
+def _component_measure_role(component: ComponentFrame) -> str:
+    if component.meta.decomposition_kind == "ratio":
+        return "denominator"
+    if component.meta.decomposition_kind == "weighted_average":
+        return "weight"
+    raise ComponentDecompositionError(
+        message="unsupported component decomposition kind",
+        details={"decomposition_kind": component.meta.decomposition_kind},
+    )
+
+
+def _component_method(component: ComponentFrame) -> str:
+    if component.meta.decomposition_kind == "ratio":
+        return "ratio_mix"
+    if component.meta.decomposition_kind == "weighted_average":
+        return "weighted_mix"
+    raise ComponentDecompositionError(
+        message="unsupported component decomposition kind",
+        details={"decomposition_kind": component.meta.decomposition_kind},
+    )
+
+
+def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
+    numerator = pd.to_numeric(numerator, errors="coerce")
+    denominator = pd.to_numeric(denominator, errors="coerce")
+    return pd.Series(
+        np.where(denominator.notna() & (denominator != 0), numerator / denominator, np.nan),
+        index=numerator.index,
+    )
+
+
+def _component_mix_output(
+    *,
+    component: ComponentFrame,
+    axis_column: str,
+) -> pd.DataFrame:
+    df = component.to_pandas()
+    share_role = _component_measure_role(component)
+    required = [
+        axis_column,
+        "current_numerator",
+        "baseline_numerator",
+        f"current_{share_role}",
+        f"baseline_{share_role}",
+        "current_metric_value",
+        "baseline_metric_value",
+    ]
+    missing = [column for column in required if column not in df.columns]
+    if missing:
+        raise ComponentDecompositionError(
+            message="component-aware decompose requires component delta columns",
+            details={"component_ref": component.ref, "missing_columns": missing},
+        )
+    output = df[required].copy()
+    current_basis = pd.to_numeric(output[f"current_{share_role}"], errors="coerce")
+    baseline_basis = pd.to_numeric(output[f"baseline_{share_role}"], errors="coerce")
+    current_total = current_basis.sum(skipna=True)
+    baseline_total = baseline_basis.sum(skipna=True)
+    if not np.isfinite(current_total) or current_total == 0:
+        current_share = pd.Series(np.nan, index=output.index)
+    else:
+        current_share = current_basis / current_total
+    if not np.isfinite(baseline_total) or baseline_total == 0:
+        baseline_share = pd.Series(np.nan, index=output.index)
+    else:
+        baseline_share = baseline_basis / baseline_total
+    current_value = _safe_divide(output["current_numerator"], current_basis)
+    baseline_value = _safe_divide(output["baseline_numerator"], baseline_basis)
+    output["contribution"] = current_share * current_value - baseline_share * baseline_value
+    output["value_effect"] = current_share * (current_value - baseline_value)
+    output["mix_effect"] = (current_share - baseline_share) * baseline_value
+    output["residual"] = output["contribution"] - output["value_effect"] - output["mix_effect"]
+    valid = output["contribution"].notna()
+    if not bool(valid.any()):
+        raise ComponentDecompositionError(
+            message="component-aware decompose could not form any valid contribution rows",
+            details={"component_ref": component.ref, "share_role": share_role},
+        )
+    total = float(output.loc[valid, "contribution"].sum())
+    output["pct_contribution"] = np.where(
+        valid & (total != 0),
+        output["contribution"] / total,
+        np.nan,
+    )
+    output["current_share"] = current_share
+    output["baseline_share"] = baseline_share
+    output = output.reindex(
+        output["contribution"].abs().sort_values(ascending=False).index
+    ).reset_index(drop=True)
+    output["rank"] = range(1, len(output) + 1)
+    return output[
+        [
+            axis_column,
+            "contribution",
+            "pct_contribution",
+            "value_effect",
+            "mix_effect",
+            "residual",
+            "current_numerator",
+            "baseline_numerator",
+            f"current_{share_role}",
+            f"baseline_{share_role}",
+            "current_metric_value",
+            "baseline_metric_value",
+            "current_share",
+            "baseline_share",
+            "rank",
+        ]
+    ]
 
 
 def decompose(
@@ -144,6 +278,47 @@ def decompose(
                 "normalized_axis": normalized_axis,
                 "available_columns": available_columns,
             },
+        )
+
+    # Component-aware path: ratio/weighted mix attribution.
+    component = _load_delta_component_frame(frame, session=session)
+    if component is not None:
+        if measure_column != "delta":
+            raise ComponentDecompositionError(
+                message=(
+                    "component-aware decompose explains the main delta column only; "
+                    "non-default measure_column is supported only for sum deltas"
+                ),
+                details={"measure_column": measure_column, "delta_ref": frame.ref},
+            )
+        output = _component_mix_output(component=component, axis_column=axis_column)
+        method = _component_method(component)
+        params = {
+            "source_ref": frame.ref,
+            "component_ref": component.ref,
+            "axis": axis.model_dump(mode="json"),
+            "measure_column": "delta",
+            "driver_field": axis_column,
+            "value_column": "delta",
+            "contribution_column": "contribution",
+            "method": method,
+        }
+        return persist_attribution_frame(
+            session=session,
+            df=output,
+            intent="decompose",
+            params=params,
+            sources=[frame],
+            metric_ids=[frame.meta.metric_id],
+            attribution_kind="decomposition",
+            driver_field=axis_column,
+            value_column="delta",
+            contribution_column="contribution",
+            method=method,
+            semantic_kind=frame.meta.semantic_kind,
+            semantic_model=frame.meta.semantic_model,
+            started_at=started_at,
+            started_monotonic=started,
         )
 
     if frame.meta.semantic_kind == "panel":

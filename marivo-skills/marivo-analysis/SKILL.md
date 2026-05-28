@@ -57,6 +57,24 @@ print(frame.summary())   # cheap next-step summary; repr shows next_intents
 Every intent returns a typed, immutable frame. Stay in frame world until you
 call `frame.to_pandas()`. Prefer `frame.summary()` before printing full data.
 
+## Derived ratio and weighted-average components
+
+Derived ratio and weighted-average observations keep parent frames clean:
+`frame.to_pandas()` shows only axis columns plus the final metric value. Use
+`frame.components()` when you need numerator/denominator or numerator/weight
+state.
+
+```python
+rate = session.observe(mv.MetricRef("sales.failure_rate"))
+components = rate.components()
+print(components.summary())
+```
+
+When two compatible component-aware metric frames are compared, the returned
+DeltaFrame also supports `delta.components()`. For segmented ratio or
+weighted-average deltas, `session.decompose(delta, axis=...)` emits value and
+mix effects with method `ratio_mix` or `weighted_mix`.
+
 ## Evidence surfaces
 
 Every result exposes evidence fields on `frame.meta`:

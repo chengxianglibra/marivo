@@ -874,3 +874,27 @@ class SessionLockedByAnotherProcessError(AnalysisError): ...
 
 
 class PropositionNotFoundError(AnalysisError): ...
+
+
+class ComponentFrameUnavailableError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        return {
+            "location": "frame.components()",
+            "cause": (
+                "Component frames are only available for derived ratio or "
+                "weighted-average frames produced by component-aware observe/compare."
+            ),
+            "fix_snippet": (
+                'frame = session.observe(mv.MetricRef("model.derived_ratio"))\n'
+                "components = frame.components()"
+            ),
+            "doc": "docs/superpowers/specs/2026-05-28-component-aware-frame-contract-design.md",
+        }
+
+
+class ComponentFrameMismatchError(AnalysisError):
+    pass
+
+
+class ComponentDecompositionError(AnalysisError):
+    pass

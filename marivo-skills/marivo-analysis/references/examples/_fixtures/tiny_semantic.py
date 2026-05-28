@@ -30,6 +30,7 @@ import marivo.analysis as mv
 
 MODEL_NAME = "sales"
 METRIC_ID = f"{MODEL_NAME}.revenue"
+DERIVED_RATIO_METRIC_ID = f"{MODEL_NAME}.failure_rate"
 SESSION_NAME = "examples"
 DATASOURCE_NAME = "tiny_orders"
 
@@ -41,16 +42,16 @@ def _seed_connection() -> Any:
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql(
         "CREATE TABLE orders (order_id INTEGER, created_at DATE, "
-        "amount DOUBLE, region VARCHAR, user_id INTEGER)"
+        "amount DOUBLE, region VARCHAR, user_id INTEGER, state VARCHAR)"
     )
     con.raw_sql(
         "INSERT INTO orders VALUES "
-        "(1, DATE '2025-07-01', 10.0, 'north', 100),"
-        "(2, DATE '2025-08-01', 20.0, 'south', 200),"
-        "(3, DATE '2025-09-01', 30.0, 'north', 300),"
-        "(4, DATE '2026-07-01', 12.0, 'north', 100),"
-        "(5, DATE '2026-08-01', 24.0, 'south', 200),"
-        "(6, DATE '2026-09-01', 60.0, 'north', 300)"
+        "(1, DATE '2025-07-01', 10.0, 'north', 100, 'FAILED'),"
+        "(2, DATE '2025-08-01', 20.0, 'south', 200, 'SUCCEEDED'),"
+        "(3, DATE '2025-09-01', 30.0, 'north', 300, 'SUCCEEDED'),"
+        "(4, DATE '2026-07-01', 12.0, 'north', 100, 'FAILED'),"
+        "(5, DATE '2026-08-01', 24.0, 'south', 200, 'FAILED'),"
+        "(6, DATE '2026-09-01', 60.0, 'north', 300, 'SUCCEEDED')"
     )
     return con
 
@@ -101,6 +102,24 @@ def _bootstrap_semantic_project(root: Path) -> None:
         "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
+        "def failed_count(orders):\n"
+        "    return (orders.state == 'FAILED').cast('int64').sum()\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
+        "def total_count(orders):\n"
+        "    return orders.count()\n"
+        "\n"
+        "@ms.metric(\n"
+        "    datasets=[],\n"
+        "    decomposition=ms.ratio(\n"
+        "        numerator='sales.failed_count',\n"
+        "        denominator='sales.total_count',\n"
+        "    ),\n"
+        ")\n"
+        "def failure_rate():\n"
+        "    return ms.component('numerator') / ms.component('denominator')\n"
     )
 
 
