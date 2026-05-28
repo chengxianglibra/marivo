@@ -54,7 +54,9 @@
 | Call                                      | Output                                      |
 |-------------------------------------------|---------------------------------------------|
 | `ms.help()`                               | Top-level entry list.                       |
-| `ms.help("dataset")`                      | Signature and docstring for a decorator.    |
+| `ms.help("dataset")`                      | Signature, docstring, and constraints.      |
+| `ms.help("metric", format="json")`        | Structured signature, constraints, and examples. |
+| `ms.help("constraints", format="json")`   | Full constraint catalog with `constraint_id`, hints, and AST specs. |
 
 ## Metric Body Rules
 
@@ -65,3 +67,7 @@
   relationships provide a unique path to the requested dimension.
 - Return one ibis expression. Do not call an aggregate such as `.mean()` on the
   result of `.count()` or `.sum()`.
+- Decorator bodies are AST-whitelisted: use exactly one `return` expression;
+  do not use imports, local assignment, control flow, lambdas, or raw SQL calls
+  inside the body. Inspect `ms.help("constraints", format="json")` for the
+  current machine-readable rules.

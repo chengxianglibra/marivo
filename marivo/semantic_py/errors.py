@@ -12,6 +12,12 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal, NoReturn
 
+from marivo.semantic_py.constraints import (
+    ConstraintId,
+    default_constraint_for_error_kind,
+    default_hint_for_error_kind,
+    get_constraint,
+)
 from marivo.semantic_py.ir import SourceLocation
 
 __all__ = [
@@ -82,166 +88,20 @@ class ErrorKind(StrEnum):
 
 
 # ---------------------------------------------------------------------------
-# Hint factories
+# Catalog-backed hint factories
 # ---------------------------------------------------------------------------
 
 
-def _hint_duplicate_name(**_kwargs: Any) -> str:
-    return "Each name must be unique within its model scope."
-
-
-def _hint_missing_model(**_kwargs: Any) -> str:
-    return "Call ms.model(name=...) before declaring semantic objects."
-
-
-def _hint_missing_datasets(**_kwargs: Any) -> str:
-    return "Base metrics must declare datasets=[...]. Derived metrics must have components in decomposition."
-
-
-def _hint_invalid_ref(**_kwargs: Any) -> str:
-    return "Use datasource names as strings and ref objects returned by ms.dataset/field/time_field/metric decorators."
-
-
-def _hint_invalid_decomposition(**_kwargs: Any) -> str:
-    return "Use ms.sum(), ms.ratio(numerator=..., denominator=...), or ms.weighted_average(value=..., weight=...)."
-
-
-def _hint_invalid_component_body(**_kwargs: Any) -> str:
-    return "Derived metric bodies may only use ms.component('<name>') with arithmetic operators."
-
-
-def _hint_invalid_component_name(**_kwargs: Any) -> str:
-    return "ms.component() name must be one of the keys declared in the decomposition (e.g. 'numerator', 'denominator', 'weight')."
-
-
-def _hint_outside_loader_context(**_kwargs: Any) -> str:
-    return "Decorators can only be used inside files loaded by the semantic project loader."
-
-
-def _hint_outside_derived_metric_body(**_kwargs: Any) -> str:
-    return "ms.component() can only be called inside a derived metric function body."
-
-
-def _hint_metric_body_not_single_return(**_kwargs: Any) -> str:
-    return "Metric function body must contain exactly one return expression."
-
-
-def _hint_invalid_ai_context(**_kwargs: Any) -> str:
-    return "ai_context must be a dict with keys from: business_definition, guardrails, synonyms, examples, instructions, owner_notes."
-
-
-def _hint_sql_escape_hatch(**_kwargs: Any) -> str:
-    return "Raw SQL expressions are not allowed in metric bodies. Use source_sql on the decorator instead."
-
-
-def _hint_model_file_missing(**_kwargs: Any) -> str:
-    return "Each model directory must contain a _model.py file."
-
-
-def _hint_model_file_mismatch(**_kwargs: Any) -> str:
-    return "The model name in _model.py must match the directory name."
-
-
-def _hint_missing_dataset_ref(**_kwargs: Any) -> str:
-    return "Reference a registered dataset by passing the DatasetRef or its semantic_id."
-
-
-def _hint_missing_field_ref(**_kwargs: Any) -> str:
-    return "Reference a registered field by passing the FieldRef or its semantic_id."
-
-
-def _hint_missing_metric_ref(**_kwargs: Any) -> str:
-    return "Reference a registered metric by passing the MetricRef or its semantic_id."
-
-
-def _hint_cross_model_cycle(**_kwargs: Any) -> str:
-    return "Remove circular references between models."
-
-
-def _hint_hour_time_field_prefix_missing(**_kwargs: Any) -> str:
-    return "Hour time fields require a required_prefix pointing to a day-level time field."
-
-
-def _hint_invalid_relationship_endpoint(**_kwargs: Any) -> str:
-    return "Relationship from_/to_ must reference a registered dataset."
-
-
-def _hint_organization_error(**_kwargs: Any) -> str:
-    return "Check the project directory structure and file organization."
-
-
-def _hint_invalid_project(**_kwargs: Any) -> str:
-    return "Ensure the project root contains .marivo/semantic/."
-
-
-def _hint_metric_not_found(**_kwargs: Any) -> str:
-    return "Check the metric name and ensure the project is loaded."
-
-
-def _hint_materialize_failed(**_kwargs: Any) -> str:
-    return "Check the metric function, referenced datasets, and backend factory."
-
-
-def _hint_backend_mismatch(**_kwargs: Any) -> str:
-    return "Ensure the backend dialect matches the datasource backend_type."
-
-
-def _hint_compile_error(**_kwargs: Any) -> str:
-    return "Check the metric expression for unsupported operations."
-
-
-def _hint_cross_datasource_not_supported(**_kwargs: Any) -> str:
-    return "All datasets in a metric must share the same datasource."
-
-
-def _hint_source_sql_missing(**_kwargs: Any) -> str:
-    return "Add source_sql to the metric decorator before running parity checks."
-
-
-def _hint_unverified_provenance(**_kwargs: Any) -> str:
-    return "Run parity_check() to verify metric results against source SQL."
-
-
-def _hint_parity_value_mismatch(**_kwargs: Any) -> str:
-    return "Metric value differs from source SQL. Check the metric expression for semantic drift."
-
-
-def _hint_parity_not_scalar(**_kwargs: Any) -> str:
-    return "Parity checks require exactly one scalar result value."
+def _hint_from_catalog(kind: ErrorKind, **_kwargs: Any) -> str:
+    hint = default_hint_for_error_kind(kind.value)
+    if hint is not None:
+        return hint
+    return "Run ms.help('constraints', format='json') to inspect semantic_py constraints."
 
 
 HINTS: dict[ErrorKind, Callable[..., str]] = {
-    ErrorKind.DUPLICATE_NAME: _hint_duplicate_name,
-    ErrorKind.MISSING_MODEL: _hint_missing_model,
-    ErrorKind.MISSING_DATASETS: _hint_missing_datasets,
-    ErrorKind.INVALID_REF: _hint_invalid_ref,
-    ErrorKind.INVALID_DECOMPOSITION: _hint_invalid_decomposition,
-    ErrorKind.INVALID_COMPONENT_BODY: _hint_invalid_component_body,
-    ErrorKind.INVALID_COMPONENT_NAME: _hint_invalid_component_name,
-    ErrorKind.OUTSIDE_LOADER_CONTEXT: _hint_outside_loader_context,
-    ErrorKind.OUTSIDE_DERIVED_METRIC_BODY: _hint_outside_derived_metric_body,
-    ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN: _hint_metric_body_not_single_return,
-    ErrorKind.INVALID_AI_CONTEXT: _hint_invalid_ai_context,
-    ErrorKind.SQL_ESCAPE_HATCH: _hint_sql_escape_hatch,
-    ErrorKind.MODEL_FILE_MISSING: _hint_model_file_missing,
-    ErrorKind.MODEL_FILE_MISMATCH: _hint_model_file_mismatch,
-    ErrorKind.MISSING_DATASET_REF: _hint_missing_dataset_ref,
-    ErrorKind.MISSING_FIELD_REF: _hint_missing_field_ref,
-    ErrorKind.MISSING_METRIC_REF: _hint_missing_metric_ref,
-    ErrorKind.CROSS_MODEL_CYCLE: _hint_cross_model_cycle,
-    ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING: _hint_hour_time_field_prefix_missing,
-    ErrorKind.INVALID_RELATIONSHIP_ENDPOINT: _hint_invalid_relationship_endpoint,
-    ErrorKind.ORGANIZATION_ERROR: _hint_organization_error,
-    ErrorKind.INVALID_PROJECT: _hint_invalid_project,
-    ErrorKind.METRIC_NOT_FOUND: _hint_metric_not_found,
-    ErrorKind.MATERIALIZE_FAILED: _hint_materialize_failed,
-    ErrorKind.BACKEND_MISMATCH: _hint_backend_mismatch,
-    ErrorKind.COMPILE_ERROR: _hint_compile_error,
-    ErrorKind.CROSS_DATASOURCE_NOT_SUPPORTED: _hint_cross_datasource_not_supported,
-    ErrorKind.SOURCE_SQL_MISSING: _hint_source_sql_missing,
-    ErrorKind.UNVERIFIED_PROVENANCE: _hint_unverified_provenance,
-    ErrorKind.PARITY_VALUE_MISMATCH: _hint_parity_value_mismatch,
-    ErrorKind.PARITY_NOT_SCALAR: _hint_parity_not_scalar,
+    kind: (lambda _kind=kind, **kwargs: _hint_from_catalog(_kind, **kwargs))
+    for kind in ErrorKind
 }
 
 
@@ -266,6 +126,7 @@ class SemanticError(Exception):
     location: SourceLocation | None
     hint: str | None
     details: dict[str, Any]
+    constraint_id: str | None
 
     def __init__(
         self,
@@ -276,13 +137,21 @@ class SemanticError(Exception):
         location: SourceLocation | None = None,
         hint: str | None = None,
         details: dict[str, Any] | None = None,
+        constraint_id: ConstraintId | str | None = None,
     ) -> None:
+        if constraint_id is None:
+            default_constraint = default_constraint_for_error_kind(kind)
+            constraint_id = default_constraint.id if default_constraint is not None else None
+        constraint = get_constraint(constraint_id) if constraint_id is not None else None
+        if hint is None and constraint is not None:
+            hint = constraint.hint
         self.kind = kind
         self.message = message
         self.semantic_refs = refs
         self.location = location
         self.hint = hint
         self.details = details or {}
+        self.constraint_id = str(constraint_id) if constraint_id is not None else None
         super().__init__(str(self))
 
     def __str__(self) -> str:
@@ -379,12 +248,17 @@ def _raise(
     location: SourceLocation | None = None,
     hint: str | None = None,
     details: dict[str, Any] | None = None,
+    constraint_id: ConstraintId | str | None = None,
 ) -> NoReturn:
     """Raise a structured SemanticError with hint from the HINTS registry."""
     if hint is None:
-        hint_fn = HINTS.get(kind)
-        if hint_fn is not None:
-            hint = hint_fn()
+        constraint = get_constraint(constraint_id) if constraint_id is not None else None
+        if constraint is not None:
+            hint = constraint.hint
+        else:
+            hint_fn = HINTS.get(kind)
+            if hint_fn is not None:
+                hint = hint_fn()
     raise cls(
         kind=kind.value,
         message=message,
@@ -392,4 +266,5 @@ def _raise(
         location=location,
         hint=hint,
         details=details,
+        constraint_id=constraint_id,
     )

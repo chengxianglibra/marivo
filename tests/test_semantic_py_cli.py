@@ -129,6 +129,10 @@ def test_check_json_format_shows_errors(tmp_path):
     data = json.loads(result.stdout)
     assert data["status"] == "errored"
     assert len(data["errors"]) >= 1
+    error = data["errors"][0]
+    assert error["constraint_id"] == "dataset_ref_exists"
+    assert error["constraint"]["title"]
+    assert error["constraint"]["hint"]
 
 
 def test_check_text_format_shows_errors(tmp_path):

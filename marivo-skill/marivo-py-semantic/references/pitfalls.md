@@ -13,7 +13,8 @@ the project virtualenv.
 the project virtualenv entrypoints directly:
 
 ```bash
-.venv/bin/python -c 'import marivo.semantic_py as ms; print(ms.help())'
+.venv/bin/python -c 'import marivo.semantic_py as ms; ms.help()'
+.venv/bin/python -c 'import marivo.semantic_py as ms; print(ms.help("constraints", format="json"))'
 .venv/bin/marivo --help
 ```
 
@@ -88,7 +89,8 @@ session = mv.session.get_or_create(name="analysis")
 ## Invalid Metric Shape
 
 **Symptom:** `semantic_py check` reports an invalid component body or the
-loader rejects a metric using `datasets=[]`.
+loader rejects a metric using `datasets=[]`. JSON output includes a
+`constraint_id` such as `metric_derived_shape` or `ast_component_arithmetic`.
 
 **Why it happens:** `datasets=[]` is reserved for derived metrics whose
 decomposition has components, such as `ms.ratio(...)`. Dataset-backed metrics
@@ -116,6 +118,30 @@ def failure_rate():
 
 For dimension drilldowns on a derived metric, make sure the component metrics'
 datasets can reach the requested dimension through a unique relationship path.
+
+## AST Whitelist Violation
+
+**Symptom:** `semantic_py check --format=json` reports `ast_single_return`,
+`ast_forbidden_statement`, or `ast_sql_escape_hatch`.
+
+**Why it happens:** decorator bodies are expression declarations, not general
+Python functions. They must contain exactly one `return <ibis expression>` and
+cannot contain imports, local assignments, control flow, lambdas, or raw SQL
+calls.
+
+**Fix:** move setup outside the decorator body and keep only the expression:
+
+```python
+@ms.metric(datasets=[orders], decomposition=ms.sum(), name="revenue")
+def revenue(orders):
+    return orders.amount.sum()
+```
+
+Inspect the live rules with:
+
+```bash
+.venv/bin/python -c 'import marivo.semantic_py as ms; print(ms.help("metric", format="json"))'
+```
 
 ## Ibis Expression Gotchas
 

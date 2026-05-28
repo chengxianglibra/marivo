@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from marivo.datasource_py.ir import DatasourceIR
+from marivo.semantic_py.constraints import ASTSpec, ConstraintId, get_constraint
 from marivo.semantic_py.errors import (
     ErrorKind,
     SemanticError,
@@ -113,8 +114,17 @@ def validate_decorator_call(kind: str, payload: dict[str, Any]) -> None:
 # Layer 2: AST whitelist validation
 # ---------------------------------------------------------------------------
 
+def _ast_spec_for(constraint_id: ConstraintId) -> ASTSpec:
+    constraint = get_constraint(constraint_id)
+    assert constraint is not None and constraint.ast_spec is not None
+    return constraint.ast_spec
+
+
+_EXPR_BODY_AST_SPEC = _ast_spec_for(ConstraintId.AST_SINGLE_RETURN)
+_DERIVED_BODY_AST_SPEC = _ast_spec_for(ConstraintId.AST_COMPONENT_ARITHMETIC)
+
 # Names that indicate a raw SQL escape hatch when used as an attribute.
-_SQL_ESCAPE_ATTRS = frozenset({"sql", "raw_sql"})
+_SQL_ESCAPE_ATTRS = frozenset(_EXPR_BODY_AST_SPEC.forbidden_attributes)
 
 # AST node types that are FORBIDDEN as statements in metric bodies.
 _FORBIDDEN_STMT_TYPES: frozenset[type[ast.stmt]] = frozenset(
@@ -148,18 +158,25 @@ _FORBIDDEN_STMT_TYPES: frozenset[type[ast.stmt]] = frozenset(
 
 
 class _BaseMetricASTValidator(ast.NodeVisitor):
-    """Walk a base metric body AST and accumulate errors."""
+    """Walk a single-return ibis expression body AST and accumulate errors."""
 
     def __init__(self, fn_name: str) -> None:
         self.fn_name = fn_name
         self.errors: list[SemanticError] = []
 
-    def _add_error(self, kind: ErrorKind, message: str) -> None:
+    def _add_error(
+        self,
+        kind: ErrorKind,
+        message: str,
+        *,
+        constraint_id: ConstraintId,
+    ) -> None:
         self.errors.append(
             SemanticLoadError(
-                kind=kind,
+                kind=kind.value,
                 message=message,
                 refs=(self.fn_name,),
+                constraint_id=constraint_id,
             )
         )
 
@@ -178,12 +195,14 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN,
                 f"Metric body of {self.fn_name!r} must contain exactly one "
                 f"return statement, found none.",
+                constraint_id=ConstraintId.AST_SINGLE_RETURN,
             )
         elif len(all_returns) > 1:
             self._add_error(
                 ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN,
                 f"Metric body of {self.fn_name!r} must contain exactly one "
                 f"return statement, found {len(all_returns)}.",
+                constraint_id=ConstraintId.AST_SINGLE_RETURN,
             )
 
         # Check for forbidden statement types anywhere in the body
@@ -193,23 +212,29 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             # Skip expression nodes — we only check statement nodes
             if not isinstance(child, ast.stmt):
                 continue
-            # Allow Return and Expr (expression statements)
-            if isinstance(child, (ast.Return, ast.Expr)):
+            # Allow the single Return; every other statement violates the
+            # expression-body contract.
+            if isinstance(child, ast.Return):
                 continue
-            for forbidden_type in _FORBIDDEN_STMT_TYPES:
+            for forbidden_type in (*_FORBIDDEN_STMT_TYPES, ast.Expr):
                 if isinstance(child, forbidden_type):
                     kind = ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
-                    if isinstance(child, (ast.Import, ast.ImportFrom)):
+                    constraint_id = ConstraintId.AST_SINGLE_RETURN
+                    if isinstance(child, (ast.Import, ast.ImportFrom, ast.Expr)):
                         kind = ErrorKind.INVALID_COMPONENT_BODY
+                        constraint_id = ConstraintId.AST_FORBIDDEN_STATEMENT
                     self._add_error(
                         kind,
                         f"Metric body of {self.fn_name!r} contains a forbidden "
                         f"{type(child).__name__} statement.",
+                        constraint_id=constraint_id,
                     )
                     break
 
-        # Walk the body for deeper AST checks (sql escape hatch, lambda, etc.)
-        self.generic_visit(node)
+        # Walk only the function body for deeper AST checks. Decorator calls
+        # are normal Python and are not part of the captured expression DSL.
+        for stmt in node.body:
+            self.visit(stmt)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         # Check for .sql / .raw_sql escape hatches
@@ -218,25 +243,31 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 ErrorKind.SQL_ESCAPE_HATCH,
                 f"Metric body of {self.fn_name!r} uses .{node.attr}(), "
                 f"which is not allowed. Use source_sql on the decorator instead.",
+                constraint_id=ConstraintId.AST_SQL_ESCAPE_HATCH,
             )
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        # Check for calls to decorated metric refs (forbidden).
-        # A metric ref call looks like `metric_ref(table)` where metric_ref
-        # is a Name node. We cannot fully distinguish at AST level alone,
-        # but we can flag calls where the function is a Name that isn't
-        # a known safe pattern (like built-in ibis methods).
-        # For now, we check that the Call.func isn't a Name referencing
-        # something that looks like a metric variable.
-        # This is a best-effort check — the full enforcement comes from
-        # the runtime resolver.
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "ms"
+            and func.attr == "component"
+        ):
+            self._add_error(
+                ErrorKind.INVALID_COMPONENT_BODY,
+                f"Metric body of {self.fn_name!r} calls ms.component(), "
+                "which is only allowed in derived metric bodies.",
+                constraint_id=ConstraintId.METRIC_COMPONENT_SCOPE,
+            )
         self.generic_visit(node)
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         self._add_error(
             ErrorKind.INVALID_COMPONENT_BODY,
             f"Metric body of {self.fn_name!r} contains a lambda expression, which is not allowed.",
+            constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
         )
         # Don't recurse into lambda body
 
@@ -258,12 +289,19 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
         # so visit_Attribute doesn't flag them.
         self._valid_component_attrs: set[int] = set()
 
-    def _add_error(self, kind: ErrorKind, message: str) -> None:
+    def _add_error(
+        self,
+        kind: ErrorKind,
+        message: str,
+        *,
+        constraint_id: ConstraintId,
+    ) -> None:
         self.errors.append(
             SemanticLoadError(
-                kind=kind,
+                kind=kind.value,
                 message=message,
                 refs=(self.fn_name,),
+                constraint_id=constraint_id,
             )
         )
 
@@ -283,6 +321,7 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
                 ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN,
                 f"Derived metric body of {self.fn_name!r} must contain "
                 f"exactly one return statement.",
+                constraint_id=ConstraintId.AST_SINGLE_RETURN,
             )
             return
 
@@ -295,27 +334,31 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
                 self._add_error(
                     ErrorKind.INVALID_COMPONENT_BODY,
                     f"Derived metric body of {self.fn_name!r} contains an unexpected statement.",
+                    constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
                 )
             else:
                 self._add_error(
                     ErrorKind.INVALID_COMPONENT_BODY,
                     f"Derived metric body of {self.fn_name!r} contains "
                     f"a forbidden {type(stmt).__name__} statement.",
+                    constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
                 )
 
-        # Pre-scan: mark ms.component attribute nodes as valid
-        self._mark_component_attrs(node)
+        # Pre-scan: mark ms.component attribute nodes in the body as valid.
+        self._mark_component_attrs(node.body)
 
         # Walk for expression-level checks
-        self.generic_visit(node)
+        for stmt in node.body:
+            self.visit(stmt)
 
-    def _mark_component_attrs(self, node: ast.FunctionDef) -> None:
+    def _mark_component_attrs(self, nodes: list[ast.stmt]) -> None:
         """Find and mark all Attribute nodes that are ms.component references."""
-        for child in ast.walk(node):
-            if isinstance(child, ast.Call):
-                func = child.func
-                if isinstance(func, ast.Attribute) and self._is_ms_component_attr(func):
-                    self._valid_component_attrs.add(id(func))
+        for node in nodes:
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call):
+                    func = child.func
+                    if isinstance(func, ast.Attribute) and self._is_ms_component_attr(func):
+                        self._valid_component_attrs.add(id(func))
 
     def visit_Call(self, node: ast.Call) -> None:
         # Only ms.component("<literal>") is allowed
@@ -329,6 +372,7 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
                     ErrorKind.INVALID_COMPONENT_BODY,
                     f"Derived metric body of {self.fn_name!r}: "
                     f"ms.component() requires exactly one string literal argument.",
+                    constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
                 )
             elif not (
                 isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)
@@ -337,12 +381,14 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
                     ErrorKind.INVALID_COMPONENT_BODY,
                     f"Derived metric body of {self.fn_name!r}: "
                     f"ms.component() argument must be a string literal.",
+                    constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
                 )
             if node.keywords:
                 self._add_error(
                     ErrorKind.INVALID_COMPONENT_BODY,
                     f"Derived metric body of {self.fn_name!r}: "
                     f"ms.component() does not accept keyword arguments.",
+                    constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
                 )
             # Don't recurse into the component call — we've validated it
             return
@@ -352,6 +398,7 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
                 ErrorKind.INVALID_COMPONENT_BODY,
                 f"Derived metric body of {self.fn_name!r} contains a "
                 f"function call that is not ms.component().",
+                constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
             )
             # Still recurse to find more errors
 
@@ -364,6 +411,7 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
             ErrorKind.INVALID_COMPONENT_BODY,
             f"Derived metric body of {self.fn_name!r} contains attribute "
             f"access (.{node.attr}), which is not allowed.",
+            constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
         )
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
@@ -371,6 +419,7 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
             ErrorKind.INVALID_COMPONENT_BODY,
             f"Derived metric body of {self.fn_name!r} contains subscript "
             f"access, which is not allowed.",
+            constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
         )
 
     def visit_Compare(self, node: ast.Compare) -> None:
@@ -378,6 +427,7 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
             ErrorKind.INVALID_COMPONENT_BODY,
             f"Derived metric body of {self.fn_name!r} contains a comparison "
             f"operation, which is not allowed.",
+            constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
         )
 
     def visit_BoolOp(self, node: ast.BoolOp) -> None:
@@ -385,6 +435,7 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
             ErrorKind.INVALID_COMPONENT_BODY,
             f"Derived metric body of {self.fn_name!r} contains a boolean "
             f"operation, which is not allowed.",
+            constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
         )
 
     def visit_IfExp(self, node: ast.IfExp) -> None:
@@ -392,6 +443,7 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
             ErrorKind.INVALID_COMPONENT_BODY,
             f"Derived metric body of {self.fn_name!r} contains a conditional "
             f"expression, which is not allowed.",
+            constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
         )
 
     def visit_Constant(self, node: ast.Constant) -> None:
@@ -403,28 +455,32 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
                 ErrorKind.INVALID_COMPONENT_BODY,
                 f"Derived metric body of {self.fn_name!r} contains a string "
                 f"literal, which is not allowed (use ms.component() instead).",
+                constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
             )
 
     def visit_BinOp(self, node: ast.BinOp) -> None:
         # Only +, -, *, / are allowed
-        allowed_ops = (ast.Add, ast.Sub, ast.Mult, ast.Div)
+        allowed_ops = tuple(getattr(ast, op_name) for op_name in _DERIVED_BODY_AST_SPEC.allowed_binops)
         if not isinstance(node.op, allowed_ops):
             self._add_error(
                 ErrorKind.INVALID_COMPONENT_BODY,
                 f"Derived metric body of {self.fn_name!r} uses "
                 f"{type(node.op).__name__} operator, which is not allowed. "
                 f"Only +, -, *, / are permitted.",
+                constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
             )
         self.generic_visit(node)
 
     def visit_UnaryOp(self, node: ast.UnaryOp) -> None:
         # Only unary - is allowed
-        if not isinstance(node.op, ast.USub):
+        allowed_ops = tuple(getattr(ast, op_name) for op_name in _DERIVED_BODY_AST_SPEC.allowed_unary_ops)
+        if not isinstance(node.op, allowed_ops):
             self._add_error(
                 ErrorKind.INVALID_COMPONENT_BODY,
                 f"Derived metric body of {self.fn_name!r} uses "
                 f"{type(node.op).__name__} operator, which is not allowed. "
                 f"Only unary - is permitted.",
+                constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
             )
         self.generic_visit(node)
 
@@ -437,6 +493,7 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
                 f"Derived metric body of {self.fn_name!r} references "
                 f"{node.id!r}, which is not allowed. "
                 f"Only ms.component() calls and arithmetic are permitted.",
+                constraint_id=ConstraintId.AST_COMPONENT_ARITHMETIC,
             )
 
 
@@ -458,9 +515,14 @@ def validate_metric_body_ast(
         # Find the function definition node
         func_node: ast.FunctionDef | None = None
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
+            if isinstance(node, ast.FunctionDef) and node.name == fn.__name__:
                 func_node = node
                 break
+        if func_node is None:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    func_node = node
+                    break
 
         if func_node is None:
             body_hash = hashlib.sha256(b"<no-function>").hexdigest()[:16]

@@ -156,7 +156,12 @@ print(project.describe("sales.revenue", compile_sql=True))
 | `project.materialize_metric(name, backend_factory=...)` | 物化 metric 到 Ibis expression |
 | `project.reload()` | 重新加载该项目 |
 
-`ms.help(symbol=None)` 是模块级帮助 helper，独立于 `SemanticProject` 实例使用，不需要 active project；用于 REPL / agent 自我发现 API 形态。
+`ms.help(symbol=None, *, format="text")` 是模块级帮助 helper，独立于
+`SemanticProject` 实例使用，不需要 active project；用于 REPL / agent 自我发现
+API 形态。`format="text"` 保持打印行为；`format="json"` 不打印并返回结构化
+`dict`，供 agent 读取签名、docstring、`constraint_id`、hint、示例路径和 AST
+白名单摘要。`ms.help("constraints", format="json")` 是 authoring / validation
+约束目录的统一入口，不另设并行 helper。
 
 `find_project()` 的 project 判定只要求 `.marivo/semantic/` 目录存在。空目录也算语义项目：`SemanticProject` 可返回，load 后 registry 为 `ready`，`list_models()` 返回 `[]`。如果 `.marivo/semantic` 存在但不是目录，必须 fail closed。
 
@@ -386,7 +391,7 @@ decomposition 描述 metric 在变化归因中的数学结构，不等同于 SQL
 
 `ms.component("<name>")` 只允许出现在 derived metric 函数体 AST 内。模块顶层调用或 base metric 函数体中调用必须 fail closed。`<name>` 必须是字符串字面量，并且必须匹配 decomposition builder 上声明的 component name。它的返回类型应暴露为 Ibis scalar expression Protocol，便于 type checker 和 agent 做算术表达式检查。
 
-`ms.help("component")` 应展示当前支持的 component names、可用算术和禁止形态，避免 agent 通过猜测 `numerator` / `denominator` / `weight` 的名称来 author derived metric。
+`ms.help("component")` 应展示当前支持的 component names、可用算术和禁止形态，避免 agent 通过猜测 `numerator` / `denominator` / `weight` 的名称来 author derived metric。agent 需要机器可读规则时应调用 `ms.help("component", format="json")` 或 `ms.help("constraints", format="json")`。
 
 `ms.component("numerator")` / `ms.component("denominator")` / `ms.component("weight")` 在 decorator-time 返回 deferred Ibis expression sentinel。sentinel 支持 `+`、`-`、`*`、`/` 和一元 `-`；运算结果仍是 deferred sentinel tree。materialize-time 将 sentinel tree 的 leaves 替换为真实 component metric 的 Ibis scalar，再编译到目标 backend。
 
