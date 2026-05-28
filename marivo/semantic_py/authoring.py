@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Any, Literal
 
+from marivo.semantic_py.constraints import ConstraintId
 from marivo.semantic_py.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic_py.ir import (
     AiContextIR,
@@ -36,6 +37,7 @@ from marivo.semantic_py.ir import (
 )
 from marivo.semantic_py.loader import _LOADER_CTX, LoaderContext
 from marivo.semantic_py.typing import AiContext, ComponentExpr
+from marivo.semantic_py.validator import validate_metric_body_ast
 
 __all__ = [
     "DecompositionBuilder",
@@ -518,7 +520,9 @@ def dataset(
                 "@ms.dataset(datasource=...) accepts only a global datasource name string.",
                 refs=(semantic_id,),
                 cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.REF_SHAPE,
             )
+        validate_metric_body_ast(fn, "base")
         ds_ref = datasource
         pk = tuple(primary_key) if primary_key else ()
         ai_ctx = _build_ai_context(ai_context)
@@ -585,6 +589,7 @@ def field(
         _check_duplicate(ctx, semantic_id)
 
         ds_ref = _resolve_ref_string(dataset)
+        validate_metric_body_ast(fn, "base")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
@@ -664,6 +669,7 @@ def time_field(
         _check_duplicate(ctx, semantic_id)
 
         ds_ref = _resolve_ref_string(dataset)
+        validate_metric_body_ast(fn, "base")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
@@ -763,6 +769,7 @@ def metric(
                 "@ms.metric(datasets=[]) is only valid for derived metrics with decomposition components.",
                 refs=(semantic_id,),
                 cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.METRIC_DERIVED_SHAPE,
             )
         if len(ds_refs) > 0 and _metric_body_uses_component(fn):
             _raise(
@@ -770,8 +777,9 @@ def metric(
                 "ms.component() can only be used in derived metric bodies; use datasets=[] with a component decomposition.",
                 refs=(semantic_id,),
                 cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.METRIC_COMPONENT_SCOPE,
             )
-        body_hash = _compute_body_ast_hash(fn)
+        body_hash = validate_metric_body_ast(fn, "derived" if is_derived else "base")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 

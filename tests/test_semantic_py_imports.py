@@ -15,12 +15,15 @@ plain functions to match the rest of the test suite.
 from __future__ import annotations
 
 import dataclasses
+import re
+from pathlib import Path
 
 import pytest
 
 import marivo.semantic_py as ms
 from marivo.semantic_py import errors as errors_mod
 from marivo.semantic_py import typing as typing_mod
+from marivo.semantic_py.constraints import get_constraint, iter_constraints
 from marivo.semantic_py.ir import (
     AiContextIR,
     DatasetIR,
@@ -68,11 +71,11 @@ def test_all_list_matches_expected() -> None:
         "ref",
         "component",
         "help",
-        "help_text",
         "typing",
         "errors",
     }
     assert set(ms.__all__) == expected
+    assert not hasattr(ms, "help_text")
 
 
 def test_semantic_project_class() -> None:
@@ -165,6 +168,64 @@ def test_raise_helper() -> None:
     assert err.message == "name already taken"
     assert err.semantic_refs == ("model.sales",)
     assert err.hint is not None  # auto-populated from HINTS
+    assert err.constraint_id == "unique_semantic_name"
+
+
+def test_help_json_top_level_returns_dict_without_printing(capsys) -> None:
+    result = ms.help(format="json")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert isinstance(result, dict)
+    assert result["schema_version"] == "1"
+    assert result["surface"] == "marivo.semantic_py"
+    assert "entries" in result
+    assert "authoring_constraints" in result
+
+
+def test_help_json_metric_includes_constraints_and_examples(capsys) -> None:
+    result = ms.help("metric", format="json")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert isinstance(result, dict)
+    assert "metric(" in result["signature"]
+    constraints = result["constraints"]
+    assert isinstance(constraints, list)
+    constraint_ids = {entry["id"] for entry in constraints}
+    assert "metric_derived_shape" in constraint_ids
+    assert "ast_component_arithmetic" in constraint_ids
+    assert "examples" in result
+
+
+def test_help_json_constraints_cover_error_kinds() -> None:
+    result = ms.help("constraints", format="json")
+
+    assert isinstance(result, dict)
+    constraints = result["constraints"]
+    assert isinstance(constraints, list)
+    covered = {entry["error_kind"] for entry in constraints}
+    for kind in errors_mod.ErrorKind:
+        assert kind.value in covered
+
+
+def test_constraint_example_paths_exist() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    for constraint in iter_constraints():
+        if constraint.example is not None:
+            assert (repo_root / constraint.example).exists(), constraint.example
+
+
+def test_semantic_skill_constraint_table_matches_catalog() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    skill_md = repo_root / "marivo-skill/marivo-py-semantic/SKILL.md"
+    text = skill_md.read_text()
+
+    rows = re.findall(r"^\| `([^`]+)` \| [^|]+ \| `([^`]+)` \|$", text, re.MULTILINE)
+    assert rows
+    for constraint_id, example_path in rows:
+        assert get_constraint(constraint_id) is not None, constraint_id
+        assert (skill_md.parent / example_path).exists(), example_path
 
 
 # ---------------------------------------------------------------------------

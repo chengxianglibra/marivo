@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any
+from types import ModuleType
+from typing import Any, Literal
+
+from marivo.semantic_py.constraints import (
+    constraints_for_symbol,
+    get_constraint,
+    iter_constraints,
+)
 
 _TOP_LEVEL_ENTRIES: dict[str, str] = {
     "model": "context manager - opens a model namespace for decorator registration",
@@ -19,6 +26,7 @@ _TOP_LEVEL_ENTRIES: dict[str, str] = {
     "weighted_average": "builder - weighted-average aggregation marker",
     "component": "builder - refer to a decomposition component in derived metric body",
     "help": "function - this introspection entry point",
+    "constraints": "catalog - authoring and validation constraints",
     "find_project": "function - discover a semantic project by walking up from a directory",
     "SemanticProject": "class - primary reader for a loaded semantic project",
     "typing": "module - IbisBackend Protocol, ComponentExpr Protocol, AiContext TypedDict",
@@ -32,6 +40,7 @@ def _list_top_level() -> str:
         lines.append(f"  ms.{name:<18}  {summary}")
     lines.append("")
     lines.append('Call ms.help("<name>") to inspect any of these.')
+    lines.append('Call ms.help("<name>", format="json") for agent-readable data.')
     return "\n".join(lines)
 
 
@@ -42,12 +51,35 @@ def _describe_callable(name: str, obj: Any) -> str:
     except (TypeError, ValueError):
         sig = name
     doc = inspect.getdoc(obj) or "(no docstring)"
+    constraint_text = _format_symbol_constraints(name)
+    if constraint_text:
+        return f"{sig}\n\n{doc}\n\n{constraint_text}"
     return f"{sig}\n\n{doc}"
 
 
 def _describe_class(name: str, obj: type) -> str:
     doc = inspect.getdoc(obj) or "(no docstring)"
     return f"class {name}\n\n{doc}"
+
+
+def _format_symbol_constraints(symbol: str) -> str:
+    constraints = constraints_for_symbol(symbol)
+    if not constraints:
+        return ""
+    lines = ["Constraints:"]
+    for constraint in constraints:
+        lines.append(f"  - {constraint.id.value}: {constraint.title}")
+        lines.append(f"    hint: {constraint.hint}")
+    return "\n".join(lines)
+
+
+def _format_constraints_text() -> str:
+    lines = ["marivo.semantic_py constraints:", ""]
+    for constraint in iter_constraints():
+        lines.append(f"  {constraint.id.value:<34} [{constraint.error_kind}] {constraint.title}")
+    lines.append("")
+    lines.append('Call ms.help("constraints", format="json") for the full catalog.')
+    return "\n".join(lines)
 
 
 def _resolve(symbol: str) -> Any | None:
@@ -69,6 +101,8 @@ def help_text(symbol: str | None = None) -> str:
 
     if symbol is None or symbol == "":
         return _list_top_level()
+    if symbol == "constraints":
+        return _format_constraints_text()
 
     obj = _resolve(symbol)
     if obj is None:
@@ -82,10 +116,104 @@ def help_text(symbol: str | None = None) -> str:
         return repr(obj)
 
 
-def help(symbol: str | None = None) -> None:  # noqa: A001, RUF100
-    """Print agent-facing help for the semantic_py surface.
+def _signature(name: str, obj: Any) -> str:
+    try:
+        return f"{name}{inspect.signature(obj)}"
+    except (TypeError, ValueError):
+        return name
+
+
+def _constraints_json(symbol: str | None = None) -> list[dict[str, object]]:
+    if symbol is None:
+        return [constraint.to_dict() for constraint in iter_constraints()]
+    return [constraint.to_dict() for constraint in constraints_for_symbol(symbol)]
+
+
+def _object_json(symbol: str, obj: Any) -> dict[str, object]:
+    data: dict[str, object] = {
+        "symbol": symbol,
+        "constraints": _constraints_json(symbol),
+    }
+    if inspect.isclass(obj):
+        data["kind"] = "class"
+        data["signature"] = f"class {symbol}"
+        data["doc"] = inspect.getdoc(obj) or ""
+    elif inspect.ismodule(obj) or isinstance(obj, ModuleType):
+        data["kind"] = "module"
+        data["signature"] = f"module {symbol}"
+        data["doc"] = inspect.getdoc(obj) or ""
+    elif callable(obj):
+        data["kind"] = "callable"
+        data["signature"] = _signature(symbol, obj)
+        data["doc"] = inspect.getdoc(obj) or ""
+    else:
+        data["kind"] = "object"
+        data["repr"] = repr(obj)
+    examples = [
+        constraint.example
+        for constraint in constraints_for_symbol(symbol)
+        if constraint.example is not None
+    ]
+    if examples:
+        data["examples"] = sorted(set(examples))
+    return data
+
+
+def _help_json(symbol: str | None = None) -> dict[str, object]:
+    if symbol is None or symbol == "":
+        return {
+            "schema_version": "1",
+            "surface": "marivo.semantic_py",
+            "entries": [
+                {"name": name, "summary": summary} for name, summary in _TOP_LEVEL_ENTRIES.items()
+            ],
+            "authoring_constraints": _constraints_json("dataset")
+            + _constraints_json("field")
+            + _constraints_json("time_field")
+            + _constraints_json("metric"),
+        }
+    if symbol == "constraints":
+        return {
+            "schema_version": "1",
+            "surface": "marivo.semantic_py",
+            "constraints": _constraints_json(),
+        }
+
+    obj = _resolve(symbol)
+    if obj is None:
+        constraint = get_constraint(symbol)
+        if constraint is not None:
+            return {
+                "schema_version": "1",
+                "surface": "marivo.semantic_py",
+                "constraint": constraint.to_dict(),
+            }
+        return {
+            "schema_version": "1",
+            "surface": "marivo.semantic_py",
+            "error": f"unknown symbol: {symbol!r}",
+        }
+    data = _object_json(symbol, obj)
+    data["schema_version"] = "1"
+    data["surface"] = "marivo.semantic_py"
+    return data
+
+
+def help(  # noqa: A001, RUF100
+    symbol: str | None = None,
+    *,
+    format: Literal["text", "json"] = "text",
+) -> dict[str, object] | None:
+    """Print or return agent-facing help for the semantic_py surface.
 
     Without arguments, lists top-level entries. With a symbol name (decorator,
-    builder, function, or exception class) prints its signature and docstring.
+    builder, function, exception class, or ``"constraints"``) prints its
+    signature, docstring, and constraints. With ``format="json"``, returns a
+    structured dict and does not print.
     """
+    if format == "json":
+        return _help_json(symbol)
+    if format != "text":
+        raise ValueError("format must be 'text' or 'json'")
     print(help_text(symbol))
+    return None

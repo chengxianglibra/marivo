@@ -27,7 +27,7 @@ from marivo.semantic_py.authoring import (
     _ComponentSentinel,
     _UnaryNegSentinel,
 )
-from marivo.semantic_py.errors import ErrorKind, SemanticDecoratorError
+from marivo.semantic_py.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
 from marivo.semantic_py.ir import (
     DatasetRef,
     FieldRef,
@@ -267,6 +267,22 @@ def test_dataset_primary_key() -> None:
         _exit_ctx()
 
 
+def test_dataset_body_rejects_assignment() -> None:
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticLoadError) as exc_info:
+
+            @ms.dataset(datasource="wh")
+            def orders(backend: object) -> object:
+                table = backend
+                return backend
+
+        assert exc_info.value.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
+        assert exc_info.value.constraint_id == "ast_single_return"
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # ms.field() decorator
 # ---------------------------------------------------------------------------
@@ -347,6 +363,21 @@ def test_field_pushes_callable() -> None:
         _exit_ctx()
 
 
+def test_field_body_rejects_lambda() -> None:
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticLoadError) as exc_info:
+
+            @ms.field(dataset="sales.orders")
+            def amount(table: object) -> object:
+                fn = lambda value: value
+                return fn(table)
+
+        assert exc_info.value.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # ms.time_field() decorator
 # ---------------------------------------------------------------------------
@@ -396,6 +427,21 @@ def test_time_field_requires_data_type_and_granularity() -> None:
             @ms.time_field(dataset="sales.orders")  # type: ignore[call-arg]
             def order_date(table: object) -> object:
                 return None  # type: ignore[unreachable]
+    finally:
+        _exit_ctx()
+
+
+def test_time_field_body_rejects_sql_escape_hatch() -> None:
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticLoadError) as exc_info:
+
+            @ms.time_field(dataset="sales.orders", data_type="date", granularity="day")
+            def order_date(backend: object) -> object:
+                return backend.sql("select current_date")
+
+        assert exc_info.value.kind == ErrorKind.SQL_ESCAPE_HATCH
+        assert exc_info.value.constraint_id == "ast_sql_escape_hatch"
     finally:
         _exit_ctx()
 
@@ -897,6 +943,28 @@ def test_derived_metric_sidecar_stores_sentinel_tree() -> None:
         # sidecar_entry should be a _BinOpSentinel, not a callable
         assert isinstance(sidecar_entry, _BinOpSentinel)
         assert sidecar_entry.op == "/"
+    finally:
+        _exit_ctx()
+
+
+def test_derived_metric_body_rejects_non_component_call() -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticLoadError) as exc_info:
+
+            @ms.metric(
+                datasets=[],
+                decomposition=ms.ratio(
+                    numerator="sales.revenue",
+                    denominator="sales.cost",
+                ),
+            )
+            def margin():
+                return abs(ms.component("numerator"))
+
+        assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+        assert exc_info.value.constraint_id == "ast_component_arithmetic"
+        assert ctx.pending_objects == []
     finally:
         _exit_ctx()
 

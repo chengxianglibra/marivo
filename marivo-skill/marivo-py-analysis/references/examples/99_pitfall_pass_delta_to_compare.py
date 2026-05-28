@@ -29,6 +29,6 @@ base = session.observe(
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
 
 try:
-    session.compare(cur, delta)  # type: ignore[arg-type]
+    session.compare(cur, delta)
 except mv.errors.SemanticKindMismatchError as e:
     print(e)

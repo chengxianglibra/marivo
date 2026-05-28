@@ -177,14 +177,24 @@ casts. Parse through timestamp first, for example
 3. Typecheck before running. Marivo decorators preserve function signatures,
    so type errors usually point at bad datasource/dataset wiring early.
 
-4. Re-check after edits.
+4. Inspect the unified help surface before fixing structural errors.
+
+   ```bash
+   .venv/bin/python -c 'import marivo.semantic_py as ms; print(ms.help("constraints", format="json"))'
+   ```
+
+   Use `ms.help("<symbol>", format="json")` for decorator-specific
+   constraints. This is the source of truth for AST whitelist rules, hints,
+   and runnable example references.
+
+5. Re-check after edits.
 
    ```bash
    .venv/bin/python -m marivo.semantic_py check --format=json
    ```
 
-5. On Marivo exceptions, read the structured error text. Semantic exceptions
-   include a `hint` section when a copyable fix is known.
+6. On Marivo exceptions, read the structured error text. Semantic exceptions
+   include `constraint_id` and a `hint` when a copyable fix is known.
 
 ## Fill-In Templates
 
@@ -275,6 +285,9 @@ How is this value computed?
 
 ## Common Pitfalls
 
+- Run `ms.help("constraints", format="json")` or
+  `ms.help("<decorator>", format="json")` before guessing allowed authoring
+  shapes. The JSON catalog is the canonical error-to-hint/example map.
 - Dataset references a datasource that has no `.marivo/datasource/*.py`
   declaration. The loader reports a `missing_dataset_ref` error.
   Runnable reference:
@@ -296,18 +309,16 @@ How is this value computed?
 - `references/pitfalls.md` -- expanded exception explanations
 - `references/examples/` -- runnable files, one per template
 
-## Error → example reference
+## High-Frequency Error References
 
-When authoring raises one of the structured `SemanticError` subclasses below,
-open the listed example to see the correct pattern.
+For the full structured catalog, use
+`ms.help("constraints", format="json")`. The table below keeps only the most
+common first-stop references.
 
-| Error kind | What it means | See |
+| Constraint | What it means | See |
 |---|---|---|
-| `missing_dataset_ref` | Dataset references a datasource with no `.marivo/datasource/*.py` declaration | `references/examples/99_pitfall_dataset_without_datasource.py` |
-| `MISSING_MODEL` | Decorator called outside `ms.model(...)` namespace | `references/examples/02_declare_dataset.py` |
-| `INVALID_REF` | `@ms.dataset(datasource=...)` got a non-string, or `ms.datasource(...)` was called (removed) | `references/datasource.md` |
-| `INVALID_COMPONENT_BODY` | Aggregate metric body used `ms.component()`, or `datasets=[]` without components | `references/examples/04_define_metric_derived.py` |
-| `INVALID_COMPONENT_NAME` | `ms.component("x")` references a name not declared in the metric's decomposition | `references/examples/04_define_metric_derived.py` |
-| `OUTSIDE_DERIVED_METRIC_BODY` | `ms.component(...)` called outside a derived metric body | `references/examples/04_define_metric_derived.py` |
-| `DUPLICATE_NAME` | Two objects share the same `<model>.<name>` | `references/cheatsheet.md` |
-| AST whitelist violations | Body uses control flow, imports, or non-single-return form | `references/examples/03_define_metric_aggregate.py` |
+| `dataset_ref_exists` | Dataset references a datasource with no `.marivo/datasource/*.py` declaration | `references/examples/99_pitfall_dataset_without_datasource.py` |
+| `active_model_required` | Decorator has no active `ms.model(...)` namespace | `references/examples/02_declare_dataset.py` |
+| `metric_derived_shape` | `datasets=[]` needs a component decomposition | `references/examples/04_define_metric_derived.py` |
+| `ast_component_arithmetic` | Derived metric body must use `ms.component(...)` and arithmetic only | `references/examples/04_define_metric_derived.py` |
+| `ast_single_return` | Decorator body must be one `return <expression>` | `references/examples/03_define_metric_aggregate.py` |

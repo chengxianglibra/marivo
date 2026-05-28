@@ -29,7 +29,7 @@ from marivo.semantic_py.authoring import (
     time_field,
     weighted_average,
 )
-from marivo.semantic_py.help import help, help_text
+from marivo.semantic_py.help import help
 from marivo.semantic_py.loader import find_project
 from marivo.semantic_py.reader import SemanticProject
 
@@ -41,7 +41,6 @@ __all__ = [
     "field",
     "find_project",
     "help",
-    "help_text",
     "metric",
     "model",
     "ratio",

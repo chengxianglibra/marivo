@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from marivo.semantic_py.constraints import get_constraint
 from marivo.semantic_py.errors import SemanticError, StructuredWarning
 from marivo.semantic_py.ir import ParityStatus
 from marivo.semantic_py.reader import SemanticProject
@@ -63,6 +64,16 @@ def _error_to_dict(err: SemanticError) -> dict[str, Any]:
         d["location"] = {"file": err.location.file, "line": err.location.line}
     if err.hint is not None:
         d["hint"] = err.hint
+    if err.constraint_id is not None:
+        d["constraint_id"] = err.constraint_id
+        constraint = get_constraint(err.constraint_id)
+        if constraint is not None:
+            constraint_data = constraint.to_dict()
+            d["constraint"] = {
+                key: constraint_data[key]
+                for key in ("title", "hint", "example", "docs_ref")
+                if key in constraint_data
+            }
     if err.details:
         d["details"] = err.details
     return d
