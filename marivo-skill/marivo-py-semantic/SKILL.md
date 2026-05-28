@@ -12,6 +12,21 @@ relationships via `marivo.semantic_py`.
 For running analyses on top of an already-declared model, switch to
 `marivo-py-analysis`. Modeling is owned here; analysis is owned there.
 
+## Runtime Environment
+
+Do not use bare `python`, `python3`, `pip`, `pip3`, or `marivo` commands.
+In this Marivo source checkout, use these exact entrypoints:
+
+```bash
+.venv/bin/python
+.venv/bin/pip
+.venv/bin/marivo
+```
+
+If this skill is copied into another project, first identify that project's
+virtualenv path, then use `<venv>/bin/python`, `<venv>/bin/pip`, and
+`<venv>/bin/marivo` consistently for every install, check, CLI, and script run.
+
 ## Prerequisite
 
 You need `marivo` installed in the active Python environment, plus `ibis` and
@@ -19,11 +34,12 @@ one or more backend drivers for the datasources you intend to declare, such as
 DuckDB for this skill's examples:
 
 ```bash
-pip install marivo ibis-framework duckdb
+.venv/bin/pip install marivo ibis-framework duckdb
 ```
 
-If the surrounding project pins a virtualenv, install into that venv. This skill
-does not assume you have the Marivo source checkout.
+If the surrounding project pins a different virtualenv, install into that venv
+with its explicit pip path. This skill does not assume you have the Marivo
+source checkout.
 
 ## 30-Second Overview
 
@@ -151,7 +167,7 @@ casts. Parse through timestamp first, for example
 1. Check the project status before adding anything new.
 
    ```bash
-   python -m marivo.semantic_py check
+   .venv/bin/python -m marivo.semantic_py check
    ```
 
 2. Write model declarations in Python files under
@@ -164,7 +180,7 @@ casts. Parse through timestamp first, for example
 4. Re-check after edits.
 
    ```bash
-   python -m marivo.semantic_py check --format=json
+   .venv/bin/python -m marivo.semantic_py check --format=json
    ```
 
 5. On Marivo exceptions, read the structured error text. Semantic exceptions

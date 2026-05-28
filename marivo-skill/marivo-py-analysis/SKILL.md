@@ -6,10 +6,25 @@ description: Use when the task involves Marivo analysis — observe, compare, de
 # marivo-py-analysis
 
 Use this skill when writing or running Python code against `marivo.analysis_py`
-(imported as `mv`). Assume `marivo` is installed in the active environment.
+(imported as `mv`).
 
 Do not use this skill for MCP investigation workflows (use `marivo-analysis`)
 or for authoring semantic models (use `marivo-py-semantic`).
+
+## Runtime Environment
+
+Do not use bare `python`, `python3`, `pip`, `pip3`, or `marivo` commands.
+In this Marivo source checkout, use these exact entrypoints:
+
+```bash
+.venv/bin/python
+.venv/bin/pip
+.venv/bin/marivo
+```
+
+If this skill is copied into another project, first identify that project's
+virtualenv path, then use `<venv>/bin/python`, `<venv>/bin/pip`, and
+`<venv>/bin/marivo` consistently for every install, check, CLI, and script run.
 
 ## How to start
 
@@ -96,6 +111,17 @@ Raw pandas?                                -> frame.to_pandas()
 
 ## Session
 
+Default to one session per analysis task. Start the first script with
+`mv.session.get_or_create(name="<stable_task_name>")`, then reuse the same
+stable name or explicitly attach/current the same session in every follow-up
+script. Do not create new sessions for script splits, retries, or branch
+exploration: artifacts, knowledge, facts, followups, and job history are
+session-scoped.
+
+Create a new session only when the user explicitly starts an independent
+investigation, or when the existing session is polluted enough that restarting
+is the correct recovery. State that reason in the final output.
+
 ```python
 mv.session.get_or_create(name="my_analysis")          # idempotent entry point
 mv.session.get_or_create(name="x", backend_factory=f) # with live backend
@@ -147,16 +173,21 @@ promoted = mv.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue")
 
 ## Standard workflow
 
-1. `python -c 'import marivo.analysis_py as mv; mv.help()'` — verify install.
+1. `.venv/bin/python -c 'import marivo.analysis_py as mv; mv.help()'` — verify install.
 2. Confirm metric ids from the semantic layer.
-3. Adapt the nearest `references/examples/NN_*.py` file.
-4. Run the script; on errors, read the structured output and apply the fix.
-5. Use `frame.summary()` / `frame.head(n)` before materializing full data.
+3. Start or attach the task session with
+   `mv.session.get_or_create(name="<stable_task_name>")`.
+4. Adapt the nearest `references/examples/NN_*.py` file.
+5. Run every follow-up script with the same session; on errors, read the
+   structured output and apply the fix.
+6. Use `frame.summary()` / `frame.head(n)` before materializing full data.
 
 ## When to split scripts
 
 Bundle a chain into one script when the path is fixed. Stop and run a new
-script when the next intent depends on values you have not seen yet.
+script when the next intent depends on values you have not seen yet. A split is
+only a script boundary; it is not a session boundary. Reuse the same session so
+artifacts, knowledge, facts, followups, and job history remain available.
 
 - **Bundle** (one script, end with `print(frame.summary())`):
   observe → compare → decompose with a pre-chosen axis; observe → forecast;
@@ -171,7 +202,9 @@ script when the next intent depends on values you have not seen yet.
 
 Rule of thumb: if you cannot write the next `mv.*` call without first reading
 the printed `summary()`, that is a split point. Do not pre-write speculative
-downstream steps "in case" — they waste compute and obscure the judgment.
+downstream steps "in case" — they waste compute and obscure the judgment. After
+the split, continue with the original task session instead of starting a fresh
+one.
 
 ## Walkthrough
 
@@ -218,11 +251,12 @@ example to see the correct pattern.
 | Error kind | What it means | See |
 |---|---|---|
 | `MetricNotFound` | Unknown metric id, missing `<model>.<metric>`, or semantic project not loaded | `references/examples/01_observe_single_window.py` |
+| Wrong Python environment | `marivo` import or CLI is missing because the system interpreter was used | `references/pitfalls.md` (Wrong Python environment) |
 | `SemanticKindMismatch` (compare) | Passed a `DeltaFrame` where a `MetricFrame` was expected | `references/examples/99_pitfall_pass_delta_to_compare.py` |
 | `SegmentDimensionMismatch` | `compare` got two `segmented` frames with different segment columns | `references/examples/compare_segmented.py` |
 | `PanelGrainMismatch` | `compare` got two `panel` frames with different time grain | `references/examples/compare_panel.py` |
 | `AlignmentPolicyNotApplicable` | Alignment kind not allowed for the frame's semantic kind | `references/examples/compare_segmented.py` |
-| `CrossSessionFrame` | A frame was produced in another session | `references/examples/session_timezone.py` |
+| `CrossSessionFrame` | A frame was produced in another session; return to the original task session | `references/examples/session_timezone.py`, `references/pitfalls.md` |
 | `AxisNotInPanelDimensions` | `decompose(axis=...)` axis is not a segment column of the panel | `references/examples/03_decompose_attribution.py` |
 | `ForecastShapeUnsupported` / `ForecastInsufficientHistory` | Bad shape, NaN values, or too little history | `references/examples/06_forecast_horizon.py` |
 | `TestPolicyError` / `TestShapeNotTestable` | Unsupported hypothesis, bad alpha, or scalar frame | `references/examples/05_test_hypothesis.py` |
