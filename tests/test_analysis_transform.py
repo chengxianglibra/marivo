@@ -1381,3 +1381,34 @@ def test_transform_slice_rejects_range_tuple_on_dimension(tmp_path):
         _active_transform(frame, op="slice", where={DimensionRef(id="country"): ("US", "CA")})
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
+
+
+def test_transform_metric_frame_drops_component_contract(tmp_path):
+    session_attach._reset_process_state()
+    session = session_attach.get_or_create(name="demo")
+    frame = MetricFrame.from_dataframe(
+        pd.DataFrame({"region": ["north", "south"], "failure_rate": [0.25, 0.50]}),
+        metric_id="sales.failure_rate",
+        axes={"region": {"role": "dimension", "column": "region"}},
+        measure={"name": "failure_rate"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        session=session,
+    )
+    frame.meta = frame.meta.model_copy(
+        update={
+            "component_ref": "frame_components",
+            "decomposition": {
+                "kind": "ratio",
+                "components": {
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+            },
+        }
+    )
+
+    out = session.transform.topk(frame, by="failure_rate", limit=1)
+
+    assert out.meta.component_ref is None
+    assert out.meta.decomposition is None

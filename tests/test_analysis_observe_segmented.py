@@ -406,3 +406,30 @@ def test_observe_dimension_rejects_bare_string(tmp_path):
         )
 
     assert exc_info.value.details["expected_kind"] == "DimensionRef"
+
+
+def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path):
+    _bootstrap_sales(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    session = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    frame = observe(
+        MetricRef("sales.failure_rate"),
+        dimensions=[DimensionRef("region")],
+        session=session,
+    )
+
+    assert frame.meta.component_ref is not None
+    assert set(frame.to_pandas().columns) == {"region", "failure_rate"}
+    components = frame.components()
+    assert components.meta.parent_ref == frame.ref
+    component_df = components.to_pandas()
+    assert list(component_df.columns) == ["region", "numerator", "denominator", "metric_value"]
+    by_region = component_df.set_index("region")
+    assert by_region.loc["NORTH", "numerator"] == pytest.approx(1.0)
+    assert by_region.loc["NORTH", "denominator"] == pytest.approx(3.0)
+    assert by_region.loc["NORTH", "metric_value"] == pytest.approx(1.0 / 3.0)
+    assert by_region.loc["SOUTH", "numerator"] == pytest.approx(1.0)
+    assert by_region.loc["SOUTH", "denominator"] == pytest.approx(1.0)
+    assert by_region.loc["SOUTH", "metric_value"] == pytest.approx(1.0)

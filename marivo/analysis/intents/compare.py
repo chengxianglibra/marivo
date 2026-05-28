@@ -19,6 +19,8 @@ from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyNotApplicableError,
     CalendarPolicyError,
+    ComponentFrameMismatchError,
+    ComponentFrameUnavailableError,
     CrossSessionFrameError,
     PanelGrainMismatchError,
     SegmentDimensionMismatchError,
@@ -31,6 +33,7 @@ from marivo.analysis.evidence.pipeline import (
     commit_result,
 )
 from marivo.analysis.evidence.types import Subject
+from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.lineage import Lineage, LineageStep
@@ -38,7 +41,7 @@ from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
 from marivo.analysis.session.attach import active as session_active
 from marivo.analysis.session.core import Session, ensure_session_writable
-from marivo.analysis.session.persistence import write_job_record
+from marivo.analysis.session.persistence import write_frame_to_disk, write_job_record
 
 EXPECTED_METRIC_FRAME_KIND = "metric_frame"
 
@@ -73,6 +76,168 @@ def _require_metric_frame(label: str, frame: object) -> MetricFrame:
             "got_kind": got_kind,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Component-aware compare helpers
+# ---------------------------------------------------------------------------
+
+
+def _component_decomposition_kind(frame: MetricFrame) -> str | None:
+    """Return the decomposition kind if the frame is component-aware, else None."""
+    decomp = frame.meta.decomposition
+    if isinstance(decomp, dict) and decomp.get("kind"):
+        return str(decomp["kind"])
+    return None
+
+
+def _load_component_for_compare(frame: MetricFrame, session: Session, label: str) -> ComponentFrame:
+    """Load and validate the component frame for a compare input."""
+    from marivo.analysis.session._load import load_frame
+
+    if frame.meta.component_ref is None:
+        raise ComponentFrameUnavailableError(
+            message=(
+                f"compare input '{label}' has decomposition metadata but no "
+                "component_ref; component frame was not persisted by observe"
+            ),
+            details={"frame_ref": frame.ref, "label": label},
+        )
+    loaded = load_frame(frame.meta.component_ref, session=session)
+    if not isinstance(loaded, ComponentFrame):
+        raise ComponentFrameUnavailableError(
+            message=(
+                f"compare input '{label}' component_ref resolved to "
+                f"{loaded.meta.kind!r}, expected component_frame"
+            ),
+            details={
+                "frame_ref": frame.ref,
+                "component_ref": frame.meta.component_ref,
+                "loaded_kind": loaded.meta.kind,
+            },
+        )
+    return loaded
+
+
+def _require_compatible_components(
+    current_comp: ComponentFrame,
+    baseline_comp: ComponentFrame,
+    current_parent: MetricFrame,
+    baseline_parent: MetricFrame,
+) -> None:
+    """Validate that two component frames are compatible for delta computation."""
+    if current_comp.meta.decomposition_kind != baseline_comp.meta.decomposition_kind:
+        raise ComponentFrameMismatchError(
+            message=(
+                "compare inputs have incompatible decomposition kinds: "
+                f"{current_comp.meta.decomposition_kind!r} vs "
+                f"{baseline_comp.meta.decomposition_kind!r}"
+            ),
+            details={
+                "current_kind": current_comp.meta.decomposition_kind,
+                "baseline_kind": baseline_comp.meta.decomposition_kind,
+            },
+        )
+    if current_comp.meta.components != baseline_comp.meta.components:
+        raise ComponentFrameMismatchError(
+            message="compare inputs have incompatible component maps",
+            details={
+                "current_components": current_comp.meta.components,
+                "baseline_components": baseline_comp.meta.components,
+            },
+        )
+
+
+def _component_axis_columns(component: ComponentFrame) -> list[str]:
+    """Extract dimension column names from a component frame's axes."""
+    columns: list[str] = []
+    for axis in component.meta.axes.values():
+        if not isinstance(axis, dict):
+            continue
+        if axis.get("role") != "dimension":
+            continue
+        column = axis.get("column")
+        if isinstance(column, str) and column:
+            columns.append(column)
+    return sorted(columns)
+
+
+def _align_component_frames(
+    current_comp: ComponentFrame,
+    baseline_comp: ComponentFrame,
+) -> pd.DataFrame:
+    """Merge current/baseline component data with delta columns."""
+    dim_columns = _component_axis_columns(current_comp)
+    role_columns = [col for col in current_comp.to_pandas().columns if col not in dim_columns]
+
+    current_df = current_comp.to_pandas()
+    baseline_df = baseline_comp.to_pandas()
+
+    if dim_columns:
+        merged = pd.merge(
+            current_df,
+            baseline_df,
+            on=dim_columns,
+            how="outer",
+            suffixes=("_current", "_baseline"),
+        )
+    else:
+        merged = pd.concat(
+            [current_df.add_suffix("_current"), baseline_df.add_suffix("_baseline")],
+            axis=1,
+        )
+
+    result_cols: list[str] = list(dim_columns)
+    result_data: dict[str, object] = {col: merged[col] for col in dim_columns}
+
+    for role_col in role_columns:
+        current_col = f"{role_col}_current"
+        baseline_col = f"{role_col}_baseline"
+        if current_col not in merged.columns or baseline_col not in merged.columns:
+            continue
+        cur_name = f"current_{role_col}"
+        base_name = f"baseline_{role_col}"
+        delta_name = f"delta_{role_col}"
+        cur_series = pd.to_numeric(merged[current_col], errors="coerce")
+        base_series = pd.to_numeric(merged[baseline_col], errors="coerce")
+        result_data[cur_name] = cur_series
+        result_data[base_name] = base_series
+        result_data[delta_name] = cur_series - base_series
+        result_cols.extend([cur_name, base_name, delta_name])
+
+    return pd.DataFrame(result_data, columns=result_cols)
+
+
+def _persist_delta_component_frame(
+    session: Session,
+    df: pd.DataFrame,
+    parent_ref: str,
+    source_component: ComponentFrame,
+    job_ref: str,
+) -> ComponentFrame:
+    """Persist the delta component frame and return it."""
+    comp_ref = _gen_ref("comp")
+    meta = ComponentFrameMeta(
+        ref=comp_ref,
+        session_id=session.id,
+        project_root=str(session.project_root),
+        produced_by_job=job_ref,
+        created_at=datetime.now(UTC),
+        row_count=len(df),
+        byte_size=0,
+        lineage=Lineage(),
+        parent_ref=parent_ref,
+        parent_kind="delta_frame",
+        metric_id=source_component.meta.metric_id,
+        decomposition_kind=source_component.meta.decomposition_kind,
+        components=source_component.meta.components,
+        axes=source_component.meta.axes,
+        semantic_kind=source_component.meta.semantic_kind,
+        semantic_model=source_component.meta.semantic_model,
+    )
+    comp_frame = ComponentFrame(_df=df, meta=meta)
+    comp_frame.meta = cast("ComponentFrameMeta", write_frame_to_disk(session.layout, comp_frame))
+    return comp_frame
 
 
 def compare(
@@ -170,6 +335,17 @@ def compare(
                     "baseline_grain": baseline_grain,
                 },
             )
+
+    # --- Component-aware validation ---
+    current_decomp_kind = _component_decomposition_kind(current)
+    baseline_decomp_kind = _component_decomposition_kind(baseline)
+    current_component: ComponentFrame | None = None
+    baseline_component: ComponentFrame | None = None
+    if current_decomp_kind is not None or baseline_decomp_kind is not None:
+        # At least one side declares decomposition; both must have component_ref
+        current_component = _load_component_for_compare(current, session, "current")
+        baseline_component = _load_component_for_compare(baseline, session, "baseline")
+        _require_compatible_components(current_component, baseline_component, current, baseline)
 
     started_at = datetime.now(UTC)
     started = monotonic()
@@ -318,6 +494,7 @@ def compare(
         alignment=alignment_dump,
         semantic_kind=current.meta.semantic_kind,
         semantic_model=current.meta.semantic_model,
+        decomposition=current.meta.decomposition if current_component is not None else None,
     )
     output_frame = DeltaFrame(_df=df, meta=meta)
 
@@ -344,6 +521,20 @@ def compare(
         comparison_window=comparison_window_dict,
         comparison_basis="left_vs_right",
     )
+
+    # --- Persist delta component frame if both inputs are component-aware ---
+    if current_component is not None and baseline_component is not None:
+        comp_df = _align_component_frames(current_component, baseline_component)
+        delta_comp = _persist_delta_component_frame(
+            session,
+            comp_df,
+            parent_ref=output_frame.ref,
+            source_component=current_component,
+            job_ref=job_ref,
+        )
+        output_frame.meta = output_frame.meta.model_copy(update={"component_ref": delta_comp.ref})
+        # Re-persist the output frame meta with the component_ref
+        write_frame_to_disk(session.layout, output_frame)
 
     write_job_record(
         session.layout,
@@ -544,8 +735,7 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
     }:
         raise AlignmentFailedError(
             message=(
-                "window_bucket ordinal alignment requires "
-                "hour/day/week/month/quarter/year grain"
+                "window_bucket ordinal alignment requires hour/day/week/month/quarter/year grain"
             ),
             details={"kind": "WindowBucketGrainMissing", "frame_ref": frame.ref, "grain": grain},
         )
@@ -898,9 +1088,7 @@ def _align_panel(
     calendar_infos: list[dict[str, Any]] = []
     window_infos: list[dict[str, Any]] = []
     calendar_context = (
-        _calendar_context(alignment, session=session)
-        if alignment.kind != "window_bucket"
-        else None
+        _calendar_context(alignment, session=session) if alignment.kind != "window_bucket" else None
     )
 
     for key in segment_keys:
@@ -1031,7 +1219,9 @@ def _panel_groups(
     grouped = df.groupby(dim_columns, dropna=False, sort=False)
     for raw_key, group in grouped:
         key = raw_key if isinstance(raw_key, tuple) else (raw_key,)
-        groups[tuple(None if pd.isna(cast("Any", value)) else value for value in key)] = group.copy()
+        groups[tuple(None if pd.isna(cast("Any", value)) else value for value in key)] = (
+            group.copy()
+        )
     return groups
 
 

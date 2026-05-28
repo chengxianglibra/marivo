@@ -187,3 +187,24 @@ def test_metric_frame_meta_normalization_defaults_to_none():
         semantic_model="sales",
     )
     assert meta.normalization is None
+
+
+def test_metric_frame_meta_component_links_default_to_none():
+    meta = MetricFrameMeta(
+        ref="frame_test",
+        session_id="sess_test",
+        project_root="/tmp/proj",
+        produced_by_job=None,
+        created_at=datetime.now(UTC),
+        row_count=0,
+        byte_size=0,
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "revenue"},
+        window=None,
+        where={},
+        semantic_kind="scalar",
+        semantic_model="sales",
+    )
+    assert meta.component_ref is None
+    assert meta.decomposition is None

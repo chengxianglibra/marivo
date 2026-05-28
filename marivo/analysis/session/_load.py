@@ -15,6 +15,7 @@ from marivo.analysis.frames.association import AssociationResult, AssociationRes
 from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
+from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.exploration import ExplorationResult, ExplorationResultMeta
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
@@ -37,6 +38,7 @@ _FRAME_CLASSES = {
     "forecast_frame": (ForecastFrame, ForecastFrameMeta),
     "quality_report": (QualityReport, QualityReportMeta),
     "exploration_result": (ExplorationResult, ExplorationResultMeta),
+    "component_frame": (ComponentFrame, ComponentFrameMeta),
 }
 
 

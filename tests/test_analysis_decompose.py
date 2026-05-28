@@ -278,3 +278,23 @@ def test_decompose_stale_archived_session_raises():
     assert session.state == "active"
     with pytest.raises(SessionStateError):
         session.decompose(frame, axis=DimensionRef("bucket"))
+
+
+def test_decompose_sum_delta_still_accepts_non_default_measure_column():
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["north", "south"],
+                "delta": [10.0, -2.0],
+                "pct_change": [0.5, -0.1],
+            }
+        ),
+        semantic_kind="segmented",
+    )
+
+    out = session.decompose(frame, axis=DimensionRef("region"), measure_column="pct_change")
+
+    df = out.to_pandas()
+    assert list(df["contribution"]) == [pytest.approx(0.5), pytest.approx(-0.1)]

@@ -35,6 +35,7 @@ from marivo.analysis.executor.runner import (
     normalize_slice_for_storage,
     resolve_window_time_field,
 )
+from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._types import SliceValue
 from marivo.analysis.lineage import Lineage, LineageStep
@@ -203,6 +204,114 @@ def _gen_ref(prefix: str) -> str:
 def _params_digest(params: dict[str, Any]) -> str:
     body = json.dumps(params, sort_keys=True, default=str).encode("utf-8")
     return f"sha256:{hashlib.sha256(body).hexdigest()}"
+
+
+# ---------------------------------------------------------------------------
+# Component-aware decomposition helpers
+# ---------------------------------------------------------------------------
+
+_COMPONENT_AWARE_DECOMPOSITIONS = {"ratio", "weighted_average"}
+
+
+def _is_component_aware_decomposition(metric_ir: Any) -> bool:
+    decomposition = getattr(metric_ir, "decomposition", None)
+    kind = getattr(decomposition, "kind", None)
+    return isinstance(kind, str) and kind in _COMPONENT_AWARE_DECOMPOSITIONS
+
+
+def _decomposition_payload(metric_ir: Any) -> dict[str, Any] | None:
+    if not _is_component_aware_decomposition(metric_ir):
+        return None
+    return {
+        "kind": metric_ir.decomposition.kind,
+        "components": dict(metric_ir.decomposition.components),
+    }
+
+
+def _component_parent_columns(metric_ir: Any) -> list[str]:
+    kind = metric_ir.decomposition.kind
+    if kind == "ratio":
+        return ["numerator", "denominator"]
+    if kind == "weighted_average":
+        return ["numerator", "weight"]
+    return []
+
+
+def _component_metric_columns(metric_ir: Any) -> dict[str, str]:
+    return {
+        role: component_ref.rsplit(".", 1)[1]
+        for role, component_ref in metric_ir.decomposition.components.items()
+    }
+
+
+def _component_frame_df(
+    *,
+    raw_df: Any,
+    metric_ir: Any,
+    axes_columns: list[str],
+    metric_value_column: str,
+) -> Any:
+    role_to_metric_column = _component_metric_columns(metric_ir)
+    role_columns = _component_parent_columns(metric_ir)
+    rename_map = {role_to_metric_column[role]: role for role in role_columns}
+    selected = [*axes_columns, *rename_map.keys(), metric_value_column]
+    component_df = raw_df[selected].rename(
+        columns={**rename_map, metric_value_column: "metric_value"}
+    )
+    return component_df[[*axes_columns, *role_columns, "metric_value"]]
+
+
+def _persist_metric_component_frame(
+    *,
+    session: Session,
+    df: Any,
+    parent: MetricFrame,
+    metric_ir: Any,
+    axes: dict[str, Any],
+    semantic_kind: Literal["scalar", "segmented"],
+    job_ref: str,
+) -> ComponentFrame:
+    frame_ref = _gen_ref("frame")
+    component = ComponentFrame(
+        _df=df.copy(),
+        meta=ComponentFrameMeta(
+            ref=frame_ref,
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job=job_ref,
+            created_at=datetime.now(UTC),
+            row_count=len(df),
+            byte_size=0,
+            lineage=parent.lineage,
+            parent_ref=parent.ref,
+            parent_kind="metric_frame",
+            metric_id=parent.meta.metric_id,
+            decomposition_kind=metric_ir.decomposition.kind,
+            components=dict(metric_ir.decomposition.components),
+            axes=axes,
+            semantic_kind=semantic_kind,
+            semantic_model=parent.meta.semantic_model,
+        ),
+    )
+    component.meta = cast("ComponentFrameMeta", write_frame_to_disk(session.layout, component))
+    return component
+
+
+def _attach_metric_component_ref(
+    *,
+    session: Session,
+    parent: MetricFrame,
+    component: ComponentFrame,
+    metric_ir: Any,
+) -> MetricFrame:
+    parent.meta = parent.meta.model_copy(
+        update={
+            "component_ref": component.ref,
+            "decomposition": _decomposition_payload(metric_ir),
+        }
+    )
+    parent.meta = cast("MetricFrameMeta", write_frame_to_disk(session.layout, parent))
+    return parent
 
 
 def _resolve_window(
@@ -499,7 +608,7 @@ def _observe_derived_segmented(
     dimensions: list[Any] | None,
     resolved_window: AbsoluteWindow | None,
     where: dict[str, Any] | None,
-) -> tuple[Any, dict[str, Any], Literal["segmented"]]:
+) -> tuple[Any, Any | None, dict[str, Any], Literal["segmented"]]:
     if resolved_window is not None:
         raise MetricShapeUnsupportedError(
             message="windowed derived metric dimensions are not supported yet",
@@ -612,6 +721,17 @@ def _observe_derived_segmented(
     result_df = merged[[*dimension_names, metric_name]].sort_values(dimension_names)
     result_df = result_df.reset_index(drop=True)
 
+    # Build component_df for component-aware decompositions
+    component_df: Any | None = None
+    if _is_component_aware_decomposition(metric_ir):
+        component_df = _component_frame_df(
+            raw_df=merged,
+            metric_ir=metric_ir,
+            axes_columns=dimension_names,
+            metric_value_column=metric_name,
+        )
+        component_df = component_df.sort_values(dimension_names).reset_index(drop=True)
+
     class _Result:
         def __init__(self, df: Any) -> None:
             self.df = df
@@ -621,7 +741,7 @@ def _observe_derived_segmented(
         field_ir.name: {"role": "dimension", "column": field_ir.name}
         for _, field_ir in resolved_dimensions
     }
-    return _Result(result_df), axes, "segmented"
+    return _Result(result_df), component_df, axes, "segmented"
 
 
 def _observe_derived_scalar(
@@ -632,7 +752,7 @@ def _observe_derived_scalar(
     session: Session,
     resolved_window: AbsoluteWindow | None,
     where: dict[str, Any] | None,
-) -> tuple[Any, dict[str, Any], Literal["scalar"]]:
+) -> tuple[Any, Any | None, dict[str, Any], Literal["scalar"]]:
     if resolved_window is not None and resolved_window.grain is not None:
         raise MetricShapeUnsupportedError(
             message="time-series derived metrics are not supported yet",
@@ -732,12 +852,24 @@ def _observe_derived_scalar(
         metric_value = metric_value.iloc[0]
     result_df = pandas.DataFrame([{metric_name: metric_value}])
 
+    # Build component_df for component-aware decompositions
+    component_df: Any | None = None
+    if _is_component_aware_decomposition(metric_ir):
+        raw_df = component_frame.copy()
+        raw_df[metric_name] = metric_value
+        component_df = _component_frame_df(
+            raw_df=raw_df,
+            metric_ir=metric_ir,
+            axes_columns=[],
+            metric_value_column=metric_name,
+        )
+
     class _Result:
         def __init__(self, df: Any) -> None:
             self.df = df
             self.row_count = len(df)
 
-    return _Result(result_df), {}, "scalar"
+    return _Result(result_df), component_df, {}, "scalar"
 
 
 def _dump_dimensions(dimensions: list[DimensionRef] | None) -> list[dict[str, Any]] | None:
@@ -859,7 +991,7 @@ def observe(
     metric_datasets = tuple(metric_ir.datasets)
     dimension_refs = _validate_dimension_refs(dimensions)
     if metric_ir.is_derived and not dimension_refs:
-        result, scalar_axes, scalar_kind = _observe_derived_scalar(
+        result, component_df, scalar_axes, scalar_kind = _observe_derived_scalar(
             metric_ir,
             metric_name,
             sp=sp,
@@ -933,6 +1065,22 @@ def observe(
                 extractor_family="metric_frame",
             ),
         )
+        if component_df is not None:
+            component = _persist_metric_component_frame(
+                session=session,
+                df=component_df,
+                parent=frame,
+                metric_ir=metric_ir,
+                axes=scalar_axes,
+                semantic_kind=scalar_kind,
+                job_ref=job_ref,
+            )
+            frame = _attach_metric_component_ref(
+                session=session,
+                parent=frame,
+                component=component,
+                metric_ir=metric_ir,
+            )
         write_job_record(
             session.layout,
             {
@@ -953,7 +1101,7 @@ def observe(
         )
         return frame
     if metric_ir.is_derived and dimension_refs:
-        result, segmented_axes, segmented_kind = _observe_derived_segmented(
+        result, component_df, segmented_axes, segmented_kind = _observe_derived_segmented(
             metric_ir,
             metric_name,
             sp=sp,
@@ -1008,6 +1156,22 @@ def observe(
         )
         frame = MetricFrame(_df=result.df, meta=meta)
         frame.meta = cast("MetricFrameMeta", write_frame_to_disk(session.layout, frame))
+        if component_df is not None:
+            component = _persist_metric_component_frame(
+                session=session,
+                df=component_df,
+                parent=frame,
+                metric_ir=metric_ir,
+                axes=segmented_axes,
+                semantic_kind=segmented_kind,
+                job_ref=job_ref,
+            )
+            frame = _attach_metric_component_ref(
+                session=session,
+                parent=frame,
+                component=component,
+                metric_ir=metric_ir,
+            )
         write_job_record(
             session.layout,
             {

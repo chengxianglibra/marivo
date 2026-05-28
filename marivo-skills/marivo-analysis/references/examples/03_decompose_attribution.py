@@ -8,7 +8,7 @@ columns.
 
 from __future__ import annotations
 
-from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
+from _fixtures.tiny_semantic import DERIVED_RATIO_METRIC_ID, METRIC_ID, ensure_loaded
 
 # Setup: load the tiny semantic model and attach an examples session.
 ensure_loaded()
@@ -35,3 +35,17 @@ print(f"columns={summary.columns!r}")
 # kind='attribution_frame'
 # row_count=3
 # columns=['bucket_start', 'delta', 'contribution', 'pct_contribution', 'rank']
+
+# Component-aware ratio metric: observe two windows and compare.
+ratio_cur = session.observe(
+    mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
+    window={"start": "2026-07-01", "end": "2026-09-30"},
+)
+ratio_base = session.observe(
+    mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
+    window={"start": "2025-07-01", "end": "2025-09-30"},
+)
+ratio_delta = session.compare(ratio_cur, ratio_base)
+ratio_components = ratio_delta.components()
+print(f"component_kind={ratio_components.meta.decomposition_kind!r}")
+print(f"component_columns={list(ratio_components.to_pandas().columns)!r}")

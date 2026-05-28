@@ -7,6 +7,7 @@ import pytest
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import (
     AlignmentFailedError,
+    ComponentFrameUnavailableError,
     SemanticKindMismatchError,
     SessionStateError,
 )
@@ -392,3 +393,39 @@ def test_compare_stale_archived_session_raises(tmp_path):
     assert s.state == "active"
     with pytest.raises(SessionStateError):
         compare(a, b, session=s)
+
+
+def test_compare_component_aware_scalar_missing_component_ref_fails_closed(tmp_path):
+    s = session_attach.get_or_create(name="demo")
+    current = MetricFrame.from_dataframe(
+        pd.DataFrame({"failure_rate": [0.25]}),
+        metric_id="sales.failure_rate",
+        axes={},
+        measure={"name": "failure_rate"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        session=s,
+    )
+    baseline = MetricFrame.from_dataframe(
+        pd.DataFrame({"failure_rate": [0.10]}),
+        metric_id="sales.failure_rate",
+        axes={},
+        measure={"name": "failure_rate"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        session=s,
+    )
+    current.meta = current.meta.model_copy(
+        update={
+            "decomposition": {
+                "kind": "ratio",
+                "components": {
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+            }
+        }
+    )
+
+    with pytest.raises(ComponentFrameUnavailableError):
+        compare(current, baseline, session=s)

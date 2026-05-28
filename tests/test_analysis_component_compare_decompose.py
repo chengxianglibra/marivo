@@ -1,0 +1,384 @@
+"""Component-aware compare and decompose behavior."""
+
+from datetime import UTC, datetime
+
+import pandas as pd
+import pytest
+
+import marivo.analysis.session.attach as session_attach
+from marivo.analysis.errors import (
+    ComponentDecompositionError,
+    ComponentFrameMismatchError,
+    ComponentFrameUnavailableError,
+)
+from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
+from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.lineage import Lineage
+from marivo.analysis.policies import AlignmentPolicy
+from marivo.analysis.refs import DimensionRef
+from marivo.analysis.session.persistence import write_frame_to_disk
+
+
+@pytest.fixture(autouse=True)
+def _chdir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    session_attach._reset_process_state()
+    yield
+
+
+def _now():
+    return datetime(2026, 5, 28, 10, 0, 0, tzinfo=UTC)
+
+
+def _component_aware_metric(
+    session,
+    *,
+    ref: str,
+    rows: list[dict[str, object]],
+    component_rows: list[dict[str, object]],
+    decomposition_kind: str = "ratio",
+    components: dict[str, str] | None = None,
+):
+    component_map = components or {
+        "numerator": "sales.failed_count",
+        "denominator": "sales.total_count",
+    }
+    axes = {"region": {"role": "dimension", "column": "region"}}
+    metric = MetricFrame(
+        _df=pd.DataFrame(rows),
+        meta=MetricFrameMeta(
+            ref=ref,
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_observe",
+            created_at=_now(),
+            row_count=len(rows),
+            byte_size=0,
+            lineage=Lineage(),
+            metric_id="sales.failure_rate",
+            axes=axes,
+            measure={"name": "failure_rate"},
+            window=None,
+            where={},
+            semantic_kind="segmented",
+            semantic_model="sales",
+            decomposition={"kind": decomposition_kind, "components": component_map},
+        ),
+    )
+    metric.meta = write_frame_to_disk(session.layout, metric)
+    component = ComponentFrame(
+        _df=pd.DataFrame(component_rows),
+        meta=ComponentFrameMeta(
+            ref=f"{ref}_components",
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_observe",
+            created_at=_now(),
+            row_count=len(component_rows),
+            byte_size=0,
+            lineage=Lineage(),
+            parent_ref=metric.ref,
+            parent_kind="metric_frame",
+            metric_id="sales.failure_rate",
+            decomposition_kind=decomposition_kind,
+            components=component_map,
+            axes=axes,
+            semantic_kind="segmented",
+            semantic_model="sales",
+        ),
+    )
+    component.meta = write_frame_to_disk(session.layout, component)
+    metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
+    metric.meta = write_frame_to_disk(session.layout, metric)
+    return metric
+
+
+def test_compare_segmented_ratio_persists_clean_delta_and_component_delta():
+    session = session_attach.get_or_create(name="demo")
+    current = _component_aware_metric(
+        session,
+        ref="frame_current",
+        rows=[
+            {"region": "NORTH", "failure_rate": 0.25},
+            {"region": "SOUTH", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "metric_value": 0.25},
+            {"region": "SOUTH", "numerator": 50.0, "denominator": 100.0, "metric_value": 0.50},
+        ],
+    )
+    baseline = _component_aware_metric(
+        session,
+        ref="frame_baseline",
+        rows=[
+            {"region": "NORTH", "failure_rate": 0.10},
+            {"region": "SOUTH", "failure_rate": 0.40},
+        ],
+        component_rows=[
+            {"region": "NORTH", "numerator": 10.0, "denominator": 100.0, "metric_value": 0.10},
+            {"region": "SOUTH", "numerator": 20.0, "denominator": 50.0, "metric_value": 0.40},
+        ],
+    )
+
+    delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
+
+    assert delta.meta.component_ref is not None
+    assert delta.meta.decomposition == {
+        "kind": "ratio",
+        "components": {
+            "numerator": "sales.failed_count",
+            "denominator": "sales.total_count",
+        },
+    }
+    assert list(delta.to_pandas().columns) == [
+        "region",
+        "current",
+        "baseline",
+        "delta",
+        "pct_change",
+    ]
+    components = delta.components()
+    assert components.meta.parent_ref == delta.ref
+    assert components.meta.parent_kind == "delta_frame"
+    component_df = components.to_pandas()
+    assert list(component_df.columns) == [
+        "region",
+        "current_numerator",
+        "baseline_numerator",
+        "delta_numerator",
+        "current_denominator",
+        "baseline_denominator",
+        "delta_denominator",
+        "current_metric_value",
+        "baseline_metric_value",
+        "delta_metric_value",
+    ]
+    north = component_df.set_index("region").loc["NORTH"]
+    assert north["current_numerator"] == pytest.approx(25.0)
+    assert north["baseline_numerator"] == pytest.approx(10.0)
+    assert north["delta_numerator"] == pytest.approx(15.0)
+    assert north["current_metric_value"] == pytest.approx(0.25)
+    assert north["baseline_metric_value"] == pytest.approx(0.10)
+    assert north["delta_metric_value"] == pytest.approx(0.15)
+
+
+def test_compare_component_aware_metric_missing_component_frame_fails_closed():
+    session = session_attach.get_or_create(name="demo")
+    current = _component_aware_metric(
+        session,
+        ref="frame_current",
+        rows=[{"region": "NORTH", "failure_rate": 0.25}],
+        component_rows=[
+            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "metric_value": 0.25}
+        ],
+    )
+    baseline = MetricFrame(
+        _df=pd.DataFrame({"region": ["NORTH"], "failure_rate": [0.10]}),
+        meta=MetricFrameMeta(
+            ref="frame_baseline",
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_observe",
+            created_at=_now(),
+            row_count=1,
+            byte_size=0,
+            lineage=Lineage(),
+            metric_id="sales.failure_rate",
+            axes={"region": {"role": "dimension", "column": "region"}},
+            measure={"name": "failure_rate"},
+            window=None,
+            where={},
+            semantic_kind="segmented",
+            semantic_model="sales",
+            decomposition={
+                "kind": "ratio",
+                "components": {
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+            },
+        ),
+    )
+    baseline.meta = write_frame_to_disk(session.layout, baseline)
+
+    with pytest.raises(ComponentFrameUnavailableError):
+        session.compare(current, baseline)
+
+
+def test_compare_component_frame_metadata_mismatch_fails_closed():
+    session = session_attach.get_or_create(name="demo")
+    current = _component_aware_metric(
+        session,
+        ref="frame_current",
+        rows=[{"region": "NORTH", "failure_rate": 0.25}],
+        component_rows=[
+            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "metric_value": 0.25}
+        ],
+    )
+    baseline = _component_aware_metric(
+        session,
+        ref="frame_baseline",
+        rows=[{"region": "NORTH", "failure_rate": 0.10}],
+        component_rows=[
+            {"region": "NORTH", "numerator": 10.0, "weight": 100.0, "metric_value": 0.10}
+        ],
+        decomposition_kind="weighted_average",
+        components={"numerator": "sales.failed_count", "weight": "sales.total_count"},
+    )
+
+    with pytest.raises(ComponentFrameMismatchError):
+        session.compare(current, baseline)
+
+
+def test_decompose_component_aware_ratio_delta_emits_value_and_mix_effects():
+    session = session_attach.get_or_create(name="demo")
+    current = _component_aware_metric(
+        session,
+        ref="frame_current",
+        rows=[
+            {"region": "NORTH", "failure_rate": 0.25},
+            {"region": "SOUTH", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "metric_value": 0.25},
+            {"region": "SOUTH", "numerator": 50.0, "denominator": 100.0, "metric_value": 0.50},
+        ],
+    )
+    baseline = _component_aware_metric(
+        session,
+        ref="frame_baseline",
+        rows=[
+            {"region": "NORTH", "failure_rate": 0.10},
+            {"region": "SOUTH", "failure_rate": 0.40},
+        ],
+        component_rows=[
+            {"region": "NORTH", "numerator": 10.0, "denominator": 100.0, "metric_value": 0.10},
+            {"region": "SOUTH", "numerator": 20.0, "denominator": 50.0, "metric_value": 0.40},
+        ],
+    )
+    delta = session.compare(current, baseline)
+
+    attribution = session.decompose(delta, axis=DimensionRef("region"))
+
+    assert attribution.meta.method == "ratio_mix"
+    assert attribution.meta.contribution_column == "contribution"
+    df = attribution.to_pandas()
+    assert list(df.columns) == [
+        "region",
+        "contribution",
+        "pct_contribution",
+        "value_effect",
+        "mix_effect",
+        "residual",
+        "current_numerator",
+        "baseline_numerator",
+        "current_denominator",
+        "baseline_denominator",
+        "current_metric_value",
+        "baseline_metric_value",
+        "current_share",
+        "baseline_share",
+        "rank",
+    ]
+    by_region = df.set_index("region")
+    assert by_region.loc["NORTH", "current_share"] == pytest.approx(0.5)
+    assert by_region.loc["NORTH", "baseline_share"] == pytest.approx(2.0 / 3.0)
+    assert by_region.loc["NORTH", "contribution"] == pytest.approx(0.05833333333333332)
+    assert by_region.loc["NORTH", "value_effect"] == pytest.approx(0.075)
+    assert by_region.loc["NORTH", "mix_effect"] == pytest.approx(-0.016666666666666663)
+    assert by_region.loc["NORTH", "residual"] == pytest.approx(0.0)
+    # Contribution sum equals the overall weighted-average change, not the
+    # per-row delta sum.  overall_current = 75/200 = 0.375, overall_baseline = 30/150 = 0.2.
+    assert df["contribution"].sum() == pytest.approx(0.175)
+    assert sorted(df["rank"].tolist()) == [1, 2]
+
+
+def test_decompose_component_aware_weighted_delta_uses_weight_share():
+    session = session_attach.get_or_create(name="demo")
+    current = _component_aware_metric(
+        session,
+        ref="frame_current",
+        rows=[
+            {"region": "NORTH", "failure_rate": 0.25},
+            {"region": "SOUTH", "failure_rate": 0.50},
+        ],
+        component_rows=[
+            {"region": "NORTH", "numerator": 25.0, "weight": 100.0, "metric_value": 0.25},
+            {"region": "SOUTH", "numerator": 50.0, "weight": 100.0, "metric_value": 0.50},
+        ],
+        decomposition_kind="weighted_average",
+        components={"numerator": "sales.weighted_failed", "weight": "sales.total_weight"},
+    )
+    baseline = _component_aware_metric(
+        session,
+        ref="frame_baseline",
+        rows=[
+            {"region": "NORTH", "failure_rate": 0.10},
+            {"region": "SOUTH", "failure_rate": 0.40},
+        ],
+        component_rows=[
+            {"region": "NORTH", "numerator": 10.0, "weight": 100.0, "metric_value": 0.10},
+            {"region": "SOUTH", "numerator": 20.0, "weight": 50.0, "metric_value": 0.40},
+        ],
+        decomposition_kind="weighted_average",
+        components={"numerator": "sales.weighted_failed", "weight": "sales.total_weight"},
+    )
+    delta = session.compare(current, baseline)
+
+    attribution = session.decompose(delta, axis=DimensionRef("region"))
+
+    assert attribution.meta.method == "weighted_mix"
+    df = attribution.to_pandas()
+    assert "current_weight" in df.columns
+    assert "baseline_weight" in df.columns
+    assert "current_denominator" not in df.columns
+    # Contribution sum equals the overall weighted-average change.
+    assert df["contribution"].sum() == pytest.approx(0.175)
+
+
+def test_decompose_component_aware_ratio_with_no_valid_denominators_raises():
+    session = session_attach.get_or_create(name="demo")
+    current = _component_aware_metric(
+        session,
+        ref="frame_current",
+        rows=[{"region": "NORTH", "failure_rate": float("nan")}],
+        component_rows=[
+            {"region": "NORTH", "numerator": 1.0, "denominator": 0.0, "metric_value": float("nan")}
+        ],
+    )
+    baseline = _component_aware_metric(
+        session,
+        ref="frame_baseline",
+        rows=[{"region": "NORTH", "failure_rate": float("nan")}],
+        component_rows=[
+            {"region": "NORTH", "numerator": 1.0, "denominator": 0.0, "metric_value": float("nan")}
+        ],
+    )
+    delta = session.compare(current, baseline)
+
+    with pytest.raises(ComponentDecompositionError):
+        session.decompose(delta, axis=DimensionRef("region"))
+
+
+def test_decompose_component_aware_delta_rejects_non_default_measure_column():
+    session = session_attach.get_or_create(name="demo")
+    current = _component_aware_metric(
+        session,
+        ref="frame_current",
+        rows=[{"region": "NORTH", "failure_rate": 0.25}],
+        component_rows=[
+            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "metric_value": 0.25}
+        ],
+    )
+    baseline = _component_aware_metric(
+        session,
+        ref="frame_baseline",
+        rows=[{"region": "NORTH", "failure_rate": 0.10}],
+        component_rows=[
+            {"region": "NORTH", "numerator": 10.0, "denominator": 100.0, "metric_value": 0.10}
+        ],
+    )
+    delta = session.compare(current, baseline)
+
+    with pytest.raises(ComponentDecompositionError):
+        session.decompose(delta, axis=DimensionRef("region"), measure_column="pct_change")
