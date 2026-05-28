@@ -906,7 +906,7 @@ baseline = session.observe(
     metric=MetricRef("analytics.dau"),
     window={"start": "2026-04-24", "end": "2026-04-30", "grain": "day"},
 )
-delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"))
+delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
 
 if delta.meta.blocking_issues:
     for issue in delta.meta.blocking_issues:

@@ -56,10 +56,10 @@ def hypothesis_test(
 
     When to use: statistically validate whether a metric changed between two periods.
 
-    v1 only supports ``hypothesis="mean_changed"`` under ``calendar_bucket``
+    v1 only supports ``hypothesis="mean_changed"`` under ``window_bucket``
     alignment. Scalar MetricFrames are not testable. ``a`` and ``b`` must share
     ``semantic_kind`` and ``semantic_model``; ``sampling.pairing`` must match
-    the frame shape (``segment_key`` for segmented, ``calendar_bucket`` for
+    the frame shape (``segment_key`` for segmented, ``window_bucket`` for
     time_series / panel).
 
     Args:
@@ -68,7 +68,7 @@ def hypothesis_test(
         hypothesis: Only ``"mean_changed"`` in v1.
         value_a: Numeric column on ``a``. Defaults to the frame's measure column.
         value_b: Numeric column on ``b``. Defaults to the frame's measure column.
-        alignment: Defaults to ``AlignmentPolicy(kind="calendar_bucket")``.
+        alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``.
         sampling: Defaults to ``SamplingPolicy()`` (pairing inferred from shape).
         alpha: Significance level in (0, 0.5].
         session: Defaults to the currently-attached session.
@@ -95,11 +95,11 @@ def hypothesis_test(
         raise TestPolicyError(message=f"unsupported hypothesis {hypothesis!r}")
     if not 0 < alpha <= 0.5:
         raise TestPolicyError(message="alpha must be in (0, 0.5]", details={"alpha": alpha})
-    alignment = alignment or AlignmentPolicy(kind="calendar_bucket")
+    alignment = alignment or AlignmentPolicy(kind="window_bucket")
     sampling = sampling or SamplingPolicy()
-    if alignment.kind != "calendar_bucket":
+    if alignment.kind != "window_bucket":
         raise TestPolicyError(
-            message="test v1 only supports calendar_bucket alignment",
+            message="test v1 only supports window_bucket alignment",
             details={"alignment": alignment.model_dump(mode="json")},
         )
     if a.meta.semantic_kind != b.meta.semantic_kind:
@@ -117,7 +117,7 @@ def hypothesis_test(
             message="scalar MetricFrame is not testable for mean_changed"
         )
 
-    expected_pairing = "segment_key" if a.meta.semantic_kind == "segmented" else "calendar_bucket"
+    expected_pairing = "segment_key" if a.meta.semantic_kind == "segmented" else "window_bucket"
     if sampling.pairing != expected_pairing:
         raise TestPolicyError(
             message="SamplingPolicy.pairing does not match input shape",

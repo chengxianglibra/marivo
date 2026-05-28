@@ -13,7 +13,7 @@ v1 同批落地三个 core operator，均为最小可用子集：
 不在 v1 范围：
 
 - 其他 hypothesis（`proportion_changed`、`distribution_changed`、`variance_changed` 等）。
-- 其他 alignment kind（`dow_aligned`、`holiday_aligned`、`fiscal_period` 等）；v1 仅 `calendar_bucket`，与 `correlate` 现状对齐。
+- 其他 alignment kind（`dow_aligned`、`holiday_aligned`、`fiscal_period` 等）；v1 仅 `window_bucket`，与 `correlate` 现状对齐。
 - `QualityReport[delta|candidate|forecast|attribution]`。
 - ETS / ARIMA / Prophet 等需要外部库的 forecast 模型。
 - `evaluate_forecast` composite operator（依赖 `ForecastFrame` 已存在，但属于 composite 层）。
@@ -175,7 +175,7 @@ class SamplingPolicy(BaseModel):
 
     unit: Literal["bucket"] = "bucket"
     method: Literal["paired_numeric_summary"] = "paired_numeric_summary"
-    pairing: Literal["calendar_bucket", "segment_key"] = "calendar_bucket"
+    pairing: Literal["window_bucket", "segment_key"] = "window_bucket"
     null_handling: Literal["drop_pair"] = "drop_pair"
     min_n: int = Field(default=3, ge=2)
 ```
@@ -199,7 +199,7 @@ def hypothesis_test(
 ) -> HypothesisTestResult:
 ```
 
-- `alignment` 默认 `AlignmentPolicy(kind="calendar_bucket")`。v1 仅接受 `calendar_bucket`，与 `correlate` 现状对齐。
+- `alignment` 默认 `AlignmentPolicy(kind="window_bucket")`。v1 仅接受 `window_bucket`，与 `correlate` 现状对齐。
 - `sampling` 默认 `SamplingPolicy()`。
 - `alpha ∈ (0, 0.5]`，否则 `TestPolicyError`。
 - 输入 `a`、`b` 必须同 `semantic_kind` 与 `semantic_model`。
@@ -217,7 +217,7 @@ def hypothesis_test(
 
 `SamplingPolicy.pairing` 必须与 shape 一致：
 
-- `time_series` / `panel` → `pairing="calendar_bucket"`
+- `time_series` / `panel` → `pairing="window_bucket"`
 - `segmented` → `pairing="segment_key"`
 
 不一致 → `TestPolicyError`。
@@ -255,7 +255,7 @@ rejected = p_two < alpha
 | 错误类 | 触发 |
 |---|---|
 | `TestShapeNotTestableError` | scalar 输入；time_series/segmented 下 paired n < `min_n` |
-| `TestPolicyError` | `SamplingPolicy.pairing` 与 input shape 不匹配；`alpha` 越界；`alignment.kind` 非 `calendar_bucket` |
+| `TestPolicyError` | `SamplingPolicy.pairing` 与 input shape 不匹配；`alpha` 越界；`alignment.kind` 非 `window_bucket` |
 | `TestAlignmentError(AlignmentFailedError)` | 对齐后无成对样本 |
 
 每个新错误实现 `_template_fields()` 返回 `location/cause/fix_snippet/doc`，与 `MetricNotFoundError` 等现有错误一致。
@@ -579,7 +579,7 @@ def seeded_time_series_metric_frame(
 - `test_cross_session_raises`：跨 session frame → `CrossSessionFrameError`。
 - `test_alpha_out_of_range_raises`：`alpha=0` 或 `alpha > 0.5` → `TestPolicyError`。
 - `test_pairing_mismatch_raises`：time_series + `pairing="segment_key"` → `TestPolicyError`。
-- `test_alignment_kind_unsupported_raises`：非 `calendar_bucket` → `TestPolicyError`。
+- `test_alignment_kind_unsupported_raises`：非 `window_bucket` → `TestPolicyError`。
 - `test_lineage_and_persistence`：输出可 `load_frame` 回读；lineage 含 observe + observe + test。
 
 ### 9.3 `tests/test_analysis_py_forecast.py`
@@ -636,7 +636,7 @@ PR 落地前必须通过：
 | 总章规则 | v1 实现 | 备注 |
 |---|---|---|
 | `test` accepts `MetricFrame[scalar]` | scalar fail-closed，抛 `TestShapeNotTestableError` | mean_changed t-test 需要 n ≥ 2 个观测；scalar 没有底层 sample，留待"scalar-as-summary"专题设计 |
-| `AlignmentPolicy.kind` 多种 | 仅 `calendar_bucket` | 与 `correlate` 现状一致；其他 kind 留 v1.1+ |
+| `AlignmentPolicy.kind` 多种 | 仅 `window_bucket` | 与 `correlate` 现状一致；其他 kind 留 v1.1+ |
 | `SamplingPolicy` 完整字段集 | 子集（4 字段单值 Literal + min_n） | 字段名前向兼容，扩展靠新增 Literal 值 |
 | `FollowupAction` / `BlockingIssue` typed | plain `list[dict]` | 字段名严格对齐，留待统一 typed migration |
 | `QualityReport` 5 种 shape | 仅 `metric` | `report_shape: Literal["metric"]`，v1.1+ 扩 Literal 值 |

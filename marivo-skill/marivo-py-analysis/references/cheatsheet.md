@@ -13,7 +13,7 @@ active Python environment, not from a local Marivo source checkout.
 | `session.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; `model.field` refs resolve to the persisted delta column `field`. |
 | `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape`. |
 | `candidates.select(...)` | `CandidateSet` | typed value (`DimensionRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
-| `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="calendar_bucket")`; default lag is zero. |
+| `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="window_bucket")`; default lag is zero. |
 | `session.hypothesis_test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
 | `session.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
 | `session.assess_quality(frame)` | `MetricFrame` | `QualityReport` | Row count, null ratio, time coverage, duplicate key checks |
@@ -54,7 +54,7 @@ base = session.observe(
     mv.MetricRef("sales.revenue"),
     window={"start": "2025-07-01", "end": "2025-09-30"},
 )
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 print(attribution.summary())
 ```
@@ -150,9 +150,10 @@ session.observe(
 )
 ```
 
-Valid `AlignmentPolicy.kind` values are `calendar_bucket`, `dow_aligned`,
+Valid `AlignmentPolicy.kind` values are `window_bucket`, `dow_aligned`,
 `holiday_aligned`, and `holiday_and_dow_aligned`; there is no separate
-`ordinal` kind. `AlignmentPolicy(kind="calendar_bucket")` aligns by shared
-`bucket_start` when available. For equal-length same-grain WoW/YoY windows with
-no shared dates, it pairs buckets by ordinal position and preserves the baseline
-date as `bucket_start_b`.
+`ordinal` kind. `AlignmentPolicy(kind="window_bucket")` aligns by shared
+`bucket_start` when available. For same-grain WoW/YoY windows with no shared
+dates, it builds the expected buckets from each window, pairs them by ordinal
+position, preserves the baseline date as `bucket_start_b`, and leaves sparse
+observed buckets as `NaN` rather than failing compare.

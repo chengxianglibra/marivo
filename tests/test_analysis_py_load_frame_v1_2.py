@@ -138,7 +138,7 @@ def test_load_frame_round_trips_hypothesis_test_result():
             semantic_models=["sales", "sales"],
             hypothesis="mean_changed",
             method="paired_t",
-            alignment={"kind": "calendar_bucket"},
+            alignment={"kind": "window_bucket"},
             sampling={"unit": "bucket"},
             alpha=0.05,
             result_shape="single",

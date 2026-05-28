@@ -47,7 +47,7 @@ baseline = mv.MetricFrame.from_dataframe(
 delta_frame = session.compare(
     current,
     baseline,
-    alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+    alignment=mv.AlignmentPolicy(kind="window_bucket"),
 )
 top_decreases = session.transform.topk(delta_frame, by="delta", limit=3, order="decrease")
 print(top_decreases.summary())

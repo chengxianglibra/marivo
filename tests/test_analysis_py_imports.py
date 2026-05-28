@@ -16,7 +16,7 @@ def test_namespace_alias_works():
 def test_analysis_py_keeps_frame_and_policy_exports():
     import marivo.analysis_py as mv
 
-    assert mv.SamplingPolicy().pairing == "calendar_bucket"
+    assert mv.SamplingPolicy().pairing == "window_bucket"
     assert mv.HypothesisTestResultMeta.model_fields["kind"].default == "hypothesis_test_result"
     assert mv.ForecastFrameMeta.model_fields["kind"].default == "forecast_frame"
     assert mv.QualityReportMeta.model_fields["kind"].default == "quality_report"

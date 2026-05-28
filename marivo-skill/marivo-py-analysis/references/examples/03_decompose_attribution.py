@@ -24,7 +24,7 @@ base = session.observe(
     mv.MetricRef(id=METRIC_ID),
     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
 )
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef(id="bucket_start"))
 summary = attribution.summary()
 print(f"kind={summary.kind!r}")

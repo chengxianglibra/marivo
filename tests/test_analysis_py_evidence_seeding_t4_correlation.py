@@ -26,7 +26,7 @@ def test_seed_correlation_proposition_basic() -> None:
             "coefficient": 0.71,
             "p_value": 0.03,
             "n": 42,
-            "join_basis": "calendar_bucket",
+            "join_basis": "window_bucket",
         }
     )
 
@@ -40,7 +40,7 @@ def test_seed_correlation_proposition_basic() -> None:
     assert prop is not None
     assert prop.proposition_type == "association"
     assert prop.payload["method_family"] == "pearson"
-    assert prop.payload["join_basis"] == "calendar_bucket"
+    assert prop.payload["join_basis"] == "window_bucket"
     assert prop.payload["relationship_of_interest"] == "any_non_zero"
 
 

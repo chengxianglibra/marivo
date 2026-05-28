@@ -53,9 +53,9 @@ def test_compare_returns_delta_frame(tmp_path):
         window={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
-    d = compare(q3, q2, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+    d = compare(q3, q2, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
     assert isinstance(d, DeltaFrame)
-    assert d.meta.alignment["kind"] == "calendar_bucket"
+    assert d.meta.alignment["kind"] == "window_bucket"
     assert d.meta.source_current_ref == q3.ref
     assert d.meta.source_baseline_ref == q2.ref
     df = d.to_pandas()
@@ -111,7 +111,7 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
     )
     assert "Fix:" in rendered
     assert (
-        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))'
+        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
         in rendered
     )
     assert exc_info.value.details["expected_kind"] == "metric_frame"
@@ -142,7 +142,7 @@ def test_compare_rejects_non_alignment_policy(tmp_path):
     b = observe(MetricRef("sales.revenue"), session=s)
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        compare(a, b, alignment="calendar_bucket", session=s)  # type: ignore[arg-type]
+        compare(a, b, alignment="window_bucket", session=s)  # type: ignore[arg-type]
 
     assert exc_info.value.details["expected_kind"] == "AlignmentPolicy"
     assert exc_info.value.details["got_kind"] == "str"
@@ -168,7 +168,7 @@ def test_compare_rejects_loose_align_parameter(tmp_path):
         compare(q3, q2, align="sample", session=s)  # type: ignore[call-arg]
 
 
-def test_calendar_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_path):
+def test_window_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
@@ -184,7 +184,7 @@ def test_calendar_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_p
         session=s,
     )
 
-    delta = compare(cur, base, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
     df = delta.to_pandas()
     assert len(df) == 2
@@ -194,7 +194,7 @@ def test_calendar_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_p
     assert delta.meta.alignment["mode"] == "ordinal_bucket"
 
 
-def test_calendar_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
+def test_window_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
     bootstrap_sales_project(tmp_path)
     s = session_attach.get_or_create(
         name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
@@ -219,14 +219,14 @@ def test_calendar_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
     )
 
     with pytest.raises(AlignmentFailedError) as exc_info:
-        compare(cur, base, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+        compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
-    assert exc_info.value.details["kind"] == "CalendarBucketGrainMismatch"
+    assert exc_info.value.details["kind"] == "WindowBucketGrainMismatch"
     assert exc_info.value.details["current_grain"] == "day"
     assert exc_info.value.details["baseline_grain"] == "hour"
 
 
-def test_calendar_bucket_no_overlap_unequal_lengths_explains_requirement(tmp_path):
+def test_window_bucket_no_overlap_different_expected_counts_explains_requirement(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
@@ -243,11 +243,91 @@ def test_calendar_bucket_no_overlap_unequal_lengths_explains_requirement(tmp_pat
     )
 
     with pytest.raises(AlignmentFailedError) as exc_info:
-        compare(cur, base, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+        compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
-    assert "equal-length" in str(exc_info.value)
-    assert "current has 2 rows, baseline has 1 rows" in str(exc_info.value)
-    assert exc_info.value.details["kind"] == "CalendarBucketNoComparableBuckets"
+    assert "equal expected bucket counts" in str(exc_info.value)
+    assert exc_info.value.details["kind"] == "WindowBucketExpectedCountMismatch"
+
+
+def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.get_or_create(
+        name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
+    )
+    cur = MetricFrame.from_dataframe(
+        pd.DataFrame({"bucket_start": ["2026-07-01", "2026-07-02"], "revenue": [10.0, 20.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        session=s,
+    )
+    base = MetricFrame.from_dataframe(
+        pd.DataFrame({"bucket_start": ["2026-04-01"], "revenue": [5.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-04-01", "end": "2026-04-02", "grain": "day"},
+        session=s,
+    )
+
+    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    df = delta.to_pandas()
+    assert list(df["bucket_start"].astype(str)) == ["2026-07-01", "2026-07-02"]
+    assert list(df["bucket_start_b"].astype(str)) == ["2026-04-01", "2026-04-02"]
+    assert df.iloc[0]["delta"] == pytest.approx(5.0)
+    assert pd.isna(df.iloc[1]["baseline"])
+    assert pd.isna(df.iloc[1]["delta"])
+    assert delta.meta.alignment["coverage"]["baseline"]["missing_buckets"] == 1
+
+
+def test_window_bucket_no_overlap_supports_quarter_grain(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.get_or_create(
+        name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
+    )
+    cur = MetricFrame.from_dataframe(
+        pd.DataFrame(
+            {
+                "bucket_start": ["2026-04-01", "2026-07-01"],
+                "revenue": [100.0, 200.0],
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "quarter"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-04-01", "end": "2026-09-30", "grain": "quarter"},
+        session=s,
+    )
+    base = MetricFrame.from_dataframe(
+        pd.DataFrame(
+            {
+                "bucket_start": ["2025-04-01", "2025-07-01"],
+                "revenue": [80.0, 150.0],
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "quarter"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2025-04-01", "end": "2025-09-30", "grain": "quarter"},
+        session=s,
+    )
+
+    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    df = delta.to_pandas()
+    assert list(df["bucket_start"].astype(str)) == ["2026-04-01", "2026-07-01"]
+    assert list(df["bucket_start_b"].astype(str)) == ["2025-04-01", "2025-07-01"]
+    assert list(df["delta"]) == [pytest.approx(20.0), pytest.approx(50.0)]
 
 
 def test_compare_persists_job_and_frame(tmp_path):
@@ -257,13 +337,13 @@ def test_compare_persists_job_and_frame(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     a = observe(MetricRef("sales.revenue"), session=s)
     b = observe(MetricRef("sales.revenue"), session=s)
-    d = compare(a, b, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+    d = compare(a, b, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
     compare_jobs = [j for j in s.jobs() if j.intent == "compare"]
     assert len(compare_jobs) == 1
     assert compare_jobs[0].output_frame_ref == d.ref
     assert (s.layout.frames_dir / d.ref / "data.parquet").is_file()
     job_record = s.job(compare_jobs[0].id)
-    assert job_record["params"]["alignment"]["kind"] == "calendar_bucket"
+    assert job_record["params"]["alignment"]["kind"] == "window_bucket"
 
 
 def test_compare_works_in_read_only_session(tmp_path):
@@ -282,7 +362,7 @@ def test_compare_works_in_read_only_session(tmp_path):
     d = compare(
         MetricFrame(_df=df_a, meta=MetricFrameMeta(**meta_a)),
         MetricFrame(_df=df_b, meta=MetricFrameMeta(**meta_b)),
-        alignment=AlignmentPolicy(kind="calendar_bucket"),
+        alignment=AlignmentPolicy(kind="window_bucket"),
         session=s_read,
     )
     assert isinstance(d, DeltaFrame)

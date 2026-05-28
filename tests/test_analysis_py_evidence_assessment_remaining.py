@@ -137,7 +137,7 @@ def _assoc_prop() -> Proposition:
         payload={
             "relationship_of_interest": "any_non_zero",
             "method_family": "pearson",
-            "join_basis": "calendar_bucket",
+            "join_basis": "window_bucket",
         },
         seed_finding_refs=["fnd_as1"],
         created_at=datetime.now(UTC),

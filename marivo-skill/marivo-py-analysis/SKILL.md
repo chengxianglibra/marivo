@@ -43,10 +43,10 @@ import marivo.analysis_py as mv
 mv.session.get_or_create(name="investigation")
 
 session.observe(mv.MetricRef("model.metric"), window={"start": "...", "end": "..."})  # -> MetricFrame
-session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))      # -> DeltaFrame
+session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))      # -> DeltaFrame
 session.decompose(delta, axis=mv.DimensionRef("bucket_start"))                        # -> AttributionFrame
 session.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
-session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))         # -> AssociationResult
+session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="window_bucket"))         # -> AssociationResult
 session.hypothesis_test(cur, base)                                                    # -> HypothesisTestResult
 session.forecast(series, horizon=7)                                                   # -> ForecastFrame
 session.assess_quality(series)                                                        # -> QualityReport
@@ -138,7 +138,7 @@ import marivo.analysis_py as mv
 
 cur = session.observe(mv.MetricRef("<metric_id>"), window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"})
 base = session.observe(mv.MetricRef("<metric_id>"), window={"start": "2025-07-01", "end": "2025-09-30", "grain": "month"})
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 print(attribution.summary())
 ```
@@ -156,7 +156,7 @@ window = candidates.select(rank=1, attribute="window")
 ```python
 a = session.observe(mv.MetricRef("<metric_a>"), window={"start": "2026-07-01", "end": "2026-09-30"})
 b = session.observe(mv.MetricRef("<metric_b>"), window={"start": "2026-07-01", "end": "2026-09-30"})
-result = session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+result = session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 print(result.summary())
 ```
 
@@ -222,7 +222,7 @@ baseline = session.observe(
     window={"start": "2026-04-24", "end": "2026-04-30", "grain": "day"},
     dimensions=[ap.DimensionRef("region")],
 )
-delta = session.compare(current, baseline, alignment=ap.AlignmentPolicy(kind="calendar_bucket"))
+delta = session.compare(current, baseline, alignment=ap.AlignmentPolicy(kind="window_bucket"))
 print(delta.summary())
 
 for issue in delta.meta.blocking_issues:

@@ -50,7 +50,7 @@ def _delta(session) -> DeltaFrame:
         metric_id="sales.revenue",
         source_current_ref="frame_current",
         source_baseline_ref="frame_baseline",
-        alignment={"kind": "calendar_bucket"},
+        alignment={"kind": "window_bucket"},
         semantic_kind="segmented",
         semantic_model="sales",
     )

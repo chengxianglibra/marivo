@@ -5,7 +5,7 @@ When triggered: the agent uses `delta` instead of `base` for the second compare 
 Expected output:
     SemanticKindMismatchError
     Fix:
-    delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+    delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ base = session.observe(
     mv.MetricRef(id=METRIC_ID),
     where={"created_at": {"op": "between", "value": ["2025-07-01", "2025-09-30"]}},
 )
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 
 try:
     session.compare(cur, delta)

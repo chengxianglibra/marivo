@@ -57,7 +57,7 @@ def test_correlate_sample_alignment_same_model_cross_metric():
     assert out.meta.semantic_kinds == ["time_series", "time_series"]
     assert out.meta.correlation == pytest.approx(1.0)
     assert out.meta.alignment == {
-        "kind": "calendar_bucket",
+        "kind": "window_bucket",
         "calendar": None,
         "period": "month",
         "fallback": "drop",
@@ -70,7 +70,7 @@ def test_correlate_sample_alignment_same_model_cross_metric():
     assert df.iloc[0]["semantic_model_b"] == "sales"
     assert df.iloc[0]["semantic_kind"] == "time_series"
     assert df.iloc[0]["method"] == "pearson"
-    assert df.iloc[0]["alignment_kind"] == "calendar_bucket"
+    assert df.iloc[0]["alignment_kind"] == "window_bucket"
     assert df.iloc[0]["lag_mode"] == "single"
     assert df.iloc[0]["lag_offset"] == 0
     assert df.iloc[0]["correlation"] == pytest.approx(1.0)
@@ -94,7 +94,7 @@ def test_correlate_common_key_alignment():
     out = session.correlate(
         a,
         b,
-        alignment=AlignmentPolicy(kind="calendar_bucket"),
+        alignment=AlignmentPolicy(kind="window_bucket"),
         lag_policy=LagPolicy(mode="single", offset=0),
     )
 
@@ -133,7 +133,7 @@ def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
     out = session.correlate(
         a,
         b,
-        alignment=AlignmentPolicy(kind="calendar_bucket"),
+        alignment=AlignmentPolicy(kind="window_bucket"),
         lag_policy=LagPolicy(mode="single", offset=0),
     )
 
@@ -174,7 +174,7 @@ def test_correlate_rejects_duplicate_composite_keys_without_persisting():
         session.correlate(
             a,
             b,
-            alignment=AlignmentPolicy(kind="calendar_bucket"),
+            alignment=AlignmentPolicy(kind="window_bucket"),
             lag_policy=LagPolicy(mode="single", offset=0),
         )
 
@@ -217,7 +217,7 @@ def test_correlate_writes_job_and_frame():
     assert params["measure_a"] == "value"
     assert params["measure_b"] == "value"
     assert params["alignment"] == {
-        "kind": "calendar_bucket",
+        "kind": "window_bucket",
         "calendar": None,
         "period": "month",
         "fallback": "drop",
@@ -341,7 +341,7 @@ def test_correlate_rejects_non_alignment_policy():
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
 
     with pytest.raises(SemanticKindMismatchError) as exc:
-        session.correlate(a, b, alignment="calendar_bucket")  # type: ignore[arg-type]
+        session.correlate(a, b, alignment="window_bucket")  # type: ignore[arg-type]
 
     assert exc.value.details == {
         "expected_kind": "AlignmentPolicy",

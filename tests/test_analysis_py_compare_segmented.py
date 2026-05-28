@@ -45,7 +45,7 @@ def test_compare_segmented_outer_join_preserves_one_sided_segments():
     )
     baseline = _segmented_metric(s, [{"region": "NORTH", "value": 70.0}])
 
-    out = compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
     assert out.meta.semantic_kind == "segmented"
     assert out.meta.alignment["segment_info"] == {
@@ -76,7 +76,7 @@ def test_compare_segmented_null_metric_values_do_not_count_as_one_sided_segments
     current = _segmented_metric(s, [{"region": "NORTH", "value": None}])
     baseline = _segmented_metric(s, [{"region": "NORTH", "value": 70.0}])
 
-    out = compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"), session=s)
+    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
     assert out.meta.alignment["segment_info"] == {
         "segment_count": 1,
@@ -91,7 +91,7 @@ def test_compare_segmented_null_metric_values_do_not_count_as_one_sided_segments
     assert pd.isna(row["pct_change"])
 
 
-def test_compare_segmented_rejects_non_calendar_bucket_alignment():
+def test_compare_segmented_rejects_non_window_bucket_alignment():
     s = session_attach.get_or_create(name="demo")
     current = _segmented_metric(s, [{"region": "NORTH", "value": 100.0}])
     baseline = _segmented_metric(s, [{"region": "NORTH", "value": 70.0}])

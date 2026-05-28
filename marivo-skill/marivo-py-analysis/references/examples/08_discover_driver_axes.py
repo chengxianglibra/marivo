@@ -27,7 +27,7 @@ baseline = session.observe(
 delta = session.compare(
     current,
     baseline,
-    alignment=mv.AlignmentPolicy(kind="calendar_bucket"),
+    alignment=mv.AlignmentPolicy(kind="window_bucket"),
 )
 
 axis_candidates = session.discover.driver_axes(

@@ -151,7 +151,7 @@ def _make_delta_time_series(tmp_path) -> DeltaFrame:
         MetricRef("sales.revenue"),
         window={"start": "2025-07-01", "end": "2025-07-03", "grain": "day"},
     )
-    return session.compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"))
+    return session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
 
 
 def _make_attribution_frame(tmp_path) -> AttributionFrame:
@@ -223,7 +223,7 @@ def _make_topk_delta_time_series() -> DeltaFrame:
             metric_id="sales.revenue",
             source_current_ref="frame_current",
             source_baseline_ref="frame_baseline",
-            alignment={"kind": "calendar_bucket", "axes": axes},
+            alignment={"kind": "window_bucket", "axes": axes},
             semantic_kind="time_series",
             semantic_model="sales",
         ),
@@ -245,7 +245,7 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
         window={"start": "2025-07-01", "end": "2025-07-03", "grain": "day"},
         dimensions=[DimensionRef("country")],
     )
-    return session.compare(current, baseline, alignment=AlignmentPolicy(kind="calendar_bucket"))
+    return session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
 
 
 def test_transform_api_exposes_typed_method_signatures():
@@ -353,7 +353,7 @@ def _make_one_sided_delta_panel() -> DeltaFrame:
             metric_id="sales.revenue",
             source_current_ref="frame_current",
             source_baseline_ref="frame_baseline",
-            alignment={"kind": "calendar_bucket", "axes": axes},
+            alignment={"kind": "window_bucket", "axes": axes},
             semantic_kind="panel",
             semantic_model="sales",
         ),
@@ -394,7 +394,7 @@ def _make_current_only_delta_panel() -> DeltaFrame:
             metric_id="sales.revenue",
             source_current_ref="frame_current",
             source_baseline_ref="frame_baseline",
-            alignment={"kind": "calendar_bucket", "axes": axes},
+            alignment={"kind": "window_bucket", "axes": axes},
             semantic_kind="panel",
             semantic_model="sales",
         ),
@@ -528,7 +528,7 @@ def test_transform_window_clips_delta_time_series_without_axes(tmp_path):
             metric_id="sales.revenue",
             source_current_ref="frame_current",
             source_baseline_ref="frame_baseline",
-            alignment={"kind": "calendar_bucket"},
+            alignment={"kind": "window_bucket"},
             semantic_kind="time_series",
             semantic_model="sales",
         ),

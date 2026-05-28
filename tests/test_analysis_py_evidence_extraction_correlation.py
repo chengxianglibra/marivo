@@ -20,7 +20,7 @@ def test_correlation_finding_one_per_artifact() -> None:
                 "coefficient": 0.71,
                 "p_value": 0.03,
                 "n": 42,
-                "join_basis": "calendar_bucket",
+                "join_basis": "window_bucket",
             }
         ]
     )
@@ -38,7 +38,7 @@ def test_correlation_finding_one_per_artifact() -> None:
     assert findings[0].finding_type == "correlation_result"
     assert findings[0].canonical_item_key == "result"
     assert findings[0].payload["coefficient"] == 0.71
-    assert findings[0].payload["join_basis"] == "calendar_bucket"
+    assert findings[0].payload["join_basis"] == "window_bucket"
 
 
 def test_correlation_extractor_empty_raises() -> None:

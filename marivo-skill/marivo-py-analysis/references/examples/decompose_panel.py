@@ -25,7 +25,7 @@ prev = session.observe(
     window={"start": "2025-07-01", "end": "2025-09-30", "grain": "day"},
     dimensions=[mv.DimensionRef(id="region")],
 )
-delta = session.compare(cur, prev, alignment=mv.AlignmentPolicy(kind="calendar_bucket"))
+delta = session.compare(cur, prev, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef(id="region"))
 print(attribution.summary())
 

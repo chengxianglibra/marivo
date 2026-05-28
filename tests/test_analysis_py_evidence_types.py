@@ -220,7 +220,7 @@ def test_association_summary_construction() -> None:
         coefficient=0.71,
         lag_mode="single",
         lag=None,
-        join_basis="calendar_bucket",
+        join_basis="window_bucket",
     )
     assert fact.kind == "association"
     assert fact.coefficient == 0.71

@@ -69,7 +69,7 @@ def _panel_delta(tmp_path):
     delta = compare(
         current,
         baseline,
-        alignment=AlignmentPolicy(kind="calendar_bucket"),
+        alignment=AlignmentPolicy(kind="window_bucket"),
         session=session,
     )
     return session, delta

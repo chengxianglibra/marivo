@@ -50,10 +50,14 @@ def test_metric_ref_requires_model_and_metric():
 
 
 def test_alignment_policy_requires_calendar_for_calendar_backed_modes():
-    assert AlignmentPolicy(kind="calendar_bucket").calendar is None
+    assert AlignmentPolicy(kind="window_bucket").calendar is None
 
     with pytest.raises(AlignmentPolicyValidationError):
-        AlignmentPolicy(kind="calendar_bucket", calendar=CalendarRef("cn"))
+        AlignmentPolicy(kind="window_bucket", calendar=CalendarRef("cn"))
+
+    with pytest.raises(AlignmentPolicyValidationError) as legacy:
+        AlignmentPolicy(kind="calendar_bucket")  # type: ignore[arg-type]
+    assert "window_bucket" in str(legacy.value)
 
     with pytest.raises(AlignmentPolicyValidationError):
         AlignmentPolicy(kind="dow_aligned")
@@ -76,9 +80,9 @@ def test_alignment_policy_validation_error_renders_fix_snippet():
     assert 'mv.CalendarRef("cn_holidays")' in rendered
 
     with pytest.raises(AlignmentPolicyValidationError) as unexpected_cal:
-        AlignmentPolicy(kind="calendar_bucket", calendar=CalendarRef("cn"))
+        AlignmentPolicy(kind="window_bucket", calendar=CalendarRef("cn"))
     rendered_unexpected = str(unexpected_cal.value)
-    assert 'mv.AlignmentPolicy(kind="calendar_bucket")' in rendered_unexpected
+    assert 'mv.AlignmentPolicy(kind="window_bucket")' in rendered_unexpected
 
 
 def test_lag_policy_supports_only_single_zero_offset_for_now():
@@ -104,7 +108,7 @@ def test_sampling_policy_defaults_and_forbids_extra():
     policy = SamplingPolicy()
     assert policy.unit == "bucket"
     assert policy.method == "paired_numeric_summary"
-    assert policy.pairing == "calendar_bucket"
+    assert policy.pairing == "window_bucket"
     assert policy.null_handling == "drop_pair"
     assert policy.min_n == 3
 

@@ -243,7 +243,7 @@ def _dump_delta_alignment(
     *,
     axes: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if alignment.kind == "calendar_bucket":
+    if alignment.kind == "window_bucket":
         dumped: dict[str, Any] = {"kind": alignment.kind}
     else:
         dumped = alignment.model_dump(mode="json")
@@ -853,7 +853,7 @@ def promote_delta_frame(
         current_column: Column with current-period raw values (optional).
         baseline_column: Column with baseline-period raw values (optional).
         alignment: How current and baseline periods are aligned.
-            Defaults to calendar_bucket alignment.
+            Defaults to window_bucket alignment.
 
     Returns:
         A DeltaFrame persisted to the session's frame store.
@@ -1012,7 +1012,7 @@ def promote_delta_frame(
         delta_column=delta_column,
         source_refs=source_refs,
     )
-    final_alignment = alignment or AlignmentPolicy(kind="calendar_bucket")
+    final_alignment = alignment or AlignmentPolicy(kind="window_bucket")
     alignment_dump = _dump_delta_alignment(final_alignment, axes=alignment_axes)
     promotion_params = {
         "source_current_ref": current_ref.id if current_ref else None,
