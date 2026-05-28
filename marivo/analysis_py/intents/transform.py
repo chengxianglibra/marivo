@@ -112,6 +112,8 @@ def _transform_dispatch(
 ) -> MetricFrame | DeltaFrame:
     """Family-preserving reshape of a MetricFrame or DeltaFrame.
 
+    When to use: reshape a frame without changing its family; prefer typed sub-methods (mv.transform.topk, etc.).
+
     The operator preserves the frame family: MetricFrame → MetricFrame and
     DeltaFrame → DeltaFrame. Each ``op`` consumes a subset of the kwargs below;
     pass only those listed for the chosen op.
@@ -255,7 +257,7 @@ class TransformAPI:
         window: Any = None,
         _triggered_by: TriggeredByFollowup | None = None,
     ) -> MetricFrame | DeltaFrame:
-        """Dispatcher for ``mv.transform(frame, op=...)`` calls."""
+        """Family-preserving reshape. Prefer typed sub-methods (mv.transform.topk, etc.) for precise signatures."""
 
         return _transform_dispatch(
             frame,
@@ -282,6 +284,11 @@ class TransformAPI:
         predicate: Callable[[pd.DataFrame], pd.Series],
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
+        """Filter rows using a predicate function.
+
+        The predicate receives the underlying DataFrame and must return a
+        boolean Series of the same length.
+        """
         return _transform_dispatch(frame, op="filter", predicate=predicate, session=session)
 
     def slice(
@@ -291,6 +298,11 @@ class TransformAPI:
         where: dict[DimensionRef | str, Any],
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
+        """Filter rows by exact axis values.
+
+        ``where`` maps dimension names to the value(s) to keep.
+        Unlike ``filter``, operates on raw axis values without a callable.
+        """
         return _transform_dispatch(frame, op="slice", where=where, session=session)
 
     def rollup(
@@ -300,6 +312,11 @@ class TransformAPI:
         drop_axes: list[DimensionRef | str],
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
+        """Aggregate to coarser segments by dropping axes.
+
+        Removes the listed dimensions and re-aggregates measures over the
+        remaining axes.
+        """
         return _transform_dispatch(frame, op="rollup", drop_axes=drop_axes, session=session)
 
     def topk(
@@ -311,6 +328,11 @@ class TransformAPI:
         order: TopKDirection | None = None,
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
+        """Keep the top N rows ranked by a measure column.
+
+        ``order`` defaults to ``"decrease"`` (largest first). Use
+        ``"increase"`` to select the smallest values instead.
+        """
         return _transform_dispatch(
             frame,
             op="topk",
@@ -328,6 +350,11 @@ class TransformAPI:
         limit: int,
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
+        """Keep the bottom N rows ranked by a measure column.
+
+        Equivalent to ``topk(..., order="increase")``. Returns the rows with
+        the smallest values in the ``by`` column.
+        """
         return _transform_dispatch(frame, op="bottomk", by=by, limit=limit, session=session)
 
     def rank(
@@ -339,6 +366,11 @@ class TransformAPI:
         rank_column: str = "rank",
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
+        """Add a rank column ordered by a measure.
+
+        ``method`` controls tie-breaking: ``"ordinal"``, ``"dense"``,
+        ``"min"``, or ``"max"``. The new column is named ``rank_column``.
+        """
         return _transform_dispatch(
             frame,
             op="rank",
@@ -356,6 +388,12 @@ class TransformAPI:
         baseline: Any = None,
         session: Session | None = None,
     ) -> MetricFrame:
+        """Convert measure values to a normalized form (MetricFrame only).
+
+        Supported modes: ``"index"``, ``"share"``, ``"pct_change"``,
+        ``"per_unit"``, ``"z_score"``. ``baseline`` sets the reference point
+        when required by the mode.
+        """
         result = _transform_dispatch(
             frame,
             op="normalize",

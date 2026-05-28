@@ -41,6 +41,7 @@ from marivo.analysis_py.frames.association import AssociationResult, Association
 from marivo.analysis_py.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis_py.frames.base import BaseFrame, BaseFrameMeta, FramePreview
 from marivo.analysis_py.frames.candidate import (
+    CandidateObjective,
     CandidateSet,
     CandidateSetMeta,
     CandidateShape,
@@ -51,7 +52,7 @@ from marivo.analysis_py.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis_py.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis_py.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis_py.frames.quality import QualityReport, QualityReportMeta
-from marivo.analysis_py.help import help
+from marivo.analysis_py.help import help, help_text
 from marivo.analysis_py.intents._types import (
     DiscoverSensitivity,
     SlicePredicate,
@@ -108,6 +109,7 @@ __all__ = [
     "BlockingIssue",
     "CalendarPolicy",
     "CalendarRef",
+    "CandidateObjective",
     "CandidateSet",
     "CandidateSetMeta",
     "CandidateShape",
@@ -165,6 +167,7 @@ __all__ = [
     "forecast",
     "from_pandas",
     "help",
+    "help_text",
     "hypothesis_test",
     "load_frame",
     "observe",

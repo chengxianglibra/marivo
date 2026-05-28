@@ -1,9 +1,8 @@
 """Authoring decorators and builders for marivo.semantic_py v1.1.
 
-This module replaces the old decorators.py and builders.py.  All
-authoring symbols (model, datasource, dataset, field, time_field,
-metric, relationship, sum, ratio, weighted_average, ref, component)
-are defined here.
+All authoring symbols (model, dataset, field, time_field, metric,
+relationship, sum, ratio, weighted_average, ref, component) are
+defined here.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal
 
 from marivo.semantic_py.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic_py.ir import (
@@ -42,7 +41,6 @@ __all__ = [
     "DecompositionBuilder",
     "component",
     "dataset",
-    "datasource",
     "field",
     "metric",
     "model",
@@ -432,6 +430,10 @@ def model(
         ai_context: Optional ``AiContext`` (or compatible dict) with extra
             agent-facing hints.
 
+    Returns:
+        None. This is a namespace declaration, not a value-producing call.
+        Subsequent decorators in this file resolve to this model.
+
     Raises:
         OutsideLoaderContextError: Called outside a semantic loader pass.
         SemanticDecoratorError: ``name`` collides with another model in the project.
@@ -455,25 +457,6 @@ def model(
 
     if default:
         ctx.default_model = name
-
-
-def datasource(
-    *,
-    name: str | None = None,
-    backend_type: str | None = None,
-    model_name: str | None = None,
-    description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
-) -> NoReturn:
-    """Removed: datasource declarations live in .marivo/datasource/*.py."""
-    _ = (name, backend_type, model_name, description, ai_context)
-    _require_ctx()
-    _raise(
-        ErrorKind.INVALID_REF,
-        "ms.datasource has been removed; declare datasources in .marivo/datasource/*.py with marivo.datasource_py.datasource(...) and reference them by string name in @ms.dataset(datasource=...).",
-        refs=(str(name),) if name is not None else (),
-        cls=SemanticDecoratorError,
-    )
 
 
 # ---------------------------------------------------------------------------

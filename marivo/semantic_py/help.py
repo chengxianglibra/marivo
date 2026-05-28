@@ -64,24 +64,28 @@ def _resolve(symbol: str) -> Any | None:
     return None
 
 
+def help_text(symbol: str | None = None) -> str:
+    """Return help text as a string instead of printing it."""
+
+    if symbol is None or symbol == "":
+        return _list_top_level()
+
+    obj = _resolve(symbol)
+    if obj is None:
+        return f"unknown symbol: {symbol!r}\nRun ms.help() to see the top-level entry list."
+
+    if inspect.isclass(obj):
+        return _describe_class(symbol, obj)
+    elif callable(obj) or inspect.ismodule(obj):
+        return _describe_callable(symbol, obj)
+    else:
+        return repr(obj)
+
+
 def help(symbol: str | None = None) -> None:  # noqa: A001, RUF100
     """Print agent-facing help for the semantic_py surface.
 
     Without arguments, lists top-level entries. With a symbol name (decorator,
     builder, function, or exception class) prints its signature and docstring.
     """
-    if symbol is None or symbol == "":
-        print(_list_top_level())
-        return
-
-    obj = _resolve(symbol)
-    if obj is None:
-        print(f"unknown symbol: {symbol!r}\nRun ms.help() to see the top-level entry list.")
-        return
-
-    if inspect.isclass(obj):
-        print(_describe_class(symbol, obj))
-    elif callable(obj) or inspect.ismodule(obj):
-        print(_describe_callable(symbol, obj))
-    else:
-        print(repr(obj))
+    print(help_text(symbol))

@@ -57,6 +57,8 @@ def correlate(
 ) -> AssociationResult:
     """Measure the association between two MetricFrames over aligned buckets.
 
+    When to use: measure statistical association between two metrics over aligned time buckets.
+
     v1 only supports Pearson correlation under ``calendar_bucket`` alignment with
     zero-lag (``LagPolicy(mode="single", offset=0)``). Both frames must belong to
     the active session.

@@ -55,6 +55,8 @@ def forecast(
 ) -> ForecastFrame:
     """Project a time_series or panel MetricFrame forward by ``horizon`` buckets.
 
+    When to use: project a time series forward; requires time_series or panel shape.
+
     v1 requires continuous time buckets and no NaN values. Impute or re-observe
     before forecasting. ``seasonal_naive`` needs at least
     ``seasonality_period + 1`` training rows per series.

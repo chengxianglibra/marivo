@@ -120,6 +120,8 @@ def _discover_dispatch(
 ) -> CandidateSet:
     """Discover candidate follow-ups (anomalies, drivers, outliers) from a frame.
 
+    When to use: find anomalies, drivers, or outliers without a specific hypothesis.
+
     Each ``objective`` is compatible with specific source kinds and semantic
     kinds; mismatches raise ``SemanticKindMismatchError``. ``driver_axes``
     requires a non-empty ``search_space``.
@@ -321,7 +323,7 @@ class DiscoverAPI:
         session: Session | None = None,
         _triggered_by: TriggeredByFollowup | None = None,
     ) -> CandidateSet:
-        """Compatibility dispatcher for legacy ``mv.discover(source, objective=...)`` calls."""
+        """Discover candidate follow-ups. Prefer typed sub-methods (mv.discover.point_anomalies, etc.) for precise signatures."""
 
         return _discover_dispatch(
             source,
@@ -345,6 +347,11 @@ class DiscoverAPI:
         threshold: float | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
+        """Find time-series points with unusual values.
+
+        Source must be a MetricFrame with time_series or panel shape.
+        ``threshold`` controls anomaly sensitivity (lower = more candidates).
+        """
         return _discover_dispatch(
             source,
             objective="point_anomalies",
@@ -384,6 +391,11 @@ class DiscoverAPI:
         limit: int | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
+        """Find dimensions that explain a delta.
+
+        Source must be a DeltaFrame. ``search_space`` is required and lists
+        the candidate dimensions to evaluate for explanatory power.
+        """
         return _discover_dispatch(
             source,
             objective="driver_axes",
@@ -403,6 +415,11 @@ class DiscoverAPI:
         limit: int | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
+        """Find dimension slices with notable values.
+
+        Accepts a MetricFrame or DeltaFrame. Optionally narrow the search
+        with ``search_space``; otherwise all available dimensions are probed.
+        """
         return _discover_dispatch(
             source,
             objective="interesting_slices",
@@ -421,6 +438,11 @@ class DiscoverAPI:
         threshold: float | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
+        """Find time windows with notable behavior.
+
+        Source must have time_series or panel shape. Returns windows where
+        the metric exhibits significant trends, level shifts, or volatility.
+        """
         return _discover_dispatch(
             source,
             objective="interesting_windows",
@@ -438,6 +460,12 @@ class DiscoverAPI:
         threshold: float | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
+        """Find segments that are outliers compared to their peers.
+
+        Source must be a MetricFrame with segmented or panel shape.
+        ``peer_scope`` defines the grouping for peer comparison; defaults to
+        all non-time axes.
+        """
         return _discover_dispatch(
             source,
             objective="cross_sectional_outliers",

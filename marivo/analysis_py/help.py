@@ -201,32 +201,32 @@ def _resolve(symbol: str) -> object | None:
     return None
 
 
-def help(symbol: str | None = None) -> None:
-    """Print top-level or symbol-specific help for marivo.analysis_py."""
+def help_text(symbol: str | None = None) -> str:
+    """Return help text as a string instead of printing it."""
 
     if symbol is None:
-        print(_list_top_level())
-        return
+        return _list_top_level()
 
     if symbol in _MATRIX_FORMATTERS:
-        print(_MATRIX_FORMATTERS[symbol]())
-        return
+        return _MATRIX_FORMATTERS[symbol]()
 
     obj = _resolve(symbol)
     if obj is None:
-        print(f"Unknown symbol {symbol!r}. Call mv.help() to list available entries.")
-        return
+        return f"Unknown symbol {symbol!r}. Call mv.help() to list available entries."
 
     if inspect.isclass(obj):
-        print(_describe_class(symbol, obj))
-        return
+        return _describe_class(symbol, obj)
 
     if callable(obj):
-        print(_describe_callable(symbol, obj))
-        return
+        return _describe_callable(symbol, obj)
 
     if isinstance(obj, ModuleType):
-        print(_describe_module(symbol, obj))
-        return
+        return _describe_module(symbol, obj)
 
-    print(repr(obj))
+    return repr(obj)
+
+
+def help(symbol: str | None = None) -> None:
+    """Print top-level or symbol-specific help for marivo.analysis_py."""
+
+    print(help_text(symbol))

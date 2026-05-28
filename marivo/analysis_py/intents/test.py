@@ -54,6 +54,8 @@ def hypothesis_test(
 ) -> HypothesisTestResult:
     """Run a paired hypothesis test over two compatible MetricFrames.
 
+    When to use: statistically validate whether a metric changed between two periods.
+
     v1 only supports ``hypothesis="mean_changed"`` under ``calendar_bucket``
     alignment. Scalar MetricFrames are not testable. ``a`` and ``b`` must share
     ``semantic_kind`` and ``semantic_model``; ``sampling.pairing`` must match
