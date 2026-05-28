@@ -8,7 +8,7 @@ import json
 import secrets
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -661,7 +661,7 @@ def _align_panel(
             calendar_infos.append(info.model_dump(mode="json"))
 
         for column, value in zip(dim_columns, key, strict=True):
-            delta[column] = value
+            delta[column] = cast("Any", value)
         pieces.append(delta)
 
     if pieces:
@@ -709,7 +709,7 @@ def _panel_groups(
     grouped = df.groupby(dim_columns, dropna=False, sort=False)
     for raw_key, group in grouped:
         key = raw_key if isinstance(raw_key, tuple) else (raw_key,)
-        groups[tuple(None if pd.isna(value) else value for value in key)] = group.copy()
+        groups[tuple(None if pd.isna(cast("Any", value)) else value for value in key)] = group.copy()
     return groups
 
 

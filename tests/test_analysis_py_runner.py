@@ -1,5 +1,7 @@
 """apply_window_to_dataset / apply_slice_to_dataset / execute against ibis."""
 
+from __future__ import annotations
+
 from zoneinfo import ZoneInfo
 
 import ibis
@@ -157,6 +159,68 @@ def test_execute_returns_dataframe_with_timing():
     assert isinstance(result, ExecutionResult)
     assert result.row_count >= 1
     assert result.duration_ms >= 0
+
+
+def test_execute_prefixes_compiled_sql_with_session_comment():
+    class FakeBackend:
+        def __init__(self):
+            self.executed_sql = []
+
+        def compile(self, expr):
+            return "SELECT 1"
+
+        def execute(self, expr):
+            self.executed_sql.append(self.compile(expr))
+            return 1
+
+    backend = FakeBackend()
+    original_compile = backend.compile
+    cache = BackendCache(lambda name: backend)
+
+    execute(object(), datasource_name="warehouse", cache=cache, session_id="sess_abc123")
+
+    assert backend.executed_sql == ["/* from=marivo,session=sess_abc123 */\nSELECT 1"]
+    assert backend.compile.__func__ is original_compile.__func__
+
+
+def test_execute_without_session_id_leaves_compiled_sql_unmodified():
+    class FakeBackend:
+        def __init__(self):
+            self.executed_sql = []
+
+        def compile(self, expr):
+            return "SELECT 1"
+
+        def execute(self, expr):
+            self.executed_sql.append(self.compile(expr))
+            return 1
+
+    backend = FakeBackend()
+    cache = BackendCache(lambda name: backend)
+
+    execute(object(), datasource_name="warehouse", cache=cache)
+
+    assert backend.executed_sql == ["SELECT 1"]
+
+
+def test_execute_sanitizes_session_id_in_sql_comment():
+    class FakeBackend:
+        def __init__(self):
+            self.executed_sql = []
+
+        def compile(self, expr):
+            return "SELECT 1"
+
+        def execute(self, expr):
+            self.executed_sql.append(self.compile(expr))
+            return 1
+
+    backend = FakeBackend()
+    cache = BackendCache(lambda name: backend)
+
+    execute(object(), datasource_name="warehouse", cache=cache, session_id="sess_bad*/\nnext")
+
+    assert backend.executed_sql == ["/* from=marivo,session=sess_bad* / next */\nSELECT 1"]
 
 
 def test_execute_wraps_backend_errors():

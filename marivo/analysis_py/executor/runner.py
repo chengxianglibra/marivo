@@ -10,6 +10,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from time import monotonic
+from types import MethodType
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -37,6 +38,7 @@ _SUPPORTED_FORMATS = {
 _HOUR_PRECISION_FORMATS = frozenset({"yyyymmddhh", "yyyymmdd-hh", "yyyy-mm-dd-hh", "yyyymmddthh"})
 _HOUR_ONLY_FORMATS = frozenset({"hh", "h", "int"})
 UTC_ZONE = ZoneInfo("UTC")
+_MISSING_ATTR = object()
 
 
 def _normalize_time_format(value: str | None) -> str | None:
@@ -724,21 +726,54 @@ class ExecutionResult:
     row_count: int
 
 
+def _sql_execution_comment(session_id: str) -> str:
+    safe_session_id = session_id.replace("*/", "* /").replace("\r", " ").replace("\n", " ")
+    return f"/* from=marivo,session={safe_session_id} */"
+
+
+def _prefix_sql_for_session(sql: Any, *, session_id: str) -> str:
+    return f"{_sql_execution_comment(session_id)}\n{sql}"
+
+
 def execute(
     expr: ibis.Expr,
     *,
     datasource_name: str,
     cache: BackendCache,
+    session_id: str | None = None,
 ) -> ExecutionResult:
     backend = cache.get_or_create(datasource_name)
+    original_compile_attr = getattr(backend, "__dict__", {}).get("compile", _MISSING_ATTR)
+    original_compile = getattr(backend, "compile", None)
+    prefix_session_id: str | None = None
+    compile_fn: Any = None
+    if session_id is not None and callable(original_compile):
+        prefix_session_id = session_id
+        compile_fn = original_compile
     started = monotonic()
     try:
+        if prefix_session_id is not None:
+
+            def compile_with_prefix(self: Any, expr: ibis.Expr, /, *args: Any, **kwargs: Any) -> str:
+                return _prefix_sql_for_session(
+                    compile_fn(expr, *args, **kwargs),
+                    session_id=prefix_session_id,
+                )
+
+            backend.compile = MethodType(compile_with_prefix, backend)
         raw = backend.execute(expr)
     except Exception as exc:
         raise BackendError(
             message=str(exc),
             details=_debug_details(expr, datasource_name),
         ) from exc
+    finally:
+        if prefix_session_id is not None:
+            if original_compile_attr is _MISSING_ATTR:
+                with suppress(AttributeError):
+                    delattr(backend, "compile")
+            else:
+                backend.compile = original_compile_attr
     if isinstance(raw, pd.DataFrame):
         df = raw
     elif isinstance(raw, pd.Series):

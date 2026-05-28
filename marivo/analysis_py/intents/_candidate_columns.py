@@ -9,7 +9,7 @@ from __future__ import annotations
 # mypy: disable-error-code=import-untyped
 import json
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -204,7 +204,7 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                             "kind": "CandidateRowSchemaInvalid",
                             "shape": shape,
                             "column": column,
-                            "row_index": int(index),
+                            "row_index": int(cast("Any", index)),
                             "reason": "required",
                         },
                     )
@@ -224,7 +224,7 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                         "kind": "CandidateRowSchemaInvalid",
                         "shape": shape,
                         "column": column,
-                        "row_index": int(index),
+                        "row_index": int(cast("Any", index)),
                         "reason": "unexpected",
                     },
                 )
@@ -239,7 +239,7 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                 message=(f"candidate row {index} has invalid recommended_followups_json"),
                 details={
                     "kind": "ItemFollowupShapeInvalid",
-                    "row_index": int(index),
+                    "row_index": int(cast("Any", index)),
                     "shape": shape,
                     "raw": raw,
                 },

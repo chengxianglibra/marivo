@@ -580,7 +580,12 @@ def explore_ibis(
         getattr(expr, "to_pandas", None)
     ):
         raise TypeError("explore_ibis query_builder must return an Ibis expression")
-    result = execute(expr, datasource_name=datasource, cache=resolved_session.backend_cache)
+    result = execute(
+        expr,
+        datasource_name=datasource,
+        cache=resolved_session.backend_cache,
+        session_id=resolved_session.id,
+    )
     source_refs = [ref.id for ref in sources or []]
     frame_ref = _new_frame_ref()
     query = _compile_query(expr)
