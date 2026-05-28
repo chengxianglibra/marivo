@@ -1,2 +1,3 @@
-recursive-include marivo-skill *
+recursive-include marivo-skills/marivo-analysis *
+recursive-include marivo-skills/marivo-semantic *
 global-exclude __pycache__ *.py[cod] .DS_Store

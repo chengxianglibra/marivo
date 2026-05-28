@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Walk marivo-skill/marivo-py-*/references/examples and validate them."""
+"""Walk retained marivo-skills examples and validate them."""
 
 from __future__ import annotations
 
@@ -10,7 +10,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-SKILL_GLOB = "marivo-skill/marivo-py-*"
+SKILL_DIRS = (
+    "marivo-skills/marivo-semantic",
+    "marivo-skills/marivo-analysis",
+)
 EXAMPLE_TIMEOUT_SECONDS = 30
 SKILL_MD_MAX_LINES = 600
 _EXPECTED_PREFIX = "Expected output:"
@@ -24,7 +27,7 @@ class Failure:
 
 
 def _iter_skill_dirs(root: Path) -> list[Path]:
-    return sorted(p for p in root.glob(SKILL_GLOB) if p.is_dir())
+    return [root / skill_dir for skill_dir in SKILL_DIRS if (root / skill_dir).is_dir()]
 
 
 def _iter_example_files(examples_dir: Path) -> list[Path]:

@@ -7,7 +7,7 @@ on:
     branches: [main, master]
 
 jobs:
-  lint-and-type-check:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,54 +16,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: 'pip'
+          cache: "pip"
 
-      - name: Install dependencies
+      - name: Bootstrap environment
         run: |
-          python -m pip install --upgrade pip
-          pip install ruff mypy types-PyYAML import-linter
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e ".[dev,duckdb,trino]"
 
-      - name: Lint with ruff
-        run: ruff check .
-
-      - name: Format check with ruff
-        run: ruff format --check .
-
-      - name: Import lint
-        run: lint-imports
-
-      - name: Type check with mypy
-        run: mypy marivo
-
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,trino]"
-
-      - name: Smoke test marivo-stdio entry point
-        run: python -c "from marivo.transports.mcp.stdio import main; print('marivo-stdio entry point OK')"
-
-      - name: Run tests with coverage
-        run: |
-          pytest --cov=marivo --cov-report=xml --cov-report=html --cov-report=term-missing
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.xml
-          fail_ci_if_error: false
+      - name: Run checks
+        run: make check

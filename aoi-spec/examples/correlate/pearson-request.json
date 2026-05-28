@@ -1,6 +1,0 @@
-{
-  "left_artifact_id": "obs_daily_revenue_2026_q1",
-  "right_artifact_id": "obs_daily_ad_spend_2026_q1",
-  "method": "pearson",
-  "min_pairs": 5
-}

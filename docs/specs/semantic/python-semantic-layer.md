@@ -1,12 +1,12 @@
 # Marivo Python 语义层总体设计
 
-状态：draft design。本文描述 `marivo.semantic_py` 作为 Marivo Python 库语义层的目标态设计、当前 v1 边界和 agent 使用契约。它是设计侧文档，不替代 `osi-marivo-spec/` 的 schema，也不表示所有目标态能力都已经实现。
+状态：draft design。本文描述 `marivo.semantic` 作为 Marivo Python 库语义层的目标态设计、当前 v1 边界和 agent 使用契约。它是设计侧文档，不表示所有目标态能力都已经实现。
 
-本文面向 Claude Code、Codex 等通用 coding agent。设计目标不是让 agent 记住一套私有 DSL，而是让 agent 能像维护普通 Python 项目一样维护业务语义：读取现有对象、声明明确模型、用 Ibis 表达计算口径、保留 SQL 来源、运行校验，并把稳定 semantic refs 交给 `marivo.analysis_py` 消费。
+本文面向 Claude Code、Codex 等通用 coding agent。设计目标不是让 agent 记住一套私有 DSL，而是让 agent 能像维护普通 Python 项目一样维护业务语义：读取现有对象、声明明确模型、用 Ibis 表达计算口径、保留 SQL 来源、运行校验，并把稳定 semantic refs 交给 `marivo.analysis` 消费。
 
 ## 设计目标
 
-`marivo.semantic_py` 是 Python-native 分析链路的业务对象契约。它回答的是“这个分析项目里有哪些可被稳定引用的业务对象”，而不是“如何把 YAML、SQL 或运行时 API 包成另一个入口”。
+`marivo.semantic` 是 Python-native 分析链路的业务对象契约。它回答的是“这个分析项目里有哪些可被稳定引用的业务对象”，而不是“如何把 YAML、SQL 或运行时 API 包成另一个入口”。
 
 目标态满足以下要求：
 
@@ -16,7 +16,7 @@
 - 业务口径不能靠字段名、表名或自然语言自动猜测。agent 必须通过 decorated refs、函数签名、`source_sql` / `source_dialect` / `source_document`、parity result 和结构化错误来收敛。
 - 归属、依赖和项目边界必须来自显式声明或显式 default model。model 不能由文件路径猜测，metric 不能由函数参数名推断 dataset，reader 不能靠 thread-local active project 隐式选项目。
 - Ibis 是 Python 语义层唯一表达计算口径的执行表达式层。SQL 可以作为 provenance 和 parity oracle 保留，但不作为主要 authoring 语言。
-- `analysis_py`、后续 operator、skill 或脚本只消费稳定 semantic refs 和 materialized Ibis 表达式，不直接依赖用户项目内的 Python 文件布局细节。
+- `analysis`、后续 operator、skill 或脚本只消费稳定 semantic refs 和 materialized Ibis 表达式，不直接依赖用户项目内的 Python 文件布局细节。
 - 失败语义 fail closed。装饰、加载、组装、物化、parity 任一阶段无法证明契约成立时，应给出结构化错误，而不是降级为 best-effort 猜测。
 
 核心判断标准是：如果一个业务对象会被下游分析引用，它必须先进入语义层；如果一个规则只存在于 agent 的临时提示词或 SQL 草稿里，它还不是稳定语义。
@@ -27,7 +27,7 @@
 
 ```python
 # .marivo/datasource/warehouse.py
-import marivo.datasource_py as md
+import marivo.datasource as md
 
 md.datasource(
     name="warehouse",
@@ -38,7 +38,7 @@ md.datasource(
 
 ```python
 # .marivo/semantic/sales/_model.py
-import marivo.semantic_py as ms
+import marivo.semantic as ms
 
 ms.model(name="sales", description="Sales analytics")
 
@@ -123,10 +123,10 @@ semantic/
 
 ## Reader / Introspection
 
-Reader 层让 agent 和 `analysis_py` 读取明确的 `SemanticProject`，而不是重新解析文件或依赖进程全局状态：
+Reader 层让 agent 和 `analysis` 读取明确的 `SemanticProject`，而不是重新解析文件或依赖进程全局状态：
 
 ```python
-import marivo.semantic_py as ms
+import marivo.semantic as ms
 
 project = ms.find_project()
 if project is None:
@@ -176,7 +176,7 @@ free function 形态只允许作为 REPL 糖保留；如果没有显式 active p
 Materialization 层把已注册的 Python 函数重新组合成 Ibis 对象。调用方提供 `backend_factory(datasource_name)`，语义层不自己构造连接：
 
 ```python
-import marivo.semantic_py as ms
+import marivo.semantic as ms
 
 project = ms.SemanticProject(root=".marivo/semantic")
 expr = project.materialize_metric(
@@ -186,7 +186,7 @@ expr = project.materialize_metric(
 value = expr.execute()
 ```
 
-目标态上，materialization 是 `analysis_py` 和测试工具进入真实数据执行的唯一通道。它不应绕过 registry，也不应从旧 OSI/SQLite runtime 反查定义。
+目标态上，materialization 是 `analysis` 和测试工具进入真实数据执行的唯一通道。它不应绕过 registry，也不应从已删除链路的生成物或持久化存储反查定义。
 
 `describe(..., compile_sql=True)` 应能在不执行查询的情况下返回 Ibis repr、backend-compiled SQL、`source_sql` 和 parity status，帮助 agent 调试口径差异。编译契约：
 
@@ -203,12 +203,12 @@ value = expr.execute()
 目标态：`SemanticProject` 是唯一显式项目边界；reader、reload、materialization 都优先通过 project methods 调用。
 
 ```python
-from marivo.semantic_py import SemanticProject
+from marivo.semantic import SemanticProject
 
 project = SemanticProject(root="/path/to/.marivo/semantic")
 ```
 
-它拥有独立 registry 和加载锁。目标态上，一个 `analysis_py` session 应显式绑定到项目 root 下的语义项目，避免在不同 CWD 或不同 checkout 间误读模型。
+它拥有独立 registry 和加载锁。目标态上，一个 `analysis` session 应显式绑定到项目 root 下的语义项目，避免在不同 CWD 或不同 checkout 间误读模型。
 
 ### Model
 
@@ -230,7 +230,7 @@ from .metrics import sessions, signups
 Datasource 是项目级配置，不属于任何 semantic model。它定义在 `.marivo/datasource/*.py`，可随 `.marivo/semantic` 一起复制到其他分析项目复用。
 
 ```python
-import marivo.datasource_py as md
+import marivo.datasource as md
 
 md.datasource(
     name="warehouse",
@@ -256,7 +256,7 @@ md.datasource(
 dataset 是业务实体或事实表的逻辑视图：
 
 ```python
-from marivo.semantic_py.typing import IbisBackend
+from marivo.semantic.typing import IbisBackend
 
 @ms.dataset(
     model="sales",
@@ -361,7 +361,7 @@ relationship 描述 dataset 之间的连接路径：
 
 ```python
 # .marivo/semantic/sales/relationships.py
-import marivo.semantic_py as ms
+import marivo.semantic as ms
 from .datasets import orders
 from .fields import order_user_id
 from marketing._exports import users, user_id
@@ -395,7 +395,7 @@ decomposition 描述 metric 在变化归因中的数学结构，不等同于 SQL
 
 `ms.component("numerator")` / `ms.component("denominator")` / `ms.component("weight")` 在 decorator-time 返回 deferred Ibis expression sentinel。sentinel 支持 `+`、`-`、`*`、`/` 和一元 `-`；运算结果仍是 deferred sentinel tree。materialize-time 将 sentinel tree 的 leaves 替换为真实 component metric 的 Ibis scalar，再编译到目标 backend。
 
-`ms.component(...)` 的返回类型在 `marivo.semantic_py.typing` 中导出为 `ComponentExpr`（确定名称由实现期 freeze）。agent 通常无需显式标注；mypy / Pyright 会自动推断算术结果仍为 `ComponentExpr`。
+`ms.component(...)` 的返回类型在 `marivo.semantic.typing` 中导出为 `ComponentExpr`（确定名称由实现期 freeze）。agent 通常无需显式标注；mypy / Pyright 会自动推断算术结果仍为 `ComponentExpr`。
 
 derived metric 不在 Python 层做零除保护；materialize 后的 Ibis 表达式在目标 backend 中按 SQL 语义处理，多数 backend 在分母为 0 时返回 `NULL`。需要明确 fallback（例如返回 0、跳过该 slice）时，应把保护逻辑封装到 base metric 内，再作为 component 引用，而不是在 derived metric body 内尝试条件表达式——白名单不会接受。
 
@@ -418,7 +418,7 @@ Derived metric body AST 白名单：
 
 ### Provenance
 
-目标态 metric 始终有 provenance status，但 authoring-time 不强迫 agent 先完成 SQL 溯源。缺省状态是 `unverified`；当 metric 被提升为正式分析口径、被 `analysis_py.observe()` 消费、进入 strict CI，或声明为可信业务对象时，必须显式选择 SQL triple 或 `python_native`：
+目标态 metric 始终有 provenance status，但 authoring-time 不强迫 agent 先完成 SQL 溯源。缺省状态是 `unverified`；当 metric 被提升为正式分析口径、被 `analysis.observe()` 消费、进入 strict CI，或声明为可信业务对象时，必须显式选择 SQL triple 或 `python_native`：
 
 | Provenance | 含义 |
 | --- | --- |
@@ -441,15 +441,20 @@ Derived metric 的有效 parity status 同时受自身 provenance 和 component 
 
 ### 1. 先读取现状
 
-agent 在新增或修改语义前应先运行确定性的 check 或读取当前 registry。目标态首选 fresh-process CLI：
+agent 在新增或修改语义前应先运行确定性的 check 或读取当前 registry。Python-only 目标态首选显式 project load：
 
-```bash
-.venv/bin/python -m marivo.semantic_py check --project .marivo/semantic
+```python
+import marivo.semantic as ms
+
+project = ms.SemanticProject(root=".marivo/semantic")
+result = project.load()
+if result.errors:
+    raise SystemExit(result.errors)
 ```
 
-`check` 命令要求：
+`project.load()` / 后续 check helper 要求：
 
-- 缺省向上查找最近的 `.marivo/semantic/`，找不到时 fail closed 并提示 `--project`。
+- 缺省向上查找最近的 `.marivo/semantic/`，找不到时 fail closed 并提示显式传入 project root。
 - 使用 fresh interpreter 加载项目，避免 namespace package 和模块缓存影响修复循环。
 - 打印所有 decorator / load / assembly errors，包含结构化 kind、refs、location、hint 和人类可读摘要。
 - 非零退出码表示存在未解决错误。
@@ -458,7 +463,7 @@ agent 在新增或修改语义前应先运行确定性的 check 或读取当前 
 - 默认列出所有字符串 refs 和 unverified metrics，作为 agent 需要复核的 warning。
 - 支持 `--format=json` 输出结构化 errors / warnings / refs / parity statuses，便于 agent 稳定解析。
 
-需要探索对象时，再用项目显式 API。agent 进入一个新 repo 后的默认入口是 `ms.find_project()`；找不到时不要猜 root，应提示初始化或显式传入 `--project`。
+需要探索对象时，再用项目显式 API。agent 进入一个新 repo 后的默认入口是 `ms.find_project()`；找不到时不要猜 root，应提示初始化或显式传入 project root。
 
 ### 2. 声明最小业务对象
 
@@ -470,19 +475,19 @@ agent 在新增或修改语义前应先运行确定性的 check 或读取当前 
 
 修改 authoring 文件后，应优先运行 `check`。REPL 中可调用 `project.reload()`，但 agent fix loop 不应依赖 thread-local active project 或上一次 import 的模块缓存。遇到 `SemanticDecoratorError`、`SemanticLoadError`、`SemanticRuntimeError`、`SemanticParityError` 时，优先按错误中的 kind、refs、hint 和 source location 修改定义，不要用 try/except 隐藏错误。
 
-### 4. Materialize 或交给 analysis_py
+### 4. Materialize 或交给 analysis
 
-语义层自身只产出 Ibis object。实际分析应由 `analysis_py` operator 或上层 session 执行：
+语义层自身只产出 Ibis object。实际分析应由 `analysis` operator 或上层 session 执行：
 
 ```python
-import marivo.analysis_py as mv
+import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="revenue-investigation")
 frame = session.observe(mv.MetricRef("sales.revenue"))
 print(frame.summary())
 ```
 
-目标态边界是：`semantic_py` 负责“对象是什么、口径是什么、如何物化”；`analysis_py` 负责“对这些对象执行 observe/compare/decompose/detect/correlate 等分析步骤并持久化 artifact/lineage”。
+目标态边界是：`semantic` 负责“对象是什么、口径是什么、如何物化”；`analysis` 负责“对这些对象执行 observe/compare/decompose/detect/correlate 等分析步骤并持久化 artifact/lineage”。
 
 ## Agent 决策规则
 
@@ -533,13 +538,13 @@ def sessions_per_user():
 
 跨 model refs 允许，但必须在 resolve 阶段做存在性、cycle 和 contract 检查；不能退回到 SQL provenance 里复制另一个 model 的定义。
 
-因为字符串 ref 是重构风险，`check` 默认应列出所有字符串 refs，并标记为 `potentially_fragile_reference`。目标态还应提供结构化重命名工具，例如 `.venv/bin/python -m marivo.semantic_py refactor rename metric old new`，让 agent 优先通过工具修改 semantic refs，而不是手工 grep。
+因为字符串 ref 是重构风险，`check` 默认应列出所有字符串 refs，并标记为 `potentially_fragile_reference`。目标态还应提供结构化重命名 helper，让 agent 优先通过工具修改 semantic refs，而不是手工 grep。
 
-Refactor 工具契约：
+Refactor helper 契约：
 
-```bash
-.venv/bin/python -m marivo.semantic_py refactor rename metric sales.old_revenue sales.revenue
-.venv/bin/python -m marivo.semantic_py refactor rename field sales.orders.old_user_id sales.orders.user_id --write
+```python
+project.refactor.rename("metric", "sales.old_revenue", "sales.revenue", write=False)
+project.refactor.rename("field", "sales.orders.old_user_id", "sales.orders.user_id", write=True)
 ```
 
 - 缺省 dry-run，输出 unified diff 和变更文件列表；只有 `--write` 才落盘。
@@ -565,7 +570,7 @@ decorator 执行时检查局部声明是否自洽：
 - metric 函数体不满足单 return 表达式约束。
 - metric body 调用 decorated metric 函数，derived metric body 调用 `ms.component(...)` 之外的函数，或使用 Ibis SQL escape hatch。
 
-`outside_loader_context` 错误必须带可执行 hint：把定义移动到 `<project_root>/.marivo/semantic/<model>/<file>.py`，然后运行 `.venv/bin/python -m marivo.semantic_py check --project <project_root>/.marivo/semantic`；如果是在 notebook 中探索，使用 scratch Ibis expressions，只有注册对象才走 semantic loader。
+`outside_loader_context` 错误必须带可执行 hint：把定义移动到 `<project_root>/.marivo/semantic/<model>/<file>.py`，然后用 `SemanticProject(root="<project_root>/.marivo/semantic").load()` 重新加载；如果是在 notebook 中探索，使用 scratch Ibis expressions，只有注册对象才走 semantic loader。
 
 常见 structured error 到 agent action 的映射应足够机械：
 
@@ -624,45 +629,45 @@ parity 失败时，agent 应先定位语义差异，不应直接调大 tolerance
 - metric body 禁止 `backend.sql(...)`、Ibis raw SQL escape hatch 或 dialect-specific SQL snippets。跨 dialect 的 vendor 差异应通过 datasource/backend compilation 和 parity 暴露，而不是藏在 metric body。
 - SQL escape hatch 检查在 materialize-time 扫描 Ibis expression tree 中的 raw SQL node；decorator-time 只做显式 `backend.sql(...)`、`.raw_sql(...)` 等明显方法名的早期拒绝，避免仅靠 AST 误伤普通列名。
 
-## 与 OSI-Marivo 的关系
+## 与历史 schema 参考的关系
 
-OSI-Marivo spec 提供了重要语义参考：semantic model、dataset、field、relationship、metric、time granularity、AI context 和 MARIVO decomposition extensions。Python 语义层借鉴这些对象边界，但不被旧链路约束。
+旧 schema 设计提供了语义参考：semantic model、dataset、field、relationship、metric、time granularity、AI context 和 MARIVO decomposition extensions。Python 语义层借鉴这些对象边界，但不被旧链路约束。
 
 本文档采用以下边界：
 
 - Python 文件是 Python-native track 的 source of truth。
-- OSI YAML/JSON、SQLite metadata store 和旧 runtime 是独立 track，不是本文档要求的兼容目标。
-- 本文档不承诺 Python 定义与 OSI 文档双向转换。
-- 本文档不要求把 Python semantic definitions 持久化到 SQLite。
-- OSI 的对象语义可作为命名、decomposition、time-field metadata 的参考，但 Python API 可以为 agent ergonomics 做不同取舍。
+- 已删除链路的 YAML/JSON 和 metadata store 不是本文档要求的兼容目标。
+- 本文档不承诺 Python 定义与旧 schema 文档双向转换。
+- 本文档不要求把 Python semantic definitions 持久化到旧 metadata store。
+- 旧 schema 的对象语义可作为命名、decomposition、time-field metadata 的参考，但 Python API 可以为 agent ergonomics 做不同取舍。
 
-## 与 analysis_py 的关系
+## 与 analysis 的关系
 
-`semantic_py` 和 `analysis_py` 是 Python-native Marivo 的两段式架构：
+`semantic` 和 `analysis` 是 Python-native Marivo 的两段式架构：
 
 ```text
-semantic_py:  datasource / dataset / field / metric / relationship
+semantic:  datasource / dataset / field / metric / relationship
       ↓
 Ibis materialization + typed semantic refs
       ↓
-analysis_py: observe / compare / decompose / detect / correlate / ...
+analysis: observe / compare / decompose / detect / correlate / ...
       ↓
 typed frames + session persistence + lineage
 ```
 
 设计边界：
 
-- `semantic_py` 不产出 `MetricFrame`、`DeltaFrame` 或 attribution artifact。
-- `analysis_py` 不重新定义 metric 口径，不猜 dataset/time field，不绕过 semantic registry 直接读表。
+- `semantic` 不产出 `MetricFrame`、`DeltaFrame` 或 attribution artifact。
+- `analysis` 不重新定义 metric 口径，不猜 dataset/time field，不绕过 semantic registry 直接读表。
 - backend ownership 位于 profile/session/execution 层；semantic object 只声明
   datasource 名称引用，不声明 backend type 或连接字段。
 - 下游 analysis operator 应通过 semantic refs 读取对象，例如 `sales.revenue`，并通过 materialization 获得 Ibis expression。
 
-如果一个分析需要新的业务对象，应先扩展 `semantic_py`，再让 `analysis_py` 消费它；不应把业务定义隐藏在一次性 analysis script 中。
+如果一个分析需要新的业务对象，应先扩展 `semantic`，再让 `analysis` 消费它；不应把业务定义隐藏在一次性 analysis script 中。
 
 ## v1 已落地边界
 
-当前 `marivo/semantic_py` 已经提供以下能力：
+当前 `marivo/semantic` 已经提供以下能力：
 
 - `SemanticProject`、project-scoped registry、context-local active registry。
 - decorators：`model`、`datasource`、`dataset`、`field`、`time_field`、`metric`、`relationship`。
@@ -696,7 +701,7 @@ typed frames + session persistence + lineage
 - Parity status 成为 metric / frame / describe 的可见属性。
 - Field / time_field 不要求 provenance status；缺失 provenance 在 describe 中显示为 `null`。
 - Dataset SQL view 允许但必须显式标记 `dataset_provenance="sql_view"`，且 parity 默认要求 fixture-based 验证。
-- 提供 `.venv/bin/python -m marivo.semantic_py check --project ...` fresh-process check 命令。
+- 提供 Python-only check helper，显式加载 `SemanticProject` 并返回结构化 errors / warnings。
 - `check` 缺省向上查找 `.marivo/semantic/`，支持 `--strict-provenance`，并默认提示字符串 refs。
 - 提供 semantic refactor rename 工具，减少 agent 手工重命名字符串 refs。
 - Loader 采用 two-pass collect / resolve；合法 ref 不受 sibling filename sort order 影响。
@@ -721,12 +726,12 @@ typed frames + session persistence + lineage
 
 ## 测试与维护
 
-修改 Python 语义层行为后，应使用仓库 entrypoints 验证。针对当前 semantic_py 的常用聚焦命令是：
+修改 Python 语义层行为后，应使用仓库 entrypoints 验证。针对当前 semantic 的常用聚焦命令是：
 
 ```bash
-make test TESTS=tests/test_semantic_py_decorators.py
-make test TESTS=tests/test_semantic_py_materialization.py
-make test TESTS=tests/test_semantic_py_parity.py
+make test TESTS=tests/test_semantic_decorators.py
+make test TESTS=tests/test_semantic_materialization.py
+make test TESTS=tests/test_semantic_parity.py
 ```
 
 文档-only 修改至少应运行：
@@ -737,7 +742,7 @@ git diff --check -- docs/specs/semantic/python-semantic-layer.md
 
 维护规则：
 
-- 文档里的 current-state API 必须与 `marivo.semantic_py` 公开导出对齐。
+- 文档里的 current-state API 必须与 `marivo.semantic` 公开导出对齐。
 - 示例不能使用 bare `python`、`pytest`、`mypy` 或 `ruff`。
 - 目标态能力必须明确标注为目标态或后续演进。
-- 不要把旧 OSI/SQLite/runtime track 的兼容性承诺写进 Python-native 设计文档。
+- 不要把已删除链路的兼容性承诺写进 Python-native 设计文档。

@@ -1,6 +1,6 @@
 # Python Analysis 算子集总体设计
 
-状态：draft design。本文描述 `marivo.analysis` Python 库的目标态算子集合、类型边界和组合方式。它是设计侧说明，不替代 `aoi-spec/` canonical schema，也不表示所有算子已经实现。
+状态：draft design。本文描述 `marivo.analysis` Python 库的目标态算子集合、类型边界和组合方式。它是设计侧说明，不表示所有目标态算子已经实现。
 
 本文只从未来合理性定义目标态，不以当前实现或既有设计文档为兼容约束。
 

@@ -3,142 +3,34 @@ root_package = marivo
 exclude_type_checking_imports = true
 include_external_packages = true
 
-[importlinter:contract:contracts-isolation]
-name = contracts/ must not import app internals
+[importlinter:contract:datasource-is-leaf]
+name = datasource must not depend on semantic or analysis
 type = forbidden
 source_modules =
-    marivo.contracts
+    marivo.datasource
 forbidden_modules =
-    marivo.adapters
-    marivo.transports.cli
+    marivo.semantic
+    marivo.analysis
 
-[importlinter:contract:generated-contracts-isolation]
-name = contracts/generated/ must not import runtime, adapters, or transports
+[importlinter:contract:semantic-does-not-import-analysis]
+name = semantic must not depend on analysis
 type = forbidden
 source_modules =
-    marivo.contracts.generated
+    marivo.semantic
 forbidden_modules =
-    marivo.runtime
-    marivo.adapters
-    marivo.transports
+    marivo.analysis
 
-[importlinter:contract:ports-isolation]
-name = ports/ must not import app internals
+[importlinter:contract:analysis-evidence-isolation]
+name = analysis.evidence must not import analysis internals beyond evidence + frames + lineage + refs + errors + followups + session.persistence
 type = forbidden
 source_modules =
-    marivo.ports
+    marivo.analysis.evidence
 forbidden_modules =
-    marivo.adapters
-    marivo.transports.cli
-
-[importlinter:contract:runtime-no-direct-core-orchestration]
-name = runtime/ must not bypass service.py for core orchestration
-type = forbidden
-source_modules =
-    marivo.runtime
-forbidden_modules =
-    marivo.core.orchestration
-
-[importlinter:contract:core-no-io]
-name = core/ must not import I/O or ports
-type = forbidden
-source_modules =
-    marivo.core
-forbidden_modules =
-    marivo.adapters
-    marivo.transports.cli
-    marivo.ports
-
-[importlinter:contract:surfaces-must-use-runtime]
-name = transports/http/ and cli/ must go through runtime
-type = forbidden
-source_modules =
-    marivo.transports.http
-    marivo.transports.cli
-forbidden_modules =
-    marivo.core.orchestration
-ignore_imports =
-    marivo.transports.http.sessions -> marivo.runtime
-
-[importlinter:contract:transports-mcp-no-api-internals]
-name = transports/mcp/ must not import transports/http/ internals
-type = forbidden
-source_modules =
-    marivo.transports.mcp
-forbidden_modules =
-    marivo.transports.http.endpoints
-
-[importlinter:contract:profiles-do-not-import-runtime-factory]
-name = profiles must not import the deleted runtime factory
-type = forbidden
-source_modules =
-    marivo.profiles
-forbidden_modules =
-    marivo.runtime.factory
-
-[importlinter:contract:no-app-service]
-name = No module may import app.service or app.session.session_manager
-type = forbidden
-source_modules =
-    marivo
-forbidden_modules =
-    marivo.service
-    marivo.session.session_manager
-
-[importlinter:contract:no-legacy-app-namespace]
-name = No remaining app namespace imports
-type = forbidden
-source_modules =
-    marivo
-forbidden_modules =
-    app
-
-[importlinter:contract:runtime-uses-generated-contracts]
-name = runtime/ must not import OSI/AOI contract models from transports/http/models
-type = forbidden
-source_modules =
-    marivo.runtime
-forbidden_modules =
-    marivo.transports.http.models.osi
-    marivo.transports.http.models.marivo_extensions
-
-[importlinter:contract:analysis_py-independence]
-name = analysis_py must not import marivo internals beyond semantic_py
-type = forbidden
-source_modules =
-    marivo.analysis_py
-forbidden_modules =
-    marivo.runtime
-    marivo.adapters
-    marivo.contracts.aoi_runtime
-    marivo.contracts.session
-    marivo.contracts.generated.aoi
-    marivo.transports
-    marivo.core.evidence
-    marivo.core.session
-    marivo.core.intent
-    marivo.core.orchestration
-
-[importlinter:contract:runtime-does-not-depend-on-analysis_py]
-name = marivo.runtime and adapters must not import analysis_py
-type = forbidden
-source_modules =
-    marivo.runtime
-    marivo.adapters
-forbidden_modules =
-    marivo.analysis_py
-
-[importlinter:contract:analysis_py-evidence-isolation]
-name = analysis_py.evidence must not import analysis_py internals beyond evidence + frames + lineage + refs + errors + followups + session.persistence
-type = forbidden
-source_modules =
-    marivo.analysis_py.evidence
-forbidden_modules =
-    marivo.analysis_py.intents
-    marivo.analysis_py.executor
-    marivo.analysis_py.calendar
-    marivo.analysis_py.windows
-    marivo.analysis_py.datasources
-    marivo.analysis_py.profiles
-    marivo.analysis_py.escape_hatch
-    marivo.analysis_py.policies
+    marivo.analysis.intents
+    marivo.analysis.executor
+    marivo.analysis.calendar
+    marivo.analysis.windows
+    marivo.analysis.datasources
+    marivo.analysis.profiles
+    marivo.analysis.escape_hatch
+    marivo.analysis.policies
