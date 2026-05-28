@@ -4,9 +4,10 @@ Provides:
   - ``connect()`` -- returns a fresh DuckDB ibis backend with one ``orders``
     table seeded with six rows.
 
-Assumes ``marivo`` is installed (e.g. ``pip install marivo``); no
-``sys.path`` manipulation is performed. Examples run with cwd=<examples
-dir>, so ``_fixtures.tiny_db`` resolves automatically.
+Assumes ``marivo`` is installed in the active virtualenv, such as via
+``.venv/bin/pip install marivo``; no ``sys.path`` manipulation is performed.
+Examples run with cwd=<examples dir>, so ``_fixtures.tiny_db`` resolves
+automatically.
 """
 
 # mypy: disable-error-code=import-untyped

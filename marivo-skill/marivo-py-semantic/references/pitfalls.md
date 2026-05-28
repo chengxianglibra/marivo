@@ -3,6 +3,23 @@
 Each pitfall pairs a symptom with the structured exception you'll see and the
 correct usage.
 
+## Wrong Python Environment
+
+**Symptom:** `ModuleNotFoundError: No module named 'marivo'`, `marivo: command
+not found`, or a CLI result that clearly comes from a system install rather than
+the project virtualenv.
+
+**Fix:** do not try `python`, `python3`, `pip`, `pip3`, or `marivo` again. Use
+the project virtualenv entrypoints directly:
+
+```bash
+.venv/bin/python -c 'import marivo.semantic_py as ms; print(ms.help())'
+.venv/bin/marivo --help
+```
+
+If this skill is being used outside the Marivo source checkout, replace `.venv`
+with that project's actual virtualenv path.
+
 ## Dataset References A Missing Datasource
 
 **Symptom:**
@@ -42,11 +59,11 @@ after a `.py` file changed.
 Run:
 
 ```bash
-<active-python> -c 'import marivo.semantic_py as ms; project = ms.find_project(); assert project is not None; project.reload(); print(project.list_metrics())'
+.venv/bin/python -c 'import marivo.semantic_py as ms; project = ms.find_project(); assert project is not None; project.reload(); print(project.list_metrics())'
 ```
 
-Replace `<active-python>` with the interpreter for the environment where Marivo
-is installed, such as `.venv/bin/python`.
+Outside the Marivo source checkout, replace `.venv/bin/python` with the
+interpreter for the environment where Marivo is installed.
 
 ## Missing Backend Factory At Execution Time
 

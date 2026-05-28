@@ -9,6 +9,23 @@ Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`,
 boundaries. Do not pass bare strings directly to `observe`, `decompose`, or
 calendar-backed `compare`.
 
+## Wrong Python environment
+
+**Symptom:** `ModuleNotFoundError: No module named 'marivo'`, `marivo: command
+not found`, or a script/CLI result that clearly came from the system Python
+instead of the project virtualenv.
+
+**Action:** do not keep trying `python`, `python3`, `pip`, `pip3`, or `marivo`.
+Use the project virtualenv entrypoints directly:
+
+```bash
+.venv/bin/python -c 'import marivo.analysis_py as mv; mv.help()'
+.venv/bin/marivo --help
+```
+
+If this skill is being used outside the Marivo source checkout, replace `.venv`
+with that project's actual virtualenv path.
+
 ## Passing a DeltaFrame back into compare
 
 **Symptom from `references/examples/99_pitfall_pass_delta_to_compare.py`:**
@@ -87,6 +104,23 @@ if mv.session.current() is None:
 
 `mv.session.history()` returns an empty list when there is no active session, so
 it is safe for quick context checks.
+
+## Cross-session frame or missing state
+
+**Symptom:** a `CrossSessionFrameError`, missing artifacts after splitting a
+script, empty session knowledge, or followups that disappeared between runs.
+
+**Action:** return to the original task session instead of creating another one.
+Use one stable session name for the entire investigation:
+
+```python
+session = mv.session.get_or_create(name="my_investigation")
+```
+
+When a script is split after reading `summary()` or `next_intents`, the next
+script must use the same session. Create a new session only for a genuinely
+independent investigation, or when the old session is polluted and the restart
+reason will be reported to the user.
 
 ## No backend factory
 

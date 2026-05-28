@@ -44,10 +44,10 @@
 
 | Command                                          | Purpose                                      |
 |--------------------------------------------------|----------------------------------------------|
-| `python -m marivo.semantic_py check`             | Validate the semantic project.               |
-| `python -m marivo.semantic_py check --strict-provenance` | Non-zero exit if any metric is unverified. |
-| `python -m marivo.semantic_py check --parity`    | Run parity checks for metrics with source_sql. |
-| `python -m marivo.semantic_py check --format=json` | JSON output with schema_version "1".        |
+| `.venv/bin/python -m marivo.semantic_py check`             | Validate the semantic project.               |
+| `.venv/bin/python -m marivo.semantic_py check --strict-provenance` | Non-zero exit if any metric is unverified. |
+| `.venv/bin/python -m marivo.semantic_py check --parity`    | Run parity checks for metrics with source_sql. |
+| `.venv/bin/python -m marivo.semantic_py check --format=json` | JSON output with schema_version "1".        |
 
 ## Help
 
