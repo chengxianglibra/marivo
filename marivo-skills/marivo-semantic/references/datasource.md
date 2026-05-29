@@ -64,6 +64,20 @@ mv.datasources.test("warehouse")
 backend = mv.datasources.build_backend("warehouse")
 ```
 
+## Table Metadata
+
+Use `mv.datasources.inspect_table(...)` before declaring a dataset:
+
+```python
+metadata = mv.datasources.inspect_table("warehouse", table="orders")
+```
+
+The result includes table comment, column names, Ibis types, nullable flags,
+column comments, partition hints, and warnings for backend catalog gaps.
+DuckDB, MySQL, and Trino have backend-specific metadata adapters. Other
+backends return schema-only metadata with warnings when comments or partitions
+are unavailable.
+
 ## Metadata Workflow
 
 After the datasource is configured and reachable, use ibis metadata before

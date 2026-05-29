@@ -91,6 +91,7 @@ def run_check(
     primary_keys_sampled: Iterable[str] = (),
     raw_sql_required_refs: Iterable[str] = (),
     supports_federation: bool = False,
+    table_metadata_refs: Iterable[str] = (),
     backend_factory: Callable[[str], Any] | None = None,
 ) -> dict[str, object]:
     if root is None:
@@ -139,9 +140,12 @@ def run_check(
             primary_keys_sampled=primary_keys_sampled,
             raw_sql_required_refs=raw_sql_required_refs,
             supports_federation=supports_federation,
+            table_metadata=(),
         )
         payload["readiness"] = report.to_dict()
         payload["status"] = report.status
+    if table_metadata_refs:
+        payload["metadata_tables"] = list(table_metadata_refs)
 
     return payload
 
@@ -167,6 +171,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--confirmed-relationship", action="append", default=None)
     parser.add_argument("--primary-key-sampled", action="append", default=None)
     parser.add_argument("--raw-sql-required-ref", action="append", default=None)
+    parser.add_argument("--metadata-table", action="append", default=None)
     parser.add_argument("--supports-federation", action="store_true")
     return parser
 
@@ -215,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
         primary_keys_sampled=args.primary_key_sampled or (),
         raw_sql_required_refs=args.raw_sql_required_ref or (),
         supports_federation=args.supports_federation,
+        table_metadata_refs=args.metadata_table or (),
     )
     if args.format == "json":
         print(json.dumps(payload, indent=2, sort_keys=True))

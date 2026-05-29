@@ -8,6 +8,7 @@ import textwrap
 import ibis
 import pytest
 
+from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
 from marivo.preview import PreviewWarning
 from marivo.semantic.readiness import (
     EvidenceSummary,
@@ -353,6 +354,112 @@ def test_semantic_check_run_check_returns_json_ready_report(
     assert payload["status"] == "ready"
     assert payload["readiness"]["status"] == "ready"
     assert payload["readiness"]["parity_summary"]["verified_metrics"] == ["sales.total_amount"]
+
+
+_COMMENTLESS_MODEL_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+
+    @ms.dataset(datasource="warehouse", primary_key=["order_id"])
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.field(dataset=orders)
+    def amount(table):
+        return table.amount
+
+    @ms.metric(datasets=[orders], decomposition=ms.sum(), declared_status="python_native")
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
+
+def test_readiness_require_comments_accepts_table_metadata(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = _project(semantic_project_factory, _COMMENTLESS_MODEL_PY)
+    metadata = TableMetadata(
+        datasource="warehouse",
+        table="orders",
+        database=None,
+        backend_type="duckdb",
+        comment="One row per order.",
+        columns=(
+            ColumnMetadata(
+                name="order_id",
+                type="int64",
+                nullable=False,
+                comment="Unique order id.",
+                ordinal_position=1,
+            ),
+            ColumnMetadata(
+                name="amount",
+                type="float64",
+                nullable=True,
+                comment="Gross order amount in USD.",
+                ordinal_position=2,
+            ),
+        ),
+        partitions=(),
+        warnings=(),
+    )
+
+    report = project.readiness(
+        strict_provenance=True,
+        require_preview=False,
+        require_comments=True,
+        backend_factory=backend_factory,
+        table_metadata=(metadata,),
+        primary_keys_sampled=("sales.orders",),
+    )
+
+    assert report.status == "ready_with_warnings"
+    assert not any(issue.kind == "missing_comments" for issue in report.blockers)
+    assert "sales.orders" in report.evidence_summary.tables_inspected
+
+
+def test_readiness_require_comments_blocks_when_metadata_lacks_comments(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = _project(semantic_project_factory, _COMMENTLESS_MODEL_PY)
+    metadata = TableMetadata(
+        datasource="warehouse",
+        table="orders",
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(
+            ColumnMetadata(
+                name="order_id",
+                type="int64",
+                nullable=False,
+                comment=None,
+                ordinal_position=1,
+            ),
+            ColumnMetadata(
+                name="amount",
+                type="float64",
+                nullable=True,
+                comment=None,
+                ordinal_position=2,
+            ),
+        ),
+        partitions=(),
+        warnings=(),
+    )
+
+    report = project.readiness(
+        strict_provenance=True,
+        require_preview=False,
+        require_comments=True,
+        backend_factory=backend_factory,
+        table_metadata=(metadata,),
+        primary_keys_sampled=("sales.orders",),
+    )
+
+    assert report.status == "blocked"
+    assert any(issue.kind == "missing_comments" for issue in report.blockers)
 
 
 def test_semantic_check_main_prints_json(

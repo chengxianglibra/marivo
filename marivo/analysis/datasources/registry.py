@@ -11,6 +11,8 @@ from typing import Any
 
 from marivo.analysis.datasources import backends as _backends
 from marivo.analysis.datasources import store as _store
+from marivo.analysis.datasources.metadata import TableMetadata
+from marivo.analysis.datasources.metadata import inspect_table as _inspect_table
 from marivo.analysis.errors import DatasourceMissingError, DatasourcePreviewError
 from marivo.preview import (
     PREVIEW_DEFAULT_LIMIT,
@@ -257,6 +259,22 @@ def preview(
             message=f"failed to preview datasource table {datasource!r}.{table!r}: {exc}",
             details={"datasource": datasource, "table": table, "database": database},
         ) from exc
+
+
+def inspect_table(
+    datasource: str,
+    *,
+    table: str,
+    database: str | tuple[str, ...] | None = None,
+    include_partitions: bool = True,
+) -> TableMetadata:
+    """Return schema, comments, nullable flags, and partition hints for a table."""
+    return _inspect_table(
+        datasource,
+        table=table,
+        database=database,
+        include_partitions=include_partitions,
+    )
 
 
 def test(name: str) -> DatasourceTestResult:

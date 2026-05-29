@@ -119,15 +119,17 @@ time fields, metrics, or relationships until this checklist is done.
 
 3. Fetch schema, comments, and metadata.
 
-   `table.schema()` returns types but not comments. Fetch comments from the
-   datasource metadata catalog; comments and supplied knowledge are primary
-   sources for business meaning.
+   Use `mv.datasources.inspect_table(...)` before declaring a new dataset.
+   `table.schema()` returns types but not comments. Table comments, column
+   comments, nullable flags, and supplied knowledge are primary sources for
+   business meaning.
 
-4. Preview raw table data with bounded Phase 0 fallbacks.
+4. Preview raw table data with bounded standard APIs.
 
    Preview every new dataset candidate table, string/integer time-like columns,
-   amount/status/enum/code columns, and join keys. Use
-   `references/preview.md`; do not call target preview APIs until they exist.
+   amount/status/enum/code columns, and join keys. Use `mv.datasources.preview(...)`
+   and `references/preview.md`; do not persist preview rows into semantic
+   definitions.
 
 5. Ingest knowledge and propose a semantic plan.
 
@@ -159,7 +161,7 @@ casts. Parse through timestamp first, for example
 
 ## Standard Workflow
 
-1. Follow the Phase 0 authoring loop before adding anything new.
+1. Follow the evidence-driven authoring loop before adding anything new.
 
    Start with `references/authoring-workflow.md`, then use
    `references/evidence.md`, `references/preview.md`, and

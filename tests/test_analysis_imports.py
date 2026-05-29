@@ -78,3 +78,12 @@ def test_analysis_exports_non_execution_escape_hatch_types():
     assert mv.PromotionPolicy().on_missing == "fail_closed"
     assert mv.ExplorationResultMeta.model_fields["kind"].default == "exploration_result"
     assert hasattr(mv.errors, "PromotionFailedError")
+
+
+def test_analysis_exports_metadata_dtos() -> None:
+    import marivo.analysis as mv
+
+    assert mv.TableMetadata is not None
+    assert mv.ColumnMetadata is not None
+    assert mv.PartitionMetadata is not None
+    assert mv.MetadataWarning is not None
