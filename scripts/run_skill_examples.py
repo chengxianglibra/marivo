@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import os
+import py_compile
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 SKILL_DIRS = (
     "marivo-skills/marivo-semantic",
@@ -17,6 +19,24 @@ SKILL_DIRS = (
 EXAMPLE_TIMEOUT_SECONDS = 30
 SKILL_MD_MAX_LINES = 600
 _EXPECTED_PREFIX = "Expected output:"
+_TEMPLATE_MARKER = "# marivo-example: template"
+_TEMPLATE_REQUIRED_SNIPPETS = (
+    "marivo.semantic",
+    "marivo.analysis",
+    "ms.find_project()",
+    "project.load()",
+    "project.list_metrics()",
+    "mv.session.get_or_create(",
+    "timezone=",
+    "default_calendar=",
+    "session.observe(",
+    "mv.MetricRef(",
+)
+_TEMPLATE_FORBIDDEN_SNIPPETS = (
+    "_fixtures",
+    "ensure_loaded(",
+    "mv.session.active(",
+)
 
 
 @dataclass
@@ -92,7 +112,40 @@ def _expected_keywords(example: Path) -> list[str]:
     return keywords
 
 
+def _is_template_example(example: Path) -> bool:
+    return _TEMPLATE_MARKER in example.read_text()
+
+
+def _check_template_example(example: Path) -> Failure | None:
+    text = example.read_text()
+    try:
+        with TemporaryDirectory(prefix="marivo-example-pyc-") as cache_dir:
+            py_compile.compile(
+                str(example),
+                cfile=str(Path(cache_dir) / f"{example.stem}.pyc"),
+                doraise=True,
+            )
+    except py_compile.PyCompileError as exc:
+        return Failure(example, "invalid template", f"syntax error: {exc.msg}")
+
+    missing = [snippet for snippet in _TEMPLATE_REQUIRED_SNIPPETS if snippet not in text]
+    forbidden = [snippet for snippet in _TEMPLATE_FORBIDDEN_SNIPPETS if snippet in text]
+    if missing or forbidden:
+        detail_parts: list[str] = []
+        if missing:
+            detail_parts.append("missing required snippets: " + ", ".join(repr(s) for s in missing))
+        if forbidden:
+            detail_parts.append(
+                "forbidden snippets present: " + ", ".join(repr(s) for s in forbidden)
+            )
+        return Failure(example, "invalid template", "; ".join(detail_parts))
+    return None
+
+
 def _check_example(example: Path) -> Failure | None:
+    if _is_template_example(example):
+        return _check_template_example(example)
+
     try:
         rc, stdout, stderr = _execute_example(example)
     except subprocess.TimeoutExpired as exc:

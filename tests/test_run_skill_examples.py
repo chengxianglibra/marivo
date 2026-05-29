@@ -149,6 +149,41 @@ _PITFALL_FAIL = textwrap.dedent(
     """
 ).lstrip()
 
+_VALID_TEMPLATE = textwrap.dedent(
+    """
+    # marivo-example: template
+
+    import marivo.analysis as mv
+    import marivo.semantic as ms
+
+    project = ms.find_project()
+    if project is None:
+        raise SystemExit("No semantic project found.")
+
+    result = project.load()
+    if result.errors:
+        raise SystemExit(result.errors)
+
+    metric_ids = [metric.semantic_id for metric in project.list_metrics()]
+    metric_id = "sales.revenue"
+    if metric_id not in metric_ids:
+        raise SystemExit(f"Metric not found: {metric_id}")
+
+    session = mv.session.get_or_create(
+        name="revenue-investigation",
+        timezone="Asia/Shanghai",
+        default_calendar="cn_holidays",
+    )
+    frame = session.observe(
+        mv.MetricRef(id=metric_id),
+        window={"start": "2026-05-01", "end": "2026-05-31"},
+    )
+    print(frame.summary())
+
+    raise RuntimeError("should not run")
+    """
+).lstrip()
+
 
 def test_pitfall_passes_when_keywords_present(tmp_path: Path) -> None:
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
@@ -166,3 +201,36 @@ def test_pitfall_fails_when_keywords_missing(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert "missing pitfall keyword" in result.stderr.lower()
     assert "99_pitfall_x.py" in result.stderr
+
+
+def test_template_example_is_validated_without_execution(tmp_path: Path) -> None:
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
+    (examples / "00_real_project_template.py").write_text(_VALID_TEMPLATE)
+    _make_skill_tree(tmp_path, "marivo-semantic")
+    result = _run_runner(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "should not run" not in result.stderr
+
+
+def test_template_example_fails_when_required_snippet_is_missing(tmp_path: Path) -> None:
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
+    (examples / "00_real_project_template.py").write_text(
+        _VALID_TEMPLATE.replace("result = project.load()", "result = object()")
+    )
+    _make_skill_tree(tmp_path, "marivo-semantic")
+    result = _run_runner(tmp_path)
+    assert result.returncode != 0
+    assert "invalid template" in result.stderr
+    assert "project.load()" in result.stderr
+
+
+def test_template_example_fails_when_using_fixture_shortcuts(tmp_path: Path) -> None:
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
+    (examples / "00_real_project_template.py").write_text(
+        _VALID_TEMPLATE + "\nfrom _fixtures.tiny_semantic import ensure_loaded\n"
+    )
+    _make_skill_tree(tmp_path, "marivo-semantic")
+    result = _run_runner(tmp_path)
+    assert result.returncode != 0
+    assert "invalid template" in result.stderr
+    assert "_fixtures" in result.stderr

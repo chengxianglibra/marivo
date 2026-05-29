@@ -26,12 +26,18 @@ consistently for every install, check, and script run.
 
 ## How to start
 
-1. Find the closest runnable example in `references/examples/NN_*.py` and adapt.
-2. Confirm metric ids: `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()`.
-3. Use `mv.help("discover")` / `mv.help("select")` / `mv.help("transform")` /
+1. For a real project, start from
+   `references/examples/00_real_project_template.py`; it shows
+   `ms.find_project()` -> `project.load()` -> `mv.session.get_or_create(...)`
+   with explicit `timezone` and `default_calendar`.
+2. For a specific intent pattern, adapt the closest runnable
+   `references/examples/NN_*.py`; those examples use a tiny fixture so they
+   can run in CI.
+3. Confirm metric ids: `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()`.
+4. Use `mv.help("discover")` / `mv.help("select")` / `mv.help("transform")` /
    `mv.help("alignment")` / `mv.help("calendar")` for constraint matrices and
    project-local calendar JSON shape at runtime.
-4. On errors, read the structured output — it includes a fix snippet and the
+5. On errors, read the structured output — it includes a fix snippet and the
    available ids when applicable.
 
 ## 30-second overview
