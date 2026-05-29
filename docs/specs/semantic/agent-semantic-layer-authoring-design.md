@@ -9,6 +9,12 @@ Python-native semantic API, while this one defines how agents should gather
 evidence, author semantic objects, validate previews, and decide whether a
 semantic layer is ready for `marivo.analysis`.
 
+Where this document repeats object-level decision rules from
+`python-semantic-layer.md`, those rules are included only to make the agent
+workflow executable. The API-level source of truth remains
+`python-semantic-layer.md` and the live `ms.help(..., format="json")` catalog.
+This document owns the evidence, preview, readiness, and agent handoff contract.
+
 ## Purpose
 
 Marivo semantic authoring should be evidence-driven. Agents must not infer
@@ -17,7 +23,9 @@ project, datasource metadata, table comments, bounded data previews, supplied
 knowledge-base content, source SQL, and existing semantic objects before writing
 Python semantic definitions.
 
-The goal is a repeatable authoring loop:
+The goal is a repeatable authoring loop. The loop has a Phase 0 path that uses
+APIs available today, plus target APIs that should replace ad hoc fallback code
+as they are implemented.
 
 ```text
 discover project
@@ -82,6 +90,40 @@ The current gaps are:
 
 This design specifies the target contract while allowing phased adoption.
 
+## Available Today vs Target APIs
+
+Agents reading this document today must use the Phase 0 APIs unless a target API
+has landed in their installed Marivo version.
+
+| Capability | Available today | Target API |
+| --- | --- | --- |
+| Find and load semantic project | `ms.find_project()`, `project.load()` | same |
+| Inspect semantic objects | `project.list_*()`, `search()`, `describe()` | same |
+| Build backend from datasource | `mv.datasources.build_backend(name)` | same |
+| Test datasource | `mv.datasources.test(name)` | same |
+| Raw table preview | bounded Ibis fallback using `backend.table(...).limit(n).execute()` | `mv.datasources.preview(...)` |
+| Semantic dataset/field/metric preview | `project.materialize_*()` plus bounded Ibis execution or `project.compile_sql(...)` | `project.preview_dataset(...)`, `project.preview_field(...)`, `project.preview_metric(...)` |
+| Metric SQL parity | `project.parity_check(...)` | same |
+| Readiness report | agent-authored closeout from load, preview, and parity evidence | `project.readiness(...)` |
+| Table metadata/comments | backend-specific catalog query | `mv.datasources.inspect_table(...)` |
+
+When calling materialization, compilation, parity, or target preview/readiness
+APIs, pass a backend factory, not a backend instance:
+
+```python
+import marivo.analysis as mv
+
+backend_factory = lambda name: mv.datasources.build_backend(name)
+
+expr = project.materialize_metric(
+    "sales.revenue",
+    backend_factory=backend_factory,
+)
+```
+
+The callable receives a datasource name and returns a live Ibis backend for that
+datasource.
+
 ## End-To-End Authoring Loop
 
 ### 1. Discover
@@ -132,6 +174,12 @@ backend = mv.datasources.build_backend("warehouse")
 ```
 
 Target APIs for richer inspection are described later in this document.
+
+Use `md.datasource(...)` in `.marivo/datasource/<name>.py` when authoring
+datasource files directly. Use `mv.datasources.register(...)` when a script or
+agent wants Marivo to create or replace the datasource file through the public
+registry API. Both paths create project-level datasource configuration; neither
+belongs inside semantic model files.
 
 ### 3. Collect Table Evidence
 
@@ -223,6 +271,11 @@ After authoring, the agent validates semantic objects with bounded previews:
 - time field preview confirms parsing, grain, and null behavior
 - metric preview confirms materialization or compilation
 
+Phase 0 uses `project.materialize_dataset(...)`,
+`project.materialize_field(...)`, `project.materialize_metric(...)`, and
+`project.compile_sql(...)` with a `backend_factory`. Target
+`project.preview_*` APIs are specified below but do not exist yet.
+
 Preview failure does not always mean project load failure, but it is a
 readiness blocker for the affected object.
 
@@ -237,7 +290,7 @@ result = project.reload()
 For metrics with SQL provenance, the agent runs parity:
 
 ```python
-project.parity_check("sales.revenue", backend_factory=...)
+project.parity_check("sales.revenue", backend_factory=backend_factory)
 ```
 
 `drifted` parity blocks readiness. `unverified` metrics may load, but strict
@@ -249,6 +302,10 @@ marked as `python_native`.
 The final authoring step is a structured readiness report. It states which
 semantic refs are analysis-ready, which objects are blocked, which warnings
 remain, and which evidence was used.
+
+Phase 0 readiness is an agent-authored closeout based on load errors, preview
+evidence, materialization or compile results, and parity results. Target
+`project.readiness(...)` is specified below but does not exist yet.
 
 ### 10. Analysis Handoff
 
@@ -374,7 +431,7 @@ Preview APIs should return a structured result:
 
 ```python
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypedDict
 
 @dataclass(frozen=True)
 class PreviewResult:
@@ -418,7 +475,7 @@ class PreviewSamplePolicy:
     method: Literal["head", "bounded_limit", "ordered_limit"]
     limit: int
     order_by: tuple[str, ...] = ()
-    filters: tuple[str, ...] = ()
+    filters: tuple["PreviewFilter", ...] = ()
 ```
 
 The DTO should normalize backend-specific values into JSON-safe scalars where
@@ -426,7 +483,8 @@ possible and should preserve column order.
 
 ### Datasource Table Preview
 
-Target API:
+Target API. This API does not exist in Phase 0; use a bounded Ibis fallback
+until it lands.
 
 ```python
 import marivo.analysis as mv
@@ -437,8 +495,12 @@ preview = mv.datasources.preview(
     database=("hive", "sales_mart"),
     columns=["order_id", "created_at", "amount", "status"],
     limit=20,
-    where=None,
-    order_by=None,
+    where=[
+        {"column": "created_at", "op": ">=", "value": "2026-01-01"},
+    ],
+    order_by=[
+        {"column": "created_at", "direction": "desc"},
+    ],
     include_types=True,
     redact=True,
 )
@@ -456,14 +518,41 @@ Rules:
   parameters rather than raw SQL strings
 - failures should be structured and suitable for readiness issues
 
-### Semantic Object Preview
-
-Target API:
+The target structured filter/order shapes are:
 
 ```python
-project.preview_dataset("sales.orders", limit=20, backend_factory=...)
-project.preview_field("sales.order_date", limit=20, backend_factory=...)
-project.preview_metric("sales.revenue", limit=20, backend_factory=...)
+PreviewFilter = TypedDict(
+    "PreviewFilter",
+    {
+        "column": str,
+        "op": Literal["=", "!=", "<", "<=", ">", ">=", "in", "is_null", "is_not_null"],
+        "value": object,
+    },
+)
+
+PreviewOrder = TypedDict(
+    "PreviewOrder",
+    {
+        "column": str,
+        "direction": Literal["asc", "desc"],
+    },
+)
+```
+
+`value` is ignored for `is_null` and `is_not_null`. Raw SQL predicates are out
+of scope for the standard preview API.
+
+### Semantic Object Preview
+
+Target API. These APIs do not exist in Phase 0; use `materialize_*`,
+`compile_sql`, and bounded execution until they land.
+
+```python
+backend_factory = lambda name: mv.datasources.build_backend(name)
+
+project.preview_dataset("sales.orders", limit=20, backend_factory=backend_factory)
+project.preview_field("sales.order_date", limit=20, backend_factory=backend_factory)
+project.preview_metric("sales.revenue", limit=20, backend_factory=backend_factory)
 ```
 
 Rules:
@@ -561,7 +650,7 @@ Base metrics read datasets:
     },
 )
 def revenue(orders):
-    return orders.filter(is_paid(orders)).amount.sum()
+    return orders.filter(orders.pay_status == 1).amount.sum()
 ```
 
 Derived metrics combine components:
@@ -586,6 +675,8 @@ Rules:
 - ratios and averages require explicit components
 - source SQL provenance should be preserved when available
 - no-source metrics remain `unverified` unless explicitly `python_native`
+- `declared_status=None` means the metric is `unverified` until parity succeeds
+  or the author explicitly chooses `declared_status="python_native"`
 - derived metric readiness inherits the weakest component status
 
 ### Relationship
@@ -742,14 +833,17 @@ Warnings may still allow handoff:
 
 Readiness summarizes whether semantic refs can safely flow into analysis.
 
-Target API:
+Target API. This API does not exist in Phase 0; use the agent closeout format
+below until it lands.
 
 ```python
+backend_factory = lambda name: mv.datasources.build_backend(name)
+
 report = project.readiness(
     strict_provenance=True,
     require_preview=True,
     require_comments=False,
-    backend_factory=...,
+    backend_factory=backend_factory,
 )
 ```
 
@@ -795,6 +889,10 @@ class ReadinessIssue:
         "parity_drifted",
         "relationship_unconfirmed",
         "sensitive_preview_column",
+        "cross_datasource_unfederated",
+        "requires_raw_sql",
+        "primary_key_unsampled",
+        "fragile_string_ref",
     ]
     severity: Literal["blocker", "warning"]
     refs: tuple[str, ...]
