@@ -13,9 +13,21 @@ from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceSecretInPlaintextError,
 )
-from marivo.datasource.ir import DatasourceAiContextIR, DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.typing import AiContext
+from marivo.datasource.typing import _build_ai_context as _shared_build_ai_context
 
-AiContext = dict[str, Any]
+
+def _datasource_ai_context_error(message: str, details: dict[str, Any]) -> None:
+    raise DatasourceFieldInvalidError(
+        message=message,
+        details={"datasource": "<unknown>", **details},
+    )
+
+
+def _build_ai_context(ai_context: AiContext | dict[str, Any] | None) -> AiContextIR:
+    return _shared_build_ai_context(ai_context, on_error=_datasource_ai_context_error)
+
 
 SENSITIVE_FIELD_STEMS = frozenset(
     {
@@ -42,63 +54,6 @@ _DATASOURCE_CTX: ContextVar[DatasourceLoaderContext | None] = ContextVar(
     "_DATASOURCE_CTX",
     default=None,
 )
-
-
-def _build_ai_context(ai_context: AiContext | dict[str, Any] | None) -> DatasourceAiContextIR:
-    if ai_context is None:
-        return DatasourceAiContextIR()
-    allowed = {
-        "business_definition",
-        "guardrails",
-        "synonyms",
-        "examples",
-        "instructions",
-        "owner_notes",
-    }
-    unknown = set(ai_context) - allowed
-    if unknown:
-        raise DatasourceFieldInvalidError(
-            message=f"Unknown ai_context keys: {sorted(unknown)}",
-            details={
-                "datasource": "<unknown>",
-                "field": "ai_context",
-                "reason": f"unknown keys: {sorted(unknown)}",
-            },
-        )
-    data = dict(ai_context)
-    for list_key in ("guardrails", "synonyms", "examples"):
-        value = data.get(list_key, ())
-        if value is None:
-            value = ()
-        if not isinstance(value, list | tuple) or not all(isinstance(item, str) for item in value):
-            raise DatasourceFieldInvalidError(
-                message=f"ai_context.{list_key} must be a list of strings.",
-                details={
-                    "datasource": "<unknown>",
-                    "field": f"ai_context.{list_key}",
-                    "reason": "must be a list of strings",
-                },
-            )
-        data[list_key] = tuple(value)
-    for str_key in ("business_definition", "instructions", "owner_notes"):
-        value = data.get(str_key)
-        if value is not None and not isinstance(value, str):
-            raise DatasourceFieldInvalidError(
-                message=f"ai_context.{str_key} must be a string.",
-                details={
-                    "datasource": "<unknown>",
-                    "field": f"ai_context.{str_key}",
-                    "reason": "must be a string",
-                },
-            )
-    return DatasourceAiContextIR(
-        business_definition=data.get("business_definition"),
-        guardrails=data.get("guardrails", ()),
-        synonyms=data.get("synonyms", ()),
-        examples=data.get("examples", ()),
-        instructions=data.get("instructions"),
-        owner_notes=data.get("owner_notes"),
-    )
 
 
 def _caller_location() -> DatasourceSourceLocation:

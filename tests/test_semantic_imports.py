@@ -57,6 +57,7 @@ def test_all_symbols_importable() -> None:
 
 def test_all_list_matches_expected() -> None:
     expected = {
+        "AiContext",
         "SemanticProject",
         "find_project",
         "model",
@@ -459,6 +460,11 @@ def test_ai_context_typed_dict() -> None:
     assert "examples" in annotations
     assert "instructions" in annotations
     assert "owner_notes" in annotations
+
+
+def test_ai_context_accessible_from_ms() -> None:
+    assert hasattr(ms, "AiContext")
+    assert ms.AiContext is typing_mod.AiContext
 
 
 # ---------------------------------------------------------------------------
