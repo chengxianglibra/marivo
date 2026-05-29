@@ -461,7 +461,7 @@ if result.errors:
 - 可选 `--parity` 对所有声明了 `source_sql` 的 metric 运行 parity。
 - 可选 `--strict-provenance` 将任何 `unverified` metric 视为非零退出。检查 metric 自身 provenance status 和 derived metric 的传播 status；任一非 `verified` / `python_native` 都触发。例如 derived metric 自身已 `python_native` 但某个 component 仍 `unverified` 时同样退出，避免 agent 误以为"提升自己就够了"。
 - 默认列出所有字符串 refs 和 unverified metrics，作为 agent 需要复核的 warning。
-- 支持 `--format=json` 输出结构化 errors / warnings / refs / parity statuses，便于 agent 稳定解析。
+- 支持 `.venv/bin/python -m marivo.semantic.check --format=json --readiness` 输出结构化 errors / warnings / readiness report / parity summary，便于 agent 稳定解析。
 
 需要探索对象时，再用项目显式 API。agent 进入一个新 repo 后的默认入口是 `ms.find_project()`；找不到时不要猜 root，应提示初始化或显式传入 project root。
 

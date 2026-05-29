@@ -43,6 +43,14 @@ from marivo.semantic.ir import (
 from marivo.semantic.loader import LoadResult, load_project
 from marivo.semantic.materializer import DatasetRuntimeMetadata, Materializer
 from marivo.semantic.parity import ParityResult, parity_check, propagated_parity_status
+from marivo.semantic.readiness import (
+    EvidenceSummary,
+    ParitySummary,
+    PreviewSummary,
+    ReadinessIssue,
+    ReadinessReport,
+    build_readiness_report,
+)
 from marivo.semantic.validator import Registry, Sidecar
 
 __all__ = [
@@ -50,8 +58,13 @@ __all__ = [
     "DatasourceSummary",
     "DependencyNode",
     "Description",
+    "EvidenceSummary",
     "MetricSummary",
     "ModelSummary",
+    "ParitySummary",
+    "PreviewSummary",
+    "ReadinessIssue",
+    "ReadinessReport",
     "SearchHit",
     "SemanticProject",
 ]
@@ -1228,6 +1241,51 @@ class SemanticProject:
             backend_factory=backend_factory,
             rel_tol=rel_tol,
             abs_tol=abs_tol,
+        )
+
+    # -- readiness ----------------------------------------------------------
+
+    def readiness(
+        self,
+        *,
+        strict_provenance: bool = True,
+        require_preview: bool = True,
+        require_comments: bool = False,
+        backend_factory: Callable[[str], Any] | None = None,
+        refs: Iterable[str] | None = None,
+        required_raw_previews: Iterable[str] | None = None,
+        raw_previews: Iterable[str] = (),
+        failed_raw_previews: Iterable[str] = (),
+        required_semantic_previews: Iterable[str] | None = None,
+        knowledge_documents: Iterable[str] = (),
+        user_confirmations: Iterable[str] = (),
+        confirmed_relationships: Iterable[str] = (),
+        primary_keys_sampled: Iterable[str] = (),
+        raw_sql_required_refs: Iterable[str] = (),
+        supports_federation: bool = False,
+    ) -> ReadinessReport:
+        """Return a structured semantic readiness report.
+
+        ``backend_factory`` is a callable from datasource semantic id to an
+        Ibis backend, for example ``lambda name: mv.datasources.build_backend(name)``.
+        """
+        return build_readiness_report(
+            self,
+            strict_provenance=strict_provenance,
+            require_preview=require_preview,
+            require_comments=require_comments,
+            backend_factory=backend_factory,
+            refs=refs,
+            required_raw_previews=required_raw_previews,
+            raw_previews=raw_previews,
+            failed_raw_previews=failed_raw_previews,
+            required_semantic_previews=required_semantic_previews,
+            knowledge_documents=knowledge_documents,
+            user_confirmations=user_confirmations,
+            confirmed_relationships=confirmed_relationships,
+            primary_keys_sampled=primary_keys_sampled,
+            raw_sql_required_refs=raw_sql_required_refs,
+            supports_federation=supports_federation,
         )
 
     # -- internal helpers ---------------------------------------------------
