@@ -18,10 +18,10 @@ def test_calendar_cache_loads_project_local_json(tmp_path):
                 "name": "cn_holidays",
                 "timezone": "Asia/Shanghai",
                 "holidays": [
-                    {"date": "2026-01-01", "name": "New Year"},
-                    {"date": "2026-02-17", "name": "Spring Festival"},
+                    {"date": "2026-01-01", "holiday_id": "new-year"},
+                    {"date": "2026-02-17", "holiday_id": "spring-festival"},
                 ],
-                "adjusted_workdays": [{"date": "2026-02-14", "name": "Makeup Workday"}],
+                "adjusted_workdays": [{"date": "2026-02-14"}],
             }
         ),
         encoding="utf-8",

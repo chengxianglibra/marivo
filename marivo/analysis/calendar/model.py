@@ -20,8 +20,7 @@ class CalendarEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     date: str
-    name: str | None = None
-    group_id: str | None = None
+    holiday_id: str | None = None
 
     @field_validator("date")
     @classmethod
