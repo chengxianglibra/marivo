@@ -581,3 +581,133 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
     assert by_bucket["2026-07-02"].numerator == pytest.approx(0.0)
     assert by_bucket["2026-07-02"].denominator == pytest.approx(1.0)
     assert by_bucket["2026-07-02"].metric_value == pytest.approx(0.0)
+
+
+def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    )
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "def orders(backend):\n"
+        "    return backend.table('orders')\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='string', granularity='day', "
+        "date_format='%Y/%m/%d')\n"
+        "def log_date(orders):\n"
+        "    return orders.log_date\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+
+
+def _seed_strptime_slash_orders(con):
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER, log_date VARCHAR, amount DOUBLE)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, '2024/10/10', 5.0),"
+        "(2, '2024/10/11', 10.0),"
+        "(3, '2025/07/31', 20.0),"
+        "(4, '2025/08/01', 30.0)"
+    )
+
+
+def test_observe_strptime_day_format_filters_correctly(tmp_path):
+    _bootstrap_sales_with_strptime_slash_time_field(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_strptime_slash_orders(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+    frame = observe(
+        MetricRef("sales.revenue"),
+        window={"start": "2024-10-11", "end": "2025-07-31"},
+        session=s,
+    )
+    df = frame.to_pandas()
+    assert len(df) == 1
+    assert df.iloc[0, 0] == pytest.approx(30.0)
+
+
+def test_observe_strptime_day_format_time_series(tmp_path):
+    _bootstrap_sales_with_strptime_slash_time_field(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_strptime_slash_orders(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+    frame = observe(
+        MetricRef("sales.revenue"),
+        window={"start": "2024-10-10", "end": "2025-08-01", "grain": "day"},
+        session=s,
+    )
+    assert frame.meta.semantic_kind == "time_series"
+    df = frame.to_pandas()
+    assert "bucket_start" in df.columns
+    assert len(df) == 4
+
+
+def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    )
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "def orders(backend):\n"
+        "    return backend.table('orders')\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='integer', granularity='day', "
+        "date_format='%Y%m%d')\n"
+        "def log_date(orders):\n"
+        "    return orders.log_date\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+
+
+def _seed_strptime_integer_orders(con):
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER, log_date INTEGER, amount DOUBLE)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, 20241010, 5.0),"
+        "(2, 20241011, 10.0),"
+        "(3, 20250731, 20.0),"
+        "(4, 20250801, 30.0)"
+    )
+
+
+def test_observe_strptime_integer_format_filters_correctly(tmp_path):
+    _bootstrap_sales_with_strptime_integer_time_field(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_strptime_integer_orders(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+    frame = observe(
+        MetricRef("sales.revenue"),
+        window={"start": "2024-10-11", "end": "2025-07-31"},
+        session=s,
+    )
+    df = frame.to_pandas()
+    assert len(df) == 1
+    assert df.iloc[0, 0] == pytest.approx(30.0)
