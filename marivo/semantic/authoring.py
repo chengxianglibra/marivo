@@ -735,7 +735,8 @@ def metric(
         source_dialect: SQL dialect tag for ``source_sql``.
         source_document: External doc reference for the metric.
         source_notes: Free-form provenance notes.
-        declared_status: ``"python_native"`` (default) or ``"unverified"``.
+        declared_status: ``"python_native"`` or ``"unverified"``. Defaults to
+            ``None``, which means the metric is unverified until parity succeeds.
         model_name: Override the active model namespace.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
