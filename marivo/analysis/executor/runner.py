@@ -5,6 +5,7 @@ from __future__ import annotations
 # mypy: disable-error-code=import-untyped
 import json
 import os
+import re
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
@@ -40,11 +41,75 @@ _HOUR_ONLY_FORMATS = frozenset({"hh", "h", "int"})
 UTC_ZONE = ZoneInfo("UTC")
 _MISSING_ATTR = object()
 
+_SHORTHAND_TO_STRPTIME: dict[str, str] = {
+    "yyyy-mm-dd": "%Y-%m-%d",
+    "yyyymmdd": "%Y%m%d",
+    "yyyymmddhh": "%Y%m%d%H",
+    "yyyymmdd-hh": "%Y%m%d-%H",
+    "yyyy-mm-dd-hh": "%Y-%m-%d-%H",
+    "yyyymmddthh": "%Y%m%dT%H",
+}
+
+_DATE_DIRECTIVES = frozenset({"%Y", "%y", "%m", "%d", "%j", "%U", "%W"})
+_HOUR_DIRECTIVES = frozenset({"%H", "%I", "%k", "%l"})
+_MINUTE_DIRECTIVES = frozenset({"%M"})
+_SECOND_DIRECTIVES = frozenset({"%S"})
+_SUBSECOND_DIRECTIVES = frozenset({"%f"})
+_AMPM_DIRECTIVES = frozenset({"%p", "%P"})
+
+
+def _classify_strptime_format(fmt: str) -> str:
+    """Classify a strptime format string by its temporal granularity."""
+    tokens = re.findall(r"%[a-zA-Z]", fmt)
+    has_date = bool(_DATE_DIRECTIVES & set(tokens))
+    has_hour = bool((_HOUR_DIRECTIVES | _AMPM_DIRECTIVES) & set(tokens))
+    has_minute = bool(_MINUTE_DIRECTIVES & set(tokens))
+    has_second = bool(_SECOND_DIRECTIVES & set(tokens))
+    has_subsecond = bool(_SUBSECOND_DIRECTIVES & set(tokens))
+
+    if has_subsecond or has_second:
+        return "sub_hour"
+    if has_minute:
+        if not has_date:
+            return "hour_only_minute"
+        return "minute"
+    if has_hour:
+        if not has_date:
+            return "hour_only"
+        return "hour"
+    if has_date:
+        return "day"
+    return "hour_only"
+
+
+def _resolve_strptime_format(fmt: str | None) -> str | None:
+    """Resolve a format string to its strptime equivalent.
+
+    Shorthand aliases (e.g. ``"yyyymmdd"``) map to their strptime forms.
+    Strptime-style strings (starting with ``%``) pass through.
+    Hour-only shorthands (``"hh"``, ``"h"``, ``"int"``) pass through as-is.
+    """
+    if fmt is None:
+        return None
+    normalized = _normalize_time_format(fmt)
+    if normalized is None:
+        return None
+    if normalized.startswith("%"):
+        return normalized
+    if normalized in _HOUR_ONLY_FORMATS:
+        return normalized
+    if normalized in _SHORTHAND_TO_STRPTIME:
+        return _SHORTHAND_TO_STRPTIME[normalized]
+    return None
+
 
 def _normalize_time_format(value: str | None) -> str | None:
     if value is None:
         return None
-    lowered = value.lower().strip()
+    stripped = value.strip()
+    if stripped.startswith("%"):
+        return stripped
+    lowered = stripped.lower()
     compact = lowered.replace("_", "").replace(" ", "")
     if compact in {"yyyy-mm-dd-hh", "yyyy/mm/dd/hh"}:
         return "yyyy-mm-dd-hh"
@@ -69,37 +134,45 @@ def _normalize_time_format(value: str | None) -> str | None:
 def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
     data_type = time_meta.data_type
     fmt = _normalize_time_format(time_meta.format)
-    pair = (data_type, fmt)
-    if pair not in _SUPPORTED_FORMATS:
-        raise WindowInvalidError(
-            message=f"v1 window encoder does not support (data_type, format)={pair}",
-            hint="hh/h and custom formats are deferred.",
-            details={"data_type": data_type, "format": fmt},
-        )
+    strptime_fmt = _resolve_strptime_format(time_meta.format)
+
     if data_type == "date":
         return ibis.date(iso_string)
     if data_type == "timestamp":
         return ibis.timestamp(iso_string)
-    if data_type == "string":
+
+    if data_type in {"string", "integer"}:
+        if data_type == "integer" and fmt == "epoch_seconds":
+            dt = datetime.fromisoformat(iso_string)
+            return int(dt.timestamp())
+
+        # Shorthand hour-precision formats
         if fmt in _HOUR_PRECISION_FORMATS:
             parsed_dt, _is_date_bound = _parse_partition_datetime(
                 iso_string, fmt=fmt, tz=UTC_ZONE, bound_name="bound"
             )
-            return _format_hour_precision_partition_literal(parsed_dt, fmt)
-        if fmt == "yyyy-mm-dd":
+            result = _format_hour_precision_partition_literal(parsed_dt, fmt)
+            return int(result) if data_type == "integer" else result
+
+        # Shorthand day-precision formats
+        if data_type == "string" and fmt == "yyyy-mm-dd":
             return iso_string
-        return iso_string[:10].replace("-", "")
-    if data_type == "integer":
-        if fmt == "yyyymmddhh":
-            parsed_dt, _is_date_bound = _parse_partition_datetime(
-                iso_string, fmt=fmt, tz=UTC_ZONE, bound_name="bound"
-            )
-            return int(_format_hour_precision_partition_literal(parsed_dt, fmt))
         if fmt == "yyyymmdd":
-            return int(iso_string[:10].replace("-", ""))
-        dt = datetime.fromisoformat(iso_string)
-        return int(dt.timestamp())
-    raise WindowInvalidError(message=f"unsupported window bound format {pair}")
+            result = iso_string[:10].replace("-", "")
+            return int(result) if data_type == "integer" else result
+
+        # Arbitrary strptime formats
+        if strptime_fmt is not None and strptime_fmt not in _HOUR_ONLY_FORMATS:
+            parsed, _ = _parse_partition_datetime(
+                iso_string, fmt=None, tz=UTC_ZONE, bound_name="bound"
+            )
+            result = parsed.strftime(strptime_fmt)
+            return int(result) if data_type == "integer" else result
+
+    raise WindowInvalidError(
+        message=f"unsupported window bound format (data_type={data_type}, format={fmt!r})",
+        details={"data_type": data_type, "format": fmt},
+    )
 
 
 def _is_day_partition_meta(time_meta: Any) -> bool:
@@ -230,6 +303,9 @@ def _format_hour_precision_partition_literal(value: datetime, fmt: str | None) -
         return value.strftime("%Y-%m-%d-%H")
     if fmt == "yyyymmddthh":
         return value.strftime("%Y%m%dT%H")
+    strptime_fmt = _resolve_strptime_format(fmt)
+    if strptime_fmt is not None and strptime_fmt not in _HOUR_ONLY_FORMATS:
+        return value.strftime(strptime_fmt)
     raise WindowInvalidError(message=f"unsupported hour partition format {fmt!r}")
 
 
@@ -252,6 +328,29 @@ def _encode_hour_only_bound(hour: int, time_meta: Any) -> Any:
 
 def _encode_partition_date_bound(value: date, time_meta: Any) -> Any:
     return _encode_window_bound(value.isoformat(), time_meta)
+
+
+def _parse_string_column(field_expr: Any, time_meta: Any) -> Any:
+    """Parse a string/integer column into a temporal type using as_date/as_timestamp."""
+    data_type = time_meta.data_type
+    strptime_fmt = _resolve_strptime_format(time_meta.format)
+    if strptime_fmt is None or strptime_fmt in _HOUR_ONLY_FORMATS:
+        raise WindowInvalidError(
+            message=f"cannot parse string column without a resolvable strptime format "
+            f"(data_type={data_type!r}, format={time_meta.format!r})",
+        )
+    if data_type == "integer":
+        string_expr = field_expr.cast("string")
+    elif data_type == "string":
+        string_expr = field_expr
+    else:
+        raise WindowInvalidError(
+            message=f"_parse_string_column only supports string/integer, got {data_type!r}",
+        )
+    classification = _classify_strptime_format(strptime_fmt)
+    if classification == "day":
+        return string_expr.as_date(strptime_fmt)
+    return string_expr.as_timestamp(strptime_fmt)
 
 
 def _is_date_only(value: str) -> bool:
@@ -318,6 +417,9 @@ def _window_bound_predicates(
 ) -> tuple[Any, Any]:
     data_type = time_meta.data_type
     fmt = _normalize_time_format(time_meta.format)
+    strptime_fmt = _resolve_strptime_format(time_meta.format)
+
+    # timestamp / epoch_seconds: compare as proper temporal values
     if data_type == "timestamp":
         lower_dt = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
         if _is_date_only(window.end):
@@ -344,6 +446,8 @@ def _window_bound_predicates(
             _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end").timestamp()
         )
         return (field_expr >= lower_epoch, field_expr <= upper_epoch)
+
+    # Shorthand hour-precision formats: raw string/integer comparison
     if _is_hour_precision_partition_meta(time_meta):
         lower_dt = _partition_start_datetime(
             window.start, fmt=fmt, tz=session_tz, bound_name="start"
@@ -354,10 +458,56 @@ def _window_bound_predicates(
         lower = _encode_hour_precision_bound(lower_dt, time_meta)
         upper = _encode_hour_precision_bound(upper_dt, time_meta)
         return (field_expr >= lower, field_expr < upper)
-    lower = _encode_window_bound(window.start, time_meta)
+
+    # Shorthand day-precision formats: raw string/integer comparison
     if _is_day_partition_meta(time_meta):
+        lower = _encode_window_bound(window.start, time_meta)
         upper = _encode_window_bound(_next_day_bound(window.end, bound_name="end"), time_meta)
         return (field_expr >= lower, field_expr < upper)
+
+    # Strptime formats: parse column into temporal type and compare
+    if (
+        data_type in {"string", "integer"}
+        and strptime_fmt is not None
+        and strptime_fmt not in _HOUR_ONLY_FORMATS
+    ):
+        if session_tz is None:
+            raise WindowInvalidError(
+                message="strptime format time fields require an explicit session timezone",
+                hint="Pass timezone= when attaching the session, or provide window.tz.",
+                details={"format": strptime_fmt},
+            )
+        parsed_expr = _parse_string_column(field_expr, time_meta)
+        classification = _classify_strptime_format(strptime_fmt)
+        lower_dt = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
+
+        if classification == "day":
+            if _is_date_only(window.end):
+                upper_dt = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+                return (
+                    parsed_expr >= ibis.date(lower_dt.date().isoformat()),
+                    parsed_expr < ibis.date(upper_dt.date().isoformat()),
+                )
+            upper_dt = _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
+            return (
+                parsed_expr >= ibis.date(lower_dt.date().isoformat()),
+                parsed_expr <= ibis.date(upper_dt.date().isoformat()),
+            )
+        else:
+            if _is_date_only(window.end):
+                upper_dt = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+                return (
+                    parsed_expr >= ibis.timestamp(lower_dt.isoformat()),
+                    parsed_expr < ibis.timestamp(upper_dt.isoformat()),
+                )
+            upper_dt = _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
+            return (
+                parsed_expr >= ibis.timestamp(lower_dt.isoformat()),
+                parsed_expr <= ibis.timestamp(upper_dt.isoformat()),
+            )
+
+    # Fallback: raw value comparison
+    lower = _encode_window_bound(window.start, time_meta)
     upper = _encode_window_bound(window.end, time_meta)
     return (field_expr >= lower, field_expr <= upper)
 
@@ -559,8 +709,27 @@ def apply_time_series_bucket(
     time_meta = field_ir.time_meta
     data_type = time_meta.data_type
     fmt = time_meta.format
+    strptime_fmt = _resolve_strptime_format(fmt)
     if window.grain is None:
         return table
+
+    # Strptime format: parse the column into a temporal type
+    if (
+        data_type in {"string", "integer"}
+        and strptime_fmt is not None
+        and strptime_fmt not in _HOUR_ONLY_FORMATS
+    ):
+        parsed = _parse_string_column(raw, time_meta)
+        classification = _classify_strptime_format(strptime_fmt)
+        if window.grain == "day":
+            if classification == "day":
+                bucket = parsed.name("bucket_start")
+            else:
+                bucket = parsed.truncate("day").name("bucket_start")
+        else:
+            bucket = parsed.truncate(window.grain).name("bucket_start")
+        return table.mutate(bucket_start=bucket)
+
     if window.grain == "day":
         if data_type in {"timestamp", "integer"} and (
             data_type != "integer" or fmt == "epoch_seconds"

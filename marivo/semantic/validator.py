@@ -66,7 +66,10 @@ def _normalized_time_format(value: str | None) -> str | None:
     """Normalize time format labels for validation comparisons."""
     if value is None:
         return None
-    return value.lower().replace("_", "").replace("-", "").replace(" ", "")
+    stripped = value.strip()
+    if stripped.startswith("%"):
+        return stripped
+    return stripped.lower().replace("_", "").replace("-", "").replace(" ", "")
 
 
 def _requires_required_prefix(field_ir: FieldIR) -> bool:
