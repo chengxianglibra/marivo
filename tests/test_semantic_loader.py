@@ -927,3 +927,83 @@ def test_find_project_raises_when_semantic_is_a_file(tmp_path) -> None:
     with pytest.raises(SemanticLoadError) as exc_info:
         find_project(start_dir=tmp_path)
     assert exc_info.value.kind == ErrorKind.INVALID_PROJECT
+
+
+# ---------------------------------------------------------------------------
+# FDN table name validation via materializer
+# ---------------------------------------------------------------------------
+
+
+def test_materialize_dataset_rejects_non_fdn_table_name_for_trino(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "datasource/warehouse.py": (
+                "import marivo.datasource as md\n"
+                'md.datasource(name="warehouse", backend_type="trino", host="h", catalog="c")\n'
+            ),
+            "sales/_model.py": (
+                'import marivo.semantic as ms\nms.model(name="sales", default=True)\n'
+            ),
+            "sales/objects.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse')\n"
+                "@orders\n"
+                "def _(backend):\n"
+                "    return backend.table('orders')\n"
+            ),
+        }
+    )
+
+    class _FakeTrinoBackend:
+        def table(self, name, /):
+            return object()
+
+    def factory(name):
+        if name == "warehouse":
+            return _FakeTrinoBackend()
+        return object()
+
+    from marivo.datasource.errors import DatasourceFieldInvalidError
+
+    with pytest.raises(DatasourceFieldInvalidError, match="fully-distinguished"):
+        project.materialize_dataset("sales.orders", backend_factory=factory)
+
+
+def test_materialize_dataset_accepts_fdn_table_name_for_trino(
+    semantic_project_factory,
+) -> None:
+    import ibis
+
+    project = semantic_project_factory(
+        {
+            "datasource/warehouse.py": (
+                "import marivo.datasource as md\n"
+                'md.datasource(name="warehouse", backend_type="trino", host="h", catalog="c")\n'
+            ),
+            "sales/_model.py": (
+                'import marivo.semantic as ms\nms.model(name="sales", default=True)\n'
+            ),
+            "sales/objects.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse')\n"
+                "@orders\n"
+                "def _(backend):\n"
+                "    return backend.table('hive.sales.orders')\n"
+            ),
+        }
+    )
+
+    class _FakeTrinoBackend:
+        def table(self, name, /):
+            # Return a real ibis table expression so provenance detection works
+            return ibis.table({"x": "int"}, name=name)
+
+    def factory(name):
+        if name == "warehouse":
+            return _FakeTrinoBackend()
+        return object()
+
+    result = project.materialize_dataset("sales.orders", backend_factory=factory)
+    assert isinstance(result, ibis.expr.types.Table)

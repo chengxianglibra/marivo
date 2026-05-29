@@ -74,8 +74,8 @@ class DatasourceSecretInPlaintextError(DatasourceConfigError):
             ),
             "fix_snippet": (
                 "import marivo.datasource as md\n"
-                f'md.datasource(name={ds_ref!r}, backend_type="...", ..., {env_ref}="MY_SECRET_VAR")\n'
-                f'# then: export MY_SECRET_VAR="<your secret>"'
+                f'md.datasource(name={ds_ref!r}, backend_type="...", ..., {env_ref}="<BACKEND_TYPE>_{field_ref.upper()}")\n'
+                f'# e.g. export TRINO_{field_ref.upper()}="<your secret>"'
             ),
             "doc": "marivo-skills/marivo-semantic/references/datasource.md",
         }

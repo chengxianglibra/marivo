@@ -13,6 +13,7 @@ from marivo.analysis.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceEnvVarMissingError,
     DatasourceFieldInvalidError,
+    DatasourceMissingError,
 )
 from marivo.semantic.ir import AiContextIR, DatasourceIR, SourceLocation
 
@@ -31,11 +32,11 @@ def test_build_duckdb_in_memory(project_root: Path) -> None:
 
 
 def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MY_PWD", "shhh")
+    monkeypatch.setenv("TRINO_PASSWORD", "shhh")
     datasource = datasource_store.save_one(
         name="wh",
         backend_type="trino",
-        fields={"host": "h", "catalog": "c", "password_env": "MY_PWD"},
+        fields={"host": "h", "catalog": "c", "password_env": "TRINO_PASSWORD"},
     )
     resolved = datasource_backends._effective_kwargs(datasource)
     assert resolved["password"] == "shhh"
@@ -44,15 +45,15 @@ def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_env_ref_missing_var(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MY_PWD", raising=False)
+    monkeypatch.delenv("TRINO_PASSWORD", raising=False)
     datasource = datasource_store.save_one(
         name="wh",
         backend_type="trino",
-        fields={"host": "h", "catalog": "c", "password_env": "MY_PWD"},
+        fields={"host": "h", "catalog": "c", "password_env": "TRINO_PASSWORD"},
     )
     with pytest.raises(DatasourceEnvVarMissingError) as exc_info:
         datasource_backends._effective_kwargs(datasource)
-    assert exc_info.value.details["env_var"] == "MY_PWD"
+    assert exc_info.value.details["env_var"] == "TRINO_PASSWORD"
     assert exc_info.value.details["field"] == "password"
 
 
@@ -165,16 +166,16 @@ def test_clickhouse_optional_fields_pass_through(
             "host": "ch.example.com",
             "port": 9440,
             "database": "analytics",
-            "user_env": "CH_USER",
-            "password_env": "CH_PASSWORD",
+            "user_env": "CLICKHOUSE_USER",
+            "password_env": "CLICKHOUSE_PASSWORD",
             "client_name": "marivo",
             "secure": True,
             "compression": "lz4",
             "settings": {"max_execution_time": 60},
         },
     )
-    monkeypatch.setenv("CH_USER", "reader")
-    monkeypatch.setenv("CH_PASSWORD", "secret123")
+    monkeypatch.setenv("CLICKHOUSE_USER", "reader")
+    monkeypatch.setenv("CLICKHOUSE_PASSWORD", "secret123")
 
     datasource_backends.build_backend(datasource)
 
@@ -187,3 +188,124 @@ def test_clickhouse_optional_fields_pass_through(
     assert captured["secure"] is True
     assert captured["compression"] == "lz4"
     assert captured["settings"] == {"max_execution_time": 60}
+
+
+# --- Task 1: _validate_fdn tests ---
+
+
+def test_validate_fdn_trino_rejects_short_name() -> None:
+    with pytest.raises(DatasourceFieldInvalidError, match="fully-distinguished"):
+        datasource_backends._validate_fdn("orders", "trino", "warehouse")
+
+
+def test_validate_fdn_trino_accepts_fdn() -> None:
+    datasource_backends._validate_fdn("hive.sales.orders", "trino", "warehouse")
+
+
+def test_validate_fdn_mysql_rejects_short_name() -> None:
+    with pytest.raises(DatasourceFieldInvalidError, match="fully-distinguished"):
+        datasource_backends._validate_fdn("orders", "mysql", "warehouse")
+
+
+def test_validate_fdn_mysql_accepts_fdn() -> None:
+    datasource_backends._validate_fdn("sales_db.orders", "mysql", "warehouse")
+
+
+def test_validate_fdn_postgres_rejects_short_name() -> None:
+    with pytest.raises(DatasourceFieldInvalidError, match="fully-distinguished"):
+        datasource_backends._validate_fdn("orders", "postgres", "warehouse")
+
+
+def test_validate_fdn_postgres_accepts_fdn() -> None:
+    datasource_backends._validate_fdn("sales_db.orders", "postgres", "warehouse")
+
+
+def test_validate_fdn_clickhouse_rejects_short_name() -> None:
+    with pytest.raises(DatasourceFieldInvalidError, match="fully-distinguished"):
+        datasource_backends._validate_fdn("orders", "clickhouse", "warehouse")
+
+
+def test_validate_fdn_clickhouse_accepts_fdn() -> None:
+    datasource_backends._validate_fdn("analytics_db.orders", "clickhouse", "warehouse")
+
+
+def test_validate_fdn_duckdb_exempt() -> None:
+    datasource_backends._validate_fdn("orders", "duckdb", "local")
+
+
+def test_validate_fdn_trino_extra_dots_ok() -> None:
+    datasource_backends._validate_fdn("hive.sales.raw.orders", "trino", "warehouse")
+
+
+def test_validate_fdn_empty_name_raises() -> None:
+    with pytest.raises(DatasourceFieldInvalidError, match="fully-distinguished"):
+        datasource_backends._validate_fdn("", "trino", "warehouse")
+
+
+def test_validate_fdn_unknown_backend_type_exempt() -> None:
+    datasource_backends._validate_fdn("orders", "some_future_engine", "ds")
+
+
+# --- Task 2: _ValidatingBackend tests ---
+
+
+def test_validating_backend_table_passes_fdn() -> None:
+    class _FakeBackend:
+        def table(self, name: str, /) -> str:
+            return name
+
+    wrapped = datasource_backends._ValidatingBackend(_FakeBackend(), "trino", "warehouse")
+    assert wrapped.table("hive.sales.orders") == "hive.sales.orders"
+
+
+def test_validating_backend_table_rejects_short_name() -> None:
+    class _FakeBackend:
+        def table(self, name: str, /) -> str:
+            return name
+
+    wrapped = datasource_backends._ValidatingBackend(_FakeBackend(), "trino", "warehouse")
+    with pytest.raises(DatasourceFieldInvalidError, match="fully-distinguished"):
+        wrapped.table("orders")
+
+
+def test_validating_backend_sql_delegates() -> None:
+    class _FakeBackend:
+        def sql(self, query: str, /) -> str:
+            return query
+
+    wrapped = datasource_backends._ValidatingBackend(_FakeBackend(), "trino", "warehouse")
+    assert wrapped.sql("SELECT 1") == "SELECT 1"
+
+
+def test_validating_backend_getattr_delegates() -> None:
+    class _FakeBackend:
+        def list_tables(self) -> list[str]:
+            return ["a", "b"]
+
+    wrapped = datasource_backends._ValidatingBackend(_FakeBackend(), "trino", "warehouse")
+    assert wrapped.list_tables() == ["a", "b"]
+
+
+def test_validating_backend_duckdb_no_validation() -> None:
+    class _FakeBackend:
+        def table(self, name: str, /) -> str:
+            return name
+
+    wrapped = datasource_backends._ValidatingBackend(_FakeBackend(), "duckdb", "local")
+    assert wrapped.table("orders") == "orders"
+
+
+# --- Task 3: build_validating_backend tests ---
+
+
+def test_build_validating_backend_wraps_result(project_root: Path) -> None:
+    mv.datasources.register("local", backend_type="duckdb", path=":memory:")
+    wrapped = datasource_backends.build_validating_backend("local")
+    assert isinstance(wrapped, datasource_backends._ValidatingBackend)
+    assert wrapped._backend_type == "duckdb"
+    assert wrapped.list_tables() == []
+
+
+def test_build_validating_backend_unknown_datasource(project_root: Path) -> None:
+    with pytest.raises(DatasourceMissingError):
+        datasource_backends.build_validating_backend("nonexistent")

@@ -118,6 +118,8 @@ backend. Use `backends={...}` for a small static mapping or
 `backend_factory(datasource_name)` when the script must route by datasource.
 
 ```python
+import os
+
 import ibis
 import marivo.analysis as mv
 
@@ -127,7 +129,7 @@ def make_backend(datasource_name: str):
     return ibis.trino.connect(
         host="<trino_host>",
         port=80,
-        user="<user>",
+        user=os.environ["TRINO_USER"],
         database="<catalog>",
         source="<source>",
         client_tags=["standby", "routing_group=bsk_wide"],

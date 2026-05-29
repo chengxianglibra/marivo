@@ -132,6 +132,8 @@ NoBackendFactoryError: session has no backend_factory; data-materializing intent
 `observe`, `compare`, `decompose`, `discover`, or `correlate`.
 
 ```python
+import os
+
 import ibis
 import marivo.analysis as mv
 
@@ -141,7 +143,7 @@ session = mv.session.get_or_create(
         "warehouse": lambda: ibis.trino.connect(
             host="<trino_host>",
             port=80,
-            user="<user>",
+            user=os.environ["TRINO_USER"],
             database="<catalog>",
             source="<source>",
             client_tags=["standby", "routing_group=bsk_wide"],

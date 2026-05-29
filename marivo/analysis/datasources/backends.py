@@ -10,8 +10,28 @@ from marivo.analysis.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceEnvVarMissingError,
     DatasourceFieldInvalidError,
+    DatasourceMissingError,
 )
+from marivo.datasource.fdn import ValidatingBackend, validate_fdn
 from marivo.datasource.ir import DatasourceIR
+
+# Re-export private names for backward compatibility with existing tests
+_FDN_MIN_DOTS = {
+    "trino": 2,
+    "mysql": 1,
+    "postgres": 1,
+    "clickhouse": 1,
+}
+
+_FDN_FORMAT_HINT = {
+    "trino": "catalog.schema.table (e.g. 'hive.sales.orders')",
+    "mysql": "database.table (e.g. 'sales_db.orders')",
+    "postgres": "database.table (e.g. 'sales_db.orders')",
+    "clickhouse": "database.table (e.g. 'analytics_db.orders')",
+}
+
+_validate_fdn = validate_fdn
+_ValidatingBackend = ValidatingBackend
 
 SUPPORTED_BACKEND_TYPES: Final[tuple[str, ...]] = (
     "duckdb",
@@ -81,6 +101,26 @@ def build_backend(datasource: DatasourceIR) -> Any:
             "supported": list(SUPPORTED_BACKEND_TYPES),
         },
     )
+
+
+def build_validating_backend(datasource_name: str) -> _ValidatingBackend:
+    """Open and return a validating ibis backend wrapper for the named datasource.
+
+    The wrapper enforces FDN rules on ``.table(name)`` calls.
+    """
+    from marivo.analysis.datasources.store import load_one
+
+    datasource_ir = load_one(datasource_name)
+    if datasource_ir is None:
+        raise DatasourceMissingError(
+            message=f"datasource {datasource_name!r} is not configured",
+            details={
+                "datasource": datasource_name,
+                "available": [],
+            },
+        )
+    backend = build_backend(datasource_ir)
+    return _ValidatingBackend(backend, datasource_ir.backend_type, datasource_ir.name)
 
 
 def _require(name: str, kwargs: Mapping[str, Any], key: str) -> Any:

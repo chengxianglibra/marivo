@@ -50,11 +50,11 @@ def test_describe_redacts_secrets(project_root: Path) -> None:
         host="trino.example",
         port=8080,
         catalog="hive",
-        password_env="WAREHOUSE_PWD",
+        password_env="TRINO_PASSWORD",
     )
     desc = mv.datasources.describe("wh")
     assert desc.literal_fields == {"host": "trino.example", "port": 8080, "catalog": "hive"}
-    assert desc.env_refs == {"password": "WAREHOUSE_PWD"}
+    assert desc.env_refs == {"password": "TRINO_PASSWORD"}
 
 
 def test_describe_missing_raises_with_hint(project_root: Path) -> None:

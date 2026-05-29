@@ -589,6 +589,8 @@ def inspect_table(
             details={"datasource": datasource, "table": table, "available": _store.list_names()},
         )
 
+    _backends._validate_fdn(table, datasource_ir.backend_type, datasource_ir.name)
+
     try:
         backend = _backends.build_backend(datasource_ir)
         table_expr = (
