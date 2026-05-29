@@ -239,8 +239,8 @@ md.datasource(
     port=8080,
     catalog="hive",
     schema="default",
-    user_env="WAREHOUSE_USER",
-    password_env="WAREHOUSE_PASSWORD",
+    user_env="TRINO_USER",
+    password_env="TRINO_PASSWORD",
 )
 ```
 

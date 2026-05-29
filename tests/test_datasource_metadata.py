@@ -179,7 +179,7 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = mv.datasources.inspect_table("mysql_wh", table="orders")
+    metadata = mv.datasources.inspect_table("mysql_wh", table="mart.orders")
 
     assert metadata.backend_type == "mysql"
     assert metadata.comment == "One row per order"
@@ -224,7 +224,7 @@ def test_inspect_table_trino_adapter_uses_information_schema(
 
     metadata = mv.datasources.inspect_table(
         "trino_wh",
-        table="orders",
+        table="hive.analytics.orders",
         database="analytics",
     )
 
@@ -269,7 +269,7 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = mv.datasources.inspect_table("ch_wh", table="orders")
+    metadata = mv.datasources.inspect_table("ch_wh", table="analytics.orders")
 
     assert metadata.backend_type == "clickhouse"
     assert metadata.database == "analytics"
@@ -316,9 +316,19 @@ def test_inspect_table_clickhouse_infers_nullable_from_type(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = mv.datasources.inspect_table("ch_old", table="orders")
+    metadata = mv.datasources.inspect_table("ch_old", table="default.orders")
 
     assert metadata.backend_type == "clickhouse"
     by_name = {column.name: column for column in metadata.columns}
     assert by_name["order_id"].nullable is False
     assert by_name["amount"].nullable is True
+
+
+def test_inspect_table_rejects_non_fdn_for_trino(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mv.datasources.register("wh", backend_type="trino", host="h", catalog="c")
+    from marivo.datasource.errors import DatasourceFieldInvalidError
+
+    with pytest.raises(DatasourceFieldInvalidError, match="fully-distinguished"):
+        mv.datasources.inspect_table("wh", table="orders")

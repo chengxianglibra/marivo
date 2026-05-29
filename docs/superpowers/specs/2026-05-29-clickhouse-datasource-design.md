@@ -50,7 +50,7 @@ md.datasource(
     backend_type="clickhouse",
     host="clickhouse.example.com",
     database="analytics",
-    user="reader",
+    user_env="CLICKHOUSE_USER",
     password_env="CLICKHOUSE_PASSWORD",
     secure=True,
     description="Production ClickHouse cluster",

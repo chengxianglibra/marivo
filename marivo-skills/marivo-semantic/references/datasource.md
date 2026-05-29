@@ -25,8 +25,8 @@ md.datasource(
     port=8080,
     catalog="hive",
     schema="sales_mart",
-    user_env="WAREHOUSE_USER",
-    password_env="WAREHOUSE_PWD",
+    user_env="TRINO_USER",
+    password_env="TRINO_PASSWORD",
 )
 ```
 

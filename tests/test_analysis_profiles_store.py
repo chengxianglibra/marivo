@@ -33,17 +33,17 @@ def test_save_roundtrip() -> None:
         fields={
             "host": "trino.example",
             "port": 8080,
-            "user_env": "WAREHOUSE_USER",
+            "user_env": "TRINO_USER",
             "catalog": "hive",
-            "password_env": "WAREHOUSE_PWD",
+            "password_env": "TRINO_PASSWORD",
         },
     )
     datasources = datasource_store.load_all()
     assert set(datasources) == {"warehouse"}
     assert datasources["warehouse"].backend_type == "trino"
     assert datasources["warehouse"].fields["host"] == "trino.example"
-    assert datasources["warehouse"].env_refs["user"] == "WAREHOUSE_USER"
-    assert datasources["warehouse"].env_refs["password"] == "WAREHOUSE_PWD"
+    assert datasources["warehouse"].env_refs["user"] == "TRINO_USER"
+    assert datasources["warehouse"].env_refs["password"] == "TRINO_PASSWORD"
     assert datasource_store.datasource_path("warehouse").is_file()
 
 

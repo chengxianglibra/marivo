@@ -36,6 +36,8 @@ repair `.marivo/datasource/<name>.py` before continuing the analysis.
 Tests, CI, and deterministic scripts can opt out of project datasource lookup:
 
 ```python
+import os
+
 import ibis
 import marivo.analysis as mv
 
@@ -45,7 +47,7 @@ def make_backend(datasource_name: str):
     return ibis.trino.connect(
         host="trino.example.internal",
         port=8080,
-        user="analytics",
+        user=os.environ["TRINO_USER"],
         database="hive",
         schema="default",
         http_scheme="https",
@@ -66,7 +68,7 @@ model-qualified ids such as `sales.warehouse`.
 
 - Do not define or repair datasources in this skill; that belongs to
   `marivo-semantic`.
-- Do not write passwords, tokens, cookies, or private keys into scripts.
+- Do not write users, passwords, tokens, cookies, or private keys into scripts.
 - Use `use_datasources=False` in tests so project datasource files cannot mask
   fixture bugs.
 - Treat DNS, gateway, auth, and 5xx errors as datasource reachability failures,
