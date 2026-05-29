@@ -1443,7 +1443,26 @@ def observe(
             semantic_model=model_name,
         )
         frame = MetricFrame(_df=result.df, meta=meta)
-        frame.meta = cast("MetricFrameMeta", write_frame_to_disk(session.layout, frame))
+        frame = cast(
+            "MetricFrame",
+            commit_result(
+                store=session.evidence_store(),
+                frames_dir=session.layout.frames_dir,
+                frame=frame,
+                step_type="observe",
+                inputs=CommitInputs(input_refs=[]),
+                params=CommitParams(values=params),
+                semantic_anchors=CommitSemanticAnchors(
+                    values={"metric_id": metric_id, "model": model_name}
+                ),
+                subject=Subject(
+                    metric=metric_id,
+                    slice=stored_where or {},
+                    analysis_axis=_analysis_axis_for_kind(segmented_kind),
+                ),
+                extractor_family="metric_frame",
+            ),
+        )
         if component_df is not None:
             component = _persist_metric_component_frame(
                 session=session,
@@ -1468,7 +1487,7 @@ def observe(
                 "intent": "observe",
                 "params": params,
                 "input_frame_refs": [],
-                "output_frame_ref": frame_ref,
+                "output_frame_ref": frame.meta.artifact_id or frame.ref,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),
                 "duration_ms": int((monotonic() - started) * 1000),
