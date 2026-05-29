@@ -235,3 +235,90 @@ def test_inspect_table_trino_adapter_uses_information_schema(
     assert by_name["amount"].comment == "Gross amount"
     assert by_name["amount"].nullable is True
     assert any("information_schema.columns" in query for query in backend.queries)
+
+
+def test_inspect_table_clickhouse_adapter_uses_system_tables(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mv.datasources.register(
+        "ch_wh",
+        backend_type="clickhouse",
+        host="clickhouse.example",
+        database="analytics",
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "amount": "float64", "region": "string"},
+        {
+            "system.tables": _FakeCursor(
+                ["comment"],
+                [("One row per order",)],
+            ),
+            "system.columns": _FakeCursor(
+                ["name", "type", "is_nullable", "comment", "position"],
+                [
+                    ("order_id", "Int64", 0, "Unique order id", 1),
+                    ("amount", "Nullable(Float64)", 1, "Gross amount", 2),
+                    ("region", "String", 0, "", 3),
+                ],
+            ),
+        },
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_wh", table="orders")
+
+    assert metadata.backend_type == "clickhouse"
+    assert metadata.database == "analytics"
+    assert metadata.comment == "One row per order"
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["order_id"].nullable is False
+    assert by_name["order_id"].comment == "Unique order id"
+    assert by_name["amount"].nullable is True
+    assert by_name["amount"].comment == "Gross amount"
+    assert by_name["region"].comment is None
+    assert any("system.tables" in query for query in backend.queries)
+    assert any("system.columns" in query for query in backend.queries)
+    assert any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
+
+
+def test_inspect_table_clickhouse_infers_nullable_from_type(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mv.datasources.register(
+        "ch_old",
+        backend_type="clickhouse",
+        host="clickhouse-old.example",
+        database="default",
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "amount": "float64"},
+        {
+            "system.tables": _FakeCursor(
+                ["comment"],
+                [("Orders table",)],
+            ),
+            "system.columns": _FakeCursor(
+                ["name", "type", "comment", "position"],
+                [
+                    ("order_id", "Int64", "Primary key", 1),
+                    ("amount", "Nullable(Float64)", "Order amount", 2),
+                ],
+            ),
+        },
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_old", table="orders")
+
+    assert metadata.backend_type == "clickhouse"
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["order_id"].nullable is False
+    assert by_name["amount"].nullable is True

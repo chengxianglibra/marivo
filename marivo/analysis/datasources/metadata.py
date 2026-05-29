@@ -194,6 +194,13 @@ def _bool_from_nullable(value: object) -> bool | None:
     return None
 
 
+def _nullable_from_clickhouse(is_nullable_value: object, type_str: str) -> bool | None:
+    result = _bool_from_nullable(is_nullable_value)
+    if result is not None:
+        return result
+    return bool(type_str.startswith("Nullable("))
+
+
 def _schema_only(
     *,
     datasource: str,
@@ -458,6 +465,116 @@ def _inspect_trino(
     )
 
 
+def _inspect_clickhouse(
+    *,
+    datasource: str,
+    backend: Any,
+    table: str,
+    database: str | tuple[str, ...] | None,
+    table_expr: Any,
+    include_partitions: bool,
+) -> TableMetadata:
+    schema_columns = _schema_columns(table_expr)
+    ch_database = _database_label(database) or "default"
+    warnings: list[MetadataWarning] = []
+    table_comment: str | None = None
+
+    try:
+        table_rows = _query_rows(
+            backend,
+            "SELECT comment FROM system.tables "
+            f"WHERE name = {_quote_literal(table)} "
+            f"AND database = {_quote_literal(ch_database)} LIMIT 1",
+        )
+        if table_rows:
+            table_comment = _empty_to_none(table_rows[0].get("comment"))
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"clickhouse table comment query failed: {exc}",
+            )
+        )
+
+    catalog_columns: dict[str, ColumnMetadata] = {}
+    try:
+        column_rows = _query_rows(
+            backend,
+            "SELECT name, type, is_nullable, comment, position "
+            "FROM system.columns "
+            f"WHERE table = {_quote_literal(table)} "
+            f"AND database = {_quote_literal(ch_database)} "
+            "ORDER BY position",
+        )
+        for row in column_rows:
+            name = str(row.get("name"))
+            type_str = str(row.get("type") or "")
+            ordinal = row.get("position")
+            catalog_columns[name] = ColumnMetadata(
+                name=name,
+                type=type_str,
+                nullable=_nullable_from_clickhouse(row.get("is_nullable"), type_str),
+                comment=_empty_to_none(row.get("comment")),
+                ordinal_position=int(str(ordinal)) if ordinal is not None else None,
+            )
+    except Exception:
+        try:
+            column_rows = _query_rows(
+                backend,
+                "SELECT name, type, comment, position "
+                "FROM system.columns "
+                f"WHERE table = {_quote_literal(table)} "
+                f"AND database = {_quote_literal(ch_database)} "
+                "ORDER BY position",
+            )
+            for row in column_rows:
+                name = str(row.get("name"))
+                type_str = str(row.get("type") or "")
+                ordinal = row.get("position")
+                catalog_columns[name] = ColumnMetadata(
+                    name=name,
+                    type=type_str,
+                    nullable=_nullable_from_clickhouse(None, type_str),
+                    comment=_empty_to_none(row.get("comment")),
+                    ordinal_position=int(str(ordinal)) if ordinal is not None else None,
+                )
+        except Exception as exc2:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"clickhouse column metadata query failed: {exc2}",
+                )
+            )
+
+    if include_partitions:
+        warnings.append(
+            MetadataWarning(
+                kind="partitions_unavailable",
+                message="clickhouse partition metadata is expression-based and not exposed by this adapter",
+            )
+        )
+
+    columns = _merge_columns(schema_columns, catalog_columns)
+    if not any(column.comment for column in columns) and table_comment is None:
+        warnings.append(
+            MetadataWarning(
+                kind="comments_unavailable",
+                message="clickhouse table and column comments are unavailable for this table",
+            )
+        )
+
+    return TableMetadata(
+        datasource=datasource,
+        table=table,
+        database=database,
+        backend_type="clickhouse",
+        comment=table_comment,
+        columns=columns,
+        partitions=(),
+        warnings=tuple(warnings),
+    )
+
+
 def inspect_table(
     datasource: str,
     *,
@@ -513,6 +630,20 @@ def inspect_table(
                 backend=backend,
                 table=table,
                 database=database,
+                table_expr=table_expr,
+                include_partitions=include_partitions,
+            )
+        if datasource_ir.backend_type == "clickhouse":
+            ch_database = (
+                database
+                if database is not None
+                else datasource_ir.fields.get("database", "default")
+            )
+            return _inspect_clickhouse(
+                datasource=datasource,
+                backend=backend,
+                table=table,
+                database=ch_database,
                 table_expr=table_expr,
                 include_partitions=include_partitions,
             )
