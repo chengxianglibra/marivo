@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from time import monotonic
 from typing import Any, Literal, TypeGuard, cast
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -45,7 +46,6 @@ from marivo.analysis.windows import (
     dump_window,
     normalize_window_input,
     resolve_to_absolute,
-    zoneinfo_from_name,
 )
 
 TransformOp = Literal["filter", "slice", "rollup", "topk", "bottomk", "rank", "normalize", "window"]
@@ -950,17 +950,11 @@ def _resolve_transform_window(raw_window: Any, *, session: Session) -> AbsoluteW
             details={"op": "window", "argument": "window"},
         )
     if isinstance(window, AbsoluteWindow):
-        if window.tz is not None:
-            zoneinfo_from_name(window.tz)
         return window
-
-    effective_tz = session.tz
-    if window.tz is not None:
-        effective_tz = zoneinfo_from_name(window.tz)
     return resolve_to_absolute(
         window,
-        as_of=coerce_as_of(window.as_of, tz=effective_tz),
-        tz=effective_tz,
+        as_of=coerce_as_of(window.as_of, tz=cast("ZoneInfo", session.tz)),
+        tz=cast("ZoneInfo", session.tz),
     )
 
 
@@ -1009,8 +1003,6 @@ def _coerce_window_bound(value: str, *, bound_name: str) -> pd.Timestamp:
 
 
 def _window_comparison_tz(window: AbsoluteWindow, *, session: Session) -> Any:
-    if window.tz is not None:
-        return zoneinfo_from_name(window.tz)
     return session.tz
 
 

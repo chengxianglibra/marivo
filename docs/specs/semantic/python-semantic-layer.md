@@ -418,18 +418,7 @@ Derived metric body AST 白名单：
 
 ### Provenance
 
-目标态 metric 始终有 provenance status，但 authoring-time 不强迫 agent 先完成 SQL 溯源。缺省状态取决于 provenance 声明：
-
-| 条件 | 缺省状态 |
-| --- | --- |
-| 无 `source_sql`，无 `declared_status` | `python_native`（无 SQL oracle，Python 是唯一口径来源） |
-| 有 `source_sql`，无 `declared_status`，未做 parity check | `unverified`（有 SQL oracle 但未确认） |
-| 有 `source_sql`，无 `declared_status`，parity ok | `verified` |
-| 有 `source_sql`，无 `declared_status`，parity drift | `drifted` |
-| `declared_status="python_native"` | `python_native`（无论是否有 source_sql） |
-| `declared_status="unverified"` | `unverified`（无论是否有 source_sql） |
-
-当 metric 被提升为正式分析口径、被 `analysis.observe()` 消费、进入 strict CI，或声明为可信业务对象时，`unverified` 状态（仅当有 source_sql）必须通过 parity_check 提升为 `verified`，或通过 `declared_status='python_native'` 明确声明放弃 SQL 验证。
+目标态 metric 始终有 provenance status，但 authoring-time 不强迫 agent 先完成 SQL 溯源。缺省状态是 `unverified`；当 metric 被提升为正式分析口径、被 `analysis.observe()` 消费、进入 strict CI，或声明为可信业务对象时，必须显式选择 SQL triple 或 `python_native`：
 
 | Provenance | 含义 |
 | --- | --- |
@@ -525,34 +514,16 @@ print(frame.summary())
 
 ### 什么时候使用 ref
 
-目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。Import-first rule: when a decorated ref can be naturally imported, you must import it. Use `ms.ref("kind.model.name")` only when importing would create Python import cycles, make generated code unnecessarily brittle, or pierce a model boundary that should remain internal. Do not invent per-kind helpers such as `ms.dataset_ref(...)`, `ms.field_ref(...)` or `ms.metric_ref(...)`; the only builder ref API is `ms.ref(...)`.
-
-跨 model 引用也应优先通过被引用 model 的边界文件 re-export 成 Python 符号，再在引用方导入 decorated ref。
+目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。跨 model 引用也应优先通过被引用 model 的边界文件 re-export 成 Python 符号，再在引用方导入 decorated ref。字符串 `ms.ref(...)` 只用于无法自然 import 的前向引用或工具生成场景。
 
 ```python
 from marketing._exports import sessions
-from .metrics import total_users
 
 @ms.metric(
     model="sales",
     decomposition=ms.ratio(
         numerator=sessions,
         denominator=total_users,
-    ),
-)
-def sessions_per_user():
-    return ms.component("numerator") / ms.component("denominator")
-```
-
-When importing is not viable, use `ms.ref(...)` as an explicit fallback:
-
-```python
-@ms.metric(
-    model="sales",
-    datasets=[],
-    decomposition=ms.ratio(
-        numerator=ms.ref("metric.marketing.sessions"),
-        denominator=ms.ref("metric.sales.total_users"),
     ),
 )
 def sessions_per_user():

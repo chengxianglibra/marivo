@@ -20,6 +20,7 @@ from tests.conftest import bootstrap_sales_project
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TZ", "UTC")
     session_attach._reset_process_state()
     yield
 
@@ -493,8 +494,8 @@ def _bootstrap_failure_rate(tmp_path):
         "@ms.metric(\n"
         "    datasets=[],\n"
         "    decomposition=ms.ratio(\n"
-        "        numerator=ms.ref('metric.sales.failed_count'),\n"
-        "        denominator=ms.ref('metric.sales.total_count'),\n"
+        "        numerator='sales.failed_count',\n"
+        "        denominator='sales.total_count',\n"
         "    ),\n"
         ")\n"
         "def failure_rate():\n"

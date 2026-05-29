@@ -102,7 +102,7 @@ def test_last_1_day_resolves_to_single_day():
 
 
 def test_resolved_relative_outputs_are_date_only():
-    window = RelativeWindow(expr="mtd", grain="day", tz="Asia/Shanghai")
+    window = RelativeWindow(expr="mtd", grain="day")
     as_of = datetime.fromisoformat("2026-05-24T13:42:11+08:00")
     resolved = resolve_to_absolute(window, as_of=as_of, tz=ZoneInfo("Asia/Shanghai"))
     assert resolved.start == "2026-05-01"
@@ -110,7 +110,6 @@ def test_resolved_relative_outputs_are_date_only():
     assert "T" not in resolved.start
     assert "T" not in resolved.end
     assert resolved.grain == "day"
-    assert resolved.tz == "Asia/Shanghai"
 
 
 @pytest.mark.parametrize("expr", ["this week", "wtd"])

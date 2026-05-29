@@ -114,8 +114,8 @@ def _bootstrap_semantic_project(root: Path) -> None:
         "@ms.metric(\n"
         "    datasets=[],\n"
         "    decomposition=ms.ratio(\n"
-        "        numerator=ms.ref('metric.sales.failed_count'),\n"
-        "        denominator=ms.ref('metric.sales.total_count'),\n"
+        "        numerator='sales.failed_count',\n"
+        "        denominator='sales.total_count',\n"
         "    ),\n"
         ")\n"
         "def failure_rate():\n"
@@ -137,14 +137,13 @@ def _backends() -> dict[str, Any]:
     return {DATASOURCE_NAME: _connection}
 
 
-def ensure_loaded(*, timezone: str = "UTC", default_calendar: str | None = None) -> Any:
+def ensure_loaded(*, default_calendar: str | None = None) -> Any:
     """Register the tiny semantic model and attach a writable examples session."""
     root = _session_root()
     _bootstrap_semantic_project(root)
     with _temporary_cwd(root):
         return mv.session.get_or_create(
             name=SESSION_NAME,
-            timezone=timezone,
             default_calendar=default_calendar,
             backends=_backends(),
         )

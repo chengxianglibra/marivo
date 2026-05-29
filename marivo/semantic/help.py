@@ -96,7 +96,7 @@ def _resolve(symbol: str) -> Any | None:
     return None
 
 
-def _help_text(symbol: str | None = None) -> str:
+def help_text(symbol: str | None = None) -> str:
     """Return help text as a string instead of printing it."""
 
     if symbol is None or symbol == "":
@@ -215,5 +215,5 @@ def help(  # noqa: A001, RUF100
         return _help_json(symbol)
     if format != "text":
         raise ValueError("format must be 'text' or 'json'")
-    print(_help_text(symbol))
+    print(help_text(symbol))
     return None

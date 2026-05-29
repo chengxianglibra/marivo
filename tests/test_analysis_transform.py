@@ -36,6 +36,7 @@ def _positive_delta_predicate(row):
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TZ", "UTC")
     session_attach._reset_process_state()
     yield
     session_attach._reset_process_state()
@@ -558,8 +559,10 @@ def test_transform_window_rejects_zero_length_relative_window(tmp_path):
     assert excinfo.value.details["kind"] == "WindowEmptyRange"
 
 
-def test_transform_window_resolves_relative_window_with_session_timezone():
-    session = session_attach.get_or_create(name="demo", timezone="America/Los_Angeles")
+def test_transform_window_resolves_relative_window_with_session_timezone(monkeypatch):
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    session_attach._reset_process_state()
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -591,21 +594,23 @@ def test_transform_window_resolves_relative_window_with_session_timezone():
     assert clipped.to_pandas()["bucket_start"].astype(str).tolist() == ["2026-07-01"]
 
 
-def test_transform_window_absolute_invalid_timezone_raises(tmp_path):
-    from marivo.analysis.errors import TimezoneInvalidError
+def test_transform_window_absolute_rejects_tz_field(tmp_path):
+    from marivo.analysis.errors import WindowInvalidError
 
     frame = _make_time_series(tmp_path)
 
-    with pytest.raises(TimezoneInvalidError):
+    with pytest.raises(WindowInvalidError) as exc_info:
         _active_transform(
             frame,
             op="window",
-            window={"start": "2026-07-01", "end": "2026-07-02", "tz": "Mars/Olympus"},
+            window={"start": "2026-07-01", "end": "2026-07-02", "tz": "UTC"},
         )
+
+    assert exc_info.value.details["kind"] == "WindowModelInvalid"
 
 
 def test_transform_window_absolute_timezone_clips_tz_aware_axis():
-    session = session_attach.get_or_create(name="demo", timezone="UTC")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame(
             {
@@ -636,7 +641,6 @@ def test_transform_window_absolute_timezone_clips_tz_aware_axis():
         window={
             "start": "2026-07-02T00:00:00",
             "end": "2026-07-03T00:00:00",
-            "tz": "America/Los_Angeles",
         },
     )
 

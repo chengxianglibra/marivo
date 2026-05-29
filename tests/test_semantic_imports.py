@@ -40,7 +40,6 @@ from marivo.semantic.ir import (
     ProvenanceIR,
     RelationshipIR,
     RelationshipRef,
-    SemanticRef,
     SourceLocation,
     SymbolKind,
     TimeFieldRef,
@@ -432,16 +431,6 @@ def test_relationship_ref() -> None:
     ref = RelationshipRef("sales.orders_to_items")
     assert ref.semantic_id == "sales.orders_to_items"
     assert ref.kind == SymbolKind.RELATIONSHIP
-
-
-def test_semantic_ref() -> None:
-    ref = SemanticRef(kind=SymbolKind.DATASET, semantic_id="sales.orders")
-
-    assert ref.kind == SymbolKind.DATASET
-    assert ref.semantic_id == "sales.orders"
-    assert (
-        repr(ref) == "SemanticRef(kind=<SymbolKind.DATASET: 'dataset'>, semantic_id='sales.orders')"
-    )
 
 
 def test_base_ref_repr() -> None:

@@ -13,7 +13,7 @@ from marivo.analysis.executor.runner import (
     apply_time_series_bucket,
     apply_window_to_dataset,
 )
-from marivo.analysis.windows.spec import AbsoluteWindow
+from marivo.analysis.windows.spec import AbsoluteWindow, normalize_window_input
 
 
 class FakeMeta:
@@ -424,3 +424,24 @@ def test_parse_string_column_unsupported_data_type_raises():
 
     with pytest.raises(WindowInvalidError, match="only supports string/integer"):
         _parse_string_column(ibis.literal("x"), FakeMeta("timestamp", "%Y-%m-%d"))
+
+
+# ---------------------------------------------------------------------------
+# Window tz field rejection
+# ---------------------------------------------------------------------------
+
+
+def test_absolute_window_rejects_tz_field():
+    with pytest.raises(WindowInvalidError) as exc_info:
+        normalize_window_input({"start": "2026-05-01", "end": "2026-05-31", "tz": "UTC"})
+
+    assert exc_info.value.details["kind"] == "WindowModelInvalid"
+    assert any(error["loc"] == ("tz",) for error in exc_info.value.details["validation_errors"])
+
+
+def test_relative_window_rejects_tz_field():
+    with pytest.raises(WindowInvalidError) as exc_info:
+        normalize_window_input({"expr": "today", "tz": "UTC"})
+
+    assert exc_info.value.details["kind"] == "WindowModelInvalid"
+    assert any(error["loc"] == ("tz",) for error in exc_info.value.details["validation_errors"])

@@ -248,16 +248,6 @@ def _align_component_role(
             )
         loaded_calendar = session.calendars.get(calendar_ref.id)
         session_tz = str(session.tz)
-        if loaded_calendar.timezone != session_tz:
-            raise CalendarPolicyError(
-                message="calendar timezone must match session timezone",
-                details={
-                    "kind": "CalendarTimezoneMismatch",
-                    "calendar_name": calendar_ref.id,
-                    "calendar_timezone": loaded_calendar.timezone,
-                    "session_timezone": session_tz,
-                },
-            )
         policy = CalendarPolicy(
             mode=alignment.kind,
             align_period=alignment.period,
@@ -556,16 +546,6 @@ def compare(
             )
         loaded_calendar = session.calendars.get(calendar_ref.id)
         session_tz = str(session.tz)
-        if loaded_calendar.timezone != session_tz:
-            raise CalendarPolicyError(
-                message="calendar timezone must match session timezone",
-                details={
-                    "kind": "CalendarTimezoneMismatch",
-                    "calendar_name": calendar_ref.id,
-                    "calendar_timezone": loaded_calendar.timezone,
-                    "session_timezone": session_tz,
-                },
-            )
         policy = CalendarPolicy(
             mode=alignment.kind,
             align_period=alignment.period,
@@ -1472,16 +1452,6 @@ def _calendar_context(
         )
     loaded_calendar = session.calendars.get(calendar_ref.id)
     session_tz = str(session.tz)
-    if loaded_calendar.timezone != session_tz:
-        raise CalendarPolicyError(
-            message="calendar timezone must match session timezone",
-            details={
-                "kind": "CalendarTimezoneMismatch",
-                "calendar_name": calendar_ref.id,
-                "calendar_timezone": loaded_calendar.timezone,
-                "session_timezone": session_tz,
-            },
-        )
     policy = CalendarPolicy(
         mode=alignment.kind,
         align_period=alignment.period,

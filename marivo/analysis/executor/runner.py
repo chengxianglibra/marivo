@@ -18,9 +18,14 @@ from zoneinfo import ZoneInfo
 import ibis
 import pandas as pd
 
-from marivo.analysis.errors import BackendError, SliceInvalidError, WindowInvalidError
+from marivo.analysis.errors import (
+    BackendError,
+    SliceInvalidError,
+    TimezoneInvalidError,
+    WindowInvalidError,
+)
 from marivo.analysis.executor.backend import BackendCache
-from marivo.analysis.windows.resolver import zoneinfo_from_name
+from marivo.analysis.timezone import zoneinfo_from_name
 from marivo.analysis.windows.spec import AbsoluteWindow
 
 _SUPPORTED_FORMATS = {
@@ -408,6 +413,71 @@ def _next_local_midnight(value: str, *, tz: ZoneInfo, bound_name: str) -> dateti
     return next_midnight.astimezone(UTC)
 
 
+def _declared_timezone(time_meta: Any) -> str | None:
+    value = getattr(time_meta, "timezone", None)
+    return value if isinstance(value, str) and value else None
+
+
+def _field_timezone(field_expr: Any) -> str | None:
+    with suppress(Exception):
+        dtype = field_expr.type()
+        timezone = getattr(dtype, "timezone", None)
+        return str(timezone) if timezone else None
+    return None
+
+
+def _is_naive_temporal_expr(field_expr: Any) -> bool:
+    """Return True if the field expression has no actual timezone attached."""
+    return _field_timezone(field_expr) is None
+
+
+def _timestamp_bounds_for_column(
+    window: AbsoluteWindow,
+    *,
+    session_tz: ZoneInfo,
+    column_tz: ZoneInfo,
+    bound_name: str,
+    value: str,
+) -> datetime:
+    """Convert a window bound from session-local to column-local naive datetime.
+
+    The bound is first resolved as a session-local instant, then projected
+    into column_tz space and stripped of tzinfo so it can be compared
+    against naive timestamp column values.
+    """
+    instant_utc = _coerce_bound_datetime(value, tz=session_tz, bound_name=bound_name)
+    return instant_utc.astimezone(column_tz).replace(tzinfo=None)
+
+
+def _validate_time_field_timezone(field_expr: Any, time_meta: Any) -> None:
+    declared = _declared_timezone(time_meta)
+    if declared is None:
+        return
+    zoneinfo_from_name(declared)
+    data_type = time_meta.data_type
+    if data_type not in {"datetime", "timestamp"}:
+        raise TimezoneInvalidError(
+            message="timezone declarations are only supported on datetime or timestamp time fields",
+            hint="date and partition time fields do not support timezone declarations; use system timezone or a tz-aware timestamp field.",
+            details={
+                "kind": "TimezoneDeclarationUnsupported",
+                "data_type": data_type,
+                "format": getattr(time_meta, "format", None),
+                "declared": declared,
+            },
+        )
+    actual = _field_timezone(field_expr)
+    if actual is not None and actual != declared:
+        raise TimezoneInvalidError(
+            message="timezone declaration conflicts with the time field expression timezone",
+            details={
+                "kind": "TimezoneDeclarationConflict",
+                "declared": declared,
+                "actual": actual,
+            },
+        )
+
+
 def _window_bound_predicates(
     field_expr: Any,
     window: AbsoluteWindow,
@@ -415,23 +485,49 @@ def _window_bound_predicates(
     *,
     session_tz: ZoneInfo,
 ) -> tuple[Any, Any]:
+    _validate_time_field_timezone(field_expr, time_meta)
     data_type = time_meta.data_type
     fmt = _normalize_time_format(time_meta.format)
     strptime_fmt = _resolve_strptime_format(time_meta.format)
 
     # timestamp / epoch_seconds: compare as proper temporal values
-    if data_type == "timestamp":
-        lower_dt = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
-        if _is_date_only(window.end):
-            upper_dt = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+    if data_type in {"datetime", "timestamp"}:
+        declared = _declared_timezone(time_meta)
+        actual = _field_timezone(field_expr)
+        if actual is None:
+            # Naive timestamp column: determine effective column timezone
+            column_tz = zoneinfo_from_name(declared) if declared is not None else session_tz
+            lower_dt = _timestamp_bounds_for_column(
+                window,
+                session_tz=session_tz,
+                column_tz=column_tz,
+                bound_name="start",
+                value=window.start,
+            )
+            if _is_date_only(window.end):
+                upper_utc = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+                upper_dt = upper_utc.astimezone(column_tz).replace(tzinfo=None)
+            else:
+                upper_dt = _timestamp_bounds_for_column(
+                    window,
+                    session_tz=session_tz,
+                    column_tz=column_tz,
+                    bound_name="end",
+                    value=window.end,
+                )
             return (
                 field_expr >= ibis.timestamp(lower_dt.isoformat()),
                 field_expr < ibis.timestamp(upper_dt.isoformat()),
             )
-        upper_dt = _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
+        # Tz-aware timestamp column: compare as UTC instants
+        lower_dt = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
+        if _is_date_only(window.end):
+            upper_dt = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+        else:
+            upper_dt = _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
         return (
             field_expr >= ibis.timestamp(lower_dt.isoformat()),
-            field_expr <= ibis.timestamp(upper_dt.isoformat()),
+            field_expr < ibis.timestamp(upper_dt.isoformat()),
         )
     if data_type == "integer" and fmt == "epoch_seconds":
         lower_epoch = int(
@@ -445,7 +541,7 @@ def _window_bound_predicates(
         upper_epoch = int(
             _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end").timestamp()
         )
-        return (field_expr >= lower_epoch, field_expr <= upper_epoch)
+        return (field_expr >= lower_epoch, field_expr < upper_epoch)
 
     # Shorthand hour-precision formats: raw string/integer comparison
     if _is_hour_precision_partition_meta(time_meta):
@@ -474,7 +570,7 @@ def _window_bound_predicates(
         if session_tz is None:
             raise WindowInvalidError(
                 message="strptime format time fields require an explicit session timezone",
-                hint="Pass timezone= when attaching the session, or provide window.tz.",
+                hint="Pass timezone= when attaching the session.",
                 details={"format": strptime_fmt},
             )
         parsed_expr = _parse_string_column(field_expr, time_meta)
@@ -665,21 +761,17 @@ def apply_window_to_dataset(
             start=str(window["start"]),
             end=str(window["end"]),
             grain=window.get("grain"),
-            tz=window.get("tz"),
             time_field=window.get("time_field"),
         )
     time_field_ir = resolve_window_time_field(dataset_ir, window=normalized_window)
     if time_field_ir.time_meta is None:
         raise WindowInvalidError(message=f"field '{time_field_ir.name}' has no time metadata")
-    effective_tz = session_tz
-    if normalized_window.tz is not None:
-        effective_tz = zoneinfo_from_name(normalized_window.tz)
     composite_predicate = _composite_hour_partition_predicate(
         table,
         normalized_window,
         dataset_ir=dataset_ir,
         hour_field_ir=time_field_ir,
-        session_tz=effective_tz,
+        session_tz=session_tz,
     )
     if composite_predicate is not None:
         return table.filter(composite_predicate)
@@ -688,9 +780,50 @@ def apply_window_to_dataset(
         field_expr,
         normalized_window,
         time_field_ir.time_meta,
-        session_tz=effective_tz,
+        session_tz=session_tz,
     )
     return table.filter(lower_predicate, upper_predicate)
+
+
+def _local_bucket_expr(
+    raw: Any,
+    *,
+    time_meta: Any,
+    grain: str,
+    session_tz: ZoneInfo,
+    window: AbsoluteWindow,
+) -> Any:
+    """Compute a bucket-start expression that aligns instant or declared-naive
+    timestamp fields to session-local calendar boundaries.
+
+    For epoch_seconds columns, values are first cast to timestamp (UTC instant).
+    For naive timestamp columns with a declared timezone, the shift converts
+    from declared-local to session-local.  For naive timestamp columns with no
+    declaration, the column is already in session-local space so the shift is
+    zero.
+    """
+    data_type = time_meta.data_type
+    fmt = _normalize_time_format(time_meta.format)
+    declared = _declared_timezone(time_meta)
+    if data_type == "integer" and fmt == "epoch_seconds":
+        ts_expr = raw.cast("timestamp")
+        column_tz = UTC_ZONE
+    elif data_type in {"datetime", "timestamp"}:
+        ts_expr = raw
+        column_tz = zoneinfo_from_name(declared) if declared is not None else session_tz
+    else:
+        return raw.truncate(grain).name("bucket_start")
+
+    anchor_utc = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
+    column_offset = anchor_utc.astimezone(column_tz).utcoffset()
+    session_offset = anchor_utc.astimezone(session_tz).utcoffset()
+    column_seconds = int(column_offset.total_seconds()) if column_offset is not None else 0
+    session_seconds = int(session_offset.total_seconds()) if session_offset is not None else 0
+    shift_seconds = session_seconds - column_seconds
+    local_expr = ts_expr + ibis.interval(seconds=shift_seconds)
+    if grain == "day":
+        return local_expr.cast("date").name("bucket_start")
+    return local_expr.truncate(grain).name("bucket_start")
 
 
 def apply_time_series_bucket(
@@ -702,10 +835,8 @@ def apply_time_series_bucket(
 ) -> ibis.Table:
     if field_ir.time_meta is None:
         raise WindowInvalidError(message=f"field '{field_ir.name}' has no time metadata")
-    effective_tz = session_tz
-    if window.tz is not None:
-        effective_tz = zoneinfo_from_name(window.tz)
     raw = field_ir.fn(table)
+    _validate_time_field_timezone(raw, field_ir.time_meta)
     time_meta = field_ir.time_meta
     data_type = time_meta.data_type
     fmt = time_meta.format
@@ -730,28 +861,24 @@ def apply_time_series_bucket(
             bucket = parsed.truncate(window.grain).name("bucket_start")
         return table.mutate(bucket_start=bucket)
 
+    # Timestamp / epoch_seconds: bucket in session-local calendar
+    if data_type in {"datetime", "timestamp"} or (
+        data_type == "integer" and fmt == "epoch_seconds"
+    ):
+        bucket = _local_bucket_expr(
+            raw,
+            time_meta=time_meta,
+            grain=window.grain,
+            session_tz=session_tz,
+            window=window,
+        )
+        return table.mutate(bucket_start=bucket)
+
+    # Date and remaining types: simple truncate or cast
     if window.grain == "day":
-        if data_type in {"timestamp", "integer"} and (
-            data_type != "integer" or fmt == "epoch_seconds"
-        ):
-            # Shift by the effective timezone's UTC offset before day bucketing.
-            # This fixes local-day boundary assignment for timestamp/epoch fields.
-            # Limitation: this uses a single offset anchored at window.start, so
-            # windows spanning DST transitions may still need backend-specific TZ binning.
-            anchor_utc = _coerce_bound_datetime(window.start, tz=effective_tz, bound_name="start")
-            offset = anchor_utc.astimezone(effective_tz).utcoffset()
-            offset_seconds = int(offset.total_seconds()) if offset is not None else 0
-            ts_expr = raw.cast("timestamp") if data_type == "integer" else raw
-            bucket = (
-                (ts_expr + ibis.interval(seconds=offset_seconds)).cast("date").name("bucket_start")
-            )
-        else:
-            bucket = raw.cast("date").name("bucket_start")
+        bucket = raw.cast("date").name("bucket_start")
     else:
-        if data_type == "integer" and fmt == "epoch_seconds":
-            bucket = raw.cast("timestamp").truncate(window.grain).name("bucket_start")
-        else:
-            bucket = raw.truncate(window.grain).name("bucket_start")
+        bucket = raw.truncate(window.grain).name("bucket_start")
     return table.mutate(bucket_start=bucket)
 
 
