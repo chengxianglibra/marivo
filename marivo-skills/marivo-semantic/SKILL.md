@@ -77,14 +77,20 @@ def orders_count(orders):
 @ms.metric(
     datasets=[],
     decomposition=ms.ratio(
-        numerator="sales.revenue",
-        denominator="sales.orders_count",
+        numerator=revenue,
+        denominator=orders_count,
     ),
     name="aov",
 )
 def aov():
     return ms.component("numerator") / ms.component("denominator")
 ```
+
+Reference rule: if a decorated ref can be imported naturally, import it. Use
+`ms.ref("kind.model.name")` only when importing would create a Python import
+cycle, make generated code unnecessarily brittle, or pierce a model boundary
+that should remain internal. Do not invent per-kind helpers such as
+`ms.dataset_ref(...)`; the only builder ref API is `ms.ref(...)`.
 
 After loading the project:
 
@@ -262,8 +268,8 @@ def denominator_metric(orders):
 @ms.metric(
     datasets=[],
     decomposition=ms.ratio(
-        numerator="sales.numerator_metric",
-        denominator="sales.denominator_metric",
+        numerator=numerator_metric,
+        denominator=denominator_metric,
     ),
     name="<derived_name>",
 )

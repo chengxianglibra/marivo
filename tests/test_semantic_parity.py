@@ -170,7 +170,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
         return table.amount.sum()
 
     @ms.metric(
-        decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
+        decomposition=ms.ratio(numerator=ms.ref("metric.sales.revenue"), denominator=ms.ref("metric.sales.cost")),
         source_sql="SELECT 0.5 AS margin",
         source_dialect="duckdb",
     )
@@ -554,7 +554,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
             return table.amount.sum()
 
         @ms.metric(
-            decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
+            decomposition=ms.ratio(numerator=ms.ref("metric.sales.revenue"), denominator=ms.ref("metric.sales.cost")),
         )
         def margin():
             return ms.component("numerator") / ms.component("denominator")
@@ -625,7 +625,7 @@ def test_derived_propagation_verified_and_python_native(
             return table.amount.sum()
 
         @ms.metric(
-            decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
+            decomposition=ms.ratio(numerator=ms.ref("metric.sales.revenue"), denominator=ms.ref("metric.sales.cost")),
         )
         def margin():
             return ms.component("numerator") / ms.component("denominator")
