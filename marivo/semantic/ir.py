@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import Any, Literal
 
 from marivo.datasource.ir import (
-    DatasourceAiContextIR,
+    AiContextIR,
     DatasourceIR,
     DatasourceSourceLocation,
 )
@@ -40,6 +40,8 @@ __all__ = [
     "TimeFieldRef",
     "_BaseRef",
 ]
+
+DatasourceAiContextIR = AiContextIR
 
 
 # ---------------------------------------------------------------------------
@@ -86,18 +88,6 @@ class SourceLocation:
 
     file: str
     line: int
-
-
-@dataclass(frozen=True)
-class AiContextIR:
-    """Immutable AI-facing context stored on IR objects."""
-
-    business_definition: str | None = None
-    guardrails: tuple[str, ...] = ()
-    synonyms: tuple[str, ...] = ()
-    examples: tuple[str, ...] = ()
-    instructions: str | None = None
-    owner_notes: str | None = None
 
 
 @dataclass(frozen=True)

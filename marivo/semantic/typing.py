@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+from marivo.datasource.typing import AiContext
 
 if TYPE_CHECKING:
     import ibis
@@ -40,18 +42,3 @@ class ComponentExpr(Protocol):
     def __rsub__(self, other: int | float) -> ComponentExpr: ...
     def __rmul__(self, other: int | float) -> ComponentExpr: ...
     def __rtruediv__(self, other: int | float) -> ComponentExpr: ...
-
-
-class AiContext(TypedDict, total=False):
-    """Structured AI-facing context for semantic objects.
-
-    All fields are optional. When provided, they give AI agents
-    and tooling richer semantic understanding of each object.
-    """
-
-    business_definition: str | None
-    guardrails: list[str]
-    synonyms: list[str]
-    examples: list[str]
-    instructions: str | None
-    owner_notes: str | None

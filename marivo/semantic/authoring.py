@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Any, Literal
 
+from marivo.datasource.typing import _build_ai_context as _shared_build_ai_context
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
@@ -246,82 +247,17 @@ def _check_duplicate(ctx: LoaderContext, semantic_id: str) -> None:
             )
 
 
+def _semantic_ai_context_error(message: str, details: dict[str, Any]) -> None:
+    _raise(ErrorKind.INVALID_AI_CONTEXT, message, cls=SemanticDecoratorError)
+
+
 def _build_ai_context(ai_context: AiContext | dict[str, Any] | None) -> AiContextIR:
     """Convert a user-provided ai_context dict/TypedDict into an AiContextIR.
 
     Validates keys and types; raises SemanticDecoratorError with
     INVALID_AI_CONTEXT on invalid keys or wrong types.
     """
-    if ai_context is None:
-        return AiContextIR()
-
-    _valid_keys = frozenset(
-        {
-            "business_definition",
-            "guardrails",
-            "synonyms",
-            "examples",
-            "instructions",
-            "owner_notes",
-        }
-    )
-
-    if isinstance(ai_context, dict):
-        # Validate keys
-        invalid_keys = set(ai_context.keys()) - _valid_keys
-        if invalid_keys:
-            _raise(
-                ErrorKind.INVALID_AI_CONTEXT,
-                f"ai_context contains invalid keys: {sorted(invalid_keys)}. "
-                f"Allowed keys: {sorted(_valid_keys)}.",
-                cls=SemanticDecoratorError,
-            )
-
-        # Validate types
-        bd = ai_context.get("business_definition")
-        if bd is not None and not isinstance(bd, str):
-            _raise(
-                ErrorKind.INVALID_AI_CONTEXT,
-                f"ai_context['business_definition'] must be str | None, got {type(bd).__name__}.",
-                cls=SemanticDecoratorError,
-            )
-
-        for list_key in ("guardrails", "synonyms", "examples"):
-            val = ai_context.get(list_key, [])
-            if not isinstance(val, list) or not all(isinstance(v, str) for v in val):
-                _raise(
-                    ErrorKind.INVALID_AI_CONTEXT,
-                    f"ai_context['{list_key}'] must be list[str], got {type(val).__name__}.",
-                    cls=SemanticDecoratorError,
-                )
-
-        for str_key in ("instructions", "owner_notes"):
-            val = ai_context.get(str_key)
-            if val is not None and not isinstance(val, str):
-                _raise(
-                    ErrorKind.INVALID_AI_CONTEXT,
-                    f"ai_context['{str_key}'] must be str | None, got {type(val).__name__}.",
-                    cls=SemanticDecoratorError,
-                )
-
-        return AiContextIR(
-            business_definition=bd,
-            guardrails=tuple(ai_context.get("guardrails", [])),
-            synonyms=tuple(ai_context.get("synonyms", [])),
-            examples=tuple(ai_context.get("examples", [])),
-            instructions=ai_context.get("instructions"),
-            owner_notes=ai_context.get("owner_notes"),
-        )
-
-    # AiContext TypedDict — treat as dict-like via getattr
-    return AiContextIR(
-        business_definition=getattr(ai_context, "business_definition", None),
-        guardrails=tuple(getattr(ai_context, "guardrails", [])),
-        synonyms=tuple(getattr(ai_context, "synonyms", [])),
-        examples=tuple(getattr(ai_context, "examples", [])),
-        instructions=getattr(ai_context, "instructions", None),
-        owner_notes=getattr(ai_context, "owner_notes", None),
-    )
+    return _shared_build_ai_context(ai_context, on_error=_semantic_ai_context_error)
 
 
 def _compute_body_ast_hash(fn: Callable[..., Any]) -> str:
@@ -641,7 +577,12 @@ def time_field(
         data_type: ``date | datetime | timestamp | string | integer``.
         granularity: ``year | quarter | month | week | day | hour`` — the
             finest grain at which queries are meaningful.
-        date_format: Required when ``data_type="string"`` (e.g. ``"%Y-%m-%d"``).
+        date_format: Required when ``data_type="string"`` or ``data_type="integer"``.
+            Accepts shorthand aliases (``"yyyymmdd"``, ``"yyyy-mm-dd"``,
+            ``"yyyymmddhh"``, ``"yyyymmdd-hh"``, ``"yyyy-mm-dd-hh"``,
+            ``"yyyymmddthh"``) or any strptime-compatible format string
+            (e.g. ``"%Y-%m-%d"``, ``"%Y/%m/%d"``, ``"%Y%m%d%H"``,
+            ``"%Y-%m-%d %H:%M:%S"``).
         required_prefix: Optional fixed prefix the source value must start with.
         model_name: Override the active model namespace.
         description: Free-text description.

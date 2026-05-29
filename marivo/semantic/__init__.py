@@ -39,8 +39,10 @@ from marivo.semantic.readiness import (
     ReadinessIssue,
     ReadinessReport,
 )
+from marivo.semantic.typing import AiContext
 
 __all__ = [
+    "AiContext",
     "EvidenceSummary",
     "ParitySummary",
     "PreviewSummary",
