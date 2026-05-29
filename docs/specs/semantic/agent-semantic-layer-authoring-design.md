@@ -356,8 +356,8 @@ Ibis types, table comments, column comments, nullable flags, partition fields,
 and key hints.
 
 Expected sources include Ibis schema plus datasource catalog queries, for
-example Trino `information_schema.columns`, MySQL `SHOW FULL COLUMNS`, or
-DuckDB `PRAGMA table_info`.
+example Trino `information_schema.columns`, MySQL `SHOW FULL COLUMNS`,
+DuckDB `PRAGMA table_info`, or ClickHouse `system.columns`.
 
 ### Raw Preview Evidence
 
@@ -1051,7 +1051,7 @@ Implemented:
 - column comments
 - nullable flags
 - partition metadata
-- backend-specific adapters for Trino, MySQL, and DuckDB
+- backend-specific adapters for Trino, MySQL, DuckDB, and ClickHouse
 
 ### Phase 5: Agent Automation Tightening
 
