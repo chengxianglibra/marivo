@@ -399,4 +399,4 @@ def _require_no_na_dates(series: pd.Series, *, session_tz: str) -> None:
 
 def _timestamp_to_local_date(ts: pd.Timestamp, tz: ZoneInfo) -> date:
     localized = ts.tz_localize("UTC") if ts.tzinfo is None else ts
-    return localized.tz_convert(tz).date()
+    return localized.tz_convert(tz).date()  # type: ignore[no-any-return]

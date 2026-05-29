@@ -1720,7 +1720,7 @@ def observe(
     # --- Evidence pipeline: commit_result replaces write_frame_to_disk ---
     _grain_raw = resolved_window.grain if resolved_window is not None else None
     _subject_grain: Literal["hour", "day", "week", "month"] | None = (
-        _grain_raw if _grain_raw in ("hour", "day", "week", "month") else None
+        _grain_raw if _grain_raw in ("hour", "day", "week", "month") else None  # type: ignore[assignment]
     )
     subject = Subject(
         metric=metric_id,

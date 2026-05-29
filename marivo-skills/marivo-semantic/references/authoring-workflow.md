@@ -1,9 +1,8 @@
 # marivo-semantic authoring workflow
 
-This workflow is the Phase 0 path for agents building reusable Marivo semantic
-objects today. It uses APIs that currently exist. Target APIs such as
-`mv.datasources.preview(...)`, `project.preview_dataset(...)`, and
-`project.readiness(...)` do not exist yet; do not call them until they land.
+This workflow is the standard path for agents building reusable Marivo semantic
+objects. It uses the preview, materialization, and parity APIs that are now
+available.
 
 ## 1. Discover the project
 
@@ -61,18 +60,25 @@ source of truth. Inspect the live constraints before guessing valid shapes:
 .venv/bin/python -c 'import marivo.semantic as ms; print(ms.help("constraints", format="json"))'
 ```
 
-## 6. Validate with Phase 0 preview
+## 6. Validate with preview and parity
 
-Build a backend factory, not a backend object:
+After authoring, reload the project:
+
+```bash
+.venv/bin/python -c 'import marivo.semantic as ms; project = ms.find_project(); assert project is not None; result = project.reload(); print(result)'
+```
+
+4. Build a backend factory once:
 
 ```python
-import marivo.analysis as mv
-
 backend_factory = lambda name: mv.datasources.build_backend(name)
 ```
 
-Use bounded Ibis execution for raw table preview and `project.materialize_*`
-or `project.compile_sql(...)` for semantic preview. See `preview.md`.
+5. Preview every new or changed dataset, field, and metric with `project.preview_dataset(...)`, `project.preview_field(...)`, or `project.preview_metric(...)`.
+6. Run `project.parity_check(...)` for metrics with SQL provenance.
+7. Mark readiness blockers for any load, preview, materialization, or parity failure.
+
+See `preview.md` for the full preview API reference.
 
 ## 7. Check, parity, and readiness
 

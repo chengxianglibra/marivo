@@ -19,6 +19,7 @@ import textwrap
 import ibis
 import pytest
 
+from marivo.preview import PreviewLimitError, PreviewResult
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed, SemanticRuntimeError
 from marivo.semantic.ir import (
     DatasetIR,
@@ -955,3 +956,81 @@ def test_empty_project_search(semantic_project_factory) -> None:
     project = semantic_project_factory({})
     results = project.search("anything")
     assert results == []
+
+
+# ---------------------------------------------------------------------------
+# preview_dataset / preview_field / preview_metric
+# ---------------------------------------------------------------------------
+
+
+def test_preview_dataset_returns_bounded_rows(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    preview = project.preview_dataset("sales.orders", backend_factory=backend_factory, limit=2)
+
+    assert isinstance(preview, PreviewResult)
+    assert preview.kind == "semantic_dataset"
+    assert preview.ref == "sales.orders"
+    assert preview.requested_limit == 2
+    assert preview.returned_row_count == 2
+    assert preview.is_truncated is False
+    assert "amount" in preview.columns
+
+
+def test_preview_field_returns_values_with_context(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    preview = project.preview_field("sales.amount", backend_factory=backend_factory, limit=2)
+
+    assert preview.kind == "semantic_field"
+    assert preview.ref == "sales.amount"
+    assert preview.columns[-1] == "amount"
+    assert preview.rows[0]["amount"] == 100.0
+    assert len(preview.columns) >= 2
+
+
+def test_preview_metric_returns_scalar_value(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    preview = project.preview_metric(
+        "sales.total_revenue",
+        backend_factory=backend_factory,
+        limit=20,
+    )
+
+    assert preview.kind == "semantic_metric"
+    assert preview.ref == "sales.total_revenue"
+    assert preview.columns == ("value",)
+    assert preview.returned_row_count == 1
+    assert preview.rows[0]["value"] == pytest.approx(300.0)
+    assert preview.is_truncated is False
+
+
+def test_preview_dataset_rejects_invalid_limit(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    with pytest.raises(PreviewLimitError):
+        project.preview_dataset("sales.orders", backend_factory=backend_factory, limit=0)
