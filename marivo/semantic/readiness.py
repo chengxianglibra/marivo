@@ -33,6 +33,7 @@ ReadinessIssueKind = Literal[
     "metric_materialize_failed",
     "metric_compile_failed",
     "unverified_metric",
+    "python_native_metric",
     "parity_drifted",
     "relationship_unconfirmed",
     "sensitive_preview_column",
@@ -512,11 +513,11 @@ def build_readiness_report(
             python_native_metrics.append(metric.semantic_id)
             warnings.append(
                 _issue(
-                    "unverified_metric",
+                    "python_native_metric",
                     "warning",
                     (metric.semantic_id,),
-                    f"Metric {metric.semantic_id} is declared python_native and has no SQL parity oracle.",
-                    "Keep declared_status='python_native' only when the user accepts Python-native provenance.",
+                    f"Metric {metric.semantic_id} is python_native (no SQL parity oracle).",
+                    "This metric has no source_sql provenance. Add source_sql and run parity_check to verify, or accept Python-native provenance.",
                 )
             )
         elif parity_status == ParityStatus.UNVERIFIED:
@@ -529,7 +530,7 @@ def build_readiness_report(
                     severity,
                     (metric.semantic_id,),
                     f"Metric {metric.semantic_id} is unverified.",
-                    "Run project.parity_check(...) or explicitly declare python_native when no SQL oracle exists.",
+                    "Run project.parity_check(...) to verify against source_sql, or add declared_status='python_native' if parity is intentionally skipped.",
                 )
             )
         elif parity_status == ParityStatus.DRIFTED:
