@@ -13,7 +13,13 @@ from marivo.analysis.errors import (
 )
 from marivo.datasource.ir import DatasourceIR
 
-SUPPORTED_BACKEND_TYPES: Final[tuple[str, ...]] = ("duckdb", "trino", "mysql", "postgres")
+SUPPORTED_BACKEND_TYPES: Final[tuple[str, ...]] = (
+    "duckdb",
+    "trino",
+    "mysql",
+    "postgres",
+    "clickhouse",
+)
 
 
 def _effective_kwargs(datasource: DatasourceIR) -> dict[str, Any]:
@@ -66,6 +72,8 @@ def build_backend(datasource: DatasourceIR) -> Any:
         return _build_mysql(datasource.name, kwargs)
     if datasource.backend_type == "postgres":
         return _build_postgres(datasource.name, kwargs)
+    if datasource.backend_type == "clickhouse":
+        return _build_clickhouse(datasource.name, kwargs)
     raise DatasourceBackendTypeUnsupportedError(  # pragma: no cover
         message=f"backend_type={datasource.backend_type!r} unhandled",
         details={
@@ -135,3 +143,20 @@ def _build_postgres(name: str, kwargs: Mapping[str, Any]) -> Any:
         if key in kwargs:
             connect_kwargs[key] = kwargs[key]
     return ibis.postgres.connect(**connect_kwargs)
+
+
+def _build_clickhouse(name: str, kwargs: Mapping[str, Any]) -> Any:
+    import ibis
+
+    host = _require(name, kwargs, "host")
+    connect_kwargs: dict[str, Any] = {"host": host}
+    connect_kwargs["database"] = kwargs.get("database", "default")
+    connect_kwargs["user"] = kwargs.get("user", "default")
+    for key in ("port", "password", "client_name", "compression"):
+        if key in kwargs:
+            connect_kwargs[key] = kwargs[key]
+    if "secure" in kwargs:
+        connect_kwargs["secure"] = bool(kwargs["secure"])
+    if "settings" in kwargs and isinstance(kwargs["settings"], dict):
+        connect_kwargs["settings"] = dict(kwargs["settings"])
+    return ibis.clickhouse.connect(**connect_kwargs)
