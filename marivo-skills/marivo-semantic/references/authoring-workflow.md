@@ -103,5 +103,5 @@ print(project.parity_check("sales.revenue", backend_factory=backend_factory))
 PY
 ```
 
-Close with an agent-authored readiness report. Do not switch to
-`marivo-analysis` while readiness is blocked. See `readiness.md`.
+Close with `project.readiness(...)` or `.venv/bin/python -m marivo.semantic.check --format=json --readiness`.
+Do not switch to `marivo-analysis` while readiness is blocked. See `readiness.md`.

@@ -73,6 +73,11 @@ def test_all_list_matches_expected() -> None:
         "help",
         "typing",
         "errors",
+        "EvidenceSummary",
+        "ParitySummary",
+        "PreviewSummary",
+        "ReadinessIssue",
+        "ReadinessReport",
     }
     assert set(ms.__all__) == expected
     assert not hasattr(ms, "help_text")
@@ -82,6 +87,14 @@ def test_semantic_project_class() -> None:
     assert ms.SemanticProject is not None
     project = ms.SemanticProject(root="/tmp/test")
     assert not project.is_ready()
+
+
+def test_readiness_public_dtos() -> None:
+    assert ms.ReadinessReport is not None
+    assert ms.ReadinessIssue is not None
+    assert ms.EvidenceSummary is not None
+    assert ms.ParitySummary is not None
+    assert ms.PreviewSummary is not None
 
 
 def test_typing_submodule() -> None:

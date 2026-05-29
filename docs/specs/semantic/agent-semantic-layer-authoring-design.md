@@ -833,8 +833,7 @@ Warnings may still allow handoff:
 
 Readiness summarizes whether semantic refs can safely flow into analysis.
 
-Target API. This API does not exist in Phase 0; use the agent closeout format
-below until it lands.
+Available API. Use this as the standard final validation step after load, raw previews, semantic previews, materialization, and parity checks. The API does not replace Phase 4 datasource metadata inspection; table comments and catalog metadata still come from explicit evidence until the metadata API lands.
 
 ```python
 backend_factory = lambda name: mv.datasources.build_backend(name)
@@ -880,6 +879,8 @@ class ReadinessIssue:
         "missing_comments",
         "missing_raw_preview",
         "raw_preview_failed",
+        "dataset_preview_failed",
+        "field_preview_failed",
         "missing_knowledge_definition",
         "ambiguous_time_axis",
         "time_field_preview_failed",
@@ -1031,7 +1032,7 @@ Then add:
 
 ### Phase 3: Readiness API
 
-Add:
+Implemented:
 
 - `project.readiness(...)`
 - `ReadinessReport`
