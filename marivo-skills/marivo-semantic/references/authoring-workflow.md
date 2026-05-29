@@ -45,6 +45,16 @@ For every new dataset candidate, collect:
 
 `table.schema()` is not enough because it does not include comments.
 
+Use `mv.datasources.inspect_table(...)` for standard table metadata:
+
+```python
+metadata = mv.datasources.inspect_table("warehouse", table="orders")
+print(metadata.to_dict())
+```
+
+`table.schema()` is still useful as a backend sanity check, but it does not
+replace comments or nullable metadata.
+
 ## 4. Propose a semantic plan
 
 Before editing Python files, state the intended model, datasets, fields,

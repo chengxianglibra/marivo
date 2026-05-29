@@ -5,6 +5,12 @@ from typing import Any
 from marivo.analysis import errors as errors
 from marivo.analysis import session
 from marivo.analysis.calendar.model import CalendarPolicy
+from marivo.analysis.datasources.metadata import (
+    ColumnMetadata,
+    MetadataWarning,
+    PartitionMetadata,
+    TableMetadata,
+)
 from marivo.analysis.errors import DiscoverInsufficientDataError, PromotionFailedError
 from marivo.analysis.evidence import (
     Assessment,
@@ -99,6 +105,7 @@ __all__ = [
     "CandidateSetMeta",
     "CandidateShape",
     "ChangeFact",
+    "ColumnMetadata",
     "ComponentFrame",
     "ComponentFrameMeta",
     "ConfidenceScope",
@@ -119,11 +126,13 @@ __all__ = [
     "HypothesisTestResult",
     "HypothesisTestResultMeta",
     "LagPolicy",
+    "MetadataWarning",
     "MetricFrame",
     "MetricFrameMeta",
     "MetricRef",
     "OpenAnomaly",
     "OpenQuestion",
+    "PartitionMetadata",
     "PreviewResult",
     "PreviewSamplePolicy",
     "PreviewWarning",
@@ -142,6 +151,7 @@ __all__ = [
     "SliceScalar",
     "SliceValue",
     "Subject",
+    "TableMetadata",
     "TestedHypothesis",
     "TimeWindow",
     "TriggeredByFollowup",

@@ -737,6 +737,25 @@ class DatasourcePreviewError(AnalysisError):
     pass
 
 
+class DatasourceMetadataError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        datasource = self.details.get("datasource")
+        table = self.details.get("table")
+        ds_ref = datasource if isinstance(datasource, str) and datasource else "<datasource>"
+        table_ref = table if isinstance(table, str) and table else "<table>"
+        return {
+            "location": f"mv.datasources.inspect_table({ds_ref!r}, table={table_ref!r})",
+            "cause": self.details.get("cause", "table metadata inspection failed"),
+            "fix_snippet": (
+                "import marivo.analysis as mv\n"
+                f"mv.datasources.describe({ds_ref!r})\n"
+                f"mv.datasources.test({ds_ref!r})\n"
+                f"mv.datasources.inspect_table({ds_ref!r}, table={table_ref!r})"
+            ),
+            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+        }
+
+
 class DuplicateSessionNameError(AnalysisError): ...
 
 

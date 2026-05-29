@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 from marivo.analysis.datasources.audit import DatasourceAuditResult, audit_project
+from marivo.analysis.datasources.metadata import (
+    ColumnMetadata,
+    MetadataWarning,
+    PartitionMetadata,
+    TableMetadata,
+    inspect_table,
+)
 from marivo.analysis.datasources.registry import (
     DatasourceDescription,
     DatasourceSummary,
@@ -17,14 +24,19 @@ from marivo.analysis.datasources.registry import (
 )
 
 __all__ = [
+    "ColumnMetadata",
     "DatasourceAuditResult",
     "DatasourceDescription",
     "DatasourceSummary",
     "DatasourceTestResult",
+    "MetadataWarning",
+    "PartitionMetadata",
+    "TableMetadata",
     "all",
     "audit_project",
     "build_backend",
     "describe",
+    "inspect_table",
     "preview",
     "register",
     "remove",

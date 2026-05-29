@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import ibis
 import ibis.expr.types as ir
@@ -52,6 +52,9 @@ from marivo.semantic.readiness import (
     build_readiness_report,
 )
 from marivo.semantic.validator import Registry, Sidecar
+
+if TYPE_CHECKING:
+    from marivo.analysis.datasources.metadata import TableMetadata
 
 __all__ = [
     "DatasetSummary",
@@ -1263,6 +1266,7 @@ class SemanticProject:
         primary_keys_sampled: Iterable[str] = (),
         raw_sql_required_refs: Iterable[str] = (),
         supports_federation: bool = False,
+        table_metadata: Iterable[TableMetadata] = (),
     ) -> ReadinessReport:
         """Return a structured semantic readiness report.
 
@@ -1286,6 +1290,7 @@ class SemanticProject:
             primary_keys_sampled=primary_keys_sampled,
             raw_sql_required_refs=raw_sql_required_refs,
             supports_federation=supports_federation,
+            table_metadata=table_metadata,
         )
 
     # -- internal helpers ---------------------------------------------------

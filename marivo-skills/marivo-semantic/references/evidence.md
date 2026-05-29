@@ -10,7 +10,7 @@ source SQL, preview evidence, or user confirmation.
 | --- | --- |
 | Project evidence | Load the project and inspect existing models, datasets, fields, metrics, relationships, dependencies, and descriptions. |
 | Datasource evidence | Inspect configured datasources, redacted fields, env refs, backend type, and connection test results. |
-| Table metadata evidence | Fetch column names, Ibis types, table comments, column comments, nullable flags, partition hints, and key hints when the backend exposes them. |
+| Table metadata evidence | Run `mv.datasources.inspect_table(...)` to fetch column names, Ibis types, table comments, column comments, nullable flags, partition hints, and metadata warnings. |
 | Raw preview evidence | Run bounded previews for candidate tables and important columns before declaring datasets or time fields. |
 | Knowledge evidence | Extract business definitions, guardrails, synonyms, example questions, source SQL, dialect, and source document refs. |
 | Runtime evidence | Capture load results, materialization or compile results, semantic previews, dependency graphs, and parity results after authoring. |

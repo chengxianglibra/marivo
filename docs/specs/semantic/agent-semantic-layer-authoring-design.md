@@ -103,7 +103,7 @@ has landed in their installed Marivo version.
 | Semantic dataset/field/metric preview | `project.preview_dataset(...)`, `project.preview_field(...)`, `project.preview_metric(...)` | same |
 | Metric SQL parity | `project.parity_check(...)` | same |
 | Readiness report | agent-authored closeout from load, preview, and parity evidence | `project.readiness(...)` |
-| Table metadata/comments | backend-specific catalog query | `mv.datasources.inspect_table(...)` |
+| Table metadata/comments | `mv.datasources.inspect_table(...)` | same |
 
 When calling materialization, compilation, parity, or target preview/readiness
 APIs, pass a backend factory, not a backend instance:
@@ -1044,7 +1044,7 @@ Implemented:
 
 ### Phase 4: Metadata API
 
-Add standard datasource metadata inspection:
+Implemented:
 
 - `mv.datasources.inspect_table(...)`
 - table comments
@@ -1055,7 +1055,7 @@ Add standard datasource metadata inspection:
 
 ### Phase 5: Agent Automation Tightening
 
-Update skill examples and evals:
+Implemented:
 
 - no-preview dataset authoring is not acceptable
 - ambiguous time axis asks the user

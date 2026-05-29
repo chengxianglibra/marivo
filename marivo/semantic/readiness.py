@@ -13,6 +13,7 @@ from marivo.semantic.ir import ParityStatus
 from marivo.semantic.parity import propagated_parity_status
 
 if TYPE_CHECKING:
+    from marivo.analysis.datasources.metadata import TableMetadata
     from marivo.semantic.reader import SemanticProject
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
@@ -254,6 +255,64 @@ def _has_definition(obj: object) -> bool:
     return bool(description or business_definition)
 
 
+def _metadata_by_dataset_ref(
+    project: SemanticProject,
+    table_metadata: Iterable[TableMetadata],
+) -> dict[str, TableMetadata]:
+    reg = project.registry()
+    if reg is None:
+        return {}
+    by_key = {(metadata.datasource, metadata.table): metadata for metadata in table_metadata}
+    out: dict[str, TableMetadata] = {}
+    for dataset in reg.datasets.values():
+        metadata = by_key.get((dataset.datasource, dataset.name))
+        if metadata is not None:
+            out[dataset.semantic_id] = metadata
+    return out
+
+
+def _metadata_has_comment_for_ref(
+    ref: str,
+    obj: object,
+    metadata_by_dataset: Mapping[str, TableMetadata],
+) -> bool:
+    # For metrics, check if any of their datasets has a metadata comment.
+    dataset_refs = getattr(obj, "datasets", None)
+    if dataset_refs is not None:
+        return any(
+            _dataset_has_metadata_comment(dataset_ref, metadata_by_dataset)
+            for dataset_ref in dataset_refs
+        )
+    dataset_ref = getattr(obj, "dataset", None)
+    if dataset_ref is None:
+        dataset_ref = ref
+    return _dataset_has_metadata_comment_for_field(str(dataset_ref), obj, metadata_by_dataset)
+
+
+def _dataset_has_metadata_comment(
+    dataset_ref: str,
+    metadata_by_dataset: Mapping[str, TableMetadata],
+) -> bool:
+    metadata = metadata_by_dataset.get(dataset_ref)
+    return metadata is not None and bool(metadata.comment)
+
+
+def _dataset_has_metadata_comment_for_field(
+    dataset_ref: str,
+    obj: object,
+    metadata_by_dataset: Mapping[str, TableMetadata],
+) -> bool:
+    metadata = metadata_by_dataset.get(dataset_ref)
+    if metadata is None:
+        return False
+    if metadata.comment:
+        return True
+    field_name = getattr(obj, "name", None)
+    if field_name is None:
+        return False
+    return any(column.name == field_name and column.comment for column in metadata.columns)
+
+
 def _preview_issue_kind(kind: _SemanticKind) -> ReadinessIssueKind:
     if kind == _SemanticKind.DATASET:
         return "dataset_preview_failed"
@@ -294,6 +353,7 @@ def build_readiness_report(
     primary_keys_sampled: Iterable[str] = (),
     raw_sql_required_refs: Iterable[str] = (),
     supports_federation: bool = False,
+    table_metadata: Iterable[TableMetadata] = (),
 ) -> ReadinessReport:
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
@@ -344,6 +404,8 @@ def build_readiness_report(
     kinds, objects = _object_maps(project)
     checked_refs = _dedupe(refs if refs is not None else _default_checked_refs(kinds))
     checked_ref_set = set(checked_refs)
+    table_metadata_tuple = tuple(table_metadata)
+    metadata_by_dataset = _metadata_by_dataset_ref(project, table_metadata_tuple)
 
     raw_preview_set = set(raw_previews)
     failed_raw_preview_set = set(failed_raw_previews)
@@ -503,7 +565,11 @@ def build_readiness_report(
             obj = objects.get(ref)
             if obj is None:
                 continue
-            if require_comments and not _has_definition(obj):
+            if (
+                require_comments
+                and not _has_definition(obj)
+                and not _metadata_has_comment_for_ref(ref, obj, metadata_by_dataset)
+            ):
                 blockers.append(
                     _issue(
                         "missing_comments",
@@ -620,7 +686,9 @@ def build_readiness_report(
         warnings=tuple(warnings),
         evidence_summary=EvidenceSummary(
             datasources_checked=datasources_checked,
-            tables_inspected=_dataset_refs(checked_refs, kinds),
+            tables_inspected=_dedupe(
+                tuple(metadata_by_dataset.keys()) + _dataset_refs(checked_refs, kinds)
+            ),
             raw_previews=_dedupe(raw_previews),
             knowledge_documents=_dedupe(knowledge_documents),
             user_confirmations=_dedupe(user_confirmations),

@@ -32,6 +32,7 @@
 
 | Call                                   | Output                                                        |
 |----------------------------------------|---------------------------------------------------------------|
+| Inspect table metadata/comments | `mv.datasources.inspect_table("warehouse", table="orders")` |
 | `project.list_models()`                | ModelSummary objects.                                         |
 | `project.list_datasources()`           | DatasourceSummary objects.                                    |
 | `project.list_datasets(model=...)`     | DatasetSummary objects, optionally filtered by model.         |
