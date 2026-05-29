@@ -101,49 +101,45 @@ Production projects load files from `.marivo/semantic/<model>/`.
 
 ## Pre-Modeling Checklist
 
-Before writing any semantic-layer Python file, complete every step below. Do
-not declare datasets, fields, time fields, metrics, or relationships until this
-checklist is done.
+Before writing any semantic-layer Python file, complete the Phase 0 authoring
+loop in `references/authoring-workflow.md`. Do not declare datasets, fields,
+time fields, metrics, or relationships until this checklist is done.
 
-1. Check existing project datasources.
+1. Load the project and inspect existing semantic objects.
 
-   Run `mv.datasources.all()` to see whether the datasource already exists in
-   `.marivo/datasource`. Reuse an existing datasource without asking the user.
+   Reuse existing models, datasets, fields, metrics, and relationships when
+   their descriptions, `ai_context`, dependencies, and provenance match the
+   request. Do not create duplicate semantic refs by default.
 
-2. Establish the backend connection.
+2. Check datasource configuration and reachability.
 
-   Use the user-provided connection information to create an ibis backend, and
-   continue only after the connection succeeds.
+   Run `mv.datasources.all()`, `mv.datasources.describe(...)`, and
+   `mv.datasources.test(...)` where live access is required. Use
+   `references/datasource.md` for datasource authoring rules.
 
-3. Fetch column names, types, and comments.
+3. Fetch schema, comments, and metadata.
 
-   `table.schema()` returns types but not comments. Before modeling, fetch
-   comments from the datasource metadata catalog; comments are the primary
-   source for business meaning, and semantic meaning must not be inferred from
-   column names alone.
+   `table.schema()` returns types but not comments. Fetch comments from the
+   datasource metadata catalog; comments and supplied knowledge are primary
+   sources for business meaning.
 
-   Use the metadata query that matches the datasource, for example Trino
-   `information_schema.columns`, MySQL `SHOW FULL COLUMNS`, or DuckDB
-   `PRAGMA table_info`.
+4. Preview raw table data with bounded Phase 0 fallbacks.
 
-4. Preview time and partition column values.
+   Preview every new dataset candidate table, string/integer time-like columns,
+   amount/status/enum/code columns, and join keys. Use
+   `references/preview.md`; do not call target preview APIs until they exist.
 
-   For VARCHAR/string columns whose name or comment implies date/time meaning
-   such as `log_date`, `create_time`, `dt`, or `hr`, preview a few rows before
-   choosing cast expressions or granularity. This prevents runtime cast errors.
+5. Ingest knowledge and propose a semantic plan.
 
-5. Choose time fields and partition columns.
+   Extract business definitions, guardrails, synonyms, example questions,
+   source SQL, and decomposition hints. Ask only for business decisions that
+   cannot be fetched or resolved from evidence. See `references/evidence.md`.
 
-   Decide from metadata and samples which column is the primary time axis,
-   whether a date+hour composite pattern exists, and which cast expression each
-   time field needs. Prefer partition columns such as `log_date` or
-   `log_date` + `log_hour` when they match the business time axis.
+6. Author, reload, semantic-preview, parity-check, and close with readiness.
 
-6. Ask only for information that cannot be fetched.
-
-   Ask for connection parameters only when no profile exists, and ask business
-   intent only when comments and supplied context are insufficient. Column
-   structure, profile existence, and metadata access are agent responsibilities.
+   After edits, reload the project, materialize or compile new semantic
+   objects, run parity for metrics with source SQL, and report blockers or
+   warnings using `references/readiness.md`.
 
 ## Time Field Choice
 
@@ -163,11 +159,11 @@ casts. Parse through timestamp first, for example
 
 ## Standard Workflow
 
-1. Check the project status before adding anything new.
+1. Follow the Phase 0 authoring loop before adding anything new.
 
-   ```bash
-   .venv/bin/python -c 'import marivo.semantic as ms; project = ms.find_project(); assert project is not None; result = project.load(); print(result)'
-   ```
+   Start with `references/authoring-workflow.md`, then use
+   `references/evidence.md`, `references/preview.md`, and
+   `references/readiness.md` for the evidence, preview, and closeout details.
 
 2. Write model declarations in Python files under
    `.marivo/semantic/<model>/`. Each model directory needs a `_model.py`
@@ -190,6 +186,14 @@ casts. Parse through timestamp first, for example
 
    ```bash
    .venv/bin/python -c 'import marivo.semantic as ms; project = ms.find_project(); assert project is not None; result = project.reload(); print(result)'
+   ```
+
+   For materialization, compile, or parity calls, pass a backend factory:
+
+   ```python
+   import marivo.analysis as mv
+
+   backend_factory = lambda name: mv.datasources.build_backend(name)
    ```
 
 6. On Marivo exceptions, read the structured error text. Semantic exceptions
@@ -221,7 +225,7 @@ Runnable reference: `references/examples/02_declare_dataset.py`.
 ```python
 import marivo.semantic as ms
 
-@ms.dataset(name="<dataset_name>", datasource=warehouse, primary_key=["<pk_col>"])
+@ms.dataset(name="<dataset_name>", datasource="<datasource_name>", primary_key=["<pk_col>"])
 def <dataset_name>(backend):
     return backend.table("<physical_table>")
 ```
@@ -303,6 +307,10 @@ How is this value computed?
 
 ## Further Reading
 
+- `references/authoring-workflow.md` -- Phase 0 end-to-end semantic authoring loop
+- `references/evidence.md` -- required evidence and when to ask the user
+- `references/preview.md` -- raw and semantic preview using APIs available today
+- `references/readiness.md` -- blocker/warning closeout before analysis handoff
 - `references/datasource.md` -- project datasource rules and required fields
 - `references/cheatsheet.md` -- decorators, builders, project loading, introspection
 - `references/pitfalls.md` -- expanded exception explanations

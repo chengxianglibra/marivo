@@ -48,6 +48,23 @@
 | `.venv/bin/python -c 'import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); print(project.list_metrics())'` | Inspect registered metrics. |
 | `.venv/bin/python -c 'import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); print(project.describe("model.metric").to_text())'` | Inspect one object. |
 
+## Phase 0 Authoring Loop
+
+| Step | Reference |
+|------|-----------|
+| Discover project and existing refs | `references/authoring-workflow.md` |
+| Collect datasource, metadata, preview, and knowledge evidence | `references/evidence.md` |
+| Run raw and semantic previews with current APIs | `references/preview.md` |
+| Report blockers, warnings, and analysis-ready refs | `references/readiness.md` |
+
+For materialization, compile, and parity calls, pass a callable backend factory:
+
+```python
+import marivo.analysis as mv
+
+backend_factory = lambda name: mv.datasources.build_backend(name)
+```
+
 ## Help
 
 | Call                                      | Output                                      |
