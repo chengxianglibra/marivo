@@ -100,8 +100,7 @@ def _hint_from_catalog(kind: ErrorKind, **_kwargs: Any) -> str:
 
 
 HINTS: dict[ErrorKind, Callable[..., str]] = {
-    kind: (lambda _kind=kind, **kwargs: _hint_from_catalog(_kind, **kwargs))
-    for kind in ErrorKind
+    kind: (lambda _kind=kind, **kwargs: _hint_from_catalog(_kind, **kwargs)) for kind in ErrorKind
 }
 
 

@@ -754,7 +754,9 @@ def execute(
     try:
         if prefix_session_id is not None:
 
-            def compile_with_prefix(self: Any, expr: ibis.Expr, /, *args: Any, **kwargs: Any) -> str:
+            def compile_with_prefix(
+                self: Any, expr: ibis.Expr, /, *args: Any, **kwargs: Any
+            ) -> str:
                 return _prefix_sql_for_session(
                     compile_fn(expr, *args, **kwargs),
                     session_id=prefix_session_id,

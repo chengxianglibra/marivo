@@ -81,8 +81,6 @@ registry and validation pieces:
 
 The current gaps are:
 
-- no standard raw datasource preview API
-- no standard semantic object preview API
 - no readiness report API
 - no unified datasource table metadata/comment inspection API
 - skill documentation mentions limited sample inspection but does not yet make
@@ -101,8 +99,8 @@ has landed in their installed Marivo version.
 | Inspect semantic objects | `project.list_*()`, `search()`, `describe()` | same |
 | Build backend from datasource | `mv.datasources.build_backend(name)` | same |
 | Test datasource | `mv.datasources.test(name)` | same |
-| Raw table preview | bounded Ibis fallback using `backend.table(...).limit(n).execute()` | `mv.datasources.preview(...)` |
-| Semantic dataset/field/metric preview | `project.materialize_*()` plus bounded Ibis execution or `project.compile_sql(...)` | `project.preview_dataset(...)`, `project.preview_field(...)`, `project.preview_metric(...)` |
+| Raw table preview | `mv.datasources.preview(...)` | same |
+| Semantic dataset/field/metric preview | `project.preview_dataset(...)`, `project.preview_field(...)`, `project.preview_metric(...)` | same |
 | Metric SQL parity | `project.parity_check(...)` | same |
 | Readiness report | agent-authored closeout from load, preview, and parity evidence | `project.readiness(...)` |
 | Table metadata/comments | backend-specific catalog query | `mv.datasources.inspect_table(...)` |
@@ -267,17 +265,21 @@ The agent should inspect `ms.help("<symbol>", format="json")` and
 After authoring, the agent validates semantic objects with bounded previews:
 
 - dataset preview confirms table access, stable filters, projections, and casts
-- field preview confirms row-level expressions
-- time field preview confirms parsing, grain, and null behavior
-- metric preview confirms materialization or compilation
+- field preview confirms row-level expressions with bounded parent dataset context
+- time field preview validates parsing, grain, and null behavior through field preview rows
+- metric preview confirms materialization or compilation; scalar metrics return a one-row `value`
 
-Phase 0 uses `project.materialize_dataset(...)`,
-`project.materialize_field(...)`, `project.materialize_metric(...)`, and
-`project.compile_sql(...)` with a `backend_factory`. Target
-`project.preview_*` APIs are specified below but do not exist yet.
+Use the standard preview APIs:
 
-Preview failure does not always mean project load failure, but it is a
-readiness blocker for the affected object.
+```python
+backend_factory = lambda name: mv.datasources.build_backend(name)
+
+project.preview_dataset("sales.orders", limit=20, backend_factory=backend_factory)
+project.preview_field("sales.order_date", limit=20, backend_factory=backend_factory)
+project.preview_metric("sales.revenue", limit=20, backend_factory=backend_factory)
+```
+
+Preview failure does not always mean project load failure, but it is a readiness blocker for the affected object.
 
 ### 8. Check And Parity
 
@@ -483,8 +485,7 @@ possible and should preserve column order.
 
 ### Datasource Table Preview
 
-Target API. This API does not exist in Phase 0; use a bounded Ibis fallback
-until it lands.
+Available API.
 
 ```python
 import marivo.analysis as mv
@@ -544,8 +545,7 @@ of scope for the standard preview API.
 
 ### Semantic Object Preview
 
-Target API. These APIs do not exist in Phase 0; use `materialize_*`,
-`compile_sql`, and bounded execution until they land.
+Available APIs.
 
 ```python
 backend_factory = lambda name: mv.datasources.build_backend(name)

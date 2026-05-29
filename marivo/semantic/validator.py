@@ -114,6 +114,7 @@ def validate_decorator_call(kind: str, payload: dict[str, Any]) -> None:
 # Layer 2: AST whitelist validation
 # ---------------------------------------------------------------------------
 
+
 def _ast_spec_for(constraint_id: ConstraintId) -> ASTSpec:
     constraint = get_constraint(constraint_id)
     assert constraint is not None and constraint.ast_spec is not None
@@ -460,7 +461,9 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
 
     def visit_BinOp(self, node: ast.BinOp) -> None:
         # Only +, -, *, / are allowed
-        allowed_ops = tuple(getattr(ast, op_name) for op_name in _DERIVED_BODY_AST_SPEC.allowed_binops)
+        allowed_ops = tuple(
+            getattr(ast, op_name) for op_name in _DERIVED_BODY_AST_SPEC.allowed_binops
+        )
         if not isinstance(node.op, allowed_ops):
             self._add_error(
                 ErrorKind.INVALID_COMPONENT_BODY,
@@ -473,7 +476,9 @@ class _DerivedMetricASTValidator(ast.NodeVisitor):
 
     def visit_UnaryOp(self, node: ast.UnaryOp) -> None:
         # Only unary - is allowed
-        allowed_ops = tuple(getattr(ast, op_name) for op_name in _DERIVED_BODY_AST_SPEC.allowed_unary_ops)
+        allowed_ops = tuple(
+            getattr(ast, op_name) for op_name in _DERIVED_BODY_AST_SPEC.allowed_unary_ops
+        )
         if not isinstance(node.op, allowed_ops):
             self._add_error(
                 ErrorKind.INVALID_COMPONENT_BODY,

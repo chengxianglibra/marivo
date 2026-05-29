@@ -65,6 +65,7 @@ from marivo.analysis.policies import (
 from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.windows.spec import AbsoluteWindow, RelativeWindow, WindowInput
+from marivo.preview import PreviewResult, PreviewSamplePolicy, PreviewWarning
 
 
 def __getattr__(name: str) -> Any:
@@ -123,6 +124,9 @@ __all__ = [
     "MetricRef",
     "OpenAnomaly",
     "OpenQuestion",
+    "PreviewResult",
+    "PreviewSamplePolicy",
+    "PreviewWarning",
     "PromotionFailedError",
     "PromotionPolicy",
     "PromotionSemanticAnchors",

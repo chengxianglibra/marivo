@@ -733,6 +733,10 @@ class DatasourceConnectionError(AnalysisError):
         }
 
 
+class DatasourcePreviewError(AnalysisError):
+    pass
+
+
 class DuplicateSessionNameError(AnalysisError): ...
 
 

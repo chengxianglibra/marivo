@@ -6,7 +6,7 @@ All read-only access to the loaded semantic model goes through
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -15,6 +15,14 @@ import ibis
 import ibis.expr.types as ir
 
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
+from marivo.preview import (
+    PREVIEW_DEFAULT_LIMIT,
+    PreviewResult,
+    PreviewSamplePolicy,
+    preview_ibis_table,
+    preview_ibis_value,
+    validate_preview_limit,
+)
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
@@ -47,6 +55,9 @@ __all__ = [
     "SearchHit",
     "SemanticProject",
 ]
+
+
+_FIELD_PREVIEW_CONTEXT_COLUMNS = 3
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +247,10 @@ def _require_registry(registry: Registry | None) -> Registry:
             ]
         )
     return registry
+
+
+def _semantic_leaf_name(semantic_id: str) -> str:
+    return semantic_id.rsplit(".", 1)[-1]
 
 
 def _search_match(
@@ -1087,6 +1102,111 @@ class SemanticProject:
         """
         mat = Materializer(self, backend_factory)
         return mat.metric(name)
+
+    # -- preview ---------------------------------------------------------------
+
+    def preview_dataset(
+        self,
+        name: str,
+        *,
+        backend_factory: Callable[[str], Any],
+        limit: int = PREVIEW_DEFAULT_LIMIT,
+        include_types: bool = True,
+        redact: bool = True,
+    ) -> PreviewResult:
+        """Return a bounded preview of a semantic dataset."""
+        limit = validate_preview_limit(limit)
+        table = self.materialize_dataset(name, backend_factory=backend_factory)
+        return preview_ibis_table(
+            table,
+            kind="semantic_dataset",
+            ref=name,
+            limit=limit,
+            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
+            include_types=include_types,
+            redact=redact,
+        )
+
+    def preview_field(
+        self,
+        name: str,
+        *,
+        backend_factory: Callable[[str], Any],
+        limit: int = PREVIEW_DEFAULT_LIMIT,
+        context_columns: Iterable[str] | None = None,
+        include_types: bool = True,
+        redact: bool = True,
+    ) -> PreviewResult:
+        """Return a bounded preview of a semantic field with parent dataset context."""
+        limit = validate_preview_limit(limit)
+        reg = _require_registry(self._registry)
+        field_ir = reg.fields.get(name)
+        if field_ir is None:
+            _raise(
+                ErrorKind.METRIC_NOT_FOUND,
+                f"Field {name!r} not found in registry.",
+                cls=SemanticRuntimeError,
+                refs=(name,),
+            )
+
+        mat = Materializer(self, backend_factory)
+        parent_table = mat.dataset(field_ir.dataset)
+        field_value = mat.field(name)
+        field_column_name = _semantic_leaf_name(name)
+
+        if context_columns is None:
+            selected_context = tuple(
+                column for column in parent_table.columns if column != field_column_name
+            )[:_FIELD_PREVIEW_CONTEXT_COLUMNS]
+        else:
+            selected_context = tuple(context_columns)
+
+        missing_context = [
+            column for column in selected_context if column not in parent_table.columns
+        ]
+        if missing_context:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Field preview context columns are not present on parent dataset: {missing_context}",
+                cls=SemanticRuntimeError,
+                refs=(name,),
+            )
+
+        projections = [parent_table[column] for column in selected_context]
+        projections.append(field_value.name(field_column_name))
+        preview_table = parent_table.select(*projections)
+        return preview_ibis_table(
+            preview_table,
+            kind="semantic_field",
+            ref=name,
+            limit=limit,
+            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
+            include_types=include_types,
+            redact=redact,
+        )
+
+    def preview_metric(
+        self,
+        name: str,
+        *,
+        backend_factory: Callable[[str], Any],
+        limit: int = PREVIEW_DEFAULT_LIMIT,
+        include_types: bool = True,
+        redact: bool = True,
+    ) -> PreviewResult:
+        """Return a bounded preview of a semantic metric."""
+        limit = validate_preview_limit(limit)
+        metric_value = self.materialize_metric(name, backend_factory=backend_factory)
+        return preview_ibis_value(
+            metric_value,
+            kind="semantic_metric",
+            ref=name,
+            limit=limit,
+            column_name="value",
+            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
+            include_types=include_types,
+            redact=redact,
+        )
 
     # -- parity -------------------------------------------------------------
 
