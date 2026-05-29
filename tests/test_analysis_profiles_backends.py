@@ -108,3 +108,82 @@ def test_trino_session_properties_pass_through(
     datasource_backends.build_backend(datasource)
 
     assert captured["session_properties"] == {"query_max_run_time": "5m"}
+
+
+def test_clickhouse_dispatch_with_host(monkeypatch: pytest.MonkeyPatch, project_root: Path) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClickhouse:
+        @staticmethod
+        def connect(**kwargs: object) -> object:
+            captured.update(kwargs)
+            return object()
+
+    class _FakeIbis:
+        clickhouse = _FakeClickhouse()
+
+    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    datasource = datasource_store.save_one(
+        name="ch_ds",
+        backend_type="clickhouse",
+        fields={"host": "ch.example.com"},
+    )
+
+    datasource_backends.build_backend(datasource)
+
+    assert captured["host"] == "ch.example.com"
+    assert captured["database"] == "default"
+    assert captured["user"] == "default"
+
+
+def test_clickhouse_required_field_missing(project_root: Path) -> None:
+    datasource = datasource_store.save_one(name="ch_ds", backend_type="clickhouse", fields={})
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
+        datasource_backends.build_backend(datasource)
+    assert exc_info.value.details["field"] == "host"
+
+
+def test_clickhouse_optional_fields_pass_through(
+    monkeypatch: pytest.MonkeyPatch, project_root: Path
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClickhouse:
+        @staticmethod
+        def connect(**kwargs: object) -> object:
+            captured.update(kwargs)
+            return object()
+
+    class _FakeIbis:
+        clickhouse = _FakeClickhouse()
+
+    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    datasource = datasource_store.save_one(
+        name="ch_ds",
+        backend_type="clickhouse",
+        fields={
+            "host": "ch.example.com",
+            "port": 9440,
+            "database": "analytics",
+            "user_env": "CH_USER",
+            "password_env": "CH_PASSWORD",
+            "client_name": "marivo",
+            "secure": True,
+            "compression": "lz4",
+            "settings": {"max_execution_time": 60},
+        },
+    )
+    monkeypatch.setenv("CH_USER", "reader")
+    monkeypatch.setenv("CH_PASSWORD", "secret123")
+
+    datasource_backends.build_backend(datasource)
+
+    assert captured["host"] == "ch.example.com"
+    assert captured["port"] == 9440
+    assert captured["database"] == "analytics"
+    assert captured["user"] == "reader"
+    assert captured["password"] == "secret123"
+    assert captured["client_name"] == "marivo"
+    assert captured["secure"] is True
+    assert captured["compression"] == "lz4"
+    assert captured["settings"] == {"max_execution_time": 60}
