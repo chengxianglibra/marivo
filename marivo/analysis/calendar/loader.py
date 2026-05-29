@@ -15,6 +15,7 @@ _CALENDAR_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 class CalendarCache:
     def __init__(self, project_root: Path) -> None:
         self._calendar_dir = Path(project_root) / ".marivo" / "calendar"
+        self._calendar_dir.mkdir(parents=True, exist_ok=True)
         self._cache: dict[str, Calendar] = {}
 
     def get(self, name: str) -> Calendar:
