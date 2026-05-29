@@ -4,7 +4,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session.attach as session_attach
-from marivo.analysis.errors import TimezoneInvalidError
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.windows import RelativeWindow
 
@@ -12,6 +11,7 @@ from marivo.analysis.windows import RelativeWindow
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
     session_attach._reset_process_state()
     yield
 
@@ -34,7 +34,7 @@ def test_from_dataframe_accepts_absolute_window_dict():
 
 
 def test_from_dataframe_accepts_relative_window_instance():
-    session = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
@@ -51,8 +51,8 @@ def test_from_dataframe_accepts_relative_window_instance():
     assert frame.meta.window["start"] == "2026-01-01"
 
 
-def test_from_dataframe_relative_window_prefers_window_timezone_over_session():
-    session = session_attach.get_or_create(name="demo", timezone="UTC")
+def test_from_dataframe_relative_window_uses_session_timezone():
+    session = session_attach.get_or_create(name="demo")
     frame = MetricFrame.from_dataframe(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
@@ -63,7 +63,6 @@ def test_from_dataframe_relative_window_prefers_window_timezone_over_session():
         window=RelativeWindow(
             expr="ytd",
             as_of="2025-12-31T20:30:00+00:00",
-            tz="Asia/Shanghai",
         ),
         session=session,
     )
@@ -72,22 +71,3 @@ def test_from_dataframe_relative_window_prefers_window_timezone_over_session():
     assert frame.meta.window["kind"] == "absolute"
     assert frame.meta.window["start"] == "2026-01-01"
     assert frame.meta.window["end"] == "2026-01-01"
-    assert frame.meta.window["tz"] == "Asia/Shanghai"
-
-
-def test_from_dataframe_relative_window_invalid_timezone_raises_structured_error():
-    session = session_attach.get_or_create(name="demo", timezone="UTC")
-
-    with pytest.raises(TimezoneInvalidError) as exc_info:
-        MetricFrame.from_dataframe(
-            pd.DataFrame({"value": [1.0]}),
-            metric_id="custom.metric",
-            axes={},
-            measure={"name": "value"},
-            semantic_kind="scalar",
-            semantic_model="custom",
-            window=RelativeWindow(expr="ytd", tz="Mars/Olympus"),
-            session=session,
-        )
-
-    assert exc_info.value.details["kind"] == "TimezoneNotFound"

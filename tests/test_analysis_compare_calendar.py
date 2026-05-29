@@ -8,7 +8,7 @@ import pytest
 
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.calendar.align import _local_dates, align_calendar_frames
-from marivo.analysis.calendar.model import Calendar, CalendarPolicy
+from marivo.analysis.calendar.model import Calendar, CalendarEntry, CalendarPolicy
 from marivo.analysis.errors import (
     AlignmentFailedError,
     CalendarPolicyError,
@@ -27,6 +27,7 @@ from marivo.analysis.session.persistence import write_frame_to_disk
 @pytest.fixture
 def calendar_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
     session_attach._reset_process_state()
     calendar_dir = tmp_path / ".marivo" / "calendar"
     calendar_dir.mkdir(parents=True)
@@ -34,7 +35,6 @@ def calendar_project(tmp_path, monkeypatch):
         json.dumps(
             {
                 "name": "cn_holidays",
-                "timezone": "Asia/Shanghai",
                 "holidays": [],
                 "adjusted_workdays": [],
             }
@@ -151,14 +151,13 @@ def _component_time_series_metric(session, *, ref, rows, component_rows):
 def _calendar() -> Calendar:
     return Calendar(
         name="cn_holidays",
-        timezone="Asia/Shanghai",
         holidays=[
-            {"date": "2025-05-01", "holiday_id": "labor-day"},
-            {"date": "2026-05-01", "holiday_id": "labor-day"},
-            {"date": "2026-04-30", "holiday_id": "labor-day"},
+            CalendarEntry(date="2025-05-01", holiday_id="labor-day"),
+            CalendarEntry(date="2026-05-01", holiday_id="labor-day"),
+            CalendarEntry(date="2026-04-30", holiday_id="labor-day"),
         ],
         adjusted_workdays=[
-            {"date": "2026-05-02"},
+            CalendarEntry(date="2026-05-02"),
         ],
     )
 
@@ -166,7 +165,6 @@ def _calendar() -> Calendar:
 def test_calendar_helper_returns_expected_calendar():
     calendar = _calendar()
     assert calendar.name == "cn_holidays"
-    assert calendar.timezone == "Asia/Shanghai"
     assert len(calendar.holidays) == 3
     assert calendar.holidays[1].date == "2026-05-01"
     assert calendar.holidays[1].holiday_id == "labor-day"
@@ -289,8 +287,7 @@ def test_multi_day_holiday_shares_one_id_and_aligns_by_derived_ordinal():
     days = [f"2026-05-0{day}" for day in range(1, 6)] + [f"2025-05-0{day}" for day in range(1, 6)]
     calendar = Calendar(
         name="cn_holidays",
-        timezone="Asia/Shanghai",
-        holidays=[{"date": day, "holiday_id": "wy"} for day in days],
+        holidays=[CalendarEntry(date=day, holiday_id="wy") for day in days],
     )
     a = pd.DataFrame(
         {
@@ -450,9 +447,7 @@ def test_rejects_align_period_day():
 
 
 def test_compare_rejects_loose_calendar_alignment_args(calendar_project):
-    s = session_attach.get_or_create(
-        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
-    )
+    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
     current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
     baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
 
@@ -461,9 +456,7 @@ def test_compare_rejects_loose_calendar_alignment_args(calendar_project):
 
 
 def test_compare_calendar_rejects_scalar(calendar_project):
-    s = session_attach.get_or_create(
-        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
-    )
+    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
     current = _metric(s, [{"value": 100.0}], semantic_kind="scalar")
     baseline = _metric(s, [{"value": 80.0}], semantic_kind="scalar")
 
@@ -483,9 +476,7 @@ def test_compare_calendar_rejects_scalar(calendar_project):
 
 
 def test_compare_calendar_returns_delta_frame(calendar_project):
-    s = session_attach.get_or_create(
-        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
-    )
+    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
     current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
     baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
 
@@ -519,7 +510,7 @@ def test_compare_calendar_returns_delta_frame(calendar_project):
 def test_compare_holiday_and_dow_alignment_policy(calendar_project):
     calendar_path = calendar_project / ".marivo" / "calendar" / "cn_holidays.json"
     calendar_path.write_text(_calendar().model_dump_json(), encoding="utf-8")
-    s = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
+    s = session_attach.get_or_create(name="demo")
     current = _metric(
         s,
         [
@@ -554,7 +545,7 @@ def test_compare_holiday_and_dow_alignment_policy(calendar_project):
 
 
 def test_compare_calendar_uses_calendar_ref_without_session_default(calendar_project):
-    s = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
+    s = session_attach.get_or_create(name="demo")
     current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
     baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
 
@@ -573,9 +564,7 @@ def test_compare_calendar_uses_calendar_ref_without_session_default(calendar_pro
 
 
 def test_compare_calendar_rejects_missing_calendar_ref(calendar_project):
-    s = session_attach.get_or_create(
-        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
-    )
+    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
     current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
     baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
     alignment = AlignmentPolicy.model_construct(
@@ -600,30 +589,8 @@ def test_compare_calendar_rejects_missing_calendar_ref(calendar_project):
     assert len(s.frames()) == before_frames
 
 
-def test_compare_calendar_rejects_timezone_mismatch(calendar_project):
-    s = session_attach.get_or_create(name="demo", timezone="UTC", default_calendar="cn_holidays")
-    current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
-    baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
-
-    with pytest.raises(CalendarPolicyError) as exc_info:
-        compare(
-            current,
-            baseline,
-            alignment=AlignmentPolicy(
-                kind="dow_aligned",
-                calendar=CalendarRef("cn_holidays"),
-                period="month",
-            ),
-            session=s,
-        )
-
-    assert exc_info.value.details["kind"] == "CalendarTimezoneMismatch"
-
-
 def test_compare_calendar_wraps_policy_validation_error(calendar_project):
-    s = session_attach.get_or_create(
-        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
-    )
+    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
     current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
     baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
 
@@ -643,9 +610,7 @@ def test_compare_calendar_wraps_policy_validation_error(calendar_project):
 
 
 def test_compare_calendar_rejects_missing_time_axis(calendar_project):
-    s = session_attach.get_or_create(
-        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
-    )
+    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
     current = _metric_frame(
         s,
         [{"bucket_start": "2026-05-05", "value": 100.0}],
@@ -670,9 +635,7 @@ def test_compare_calendar_rejects_missing_time_axis(calendar_project):
 
 
 def test_compare_calendar_rejects_missing_required_columns_on_baseline(calendar_project):
-    s = session_attach.get_or_create(
-        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
-    )
+    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
     current = _metric(s, [{"bucket_start": "2026-05-05", "value": 100.0}])
     baseline = _metric_frame(
         s,
@@ -706,9 +669,7 @@ def test_compare_calendar_rejects_missing_required_columns_on_baseline(calendar_
 
 
 def test_compare_calendar_rejects_ambiguous_value_column(calendar_project):
-    s = session_attach.get_or_create(
-        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
-    )
+    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
     current = _metric_frame(
         s,
         [{"bucket_start": "2026-05-05", "v1": 100.0, "v2": 120.0}],
@@ -752,9 +713,7 @@ def test_compare_calendar_rejects_ambiguous_value_column(calendar_project):
 
 
 def test_compare_calendar_rejects_missing_value_column(calendar_project):
-    s = session_attach.get_or_create(
-        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
-    )
+    s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
     current = _metric_frame(
         s,
         [{"bucket_start": "2026-05-05"}],
@@ -788,7 +747,7 @@ def test_compare_calendar_rejects_missing_value_column(calendar_project):
 def test_compare_calendar_time_series_ratio_persists_component_delta(calendar_project):
     calendar_path = calendar_project / ".marivo" / "calendar" / "cn_holidays.json"
     calendar_path.write_text(_calendar().model_dump_json(), encoding="utf-8")
-    s = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
+    s = session_attach.get_or_create(name="demo")
     current = _component_time_series_metric(
         s,
         ref="frame_current_ratio",
@@ -834,3 +793,21 @@ def test_compare_calendar_time_series_ratio_persists_component_delta(calendar_pr
     assert component_df.iloc[0]["current_numerator"] == pytest.approx(25.0)
     assert component_df.iloc[0]["baseline_numerator"] == pytest.approx(10.0)
     assert component_df.iloc[0]["delta_metric_value"] == pytest.approx(0.15)
+
+
+def test_align_calendar_info_has_no_calendar_timezone():
+    a = pd.DataFrame({"bucket_start": ["2026-05-01"], "value": [10]})
+    b = pd.DataFrame({"bucket_start": ["2025-05-01"], "value": [7]})
+    result, info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=_calendar(),
+        policy=CalendarPolicy(mode="holiday_aligned", align_period="month"),
+        session_tz="Asia/Shanghai",
+    )
+
+    assert len(result) == 1
+    assert "calendar_timezone" not in info.model_dump()
+    assert info.session_timezone == "Asia/Shanghai"

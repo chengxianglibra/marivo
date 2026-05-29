@@ -7,6 +7,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
+from zoneinfo import ZoneInfo
 
 from pydantic import ConfigDict
 
@@ -20,7 +21,6 @@ from marivo.analysis.windows import (
     dump_window,
     normalize_window_input,
     resolve_to_absolute,
-    zoneinfo_from_name,
 )
 
 if TYPE_CHECKING:
@@ -82,13 +82,10 @@ class MetricFrame(BaseFrame):
         window_in = normalize_window_input(window)
         resolved_window: AbsoluteWindow | None
         if isinstance(window_in, RelativeWindow):
-            effective_tz = session.tz
-            if window_in.tz is not None:
-                effective_tz = zoneinfo_from_name(window_in.tz)
             resolved_window = resolve_to_absolute(
                 window_in,
-                as_of=coerce_as_of(window_in.as_of, tz=effective_tz),
-                tz=effective_tz,
+                as_of=coerce_as_of(window_in.as_of, tz=cast("ZoneInfo", session.tz)),
+                tz=cast("ZoneInfo", session.tz),
             )
         else:
             resolved_window = window_in

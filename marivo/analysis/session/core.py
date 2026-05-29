@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import Any, Literal, cast
-from zoneinfo import ZoneInfo
 
 from marivo.analysis.session.persistence import (
     PersistenceLayout,
@@ -16,6 +15,7 @@ from marivo.analysis.session.persistence import (
     read_job_record,
     read_session_meta,
 )
+from marivo.analysis.timezone import resolve_system_timezone
 
 SessionState = Literal["active", "archived"]
 BackendFactory = Callable[[str], Any]
@@ -50,7 +50,7 @@ class Session:
     backend_factory: BackendFactory | None
     layout: PersistenceLayout
     semantic_project: Any  # SemanticProject from marivo.semantic
-    tz: ZoneInfo = field(default_factory=lambda: ZoneInfo("UTC"))
+    tz: tzinfo = field(default_factory=lambda: resolve_system_timezone().tz)
     default_calendar: str | None = None
     known_calendars: set[str] = field(default_factory=set)
     calendars: Any = None

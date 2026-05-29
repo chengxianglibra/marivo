@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 
-ensure_loaded(timezone="UTC")
+ensure_loaded()
 
 import marivo.analysis as mv  # noqa: E402
 

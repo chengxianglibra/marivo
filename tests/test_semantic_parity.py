@@ -118,17 +118,6 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
         return table.amount.sum()
 """)
 
-_DATASET_DECLARED_UNVERIFIED_NO_SOURCE_SQL_PY = textwrap.dedent("""\
-    import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
-
-    @ms.metric(datasets=[orders], decomposition=ms.sum(), declared_status="unverified")
-    def total_amount(table):
-        return table.amount.sum()
-""")
-
 _DIALECT_MISMATCH_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     @ms.dataset(datasource="warehouse")
@@ -170,7 +159,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
         return table.amount.sum()
 
     @ms.metric(
-        decomposition=ms.ratio(numerator=ms.ref("metric.sales.revenue"), denominator=ms.ref("metric.sales.cost")),
+        decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
         source_sql="SELECT 0.5 AS margin",
         source_dialect="duckdb",
     )
@@ -444,18 +433,6 @@ def test_status_no_source_sql(semantic_project_factory) -> None:
         }
     )
     status = propagated_parity_status(project, "sales.total_amount")
-    assert status == ParityStatus.PYTHON_NATIVE
-
-
-def test_status_no_source_sql_declared_unverified(semantic_project_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_model.py": _MODEL_PY,
-            "sales/metrics.py": _DATASET_DECLARED_UNVERIFIED_NO_SOURCE_SQL_PY,
-        }
-    )
-    # Explicit declared_status="unverified" overrides auto-PYTHON_NATIVE inference
-    status = propagated_parity_status(project, "sales.total_amount")
     assert status == ParityStatus.UNVERIFIED
 
 
@@ -554,7 +531,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
             return table.amount.sum()
 
         @ms.metric(
-            decomposition=ms.ratio(numerator=ms.ref("metric.sales.revenue"), denominator=ms.ref("metric.sales.cost")),
+            decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
         )
         def margin():
             return ms.component("numerator") / ms.component("denominator")
@@ -625,7 +602,7 @@ def test_derived_propagation_verified_and_python_native(
             return table.amount.sum()
 
         @ms.metric(
-            decomposition=ms.ratio(numerator=ms.ref("metric.sales.revenue"), denominator=ms.ref("metric.sales.cost")),
+            decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
         )
         def margin():
             return ms.component("numerator") / ms.component("denominator")

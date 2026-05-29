@@ -346,7 +346,7 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=[ms.ref("dataset.sales.orders")], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -440,7 +440,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=[ms.ref("dataset.sales.orders")], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -527,66 +527,12 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     assert any("query_info" in err.message for err in result.errors)
 
 
-def test_cross_file_metric_can_use_typed_dataset_ref(semantic_project_factory) -> None:
-    """Metric using typed ms.ref('dataset.sales.orders') should resolve and
-    populate the metric's datasets tuple with the resolved FQN."""
-    datasets_py = textwrap.dedent("""\
-        import marivo.semantic as ms
-
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
-    """)
-    metrics_py = textwrap.dedent("""\
-        import marivo.semantic as ms
-
-        @ms.metric(datasets=[ms.ref("dataset.sales.orders")], decomposition=ms.sum())
-        def revenue(table):
-            return table.amount.sum()
-    """)
-    project = semantic_project_factory(
-        {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/datasets.py": datasets_py,
-            "sales/metrics.py": metrics_py,
-        }
-    )
-
-    assert project.is_ready()
-    reg = project.registry()
-    assert reg is not None
-    assert reg.metrics["sales.revenue"].datasets == ("sales.orders",)
-
-
-def test_typed_dataset_ref_missing_target_reports_missing_dataset(
-    semantic_project_factory,
-) -> None:
-    """Typed ref pointing to a nonexistent dataset should produce
-    MISSING_DATASET_REF."""
-    metrics_py = textwrap.dedent("""\
-        import marivo.semantic as ms
-
-        @ms.metric(datasets=[ms.ref("dataset.sales.nonexistent")], decomposition=ms.sum())
-        def revenue(table):
-            return table.amount.sum()
-    """)
-    project = semantic_project_factory(
-        {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
-            "sales/metrics.py": metrics_py,
-        }
-    )
-
-    assert not project.is_ready()
-    assert any(e.kind == ErrorKind.MISSING_DATASET_REF for e in project.errors())
-
-
 def test_cross_file_missing_dataset_ref(semantic_project_factory) -> None:
     """Metric referencing a dataset that doesn't exist should error."""
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=[ms.ref("dataset.sales.nonexistent")], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.nonexistent"], decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -729,7 +675,7 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=[ms.ref("dataset.sales.orders")], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -775,11 +721,11 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.field(dataset=ms.ref("dataset.sales.orders"))
+        @ms.field(dataset="sales.orders")
         def order_id(table):
             return table.order_id
 
-        @ms.field(dataset=ms.ref("dataset.sales.items"))
+        @ms.field(dataset="sales.items")
         def item_order_id(table):
             return table.order_id
     """)
@@ -788,10 +734,10 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
 
         ms.relationship(
             name="orders_to_items",
-            from_dataset=ms.ref("dataset.sales.orders"),
-            to_dataset=ms.ref("dataset.sales.items"),
-            from_fields=[ms.ref("field.sales.order_id")],
-            to_fields=[ms.ref("field.sales.item_order_id")],
+            from_dataset="sales.orders",
+            to_dataset="sales.items",
+            from_fields=["sales.order_id"],
+            to_fields=["sales.item_order_id"],
         )
     """)
     project = semantic_project_factory(
@@ -832,10 +778,10 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
 
         ms.relationship(
             name="bad_arity",
-            from_dataset=ms.ref("dataset.sales.orders"),
-            to_dataset=ms.ref("dataset.sales.orders"),
-            from_fields=[ms.ref("field.sales.order_id"), ms.ref("field.sales.other_id")],
-            to_fields=[ms.ref("field.sales.order_id")],
+            from_dataset="sales.orders",
+            to_dataset="sales.orders",
+            from_fields=["sales.order_id", "sales.other_id"],
+            to_fields=["sales.order_id"],
         )
     """)
     project = semantic_project_factory(
@@ -867,7 +813,7 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.field(dataset=ms.ref("dataset.sales.orders"))
+        @ms.field(dataset="sales.orders")
         def amount(table):
             return table.amount
 
@@ -899,7 +845,7 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.field(dataset=ms.ref("dataset.sales.orders"))
+        @ms.field(dataset="sales.orders")
         def region(table):
             return table.region
 

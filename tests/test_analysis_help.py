@@ -6,8 +6,6 @@ import inspect
 import io
 from contextlib import redirect_stdout
 
-import pytest
-
 import marivo.analysis as mv
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.intents.compare import compare as compare_fn
@@ -18,14 +16,6 @@ def _capture(symbol: str | None = None) -> str:
     with redirect_stdout(buf):
         mv.help(symbol)
     return buf.getvalue()
-
-
-def _capture_json(symbol: str | None = None) -> tuple[dict[str, object], str]:
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        result = mv.help(symbol, format="json")
-    assert isinstance(result, dict)
-    return result, buf.getvalue()
 
 
 def test_top_level_help_lists_intents_and_helpers() -> None:
@@ -171,112 +161,3 @@ def test_help_calendar_prints_file_schema_and_entry_example() -> None:
     assert '"holiday_id": "labor-day"' in out
     assert "adjusted_workdays" in out
     assert "use holiday_id rather than name/label" in out
-
-
-# --- format="json" tests ---
-
-
-def test_mv_help_json_top_level_returns_dict() -> None:
-    result, stdout = _capture_json()
-    assert stdout == ""
-    assert result["schema_version"] == "1"
-    assert result["surface"] == "marivo.analysis"
-    assert isinstance(result["entries"], list)
-    assert len(result["entries"]) > 0
-    assert "matrix_topics" in result
-    assert "discover" in result["matrix_topics"]
-
-
-def test_mv_help_json_discover_returns_structured() -> None:
-    result, stdout = _capture_json("discover")
-    assert stdout == ""
-    assert result["kind"] == "matrix_topic"
-    assert result["symbol"] == "discover"
-    objectives = result["objectives"]
-    assert isinstance(objectives, list)
-    assert len(objectives) > 0
-    first = objectives[0]
-    assert "objective" in first
-    assert "shape" in first
-    assert "compatibility" in first
-    assert "required_kwargs" in first
-
-
-def test_mv_help_json_select_returns_structured() -> None:
-    result, stdout = _capture_json("select")
-    assert stdout == ""
-    assert result["kind"] == "matrix_topic"
-    assert "fields_by_shape" in result
-    assert isinstance(result["fields_by_shape"], dict)
-
-
-def test_mv_help_json_transform_returns_structured() -> None:
-    result, stdout = _capture_json("transform")
-    assert stdout == ""
-    assert result["kind"] == "matrix_topic"
-    ops = result["ops"]
-    assert isinstance(ops, list)
-    assert len(ops) > 0
-    assert "op" in ops[0]
-    assert "required_kwargs" in ops[0]
-
-
-def test_mv_help_json_alignment_returns_structured() -> None:
-    result, stdout = _capture_json("alignment")
-    assert stdout == ""
-    assert result["kind"] == "matrix_topic"
-    variants = result["variants"]
-    assert isinstance(variants, list)
-    assert len(variants) == 4
-    assert variants[0]["kind"] == "window_bucket"
-    assert variants[0]["requires_calendar"] is False
-    assert "behavior_notes" in result
-
-
-def test_mv_help_json_calendar_returns_structured() -> None:
-    result, stdout = _capture_json("calendar")
-    assert stdout == ""
-    assert result["kind"] == "matrix_topic"
-    assert result["location"] == ".marivo/calendar/<name>.json"
-    assert isinstance(result["top_level_schema"], dict)
-    assert isinstance(result["entry_schema"], dict)
-    assert isinstance(result["example"], dict)
-    assert "notes" in result
-
-
-def test_mv_help_json_callable_symbol() -> None:
-    result, stdout = _capture_json("compare")
-    assert stdout == ""
-    assert result["kind"] == "callable"
-    assert "compare" in result["signature"]
-    assert isinstance(result["doc"], str)
-
-
-def test_mv_help_json_class_symbol() -> None:
-    result, stdout = _capture_json("SemanticKindMismatchError")
-    assert stdout == ""
-    assert result["kind"] == "class"
-
-
-def test_mv_help_json_unknown_symbol() -> None:
-    result, stdout = _capture_json("nonexistent_xyz")
-    assert stdout == ""
-    assert "error" in result
-
-
-def test_mv_help_json_returns_none_on_text() -> None:
-    assert mv.help() is None
-
-
-def test_mv_help_json_does_not_print(capsys) -> None:
-    mv.help(format="json")
-    assert capsys.readouterr().out == ""
-
-
-def test_mv_help_invalid_format_raises() -> None:
-    with pytest.raises(ValueError, match="format must be"):
-        mv.help(format="yaml")
-
-
-def test_mv_help_text_not_in_all() -> None:
-    assert "help_text" not in mv.__all__

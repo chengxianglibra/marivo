@@ -10,6 +10,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, Literal, cast
+from zoneinfo import ZoneInfo
 
 from marivo.analysis.errors import (
     AmbiguousDimensionError,
@@ -51,7 +52,6 @@ from marivo.analysis.session.persistence import (
 from marivo.analysis.windows.resolver import (
     coerce_as_of,
     resolve_to_absolute,
-    zoneinfo_from_name,
 )
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
@@ -85,11 +85,13 @@ class _TimeFieldMetaAdapter:
         granularity: str,
         format: str | None = None,
         required_prefix: str | None = None,
+        timezone: str | None = None,
     ) -> None:
         self.data_type = data_type
         self.granularity = granularity
         self.format = format
         self.required_prefix = required_prefix
+        self.timezone = timezone
 
 
 class _FieldIRAdapter:
@@ -173,6 +175,7 @@ def _build_dataset_adapter(
             granularity=tf_ir.granularity or "day",
             format=tf_ir.format,
             required_prefix=tf_ir.required_prefix,
+            timezone=tf_ir.timezone,
         )
         adapter = _FieldIRAdapter(
             semantic_id=tf_ir.semantic_id,
@@ -321,11 +324,9 @@ def _resolve_window(
         return None, None, None
     if isinstance(window_in, AbsoluteWindow):
         return window_in, None, None
-    effective_tz = session.tz
-    if window_in.tz is not None:
-        effective_tz = zoneinfo_from_name(window_in.tz)
-    as_of_dt = coerce_as_of(window_in.as_of, tz=effective_tz)
-    resolved = resolve_to_absolute(window_in, as_of=as_of_dt, tz=effective_tz)
+    session_tz = cast("ZoneInfo", session.tz)
+    as_of_dt = coerce_as_of(window_in.as_of, tz=session_tz)
+    resolved = resolve_to_absolute(window_in, as_of=as_of_dt, tz=session_tz)
     return resolved, window_in, as_of_dt.isoformat()
 
 
@@ -681,7 +682,7 @@ def _observe_derived_grouped(
             table,
             resolved_window,
             dataset_ir=ds_adapter,
-            session_tz=session.tz,
+            session_tz=cast("ZoneInfo", session.tz),
         )
         if dimension_dataset is not None and base_dataset != dimension_dataset:
             table = _join_related_dimension_table(
@@ -697,7 +698,7 @@ def _observe_derived_grouped(
             table,
             field_ir=time_field_ir,
             window=resolved_window,
-            session_tz=session.tz,
+            session_tz=cast("ZoneInfo", session.tz),
         )
         if resolved_dimensions:
             dimension_exprs = {
@@ -989,7 +990,7 @@ def _observe_derived_scalar(
                 table,
                 resolved_window,
                 dataset_ir=ds_adapter,
-                session_tz=session.tz,
+                session_tz=cast("ZoneInfo", session.tz),
             )
             dataset_tables[dataset_id] = table
             session.known_datasources.add(datasource_name)
@@ -1527,7 +1528,7 @@ def observe(
             table,
             resolved_window,
             dataset_ir=ds_adapter,
-            session_tz=session.tz,
+            session_tz=cast("ZoneInfo", session.tz),
         )
         dataset_tables[dataset_name] = table
         session.known_datasources.add(datasource_name)
@@ -1546,7 +1547,7 @@ def observe(
             dataset_tables[dataset_name],
             field_ir=time_field_ir,
             window=resolved_window,
-            session_tz=session.tz,
+            session_tz=cast("ZoneInfo", session.tz),
         )
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
         dimension_exprs = {
@@ -1597,7 +1598,7 @@ def observe(
             dataset_tables[dataset_name],
             field_ir=time_field_ir,
             window=resolved_window,
-            session_tz=session.tz,
+            session_tz=cast("ZoneInfo", session.tz),
         )
         dataset_tables[dataset_name] = bucketed_table
         metric_expr = _call_metric(

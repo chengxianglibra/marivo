@@ -234,9 +234,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_ref",
         "decorator",
         ("dataset", "field", "time_field", "metric", "relationship", "ref"),
-        "Semantic object references must be decorated refs or typed ms.ref(...) values.",
-        "Naked semantic-id strings hide kind mistakes and are fragile during refactors.",
-        "Import decorated refs when possible; use ms.ref('kind.model.name') only for cycles, generated definitions, or protected model boundaries. Do not use ms.dataset_ref(...), ms.field_ref(...), or ms.metric_ref(...).",
+        "References must be strings or decorator-returned refs.",
+        "The loader persists semantic ids, not arbitrary Python objects.",
+        "Use datasource names as strings and DatasetRef/FieldRef/MetricRef values returned by decorators.",
         example=f"{_EXAMPLE_BASE}/02_declare_dataset.py",
     ),
     ConstraintId.DECOMPOSITION_SHAPE: _constraint(
@@ -369,7 +369,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("dataset", "field", "time_field", "metric"),
         "Dataset and datasource references must resolve.",
         "Semantic objects compile through registered datasource and dataset ids.",
-        "Reference a declared DatasetRef or ms.ref('dataset.<model>.<name>').",
+        "Reference a declared datasource name or DatasetRef/qualified dataset id.",
         example=f"{_EXAMPLE_BASE}/99_pitfall_dataset_without_datasource.py",
     ),
     ConstraintId.FIELD_REF_EXISTS: _constraint(
@@ -379,7 +379,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("field", "time_field", "relationship"),
         "Field references must resolve.",
         "Relationships and time prefixes need registered field ids.",
-        "Reference a declared FieldRef/TimeFieldRef or ms.ref('field.<model>.<name>').",
+        "Reference a declared FieldRef/TimeFieldRef or qualified field id.",
     ),
     ConstraintId.METRIC_REF_EXISTS: _constraint(
         ConstraintId.METRIC_REF_EXISTS,
@@ -388,7 +388,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Metric component references must resolve.",
         "Derived metrics compose existing metrics.",
-        "Reference a declared MetricRef or ms.ref('metric.<model>.<name>') in decomposition components.",
+        "Reference a declared MetricRef or qualified metric id in decomposition components.",
         example=f"{_EXAMPLE_BASE}/04_define_metric_derived.py",
     ),
     ConstraintId.METRIC_GRAPH_ACYCLIC: _constraint(

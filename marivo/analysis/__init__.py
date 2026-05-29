@@ -52,7 +52,7 @@ from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
-from marivo.analysis.help import help
+from marivo.analysis.help import help, help_text
 from marivo.analysis.intents._types import (
     DiscoverSensitivity,
     SlicePredicate,
@@ -159,6 +159,7 @@ __all__ = [
     "datasources",
     "errors",
     "help",
+    "help_text",
     "load_frame",
     "session",
 ]

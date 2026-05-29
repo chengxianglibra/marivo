@@ -11,6 +11,7 @@ import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype, is_object_dtype
@@ -37,7 +38,6 @@ from marivo.analysis.windows import (
     dump_window,
     normalize_window_input,
     resolve_to_absolute,
-    zoneinfo_from_name,
 )
 
 if TYPE_CHECKING:
@@ -380,13 +380,10 @@ def _resolve_metric_window(
     normalized = normalize_window_input(window)
     if not isinstance(normalized, RelativeWindow):
         return normalized
-    effective_tz = session.tz
-    if normalized.tz is not None:
-        effective_tz = zoneinfo_from_name(normalized.tz)
     return resolve_to_absolute(
         normalized,
-        as_of=coerce_as_of(normalized.as_of, tz=effective_tz),
-        tz=effective_tz,
+        as_of=coerce_as_of(normalized.as_of, tz=cast("ZoneInfo", session.tz)),
+        tz=cast("ZoneInfo", session.tz),
     )
 
 
