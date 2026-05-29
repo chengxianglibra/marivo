@@ -300,7 +300,17 @@ def _align_keys(dates: pd.Series, *, calendar: Calendar, policy: CalendarPolicy)
     holiday_map = _holiday_map(calendar.holidays)
     adjusted_workdays = {date.fromisoformat(entry.date) for entry in calendar.adjusted_workdays}
 
-    def _key_for(day: date) -> tuple[str, object] | tuple[str, int, int] | None:
+    needs_ordinals = policy.mode in ("holiday_aligned", "holiday_and_dow_aligned")
+    ordinals: dict[date, int] = {}
+    if needs_ordinals and len(dates):
+        frame_period = _period_id(cast("date", dates.iloc[0]), policy.align_period)
+        ordinals = _holiday_ordinals(
+            calendar.holidays, align_period=policy.align_period, frame_period=frame_period
+        )
+
+    def _key_for(
+        day: date,
+    ) -> tuple[str, object] | tuple[str, int, int] | tuple[str, object, int] | None:
         holiday = holiday_map.get(day)
         if policy.mode == "dow_aligned":
             return ("dow", day.isoweekday(), _week_offset(day, policy.align_period))
@@ -316,11 +326,11 @@ def _align_keys(dates: pd.Series, *, calendar: Calendar, policy: CalendarPolicy)
             return ("workday", nth)
         if policy.mode == "holiday_aligned":
             if holiday is not None:
-                return ("holiday", holiday)
+                return ("holiday", holiday, ordinals[day])
             return None
         if policy.mode == "holiday_and_dow_aligned":
             if holiday is not None:
-                return ("holiday", holiday)
+                return ("holiday", holiday, ordinals[day])
             return ("dow", day.isoweekday(), _week_offset(day, policy.align_period))
         raise CalendarPolicyError(
             message=f"unsupported calendar mode {policy.mode!r}",
@@ -362,10 +372,25 @@ def _holiday_map(entries: Sequence[CalendarEntry]) -> dict[date, str]:
     out: dict[date, str] = {}
     for entry in entries:
         entry_date = date.fromisoformat(entry.date)
-        group_id = entry.group_id
-        name = entry.name
-        out[entry_date] = group_id or name or entry_date.isoformat()
+        out[entry_date] = entry.holiday_id or entry_date.isoformat()
     return out
+
+
+def _holiday_ordinals(
+    entries: Sequence[CalendarEntry], *, align_period: str, frame_period: str
+) -> dict[date, int]:
+    by_id: dict[str, list[date]] = {}
+    for entry in entries:
+        entry_date = date.fromisoformat(entry.date)
+        if _period_id(entry_date, align_period) != frame_period:
+            continue
+        resolved = entry.holiday_id or entry_date.isoformat()
+        by_id.setdefault(resolved, []).append(entry_date)
+    ordinals: dict[date, int] = {}
+    for dates_for_id in by_id.values():
+        for index, entry_date in enumerate(sorted(dates_for_id), start=1):
+            ordinals[entry_date] = index
+    return ordinals
 
 
 def _require_unique_keys(keys: pd.Series, *, side: str) -> None:
