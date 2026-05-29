@@ -79,3 +79,10 @@ schema = table.schema()
 datasource metadata catalog before assigning semantic meaning. For time-like
 VARCHAR/string columns, preview sample values before choosing casts and
 granularity.
+
+## Preview Requirement
+
+Before declaring a semantic dataset, preview the physical table with a bounded
+limit. Use `preview.md` for the Phase 0 fallback commands. Raw preview validates
+physical shape such as time formats, enum values, nulls, amount signs, and join
+keys; it does not replace comments or knowledge-base definitions.
