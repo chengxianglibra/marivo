@@ -38,7 +38,7 @@ def test_semantic_skill_examples_cover_phase5_cases() -> None:
     expected = {
         "05_inspect_table_metadata.py",
         "06_readiness_requires_preview.py",
-        "07_readiness_unverified_metric.py",
+        "07_readiness_python_native_metric.py",
         "08_readiness_parity_drift.py",
         "09_ambiguous_time_axis_prompt.py",
     }

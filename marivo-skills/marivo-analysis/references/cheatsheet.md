@@ -103,8 +103,8 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 | Create or attach a session (idempotent) | `mv.session.get_or_create(name=..., timezone="Asia/Shanghai")` |
 | List sessions | `mv.session.list()` |
 | Attach live data | `mv.session.get_or_create(name=..., backend_factory=...)` |
-| Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` |
-| Inspect calendar file shape | `mv.help("calendar")` |
+| Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` or `mv.help(format="json")` |
+| Inspect calendar file shape | `mv.help("calendar")` or `mv.help("calendar", format="json")` |
 | Confirm metric ids | `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()` |
 
 Metric refs wrap exact ids such as `mv.MetricRef("model.metric")`. Do not guess

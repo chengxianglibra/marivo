@@ -188,6 +188,24 @@ _PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
         return table.amount.sum()
 """)
 
+_SOURCE_SQL_UNVERIFIED_MODEL_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+
+    @ms.dataset(datasource="warehouse", description="Orders")
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.metric(
+        datasets=[orders],
+        decomposition=ms.sum(),
+        source_sql="SELECT SUM(amount) AS total_amount FROM orders",
+        source_dialect="duckdb",
+        description="Total amount",
+    )
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
 
 def _project(semantic_project_factory, model_py: str):
     return semantic_project_factory(
@@ -260,11 +278,31 @@ def test_readiness_blocks_when_required_raw_preview_missing(
     assert "sales.orders" not in report.analysis_ready_refs
 
 
-def test_readiness_strict_blocks_unverified_metric(
+def test_readiness_strict_warns_for_no_source_sql_metric(
     semantic_project_factory,
     backend_factory,
 ) -> None:
+    # Metric without source_sql auto-infers PYTHON_NATIVE, not UNVERIFIED
     project = _project(semantic_project_factory, _UNVERIFIED_MODEL_PY)
+
+    report = project.readiness(
+        strict_provenance=True,
+        require_preview=False,
+        backend_factory=backend_factory,
+    )
+
+    assert report.status == "ready_with_warnings"
+    assert report.parity_summary.python_native_metrics == ("sales.total_amount",)
+    assert "python_native_metric" in _issue_kinds(report.warnings)
+    assert "unverified_metric" not in _issue_kinds(report.blockers)
+
+
+def test_readiness_strict_blocks_unverified_metric_with_source_sql(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    # Metric with source_sql but no parity check stays UNVERIFIED (blocker)
+    project = _project(semantic_project_factory, _SOURCE_SQL_UNVERIFIED_MODEL_PY)
 
     report = project.readiness(
         strict_provenance=True,
@@ -277,11 +315,30 @@ def test_readiness_strict_blocks_unverified_metric(
     assert "unverified_metric" in _issue_kinds(report.blockers)
 
 
-def test_readiness_nonstrict_warns_for_unverified_metric(
+def test_readiness_nonstrict_warns_for_no_source_sql_metric(
     semantic_project_factory,
     backend_factory,
 ) -> None:
+    # Metric without source_sql auto-infers PYTHON_NATIVE (warning, not blocker)
     project = _project(semantic_project_factory, _UNVERIFIED_MODEL_PY)
+
+    report = project.readiness(
+        strict_provenance=False,
+        require_preview=False,
+        backend_factory=backend_factory,
+    )
+
+    assert report.status == "ready_with_warnings"
+    assert report.blockers == ()
+    assert "python_native_metric" in _issue_kinds(report.warnings)
+
+
+def test_readiness_nonstrict_warns_for_unverified_with_source_sql(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    # Metric with source_sql but no parity check: UNVERIFIED warning under non-strict
+    project = _project(semantic_project_factory, _SOURCE_SQL_UNVERIFIED_MODEL_PY)
 
     report = project.readiness(
         strict_provenance=False,
@@ -327,7 +384,7 @@ def test_readiness_warns_for_python_native_metric(
     assert report.status == "ready_with_warnings"
     assert report.parity_summary.python_native_metrics == ("sales.total_amount",)
     assert "unverified_metric" not in _issue_kinds(report.blockers)
-    assert any("python_native" in issue.message for issue in report.warnings)
+    assert "python_native_metric" in _issue_kinds(report.warnings)
 
 
 def test_semantic_check_run_check_returns_json_ready_report(

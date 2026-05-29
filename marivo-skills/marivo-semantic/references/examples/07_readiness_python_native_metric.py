@@ -1,4 +1,4 @@
-"""Unverified metrics appear in readiness."""
+"""Python-native metrics (no source_sql) appear as warnings in readiness."""
 
 from __future__ import annotations
 
@@ -46,6 +46,6 @@ with tempfile.TemporaryDirectory() as tmp:
         project.load()
         report = project.readiness(require_preview=False, strict_provenance=True)
         print(f"readiness: {report.status}")
-        print(f"unverified: {report.parity_summary.unverified_metrics[0]}")
+        print(f"python_native: {report.parity_summary.python_native_metrics[0]}")
     finally:
         os.chdir(previous)

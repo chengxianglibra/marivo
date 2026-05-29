@@ -418,7 +418,18 @@ Derived metric body AST 白名单：
 
 ### Provenance
 
-目标态 metric 始终有 provenance status，但 authoring-time 不强迫 agent 先完成 SQL 溯源。缺省状态是 `unverified`；当 metric 被提升为正式分析口径、被 `analysis.observe()` 消费、进入 strict CI，或声明为可信业务对象时，必须显式选择 SQL triple 或 `python_native`：
+目标态 metric 始终有 provenance status，但 authoring-time 不强迫 agent 先完成 SQL 溯源。缺省状态取决于 provenance 声明：
+
+| 条件 | 缺省状态 |
+| --- | --- |
+| 无 `source_sql`，无 `declared_status` | `python_native`（无 SQL oracle，Python 是唯一口径来源） |
+| 有 `source_sql`，无 `declared_status`，未做 parity check | `unverified`（有 SQL oracle 但未确认） |
+| 有 `source_sql`，无 `declared_status`，parity ok | `verified` |
+| 有 `source_sql`，无 `declared_status`，parity drift | `drifted` |
+| `declared_status="python_native"` | `python_native`（无论是否有 source_sql） |
+| `declared_status="unverified"` | `unverified`（无论是否有 source_sql） |
+
+当 metric 被提升为正式分析口径、被 `analysis.observe()` 消费、进入 strict CI，或声明为可信业务对象时，`unverified` 状态（仅当有 source_sql）必须通过 parity_check 提升为 `verified`，或通过 `declared_status='python_native'` 明确声明放弃 SQL 验证。
 
 | Provenance | 含义 |
 | --- | --- |

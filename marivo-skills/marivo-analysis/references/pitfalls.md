@@ -18,8 +18,11 @@ that clearly came from the system Python instead of the project virtualenv.
 Use the project virtualenv entrypoints directly:
 
 ```bash
-.venv/bin/python -c 'import marivo.analysis as mv; mv.help()'
+.venv/bin/python -c 'import marivo.analysis as mv; mv.help(format="json")'
 ```
+
+For structured introspection, use `format="json"`: `mv.help(format="json")`,
+`mv.help("discover", format="json")`, etc.
 
 If this skill is being used outside the Marivo source checkout, replace `.venv`
 with that project's actual virtualenv path.

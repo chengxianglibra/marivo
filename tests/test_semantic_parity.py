@@ -118,6 +118,17 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
         return table.amount.sum()
 """)
 
+_DATASET_DECLARED_UNVERIFIED_NO_SOURCE_SQL_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+    @ms.dataset(datasource="warehouse")
+    def orders(backend):
+        return backend.table("orders")
+
+    @ms.metric(datasets=[orders], decomposition=ms.sum(), declared_status="unverified")
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
 _DIALECT_MISMATCH_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     @ms.dataset(datasource="warehouse")
@@ -432,6 +443,18 @@ def test_status_no_source_sql(semantic_project_factory) -> None:
             "sales/metrics.py": _DATASET_NO_SOURCE_SQL_PY,
         }
     )
+    status = propagated_parity_status(project, "sales.total_amount")
+    assert status == ParityStatus.PYTHON_NATIVE
+
+
+def test_status_no_source_sql_declared_unverified(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/metrics.py": _DATASET_DECLARED_UNVERIFIED_NO_SOURCE_SQL_PY,
+        }
+    )
+    # Explicit declared_status="unverified" overrides auto-PYTHON_NATIVE inference
     status = propagated_parity_status(project, "sales.total_amount")
     assert status == ParityStatus.UNVERIFIED
 
