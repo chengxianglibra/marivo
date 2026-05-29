@@ -29,7 +29,8 @@ consistently for every install, check, and script run.
 1. Find the closest runnable example in `references/examples/NN_*.py` and adapt.
 2. Confirm metric ids: `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()`.
 3. Use `mv.help("discover")` / `mv.help("select")` / `mv.help("transform")` /
-   `mv.help("alignment")` for constraint matrices at runtime.
+   `mv.help("alignment")` / `mv.help("calendar")` for constraint matrices and
+   project-local calendar JSON shape at runtime.
 4. On errors, read the structured output — it includes a fix snippet and the
    available ids when applicable.
 

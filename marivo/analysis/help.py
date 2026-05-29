@@ -19,11 +19,12 @@ _TOP_LEVEL_ENTRIES = {
     "session.hypothesis_test": "run a mean_changed paired test over compatible MetricFrames",
     "CandidateSet.select": "pull a typed field out of a CandidateSet row",
     "alignment": "AlignmentPolicy variants and required arguments",
+    "calendar": "project-local calendar JSON file shape",
     "session": "session lifecycle and persistence helpers",
     "help": "print top-level or symbol-specific introspection",
 }
 
-_MATRIX_TOPICS = {"discover", "select", "transform", "alignment"}
+_MATRIX_TOPICS = {"discover", "select", "transform", "alignment", "calendar"}
 
 
 def _list_top_level() -> str:
@@ -181,11 +182,43 @@ def _format_alignment_matrix() -> str:
     return "\n".join(lines)
 
 
+def _format_calendar_schema() -> str:
+    lines = ["project-local calendar JSON schema:", ""]
+    lines.append("Location:")
+    lines.append("  .marivo/calendar/<name>.json")
+    lines.append("  The directory is created when an analysis session is created or attached.")
+    lines.append("")
+    lines.append("Top-level object:")
+    lines.append('  "name": string matching the file stem')
+    lines.append('  "timezone": IANA timezone such as "Asia/Shanghai"')
+    lines.append('  "holidays": list[CalendarEntry]')
+    lines.append('  "adjusted_workdays": optional list[CalendarEntry], defaults to []')
+    lines.append("")
+    lines.append("CalendarEntry:")
+    lines.append('  "date": ISO date string, YYYY-MM-DD')
+    lines.append('  "holiday_id": optional string used to match same holiday across years')
+    lines.append("  Extra fields are rejected; use holiday_id rather than name/label.")
+    lines.append("")
+    lines.append("Example:")
+    lines.append("{")
+    lines.append('  "name": "cn_holidays",')
+    lines.append('  "timezone": "Asia/Shanghai",')
+    lines.append('  "holidays": [')
+    lines.append('    {"date": "2026-05-01", "holiday_id": "labor-day"}')
+    lines.append("  ],")
+    lines.append('  "adjusted_workdays": [')
+    lines.append('    {"date": "2026-05-02"}')
+    lines.append("  ]")
+    lines.append("}")
+    return "\n".join(lines)
+
+
 _MATRIX_FORMATTERS: dict[str, Callable[[], str]] = {
     "discover": _format_discover_matrix,
     "select": _format_select_matrix,
     "transform": _format_transform_matrix,
     "alignment": _format_alignment_matrix,
+    "calendar": _format_calendar_schema,
 }
 
 

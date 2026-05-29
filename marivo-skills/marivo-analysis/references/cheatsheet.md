@@ -104,6 +104,7 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 | List sessions | `mv.session.list()` |
 | Attach live data | `mv.session.get_or_create(name=..., backend_factory=...)` |
 | Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` |
+| Inspect calendar file shape | `mv.help("calendar")` |
 | Confirm metric ids | `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()` |
 
 Metric refs wrap exact ids such as `mv.MetricRef("model.metric")`. Do not guess
@@ -157,3 +158,21 @@ Valid `AlignmentPolicy.kind` values are `window_bucket`, `dow_aligned`,
 dates, it builds the expected buckets from each window, pairs them by ordinal
 position, preserves the baseline date as `bucket_start_b`, and leaves sparse
 observed buckets as `NaN` rather than failing compare.
+
+Calendar-backed compare loads project-local files from
+`.marivo/calendar/<name>.json`. Calendar entries are objects with
+`date` and optional `holiday_id`; extra fields such as `name` or `label` are
+rejected. Use `holiday_id` to match the same business holiday across years:
+
+```json
+{
+  "name": "cn_holidays",
+  "timezone": "Asia/Shanghai",
+  "holidays": [
+    {"date": "2026-05-01", "holiday_id": "labor-day"}
+  ],
+  "adjusted_workdays": [
+    {"date": "2026-05-02"}
+  ]
+}
+```

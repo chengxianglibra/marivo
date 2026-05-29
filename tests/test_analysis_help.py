@@ -27,6 +27,7 @@ def test_top_level_help_lists_intents_and_helpers() -> None:
     assert "detect" not in out
     assert "correlate" in out
     assert "session" in out
+    assert "calendar" in out
     assert "help" in out
 
 
@@ -151,3 +152,12 @@ def test_help_alignment_prints_variants() -> None:
     assert "calendar=" in out
     assert "no separate kind='ordinal'" in out
     assert "align by ordinal position" in out
+
+
+def test_help_calendar_prints_file_schema_and_entry_example() -> None:
+    out = _capture("calendar")
+    assert ".marivo/calendar/<name>.json" in out
+    assert '"date": "2026-05-01"' in out
+    assert '"holiday_id": "labor-day"' in out
+    assert "adjusted_workdays" in out
+    assert "use holiday_id rather than name/label" in out

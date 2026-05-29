@@ -20,14 +20,18 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
 calendar_dir = session.project_root / ".marivo" / "calendar"
-calendar_dir.mkdir(parents=True, exist_ok=True)
 (calendar_dir / "cn_holidays.json").write_text(
     json.dumps(
         {
             "name": "cn_holidays",
             "timezone": "Asia/Shanghai",
-            "holidays": [],
-            "adjusted_workdays": [],
+            "holidays": [
+                {"date": "2025-07-01", "holiday_id": "company-shutdown"},
+                {"date": "2026-09-01", "holiday_id": "company-shutdown"},
+            ],
+            "adjusted_workdays": [
+                {"date": "2026-09-05"},
+            ],
         }
     ),
     encoding="utf-8",

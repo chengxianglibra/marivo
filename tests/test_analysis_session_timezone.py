@@ -26,6 +26,14 @@ def test_create_timezone_round_trips_through_meta():
     assert meta["known_calendars"] == []
 
 
+def test_create_initializes_project_calendar_directory():
+    s = session_attach.get_or_create(
+        name="demo", timezone="Asia/Shanghai", default_calendar="cn_holidays"
+    )
+
+    assert (s.project_root / ".marivo" / "calendar").is_dir()
+
+
 def test_create_accepts_timezone_alias():
     s = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
 
