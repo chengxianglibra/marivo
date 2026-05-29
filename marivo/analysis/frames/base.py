@@ -161,7 +161,7 @@ class BaseFrame:
 
     @property
     def shape(self) -> tuple[int, int]:
-        return self._df.shape  # type: ignore[no-any-return]
+        return self._df.shape
 
     @property
     def columns(self) -> list[str]:
