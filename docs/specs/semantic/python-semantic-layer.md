@@ -525,16 +525,34 @@ print(frame.summary())
 
 ### 什么时候使用 ref
 
-目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。跨 model 引用也应优先通过被引用 model 的边界文件 re-export 成 Python 符号，再在引用方导入 decorated ref。字符串 `ms.ref(...)` 只用于无法自然 import 的前向引用或工具生成场景。
+目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。Import-first rule: when a decorated ref can be naturally imported, you must import it. Use `ms.ref("kind.model.name")` only when importing would create Python import cycles, make generated code unnecessarily brittle, or pierce a model boundary that should remain internal. Do not invent per-kind helpers such as `ms.dataset_ref(...)`, `ms.field_ref(...)` or `ms.metric_ref(...)`; the only builder ref API is `ms.ref(...)`.
+
+跨 model 引用也应优先通过被引用 model 的边界文件 re-export 成 Python 符号，再在引用方导入 decorated ref。
 
 ```python
 from marketing._exports import sessions
+from .metrics import total_users
 
 @ms.metric(
     model="sales",
     decomposition=ms.ratio(
         numerator=sessions,
         denominator=total_users,
+    ),
+)
+def sessions_per_user():
+    return ms.component("numerator") / ms.component("denominator")
+```
+
+When importing is not viable, use `ms.ref(...)` as an explicit fallback:
+
+```python
+@ms.metric(
+    model="sales",
+    datasets=[],
+    decomposition=ms.ratio(
+        numerator=ms.ref("metric.marketing.sessions"),
+        denominator=ms.ref("metric.sales.total_users"),
     ),
 )
 def sessions_per_user():

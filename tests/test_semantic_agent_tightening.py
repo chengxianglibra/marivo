@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import marivo.semantic as ms
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -56,3 +58,12 @@ def test_semantic_skill_examples_execute() -> None:
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_ref_shape_constraint_teaches_typed_ref_rule() -> None:
+    result = ms.help("constraints", format="json")
+    constraints = result["constraints"]
+    ref_shape = next(item for item in constraints if item["id"] == "ref_shape")
+
+    assert "decorated refs" in ref_shape["hint"]
+    assert "ms.ref" in ref_shape["hint"]

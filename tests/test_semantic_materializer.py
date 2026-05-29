@@ -420,7 +420,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(datasets=[], decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.revenue"))
+        @ms.metric(datasets=[], decomposition=ms.ratio(numerator=ms.ref("metric.sales.revenue"), denominator=ms.ref("metric.sales.revenue")))
         def revenue_ratio():
             return ms.component("numerator") / ms.component("denominator")
     """)
@@ -451,7 +451,7 @@ def test_derived_metric_with_arithmetic(semantic_project_factory, backend_factor
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(datasets=[], decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.revenue"))
+        @ms.metric(datasets=[], decomposition=ms.ratio(numerator=ms.ref("metric.sales.revenue"), denominator=ms.ref("metric.sales.revenue")))
         def scaled_revenue():
             return ms.component("numerator") * 2 + ms.component("denominator") * 0
     """)
@@ -486,7 +486,7 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
         def count_metric(table):
             return table.count()
 
-        @ms.metric(datasets=[], decomposition=ms.weighted_average(value="sales.revenue", weight="sales.count_metric"))
+        @ms.metric(datasets=[], decomposition=ms.weighted_average(value=ms.ref("metric.sales.revenue"), weight=ms.ref("metric.sales.count_metric")))
         def aov():
             return ms.component("numerator") / ms.component("weight")
     """)
@@ -517,11 +517,11 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(datasets=[], decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.revenue"))
+        @ms.metric(datasets=[], decomposition=ms.ratio(numerator=ms.ref("metric.sales.revenue"), denominator=ms.ref("metric.sales.revenue")))
         def revenue_ratio():
             return ms.component("numerator") / ms.component("denominator")
 
-        @ms.metric(datasets=[], decomposition=ms.ratio(numerator="sales.revenue_ratio", denominator="sales.revenue_ratio"))
+        @ms.metric(datasets=[], decomposition=ms.ratio(numerator=ms.ref("metric.sales.revenue_ratio"), denominator=ms.ref("metric.sales.revenue_ratio")))
         def double_ratio():
             return ms.component("numerator") / ms.component("denominator")
     """)

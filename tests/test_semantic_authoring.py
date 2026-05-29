@@ -1,4 +1,4 @@
-"""Tests for marivo.semantic.authoring — decorator and builder implementation.
+"""Tests for marivo.semantic.authoring -- decorator and builder implementation.
 
 Tests cover:
 - Outside-loader-context guard
@@ -14,6 +14,7 @@ Tests cover:
 - ms.component() outside derived metric body -> OutsideDerivedMetricBodyError
 - ms.component("unknown") -> InvalidComponentNameError
 - Derived metric form classification: empty datasets + ratio/weighted_average decomposition = derived
+- Naked string ref rejection and wrong-kind ref rejection
 """
 
 from __future__ import annotations
@@ -33,6 +34,8 @@ from marivo.semantic.ir import (
     FieldRef,
     MetricRef,
     RelationshipRef,
+    SemanticRef,
+    SymbolKind,
     TimeFieldRef,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
@@ -139,7 +142,7 @@ def test_model_creates_model_ir() -> None:
         assert ir.name == "sales"
         assert ir.default is True
         assert ir.description == "Sales model"
-        # model() is not a decorator — no callable
+        # model() is not a decorator -- no callable
         assert callable_ is None
     finally:
         _exit_ctx()
@@ -292,7 +295,7 @@ def test_field_returns_ref() -> None:
     _enter_ctx(default_model="sales")
     try:
 
-        @ms.field(dataset="sales.orders")
+        @ms.field(dataset=DatasetRef("sales.orders"))
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -306,7 +309,7 @@ def test_field_name_defaults_to_function_name() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.field(dataset="sales.orders")
+        @ms.field(dataset=DatasetRef("sales.orders"))
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -323,7 +326,7 @@ def test_field_explicit_name() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.field(name="order_amount", dataset="sales.orders")
+        @ms.field(name="order_amount", dataset=DatasetRef("sales.orders"))
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -348,6 +351,21 @@ def test_field_with_dataset_ref() -> None:
         _exit_ctx()
 
 
+def test_field_rejects_naked_string_dataset_ref() -> None:
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.field(dataset="sales.orders")
+            def amount(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert exc_info.value.constraint_id == "ref_shape"
+    finally:
+        _exit_ctx()
+
+
 def test_field_pushes_callable() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
@@ -355,7 +373,7 @@ def test_field_pushes_callable() -> None:
         def amount_fn(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ms.field(dataset="sales.orders")(amount_fn)
+        ms.field(dataset=DatasetRef("sales.orders"))(amount_fn)
         ir, callable_ = ctx.pending_objects[-1]
         assert callable_ is amount_fn
         assert ir.dataset == "sales.orders"
@@ -368,7 +386,7 @@ def test_field_body_rejects_lambda() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.field(dataset="sales.orders")
+            @ms.field(dataset=DatasetRef("sales.orders"))
             def amount(table: object) -> object:
                 fn = lambda value: value
                 return fn(table)
@@ -387,7 +405,7 @@ def test_time_field_returns_ref() -> None:
     _enter_ctx(default_model="sales")
     try:
 
-        @ms.time_field(dataset="sales.orders", data_type="date", granularity="day")
+        @ms.time_field(dataset=DatasetRef("sales.orders"), data_type="date", granularity="day")
         def order_date(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -402,7 +420,7 @@ def test_time_field_ir_has_time_metadata() -> None:
     try:
 
         @ms.time_field(
-            dataset="sales.orders",
+            dataset=DatasetRef("sales.orders"),
             data_type="timestamp",
             granularity="hour",
             required_prefix="sales.order_date",
@@ -424,7 +442,7 @@ def test_time_field_requires_data_type_and_granularity() -> None:
     try:
         with pytest.raises(TypeError):
 
-            @ms.time_field(dataset="sales.orders")  # type: ignore[call-arg]
+            @ms.time_field(dataset=DatasetRef("sales.orders"))  # type: ignore[call-arg]
             def order_date(table: object) -> object:
                 return None  # type: ignore[unreachable]
     finally:
@@ -436,7 +454,7 @@ def test_time_field_body_rejects_sql_escape_hatch() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.time_field(dataset="sales.orders", data_type="date", granularity="day")
+            @ms.time_field(dataset=DatasetRef("sales.orders"), data_type="date", granularity="day")
             def order_date(backend: object) -> object:
                 return backend.sql("select current_date")
 
@@ -455,7 +473,7 @@ def test_metric_returns_ref() -> None:
     _enter_ctx(default_model="sales")
     try:
 
-        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        @ms.metric(datasets=[DatasetRef("sales.orders")], decomposition=ms.sum())
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -469,7 +487,7 @@ def test_metric_base_with_datasets() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        @ms.metric(datasets=[DatasetRef("sales.orders")], decomposition=ms.sum())
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -496,12 +514,42 @@ def test_metric_with_dataset_ref() -> None:
         _exit_ctx()
 
 
+def test_metric_rejects_naked_string_dataset_ref() -> None:
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+            def revenue(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert exc_info.value.constraint_id == "ref_shape"
+    finally:
+        _exit_ctx()
+
+
+def test_metric_rejects_wrong_kind_dataset_ref() -> None:
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.metric(datasets=[ms.ref("metric.sales.revenue")], decomposition=ms.sum())
+            def revenue(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert exc_info.value.constraint_id == "ref_shape"
+    finally:
+        _exit_ctx()
+
+
 def test_metric_provenance_fields() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
         @ms.metric(
-            datasets=["sales.orders"],
+            datasets=[DatasetRef("sales.orders")],
             decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="ansi",
@@ -527,7 +575,7 @@ def test_metric_body_ast_hash() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        @ms.metric(datasets=[DatasetRef("sales.orders")], decomposition=ms.sum())
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -544,10 +592,10 @@ def test_metric_decomposition_ratio() -> None:
     try:
 
         @ms.metric(
-            datasets=["sales.orders"],
+            datasets=[DatasetRef("sales.orders")],
             decomposition=ms.ratio(
-                numerator=ms.ref("sales.gross_revenue"),
-                denominator=ms.ref("sales.total_revenue"),
+                numerator=ms.ref("metric.sales.gross_revenue"),
+                denominator=ms.ref("metric.sales.total_revenue"),
             ),
         )
         def margin(table: object) -> object:
@@ -566,10 +614,10 @@ def test_metric_decomposition_weighted_average() -> None:
     try:
 
         @ms.metric(
-            datasets=["sales.orders"],
+            datasets=[DatasetRef("sales.orders")],
             decomposition=ms.weighted_average(
-                value=ms.ref("sales.revenue"),
-                weight=ms.ref("sales.count"),
+                value=ms.ref("metric.sales.revenue"),
+                weight=ms.ref("metric.sales.count"),
             ),
         )
         def aov(table: object) -> object:
@@ -590,7 +638,7 @@ def test_metric_pushes_callable() -> None:
         def revenue_fn(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ms.metric(datasets=["sales.orders"], decomposition=ms.sum())(revenue_fn)
+        ms.metric(datasets=[DatasetRef("sales.orders")], decomposition=ms.sum())(revenue_fn)
         ir, callable_ = ctx.pending_objects[-1]
         assert callable_ is revenue_fn
     finally:
@@ -607,10 +655,10 @@ def test_relationship_returns_ref() -> None:
     try:
         rel = ms.relationship(
             name="orders_to_items",
-            from_dataset="sales.orders",
-            to_dataset="sales.items",
-            from_fields=["sales.orders.id"],
-            to_fields=["sales.items.order_id"],
+            from_dataset=DatasetRef("sales.orders"),
+            to_dataset=DatasetRef("sales.items"),
+            from_fields=[FieldRef("sales.orders.id")],
+            to_fields=[FieldRef("sales.items.order_id")],
         )
         assert isinstance(rel, RelationshipRef)
         assert rel.semantic_id == "sales.orders_to_items"
@@ -623,10 +671,10 @@ def test_relationship_pushes_ir() -> None:
     try:
         ms.relationship(
             name="orders_to_items",
-            from_dataset="sales.orders",
-            to_dataset="sales.items",
-            from_fields=["sales.orders.id"],
-            to_fields=["sales.items.order_id"],
+            from_dataset=DatasetRef("sales.orders"),
+            to_dataset=DatasetRef("sales.items"),
+            from_fields=[FieldRef("sales.orders.id")],
+            to_fields=[FieldRef("sales.items.order_id")],
         )
         ir, callable_ = ctx.pending_objects[-1]
         assert ir.name == "orders_to_items"
@@ -663,6 +711,24 @@ def test_relationship_with_ref_objects() -> None:
         _exit_ctx()
 
 
+def test_relationship_rejects_naked_string_refs() -> None:
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.relationship(
+                name="orders_to_items",
+                from_dataset="sales.orders",
+                to_dataset=DatasetRef("sales.items"),
+                from_fields=[FieldRef("sales.order_id")],
+                to_fields=[FieldRef("sales.item_order_id")],
+            )
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert exc_info.value.constraint_id == "ref_shape"
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # DecompositionBuilder
 # ---------------------------------------------------------------------------
@@ -676,18 +742,26 @@ def test_sum_builder() -> None:
 
 def test_ratio_builder() -> None:
     builder = ms.ratio(
-        numerator=ms.ref("sales.gross"),
-        denominator=ms.ref("sales.total"),
+        numerator=ms.ref("metric.sales.gross"),
+        denominator=ms.ref("metric.sales.total"),
     )
     assert builder.kind == "ratio"
     assert "numerator" in builder.components
     assert "denominator" in builder.components
 
 
+def test_ratio_rejects_naked_string_metric_ref() -> None:
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.ratio(numerator="sales.revenue", denominator=MetricRef("sales.orders_count"))
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert exc_info.value.constraint_id == "ref_shape"
+
+
 def test_weighted_average_builder() -> None:
     builder = ms.weighted_average(
-        value=ms.ref("sales.revenue"),
-        weight=ms.ref("sales.count"),
+        value=ms.ref("metric.sales.revenue"),
+        weight=ms.ref("metric.sales.count"),
     )
     assert builder.kind == "weighted_average"
     assert "numerator" in builder.components
@@ -708,10 +782,31 @@ def test_decomposition_builder_is_frozen() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_ref_returns_string() -> None:
-    result = ms.ref("sales.revenue")
-    assert isinstance(result, str)
-    assert result == "sales.revenue"
+def test_ref_returns_typed_semantic_ref() -> None:
+    result = ms.ref("dataset.sales.orders")
+
+    assert isinstance(result, SemanticRef)
+    assert result.kind == SymbolKind.DATASET
+    assert result.semantic_id == "sales.orders"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "sales.orders",
+        "dataset",
+        "dataset.sales",
+        "dataset..orders",
+        ".sales.orders",
+        "unknown.sales.orders",
+    ],
+)
+def test_ref_rejects_malformed_or_unknown_refs(raw: str) -> None:
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.ref(raw)
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert exc_info.value.constraint_id == "ref_shape"
 
 
 # ---------------------------------------------------------------------------
@@ -874,8 +969,8 @@ def test_derived_metric_form_classification() -> None:
         @ms.metric(
             datasets=[],
             decomposition=ms.ratio(
-                numerator="sales.revenue",
-                denominator="sales.cost",
+                numerator=MetricRef("sales.revenue"),
+                denominator=MetricRef("sales.cost"),
             ),
         )
         def margin():
@@ -910,10 +1005,10 @@ def test_base_metric_rejects_component_body_at_definition_time() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.metric(
-                datasets=["sales.orders"],
+                datasets=[DatasetRef("sales.orders")],
                 decomposition=ms.ratio(
-                    numerator="sales.failed_count",
-                    denominator="sales.total_count",
+                    numerator=MetricRef("sales.failed_count"),
+                    denominator=MetricRef("sales.total_count"),
                 ),
             )
             def failure_rate(orders):
@@ -932,8 +1027,8 @@ def test_derived_metric_sidecar_stores_sentinel_tree() -> None:
         @ms.metric(
             datasets=[],
             decomposition=ms.ratio(
-                numerator="sales.revenue",
-                denominator="sales.cost",
+                numerator=MetricRef("sales.revenue"),
+                denominator=MetricRef("sales.cost"),
             ),
         )
         def margin():
@@ -955,8 +1050,8 @@ def test_derived_metric_body_rejects_non_component_call() -> None:
             @ms.metric(
                 datasets=[],
                 decomposition=ms.ratio(
-                    numerator="sales.revenue",
-                    denominator="sales.cost",
+                    numerator=MetricRef("sales.revenue"),
+                    denominator=MetricRef("sales.cost"),
                 ),
             )
             def margin():
@@ -977,7 +1072,7 @@ def test_base_metric_sidecar_stores_callable() -> None:
         def revenue_fn(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ms.metric(datasets=["sales.orders"], decomposition=ms.sum())(revenue_fn)
+        ms.metric(datasets=[DatasetRef("sales.orders")], decomposition=ms.sum())(revenue_fn)
         _, sidecar_entry = ctx.pending_objects[-1]
         assert sidecar_entry is revenue_fn
     finally:
@@ -1012,13 +1107,13 @@ def test_duplicate_metric_name_raises() -> None:
     _enter_ctx(default_model="sales")
     try:
 
-        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        @ms.metric(datasets=[DatasetRef("sales.orders")], decomposition=ms.sum())
         def revenue(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+            @ms.metric(datasets=[DatasetRef("sales.orders")], decomposition=ms.sum())
             def revenue(backend: object) -> object:  # type: ignore[misc]
                 return None  # type: ignore[unreachable]
 
@@ -1069,7 +1164,7 @@ def test_metric_with_ai_context() -> None:
     try:
 
         @ms.metric(
-            datasets=["sales.orders"],
+            datasets=[DatasetRef("sales.orders")],
             decomposition=ms.sum(),
             ai_context={
                 "business_definition": "Total revenue",
@@ -1097,7 +1192,7 @@ def test_ai_context_with_valid_keys_works() -> None:
     try:
 
         @ms.metric(
-            datasets=["sales.orders"],
+            datasets=[DatasetRef("sales.orders")],
             decomposition=ms.sum(),
             ai_context={
                 "business_definition": "Revenue",
@@ -1129,7 +1224,7 @@ def test_ai_context_with_invalid_key_raises() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.metric(
-                datasets=["sales.orders"],
+                datasets=[DatasetRef("sales.orders")],
                 decomposition=ms.sum(),
                 ai_context={"invalid_key": "oops"},
             )
@@ -1148,7 +1243,7 @@ def test_ai_context_with_wrong_type_for_guardrails_raises() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.metric(
-                datasets=["sales.orders"],
+                datasets=[DatasetRef("sales.orders")],
                 decomposition=ms.sum(),
                 ai_context={"guardrails": "not a list"},
             )
@@ -1167,7 +1262,7 @@ def test_ai_context_with_wrong_type_for_business_definition_raises() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.metric(
-                datasets=["sales.orders"],
+                datasets=[DatasetRef("sales.orders")],
                 decomposition=ms.sum(),
                 ai_context={"business_definition": 42},
             )
@@ -1186,7 +1281,7 @@ def test_ai_context_with_non_string_in_list_raises() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.metric(
-                datasets=["sales.orders"],
+                datasets=[DatasetRef("sales.orders")],
                 decomposition=ms.sum(),
                 ai_context={"guardrails": [1, 2, 3]},
             )
