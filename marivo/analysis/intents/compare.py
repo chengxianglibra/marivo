@@ -867,7 +867,7 @@ def _bucket_key(value: object, *, grain: str) -> str:
         return ""
     timestamp = pd.Timestamp(cast("Any", value))
     if grain == "hour":
-        return timestamp.floor("h").strftime("%Y-%m-%dT%H:00:00")  # type: ignore[no-any-return]
+        return timestamp.floor("h").strftime("%Y-%m-%dT%H:00:00")
     bucket_date = _truncate_bucket_date(timestamp.date(), grain=grain)
     return bucket_date.isoformat()
 

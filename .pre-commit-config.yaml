@@ -12,7 +12,7 @@ repos:
     rev: v1.9.0
     hooks:
       - id: mypy
-        additional_dependencies: [types-PyYAML, types-PyMySQL, pydantic, fastapi, starlette]
+        additional_dependencies: [pydantic, pandas-stubs, scipy-stubs]
         args: [--strict, --ignore-missing-imports]
         files: ^marivo/
 
