@@ -1,13 +1,13 @@
-"""Pattern: observe a metric segmented by one dimension.
+"""Pattern: observe a derived metric segmented by one dimension.
 
-When to use: you want per-segment totals for a known metric, with no time
-grain (e.g. "revenue by region across the whole window").
+When to use: you want per-segment values for a known metric, with a time filter
+but no time grain (e.g. "failure rate by region within a quarter").
 Output shape: a segmented MetricFrame with one row per segment.
 """
 
 from __future__ import annotations
 
-from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
+from _fixtures.tiny_semantic import DERIVED_RATIO_METRIC_ID, ensure_loaded
 
 # Setup: load the tiny semantic model and attach an examples session.
 ensure_loaded()
@@ -16,7 +16,7 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
 by_region = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-09-30"},
     dimensions=[mv.DimensionRef(id="region")],
 )
@@ -25,4 +25,4 @@ print(by_region.summary())
 # Expected output:
 # kind='metric_frame'
 # semantic_kind='segmented'
-# columns=['region', 'revenue']
+# columns=['region', 'failure_rate']

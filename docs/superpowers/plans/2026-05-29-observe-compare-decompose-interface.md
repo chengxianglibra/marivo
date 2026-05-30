@@ -328,6 +328,11 @@ semantic IR and frame metadata but **no backend execution**.
   migrated from `write_frame_to_disk` to `commit_result` as part of this
   consolidation (Phase 0 had already fixed the standalone bug, but the branch
   still used the old persistence path).
+- [x] A1 derived segmented no-grain timescope hole resolved: after guard removal,
+  `observe(<derived>, dimensions=[...], timescope={...})` silently carried the
+  resolved timescope through metadata and job params but failed to apply it to
+  component base tables. The dedicated follow-up fixes the regression by applying
+  the window before the dimension join in `_observe_derived_segmented`.
 - [x] Remove `_triggered_by` from the public `decompose` signature and its
   `TriggeredByFollowup` import; stop passing it from the followup runner. The
   parameter was dead (never referenced in the body) — `decompose` now has the
