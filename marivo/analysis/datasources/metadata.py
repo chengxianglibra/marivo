@@ -393,15 +393,37 @@ def _inspect_trino(
     database: str | tuple[str, ...] | None,
     table_expr: Any,
     include_partitions: bool,
+    catalog: str,
+    default_schema: str | None,
 ) -> TableMetadata:
     schema_columns = _schema_columns(table_expr)
-    schema_name = _database_label(database)
+    schema_name = _database_label(database) or default_schema
+    if schema_name is None:
+        return _schema_only(
+            datasource=datasource,
+            table=table,
+            database=database,
+            backend_type="trino",
+            table_expr=table_expr,
+            warnings=(
+                MetadataWarning(
+                    kind="comments_unavailable",
+                    message="trino metadata inspection requires database= or datasource schema",
+                ),
+                MetadataWarning(
+                    kind="nullable_unavailable",
+                    message="trino metadata inspection requires database= or datasource schema",
+                ),
+            ),
+        )
     warnings: list[MetadataWarning] = []
     table_comment: str | None = None
 
-    table_predicates = [f"table_name = {_quote_literal(table)}"]
-    if schema_name is not None:
-        table_predicates.append(f"table_schema = {_quote_literal(schema_name)}")
+    table_predicates = [
+        f"table_catalog = {_quote_literal(catalog)}",
+        f"table_schema = {_quote_literal(schema_name)}",
+        f"table_name = {_quote_literal(table)}",
+    ]
     where_clause = " AND ".join(table_predicates)
 
     try:
@@ -589,8 +611,6 @@ def inspect_table(
             details={"datasource": datasource, "table": table, "available": _store.list_names()},
         )
 
-    _backends._validate_fdn(table, datasource_ir.backend_type, datasource_ir.name)
-
     try:
         backend = _backends.build_backend(datasource_ir)
         table_expr = (
@@ -634,6 +654,12 @@ def inspect_table(
                 database=database,
                 table_expr=table_expr,
                 include_partitions=include_partitions,
+                catalog=str(datasource_ir.fields["catalog"]),
+                default_schema=(
+                    str(datasource_ir.fields["schema"])
+                    if datasource_ir.fields.get("schema") is not None
+                    else None
+                ),
             )
         if datasource_ir.backend_type == "clickhouse":
             ch_database = (

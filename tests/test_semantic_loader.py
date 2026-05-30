@@ -930,13 +930,15 @@ def test_find_project_raises_when_semantic_is_a_file(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# FDN table name validation via materializer
+# Ibis-aligned table access via materializer
 # ---------------------------------------------------------------------------
 
 
-def test_materialize_dataset_rejects_non_fdn_table_name_for_trino(
+def test_materialize_dataset_passes_short_table_name_through_for_trino(
     semantic_project_factory,
 ) -> None:
+    import ibis
+
     project = semantic_project_factory(
         {
             "datasource/warehouse.py": (
@@ -957,21 +959,28 @@ def test_materialize_dataset_rejects_non_fdn_table_name_for_trino(
     )
 
     class _FakeTrinoBackend:
+        calls: list[str]
+
+        def __init__(self) -> None:
+            self.calls = []
+
         def table(self, name, /):
-            return object()
+            self.calls.append(name)
+            return ibis.table({"x": "int"}, name=name)
+
+    backend = _FakeTrinoBackend()
 
     def factory(name):
         if name == "warehouse":
-            return _FakeTrinoBackend()
+            return backend
         return object()
 
-    from marivo.datasource.errors import DatasourceFieldInvalidError
+    result = project.materialize_dataset("sales.orders", backend_factory=factory)
+    assert isinstance(result, ibis.expr.types.Table)
+    assert backend.calls == ["orders"]
 
-    with pytest.raises(DatasourceFieldInvalidError, match="fully-distinguished"):
-        project.materialize_dataset("sales.orders", backend_factory=factory)
 
-
-def test_materialize_dataset_accepts_fdn_table_name_for_trino(
+def test_materialize_dataset_accepts_explicit_database_for_trino(
     semantic_project_factory,
 ) -> None:
     import ibis
@@ -990,15 +999,16 @@ def test_materialize_dataset_accepts_fdn_table_name_for_trino(
                 "orders = ms.dataset(name='orders', datasource='warehouse')\n"
                 "@orders\n"
                 "def _(backend):\n"
-                "    return backend.table('hive.sales.orders')\n"
+                "    return backend.table('orders', database='sales')\n"
             ),
         }
     )
 
     class _FakeTrinoBackend:
-        def table(self, name, /):
-            # Return a real ibis table expression so provenance detection works
-            return ibis.table({"x": "int"}, name=name)
+        def table(self, name, /, *, database=None):
+            assert name == "orders"
+            assert database == "sales"
+            return ibis.table({"x": "int"}, name=f"{database}.{name}")
 
     def factory(name):
         if name == "warehouse":

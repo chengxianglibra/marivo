@@ -238,7 +238,8 @@ md.datasource(
     host="trino.example.com",
     port=8080,
     catalog="hive",
-    schema="default",
+    # Optional default schema; datasets may also pass database= to backend.table(...).
+    schema="sales_mart",
     user_env="TRINO_USER",
     password_env="TRINO_PASSWORD",
 )
@@ -248,7 +249,8 @@ md.datasource(
 
 - datasource name 是全局 key，禁止使用 `<model>.<datasource>`。
 - semantic model 不调用 `ms.datasource(...)`，只在 `@ms.dataset(datasource="warehouse")` 中引用全局 datasource name。
-- 非机密连接字段写在 datasource 文件里；`user`、`password`、`token`、`api_key`、`secret`、`private_key` 等机密字段只能通过 `<field>_env` 引用环境变量。
+- 非机密连接字段写在 datasource 文件里；`user`、`password`、`auth`、`token`、`api_key`、`secret`、`private_key` 等机密字段只能通过 `<field>_env` 引用环境变量。
+- Trino `catalog` 是连接目标；`schema` 只是可选默认 schema，也可以在 `backend.table("orders", database="sales_mart")` 中显式传入。
 - datasource 是 dataset 的执行来源，不是 metric 的业务口径。
 
 ### Dataset

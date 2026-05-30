@@ -66,28 +66,10 @@ class Materializer:
     def _get_backend(self, datasource_semantic_id: str) -> IbisBackend:
         """Get or create a backend for the given datasource."""
         if datasource_semantic_id not in self._backend_cache:
-            raw_backend = self._backend_factory(datasource_semantic_id)
-            backend_type, ds_name = self._resolve_backend_type(datasource_semantic_id)
-            if backend_type is not None:
-                from marivo.datasource.fdn import ValidatingBackend
-
-                self._backend_cache[datasource_semantic_id] = ValidatingBackend(
-                    raw_backend, backend_type, ds_name
-                )
-            else:
-                self._backend_cache[datasource_semantic_id] = raw_backend
+            self._backend_cache[datasource_semantic_id] = self._backend_factory(
+                datasource_semantic_id
+            )
         return self._backend_cache[datasource_semantic_id]
-
-    def _resolve_backend_type(self, datasource_semantic_id: str) -> tuple[str | None, str]:
-        """Look up backend_type and name for a datasource from the registry."""
-        try:
-            registry, _ = self._get_registry_and_sidecar()
-        except Exception:
-            return None, datasource_semantic_id
-        ds_ir = registry.datasources.get(datasource_semantic_id)
-        if ds_ir is not None:
-            return ds_ir.backend_type, ds_ir.name
-        return None, datasource_semantic_id
 
     def _get_registry_and_sidecar(self) -> tuple[Registry, Sidecar]:
         """Get registry and sidecar, raising if project is not loaded."""

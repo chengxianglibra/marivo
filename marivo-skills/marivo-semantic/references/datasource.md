@@ -11,7 +11,10 @@ semantic model files.
 - The datasource name is global and must not contain `.`.
 - Non-secret connection fields live in the datasource file.
 - Secret fields use environment references only: `user_env`, `password_env`,
-  `token_env`, `api_key_env`, `secret_env`, `private_key_env`, etc.
+  `auth_env`, `token_env`, `api_key_env`, `secret_env`, `private_key_env`, etc.
+- Sensitive literal fields are rejected: `user`, `password`, `auth`, `token`,
+  `secret`, `secret_key`, `access_key`, `private_key`, `passphrase`, and
+  `api_key`.
 
 ## Datasource Definition
 
@@ -24,11 +27,18 @@ md.datasource(
     host="trino.example.internal",
     port=8080,
     catalog="hive",
-    schema="sales_mart",
+    source="marivo",
+    client_tags=["agent", "semantic-authoring"],
     user_env="TRINO_USER",
     password_env="TRINO_PASSWORD",
 )
 ```
+
+For Trino, `host` and `catalog` are required. `catalog` maps to the Ibis
+connection `database`. `schema` is optional and only sets the connection's
+default schema; it is not required when tables pass their schema explicitly.
+Use `schema="sales_mart"` only when you want a default schema for ad hoc Ibis
+calls such as `backend.list_tables()` without a `database=` argument.
 
 The same datasource can be shared by multiple semantic models.
 
@@ -41,8 +51,13 @@ ms.model(name="sales")
 
 @ms.dataset(name="orders", datasource="warehouse", primary_key=["order_id"])
 def orders(backend):
-    return backend.table("orders", database=("hive", "sales_mart"))
+    return backend.table("orders", database="sales_mart")
 ```
+
+When calling Ibis directly against Trino, use `backend.table("orders",
+database="sales_mart")` for schema checks and
+`backend.list_tables(database="sales_mart")` for table enumeration. Do not use
+`backend.list_schemas()`; it is not the Ibis table-discovery API used here.
 
 `ms.datasource(...)` has been removed. If you see it, move the datasource
 configuration to `.marivo/datasource/<name>.py` and keep only the string
@@ -70,7 +85,13 @@ Use `mv.datasources.inspect_table(...)` before declaring a dataset:
 
 ```python
 metadata = mv.datasources.inspect_table("warehouse", table="orders")
+metadata = mv.datasources.inspect_table("warehouse", table="orders", database="sales_mart")
 ```
+
+For Trino, pass `database="sales_mart"` when the datasource has no default
+`schema`. When `schema="sales_mart"` is configured on the datasource,
+`inspect_table("warehouse", table="orders")` can use that default for metadata
+enrichment.
 
 The result includes table comment, column names, Ibis types, nullable flags,
 column comments, partition hints, and warnings for backend catalog gaps.
@@ -85,8 +106,9 @@ modeling:
 
 ```python
 backend = mv.datasources.build_backend("warehouse")
-table = backend.table("orders", database=("hive", "sales_mart"))
+table = backend.table("orders", database="sales_mart")
 schema = table.schema()
+tables = backend.list_tables(database="sales_mart")
 ```
 
 `table.schema()` returns names and types, not comments. Fetch comments from the

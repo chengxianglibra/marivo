@@ -134,8 +134,10 @@ class _FakeBackend:
         self.schema = schema
         self.query_results = query_results
         self.queries: list[str] = []
+        self.table_calls: list[tuple[str, object]] = []
 
     def table(self, table: str, database: object = None):
+        self.table_calls.append((table, database))
         return _FakeTable(self.schema)
 
     def raw_sql(self, sql: str):
@@ -224,17 +226,79 @@ def test_inspect_table_trino_adapter_uses_information_schema(
 
     metadata = mv.datasources.inspect_table(
         "trino_wh",
-        table="hive.analytics.orders",
+        table="orders",
         database="analytics",
     )
 
     assert metadata.backend_type == "trino"
+    assert metadata.table == "orders"
     assert metadata.database == "analytics"
     assert metadata.comment == "One row per order"
+    assert backend.table_calls == [("orders", "analytics")]
     by_name = {column.name: column for column in metadata.columns}
     assert by_name["amount"].comment == "Gross amount"
     assert by_name["amount"].nullable is True
+    assert any("table_catalog = 'hive'" in query for query in backend.queries)
+    assert any("table_schema = 'analytics'" in query for query in backend.queries)
+    assert any("table_name = 'orders'" in query for query in backend.queries)
     assert any("information_schema.columns" in query for query in backend.queries)
+
+
+def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mv.datasources.register(
+        "trino_wh",
+        backend_type="trino",
+        host="trino.example",
+        catalog="hive",
+        schema="analytics",
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64"},
+        {
+            "information_schema.tables": _FakeCursor(["comment"], [("Orders",)]),
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                [("order_id", "bigint", "NO", "Unique order id", 1)],
+            ),
+        },
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("trino_wh", table="orders")
+
+    assert metadata.backend_type == "trino"
+    assert metadata.database is None
+    assert backend.table_calls == [("orders", None)]
+    assert metadata.comment == "Orders"
+    assert any("table_catalog = 'hive'" in query for query in backend.queries)
+    assert any("table_schema = 'analytics'" in query for query in backend.queries)
+    assert any("table_name = 'orders'" in query for query in backend.queries)
+
+
+def test_inspect_table_trino_without_schema_returns_schema_only(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mv.datasources.register("trino_wh", backend_type="trino", host="trino.example", catalog="hive")
+    backend = _FakeBackend({"order_id": "int64"}, {})
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("trino_wh", table="orders")
+
+    assert metadata.backend_type == "trino"
+    assert metadata.columns[0].name == "order_id"
+    assert backend.table_calls == [("orders", None)]
+    assert backend.queries == []
+    assert any(warning.kind == "schema_only_fallback" for warning in metadata.warnings)
 
 
 def test_inspect_table_clickhouse_adapter_uses_system_tables(
@@ -324,11 +388,17 @@ def test_inspect_table_clickhouse_infers_nullable_from_type(
     assert by_name["amount"].nullable is True
 
 
-def test_inspect_table_rejects_non_fdn_for_trino(
+def test_inspect_table_trino_short_name_is_not_rejected(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     mv.datasources.register("wh", backend_type="trino", host="h", catalog="c")
-    from marivo.datasource.errors import DatasourceFieldInvalidError
+    backend = _FakeBackend({"order_id": "int64"}, {})
 
-    with pytest.raises(DatasourceFieldInvalidError, match="fully-distinguished"):
-        mv.datasources.inspect_table("wh", table="orders")
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("wh", table="orders")
+
+    assert metadata.table == "orders"
+    assert backend.table_calls == [("orders", None)]

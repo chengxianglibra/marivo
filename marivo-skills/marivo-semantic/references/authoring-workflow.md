@@ -33,6 +33,10 @@ Use `marivo.datasource as md` in `.marivo/datasource/<name>.py` when writing a
 datasource file directly. Use `mv.datasources.register(...)` when a script or
 agent should create or replace that file through Marivo.
 
+For Trino datasources, `catalog` is required and `schema` is optional. A missing
+connection default schema should not block `mv.datasources.test(...)`; pass the
+schema at table access time with `database="sales_mart"`.
+
 ## 3. Collect table evidence
 
 For every new dataset candidate, collect:
@@ -49,8 +53,15 @@ Use `mv.datasources.inspect_table(...)` for standard table metadata:
 
 ```python
 metadata = mv.datasources.inspect_table("warehouse", table="orders")
+metadata = mv.datasources.inspect_table("warehouse", table="orders", database="sales_mart")
 print(metadata.to_dict())
 ```
+
+For Trino, pass `database="sales_mart"` when the datasource has no default
+`schema`. If you bypass `inspect_table` only for schema sanity checks, use
+`backend.table("orders", database="sales_mart")` or
+`backend.list_tables(database="sales_mart")`, not
+`backend.list_schemas()`.
 
 `table.schema()` is still useful as a backend sanity check, but it does not
 replace comments or nullable metadata.
