@@ -70,6 +70,7 @@ from marivo.analysis.policies import (
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
 from marivo.analysis.session._load import load_frame
+from marivo.analysis.validation import ValidationIssue
 from marivo.analysis.windows.spec import AbsoluteWindow, RelativeWindow, WindowInput
 from marivo.preview import PreviewResult, PreviewSamplePolicy, PreviewWarning
 
@@ -155,6 +156,7 @@ __all__ = [
     "TestedHypothesis",
     "TimeWindow",
     "TriggeredByFollowup",
+    "ValidationIssue",
     "WindowInput",
     "datasources",
     "errors",
