@@ -168,6 +168,15 @@ Calendar-backed compare loads project-local files from
 `date` and optional `holiday_id`; extra fields such as `name` or `label` are
 rejected. Use `holiday_id` to match the same business holiday across years:
 
+Calendar-backed `DeltaFrame` rows include `align_key`, `align_quality`,
+`bucket_start_a`, and `bucket_start_b`. `align_key` is a compact JSON object
+string, not an array. For example, day-of-week matches look like
+`{"kind":"dow","iso_weekday":2,"period_week_offset":0}`, holiday matches
+look like `{"kind":"holiday","holiday_id":"labor-day","holiday_ordinal":1}`,
+workday matches look like `{"kind":"workday","workday_ordinal":1}`, and
+nearest-prior-workday fallbacks look like
+`{"kind":"fallback_workday","baseline_date":"2026-04-03"}`.
+
 ```json
 {
   "name": "cn_holidays",

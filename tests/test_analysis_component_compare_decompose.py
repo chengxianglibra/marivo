@@ -771,7 +771,7 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
         _df=pd.DataFrame(
             [
                 {
-                    "align_key": '["dow",2,0]',
+                    "align_key": '{"kind":"dow","iso_weekday":2,"period_week_offset":0}',
                     "align_quality": "exact",
                     "bucket_start_a": "2026-05-05",
                     "bucket_start_b": "2026-04-07",
@@ -811,7 +811,7 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
         _df=pd.DataFrame(
             [
                 {
-                    "align_key": '["dow",2,0]',
+                    "align_key": '{"kind":"dow","iso_weekday":2,"period_week_offset":0}',
                     "align_quality": "exact",
                     "bucket_start_a": "2026-05-05",
                     "bucket_start_b": "2026-04-07",

@@ -144,11 +144,7 @@ def align_calendar_frames(
                 continue
             matched_a_rows.add(row_id_a)
             matched_b_rows.add(baseline_workdays[index][1])
-            align_key = (
-                _json_key(cast("tuple[object, ...]", row_a["_align_key"]))
-                if row_a["_align_key"] is not None
-                else _json_key(("fallback_workday", baseline_workdays[index][0].isoformat()))
-            )
+            align_key = _json_key(("fallback_workday", baseline_workdays[index][0].isoformat()))
             rows.append(
                 {
                     "align_key": align_key,
@@ -409,7 +405,29 @@ def _require_unique_keys(keys: pd.Series, *, side: str) -> None:
 
 
 def _json_key(value: tuple[object, ...]) -> str:
-    return json.dumps(list(value), ensure_ascii=False, separators=(",", ":"))
+    key_kind = value[0] if value else None
+    if key_kind == "dow":
+        public_key = {
+            "kind": "dow",
+            "iso_weekday": value[1],
+            "period_week_offset": value[2],
+        }
+    elif key_kind == "holiday":
+        public_key = {
+            "kind": "holiday",
+            "holiday_id": value[1],
+            "holiday_ordinal": value[2],
+        }
+    elif key_kind == "workday":
+        public_key = {"kind": "workday", "workday_ordinal": value[1]}
+    elif key_kind == "fallback_workday":
+        public_key = {"kind": "fallback_workday", "baseline_date": value[1]}
+    else:
+        raise CalendarPolicyError(
+            message=f"unsupported calendar align key kind {key_kind!r}",
+            details={"kind": "CalendarAlignKeyInvalid", "align_key_kind": key_kind},
+        )
+    return json.dumps(public_key, ensure_ascii=False, separators=(",", ":"))
 
 
 def _require_no_na_dates(series: pd.Series, *, session_tz: str) -> None:
