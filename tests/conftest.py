@@ -6,6 +6,14 @@ import re
 
 import pytest
 
+from tests.shared_fixtures import sales_orders_template
+
+
+@pytest.fixture(scope="session")
+def _sales_orders_template_path():
+    """Session-scoped: ensure the DuckDB template is built once per worker."""
+    return sales_orders_template()
+
 
 @pytest.fixture
 def semantic_project_factory(tmp_path):
@@ -49,7 +57,7 @@ def semantic_project_factory(tmp_path):
 def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
     """Create a ready semantic project on disk for analysis tests."""
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True, exist_ok=True)
+    semantic_dir.mkdir(parents=True)
     datasource_dir = tmp_path / ".marivo" / "datasource"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(

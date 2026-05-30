@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ibis
 import pytest
 
 import marivo.analysis as mv
@@ -10,6 +9,7 @@ import marivo.analysis.session.attach as session_attach
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
 from tests.conftest import bootstrap_sales_project
+from tests.shared_fixtures import connect_sales_orders, sales_backends
 
 
 @pytest.fixture(autouse=True)
@@ -19,36 +19,21 @@ def _chdir(tmp_path, monkeypatch):
     yield
 
 
-def _seed(con):
-    con.raw_sql(
-        "CREATE TABLE orders (order_id INTEGER, created_at DATE, "
-        "amount DOUBLE, region VARCHAR, user_id INTEGER)"
-    )
-    con.raw_sql(
-        "INSERT INTO orders VALUES "
-        "(1, DATE '2026-05-01', 100.0, 'us', 1),"
-        "(2, DATE '2026-05-02', 120.0, 'us', 2),"
-        "(3, DATE '2026-04-24', 90.0, 'us', 1),"
-        "(4, DATE '2026-04-25', 80.0, 'us', 2)"
-    )
-
-
 def test_e2e_change_fact_walkthrough(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
+    con = connect_sales_orders()
     session = mv.session.attach.create(
-        name="t", backends={"warehouse": lambda: con}, use_datasources=False
+        name="t", backends=sales_backends(con), use_datasources=False
     )
 
     cur = observe(
         mv.MetricRef("sales.revenue"),
-        timescope={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-09-01", "end": "2026-09-30"},
         session=session,
     )
     base = observe(
         mv.MetricRef("sales.revenue"),
-        timescope={"start": "2026-04-24", "end": "2026-04-30"},
+        timescope={"start": "2026-08-01", "end": "2026-08-31"},
         session=session,
     )
     delta = compare(cur, base, session=session)
@@ -79,19 +64,18 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
 
 def test_e2e_replay_artifact_id_stability(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
+    con = connect_sales_orders()
     session = mv.session.attach.create(
-        name="t", backends={"warehouse": lambda: con}, use_datasources=False
+        name="t", backends=sales_backends(con), use_datasources=False
     )
     cur = observe(
         mv.MetricRef("sales.revenue"),
-        timescope={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=session,
     )
     cur2 = observe(
         mv.MetricRef("sales.revenue"),
-        timescope={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=session,
     )
     assert cur.meta.artifact_id == cur2.meta.artifact_id

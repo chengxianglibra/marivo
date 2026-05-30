@@ -2,6 +2,161 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
+from contextlib import suppress
+from pathlib import Path
+
+import duckdb
+import ibis
+
+# ---------------------------------------------------------------------------
+# Named DuckDB templates (versioned, cached in /tmp)
+# ---------------------------------------------------------------------------
+# Bump the version string when seeded schema or rows change so cached
+# copies rebuild automatically.
+
+_SALES_ORDERS_V = "v1"
+
+
+def _template_cache_dir() -> Path:
+    d = Path(tempfile.gettempdir()) / "marivo_test_templates"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def sales_orders_template() -> Path:
+    """Cached DuckDB file with the standard orders table.
+
+    Schema: orders(order_id INTEGER, created_at DATE, amount DOUBLE,
+                   region VARCHAR, user_id INTEGER)
+
+    Rows: 4 rows covering 2026-07/08/09 with north/south regions.
+    """
+    cache = _template_cache_dir() / f"sales_orders_{_SALES_ORDERS_V}.duckdb"
+    if cache.exists():
+        return cache
+
+    with tempfile.NamedTemporaryFile(
+        delete=False,
+        dir=cache.parent,
+        prefix=f"{cache.name}.",
+        suffix=".building",
+    ) as tmp_file:
+        tmp = Path(tmp_file.name)
+    try:
+        con = duckdb.connect(str(tmp))
+        try:
+            con.execute(
+                "CREATE TABLE orders (order_id INTEGER, created_at DATE, "
+                "amount DOUBLE, region VARCHAR, user_id INTEGER)"
+            )
+            con.execute(
+                "INSERT INTO orders VALUES "
+                "(1, DATE '2026-07-01', 10.0, 'north', 100),"
+                "(2, DATE '2026-07-02', 20.0, 'north', 100),"
+                "(3, DATE '2026-08-01', 30.0, 'south', 200),"
+                "(4, DATE '2026-09-15', 40.0, 'north', 300)"
+            )
+        finally:
+            con.close()
+
+        os.replace(tmp, cache)
+    finally:
+        with suppress(FileNotFoundError):
+            tmp.unlink()
+    return cache
+
+
+def connect_sales_orders() -> ibis.duckdb.DuckDBBackend:
+    """Create an in-memory DuckDB seeded from the sales_orders template.
+
+    Uses ATTACH READ_ONLY to bulk-copy the orders table from the cached
+    template file.  READ_ONLY avoids lock conflicts when xdist workers
+    share the same template file.
+    """
+    template = sales_orders_template()
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql(f"ATTACH '{template}' AS _tpl (READ_ONLY)")
+    con.raw_sql("CREATE TABLE orders AS SELECT * FROM _tpl.orders")
+    con.raw_sql("DETACH _tpl")
+    return con
+
+
+def sales_backends(con: ibis.duckdb.DuckDBBackend) -> dict:
+    """Standard backends dict wrapping a DuckDB connection as 'warehouse'."""
+    return {"warehouse": lambda: con}
+
+
+# ---------------------------------------------------------------------------
+# Project directory templates (versioned, cached in /tmp)
+# ---------------------------------------------------------------------------
+
+_SALES_PROJECT_V = "v1"
+
+
+def sales_project_template(*, with_time: bool = True) -> Path:
+    """Cached directory tree with .marivo/semantic/sales/ project files.
+
+    Bump _SALES_PROJECT_V when the project files change.
+    """
+    tag = "with_time" if with_time else "no_time"
+    cache = _template_cache_dir() / f"sales_project_{_SALES_PROJECT_V}" / tag
+    if cache.exists():
+        return cache
+
+    semantic_dir = cache / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    datasource_dir = cache / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    )
+    time_field = (
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "def order_date(orders):\n"
+        "    return orders.created_at.cast('date')\n\n"
+        if with_time
+        else ""
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "def orders(backend):\n"
+        "    return backend.table('orders')\n"
+        "\n"
+        f"{time_field}"
+        "@ms.field(dataset=orders)\n"
+        "def region(orders):\n"
+        "    return orders.region.upper()\n"
+        "\n"
+        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+    return cache
+
+
+def bootstrap_sales_project_from_template(tmp_path: Path, *, with_time: bool = True) -> None:
+    """Copy the cached sales project template into tmp_path/.marivo/.
+
+    Faster than writing files individually per test.
+    """
+    src = sales_project_template(with_time=with_time)
+    shutil.copytree(src / ".marivo", tmp_path / ".marivo")
+
+
+# ---------------------------------------------------------------------------
+# Lightweight MetricFrame helpers
+# ---------------------------------------------------------------------------
+
 
 def seeded_time_series_metric_frame(
     *,

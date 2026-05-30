@@ -71,7 +71,7 @@ def test_semantic_skill_examples_cover_phase5_cases() -> None:
 
 def test_semantic_skill_examples_execute() -> None:
     result = subprocess.run(
-        [sys.executable, "scripts/run_skill_examples.py"],
+        [sys.executable, "scripts/run_skill_examples.py", "--in-process"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

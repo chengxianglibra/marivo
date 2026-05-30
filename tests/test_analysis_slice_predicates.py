@@ -1,6 +1,5 @@
 """Structured observe slice predicates."""
 
-import ibis
 import pytest
 
 import marivo.analysis.session.attach as session_attach
@@ -8,6 +7,7 @@ from marivo.analysis.errors import SliceInvalidError
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.refs import MetricRef
 from marivo.analysis.session.persistence import read_session_meta
+from tests.shared_fixtures import connect_sales_orders, sales_backends
 
 
 @pytest.fixture(autouse=True)
@@ -17,35 +17,16 @@ def _chdir(tmp_path, monkeypatch):
     yield
 
 
-def _seed(con):
-    con.raw_sql(
-        "CREATE TABLE orders (order_id INTEGER, created_at DATE, "
-        "amount DOUBLE, region VARCHAR, user_id INTEGER)"
-    )
-    con.raw_sql(
-        "INSERT INTO orders VALUES "
-        "(1, DATE '2026-07-01', 10.0, 'north', 100),"
-        "(2, DATE '2026-07-02', 20.0, 'north', 100),"
-        "(3, DATE '2026-08-01', 30.0, 'south', 200),"
-        "(4, DATE '2026-09-15', 40.0, 'north', 300)"
-    )
-
-
 def _bootstrap_sales(tmp_path):
     from tests.conftest import bootstrap_sales_project
 
     bootstrap_sales_project(tmp_path)
 
 
-def _backends(con):
-    return {"warehouse": lambda: con}
-
-
 def _session_with_sales(tmp_path):
     _bootstrap_sales(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
-    return session_attach.get_or_create(name="demo", backends=_backends(con))
+    con = connect_sales_orders()
+    return session_attach.get_or_create(name="demo", backends=sales_backends(con))
 
 
 @pytest.mark.parametrize(
