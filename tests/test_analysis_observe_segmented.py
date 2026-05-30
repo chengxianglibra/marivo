@@ -190,6 +190,54 @@ def test_observe_derived_metric_dimension_from_component_dataset(tmp_path):
     assert by_region == {"NORTH": pytest.approx(1 / 3), "SOUTH": pytest.approx(1.0)}
 
 
+def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
+    _bootstrap_sales(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    full = observe(
+        MetricRef("sales.failure_rate"),
+        dimensions=[DimensionRef("region")],
+        session=s,
+    )
+    windowed = observe(
+        MetricRef("sales.failure_rate"),
+        timescope={"start": "2026-07-02", "end": "2026-08-02"},
+        dimensions=[DimensionRef("region")],
+        session=s,
+    )
+
+    assert windowed.meta.semantic_kind == "segmented"
+    assert "time" not in windowed.meta.axes
+    assert windowed.meta.window == {
+        "kind": "absolute",
+        "start": "2026-07-02",
+        "end": "2026-08-02",
+        "grain": None,
+        "time_field": None,
+    }
+    job = s.job(windowed.meta.produced_by_job)
+    assert job["params"]["timescope"] == {
+        "original": {"start": "2026-07-02", "end": "2026-08-02"},
+        "resolved": windowed.meta.window,
+        "session_tz": str(s.tz),
+    }
+    windowed_by_region = windowed.to_pandas().set_index("region")["failure_rate"].to_dict()
+    full_by_region = full.to_pandas().set_index("region")["failure_rate"].to_dict()
+    assert windowed_by_region == {"NORTH": pytest.approx(0.0), "SOUTH": pytest.approx(1.0)}
+    assert windowed_by_region["NORTH"] != pytest.approx(full_by_region["NORTH"])
+
+    assert windowed.meta.component_ref is not None
+    component_df = windowed.components().to_pandas().set_index("region")
+    assert component_df.loc["NORTH", "numerator"] == pytest.approx(0.0)
+    assert component_df.loc["NORTH", "denominator"] == pytest.approx(1.0)
+    assert component_df.loc["NORTH", "metric_value"] == pytest.approx(0.0)
+    assert component_df.loc["SOUTH", "numerator"] == pytest.approx(1.0)
+    assert component_df.loc["SOUTH", "denominator"] == pytest.approx(1.0)
+    assert component_df.loc["SOUTH", "metric_value"] == pytest.approx(1.0)
+
+
 def test_observe_derived_metric_scalar_uses_component_datasets(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")

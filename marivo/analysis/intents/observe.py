@@ -848,6 +848,12 @@ def _observe_derived_segmented(
         datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
         table = ds_adapter.fn(backend)
         table = apply_slice_to_dataset(table, where, dataset_ir=ds_adapter)
+        table = apply_window_to_dataset(
+            table,
+            resolved_window,
+            dataset_ir=ds_adapter,
+            session_tz=cast("ZoneInfo", session.tz),
+        )
         if base_dataset != dimension_dataset:
             table = _join_related_dimension_table(
                 table,
