@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import ibis
 import pytest
 
+from marivo.analysis.datasources import registry as datasource_registry
 from marivo.analysis.errors import BackendError, SliceInvalidError, WindowInvalidError
 from marivo.analysis.executor.backend import BackendCache
 from marivo.analysis.executor.runner import (
@@ -161,6 +162,29 @@ def test_execute_returns_dataframe_with_timing():
     assert result.duration_ms >= 0
 
 
+def test_execute_persists_backend_env_sourced_secrets_once_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[object] = []
+
+    class FakeBackend:
+        def execute(self, expr):
+            return 1
+
+    backend = FakeBackend()
+    cache = BackendCache(lambda name: backend)
+    monkeypatch.setattr(
+        datasource_registry,
+        "_persist_backend_env_sourced_secrets",
+        lambda received: calls.append(received),
+    )
+
+    execute(object(), datasource_name="warehouse", cache=cache)
+    execute(object(), datasource_name="warehouse", cache=cache)
+
+    assert calls == [backend]
+
+
 def test_execute_prefixes_compiled_sql_with_session_comment():
     class FakeBackend:
         def __init__(self):
@@ -231,6 +255,28 @@ def test_execute_wraps_backend_errors():
     cache = BackendCache(lambda name: FakeBackend())
     with pytest.raises(BackendError):
         execute(object(), datasource_name="warehouse", cache=cache)
+
+
+def test_execute_does_not_persist_backend_env_sourced_secrets_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[object] = []
+
+    class FakeBackend:
+        def execute(self, expr):
+            raise RuntimeError("backend exploded")
+
+    cache = BackendCache(lambda name: FakeBackend())
+    monkeypatch.setattr(
+        datasource_registry,
+        "_persist_backend_env_sourced_secrets",
+        lambda received: calls.append(received),
+    )
+
+    with pytest.raises(BackendError):
+        execute(object(), datasource_name="warehouse", cache=cache)
+
+    assert calls == []
 
 
 def test_apply_time_series_bucket_adds_bucket_start(tmp_path):

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from marivo.analysis.datasources import backends as _backends
+from marivo.analysis.datasources import secrets as _secrets
 from marivo.analysis.datasources import store as _store
 from marivo.analysis.datasources.metadata import TableMetadata
 from marivo.analysis.datasources.metadata import inspect_table as _inspect_table
@@ -44,6 +45,23 @@ class DatasourceTestResult:
     ok: bool
     error: str | None
     latency_ms: int | None
+
+
+_ENV_SOURCED_SECRETS_ATTR = "_marivo_env_sourced_secrets"
+
+
+def _remember_env_sourced_secrets(
+    backend: Any,
+    resolved: tuple[_secrets.ResolvedSecret, ...],
+) -> None:
+    with suppress(Exception):
+        setattr(backend, _ENV_SOURCED_SECRETS_ATTR, resolved)
+
+
+def _persist_backend_env_sourced_secrets(backend: Any) -> None:
+    resolved = getattr(backend, _ENV_SOURCED_SECRETS_ATTR, ())
+    if isinstance(resolved, tuple):
+        _secrets.persist_env_sourced(resolved)
 
 
 def register(name: str, *, backend_type: str, **fields: Any) -> DatasourceSummary:
@@ -89,7 +107,9 @@ def build_backend(name: str) -> Any:
             message=f"datasource {name!r} is not configured",
             details={"datasource": name, "available": _store.list_names()},
         )
-    return _backends.build_backend(datasource)
+    built = _backends.build_backend_with_secrets(datasource)
+    _remember_env_sourced_secrets(built.backend, built.env_sourced_secrets)
+    return built.backend
 
 
 def _preview_ref(datasource: str, table: str, database: str | tuple[str, ...] | None) -> str:
@@ -284,6 +304,7 @@ def test(name: str) -> DatasourceTestResult:
     try:
         backend = build_backend(name)
         backend.raw_sql("SELECT 1")
+        _persist_backend_env_sourced_secrets(backend)
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(name=name, ok=True, error=None, latency_ms=latency_ms)
     except Exception as exc:

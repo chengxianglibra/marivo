@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 import ibis
 import pandas as pd
 
+from marivo.analysis.datasources import registry as _datasource_registry
 from marivo.analysis.errors import (
     BackendError,
     SliceInvalidError,
@@ -1072,6 +1073,9 @@ def execute(
                     delattr(backend, "compile")
             else:
                 backend.compile = original_compile_attr
+    if cache.should_mark_validated(datasource_name):
+        _datasource_registry._persist_backend_env_sourced_secrets(backend)
+        cache.mark_validated(datasource_name)
     if isinstance(raw, pd.DataFrame):
         df = raw
     elif isinstance(raw, pd.Series):

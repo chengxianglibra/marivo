@@ -51,8 +51,10 @@ Rules for this surface:
   fields, and render through the shared template style.
 - Top-level Frame APIs remain immutable. Only `frame.to_pandas()` returns an
   isolated copy.
-- Credentials are read from environment variables at backend-build time and
-  must not be written into project state.
+- Datasource credentials are authored as `*_env` references and must not be
+  written into project state. After a validated datasource round-trip, Marivo
+  may cache resolved secrets in plaintext user-global state at
+  `~/.marivo/secrets.toml`.
 - Persistent analysis and semantic state lives project-locally under
   `<project_root>/.marivo/`.
 - Cross-session frame ownership is mandatory for helpers that consume frames.

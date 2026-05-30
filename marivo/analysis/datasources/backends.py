@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Final
 
+from marivo.analysis.datasources import secrets
 from marivo.analysis.errors import (
     DatasourceBackendTypeUnsupportedError,
-    DatasourceEnvVarMissingError,
     DatasourceFieldInvalidError,
 )
 from marivo.datasource.ir import DatasourceIR
@@ -22,8 +22,15 @@ SUPPORTED_BACKEND_TYPES: Final[tuple[str, ...]] = (
 )
 
 
-def _effective_kwargs(datasource: DatasourceIR) -> dict[str, Any]:
+@dataclass(frozen=True)
+class EffectiveDatasourceKwargs:
+    kwargs: dict[str, Any]
+    env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
+
+
+def _effective_kwargs(datasource: DatasourceIR) -> EffectiveDatasourceKwargs:
     resolved: dict[str, Any] = dict(datasource.fields)
+    env_sourced: list[secrets.ResolvedSecret] = []
     for stem, env_var in datasource.env_refs.items():
         if not isinstance(env_var, str) or not env_var:
             raise DatasourceFieldInvalidError(
@@ -37,21 +44,24 @@ def _effective_kwargs(datasource: DatasourceIR) -> dict[str, Any]:
                     "reason": "env_ref value must be a non-empty string",
                 },
             )
-        env_value = os.environ.get(env_var)
-        if env_value is None or env_value == "":
-            raise DatasourceEnvVarMissingError(
-                message=(
-                    f"env var {env_var!r} for datasource {datasource.name!r} "
-                    f"field {stem!r} is not set"
-                ),
-                details={"datasource": datasource.name, "field": stem, "env_var": env_var},
-            )
-        resolved[stem] = env_value
-    return resolved
+        resolved_secret = secrets.resolve(env_var, datasource=datasource.name, field=stem)
+        resolved[stem] = resolved_secret.value
+        if isinstance(resolved_secret.provider, secrets.EnvProvider):
+            env_sourced.append(resolved_secret)
+    return EffectiveDatasourceKwargs(
+        kwargs=resolved,
+        env_sourced_secrets=tuple(env_sourced),
+    )
 
 
-def build_backend(datasource: DatasourceIR) -> Any:
-    """Open and return a live ibis backend for the given datasource."""
+@dataclass(frozen=True)
+class BuiltDatasourceBackend:
+    backend: Any
+    env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
+
+
+def build_backend_with_secrets(datasource: DatasourceIR) -> BuiltDatasourceBackend:
+    """Open an ibis backend and return any env-sourced secret provenance."""
     if datasource.backend_type not in SUPPORTED_BACKEND_TYPES:
         raise DatasourceBackendTypeUnsupportedError(
             message=(
@@ -63,24 +73,35 @@ def build_backend(datasource: DatasourceIR) -> Any:
                 "supported": list(SUPPORTED_BACKEND_TYPES),
             },
         )
-    kwargs = _effective_kwargs(datasource)
+    effective = _effective_kwargs(datasource)
+    kwargs = effective.kwargs
     if datasource.backend_type == "duckdb":
-        return _build_duckdb(datasource.name, kwargs)
-    if datasource.backend_type == "trino":
-        return _build_trino(datasource.name, kwargs)
-    if datasource.backend_type == "mysql":
-        return _build_mysql(datasource.name, kwargs)
-    if datasource.backend_type == "postgres":
-        return _build_postgres(datasource.name, kwargs)
-    if datasource.backend_type == "clickhouse":
-        return _build_clickhouse(datasource.name, kwargs)
-    raise DatasourceBackendTypeUnsupportedError(  # pragma: no cover
-        message=f"backend_type={datasource.backend_type!r} unhandled",
-        details={
-            "backend_type": datasource.backend_type,
-            "supported": list(SUPPORTED_BACKEND_TYPES),
-        },
+        backend = _build_duckdb(datasource.name, kwargs)
+    elif datasource.backend_type == "trino":
+        backend = _build_trino(datasource.name, kwargs)
+    elif datasource.backend_type == "mysql":
+        backend = _build_mysql(datasource.name, kwargs)
+    elif datasource.backend_type == "postgres":
+        backend = _build_postgres(datasource.name, kwargs)
+    elif datasource.backend_type == "clickhouse":
+        backend = _build_clickhouse(datasource.name, kwargs)
+    else:
+        raise DatasourceBackendTypeUnsupportedError(  # pragma: no cover
+            message=f"backend_type={datasource.backend_type!r} unhandled",
+            details={
+                "backend_type": datasource.backend_type,
+                "supported": list(SUPPORTED_BACKEND_TYPES),
+            },
+        )
+    return BuiltDatasourceBackend(
+        backend=backend,
+        env_sourced_secrets=effective.env_sourced_secrets,
     )
+
+
+def build_backend(datasource: DatasourceIR) -> Any:
+    """Open and return a live ibis backend for the given datasource."""
+    return build_backend_with_secrets(datasource).backend
 
 
 def _require(name: str, kwargs: Mapping[str, Any], key: str) -> Any:

@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.datasources import backends as datasource_backends
+from marivo.analysis.datasources import secrets as datasource_secrets
 from marivo.analysis.datasources import store as datasource_store
 from marivo.analysis.errors import (
     DatasourceBackendTypeUnsupportedError,
@@ -37,14 +38,44 @@ def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch)
         backend_type="trino",
         fields={"host": "h", "catalog": "c", "password_env": "TRINO_PASSWORD"},
     )
-    resolved = datasource_backends._effective_kwargs(datasource)
-    assert resolved["password"] == "shhh"
-    assert resolved["host"] == "h"
-    assert "password_env" not in resolved
+    effective = datasource_backends._effective_kwargs(datasource)
+    assert effective.kwargs["password"] == "shhh"
+    assert effective.kwargs["host"] == "h"
+    assert "password_env" not in effective.kwargs
+    assert [secret.name for secret in effective.env_sourced_secrets] == ["TRINO_PASSWORD"]
+
+
+def test_env_ref_resolution_uses_cache_when_env_is_unset(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TRINO_PASSWORD", raising=False)
+
+    class _CacheProvider:
+        def get(self, name: str) -> str | None:
+            return "cached-secret" if name == "TRINO_PASSWORD" else None
+
+    monkeypatch.setattr(
+        datasource_secrets,
+        "default_chain",
+        lambda: (_CacheProvider(),),
+    )
+    datasource = datasource_store.save_one(
+        name="wh",
+        backend_type="trino",
+        fields={"host": "h", "catalog": "c", "password_env": "TRINO_PASSWORD"},
+    )
+
+    effective = datasource_backends._effective_kwargs(datasource)
+
+    assert effective.kwargs["password"] == "cached-secret"
+    assert effective.env_sourced_secrets == ()
 
 
 def test_env_ref_missing_var(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TRINO_PASSWORD", raising=False)
+    monkeypatch.setattr(
+        datasource_secrets, "default_chain", lambda: (datasource_secrets.EnvProvider(),)
+    )
     datasource = datasource_store.save_one(
         name="wh",
         backend_type="trino",

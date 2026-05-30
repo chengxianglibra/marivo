@@ -708,21 +708,43 @@ class DatasourceMissingError(AnalysisError):
         }
 
 
+class DatasourceSecretStorePermissionsError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        path = self.details.get("path")
+        mode = self.details.get("mode")
+        path_ref = path if isinstance(path, str) and path else "~/.marivo/secrets.toml"
+        mode_ref = oct(mode) if isinstance(mode, int) else "unknown"
+        return {
+            "location": path_ref,
+            "cause": (
+                f"datasource secret store permissions are {mode_ref}; "
+                "the file must be readable and writable only by the current user."
+            ),
+            "fix_snippet": "chmod 600 ~/.marivo/secrets.toml",
+            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+        }
+
+
 class DatasourceEnvVarMissingError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         datasource = self.details.get("datasource")
         env_var = self.details.get("env_var")
         field_name = self.details.get("field")
-        ds_ref = datasource if isinstance(datasource, str) and datasource else "<datasource>"
-        var_ref = env_var if isinstance(env_var, str) and env_var else "<VAR_NAME>"
-        field_ref = field_name if isinstance(field_name, str) and field_name else "<field>"
+        ds_ref = datasource if isinstance(datasource, str) and datasource else "unknown_datasource"
+        var_ref = env_var if isinstance(env_var, str) and env_var else "UNKNOWN_SECRET_ENV"
+        field_ref = field_name if isinstance(field_name, str) and field_name else "secret_field"
         return {
             "location": f".marivo/datasource entry {ds_ref!r} field {field_ref!r}",
             "cause": (
                 f"datasource field {field_ref!r} resolves to env var {var_ref!r}, "
-                "but that variable is not set in os.environ."
+                "but that variable is not set in os.environ and is not present in "
+                "~/.marivo/secrets.toml."
             ),
-            "fix_snippet": f'export {var_ref}="<your secret>"',
+            "fix_snippet": (
+                f'export {var_ref}="secret_value"\n'
+                f"import marivo.analysis as mv\n"
+                f'mv.datasources.test("{ds_ref}")  # remembers the secret after validation'
+            ),
             "doc": "marivo-skills/marivo-semantic/references/datasource.md",
         }
 

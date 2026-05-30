@@ -48,6 +48,15 @@ def test_close_all_calls_disconnect_when_present():
     assert cache._cache == {}
 
 
+def test_validation_tracking_marks_each_datasource_once():
+    cache = BackendCache(lambda name: ibis.duckdb.connect(":memory:"))
+
+    assert cache.should_mark_validated("warehouse") is True
+    cache.mark_validated("warehouse")
+    assert cache.should_mark_validated("warehouse") is False
+    assert cache.should_mark_validated("analytics") is True
+
+
 def test_close_all_ignores_disconnect_failures():
     class FakeBackend:
         def disconnect(self):
