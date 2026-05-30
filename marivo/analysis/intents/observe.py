@@ -789,11 +789,6 @@ def _observe_derived_segmented(
     resolved_window: AbsoluteWindow | None,
     where: dict[str, Any] | None,
 ) -> tuple[Any, Any | None, dict[str, Any], Literal["segmented"]]:
-    if resolved_window is not None:
-        raise MetricShapeUnsupportedError(
-            message="windowed derived metric dimensions are not supported yet",
-            details={"kind": "DerivedWindowedDimensionsUnsupported"},
-        )
     sidecar = sp.sidecar()
     sentinel_tree = sidecar.get(metric_ir.semantic_id) if sidecar else None
     if sentinel_tree is None:
@@ -933,11 +928,6 @@ def _observe_derived_scalar(
     resolved_window: AbsoluteWindow | None,
     where: dict[str, Any] | None,
 ) -> tuple[Any, Any | None, dict[str, Any], Literal["scalar"]]:
-    if resolved_window is not None and resolved_window.grain is not None:
-        raise MetricShapeUnsupportedError(
-            message="time-series derived metrics are not supported yet",
-            details={"kind": "DerivedTimeSeriesUnsupported"},
-        )
     sidecar = sp.sidecar()
     sentinel_tree = sidecar.get(metric_ir.semantic_id) if sidecar else None
     if sentinel_tree is None:

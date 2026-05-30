@@ -274,7 +274,7 @@ def test_observe_segmented_rejects_multi_dataset_metric(tmp_path):
     assert exc_info.value.details["dimensions"] == [{"id": "channel"}]
 
 
-def test_observe_multi_dataset_missing_dimension_resolves_before_shape(tmp_path):
+def test_observe_segmented_rejects_multi_dataset_metric_before_dimension_resolution(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_users=False)
@@ -290,7 +290,7 @@ def test_observe_multi_dataset_missing_dimension_resolves_before_shape(tmp_path)
     assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
 
 
-def test_observe_multi_dataset_full_dimension_resolves_before_shape(tmp_path):
+def test_observe_segmented_rejects_multi_dataset_metric_with_valid_dimension(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_users=False)
@@ -306,7 +306,7 @@ def test_observe_multi_dataset_full_dimension_resolves_before_shape(tmp_path):
     assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
 
 
-def test_observe_multi_dataset_cross_dataset_dimensions_resolve_before_shape(tmp_path):
+def test_observe_segmented_rejects_multi_dataset_metric_with_cross_dataset_dimensions(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_users=False)
