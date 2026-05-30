@@ -40,6 +40,7 @@ from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._shape import SemanticShape, observe_output_shape
 from marivo.analysis.intents._types import SliceValue
+from marivo.analysis.intents._validate import raise_first, validate_observe
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.refs import DimensionRef, MetricRef
 from marivo.analysis.session.attach import active as session_active
@@ -1245,25 +1246,14 @@ def observe(
             semantic_model=model_name,
         )
         frame = MetricFrame(_df=result.df, meta=meta)
-        frame = cast(
-            "MetricFrame",
-            commit_result(
-                store=session.evidence_store(),
-                frames_dir=session.layout.frames_dir,
-                frame=frame,
-                step_type="observe",
-                inputs=CommitInputs(input_refs=[]),
-                params=CommitParams(values=params),
-                semantic_anchors=CommitSemanticAnchors(
-                    values={"metric_id": metric_id, "model": model_name}
-                ),
-                subject=Subject(
-                    metric=metric_id,
-                    slice=stored_where or {},
-                    analysis_axis=_analysis_axis_for_kind(grouped_kind),
-                ),
-                extractor_family="metric_frame",
-            ),
+        frame = _commit_observe_metric_frame(
+            session=session,
+            frame=frame,
+            params=params,
+            metric_id=metric_id,
+            model_name=model_name,
+            stored_where=stored_where,
+            semantic_kind=grouped_kind,
         )
         if component_df is not None:
             component = _persist_metric_component_frame(
@@ -1355,25 +1345,14 @@ def observe(
             semantic_model=model_name,
         )
         frame = MetricFrame(_df=result.df, meta=meta)
-        frame = cast(
-            "MetricFrame",
-            commit_result(
-                store=session.evidence_store(),
-                frames_dir=session.layout.frames_dir,
-                frame=frame,
-                step_type="observe",
-                inputs=CommitInputs(input_refs=[]),
-                params=CommitParams(values=params),
-                semantic_anchors=CommitSemanticAnchors(
-                    values={"metric_id": metric_id, "model": model_name}
-                ),
-                subject=Subject(
-                    metric=metric_id,
-                    slice=stored_where or {},
-                    analysis_axis=_analysis_axis_for_kind(scalar_kind),
-                ),
-                extractor_family="metric_frame",
-            ),
+        frame = _commit_observe_metric_frame(
+            session=session,
+            frame=frame,
+            params=params,
+            metric_id=metric_id,
+            model_name=model_name,
+            stored_where=stored_where,
+            semantic_kind=scalar_kind,
         )
         if component_df is not None:
             component = _persist_metric_component_frame(
@@ -1465,7 +1444,15 @@ def observe(
             semantic_model=model_name,
         )
         frame = MetricFrame(_df=result.df, meta=meta)
-        frame.meta = cast("MetricFrameMeta", write_frame_to_disk(session.layout, frame))
+        frame = _commit_observe_metric_frame(
+            session=session,
+            frame=frame,
+            params=params,
+            metric_id=metric_id,
+            model_name=model_name,
+            stored_where=stored_where,
+            semantic_kind=segmented_kind,
+        )
         if component_df is not None:
             component = _persist_metric_component_frame(
                 session=session,
@@ -1501,17 +1488,15 @@ def observe(
             },
         )
         return frame
-    if is_time_series and not dimension_refs and len(metric_datasets) > 1:
-        raise MetricShapeUnsupportedError(
-            message=(
-                f"windowed time_series observe does not support multi-dataset metric '{metric_id}'"
-            ),
-            details={
-                "kind": "WindowedTimeSeriesUnsupported",
-                "metric": metric_id,
-                "datasets": sorted(metric_datasets),
-            },
+    raise_first(
+        validate_observe(
+            metric_id=metric_id,
+            metric_datasets=metric_datasets,
+            is_time_series=is_time_series,
+            has_dimensions=bool(dimension_refs),
+            dimensions_dump=_dump_dimensions(dimensions),
         )
+    )
 
     for dataset_name in metric_datasets:
         dataset_ir = sp.get_dataset(dataset_name)
@@ -1523,16 +1508,6 @@ def observe(
         dataset_irs[dataset_name] = _build_dataset_adapter(sp, dataset_ir)
 
     resolved_dimensions = _resolve_dimensions(dimensions, dataset_irs=dataset_irs)
-    if resolved_dimensions and len(metric_datasets) > 1:
-        raise MetricShapeUnsupportedError(
-            message=(f"segmented observe does not support multi-dataset metric '{metric_id}'"),
-            details={
-                "kind": "SegmentedMultiDatasetUnsupported",
-                "metric": metric_id,
-                "datasets": sorted(metric_datasets),
-                "dimensions": _dump_dimensions(dimensions),
-            },
-        )
 
     for dataset_name in metric_datasets:
         ds_adapter = dataset_irs[dataset_name]
@@ -1746,24 +1721,15 @@ def observe(
         if _grain_raw in ("hour", "day", "week", "month")
         else None
     )
-    subject = Subject(
-        metric=metric_id,
-        slice=stored_where or {},
-        grain=_subject_grain,
-        analysis_axis=_analysis_axis_for_kind(semantic_kind),
-    )
-    commit_result(
-        store=session.evidence_store(),
-        frames_dir=session.layout.frames_dir,
+    frame = _commit_observe_metric_frame(
+        session=session,
         frame=frame,
-        step_type="observe",
-        inputs=CommitInputs(input_refs=[]),
-        params=CommitParams(values=params),
-        semantic_anchors=CommitSemanticAnchors(
-            values={"metric_id": metric_id, "model": model_name}
-        ),
-        subject=subject,
-        extractor_family="metric_frame",
+        params=params,
+        metric_id=metric_id,
+        model_name=model_name,
+        stored_where=stored_where,
+        semantic_kind=semantic_kind,
+        subject_grain=_subject_grain,
     )
 
     write_job_record(
@@ -1792,6 +1758,41 @@ def _persist_known_datasources(session: Session) -> None:
     meta["known_datasources"] = sorted(session.known_datasources)
     meta["updated_at"] = datetime.now(UTC).isoformat()
     write_session_meta(session.layout, meta)
+
+
+def _commit_observe_metric_frame(
+    *,
+    session: Session,
+    frame: MetricFrame,
+    params: dict[str, Any],
+    metric_id: str,
+    model_name: str,
+    stored_where: dict[str, Any],
+    semantic_kind: str,
+    subject_grain: Literal["hour", "day", "week", "month"] | None = None,
+) -> MetricFrame:
+    """Commit an observe MetricFrame through the evidence pipeline (shared tail)."""
+    return cast(
+        "MetricFrame",
+        commit_result(
+            store=session.evidence_store(),
+            frames_dir=session.layout.frames_dir,
+            frame=frame,
+            step_type="observe",
+            inputs=CommitInputs(input_refs=[]),
+            params=CommitParams(values=params),
+            semantic_anchors=CommitSemanticAnchors(
+                values={"metric_id": metric_id, "model": model_name}
+            ),
+            subject=Subject(
+                metric=metric_id,
+                slice=stored_where or {},
+                grain=subject_grain,
+                analysis_axis=_analysis_axis_for_kind(semantic_kind),
+            ),
+            extractor_family="metric_frame",
+        ),
+    )
 
 
 def _analysis_axis_for_kind(

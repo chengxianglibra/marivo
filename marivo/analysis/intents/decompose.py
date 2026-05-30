@@ -13,7 +13,6 @@ from marivo.analysis.errors import (
     ComponentDecompositionError,
     SemanticKindMismatchError,
 )
-from marivo.analysis.evidence.types import TriggeredByFollowup
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.component import ComponentFrame
 from marivo.analysis.frames.delta import DeltaFrame
@@ -273,7 +272,6 @@ def decompose(
     *,
     axis: DimensionRef,
     session: Session | None = None,
-    _triggered_by: TriggeredByFollowup | None = None,
 ) -> AttributionFrame:
     """Attribute a DeltaFrame's movement across a chosen segment axis.
 

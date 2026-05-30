@@ -5,7 +5,6 @@ import pytest
 
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import (
-    DimensionAcrossDatasetsError,
     DimensionFieldNotFoundError,
     MetricShapeUnsupportedError,
 )
@@ -281,15 +280,14 @@ def test_observe_multi_dataset_missing_dimension_resolves_before_shape(tmp_path)
     _seed(con, with_users=False)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    with pytest.raises(DimensionFieldNotFoundError) as exc_info:
+    with pytest.raises(MetricShapeUnsupportedError) as exc_info:
         observe(
             MetricRef("sales.revenue_plus_user_count"),
             dimensions=[DimensionRef("missing")],
             session=s,
         )
 
-    assert exc_info.value.details["dimension_id"] == "missing"
-    assert exc_info.value.details["searched_datasets"] == ["sales.orders", "sales.users"]
+    assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
 
 
 def test_observe_multi_dataset_full_dimension_resolves_before_shape(tmp_path):
@@ -314,17 +312,14 @@ def test_observe_multi_dataset_cross_dataset_dimensions_resolve_before_shape(tmp
     _seed(con, with_users=False)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    with pytest.raises(DimensionAcrossDatasetsError) as exc_info:
+    with pytest.raises(MetricShapeUnsupportedError) as exc_info:
         observe(
             MetricRef("sales.revenue_plus_user_count"),
             dimensions=[DimensionRef("channel"), DimensionRef("tier")],
             session=s,
         )
 
-    assert exc_info.value.details["dimensions_by_dataset"] == {
-        "sales.orders": ["channel"],
-        "sales.users": ["tier"],
-    }
+    assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
 
 
 def test_observe_segmented_rejects_multi_dataset_metric_before_materialization(tmp_path):

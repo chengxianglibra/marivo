@@ -9,6 +9,7 @@ import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import (
     AlignmentPolicyNotApplicableError,
     AxisNotInPanelDimensionsError,
+    MetricShapeUnsupportedError,
     PanelGrainMismatchError,
     SegmentDimensionMismatchError,
     SemanticKindMismatchError,
@@ -19,6 +20,7 @@ from marivo.analysis.intents._validate import (
     raise_first,
     to_validation_issues,
     validate_decompose_columns,
+    validate_observe,
 )
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
@@ -317,3 +319,61 @@ def test_session_validate_decompose_ok_returns_empty(_session):
 def test_session_validate_rejects_unknown_intent(_session):
     with pytest.raises(ValueError, match="does not support intent"):
         _session.validate("forecast", _mf())
+
+
+# ---------------------------------------------------------------------------
+# validate_observe tests
+# ---------------------------------------------------------------------------
+
+
+def test_validate_observe_single_dataset_is_ok():
+    assert (
+        validate_observe(
+            metric_id="sales.revenue",
+            metric_datasets=("orders",),
+            is_time_series=True,
+            has_dimensions=True,
+            dimensions_dump=[{"id": "region"}],
+        )
+        == []
+    )
+
+
+def test_validate_observe_windowed_time_series_multi_dataset():
+    issues = validate_observe(
+        metric_id="sales.blend",
+        metric_datasets=("orders", "refunds"),
+        is_time_series=True,
+        has_dimensions=False,
+        dimensions_dump=[],
+    )
+    assert len(issues) == 1
+    assert isinstance(issues[0], MetricShapeUnsupportedError)
+    assert issues[0].details["kind"] == "WindowedTimeSeriesUnsupported"
+    assert issues[0].details["datasets"] == ["orders", "refunds"]
+
+
+def test_validate_observe_segmented_multi_dataset():
+    issues = validate_observe(
+        metric_id="sales.blend",
+        metric_datasets=("orders", "refunds"),
+        is_time_series=False,
+        has_dimensions=True,
+        dimensions_dump=[{"id": "region"}],
+    )
+    assert isinstance(issues[0], MetricShapeUnsupportedError)
+    assert issues[0].details["kind"] == "SegmentedMultiDatasetUnsupported"
+    assert issues[0].details["dimensions"] == [{"id": "region"}]
+
+
+def test_validate_observe_single_dataset_time_series_no_holes():
+    assert (
+        validate_observe(
+            metric_id="sales.revenue",
+            metric_datasets=("orders",),
+            is_time_series=True,
+            has_dimensions=False,
+            dimensions_dump=[],
+        )
+        == []
+    )
