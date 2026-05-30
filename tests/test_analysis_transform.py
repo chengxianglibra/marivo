@@ -112,7 +112,8 @@ def _make_time_series(tmp_path) -> MetricFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     return session.observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        grain="day",
     )
 
 
@@ -123,7 +124,8 @@ def _make_panel(tmp_path) -> MetricFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     return session.observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        grain="day",
         dimensions=[DimensionRef("country")],
     )
 
@@ -146,11 +148,13 @@ def _make_delta_time_series(tmp_path) -> DeltaFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     current = session.observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        grain="day",
     )
     baseline = session.observe(
         MetricRef("sales.revenue"),
-        window={"start": "2025-07-01", "end": "2025-07-03", "grain": "day"},
+        timescope={"start": "2025-07-01", "end": "2025-07-03"},
+        grain="day",
     )
     return session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
 
@@ -238,12 +242,14 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     current = session.observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        grain="day",
         dimensions=[DimensionRef("country")],
     )
     baseline = session.observe(
         MetricRef("sales.revenue"),
-        window={"start": "2025-07-01", "end": "2025-07-03", "grain": "day"},
+        timescope={"start": "2025-07-01", "end": "2025-07-03"},
+        grain="day",
         dimensions=[DimensionRef("country")],
     )
     return session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
@@ -544,22 +550,24 @@ def test_transform_window_clips_delta_time_series_without_axes(tmp_path):
     assert clipped.to_pandas()["bucket_start"].astype(str).tolist() == ["2026-07-02"]
 
 
-def test_transform_window_rejects_zero_length_relative_window(tmp_path):
-    from marivo.analysis.errors import TransformArgError
+def test_transform_window_rejects_relative_window(tmp_path):
+    from marivo.analysis.errors import WindowInvalidError
 
     frame = _make_time_series(tmp_path)
 
-    with pytest.raises(TransformArgError) as excinfo:
+    with pytest.raises(WindowInvalidError) as excinfo:
         _active_transform(
             frame,
             op="window",
             window={"expr": "today", "as_of": "2026-07-02T12:00:00"},
         )
 
-    assert excinfo.value.details["kind"] == "WindowEmptyRange"
+    assert excinfo.value.details["kind"] == "TimeScopeModelInvalid"
 
 
-def test_transform_window_resolves_relative_window_with_session_timezone(monkeypatch):
+def test_transform_window_rejects_relative_window_with_as_of(monkeypatch):
+    from marivo.analysis.errors import WindowInvalidError
+
     monkeypatch.setenv("TZ", "America/Los_Angeles")
     session_attach._reset_process_state()
     session = session_attach.get_or_create(name="demo")
@@ -585,13 +593,14 @@ def test_transform_window_resolves_relative_window_with_session_timezone(monkeyp
         session=session,
     )
 
-    clipped = _active_transform(
-        frame,
-        op="window",
-        window={"expr": "last 2 days", "as_of": "2026-07-03T01:00:00+00:00"},
-    )
+    with pytest.raises(WindowInvalidError) as excinfo:
+        _active_transform(
+            frame,
+            op="window",
+            window={"expr": "last 2 days", "as_of": "2026-07-03T01:00:00+00:00"},
+        )
 
-    assert clipped.to_pandas()["bucket_start"].astype(str).tolist() == ["2026-07-01"]
+    assert excinfo.value.details["kind"] == "TimeScopeModelInvalid"
 
 
 def test_transform_window_absolute_rejects_tz_field(tmp_path):
@@ -606,7 +615,7 @@ def test_transform_window_absolute_rejects_tz_field(tmp_path):
             window={"start": "2026-07-01", "end": "2026-07-02", "tz": "UTC"},
         )
 
-    assert exc_info.value.details["kind"] == "WindowModelInvalid"
+    assert exc_info.value.details["kind"] == "TimeScopeModelInvalid"
 
 
 def test_transform_window_absolute_timezone_clips_tz_aware_axis():

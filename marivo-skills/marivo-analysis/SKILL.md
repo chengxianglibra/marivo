@@ -47,7 +47,7 @@ import marivo.analysis as mv
 
 mv.session.get_or_create(name="investigation")
 
-session.observe(mv.MetricRef("model.metric"), window={"start": "...", "end": "..."})  # -> MetricFrame
+session.observe(mv.MetricRef("model.metric"), timescope={"start": "...", "end": "..."})  # -> MetricFrame
 session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))      # -> DeltaFrame
 session.decompose(delta, axis=mv.DimensionRef("bucket_start"))                        # -> AttributionFrame
 session.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
@@ -161,8 +161,8 @@ session.recent_jobs(limit=5)                           # recent job history
 ```python
 import marivo.analysis as mv
 
-cur = session.observe(mv.MetricRef("<metric_id>"), window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"})
-base = session.observe(mv.MetricRef("<metric_id>"), window={"start": "2025-07-01", "end": "2025-09-30", "grain": "month"})
+cur = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-09-30"}, grain="month")
+base = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-09-30"}, grain="month")
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 print(attribution.summary())
@@ -171,7 +171,7 @@ print(attribution.summary())
 ### Discover + select
 
 ```python
-series = session.observe(mv.MetricRef("<metric_id>"), window={"start": "2026-07-01", "end": "2026-09-30", "grain": "day"})
+series = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-09-30"}, grain="day")
 candidates = session.discover.point_anomalies(series, threshold=1.0)
 window = candidates.select(rank=1, attribute="window")
 ```
@@ -179,8 +179,8 @@ window = candidates.select(rank=1, attribute="window")
 ### Correlate
 
 ```python
-a = session.observe(mv.MetricRef("<metric_a>"), window={"start": "2026-07-01", "end": "2026-09-30"})
-b = session.observe(mv.MetricRef("<metric_b>"), window={"start": "2026-07-01", "end": "2026-09-30"})
+a = session.observe(mv.MetricRef("<metric_a>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
+b = session.observe(mv.MetricRef("<metric_b>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
 result = session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 print(result.summary())
 ```
@@ -239,12 +239,12 @@ session = ap.session.get_or_create(name="sales_weekly_revenue")
 
 current = session.observe(
     metric=ap.MetricRef("sales.revenue"),
-    window={"start": "2026-05-01", "end": "2026-05-07", "grain": "day"},
+    timescope={"start": "2026-05-01", "end": "2026-05-07"}, grain="day",
     dimensions=[ap.DimensionRef("region")],
 )
 baseline = session.observe(
     metric=ap.MetricRef("sales.revenue"),
-    window={"start": "2026-04-24", "end": "2026-04-30", "grain": "day"},
+    timescope={"start": "2026-04-24", "end": "2026-04-30"}, grain="day",
     dimensions=[ap.DimensionRef("region")],
 )
 delta = session.compare(current, baseline, alignment=ap.AlignmentPolicy(kind="window_bucket"))
@@ -285,6 +285,6 @@ example to see the correct pattern.
 | `QualityShapeUnsupported` | Passed a non-MetricFrame to `assess_quality` | `references/examples/07_assess_metric_quality.py` |
 | `SemanticKindMismatch` (discover missing `search_space`) | `driver_axes` objective without a `search_space` | `references/examples/08_discover_driver_axes.py` |
 | `TransformOpUnsupported` / `TransformArgError` | Unknown op or missing op-specific kwargs | `references/examples/transform_slice.py`, `transform_rollup_panel.py` |
-| `WindowInvalid` | Malformed window dict or unsupported relative spec | `references/examples/window_relative.py` |
+| `WindowInvalid` | Malformed timescope/window dict | `references/examples/observe_timescope.py` |
 | `NoBackendFactory` | Session attached without a backend factory | `references/backend-setup.md` |
 | `FrameMutation` | Tried to mutate a frame in place | `references/pitfalls.md` (Mutating a frame directly) |

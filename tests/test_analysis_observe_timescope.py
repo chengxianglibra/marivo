@@ -1,4 +1,4 @@
-"""observe relative-window behavior against seeded DuckDB."""
+"""observe timescope behavior against seeded DuckDB."""
 
 from typing import get_type_hints
 
@@ -9,7 +9,7 @@ import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import MetricShapeUnsupportedError
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.refs import MetricRef
-from marivo.analysis.windows.spec import WindowInput
+from marivo.analysis.windows.spec import TimeGrain, TimeScopeInput
 
 
 @pytest.fixture(autouse=True)
@@ -60,8 +60,10 @@ def _seed_sales_orders(con):
     )
 
 
-def test_observe_window_type_hint_matches_supported_window_input_forms():
-    assert get_type_hints(observe)["window"] == WindowInput
+def test_observe_time_type_hints_match_supported_input_forms():
+    hints = get_type_hints(observe)
+    assert hints["timescope"] == TimeScopeInput
+    assert hints["grain"] == TimeGrain | None
 
 
 def _bootstrap_multi_dataset(tmp_path):
@@ -147,7 +149,7 @@ def _seed_epoch_seconds(con):
     con.raw_sql("INSERT INTO orders VALUES (DATE '2026-05-01', 10.0),(DATE '2026-05-01', 20.0)")
 
 
-def test_relative_window_without_grain_stays_scalar(tmp_path):
+def test_timescope_without_grain_stays_scalar(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_sales_orders(con)
@@ -158,7 +160,7 @@ def test_relative_window_without_grain_stays_scalar(tmp_path):
 
     frame = observe(
         MetricRef("sales.revenue"),
-        window={"expr": "mtd", "as_of": "2026-05-24T13:42:11+08:00"},
+        timescope={"start": "2026-05-01", "end": "2026-05-24"},
         session=s,
     )
 
@@ -170,15 +172,14 @@ def test_relative_window_without_grain_stays_scalar(tmp_path):
     jobs = s.jobs()
     assert len(jobs) == 1
     job = s.job(jobs[0].id)
-    window_params = job["params"]["window"]
-    assert window_params["original"]["expr"] == "mtd"
+    window_params = job["params"]["timescope"]
+    assert window_params["original"] == {"start": "2026-05-01", "end": "2026-05-24"}
     assert window_params["resolved"]["start"] == "2026-05-01"
     assert window_params["resolved"]["end"] == "2026-05-24"
-    assert window_params["as_of_resolved"] == "2026-05-24T13:42:11+08:00"
     assert window_params["session_tz"] == "Asia/Shanghai"
 
 
-def test_relative_window_with_grain_returns_time_series(tmp_path):
+def test_timescope_with_grain_returns_time_series(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_sales_orders(con)
@@ -189,7 +190,8 @@ def test_relative_window_with_grain_returns_time_series(tmp_path):
 
     frame = observe(
         MetricRef("sales.revenue"),
-        window={"expr": "mtd", "grain": "day", "as_of": "2026-05-24T13:42:11+08:00"},
+        timescope={"start": "2026-05-01", "end": "2026-05-24"},
+        grain="day",
         session=s,
     )
 
@@ -217,7 +219,8 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
     with pytest.raises(MetricShapeUnsupportedError) as exc_info:
         observe(
             MetricRef("sales.net"),
-            window={"start": "2026-05-01", "end": "2026-05-24", "grain": "day"},
+            timescope={"start": "2026-05-01", "end": "2026-05-24"},
+            grain="day",
             session=s,
         )
 
@@ -237,14 +240,14 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
 
     frame = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-24", "grain": "day"},
+        timescope={"start": "2026-05-01", "end": "2026-05-24"},
+        grain="day",
         session=s,
     )
 
     job = s.job(s.jobs()[0].id)
-    window_params = job["params"]["window"]
-    assert window_params["original"] is None
-    assert window_params["as_of_resolved"] is None
+    window_params = job["params"]["timescope"]
+    assert window_params["original"] == {"start": "2026-05-01", "end": "2026-05-24"}
     assert window_params["session_tz"] == "Asia/Shanghai"
     assert window_params["resolved"] == {
         "kind": "absolute",
@@ -267,7 +270,8 @@ def test_date_time_series_day_bucket_respects_session_tz(tmp_path):
 
     frame = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-01", "grain": "day"},
+        timescope={"start": "2026-05-01", "end": "2026-05-01"},
+        grain="day",
         session=s,
     )
 

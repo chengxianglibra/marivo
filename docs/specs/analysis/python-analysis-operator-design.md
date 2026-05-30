@@ -795,11 +795,11 @@ session = analysis.session.get_or_create(name="dau_driver_analysis")
 
 current = session.observe(
     metric=MetricRef("analytics.dau"),
-    window={"start": "2026-05-01", "end": "2026-05-07", "grain": "day"},
+    timescope={"start": "2026-05-01", "end": "2026-05-07"}, grain="day",
 )
 baseline = session.observe(
     metric=MetricRef("analytics.dau"),
-    window={"start": "2026-04-24", "end": "2026-04-30", "grain": "day"},
+    timescope={"start": "2026-04-24", "end": "2026-04-30"}, grain="day",
 )
 delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
 
@@ -843,7 +843,7 @@ session = analysis.session.get_or_create(name="revenue_windows")
 
 metric = session.observe(
     metric=MetricRef("sales.revenue"),
-    window={"start": "2026-01-01", "end": "2026-03-31", "grain": "day"},
+    timescope={"start": "2026-01-01", "end": "2026-03-31"}, grain="day",
 )
 summary = metric.summary()
 candidates = session.discover.interesting_windows(metric)

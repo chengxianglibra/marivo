@@ -1,4 +1,4 @@
-"""Pattern: compare two relative time-series windows with calendar alignment.
+"""Pattern: compare two absolute time-series windows with calendar alignment.
 
 When to use: you need calendar-aware matching with a session default calendar.
 Output shape: a DeltaFrame with calendar alignment metadata.
@@ -38,11 +38,13 @@ calendar_dir = session.project_root / ".marivo" / "calendar"
 
 cur = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    window={"expr": "mtd", "grain": "day", "as_of": "2026-09-15T12:00:00+08:00"},
+    timescope={"start": "2026-09-01", "end": "2026-09-15"},
+    grain="day",
 )
 base = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    window={"start": "2025-07-01", "end": "2025-07-31", "grain": "day"},
+    timescope={"start": "2025-07-01", "end": "2025-07-31"},
+    grain="day",
 )
 delta = session.compare(
     cur,

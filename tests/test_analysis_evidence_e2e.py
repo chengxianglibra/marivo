@@ -43,12 +43,12 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
 
     cur = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
     base = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-24", "end": "2026-04-30"},
+        timescope={"start": "2026-04-24", "end": "2026-04-30"},
         session=session,
     )
     delta = compare(cur, base, session=session)
@@ -86,12 +86,12 @@ def test_e2e_replay_artifact_id_stability(tmp_path) -> None:
     )
     cur = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
     cur2 = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
     assert cur.meta.artifact_id == cur2.meta.artifact_id

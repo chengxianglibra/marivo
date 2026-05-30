@@ -41,11 +41,11 @@ def test_end_to_end_sales_observe_compare_load(tmp_path):
 
     q3 = s.observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-09-30"},
+        timescope={"start": "2026-07-01", "end": "2026-09-30"},
     )
     q2 = s.observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-01", "end": "2026-06-30"},
+        timescope={"start": "2026-04-01", "end": "2026-06-30"},
     )
     d = s.compare(
         q3,

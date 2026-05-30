@@ -8,7 +8,7 @@ active Python environment, not from a local Marivo source checkout.
 
 | Intent | Inputs | Output | Agent rule |
 | --- | --- | --- | --- |
-| `session.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `window={"start": "...", "end": "..."}` or structured `where={field: {"op": ..., "value": ...}}`. |
+| `session.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` or structured `where={field: {"op": ..., "value": ...}}`. |
 | `session.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
 | `session.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; `model.field` refs resolve to the persisted delta column `field`. |
 | `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape`. |
@@ -48,11 +48,11 @@ import marivo.analysis as mv
 
 cur = session.observe(
     mv.MetricRef("sales.revenue"),
-    window={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-09-30"},
 )
 base = session.observe(
     mv.MetricRef("sales.revenue"),
-    window={"start": "2025-07-01", "end": "2025-09-30"},
+    timescope={"start": "2025-07-01", "end": "2025-09-30"},
 )
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
@@ -107,7 +107,7 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 | Inspect calendar file shape | `mv.help("calendar")` |
 | Confirm metric ids | `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()` |
 
-Relative windows and calendar alignment use the Python process system timezone. If a naive warehouse timestamp physically stores UTC, declare it in the semantic layer with `@ms.time_field(..., timezone="UTC")`.
+Calendar alignment and timestamp bucketing use the Python process system timezone. If a naive warehouse timestamp physically stores UTC, declare it in the semantic layer with `@ms.time_field(..., timezone="UTC")`.
 
 Metric refs wrap exact ids such as `mv.MetricRef("model.metric")`. Do not guess
 ids from metric display names; call `project.list_metrics()` after loading the
@@ -146,12 +146,13 @@ For Trino, map prompt `catalog` to Ibis `database`, and map
 
 Datasource names are global, not model-qualified. Semantic datasets use `.dataset(datasource="warehouse")`; backend factories receive `"warehouse"`, never `"sales.warehouse"`.
 
-When a dataset has multiple time fields, choose one in the observe window:
+When a dataset has multiple time fields, choose one with top-level `time_field`:
 
 ```python
 session.observe(
     mv.MetricRef("sales.revenue"),
-    window={"start": "2026-07-01", "end": "2026-07-31", "time_field": "create_date"},
+    timescope={"start": "2026-07-01", "end": "2026-07-31"},
+    time_field="create_date",
 )
 ```
 

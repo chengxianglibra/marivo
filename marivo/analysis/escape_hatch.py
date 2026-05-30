@@ -11,7 +11,6 @@ import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype, is_object_dtype
@@ -32,12 +31,8 @@ from marivo.analysis.session.core import ensure_session_writable
 from marivo.analysis.session.persistence import write_frame_to_disk
 from marivo.analysis.windows import (
     AbsoluteWindow,
-    RelativeWindow,
-    WindowInput,
-    coerce_as_of,
     dump_window,
-    normalize_window_input,
-    resolve_to_absolute,
+    normalize_absolute_window_input,
 )
 
 if TYPE_CHECKING:
@@ -373,18 +368,11 @@ def _validate_delta_source_compatibility(
 
 
 def _resolve_metric_window(
-    window: WindowInput | None,
+    window: object | None,
     *,
     session: Session,
-) -> AbsoluteWindow | RelativeWindow | None:
-    normalized = normalize_window_input(window)
-    if not isinstance(normalized, RelativeWindow):
-        return normalized
-    return resolve_to_absolute(
-        normalized,
-        as_of=coerce_as_of(normalized.as_of, tz=cast("ZoneInfo", session.tz)),
-        tz=cast("ZoneInfo", session.tz),
-    )
+) -> AbsoluteWindow | None:
+    return normalize_absolute_window_input(window)
 
 
 def _validate_semantic_shape(
@@ -633,7 +621,7 @@ def promote_metric_frame(
     axes: dict[str, DimensionRef] | None = None,
     time_axis: str | DimensionRef | None = None,
     semantic_model: str | None = None,
-    window: WindowInput | None = None,
+    window: object | None = None,
     where: dict[str, Any] | None = None,
 ) -> MetricFrame:
     """Upgrade an ExplorationResult or DataFrame into a typed MetricFrame.
@@ -658,7 +646,7 @@ def promote_metric_frame(
         axes: Mapping of column name to DimensionRef for dimension axes.
         time_axis: Column name or DimensionRef for the time dimension.
         semantic_model: Name of the semantic model this metric belongs to.
-        window: Time window specification (absolute or relative).
+        window: Absolute time window specification.
         where: Filter predicates applied to the observation.
 
     Returns:

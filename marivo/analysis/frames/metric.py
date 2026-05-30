@@ -7,7 +7,6 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
-from zoneinfo import ZoneInfo
 
 from pydantic import ConfigDict
 
@@ -15,12 +14,8 @@ from marivo.analysis.errors import ComponentFrameUnavailableError
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, assert_semantic_shape
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.windows import (
-    AbsoluteWindow,
-    RelativeWindow,
-    coerce_as_of,
     dump_window,
-    normalize_window_input,
-    resolve_to_absolute,
+    normalize_absolute_window_input,
 )
 
 if TYPE_CHECKING:
@@ -108,16 +103,7 @@ class MetricFrame(BaseFrame):
         from marivo.analysis.session.persistence import write_frame_to_disk
 
         ensure_session_writable(session)
-        window_in = normalize_window_input(window)
-        resolved_window: AbsoluteWindow | None
-        if isinstance(window_in, RelativeWindow):
-            resolved_window = resolve_to_absolute(
-                window_in,
-                as_of=coerce_as_of(window_in.as_of, tz=cast("ZoneInfo", session.tz)),
-                tz=cast("ZoneInfo", session.tz),
-            )
-        else:
-            resolved_window = window_in
+        resolved_window = normalize_absolute_window_input(window)
         meta_window = dump_window(resolved_window)
 
         frame_ref = f"frame_{secrets.token_hex(4)}"

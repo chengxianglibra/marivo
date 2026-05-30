@@ -47,7 +47,7 @@ def test_observe_writes_artifact_metadata(tmp_path) -> None:
 
     frame = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
     assert frame.meta.artifact_id is not None
@@ -68,12 +68,12 @@ def test_compare_seeds_change_proposition_and_emits_followups(tmp_path) -> None:
 
     current = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
     baseline = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-24", "end": "2026-04-30"},
+        timescope={"start": "2026-04-24", "end": "2026-04-30"},
         session=session,
     )
     delta = compare(current, baseline, session=session)
@@ -96,12 +96,12 @@ def test_session_knowledge_returns_change_fact(tmp_path) -> None:
     session = mv.session.attach.create(name="t", backends=_backends(con), use_datasources=False)
     current = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
     baseline = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-24", "end": "2026-04-30"},
+        timescope={"start": "2026-04-24", "end": "2026-04-30"},
         session=session,
     )
     compare(current, baseline, session=session)

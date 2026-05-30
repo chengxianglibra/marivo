@@ -417,8 +417,8 @@ def compare(
         CrossSessionFrameError: A frame belongs to a different session.
 
     Example:
-        >>> cur  = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
-        >>> base = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
+        >>> cur  = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
+        >>> base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-09-30"})
         >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
     """
     if session is None:

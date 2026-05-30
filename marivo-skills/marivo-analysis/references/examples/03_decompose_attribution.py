@@ -18,11 +18,13 @@ import marivo.analysis as mv  # noqa: E402
 session = mv.session.active()
 cur = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
+    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    grain="month",
 )
 base = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
+    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    grain="month",
 )
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef(id="bucket_start"))
@@ -39,11 +41,11 @@ print(f"columns={summary.columns!r}")
 # Component-aware ratio metric: observe two windows and compare.
 ratio_cur = session.observe(
     mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
-    window={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-09-30"},
 )
 ratio_base = session.observe(
     mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
-    window={"start": "2025-07-01", "end": "2025-09-30"},
+    timescope={"start": "2025-07-01", "end": "2025-09-30"},
 )
 ratio_delta = session.compare(ratio_cur, ratio_base)
 ratio_components = ratio_delta.components()
@@ -53,11 +55,13 @@ print(f"component_columns={list(ratio_components.to_pandas().columns)!r}")
 # Component-aware time-series ratio metric: decompose change by bucket.
 ratio_cur_series = session.observe(
     mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
-    window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
+    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    grain="month",
 )
 ratio_base_series = session.observe(
     mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
-    window={"start": "2025-07-01", "end": "2025-09-30", "grain": "month"},
+    timescope={"start": "2025-07-01", "end": "2025-09-30"},
+    grain="month",
 )
 ratio_series_delta = session.compare(
     ratio_cur_series,
@@ -73,12 +77,14 @@ print(ratio_bucket_attr.summary())
 # Component-aware panel ratio metric: decompose each bucket by segment.
 ratio_cur_panel = session.observe(
     mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
-    window={"start": "2026-07-01", "end": "2026-09-30", "grain": "month"},
+    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    grain="month",
     dimensions=[mv.DimensionRef(id="sales.region")],
 )
 ratio_base_panel = session.observe(
     mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
-    window={"start": "2025-07-01", "end": "2025-09-30", "grain": "month"},
+    timescope={"start": "2025-07-01", "end": "2025-09-30"},
+    grain="month",
     dimensions=[mv.DimensionRef(id="sales.region")],
 )
 ratio_panel_delta = session.compare(

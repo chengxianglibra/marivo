@@ -255,7 +255,7 @@ def test_observe_applies_window(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     mf = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
@@ -269,7 +269,7 @@ def test_observe_string_partition_window_keeps_closed_result_semantics(tmp_path)
 
     mf = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2024-10-11", "end": "2025-07-31"},
+        timescope={"start": "2024-10-11", "end": "2025-07-31"},
         session=s,
     )
 
@@ -287,7 +287,7 @@ def test_observe_single_hour_partition_window_keeps_closed_result_semantics(tmp_
 
     mf = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
+        timescope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
         session=s,
     )
 
@@ -305,11 +305,8 @@ def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(t
 
     mf = observe(
         MetricRef("sales.revenue"),
-        window={
-            "start": "2024-10-11T03:00:00",
-            "end": "2025-07-31T14:00:00",
-            "time_field": "log_hour",
-        },
+        timescope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
+        time_field="log_hour",
         session=s,
     )
 
@@ -329,7 +326,7 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
     with pytest.raises(WindowInvalidError) as exc_info:
         observe(
             MetricRef("sales.revenue"),
-            window={"start": "2026-07-01", "end": "2026-07-31"},
+            timescope={"start": "2026-07-01", "end": "2026-07-31"},
             session=s,
         )
 
@@ -337,7 +334,7 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
     assert "multiple time_fields" in rendered
     assert "create_date" in rendered
     assert "create_time" in rendered
-    assert '"time_field": "create_date"' in rendered
+    assert 'time_field="create_date"' in rendered
 
 
 def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
@@ -348,7 +345,8 @@ def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
 
     mf = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31", "time_field": "create_date"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_field="create_date",
         session=s,
     )
 
@@ -555,7 +553,8 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
 
     frame = observe(
         MetricRef("sales.failure_rate"),
-        window={"start": "2026-07-01", "end": "2026-07-04", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-04"},
+        grain="day",
         session=session,
     )
 
@@ -633,7 +632,7 @@ def test_observe_strptime_day_format_filters_correctly(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2024-10-11", "end": "2025-07-31"},
+        timescope={"start": "2024-10-11", "end": "2025-07-31"},
         session=s,
     )
     df = frame.to_pandas()
@@ -648,7 +647,8 @@ def test_observe_strptime_day_format_time_series(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2024-10-10", "end": "2025-08-01", "grain": "day"},
+        timescope={"start": "2024-10-10", "end": "2025-08-01"},
+        grain="day",
         session=s,
     )
     assert frame.meta.semantic_kind == "time_series"
@@ -706,7 +706,7 @@ def test_observe_strptime_integer_format_filters_correctly(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2024-10-11", "end": "2025-07-31"},
+        timescope={"start": "2024-10-11", "end": "2025-07-31"},
         session=s,
     )
     df = frame.to_pandas()
