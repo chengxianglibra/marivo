@@ -152,6 +152,11 @@ def test_help_alignment_prints_variants() -> None:
     assert "calendar=" in out
     assert "no separate kind='ordinal'" in out
     assert "align by ordinal position" in out
+    assert "Calendar alignment output columns" in out
+    assert "period_week_offset" in out
+    assert "holiday_ordinal" in out
+    assert "workday_ordinal" in out
+    assert "baseline_date" in out
 
 
 def test_help_calendar_prints_file_schema_and_entry_example() -> None:
@@ -160,4 +165,6 @@ def test_help_calendar_prints_file_schema_and_entry_example() -> None:
     assert '"date": "2026-05-01"' in out
     assert '"holiday_id": "labor-day"' in out
     assert "adjusted_workdays" in out
+    assert '"timezone"' not in out
+    assert "Calendar files define dates only" in out
     assert "use holiday_id rather than name/label" in out

@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session.attach as session_attach
-from marivo.analysis.calendar.align import _local_dates, align_calendar_frames
+from marivo.analysis.calendar.align import _json_key, _local_dates, align_calendar_frames
 from marivo.analysis.calendar.model import Calendar, CalendarEntry, CalendarPolicy
 from marivo.analysis.errors import (
     AlignmentFailedError,
@@ -192,11 +192,21 @@ def test_dow_aligned_month_pair_uses_isoweekday_and_week_offset():
     assert row["baseline"] == pytest.approx(80.0)
     assert row["delta"] == pytest.approx(20.0)
     assert row["pct_change"] == pytest.approx(0.25)
-    assert row["align_key"] == '["dow",2,0]'
+    assert row["align_key"] == '{"kind":"dow","iso_weekday":2,"period_week_offset":0}'
     assert row["align_quality"] == "exact"
     assert row["bucket_start_a"] == "2026-05-05"
     assert row["bucket_start_b"] == "2026-04-07"
     assert info.matched_rows == 1
+
+
+def test_public_align_key_rejects_unknown_key_kind():
+    with pytest.raises(CalendarPolicyError) as exc_info:
+        _json_key(("mystery", 1))
+
+    assert exc_info.value.details == {
+        "kind": "CalendarAlignKeyInvalid",
+        "align_key_kind": "mystery",
+    }
 
 
 def test_local_dates_handles_tz_aware_naive_string_and_python_date_values():
@@ -229,7 +239,7 @@ def test_workday_aligned_respects_holiday_and_adjusted_workday():
     )
 
     assert len(aligned) == 1
-    assert aligned.iloc[0]["align_key"] == '["workday",1]'
+    assert aligned.iloc[0]["align_key"] == '{"kind":"workday","workday_ordinal":1}'
     assert aligned.iloc[0]["align_quality"] == "exact"
     assert info.matched_rows == 1
     assert info.dropped_rows_a == 0
@@ -252,7 +262,10 @@ def test_holiday_aligned_non_holiday_rows_do_not_exact_match_by_date():
     )
 
     assert len(aligned) == 1
-    assert aligned.iloc[0]["align_key"] == '["holiday","labor-day",1]'
+    assert (
+        aligned.iloc[0]["align_key"]
+        == '{"kind":"holiday","holiday_id":"labor-day","holiday_ordinal":1}'
+    )
     assert aligned.iloc[0]["align_quality"] == "exact"
     assert info.matched_rows == 1
     assert info.fallback_rows == 0
@@ -276,7 +289,10 @@ def test_holiday_and_dow_aligned_uses_holiday_for_holidays_and_dow_for_others():
     )
 
     assert len(aligned) == 2
-    assert set(aligned["align_key"].tolist()) == {'["holiday","labor-day",1]', '["dow",2,0]'}
+    assert set(aligned["align_key"].tolist()) == {
+        '{"kind":"holiday","holiday_id":"labor-day","holiday_ordinal":1}',
+        '{"kind":"dow","iso_weekday":2,"period_week_offset":0}',
+    }
     assert set(aligned["align_quality"].tolist()) == {"exact"}
     assert info.matched_rows == 2
     assert info.dropped_rows_a == 0
@@ -315,11 +331,11 @@ def test_multi_day_holiday_shares_one_id_and_aligns_by_derived_ordinal():
 
     assert info.matched_rows == 5
     assert set(aligned["align_key"].tolist()) == {
-        '["holiday","wy",1]',
-        '["holiday","wy",2]',
-        '["holiday","wy",3]',
-        '["holiday","wy",4]',
-        '["holiday","wy",5]',
+        '{"kind":"holiday","holiday_id":"wy","holiday_ordinal":1}',
+        '{"kind":"holiday","holiday_id":"wy","holiday_ordinal":2}',
+        '{"kind":"holiday","holiday_id":"wy","holiday_ordinal":3}',
+        '{"kind":"holiday","holiday_id":"wy","holiday_ordinal":4}',
+        '{"kind":"holiday","holiday_id":"wy","holiday_ordinal":5}',
     }
     assert set(aligned["align_quality"].tolist()) == {"exact"}
     assert info.dropped_rows_a == 0
@@ -329,8 +345,8 @@ def test_multi_day_holiday_shares_one_id_and_aligns_by_derived_ordinal():
 def test_nearest_prior_workday_fallback_marks_quality_and_counts_rows():
     a = pd.DataFrame(
         {
-            "bucket_start": ["2026-05-01", "2026-05-03", "2026-05-04"],
-            "value": [100.0, 30.0, 40.0],
+            "bucket_start": ["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04"],
+            "value": [100.0, 70.0, 30.0, 40.0],
         }
     )
     b = pd.DataFrame(
@@ -342,22 +358,31 @@ def test_nearest_prior_workday_fallback_marks_quality_and_counts_rows():
     policy = CalendarPolicy(
         mode="holiday_aligned", align_period="month", fallback="nearest_prior_workday"
     )
+    calendar = Calendar(
+        name="cn_holidays",
+        holidays=[
+            CalendarEntry(date="2025-05-01", holiday_id="labor-day"),
+            CalendarEntry(date="2026-05-01", holiday_id="labor-day"),
+            CalendarEntry(date="2026-04-30", holiday_id="labor-day"),
+            CalendarEntry(date="2026-05-02", holiday_id="other-day"),
+        ],
+    )
 
     aligned, info = align_calendar_frames(
         a,
         b,
         time_column="bucket_start",
         value_column="value",
-        calendar=_calendar(),
+        calendar=calendar,
         policy=policy,
         session_tz="Asia/Shanghai",
     )
 
-    assert len(aligned) == 3
-    assert info.matched_rows == 3
-    assert info.fallback_rows == 2
+    assert len(aligned) == 4
+    assert info.matched_rows == 4
+    assert info.fallback_rows == 3
     assert info.dropped_rows_a == 0
-    assert info.dropped_rows_b == 2
+    assert info.dropped_rows_b == 1
 
     exact = aligned[aligned["align_quality"] == "exact"]
     assert len(exact) == 1
@@ -365,9 +390,12 @@ def test_nearest_prior_workday_fallback_marks_quality_and_counts_rows():
     assert exact.iloc[0]["bucket_start_b"] == "2026-04-30"
 
     fallback = aligned[aligned["align_quality"] == "fallback"]
-    assert len(fallback) == 2
-    assert set(fallback["bucket_start_b"].tolist()) == {"2026-04-03"}
-    assert set(fallback["align_key"].tolist()) == {'["fallback_workday","2026-04-03"]'}
+    assert len(fallback) == 3
+    assert set(fallback["bucket_start_b"].tolist()) == {"2026-04-02", "2026-04-03"}
+    assert set(fallback["align_key"].tolist()) == {
+        '{"kind":"fallback_workday","baseline_date":"2026-04-02"}',
+        '{"kind":"fallback_workday","baseline_date":"2026-04-03"}',
+    }
 
 
 def test_pct_change_is_nan_when_baseline_is_zero():
@@ -539,7 +567,10 @@ def test_compare_holiday_and_dow_alignment_policy(calendar_project):
 
     df = out.to_pandas()
     assert set(df["align_quality"]) == {"exact"}
-    assert set(df["align_key"]) == {'["holiday","labor-day",1]', '["dow",2,0]'}
+    assert set(df["align_key"]) == {
+        '{"kind":"holiday","holiday_id":"labor-day","holiday_ordinal":1}',
+        '{"kind":"dow","iso_weekday":2,"period_week_offset":0}',
+    }
     assert out.meta.alignment["kind"] == "holiday_and_dow_aligned"
     assert out.meta.alignment["calendar_info"]["mode"] == "holiday_and_dow_aligned"
 
