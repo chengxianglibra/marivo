@@ -8,6 +8,7 @@ from pathlib import Path
 import ibis
 
 import marivo.analysis as mv
+import marivo.datasource as md
 
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
@@ -23,7 +24,9 @@ with tempfile.TemporaryDirectory() as tmp:
         import os
 
         os.chdir(root)
-        mv.datasources.register("warehouse", backend_type="duckdb", path=str(db_path))
+        mv.datasources.register(
+            md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path))
+        )
         metadata = mv.datasources.inspect_table("warehouse", table="orders")
         print(
             f"metadata: {metadata.table} columns={len(metadata.columns)} comment={metadata.comment}"

@@ -173,11 +173,12 @@ backend = mv.datasources.build_backend("warehouse")
 
 Target APIs for richer inspection are described later in this document.
 
-Use `md.datasource(...)` in `.marivo/datasource/<name>.py` when authoring
-datasource files directly. Use `mv.datasources.register(...)` when a script or
-agent wants Marivo to create or replace the datasource file through the public
-registry API. Both paths create project-level datasource configuration; neither
-belongs inside semantic model files.
+Use `md.DatasourceSpec(...)` plus `md.datasource(spec)` in
+`.marivo/datasource/<name>.py` when authoring datasource files directly. Use
+`mv.datasources.register(md.DatasourceSpec(...))` when a script or agent wants
+Marivo to create or replace the datasource file through the public registry API.
+Semantic model files should reference project datasources with `md.ref(...)`;
+datasource configuration itself does not belong inside semantic model files.
 
 ### 3. Collect Table Evidence
 

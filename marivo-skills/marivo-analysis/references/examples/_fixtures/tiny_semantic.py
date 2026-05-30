@@ -76,7 +76,8 @@ def _bootstrap_semantic_project(root: Path) -> None:
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / f"{DATASOURCE_NAME}.py").write_text(
         "import marivo.datasource as md\n"
-        f"md.datasource(name='{DATASOURCE_NAME}', backend_type='duckdb', path=':memory:')\n"
+        f"{DATASOURCE_NAME} = md.DatasourceSpec(name='{DATASOURCE_NAME}', backend_type='duckdb', path=':memory:')\n"
+        f"md.datasource({DATASOURCE_NAME})\n"
     )
     semantic_dir = root / ".marivo" / "semantic" / MODEL_NAME
     semantic_dir.mkdir(parents=True, exist_ok=True)
@@ -86,8 +87,11 @@ def _bootstrap_semantic_project(root: Path) -> None:
     )
     (semantic_dir / "definitions.py").write_text(
         "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\n"
         "\n"
-        f"@ms.dataset(name='orders', datasource='{DATASOURCE_NAME}')\n"
+        f"{DATASOURCE_NAME} = md.ref('{DATASOURCE_NAME}')\n"
+        "\n"
+        f"@ms.dataset(name='orders', datasource={DATASOURCE_NAME})\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"

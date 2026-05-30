@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo.analysis.datasources import backends as datasource_backends
 from marivo.analysis.datasources import secrets as datasource_secrets
 from marivo.analysis.datasources import store as datasource_store
@@ -24,8 +25,12 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+def _spec(name: str, *, backend_type: str, **fields: object) -> md.DatasourceSpec:
+    return md.DatasourceSpec(name=name, backend_type=backend_type, **fields)
+
+
 def test_build_duckdb_in_memory(project_root: Path) -> None:
-    mv.datasources.register("local", backend_type="duckdb", path=":memory:")
+    mv.datasources.register(_spec("local", backend_type="duckdb", path=":memory:"))
     backend = mv.datasources.build_backend("local")
     # ibis DuckDB backend exposes list_tables(); empty for a fresh in-memory db.
     assert backend.list_tables() == []
@@ -34,9 +39,7 @@ def test_build_duckdb_in_memory(project_root: Path) -> None:
 def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TRINO_PASSWORD", "shhh")
     datasource = datasource_store.save_one(
-        name="wh",
-        backend_type="trino",
-        fields={"host": "h", "catalog": "c", "password_env": "TRINO_PASSWORD"},
+        _spec("wh", backend_type="trino", host="h", catalog="c", password_env="TRINO_PASSWORD")
     )
     effective = datasource_backends._effective_kwargs(datasource)
     assert effective.kwargs["password"] == "shhh"
@@ -60,9 +63,7 @@ def test_env_ref_resolution_uses_cache_when_env_is_unset(
         lambda: (_CacheProvider(),),
     )
     datasource = datasource_store.save_one(
-        name="wh",
-        backend_type="trino",
-        fields={"host": "h", "catalog": "c", "password_env": "TRINO_PASSWORD"},
+        _spec("wh", backend_type="trino", host="h", catalog="c", password_env="TRINO_PASSWORD")
     )
 
     effective = datasource_backends._effective_kwargs(datasource)
@@ -77,9 +78,7 @@ def test_env_ref_missing_var(project_root: Path, monkeypatch: pytest.MonkeyPatch
         datasource_secrets, "default_chain", lambda: (datasource_secrets.EnvProvider(),)
     )
     datasource = datasource_store.save_one(
-        name="wh",
-        backend_type="trino",
-        fields={"host": "h", "catalog": "c", "password_env": "TRINO_PASSWORD"},
+        _spec("wh", backend_type="trino", host="h", catalog="c", password_env="TRINO_PASSWORD")
     )
     with pytest.raises(DatasourceEnvVarMissingError) as exc_info:
         datasource_backends._effective_kwargs(datasource)
@@ -105,7 +104,7 @@ def test_unsupported_backend_type(project_root: Path) -> None:
 
 
 def test_trino_required_field_missing(project_root: Path) -> None:
-    datasource = datasource_store.save_one(name="wh", backend_type="trino", fields={"host": "h"})
+    datasource = datasource_store.save_one(_spec("wh", backend_type="trino", host="h"))
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_backends.build_backend(datasource)
     assert exc_info.value.details["field"] == "catalog"
@@ -127,13 +126,13 @@ def test_trino_session_properties_pass_through(
 
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
-        name="wh",
-        backend_type="trino",
-        fields={
-            "host": "h",
-            "catalog": "c",
-            "session_properties": {"query_max_run_time": "5m"},
-        },
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="h",
+            catalog="c",
+            session_properties={"query_max_run_time": "5m"},
+        )
     )
 
     datasource_backends.build_backend(datasource)
@@ -159,16 +158,16 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
     monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("TRINO_AUTH", "token")
     datasource = datasource_store.save_one(
-        name="wh",
-        backend_type="trino",
-        fields={
-            "host": "trino.example",
-            "catalog": "hive",
-            "user_env": "TRINO_USER",
-            "auth_env": "TRINO_AUTH",
-            "timezone": "Asia/Shanghai",
-            "client_tags": "agent, semantic-authoring",
-        },
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            user_env="TRINO_USER",
+            auth_env="TRINO_AUTH",
+            timezone="Asia/Shanghai",
+            client_tags="agent, semantic-authoring",
+        )
     )
 
     datasource_backends.build_backend(datasource)
@@ -196,9 +195,7 @@ def test_mysql_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root: P
 
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
-        name="mysql_wh",
-        backend_type="mysql",
-        fields={"host": "mysql.example", "database": "mart", "port": 3307},
+        _spec("mysql_wh", backend_type="mysql", host="mysql.example", database="mart", port=3307)
     )
 
     datasource_backends.build_backend(datasource)
@@ -220,9 +217,9 @@ def test_postgres_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root
 
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
-        name="pg_wh",
-        backend_type="postgres",
-        fields={"host": "pg.example", "database": "mart", "sslmode": "require"},
+        _spec(
+            "pg_wh", backend_type="postgres", host="pg.example", database="mart", sslmode="require"
+        )
     )
 
     datasource_backends.build_backend(datasource)
@@ -244,9 +241,7 @@ def test_clickhouse_dispatch_with_host(monkeypatch: pytest.MonkeyPatch, project_
 
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
-        name="ch_ds",
-        backend_type="clickhouse",
-        fields={"host": "ch.example.com"},
+        _spec("ch_ds", backend_type="clickhouse", host="ch.example.com")
     )
 
     datasource_backends.build_backend(datasource)
@@ -257,7 +252,7 @@ def test_clickhouse_dispatch_with_host(monkeypatch: pytest.MonkeyPatch, project_
 
 
 def test_clickhouse_required_field_missing(project_root: Path) -> None:
-    datasource = datasource_store.save_one(name="ch_ds", backend_type="clickhouse", fields={})
+    datasource = datasource_store.save_one(_spec("ch_ds", backend_type="clickhouse"))
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_backends.build_backend(datasource)
     assert exc_info.value.details["field"] == "host"
@@ -279,19 +274,19 @@ def test_clickhouse_optional_fields_pass_through(
 
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
-        name="ch_ds",
-        backend_type="clickhouse",
-        fields={
-            "host": "ch.example.com",
-            "port": 9440,
-            "database": "analytics",
-            "user_env": "CLICKHOUSE_USER",
-            "password_env": "CLICKHOUSE_PASSWORD",
-            "client_name": "marivo",
-            "secure": True,
-            "compression": "lz4",
-            "settings": {"max_execution_time": 60},
-        },
+        _spec(
+            "ch_ds",
+            backend_type="clickhouse",
+            host="ch.example.com",
+            port=9440,
+            database="analytics",
+            user_env="CLICKHOUSE_USER",
+            password_env="CLICKHOUSE_PASSWORD",
+            client_name="marivo",
+            secure=True,
+            compression="lz4",
+            settings={"max_execution_time": 60},
+        )
     )
     monkeypatch.setenv("CLICKHOUSE_USER", "reader")
     monkeypatch.setenv("CLICKHOUSE_PASSWORD", "secret123")

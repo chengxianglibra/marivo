@@ -34,18 +34,25 @@ Create datasource declarations under `.marivo/datasource/`:
 ```python
 import marivo.datasource as md
 
-md.datasource(name="warehouse", backend_type="duckdb", path="warehouse.duckdb")
+warehouse = md.DatasourceSpec(
+    name="warehouse",
+    backend_type="duckdb",
+    path="warehouse.duckdb",
+)
+md.datasource(warehouse)
 ```
 
 Create semantic declarations under `.marivo/semantic/<model>/`:
 
 ```python
+import marivo.datasource as md
 import marivo.semantic as ms
 
 ms.model(name="sales", default=True)
+warehouse = md.ref("warehouse")
 
 
-@ms.dataset(name="orders", datasource="warehouse")
+@ms.dataset(name="orders", datasource=warehouse)
 def orders(backend):
     return backend.table("orders")
 

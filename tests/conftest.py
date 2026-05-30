@@ -43,7 +43,9 @@ def semantic_project_factory(tmp_path):
             datasource_file.parent.mkdir(parents=True, exist_ok=True)
             datasource_file.write_text(
                 "import marivo.datasource as md\n"
-                f"md.datasource(name={datasource_name!r}, backend_type='duckdb', path=':memory:')\n"
+                f"{datasource_name} = md.DatasourceSpec(name={datasource_name!r}, "
+                "backend_type='duckdb', path=':memory:')\n"
+                f"md.datasource({datasource_name})\n"
             )
 
         project = SemanticProject(root=root)
@@ -62,7 +64,8 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "md.datasource(warehouse)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_model.py").write_text(
@@ -77,8 +80,11 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\n"
         "\n"
-        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "warehouse = md.ref('warehouse')\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource=warehouse)\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import pytest
 
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.semantic.authoring import (
     _ACTIVE_DECOMPOSITION,
@@ -245,6 +246,21 @@ def test_dataset_datasource_as_string() -> None:
     try:
 
         @ms.dataset(datasource="wh")
+        def orders(backend: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ir, _ = ctx.pending_objects[-1]
+        assert ir.datasource == "wh"
+    finally:
+        _exit_ctx()
+
+
+def test_dataset_datasource_as_datasource_ref() -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        warehouse = md.ref("wh")
+
+        @ms.dataset(datasource=warehouse)
         def orders(backend: object) -> object:
             return None  # type: ignore[unreachable]
 

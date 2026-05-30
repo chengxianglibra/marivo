@@ -51,6 +51,64 @@ class DatasourceLoaderContext:
     pending_objects: list[DatasourceIR] = field(default_factory=list)
 
 
+@dataclass(frozen=True, init=False)
+class DatasourceSpec:
+    """Validated project-level datasource configuration."""
+
+    name: str
+    backend_type: str
+    fields: dict[str, Any]
+    env_refs: dict[str, str]
+    description: str | None
+    ai_context: AiContextIR
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        backend_type: str,
+        description: str | None = None,
+        ai_context: AiContext | dict[str, Any] | None = None,
+        **fields: Any,
+    ) -> None:
+        validate_datasource_name(name)
+        if not isinstance(backend_type, str) or not backend_type:
+            raise DatasourceFieldInvalidError(
+                message=f"datasource {name!r} missing required backend_type",
+                details={
+                    "datasource": name,
+                    "field": "backend_type",
+                    "reason": "backend_type is required and must be a non-empty string",
+                },
+            )
+        literal_fields, env_refs = _split_fields(name, fields)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "backend_type", backend_type)
+        object.__setattr__(self, "fields", literal_fields)
+        object.__setattr__(self, "env_refs", env_refs)
+        object.__setattr__(self, "description", description)
+        object.__setattr__(self, "ai_context", _build_ai_context(ai_context))
+
+
+class DatasourceRef:
+    """Global datasource reference used by semantic declarations."""
+
+    __slots__ = ("name", "semantic_id")
+
+    def __init__(self, name: str) -> None:
+        validate_datasource_name(name)
+        self.name = name
+        self.semantic_id = name
+
+    def __repr__(self) -> str:
+        return f"DatasourceRef({self.semantic_id!r})"
+
+
+def ref(name: str) -> DatasourceRef:
+    """Reference a global project datasource by short name."""
+    return DatasourceRef(name)
+
+
 _DATASOURCE_CTX: ContextVar[DatasourceLoaderContext | None] = ContextVar(
     "_DATASOURCE_CTX",
     default=None,
@@ -173,37 +231,61 @@ def _split_fields(
     return fields, env_refs
 
 
+def _ir_from_spec(spec: DatasourceSpec, *, location: DatasourceSourceLocation) -> DatasourceIR:
+    return DatasourceIR(
+        semantic_id=spec.name,
+        name=spec.name,
+        backend_type=spec.backend_type,
+        fields=dict(spec.fields),
+        env_refs=dict(spec.env_refs),
+        description=spec.description,
+        ai_context=spec.ai_context,
+        python_symbol=spec.name,
+        location=location,
+    )
+
+
 def datasource(
+    spec: DatasourceSpec | None = None,
     *,
-    name: str,
-    backend_type: str,
+    name: str | None = None,
+    backend_type: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
     **fields: Any,
 ) -> None:
     """Declare one project-level datasource."""
     ctx = _require_ctx()
-    validate_datasource_name(name)
-    if not isinstance(backend_type, str) or not backend_type:
+    if spec is not None:
+        if name is not None or backend_type is not None or description is not None or fields:
+            raise DatasourceFieldInvalidError(
+                message="md.datasource accepts either a DatasourceSpec or keyword fields, not both",
+                details={
+                    "datasource": spec.name,
+                    "field": "<arguments>",
+                    "reason": "mixed DatasourceSpec and keyword datasource declaration",
+                },
+            )
+        ctx.pending_objects.append(_ir_from_spec(spec, location=_caller_location()))
+        return
+    if name is None or backend_type is None:
         raise DatasourceFieldInvalidError(
-            message=f"datasource {name!r} missing required backend_type",
+            message="md.datasource requires a DatasourceSpec or name and backend_type",
             details={
                 "datasource": name,
-                "field": "backend_type",
-                "reason": "backend_type is required and must be a non-empty string",
+                "field": "<arguments>",
+                "reason": "missing DatasourceSpec or name/backend_type declaration",
             },
         )
-    literal_fields, env_refs = _split_fields(name, fields)
     ctx.pending_objects.append(
-        DatasourceIR(
-            semantic_id=name,
-            name=name,
-            backend_type=backend_type,
-            fields=literal_fields,
-            env_refs=env_refs,
-            description=description,
-            ai_context=_build_ai_context(ai_context),
-            python_symbol=name,
+        _ir_from_spec(
+            DatasourceSpec(
+                name=name,
+                backend_type=backend_type,
+                description=description,
+                ai_context=ai_context,
+                **fields,
+            ),
             location=_caller_location(),
         )
     )

@@ -29,22 +29,25 @@
 # .marivo/datasource/warehouse.py
 import marivo.datasource as md
 
-md.datasource(
+warehouse = md.DatasourceSpec(
     name="warehouse",
     backend_type="duckdb",
     path="/data/warehouse.duckdb",
 )
+md.datasource(warehouse)
 ```
 
 ```python
 # .marivo/semantic/sales/_model.py
+import marivo.datasource as md
 import marivo.semantic as ms
 
 ms.model(name="sales", description="Sales analytics")
+warehouse = md.ref("warehouse")
 
 @ms.dataset(
     name="orders",
-    datasource="warehouse",
+    datasource=warehouse,
     primary_key=["order_id"],
     description="Order facts.",
     ai_context={
@@ -232,7 +235,7 @@ Datasource 是项目级配置，不属于任何 semantic model。它定义在 `.
 ```python
 import marivo.datasource as md
 
-md.datasource(
+warehouse = md.DatasourceSpec(
     name="warehouse",
     backend_type="trino",
     host="trino.example.com",
@@ -243,12 +246,13 @@ md.datasource(
     user_env="TRINO_USER",
     password_env="TRINO_PASSWORD",
 )
+md.datasource(warehouse)
 ```
 
 设计约束：
 
 - datasource name 是全局 key，禁止使用 `<model>.<datasource>`。
-- semantic model 不调用 `ms.datasource(...)`，只在 `@ms.dataset(datasource="warehouse")` 中引用全局 datasource name。
+- semantic model 不调用 `ms.datasource(...)`，优先用 `md.ref("warehouse")` 在 `@ms.dataset(datasource=warehouse)` 中引用全局 datasource name。
 - 非机密连接字段写在 datasource 文件里；`user`、`password`、`auth`、`token`、`api_key`、`secret`、`private_key` 等机密字段只能通过 `<field>_env` 引用环境变量。
 - Trino `catalog` 是连接目标；`schema` 只是可选默认 schema，也可以在 `backend.table("orders", database="sales_mart")` 中显式传入。
 - datasource 是 dataset 的执行来源，不是 metric 的业务口径。

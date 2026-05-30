@@ -112,7 +112,8 @@ def sales_project_template(*, with_time: bool = True) -> Path:
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "md.datasource(warehouse)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_model.py").write_text(
@@ -127,8 +128,11 @@ def sales_project_template(*, with_time: bool = True) -> Path:
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\n"
         "\n"
-        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "warehouse = md.ref('warehouse')\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource=warehouse)\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"

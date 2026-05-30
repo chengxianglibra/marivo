@@ -8,13 +8,17 @@ from pathlib import Path
 import ibis
 
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 
 MODEL = "import marivo.semantic as ms\nms.model(name='sales', default=True)\n"
 OBJECTS = """
+import marivo.datasource as md
 import marivo.semantic as ms
 
-@ms.dataset(datasource="warehouse", description="Orders")
+warehouse = md.ref("warehouse")
+
+@ms.dataset(datasource=warehouse, description="Orders")
 def orders(backend):
     return backend.table("orders")
 
@@ -41,7 +45,9 @@ with tempfile.TemporaryDirectory() as tmp:
         import os
 
         os.chdir(root)
-        mv.datasources.register("warehouse", backend_type="duckdb", path=str(db_path))
+        mv.datasources.register(
+            md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path))
+        )
         project = ms.SemanticProject(root=root / ".marivo" / "semantic")
         project.load()
         report = project.readiness(require_preview=False, strict_provenance=True)
