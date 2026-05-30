@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from marivo.analysis.errors import (
     DuplicateSessionNameError,
@@ -32,7 +31,7 @@ from marivo.analysis.session.persistence import (
     read_session_meta,
     write_session_meta,
 )
-from marivo.analysis.windows.resolver import zoneinfo_from_name
+from marivo.analysis.timezone import resolve_system_timezone
 
 _CURRENT_SESSION: Session | None = None
 
@@ -124,50 +123,44 @@ def _build_semantic_project(project_root: Path) -> Any:
     return project
 
 
-def _resolve_session_tz(raw: str | None) -> ZoneInfo:
-    return zoneinfo_from_name(raw or "UTC")
+def _system_tz_meta() -> dict[str, Any]:
+    resolved = resolve_system_timezone()
+    return {
+        "tz": resolved.name,
+        "tz_resolution": resolved.resolution,
+        "tz_warning": resolved.warning,
+    }
 
 
 def _ensure_v1_2_meta(
     layout: PersistenceLayout,
     meta: dict[str, Any],
     *,
-    tz: str | None = None,
     default_calendar: str | None = None,
 ) -> dict[str, Any]:
     updated = dict(meta)
     changed = False
-
-    if tz is not None:
-        tz_name = str(_resolve_session_tz(tz))
-        if updated.get("tz") != tz_name:
-            updated["tz"] = tz_name
+    system_meta = _system_tz_meta()
+    previous_tz = updated.get("tz")
+    if previous_tz != system_meta["tz"] and isinstance(previous_tz, str):
+        updated["previous_tz"] = previous_tz
+        changed = True
+    for key, value in system_meta.items():
+        if updated.get(key) != value:
+            updated[key] = value
             changed = True
-    else:
-        if "tz" not in updated:
-            updated["tz"] = "UTC"
-            changed = True
-        tz_name = str(_resolve_session_tz(updated["tz"]))
-        if updated["tz"] != tz_name:
-            updated["tz"] = tz_name
-            changed = True
-
-    if default_calendar is not None:
-        if updated.get("default_calendar") != default_calendar:
-            updated["default_calendar"] = default_calendar
-            changed = True
+    if default_calendar is not None and updated.get("default_calendar") != default_calendar:
+        updated["default_calendar"] = default_calendar
+        changed = True
     elif "default_calendar" not in updated:
         updated["default_calendar"] = None
         changed = True
-
     if "known_calendars" not in updated:
         updated["known_calendars"] = []
         changed = True
-
     if changed:
         updated["updated_at"] = _now()
         write_session_meta(layout, updated)
-
     return updated
 
 
@@ -176,14 +169,12 @@ def _session_from_row(
     project_root: Path,
     row: sqlite3.Row | dict[str, Any],
     factory: Callable[[str], Any] | None,
-    tz: str | None = None,
     default_calendar: str | None = None,
 ) -> Session:
     layout = PersistenceLayout(project_root=project_root, session_id=row["id"])
     meta = _ensure_v1_2_meta(
         layout,
         read_session_meta(layout),
-        tz=tz,
         default_calendar=default_calendar,
     )
     return Session(
@@ -198,7 +189,7 @@ def _session_from_row(
         backend_factory=factory,
         layout=layout,
         semantic_project=_build_semantic_project(project_root),
-        tz=_resolve_session_tz(meta["tz"]),
+        tz=resolve_system_timezone().tz,
         default_calendar=meta.get("default_calendar"),
         known_calendars=set(meta.get("known_calendars", [])),
         known_datasources=set(meta.get("known_datasources", [])),
@@ -219,7 +210,6 @@ def create(
     question: str | None = None,
     set_active: bool = True,
     *,
-    timezone: str | None = None,
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
@@ -236,8 +226,6 @@ def create(
         question: Optional guiding question for the analysis.
         set_active: Whether to mark this session as the project-wide active
             session (persisted to disk).
-        timezone: IANA timezone string (e.g. ``"Asia/Shanghai"``). Defaults to
-            the system timezone.
         default_calendar: Default calendar name for time-based analysis.
         backends: Explicit mapping of datasource name to zero-arg factory
             callable returning an ibis backend. Use for a fixed set of
@@ -259,7 +247,6 @@ def create(
     sid = _gen_session_id()
     now = _now()
     cwd = str(Path.cwd())
-    tz_name = str(_resolve_session_tz(timezone))
 
     with closing(_connect_index(project_root)) as conn:
         try:
@@ -287,7 +274,7 @@ def create(
             "created_at": now,
             "updated_at": now,
             "project_root": str(project_root),
-            "tz": tz_name,
+            **_system_tz_meta(),
             "default_calendar": default_calendar,
             "known_calendars": [],
             "known_datasources": [],
@@ -315,7 +302,6 @@ def create(
 def attach(
     name: str,
     *,
-    timezone: str | None = None,
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
@@ -329,7 +315,6 @@ def attach(
 
     Args:
         name: Name of the existing session to attach to.
-        timezone: Override the session timezone for this attachment.
         default_calendar: Override the default calendar for this attachment.
         backends: Explicit mapping of datasource name to zero-arg factory
             callable returning an ibis backend.
@@ -357,7 +342,6 @@ def attach(
         factory=_compile_backend_factory(
             backends, backend_factory, use_datasources=use_datasources
         ),
-        tz=timezone,
         default_calendar=default_calendar,
     )
     global _CURRENT_SESSION
@@ -370,7 +354,6 @@ def get_or_create(
     question: str | None = None,
     set_active: bool = True,
     *,
-    timezone: str | None = None,
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
@@ -388,7 +371,6 @@ def get_or_create(
         question: Guiding question (only used when creating a new session).
         set_active: Whether to mark this session as the project-wide active
             session.
-        timezone: IANA timezone string for the session.
         default_calendar: Default calendar name for time-based analysis.
         backends: Explicit mapping of datasource name to zero-arg factory
             callable returning an ibis backend.
@@ -407,7 +389,6 @@ def get_or_create(
             name=name,
             question=question,
             set_active=set_active,
-            timezone=timezone,
             default_calendar=default_calendar,
             backends=backends,
             backend_factory=backend_factory,
@@ -415,7 +396,6 @@ def get_or_create(
         )
     session = attach(
         name=name,
-        timezone=timezone,
         default_calendar=default_calendar,
         backends=backends,
         backend_factory=backend_factory,
@@ -429,7 +409,6 @@ def get_or_create(
 def switch(
     name: str,
     *,
-    timezone: str | None = None,
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
@@ -444,7 +423,6 @@ def switch(
 
     Args:
         name: Name of the existing session to switch to.
-        timezone: Override the session timezone for this attachment.
         default_calendar: Override the default calendar for this attachment.
         backends: Explicit mapping of datasource name to zero-arg factory
             callable returning an ibis backend.
@@ -468,7 +446,6 @@ def switch(
         raise SessionStateError(message=f"session '{name}' is archived; cannot make it active")
     session = attach(
         name=name,
-        timezone=timezone,
         default_calendar=default_calendar,
         backends=backends,
         backend_factory=backend_factory,
@@ -538,7 +515,6 @@ def active_or_create(
     name_hint: str,
     question: str | None = None,
     *,
-    timezone: str | None = None,
     default_calendar: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
@@ -550,16 +526,14 @@ def active_or_create(
         return create(
             name=name_hint,
             question=question,
-            timezone=timezone,
             default_calendar=default_calendar,
             backends=backends,
             backend_factory=backend_factory,
             use_datasources=use_datasources,
         )
-    if timezone is not None or default_calendar is not None:
+    if default_calendar is not None:
         return attach(
             name=sess.name,
-            timezone=timezone,
             default_calendar=default_calendar,
             backends=backends,
             backend_factory=backend_factory,

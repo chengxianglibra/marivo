@@ -100,12 +100,14 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 | --- | --- |
 | Check active session without raising | `mv.session.current()` |
 | Read recent jobs | `session.recent_jobs(limit=5)` |
-| Create or attach a session (idempotent) | `mv.session.get_or_create(name=..., timezone="Asia/Shanghai")` |
+| Create or attach a session (idempotent) | `mv.session.get_or_create(name=...)` |
 | List sessions | `mv.session.list()` |
 | Attach live data | `mv.session.get_or_create(name=..., backend_factory=...)` |
-| Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` or `mv.help(format="json")` |
-| Inspect calendar file shape | `mv.help("calendar")` or `mv.help("calendar", format="json")` |
+| Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` |
+| Inspect calendar file shape | `mv.help("calendar")` |
 | Confirm metric ids | `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()` |
+
+Relative windows and calendar alignment use the Python process system timezone. If a naive warehouse timestamp physically stores UTC, declare it in the semantic layer with `@ms.time_field(..., timezone="UTC")`.
 
 Metric refs wrap exact ids such as `mv.MetricRef("model.metric")`. Do not guess
 ids from metric display names; call `project.list_metrics()` after loading the
@@ -169,7 +171,6 @@ rejected. Use `holiday_id` to match the same business holiday across years:
 ```json
 {
   "name": "cn_holidays",
-  "timezone": "Asia/Shanghai",
   "holidays": [
     {"date": "2026-05-01", "holiday_id": "labor-day"}
   ],

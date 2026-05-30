@@ -105,8 +105,8 @@ def failed_count(orders):
 @ms.metric(
     datasets=[],
     decomposition=ms.ratio(
-        numerator=failed_count,
-        denominator=total_count,
+        numerator="sales.failed_count",
+        denominator="sales.total_count",
     ),
     name="failure_rate",
 )

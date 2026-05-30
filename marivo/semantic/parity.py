@@ -266,22 +266,17 @@ def compute_self_status(
 
     This is Step 1 of the two-step status computation.
 
-    | declared_status    | source_sql   | last parity_check | self status    |
-    |--------------------|--------------|-------------------|----------------|
-    | "python_native"    | any          | any               | PYTHON_NATIVE  |
-    | "unverified"       | any          | any               | UNVERIFIED     |
-    | None               | absent       | no / not run      | PYTHON_NATIVE  |
-    | None               | present      | no / not run      | UNVERIFIED     |
-    | None               | any          | ok=True           | VERIFIED       |
-    | None               | any          | ok=False          | DRIFTED        |
+    | declared_status    | last parity_check | self status  |
+    |--------------------|-------------------|-------------|
+    | "python_native"    | any               | PYTHON_NATIVE|
+    | "unverified"       | any               | UNVERIFIED   |
+    | None (SQL triple)  | no / not run      | UNVERIFIED   |
+    | None               | ok=True           | VERIFIED     |
+    | None               | ok=False          | DRIFTED      |
 
-    When declared_status is None and no parity check has been run:
-    - Metrics without source_sql default to PYTHON_NATIVE (no SQL oracle exists).
-    - Metrics with source_sql default to UNVERIFIED (SQL oracle exists but has
-      not been confirmed).
-    For derived metrics, the propagated_parity_status function uses component
-    statuses to determine the effective status when the self-status is not
-    actionable.
+    For derived metrics without a declared status and no parity check,
+    the self status defaults to UNVERIFIED. The propagated_parity_status
+    function then uses component statuses to determine the effective status.
     """
     metric_ir = _get_metric_or_raise(project, metric_id)
     prov = metric_ir.provenance
@@ -297,8 +292,6 @@ def compute_self_status(
 
     if parity_result is None:
         # No parity check has been run
-        if not prov.source_sql:
-            return ParityStatus.PYTHON_NATIVE
         return ParityStatus.UNVERIFIED
 
     if parity_result.ok:
@@ -316,16 +309,10 @@ def propagated_parity_status(
     Step 1: Compute self-status from provenance and parity results.
     Step 2: For derived metrics, propagate from component statuses.
 
-    For derived metrics without source_sql, the self-status is PYTHON_NATIVE
-    (since there is no SQL oracle to verify against). This PYTHON_NATIVE
-    self-status propagates upward normally.
-
-    For derived metrics with source_sql but no parity check, the self-status
-    is UNVERIFIED. Since derived metrics cannot be directly parity-checked,
-    this UNVERIFIED is excluded from propagation -- the derived metric relies
-    on component statuses instead. An explicitly declared "unverified" also
-    produces UNVERIFIED self-status and is excluded from propagation for the
-    same reason (derived metrics cannot be parity-checked).
+    For derived metrics, the self-status UNVERIFIED (from no direct parity
+    check having been run) is not included in the propagation, since derived
+    metrics cannot be directly SQL-parity-checked. Only PYTHON_NATIVE and
+    DRIFTED self-statuses propagate upward from derived metrics.
 
     Propagation rules (derived metrics only):
     - If any status is DRIFTED -> DRIFTED

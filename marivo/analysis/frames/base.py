@@ -12,7 +12,11 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
-from marivo.analysis.errors import FrameMutationError, FrameReadError
+from marivo.analysis.errors import (
+    FrameMutationError,
+    FrameReadError,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.followups import BlockingIssue, ConfidenceScope, FollowupAction
 from marivo.analysis.lineage import Lineage
 
@@ -80,6 +84,19 @@ def _preview_cell(value: Any) -> Any:
     return value
 
 
+def assert_semantic_shape(*, got: str, expected: str, frame_kind: str) -> None:
+    """Raise SemanticKindMismatchError unless ``got`` semantic shape matches ``expected``."""
+    if got != expected:
+        raise SemanticKindMismatchError(
+            message=f"{frame_kind} semantic_shape is {got!r}, expected {expected!r}",
+            details={
+                "got_semantic_shape": got,
+                "expected_semantic_shape": expected,
+                "frame_kind": frame_kind,
+            },
+        )
+
+
 class FrameSummary(BaseModel):
     """Compact, stable summary of a frame without materializing a copy."""
 
@@ -92,6 +109,7 @@ class FrameSummary(BaseModel):
     null_ratios: dict[str, float]
     produced_by_job: str | None
     lineage_oneliner: str
+    semantic_shape: str | None = None
 
 
 class FramePreview(BaseModel):
@@ -236,6 +254,9 @@ class BaseFrame:
         step_intents = [step.intent for step in self.meta.lineage.steps]
         lineage_oneliner = " -> ".join(step_intents) if step_intents else "(empty)"
 
+        raw_shape = getattr(self.meta, "semantic_kind", None)
+        semantic_shape = raw_shape if isinstance(raw_shape, str) else None
+
         return FrameSummary(
             kind=self.meta.kind,
             ref=self.meta.ref,
@@ -244,6 +265,7 @@ class BaseFrame:
             null_ratios=null_ratios,
             produced_by_job=self.meta.produced_by_job,
             lineage_oneliner=lineage_oneliner,
+            semantic_shape=semantic_shape,
         )
 
     def __repr__(self) -> str:
@@ -253,9 +275,11 @@ class BaseFrame:
         if omitted_columns:
             header_columns.append(f"...+{omitted_columns}")
         cols = ",".join(header_columns)
+        raw_shape = getattr(self.meta, "semantic_kind", None)
+        shape_segment = f"shape={raw_shape} " if isinstance(raw_shape, str) and raw_shape else ""
         header = (
             f"<{type(self).__name__} ref={self.meta.ref} kind={self.meta.kind} "
-            f"rows={self.meta.row_count} cols=[{cols}]>"
+            f"{shape_segment}rows={self.meta.row_count} cols=[{cols}]>"
         )
         next_line: str | None = None
         intents = self.next_intents()

@@ -2,26 +2,18 @@ from __future__ import annotations
 
 import calendar
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
-from marivo.analysis.errors import TimezoneInvalidError, WindowInvalidError
+from marivo.analysis.errors import WindowInvalidError
+from marivo.analysis.timezone import zoneinfo_from_name as zoneinfo_from_name
 from marivo.analysis.windows.relative import RelativeKind, parse_relative_expr
 from marivo.analysis.windows.spec import AbsoluteWindow, RelativeWindow
 
-
-def zoneinfo_from_name(name: str) -> ZoneInfo:
-    if not isinstance(name, str):
-        raise TimezoneInvalidError(
-            message=f"timezone name must be a string, got {type(name).__name__}",
-            details={"kind": "TimezoneNameInvalid", "tz": repr(name)},
-        )
-    try:
-        return ZoneInfo(name)
-    except ZoneInfoNotFoundError as exc:
-        raise TimezoneInvalidError(
-            message=f"timezone {name!r} was not found",
-            details={"kind": "TimezoneNotFound", "tz": name},
-        ) from exc
+__all__ = [
+    "coerce_as_of",
+    "resolve_to_absolute",
+    "zoneinfo_from_name",
+]
 
 
 def coerce_as_of(raw: str | None, *, tz: ZoneInfo) -> datetime:
@@ -67,7 +59,6 @@ def resolve_to_absolute(window: RelativeWindow, *, as_of: datetime, tz: ZoneInfo
         start=start_date.isoformat(),
         end=end_date.isoformat(),
         grain=window.grain,
-        tz=window.tz,
         time_field=window.time_field,
     )
 

@@ -20,6 +20,7 @@ from tests.conftest import bootstrap_sales_project
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TZ", "UTC")
     session_attach._reset_process_state()
     yield
 
@@ -493,8 +494,8 @@ def _bootstrap_failure_rate(tmp_path):
         "@ms.metric(\n"
         "    datasets=[],\n"
         "    decomposition=ms.ratio(\n"
-        "        numerator=ms.ref('metric.sales.failed_count'),\n"
-        "        denominator=ms.ref('metric.sales.total_count'),\n"
+        "        numerator='sales.failed_count',\n"
+        "        denominator='sales.total_count',\n"
         "    ),\n"
         ")\n"
         "def failure_rate():\n"
@@ -711,3 +712,29 @@ def test_observe_strptime_integer_format_filters_correctly(tmp_path):
     df = frame.to_pandas()
     assert len(df) == 1
     assert df.iloc[0, 0] == pytest.approx(30.0)
+
+
+def test_observe_expect_shape_accepts_matching_scalar(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    mf = observe(MetricRef("sales.revenue"), expect_shape="scalar", session=s)
+
+    assert mf.meta.semantic_kind == "scalar"
+
+
+def test_observe_expect_shape_rejects_mismatch(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    # No grain and no dimensions -> predicted shape is "scalar", not "time_series".
+    with pytest.raises(SemanticKindMismatchError) as excinfo:
+        observe(MetricRef("sales.revenue"), expect_shape="time_series", session=s)
+
+    rendered = str(excinfo.value)
+    assert "time_series" in rendered
+    assert "scalar" in rendered

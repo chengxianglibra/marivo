@@ -10,6 +10,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, Literal, cast
+from zoneinfo import ZoneInfo
 
 from marivo.analysis.errors import (
     AmbiguousDimensionError,
@@ -37,6 +38,7 @@ from marivo.analysis.executor.runner import (
 )
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.intents._shape import SemanticShape, observe_output_shape
 from marivo.analysis.intents._types import SliceValue
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.refs import DimensionRef, MetricRef
@@ -51,7 +53,6 @@ from marivo.analysis.session.persistence import (
 from marivo.analysis.windows.resolver import (
     coerce_as_of,
     resolve_to_absolute,
-    zoneinfo_from_name,
 )
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
@@ -85,11 +86,13 @@ class _TimeFieldMetaAdapter:
         granularity: str,
         format: str | None = None,
         required_prefix: str | None = None,
+        timezone: str | None = None,
     ) -> None:
         self.data_type = data_type
         self.granularity = granularity
         self.format = format
         self.required_prefix = required_prefix
+        self.timezone = timezone
 
 
 class _FieldIRAdapter:
@@ -173,6 +176,7 @@ def _build_dataset_adapter(
             granularity=tf_ir.granularity or "day",
             format=tf_ir.format,
             required_prefix=tf_ir.required_prefix,
+            timezone=tf_ir.timezone,
         )
         adapter = _FieldIRAdapter(
             semantic_id=tf_ir.semantic_id,
@@ -321,11 +325,9 @@ def _resolve_window(
         return None, None, None
     if isinstance(window_in, AbsoluteWindow):
         return window_in, None, None
-    effective_tz = session.tz
-    if window_in.tz is not None:
-        effective_tz = zoneinfo_from_name(window_in.tz)
-    as_of_dt = coerce_as_of(window_in.as_of, tz=effective_tz)
-    resolved = resolve_to_absolute(window_in, as_of=as_of_dt, tz=effective_tz)
+    session_tz = cast("ZoneInfo", session.tz)
+    as_of_dt = coerce_as_of(window_in.as_of, tz=session_tz)
+    resolved = resolve_to_absolute(window_in, as_of=as_of_dt, tz=session_tz)
     return resolved, window_in, as_of_dt.isoformat()
 
 
@@ -681,7 +683,7 @@ def _observe_derived_grouped(
             table,
             resolved_window,
             dataset_ir=ds_adapter,
-            session_tz=session.tz,
+            session_tz=cast("ZoneInfo", session.tz),
         )
         if dimension_dataset is not None and base_dataset != dimension_dataset:
             table = _join_related_dimension_table(
@@ -697,7 +699,7 @@ def _observe_derived_grouped(
             table,
             field_ir=time_field_ir,
             window=resolved_window,
-            session_tz=session.tz,
+            session_tz=cast("ZoneInfo", session.tz),
         )
         if resolved_dimensions:
             dimension_exprs = {
@@ -989,7 +991,7 @@ def _observe_derived_scalar(
                 table,
                 resolved_window,
                 dataset_ir=ds_adapter,
-                session_tz=session.tz,
+                session_tz=cast("ZoneInfo", session.tz),
             )
             dataset_tables[dataset_id] = table
             session.known_datasources.add(datasource_name)
@@ -1074,6 +1076,7 @@ def observe(
     window: WindowInput = None,
     dimensions: list[DimensionRef] | None = None,
     where: dict[str, SliceValue] | None = None,
+    expect_shape: SemanticShape | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
     """Materialize a metric into a typed MetricFrame.
@@ -1095,6 +1098,9 @@ def observe(
         where: Pre-aggregation row filter. Values are either a scalar (``==``),
             a list (``in``), or ``{"op": "<op>", "value": ...}`` where op is
             one of ``==, !=, in, >, >=, <, <=, between``.
+        expect_shape: Optional guard. If set, observe predicts the output shape
+            from ``window``/``dimensions`` and raises ``SemanticKindMismatchError``
+            before any backend work when the prediction differs.
         session: Defaults to the currently-attached session.
 
     Raises:
@@ -1167,6 +1173,22 @@ def observe(
     stored_where = normalize_slice_for_storage(where)
     metric_datasets = tuple(metric_ir.datasets)
     dimension_refs = _validate_dimension_refs(dimensions)
+    if expect_shape is not None:
+        predicted_shape = observe_output_shape(
+            has_grain=is_time_series, has_dimensions=bool(dimension_refs)
+        )
+        if predicted_shape != expect_shape:
+            raise SemanticKindMismatchError(
+                message=(
+                    f"observe will produce semantic_shape {predicted_shape!r} for these "
+                    f"inputs, but expect_shape={expect_shape!r} was requested"
+                ),
+                details={
+                    "intent": "observe",
+                    "predicted_semantic_shape": predicted_shape,
+                    "expect_shape": expect_shape,
+                },
+            )
     if metric_ir.is_derived and is_time_series and resolved_window is not None:
         result, component_df, grouped_axes, grouped_kind = _observe_derived_grouped(
             metric_ir,
@@ -1443,26 +1465,7 @@ def observe(
             semantic_model=model_name,
         )
         frame = MetricFrame(_df=result.df, meta=meta)
-        frame = cast(
-            "MetricFrame",
-            commit_result(
-                store=session.evidence_store(),
-                frames_dir=session.layout.frames_dir,
-                frame=frame,
-                step_type="observe",
-                inputs=CommitInputs(input_refs=[]),
-                params=CommitParams(values=params),
-                semantic_anchors=CommitSemanticAnchors(
-                    values={"metric_id": metric_id, "model": model_name}
-                ),
-                subject=Subject(
-                    metric=metric_id,
-                    slice=stored_where or {},
-                    analysis_axis=_analysis_axis_for_kind(segmented_kind),
-                ),
-                extractor_family="metric_frame",
-            ),
-        )
+        frame.meta = cast("MetricFrameMeta", write_frame_to_disk(session.layout, frame))
         if component_df is not None:
             component = _persist_metric_component_frame(
                 session=session,
@@ -1487,7 +1490,7 @@ def observe(
                 "intent": "observe",
                 "params": params,
                 "input_frame_refs": [],
-                "output_frame_ref": frame.meta.artifact_id or frame.ref,
+                "output_frame_ref": frame_ref,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),
                 "duration_ms": int((monotonic() - started) * 1000),
@@ -1546,7 +1549,7 @@ def observe(
             table,
             resolved_window,
             dataset_ir=ds_adapter,
-            session_tz=session.tz,
+            session_tz=cast("ZoneInfo", session.tz),
         )
         dataset_tables[dataset_name] = table
         session.known_datasources.add(datasource_name)
@@ -1565,7 +1568,7 @@ def observe(
             dataset_tables[dataset_name],
             field_ir=time_field_ir,
             window=resolved_window,
-            session_tz=session.tz,
+            session_tz=cast("ZoneInfo", session.tz),
         )
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
         dimension_exprs = {
@@ -1616,7 +1619,7 @@ def observe(
             dataset_tables[dataset_name],
             field_ir=time_field_ir,
             window=resolved_window,
-            session_tz=session.tz,
+            session_tz=cast("ZoneInfo", session.tz),
         )
         dataset_tables[dataset_name] = bucketed_table
         metric_expr = _call_metric(

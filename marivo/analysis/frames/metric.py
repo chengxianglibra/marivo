@@ -7,11 +7,12 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
+from zoneinfo import ZoneInfo
 
 from pydantic import ConfigDict
 
 from marivo.analysis.errors import ComponentFrameUnavailableError
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, assert_semantic_shape
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.windows import (
     AbsoluteWindow,
@@ -20,7 +21,6 @@ from marivo.analysis.windows import (
     dump_window,
     normalize_window_input,
     resolve_to_absolute,
-    zoneinfo_from_name,
 )
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ class MetricFrameMeta(BaseFrameMeta):
     decomposition: dict[str, Any] | None = None
 
 
-@dataclass
+@dataclass(repr=False)
 class MetricFrame(BaseFrame):
     meta: MetricFrameMeta
 
@@ -59,6 +59,35 @@ class MetricFrame(BaseFrame):
         "hypothesis_test",
         "forecast",
     )
+
+    @property
+    def semantic_shape(self) -> Literal["scalar", "time_series", "segmented", "panel"]:
+        """The frame's semantic shape (distinct from .shape, the dataframe dims)."""
+        return self.meta.semantic_kind
+
+    def as_scalar(self) -> MetricFrame:
+        assert_semantic_shape(
+            got=self.meta.semantic_kind, expected="scalar", frame_kind=self.meta.kind
+        )
+        return self
+
+    def as_time_series(self) -> MetricFrame:
+        assert_semantic_shape(
+            got=self.meta.semantic_kind, expected="time_series", frame_kind=self.meta.kind
+        )
+        return self
+
+    def as_segmented(self) -> MetricFrame:
+        assert_semantic_shape(
+            got=self.meta.semantic_kind, expected="segmented", frame_kind=self.meta.kind
+        )
+        return self
+
+    def as_panel(self) -> MetricFrame:
+        assert_semantic_shape(
+            got=self.meta.semantic_kind, expected="panel", frame_kind=self.meta.kind
+        )
+        return self
 
     @classmethod
     def from_dataframe(
@@ -82,13 +111,10 @@ class MetricFrame(BaseFrame):
         window_in = normalize_window_input(window)
         resolved_window: AbsoluteWindow | None
         if isinstance(window_in, RelativeWindow):
-            effective_tz = session.tz
-            if window_in.tz is not None:
-                effective_tz = zoneinfo_from_name(window_in.tz)
             resolved_window = resolve_to_absolute(
                 window_in,
-                as_of=coerce_as_of(window_in.as_of, tz=effective_tz),
-                tz=effective_tz,
+                as_of=coerce_as_of(window_in.as_of, tz=cast("ZoneInfo", session.tz)),
+                tz=cast("ZoneInfo", session.tz),
             )
         else:
             resolved_window = window_in

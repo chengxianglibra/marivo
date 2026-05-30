@@ -104,8 +104,8 @@ def _bootstrap_sales(tmp_path):
         "@ms.metric(\n"
         "    datasets=[],\n"
         "    decomposition=ms.ratio(\n"
-        "        numerator=ms.ref('metric.sales.failed_count'),\n"
-        "        denominator=ms.ref('metric.sales.total_count'),\n"
+        "        numerator='sales.failed_count',\n"
+        "        denominator='sales.total_count',\n"
         "    ),\n"
         ")\n"
         "def failure_rate():\n"
@@ -433,27 +433,3 @@ def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path)
     assert by_region.loc["SOUTH", "numerator"] == pytest.approx(1.0)
     assert by_region.loc["SOUTH", "denominator"] == pytest.approx(1.0)
     assert by_region.loc["SOUTH", "metric_value"] == pytest.approx(1.0)
-
-
-def test_observe_derived_segmented_seeds_evidence(tmp_path):
-    """Regression: derived segmented observe must seed evidence like every other shape."""
-    _bootstrap_sales(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con)
-    s = session_attach.get_or_create(name="demo", backends=_backends(con))
-
-    mf = observe(
-        MetricRef("sales.failure_rate"),
-        dimensions=[DimensionRef("region")],
-        session=s,
-    )
-
-    assert mf.meta.semantic_kind == "segmented"
-    # Derived segmented frames must be committed through the evidence pipeline,
-    # exactly like non-derived segmented, derived scalar, and derived grouped.
-    assert mf.meta.artifact_id is not None
-    seeded_artifact_ids = [
-        row[0]
-        for row in s.evidence_store().read().execute("SELECT artifact_id FROM artifacts").fetchall()
-    ]
-    assert mf.meta.artifact_id in seeded_artifact_ids

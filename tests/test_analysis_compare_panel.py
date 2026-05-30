@@ -278,7 +278,6 @@ def _write_calendar(tmp_path):
         json.dumps(
             {
                 "name": "cn_holidays",
-                "timezone": "Asia/Shanghai",
                 "holidays": [],
                 "adjusted_workdays": [],
             }
@@ -357,7 +356,7 @@ def test_compare_panel_window_bucket_outer_joins_bucket_keys():
 
 def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_columns(tmp_path):
     _write_calendar(tmp_path)
-    s = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
+    s = session_attach.get_or_create(name="demo")
     current = _panel_metric(
         s,
         [
@@ -441,14 +440,13 @@ def test_compare_calendar_panel_ratio_persists_component_delta(tmp_path):
         json.dumps(
             {
                 "name": "cn_holidays",
-                "timezone": "Asia/Shanghai",
                 "holidays": [],
                 "adjusted_workdays": [],
             }
         ),
         encoding="utf-8",
     )
-    s = session_attach.get_or_create(name="demo", timezone="Asia/Shanghai")
+    s = session_attach.get_or_create(name="demo")
     current = _component_panel_metric(
         s,
         ref="frame_current_panel_ratio",

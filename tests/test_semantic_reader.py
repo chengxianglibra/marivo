@@ -107,7 +107,7 @@ _DERIVED_METRIC_MODEL_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[],
-        decomposition=ms.weighted_average(value=ms.ref("metric.sales.revenue"), weight=ms.ref("metric.sales.count_metric")),
+        decomposition=ms.weighted_average(value="sales.revenue", weight="sales.count_metric"),
     )
     def aov():
         return ms.component("numerator") / ms.component("weight")

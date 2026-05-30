@@ -423,7 +423,6 @@ def test_promote_metric_frame_resolves_relative_window_to_absolute():
         "start": "2026-05-20",
         "end": "2026-05-26",
         "grain": "day",
-        "tz": None,
         "time_field": None,
     }
 

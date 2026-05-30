@@ -15,6 +15,7 @@ from marivo.analysis.windows.spec import WindowInput
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
     session_attach._reset_process_state()
     yield
 
@@ -152,7 +153,6 @@ def test_relative_window_without_grain_stays_scalar(tmp_path):
     _seed_sales_orders(con)
     s = session_attach.get_or_create(
         name="demo",
-        timezone="Asia/Shanghai",
         backends={"warehouse": lambda: con},
     )
 
@@ -184,7 +184,6 @@ def test_relative_window_with_grain_returns_time_series(tmp_path):
     _seed_sales_orders(con)
     s = session_attach.get_or_create(
         name="demo",
-        timezone="Asia/Shanghai",
         backends={"warehouse": lambda: con},
     )
 
@@ -212,7 +211,6 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
     _seed_multi_dataset(con)
     s = session_attach.get_or_create(
         name="demo",
-        timezone="Asia/Shanghai",
         backends={"warehouse": lambda: con},
     )
 
@@ -234,7 +232,6 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
     _seed_sales_orders(con)
     s = session_attach.get_or_create(
         name="demo",
-        timezone="Asia/Shanghai",
         backends={"warehouse": lambda: con},
     )
 
@@ -254,7 +251,6 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
         "start": "2026-05-01",
         "end": "2026-05-24",
         "grain": "day",
-        "tz": None,
         "time_field": None,
     }
     assert frame.meta.window == window_params["resolved"]
@@ -266,7 +262,6 @@ def test_date_time_series_day_bucket_respects_session_tz(tmp_path):
     _seed_epoch_seconds(con)
     s = session_attach.get_or_create(
         name="demo",
-        timezone="Asia/Shanghai",
         backends={"warehouse": lambda: con},
     )
 

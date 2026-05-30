@@ -2,7 +2,7 @@
 """Template: start an analysis from a real Marivo project.
 
 Copy this into a project that already has `.marivo/semantic/` definitions.
-Replace the session name, metric id, timezone, calendar, and window values
+Replace the session name, metric id, calendar, and window values
 with the project-specific analysis target.
 """
 
@@ -13,7 +13,6 @@ import marivo.semantic as ms
 
 session_name = "revenue-investigation"
 metric_id = "sales.revenue"
-timezone = "Asia/Shanghai"
 default_calendar = "cn_holidays"
 window = {"start": "2026-05-01", "end": "2026-05-31", "grain": "day"}
 
@@ -33,7 +32,6 @@ if metric_id not in available_metric_ids:
 
 session = mv.session.get_or_create(
     name=session_name,
-    timezone=timezone,
     default_calendar=default_calendar,
 )
 
