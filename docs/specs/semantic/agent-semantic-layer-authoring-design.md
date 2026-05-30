@@ -493,7 +493,7 @@ import marivo.analysis as mv
 preview = mv.datasources.preview(
     datasource="warehouse",
     table="orders",
-    database=("hive", "sales_mart"),
+    database="sales_mart",
     columns=["order_id", "created_at", "amount", "status"],
     limit=20,
     where=[

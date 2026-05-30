@@ -10,28 +10,8 @@ from marivo.analysis.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceEnvVarMissingError,
     DatasourceFieldInvalidError,
-    DatasourceMissingError,
 )
-from marivo.datasource.fdn import ValidatingBackend, validate_fdn
 from marivo.datasource.ir import DatasourceIR
-
-# Re-export private names for backward compatibility with existing tests
-_FDN_MIN_DOTS = {
-    "trino": 2,
-    "mysql": 1,
-    "postgres": 1,
-    "clickhouse": 1,
-}
-
-_FDN_FORMAT_HINT = {
-    "trino": "catalog.schema.table (e.g. 'hive.sales.orders')",
-    "mysql": "database.table (e.g. 'sales_db.orders')",
-    "postgres": "database.table (e.g. 'sales_db.orders')",
-    "clickhouse": "database.table (e.g. 'analytics_db.orders')",
-}
-
-_validate_fdn = validate_fdn
-_ValidatingBackend = ValidatingBackend
 
 SUPPORTED_BACKEND_TYPES: Final[tuple[str, ...]] = (
     "duckdb",
@@ -103,26 +83,6 @@ def build_backend(datasource: DatasourceIR) -> Any:
     )
 
 
-def build_validating_backend(datasource_name: str) -> _ValidatingBackend:
-    """Open and return a validating ibis backend wrapper for the named datasource.
-
-    The wrapper enforces FDN rules on ``.table(name)`` calls.
-    """
-    from marivo.analysis.datasources.store import load_one
-
-    datasource_ir = load_one(datasource_name)
-    if datasource_ir is None:
-        raise DatasourceMissingError(
-            message=f"datasource {datasource_name!r} is not configured",
-            details={
-                "datasource": datasource_name,
-                "available": [],
-            },
-        )
-    backend = build_backend(datasource_ir)
-    return _ValidatingBackend(backend, datasource_ir.backend_type, datasource_ir.name)
-
-
 def _require(name: str, kwargs: Mapping[str, Any], key: str) -> Any:
     if key not in kwargs:
         raise DatasourceFieldInvalidError(
@@ -145,10 +105,10 @@ def _build_trino(name: str, kwargs: Mapping[str, Any]) -> Any:
 
     host = _require(name, kwargs, "host")
     catalog = _require(name, kwargs, "catalog")
-    connect_kwargs: dict[str, Any] = {"host": host, "database": catalog}
-    for key in ("port", "user", "schema", "source", "http_scheme", "password"):
-        if key in kwargs:
-            connect_kwargs[key] = kwargs[key]
+    connect_kwargs: dict[str, Any] = dict(kwargs)
+    connect_kwargs.pop("catalog", None)
+    connect_kwargs["host"] = host
+    connect_kwargs["database"] = catalog
     if "client_tags" in kwargs:
         tags = kwargs["client_tags"]
         if isinstance(tags, str):
@@ -163,12 +123,10 @@ def _build_mysql(name: str, kwargs: Mapping[str, Any]) -> Any:
     import ibis
 
     host = _require(name, kwargs, "host")
-    user = _require(name, kwargs, "user")
     database = _require(name, kwargs, "database")
-    connect_kwargs: dict[str, Any] = {"host": host, "user": user, "database": database}
-    for key in ("port", "password"):
-        if key in kwargs:
-            connect_kwargs[key] = kwargs[key]
+    connect_kwargs: dict[str, Any] = dict(kwargs)
+    connect_kwargs["host"] = host
+    connect_kwargs["database"] = database
     return ibis.mysql.connect(**connect_kwargs)
 
 
@@ -176,12 +134,10 @@ def _build_postgres(name: str, kwargs: Mapping[str, Any]) -> Any:
     import ibis
 
     host = _require(name, kwargs, "host")
-    user = _require(name, kwargs, "user")
     database = _require(name, kwargs, "database")
-    connect_kwargs: dict[str, Any] = {"host": host, "user": user, "database": database}
-    for key in ("port", "password", "schema"):
-        if key in kwargs:
-            connect_kwargs[key] = kwargs[key]
+    connect_kwargs: dict[str, Any] = dict(kwargs)
+    connect_kwargs["host"] = host
+    connect_kwargs["database"] = database
     return ibis.postgres.connect(**connect_kwargs)
 
 
@@ -189,12 +145,10 @@ def _build_clickhouse(name: str, kwargs: Mapping[str, Any]) -> Any:
     import ibis
 
     host = _require(name, kwargs, "host")
-    connect_kwargs: dict[str, Any] = {"host": host}
+    connect_kwargs: dict[str, Any] = dict(kwargs)
+    connect_kwargs["host"] = host
     connect_kwargs["database"] = kwargs.get("database", "default")
     connect_kwargs["user"] = kwargs.get("user", "default")
-    for key in ("port", "password", "client_name", "compression"):
-        if key in kwargs:
-            connect_kwargs[key] = kwargs[key]
     if "secure" in kwargs:
         connect_kwargs["secure"] = bool(kwargs["secure"])
     if "settings" in kwargs and isinstance(kwargs["settings"], dict):

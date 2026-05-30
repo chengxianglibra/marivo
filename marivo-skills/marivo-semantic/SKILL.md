@@ -50,6 +50,18 @@ import marivo.semantic as ms
 # import marivo.datasource as md
 # md.datasource(name="tiny_orders", backend_type="duckdb", path=":memory:")
 #
+# For Trino, keep catalog on the connection and pass schema per table:
+# md.datasource(
+#     name="warehouse",
+#     backend_type="trino",
+#     host="trino.example.internal",
+#     port=8080,
+#     catalog="hive",
+#     source="marivo",
+#     client_tags=["agent", "semantic-authoring"],
+#     user_env="TRINO_USER",
+# )
+#
 # In a _model.py file inside .marivo/semantic/sales/:
 ms.model(name="sales")
 
@@ -120,6 +132,9 @@ time fields, metrics, or relationships until this checklist is done.
 3. Fetch schema, comments, and metadata.
 
    Use `mv.datasources.inspect_table(...)` before declaring a new dataset.
+   For Trino, pass the table name and schema the same way you would call Ibis,
+   for example
+   `mv.datasources.inspect_table("warehouse", table="orders", database="sales_mart")`.
    `table.schema()` returns types but not comments. Table comments, column
    comments, nullable flags, and supplied knowledge are primary sources for
    business meaning.
@@ -218,7 +233,26 @@ metadata with `mv.datasources.register(...)` or by writing
 import marivo.datasource as md
 
 md.datasource(name="<datasource_name>", backend_type="duckdb", path=":memory:")
+
+md.datasource(
+    name="warehouse",
+    backend_type="trino",
+    host="<trino_host>",
+    port=8080,
+    catalog="hive",
+    source="marivo",
+    client_tags=["agent", "semantic-authoring"],
+    user_env="TRINO_USER",
+    password_env="TRINO_PASSWORD",
+)
 ```
+
+For Trino, `catalog` maps to the Ibis connection `database` and is required.
+`schema` is optional connection default; prefer specifying the schema at table
+access time with `backend.table("orders", database="sales_mart")`.
+Sensitive literal fields such as `user`, `password`, `auth`, `token`, `secret`,
+`secret_key`, `access_key`, `private_key`, `passphrase`, and `api_key` are
+rejected; use `<field>_env="ENV_VAR"`.
 
 ### Declare a Dataset
 
@@ -230,6 +264,11 @@ import marivo.semantic as ms
 @ms.dataset(name="<dataset_name>", datasource="<datasource_name>", primary_key=["<pk_col>"])
 def <dataset_name>(backend):
     return backend.table("<physical_table>")
+
+
+@ms.dataset(name="orders", datasource="warehouse", primary_key=["order_id"])
+def orders(backend):
+    return backend.table("orders", database="sales_mart")
 ```
 
 ### Define an Aggregate Metric

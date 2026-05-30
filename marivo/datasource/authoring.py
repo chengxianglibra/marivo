@@ -37,6 +37,7 @@ SENSITIVE_FIELD_STEMS = frozenset(
         "secret",
         "secret_key",
         "access_key",
+        "auth",
         "private_key",
         "passphrase",
         "api_key",

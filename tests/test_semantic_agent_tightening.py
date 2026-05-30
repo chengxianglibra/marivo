@@ -25,6 +25,29 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     assert "target preview APIs until they exist" not in skill
 
 
+def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
+    skill = _read("marivo-skills/marivo-semantic/SKILL.md")
+    workflow = _read("marivo-skills/marivo-semantic/references/authoring-workflow.md")
+    datasource = _read("marivo-skills/marivo-semantic/references/datasource.md")
+
+    combined = "\n".join((skill, workflow, datasource))
+    assert 'backend_type="trino"' in combined
+    assert "client_tags" in combined
+    assert "user_env" in combined
+    assert 'table="orders", database="sales_mart"' in combined
+    assert 'backend.table("orders", database="sales_mart")' in combined
+    assert 'database="sales_mart"' in combined
+    assert "backend.list_tables(database=" in combined
+    assert "backend.list_schemas()" in combined
+    assert "schema` is optional" in datasource
+    assert "catalog.schema.table" not in combined
+    assert "does not accept `database=`" not in combined
+    assert "do not pass `database=`" not in combined
+    assert "FDN" not in combined
+    assert "mv.datasources.all()" in combined
+    assert "mv.datasources.list()" not in combined
+
+
 def test_design_spec_marks_remaining_phases_implemented() -> None:
     spec = _read("docs/specs/semantic/agent-semantic-layer-authoring-design.md")
 

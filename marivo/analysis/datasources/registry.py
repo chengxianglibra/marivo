@@ -283,7 +283,7 @@ def test(name: str) -> DatasourceTestResult:
     backend: Any | None = None
     try:
         backend = build_backend(name)
-        backend.list_tables()
+        backend.raw_sql("SELECT 1")
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(name=name, ok=True, error=None, latency_ms=latency_ms)
     except Exception as exc:

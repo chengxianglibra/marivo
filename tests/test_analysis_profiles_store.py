@@ -75,6 +75,17 @@ def test_save_rejects_plaintext_user() -> None:
     assert exc_info.value.details["field"] == "user"
 
 
+def test_save_rejects_plaintext_auth() -> None:
+    with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
+        datasource_store.save_one(
+            name="wh",
+            backend_type="trino",
+            fields={"host": "h", "catalog": "c", "auth": "literal-token"},
+        )
+    assert exc_info.value.details["field"] == "auth"
+    assert "auth_env" in str(exc_info.value)
+
+
 def test_save_rejects_empty_backend_type() -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_store.save_one(name="wh", backend_type="", fields={"path": ":memory:"})

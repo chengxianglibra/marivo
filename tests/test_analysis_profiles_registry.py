@@ -57,6 +57,37 @@ def test_describe_redacts_secrets(project_root: Path) -> None:
     assert desc.env_refs == {"password": "TRINO_PASSWORD"}
 
 
+def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mv.datasources.register("wh", backend_type="trino", host="trino.example", catalog="hive")
+
+    class _FakeBackend:
+        disconnected = False
+
+        def raw_sql(self, sql: str):
+            assert sql == "SELECT 1"
+            return object()
+
+        def list_tables(self):
+            raise AssertionError("list_tables requires a default schema for Trino")
+
+        def disconnect(self) -> None:
+            self.disconnected = True
+
+    backend = _FakeBackend()
+    import marivo.analysis.datasources.registry as registry_mod
+
+    monkeypatch.setattr(registry_mod, "build_backend", lambda _name: backend)
+
+    result = mv.datasources.test("wh")
+
+    assert result.ok is True
+    assert result.error is None
+    assert backend.disconnected is True
+
+
 def test_describe_missing_raises_with_hint(project_root: Path) -> None:
     with pytest.raises(DatasourceMissingError) as exc_info:
         mv.datasources.describe("nope")
