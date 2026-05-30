@@ -131,8 +131,9 @@ frames.
   uses ratio mix attribution.
 - If the linked component frame has `decomposition_kind = "weighted_average"`,
   decompose uses weighted mix attribution.
-- Component-aware decompose explains the main `delta` column only. Passing a
-  non-default `measure_column` is supported only on the existing sum path.
+- Decompose always attributes the `delta` column. The `measure_column`
+  parameter was removed (it answers "who contributed to the *change*"), so
+  there is no per-call measure selector on any path.
 
 Component-aware attribution output remains one row per segment. Common columns:
 
@@ -203,4 +204,3 @@ Add focused tests for:
 - Existing sum metric compare/decompose tests continue to pass unchanged.
 - Analysis skill examples and user-facing docs include a ratio mix
   decomposition example using `frame.components()`.
-

@@ -386,11 +386,10 @@ class Session:
         frame: Any,
         *,
         axis: Any,
-        measure_column: str = "delta",
     ) -> Any:
         from marivo.analysis.intents.decompose import decompose
 
-        return decompose(frame, axis=axis, measure_column=measure_column, session=self)
+        return decompose(frame, axis=axis, session=self)
 
     def validate(self, intent: str, *frames: Any, **params: Any) -> list[Any]:
         """Run pre-submit shape/policy validators over concrete in-hand frames.

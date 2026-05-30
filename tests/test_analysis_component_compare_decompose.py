@@ -426,30 +426,6 @@ def test_decompose_component_aware_ratio_with_no_valid_denominators_raises():
         session.decompose(delta, axis=DimensionRef("region"))
 
 
-def test_decompose_component_aware_delta_rejects_non_default_measure_column():
-    session = session_attach.get_or_create(name="demo")
-    current = _component_aware_metric(
-        session,
-        ref="frame_current",
-        rows=[{"region": "NORTH", "failure_rate": 0.25}],
-        component_rows=[
-            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "metric_value": 0.25}
-        ],
-    )
-    baseline = _component_aware_metric(
-        session,
-        ref="frame_baseline",
-        rows=[{"region": "NORTH", "failure_rate": 0.10}],
-        component_rows=[
-            {"region": "NORTH", "numerator": 10.0, "denominator": 100.0, "metric_value": 0.10}
-        ],
-    )
-    delta = session.compare(current, baseline)
-
-    with pytest.raises(ComponentDecompositionError):
-        session.decompose(delta, axis=DimensionRef("region"), measure_column="pct_change")
-
-
 def test_compare_time_series_ratio_window_bucket_persists_component_delta():
     session = session_attach.get_or_create(name="demo")
     axes = {
