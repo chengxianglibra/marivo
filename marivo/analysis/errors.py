@@ -187,6 +187,24 @@ class SemanticKindMismatchError(AnalysisError):
                 ),
                 "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
             }
+        got_attribution_shape = self.details.get("got_attribution_shape")
+        expected_attribution_shape = self.details.get("expected_attribution_shape")
+        if isinstance(got_attribution_shape, str) and isinstance(expected_attribution_shape, str):
+            frame_kind = self.details.get("frame_kind")
+            frame_ref = frame_kind if isinstance(frame_kind, str) and frame_kind else "frame"
+            return {
+                "location": f"{frame_ref}.as_{expected_attribution_shape}() narrowing",
+                "cause": (
+                    f"attribution_shape is {got_attribution_shape!r}, expected "
+                    f"{expected_attribution_shape!r}; as_{expected_attribution_shape}() is only "
+                    f"valid on a {expected_attribution_shape} attribution frame."
+                ),
+                "fix_snippet": (
+                    f'if frame.attribution_shape == "{expected_attribution_shape}":\n'
+                    f"    typed = frame.as_{expected_attribution_shape}()"
+                ),
+                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            }
         got_shape = self.details.get("got_shape")
         expected_shape = self.details.get("expected_shape")
         if isinstance(got_shape, str) and isinstance(expected_shape, str):

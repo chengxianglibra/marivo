@@ -7,7 +7,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session.attach as session_attach
-from marivo.analysis.errors import FrameMutationError
+from marivo.analysis.errors import FrameMutationError, SemanticKindMismatchError
 from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session.persistence import write_frame_to_disk
@@ -98,3 +98,48 @@ def test_load_frame_round_trips_attribution_frame(tmp_path):
     assert loaded.meta.kind == "attribution_frame"
     assert loaded.meta.byte_size > 0
     assert list(loaded.to_pandas()["region"]) == ["north", "south"]
+
+
+def test_attribution_shape_reads_method():
+    frame = AttributionFrame(
+        _df=pd.DataFrame({"region": ["n"], "contribution": [1.0]}), meta=_meta()
+    )
+    assert frame.attribution_shape == "sum"
+
+
+def test_attribution_frame_as_sum_returns_self():
+    frame = AttributionFrame(
+        _df=pd.DataFrame({"region": ["n"], "contribution": [1.0]}), meta=_meta()
+    )
+    assert frame.as_sum() is frame
+
+
+def test_attribution_frame_as_ratio_mix_narrows_and_rejects():
+    meta = _meta().model_copy(update={"method": "ratio_mix"})
+    frame = AttributionFrame(_df=pd.DataFrame({"region": ["n"], "contribution": [1.0]}), meta=meta)
+    assert frame.attribution_shape == "ratio_mix"
+    assert frame.as_ratio_mix() is frame
+    with pytest.raises(SemanticKindMismatchError) as excinfo:
+        frame.as_sum()
+    rendered = str(excinfo.value)
+    assert "attribution_shape" in rendered
+    assert "ratio_mix" in rendered
+    assert "sum" in rendered
+
+
+def test_attribution_frame_as_weighted_mix():
+    meta = _meta().model_copy(update={"method": "weighted_mix"})
+    frame = AttributionFrame(_df=pd.DataFrame({"region": ["n"], "contribution": [1.0]}), meta=meta)
+    assert frame.as_weighted_mix() is frame
+    with pytest.raises(SemanticKindMismatchError) as excinfo:
+        frame.as_ratio_mix()
+    rendered = str(excinfo.value)
+    assert "weighted_mix" in rendered
+    assert "ratio_mix" in rendered
+
+
+def test_attribution_frame_as_sum_rejects_mismatch():
+    meta = _meta().model_copy(update={"method": "weighted_mix"})
+    frame = AttributionFrame(_df=pd.DataFrame({"region": ["n"], "contribution": [1.0]}), meta=meta)
+    with pytest.raises(SemanticKindMismatchError):
+        frame.as_sum()

@@ -12,6 +12,7 @@ from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, assert_semanti
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.component import ComponentFrame
+    from marivo.analysis.intents._shape import AttributionShape
 
 
 class DeltaFrameMeta(BaseFrameMeta):
@@ -63,6 +64,16 @@ class DeltaFrame(BaseFrame):
             got=self.meta.semantic_kind, expected="panel", frame_kind=self.meta.kind
         )
         return self
+
+    def predicted_attribution_shape(self) -> AttributionShape:
+        """Predict the AttributionFrame shape decompose will produce for this delta.
+
+        Reads this delta's component_ref + decomposition kind only (no component
+        load); "sum" when not component-aware, else "ratio_mix"/"weighted_mix".
+        """
+        from marivo.analysis.intents._shape import attribution_output_shape
+
+        return attribution_output_shape(self.meta)
 
     def components(self) -> ComponentFrame:
         """Load the linked ComponentFrame for component-aware deltas."""

@@ -97,6 +97,19 @@ def assert_semantic_shape(*, got: str, expected: str, frame_kind: str) -> None:
         )
 
 
+def assert_attribution_shape(*, got: str, expected: str, frame_kind: str) -> None:
+    """Raise SemanticKindMismatchError unless ``got`` attribution shape matches ``expected``."""
+    if got != expected:
+        raise SemanticKindMismatchError(
+            message=f"{frame_kind} attribution_shape is {got!r}, expected {expected!r}",
+            details={
+                "got_attribution_shape": got,
+                "expected_attribution_shape": expected,
+                "frame_kind": frame_kind,
+            },
+        )
+
+
 class FrameSummary(BaseModel):
     """Compact, stable summary of a frame without materializing a copy."""
 

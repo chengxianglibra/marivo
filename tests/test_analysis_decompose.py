@@ -240,11 +240,22 @@ def test_decompose_rejects_missing_axis_column():
     assert exc_info.value.details["available_columns"] == ["delta"]
 
 
-def test_decompose_rejects_missing_value_column():
+def test_decompose_rejects_missing_delta_column():
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(session, pd.DataFrame({"bucket": ["a"], "value": [1.0]}))
+    with pytest.raises(SemanticKindMismatchError):
+        session.decompose(frame, axis=DimensionRef("bucket"))
+
+
+def test_decompose_rejects_measure_column_kwarg():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
-    with pytest.raises(SemanticKindMismatchError):
-        session.decompose(frame, axis=DimensionRef("bucket"), measure_column="missing")
+    with pytest.raises(TypeError):
+        session.decompose(frame, axis=DimensionRef("bucket"), measure_column="delta")  # type: ignore[call-arg]
+    from marivo.analysis.intents.decompose import decompose
+
+    with pytest.raises(TypeError):
+        decompose(frame, axis=DimensionRef("bucket"), measure_column="delta", session=session)  # type: ignore[call-arg]
 
 
 def test_decompose_rejects_non_numeric_value_column():
@@ -278,23 +289,3 @@ def test_decompose_stale_archived_session_raises():
     assert session.state == "active"
     with pytest.raises(SessionStateError):
         session.decompose(frame, axis=DimensionRef("bucket"))
-
-
-def test_decompose_sum_delta_still_accepts_non_default_measure_column():
-    session = session_attach.get_or_create(name="demo")
-    frame = _delta(
-        session,
-        pd.DataFrame(
-            {
-                "region": ["north", "south"],
-                "delta": [10.0, -2.0],
-                "pct_change": [0.5, -0.1],
-            }
-        ),
-        semantic_kind="segmented",
-    )
-
-    out = session.decompose(frame, axis=DimensionRef("region"), measure_column="pct_change")
-
-    df = out.to_pandas()
-    assert list(df["contribution"]) == [pytest.approx(0.5), pytest.approx(-0.1)]

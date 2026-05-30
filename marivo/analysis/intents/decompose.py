@@ -272,7 +272,6 @@ def decompose(
     frame: DeltaFrame,
     *,
     axis: DimensionRef,
-    measure_column: str = "delta",
     session: Session | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> AttributionFrame:
@@ -288,7 +287,6 @@ def decompose(
         axis: The segment column to attribute over, wrapped in ``mv.DimensionRef``.
             Dotted ids such as ``"model.field"`` resolve to the persisted
             DeltaFrame column ``"field"`` when present.
-        measure_column: Numeric column on the delta to attribute. Defaults to ``"delta"``.
         session: Defaults to the currently-attached session.
 
     Raises:
@@ -323,7 +321,7 @@ def decompose(
     started = monotonic()
     source_df = frame.to_pandas()
     raise_first(validate_decompose_columns(frame, axis, source_df=source_df))
-    value_column = require_numeric_column(source_df, measure_column, purpose="decompose")
+    value_column = require_numeric_column(source_df, "delta", purpose="decompose")
     available_columns = [str(column) for column in source_df.columns]
     axis_column = _effective_component_axis_column(frame, axis, available_columns)
 
@@ -335,14 +333,6 @@ def decompose(
     # Component-aware path: ratio/weighted mix attribution.
     component = _load_delta_component_frame(frame, session=session)
     if component is not None:
-        if measure_column != "delta":
-            raise ComponentDecompositionError(
-                message=(
-                    "component-aware decompose explains the main delta column only; "
-                    "non-default measure_column is supported only for sum deltas"
-                ),
-                details={"measure_column": measure_column, "delta_ref": frame.ref},
-            )
         component_columns = [str(column) for column in component.to_pandas().columns]
         component_axis_column = _effective_component_axis_column(frame, axis, component_columns)
         if component_axis_column is None:
@@ -416,7 +406,7 @@ def decompose(
         params = {
             "source_ref": frame.ref,
             "axis": axis.model_dump(mode="json"),
-            "measure_column": measure_column,
+            "measure_column": value_column,
             "bucket_column": bucket_column,
             "driver_field": axis_column,
             "value_column": value_column,

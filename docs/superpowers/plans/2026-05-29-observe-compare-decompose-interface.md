@@ -287,14 +287,14 @@ semantic IR and frame metadata but **no backend execution**.
 
 ### Phase 3 — Reconcile component-aware output as a declared shape (D2, D3)
 
-- [ ] Introduce `AttributionFrame[sum|ratio_mix|weighted_mix]` shape (output tag
+- [x] Introduce `AttributionFrame[sum|ratio_mix|weighted_mix]` shape (output tag
   from the persisted `method`; predictor per D2) so the schema is predictable and
   assertable; `decompose` stays the single entry point.
-- [ ] Make the branch observable up front: given an input `DeltaFrame`, the agent
+- [x] Make the branch observable up front: given an input `DeltaFrame`, the agent
   and `session.validate` determine the resulting `AttributionFrame[...]` from
   `DeltaFrameMeta.component_ref` + `decomposition["kind"]`
   (`ComponentFrameMeta.decomposition_kind` authoritative) before calling.
-- [ ] Remove `measure_column` (D3, ratified) from the intent
+- [x] Remove `measure_column` (D3, ratified) from the intent
   ([decompose.py:271](../../../marivo/analysis/intents/decompose.py)) and the
   `Session.decompose` wrapper
   ([core.py:382](../../../marivo/analysis/session/core.py)); fix the value column
@@ -310,7 +310,7 @@ semantic IR and frame metadata but **no backend execution**.
   add a test asserting `decompose(..., measure_column=...)` raises `TypeError`.
   Skill examples are unaffected (their `measure_column` is all
   `promote_metric_frame`).
-- [ ] Tests: ratio/weighted/sum each produce the declared shape and match the
+- [x] Tests: ratio/weighted/sum each produce the declared shape and match the
   pre-call prediction; assertion errors are structured; existing contribution-
   reconciliation tests unchanged; public `decompose` no longer accepts
   `measure_column`.

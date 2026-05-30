@@ -174,3 +174,20 @@ def test_repr_header_includes_semantic_shape_for_metric_frame():
     mf = MetricFrame(_df=pd.DataFrame({"v": [1.0]}), meta=_metric_meta("panel"))
     header = repr(mf).splitlines()[0]
     assert "shape=panel" in header
+
+
+def test_delta_predicted_attribution_shape_sum_when_no_component():
+    frame = DeltaFrame(_df=pd.DataFrame({"delta": [1.0]}), meta=_delta_meta(component_ref=None))
+    assert frame.predicted_attribution_shape() == "sum"
+
+
+def test_delta_predicted_attribution_shape_ratio_mix():
+    meta = _delta_meta(component_ref="frame_comp", decomposition={"kind": "ratio"})
+    frame = DeltaFrame(_df=pd.DataFrame({"delta": [1.0]}), meta=meta)
+    assert frame.predicted_attribution_shape() == "ratio_mix"
+
+
+def test_delta_predicted_attribution_shape_weighted_mix():
+    meta = _delta_meta(component_ref="frame_comp", decomposition={"kind": "weighted_average"})
+    frame = DeltaFrame(_df=pd.DataFrame({"delta": [1.0]}), meta=meta)
+    assert frame.predicted_attribution_shape() == "weighted_mix"
