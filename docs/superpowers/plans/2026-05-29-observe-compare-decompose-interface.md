@@ -317,21 +317,39 @@ semantic IR and frame metadata but **no backend execution**.
 
 ### Phase 4 — Internal consolidation + API hygiene
 
-- [ ] Collapse `observe`'s four persistence/lineage/evidence tails
-  ([observe.py:1170-1765](../../../marivo/analysis/intents/observe.py)) into one
-  shared helper. Non-trivial: the branches build different metas (axes,
-  `semantic_kind`, component-attach), and Phase 0 already routed the
-  derived-segmented path through `commit_result`, so the helper must preserve
-  per-branch meta while sharing the commit/job-record path. Expect fixture churn.
-- [ ] Move `_triggered_by` out of the public `decompose` signature into an
-  internal call path.
-- [ ] Tighten `axis` resolution to a single catalog-resolved step at submit with a
-  clear error, replacing the 4-step string heuristic.
-- [ ] Tighten `SlicePredicate.value` typing away from `Any` where the op implies a
-  type (e.g. `between` → 2-element list).
-- [ ] Tests: public `decompose` signature no longer exposes `_triggered_by`; axis
-  resolution failures are structured; slice predicate typing rejects malformed
-  values at the type layer.
+- [x] **(Moved from Phase 2)** Add the `observe` pre-submit validator to
+  `_validate.py` for the two multi-dataset holes (`WindowedTimeSeriesUnsupported`,
+  `SegmentedMultiDatasetUnsupported`) and wire `observe` to call it before backend
+  work, raising the same `MetricShapeUnsupportedError`.
+- [x] Collapse `observe`'s four persistence/lineage/evidence tails
+  into one shared helper `_commit_observe_metric_frame(...)`. Per-branch meta,
+  component-attach, and job-record writing remain in the branches; only the
+  `commit_result(...)` invocation is shared. The derived-segmented branch was
+  migrated from `write_frame_to_disk` to `commit_result` as part of this
+  consolidation (Phase 0 had already fixed the standalone bug, but the branch
+  still used the old persistence path).
+- [x] Remove `_triggered_by` from the public `decompose` signature and its
+  `TriggeredByFollowup` import; stop passing it from the followup runner. The
+  parameter was dead (never referenced in the body) — `decompose` now has the
+  clean signature `(frame, *, axis, session)`.
+- [ ] ~~Tighten `axis` resolution to a single catalog-resolved step~~
+  **Deferred.** The failure is already structured (Phase 2's
+  `validate_decompose_columns` raises `SemanticKindMismatchError` with
+  `requested_axis`/`available_columns`). Replacing the dotted-id/ref/normalized
+  resolution with a single catalog-resolved step is a behavior change that risks
+  breaking tested resolutions (e.g.
+  `axis=DimensionRef("trino_query.department")` → column `department`,
+  [test_analysis_decompose.py:143]). Low value, real risk.
+- [ ] ~~Tighten `SlicePredicate.value` typing~~ **Deferred.** The runtime
+  validation already exists and is exhaustive:
+  `_validate_slice_value_shape` ([runner.py:928-943]) rejects malformed
+  predicates (scalar ops → scalar, `in` → non-empty collection, `between` →
+  exactly two values). The only residual is narrowing the `value: Any`
+  TypedDict field, which `TypedDict` cannot express per-op without a verbose
+  union-of-TypedDicts that changes the public type for negligible added safety.
+- [x] Tests: `validate_observe` unit tests; observe multi-dataset holes still raise
+  via the validator; public `decompose` signature is `frame`/`axis`/`session` only
+  (guarded by `test_analysis_decompose_signature.py`).
 
 ---
 
@@ -371,6 +389,18 @@ semantic IR and frame metadata but **no backend execution**.
   bytes, latency class, fanout risk, suggested limits) per operator design
   §"Pre-submit estimate" — needs backend statistics; `validate` is built to be
   wrappable by it.
-- Extend `_validate.py` to `observe` (Phase 4 — alongside the observe-tail
-  consolidation, to avoid touching observe internals twice and to preserve
-  dimension-resolution error precedence) and to `discover`/`correlate`/`test`.
+- **`SlicePredicate.value` static typing** ([_types.py:10-12]). The runtime
+  validation (`_validate_slice_value_shape`, [runner.py:928-943]) already rejects
+  malformed predicates exhaustively. The only residual is narrowing the `value: Any`
+  TypedDict field per-op, which `TypedDict` cannot express without a verbose
+  union-of-TypedDicts that changes the public type for negligible added safety.
+  Deferred as an isolated typing cleanup.
+- **`decompose` axis-resolution tightening** ([decompose.py:57-94]). The failure
+  is already structured (`validate_decompose_columns` raises
+  `SemanticKindMismatchError` with `requested_axis`/`available_columns`).
+  Replacing the dotted-id/ref/normalized resolution with a single catalog-resolved
+  step is a behavior change that risks breaking tested resolutions. Low value,
+  real risk. Deferred.
+- A non-raising `session.validate("observe", ...)` — observe has no input frames;
+  pre-validation happens inside `observe()`. A pre-check would need semantic-project
+  metric resolution and is a separate follow-up.

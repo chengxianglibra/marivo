@@ -14,6 +14,7 @@ from marivo.analysis.errors import (
     AlignmentPolicyNotApplicableError,
     AnalysisError,
     AxisNotInPanelDimensionsError,
+    MetricShapeUnsupportedError,
     PanelGrainMismatchError,
     SegmentDimensionMismatchError,
     SemanticKindMismatchError,
@@ -187,6 +188,47 @@ def validate_decompose_columns(
                 SemanticKindMismatchError(
                     message="decompose panel bucket column does not exist in the DeltaFrame",
                     details={"bucket_column": bucket_column, "columns": list(source_df.columns)},
+                )
+            ]
+    return []
+
+
+def validate_observe(
+    *,
+    metric_id: str,
+    metric_datasets: tuple[str, ...],
+    is_time_series: bool,
+    has_dimensions: bool,
+    dimensions_dump: object,
+) -> list[AnalysisError]:
+    """Reject the multi-dataset observe holes before backend work; first issue or []."""
+    if len(metric_datasets) > 1:
+        if is_time_series and not has_dimensions:
+            return [
+                MetricShapeUnsupportedError(
+                    message=(
+                        "windowed time_series observe does not support multi-dataset "
+                        f"metric '{metric_id}'"
+                    ),
+                    details={
+                        "kind": "WindowedTimeSeriesUnsupported",
+                        "metric": metric_id,
+                        "datasets": sorted(metric_datasets),
+                    },
+                )
+            ]
+        if has_dimensions:
+            return [
+                MetricShapeUnsupportedError(
+                    message=(
+                        f"segmented observe does not support multi-dataset metric '{metric_id}'"
+                    ),
+                    details={
+                        "kind": "SegmentedMultiDatasetUnsupported",
+                        "metric": metric_id,
+                        "datasets": sorted(metric_datasets),
+                        "dimensions": dimensions_dump,
+                    },
                 )
             ]
     return []

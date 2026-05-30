@@ -200,7 +200,6 @@ class Session:
                 cast("Any", source_frame),
                 axis=axis,
                 session=self,
-                _triggered_by=triggered_by,
             )
             self._record_followup_result(action=action, result=result)
             return result
