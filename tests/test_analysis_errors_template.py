@@ -3,6 +3,8 @@
 from marivo.analysis.errors import (
     AnalysisError,
     AxisNotInPanelDimensionsError,
+    DatasourceEnvVarMissingError,
+    DatasourceSecretStorePermissionsError,
     MetricNotFoundError,
     SemanticKindMismatchError,
     WindowInvalidError,
@@ -46,6 +48,32 @@ def test_base_template_omits_missing_optional_sections():
     assert "Hint:" not in rendered
     assert "Fix:" not in rendered
     assert "Docs:" not in rendered
+
+
+def test_datasource_env_var_missing_mentions_cache_and_validation() -> None:
+    err = DatasourceEnvVarMissingError(
+        message="secret missing",
+        details={"datasource": "wh", "field": "password", "env_var": "TRINO_PASSWORD"},
+    )
+
+    rendered = str(err)
+
+    assert "TRINO_PASSWORD" in rendered
+    assert "not set in os.environ and is not present in ~/.marivo/secrets.toml" in rendered
+    assert 'mv.datasources.test("wh")' in rendered
+
+
+def test_secret_store_permissions_error_has_chmod_fix() -> None:
+    err = DatasourceSecretStorePermissionsError(
+        message="secret store is too open",
+        details={"path": "/Users/alice/.marivo/secrets.toml", "mode": 0o644},
+    )
+
+    rendered = str(err)
+
+    assert "Location: /Users/alice/.marivo/secrets.toml" in rendered
+    assert "0o644" in rendered
+    assert "chmod 600 ~/.marivo/secrets.toml" in rendered
 
 
 def test_metric_not_found_uses_class_name_head():

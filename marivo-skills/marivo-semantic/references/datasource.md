@@ -15,6 +15,9 @@ semantic model files.
 - Sensitive literal fields are rejected: `user`, `password`, `auth`, `token`,
   `secret`, `secret_key`, `access_key`, `private_key`, `passphrase`, and
   `api_key`.
+- After a successful validation query, Marivo may cache the resolved secret
+  value in plaintext at `~/.marivo/secrets.toml`. The project-local
+  `.marivo/datasource/*.py` file still stores only the `*_env` reference.
 
 ## Datasource Definition
 
@@ -77,6 +80,28 @@ mv.datasources.register(
 )
 mv.datasources.test("warehouse")
 backend = mv.datasources.build_backend("warehouse")
+```
+
+## Secret Cache
+
+Datasource files stay project-local and secret-free. Sensitive fields are
+authored as environment references, for example `password_env="TRINO_PASSWORD"`.
+At connection time Marivo resolves the value in this order:
+
+1. `os.environ`
+2. `~/.marivo/secrets.toml`
+
+When `mv.datasources.test("warehouse")` succeeds, or when an analysis session
+successfully runs its first query against a datasource backend, any value that
+came from `os.environ` is written through to `~/.marivo/secrets.toml`. The file
+is plaintext, user-global, and written with `0600` permissions under a `0700`
+`~/.marivo` directory. Set `MARIVO_PERSIST_SECRETS=0` to skip writes; reads from
+an existing cache still work.
+
+If the cache file permissions are too open, fix them before retrying:
+
+```bash
+chmod 600 ~/.marivo/secrets.toml
 ```
 
 ## Table Metadata

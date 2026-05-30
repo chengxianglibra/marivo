@@ -8,6 +8,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.datasources import secrets as datasource_secrets
 from marivo.analysis.errors import (
     DatasourceFieldInvalidError,
     DatasourceMissingError,
@@ -86,6 +87,94 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     assert result.ok is True
     assert result.error is None
     assert backend.disconnected is True
+
+
+def test_datasource_test_success_persists_env_sourced_secret(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mv.datasources.register(
+        "wh",
+        backend_type="trino",
+        host="trino.example",
+        catalog="hive",
+        password_env="TRINO_PASSWORD",
+    )
+    monkeypatch.setenv("TRINO_PASSWORD", "validated-secret")
+    persisted: list[tuple[str, str]] = []
+
+    class _FakeBackend:
+        def raw_sql(self, sql: str) -> object:
+            assert sql == "SELECT 1"
+            return object()
+
+        def disconnect(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        datasource_secrets,
+        "persist_env_sourced",
+        lambda resolved: persisted.extend((item.name, item.value) for item in resolved),
+    )
+
+    class _FakeTrino:
+        @staticmethod
+        def connect(**kwargs: object) -> object:
+            assert kwargs["password"] == "validated-secret"
+            return _FakeBackend()
+
+    class _FakeIbis:
+        trino = _FakeTrino()
+
+    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+
+    result = mv.datasources.test("wh")
+
+    assert result.ok is True
+    assert persisted == [("TRINO_PASSWORD", "validated-secret")]
+
+
+def test_datasource_test_failure_does_not_persist_env_sourced_secret(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mv.datasources.register(
+        "wh",
+        backend_type="trino",
+        host="trino.example",
+        catalog="hive",
+        password_env="TRINO_PASSWORD",
+    )
+    monkeypatch.setenv("TRINO_PASSWORD", "bad-secret")
+    persisted: list[tuple[str, str]] = []
+
+    class _FakeBackend:
+        def raw_sql(self, sql: str) -> object:
+            raise RuntimeError("authentication failed")
+
+        def disconnect(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        datasource_secrets,
+        "persist_env_sourced",
+        lambda resolved: persisted.extend((item.name, item.value) for item in resolved),
+    )
+
+    class _FakeTrino:
+        @staticmethod
+        def connect(**kwargs: object) -> object:
+            assert kwargs["password"] == "bad-secret"
+            return _FakeBackend()
+
+    class _FakeIbis:
+        trino = _FakeTrino()
+
+    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+
+    result = mv.datasources.test("wh")
+
+    assert result.ok is False
+    assert "authentication failed" in str(result.error)
+    assert persisted == []
 
 
 def test_describe_missing_raises_with_hint(project_root: Path) -> None:
