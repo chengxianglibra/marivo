@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 
 from marivo.analysis.errors import (
-    AxisNotInPanelDimensionsError,
     ComponentDecompositionError,
     SemanticKindMismatchError,
 )
@@ -24,6 +23,7 @@ from marivo.analysis.intents._derived import (
     require_numeric_column,
     resolve_session,
 )
+from marivo.analysis.intents._validate import raise_first, validate_decompose_columns
 from marivo.analysis.refs import DimensionRef
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.core import Session, ensure_session_writable
@@ -322,24 +322,15 @@ def decompose(
     started_at = datetime.now(UTC)
     started = monotonic()
     source_df = frame.to_pandas()
+    raise_first(validate_decompose_columns(frame, axis, source_df=source_df))
     value_column = require_numeric_column(source_df, measure_column, purpose="decompose")
     available_columns = [str(column) for column in source_df.columns]
-    normalized_axis = axis.id.rsplit(".", 1)[-1]
     axis_column = _effective_component_axis_column(frame, axis, available_columns)
 
     if axis_column is None:
-        raise SemanticKindMismatchError(
-            message="decompose axis column does not exist in the DeltaFrame",
-            hint=(
-                f"Use axis=mv.DimensionRef({normalized_axis!r}) if that column exists in "
-                "the DeltaFrame."
-            ),
-            details={
-                "requested_axis": axis.id,
-                "normalized_axis": normalized_axis,
-                "available_columns": available_columns,
-            },
-        )
+        raise_first(validate_decompose_columns(frame, axis, source_df=source_df))
+
+    assert axis_column is not None  # validated above; needed for type narrowing
 
     # Component-aware path: ratio/weighted mix attribution.
     component = _load_delta_component_frame(frame, session=session)
@@ -401,20 +392,6 @@ def decompose(
 
     if frame.meta.semantic_kind == "panel":
         bucket_column = _bucket_column_for_panel(frame)
-        dim_columns = _panel_dimension_columns(frame)
-        if axis_column not in dim_columns:
-            raise AxisNotInPanelDimensionsError(
-                message="decompose axis is not a panel dimension",
-                details={
-                    "axis": axis_column,
-                    "available_dimensions": dim_columns,
-                },
-            )
-        if bucket_column not in source_df.columns:
-            raise SemanticKindMismatchError(
-                message="decompose panel bucket column does not exist in the DeltaFrame",
-                details={"bucket_column": bucket_column, "columns": list(source_df.columns)},
-            )
 
         grouped = (
             source_df.groupby([bucket_column, axis_column], dropna=False)[value_column]

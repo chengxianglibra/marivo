@@ -392,6 +392,34 @@ class Session:
 
         return decompose(frame, axis=axis, measure_column=measure_column, session=self)
 
+    def validate(self, intent: str, *frames: Any, **params: Any) -> list[Any]:
+        """Run pre-submit shape/policy validators over concrete in-hand frames.
+
+        Returns a list of ValidationIssue (empty when compatible) without raising,
+        for the frame-consuming intents ``compare`` and ``decompose``. Assumes the
+        frames are the types the intent requires (MetricFrame / DeltaFrame).
+        """
+        from marivo.analysis.intents._validate import (
+            to_validation_issues,
+            validate_compare,
+            validate_decompose_columns,
+        )
+        from marivo.analysis.policies import AlignmentPolicy
+
+        if intent == "compare":
+            current, baseline = frames
+            alignment = params.get("alignment") or AlignmentPolicy(kind="window_bucket")
+            issues = validate_compare(current, baseline, alignment=alignment)
+            return to_validation_issues("compare", issues)
+        if intent == "decompose":
+            (frame,) = frames
+            axis = params["axis"]
+            issues = validate_decompose_columns(frame, axis, source_df=frame.to_pandas())
+            return to_validation_issues("decompose", issues)
+        raise ValueError(
+            f"session.validate does not support intent {intent!r}; supported: compare, decompose"
+        )
+
     def correlate(
         self,
         a: Any,

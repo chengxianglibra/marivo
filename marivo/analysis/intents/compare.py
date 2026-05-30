@@ -22,7 +22,6 @@ from marivo.analysis.errors import (
     ComponentFrameMismatchError,
     ComponentFrameUnavailableError,
     CrossSessionFrameError,
-    PanelGrainMismatchError,
     SegmentDimensionMismatchError,
     SemanticKindMismatchError,
 )
@@ -36,6 +35,7 @@ from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
+from marivo.analysis.intents._validate import raise_first, validate_compare
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
@@ -444,43 +444,7 @@ def compare(
                     f"{source_frame.meta.session_id!r}, not {session.id!r}"
                 ),
             )
-    if current.meta.metric_id != baseline.meta.metric_id:
-        raise SemanticKindMismatchError(
-            message=(
-                "compare requires the same metric, got "
-                f"{current.meta.metric_id!r} and {baseline.meta.metric_id!r}"
-            ),
-        )
-    if current.meta.semantic_kind != baseline.meta.semantic_kind:
-        raise SemanticKindMismatchError(
-            message=(
-                "compare requires matching semantic_kind, got "
-                f"{current.meta.semantic_kind!r} and {baseline.meta.semantic_kind!r}"
-            ),
-        )
-    if current.meta.semantic_kind in {"segmented", "panel"}:
-        current_dimensions = _dimension_columns(current)
-        baseline_dimensions = _dimension_columns(baseline)
-        if current_dimensions != baseline_dimensions:
-            raise SegmentDimensionMismatchError(
-                message="compare requires matching segment dimension columns",
-                details={
-                    "kind": "SegmentDimensionMismatch",
-                    "current_dimensions": current_dimensions,
-                    "baseline_dimensions": baseline_dimensions,
-                },
-            )
-    if current.meta.semantic_kind == "panel":
-        current_grain, baseline_grain = _panel_grains(current, baseline)
-        if current_grain != baseline_grain:
-            raise PanelGrainMismatchError(
-                message="panel compare requires matching time grain",
-                details={
-                    "kind": "PanelGrainMismatch",
-                    "current_grain": current_grain,
-                    "baseline_grain": baseline_grain,
-                },
-            )
+    raise_first(validate_compare(current, baseline, alignment=alignment))
 
     # --- Component-aware validation ---
     current_decomp_kind = _component_decomposition_kind(current)
@@ -499,15 +463,6 @@ def compare(
     segment_info: dict[str, Any] | None = None
     window_info: dict[str, Any] | None = None
     if current.meta.semantic_kind == "segmented":
-        if alignment.kind != "window_bucket":
-            raise AlignmentPolicyNotApplicableError(
-                message="segmented compare supports only window_bucket alignment",
-                details={
-                    "kind": "AlignmentPolicyNotApplicable",
-                    "semantic_kind": "segmented",
-                    "alignment_kind": alignment.kind,
-                },
-            )
         df, segment_info = _align_segmented(current, baseline)
     elif current.meta.semantic_kind == "panel":
         df, segment_info, calendar_info, window_info = _align_panel(
@@ -520,21 +475,6 @@ def compare(
         else:
             df = _align_and_compute(current.to_pandas(), baseline.to_pandas())
     else:
-        if (
-            current.meta.semantic_kind != "time_series"
-            or baseline.meta.semantic_kind != "time_series"
-        ):
-            raise SemanticKindMismatchError(
-                message="calendar-backed compare alignment requires time_series MetricFrames",
-                details={
-                    "kind": "CalendarAlignRequiresTimeSeries",
-                    "expected_kind": "time_series",
-                    "got_kind": {
-                        "current": current.meta.semantic_kind,
-                        "baseline": baseline.meta.semantic_kind,
-                    },
-                },
-            )
         calendar_ref = alignment.calendar
         if not isinstance(calendar_ref, CalendarRef):
             raise CalendarPolicyError(
