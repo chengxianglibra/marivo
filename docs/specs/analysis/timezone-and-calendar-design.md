@@ -1,8 +1,7 @@
 # Marivo 时区与日历对齐总体设计
 
-状态：draft design。本文描述 Marivo Python 分析链路（`marivo.semantic` 时间字段
-+ `marivo.analysis` 窗口/执行/日历）如何统一处理时区，并给出当前 v1 现状审计、目标态
-模型、入口契约与失败语义。它是设计侧文档，不表示所有目标态能力都已经实现。
+状态：implemented design。本文描述 Marivo Python 分析链路当前采用的单系统时区模型。
+以下「当前实现摘要」反映已落地行为，设计原理与已知取舍保留不变。
 
 本文回答四个问题：
 
@@ -113,62 +112,13 @@ def created_at(orders):
 这条声明把「naive 偏移」从不可避免的宿命降为可消除：写数据的人知道列存什么时区，就在
 time_field 上声明一次，跨机器结果即可复现。
 
-## 当前 v1 现状审计
+## 当前实现摘要
 
-诚实记录现状，作为目标态改造的起点。以下均来自当前代码。
+- `Session.tz` 在 session 创建或加载时解析为系统时区，并写入 session meta 的 `tz`、`tz_resolution`、`tz_warning`。
+- `session.*(timezone=...`\) 已移除；窗口模型不接受 `tz`。
+- `@ms.time_field(timezone=...`\) 是唯一 public timezone 入口，仅适用于 naive `datetime` / `timestamp` 的物理列声明。
+- `Calendar` 不含 timezone 字段，`.marivo/calendar/*.json` 出现 `timezone` 会被未知字段校验拒绝。
 
-### 入口与默认
-
-- `Session.tz: ZoneInfo` 默认 `ZoneInfo("UTC")`（`session/core.py`）。
-- `attach._resolve_session_tz(raw) = zoneinfo_from_name(raw or "UTC")`，即不传时默认
-  **UTC**；但 `start(...)` docstring 写「Defaults to the system timezone」。
-  **文档与实现矛盾，且都不是目标态**：目标态默认应是系统时区，且 `timezone=` 形参移除。
-- `AbsoluteWindow` / `RelativeWindow` 各带可选 `tz`，`window={"tz": ...}` 可覆盖。
-  目标态移除。
-- 没有项目级时区配置文件（`.marivo/` 下只有 `calendar/`、`analysis/`、`semantic/`、
-  `datasource/`）。目标态也**不引入**配置文件。
-
-### 执行期边界翻译（executor/runner.py）
-
-`apply_window_to_dataset` 当前有效 tz 优先级是 `window.tz` > `session_tz` > `UTC`，
-随后按 `data_type` 分叉，假设互不一致：
-
-| data_type / format | 现状假设的列时区 | 目标态 |
-| --- | --- | --- |
-| tz-aware `timestamp` | UTC | 瞬时列，保持列固有 UTC 锚点 |
-| naive `timestamp` / `datetime` | UTC | 按 `time_field.timezone` localize（缺省系统时区）后当瞬时值 |
-| `integer epoch_seconds` | UTC | 瞬时列，保持 UTC 锚点（边界经系统时区换算） |
-| 小时分区 `yyyymmddhh` 等 | 报表 tz 墙上时间（实则默认 UTC） | 墙上时间列，统一系统时区 |
-| `date` / 天分区 `yyyymmdd` | 无时区 | 墙上时间列，统一系统时区日期空间 |
-
-主要行为变化：默认时区从 UTC 翻为系统时区；naive timestamp 从「硬编码按 UTC」翻为「按
-`time_field.timezone` localize，缺省系统时区」——声明 `timezone="UTC"` 即可保留旧行为。
-
-### 分桶（apply_time_series_bucket）
-
-- grain=`day` 且列是 timestamp/epoch：按 **window.start 锚定的单一 UTC 偏移**整体平移
-  后 `cast(date)`。注释已承认跨 DST 会偏。
-- grain=`week/month/quarter/year`：直接 `raw.truncate(grain)`，**不做任何本地化**。
-- 即 **day 粒度本地化、sub-day 以上粒度没本地化**，是一处真实不一致，目标态要统一。
-
-### 日历对齐（calendar/model.py, align.py）
-
-- `Calendar` 自带 `timezone`（IANA）字段，节假日是 ISO date 串，存于
-  `.marivo/calendar/<name>.json`。
-- `align_calendar_frames(..., session_tz)` 用 `_local_dates` 把数据时间列转成
-  **session_tz 的本地日期**：tz-aware 列 `tz_convert`，naive 当 UTC，string 逐值 coerce。
-- `CalendarInfo` 同时记录 `calendar_timezone` 与 `session_timezone`，但对齐**只用
-  session_tz 分桶，`calendar.timezone` 完全没参与换算**，仅被回显。
-- 后果：`calendar.timezone ≠ session_tz` 时，节假日日期与数据日期可能静默错位一天。
-  目标态**直接删除 `Calendar.timezone` 与 `CalendarInfo.calendar_timezone`**，节假日
-  全部按系统时区解释，从源头消除这个错位面。
-- `align_period="day"` 当前被拒（只支持 week/month/quarter/year）。
-
-### 语义层时间字段（semantic/ir.py）
-
-- `FieldIR.time_meta` 携带 `data_type`、`granularity`、`format`、`required_prefix`。
-- 没有任何时区字段。目标态**新增一个可选 `timezone`**（见 §列时区声明），仅对无 tz 的
-  datetime/timestamp 列生效；这是规则 2 唯一的例外入口。
 
 ## 计算时怎么考虑
 

@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 
-ensure_loaded(timezone="Asia/Shanghai", default_calendar="cn_holidays")
+ensure_loaded(default_calendar="cn_holidays")
 
 import marivo.analysis as mv  # noqa: E402
 
@@ -24,7 +24,6 @@ calendar_dir = session.project_root / ".marivo" / "calendar"
     json.dumps(
         {
             "name": "cn_holidays",
-            "timezone": "Asia/Shanghai",
             "holidays": [
                 {"date": "2025-07-01", "holiday_id": "company-shutdown"},
                 {"date": "2026-09-01", "holiday_id": "company-shutdown"},

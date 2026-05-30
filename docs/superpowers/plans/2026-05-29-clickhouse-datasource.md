@@ -77,16 +77,15 @@ def test_clickhouse_optional_fields_pass_through(
             "host": "ch.example.com",
             "port": 9440,
             "database": "analytics",
-            "user_env": "CLICKHOUSE_USER",
-            "password_env": "CLICKHOUSE_PASSWORD",
+            "user": "reader",
+            "password_env": "CH_PASSWORD",
             "client_name": "marivo",
             "secure": True,
             "compression": "lz4",
             "settings": {"max_execution_time": 60},
         },
     )
-    monkeypatch.setenv("CLICKHOUSE_USER", "reader")
-    monkeypatch.setenv("CLICKHOUSE_PASSWORD", "secret123")
+    monkeypatch.setenv("CH_PASSWORD", "secret123")
 
     datasource_backends.build_backend(datasource)
 

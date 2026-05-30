@@ -27,7 +27,6 @@ _TEMPLATE_REQUIRED_SNIPPETS = (
     "project.load()",
     "project.list_metrics()",
     "mv.session.get_or_create(",
-    "timezone=",
     "default_calendar=",
     "session.observe(",
     "mv.MetricRef(",

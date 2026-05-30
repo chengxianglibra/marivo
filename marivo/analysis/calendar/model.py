@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Literal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -38,18 +37,8 @@ class Calendar(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    timezone: str
     holidays: list[CalendarEntry]
     adjusted_workdays: list[CalendarEntry] = Field(default_factory=list)
-
-    @field_validator("timezone")
-    @classmethod
-    def validate_timezone(cls, value: str) -> str:
-        try:
-            ZoneInfo(value)
-        except ZoneInfoNotFoundError as exc:
-            raise ValueError(f"timezone '{value}' is not a valid IANA timezone") from exc
-        return value
 
 
 class CalendarPolicy(BaseModel):
@@ -64,7 +53,6 @@ class CalendarInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     calendar_name: str
-    calendar_timezone: str
     session_timezone: str
     mode: CalendarMode
     align_period: AlignPeriod

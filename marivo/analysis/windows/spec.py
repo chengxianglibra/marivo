@@ -16,7 +16,6 @@ class AbsoluteWindow(BaseModel):
     start: str
     end: str
     grain: TimeGrain | None = None
-    tz: str | None = None
     time_field: str | None = None
 
 
@@ -27,7 +26,6 @@ class RelativeWindow(BaseModel):
     expr: str
     as_of: str | None = None
     grain: TimeGrain | None = None
-    tz: str | None = None
     time_field: str | None = None
 
 

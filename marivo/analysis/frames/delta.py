@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import ConfigDict
 
 from marivo.analysis.errors import ComponentFrameUnavailableError
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, assert_semantic_shape
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.component import ComponentFrame
@@ -29,11 +29,40 @@ class DeltaFrameMeta(BaseFrameMeta):
     decomposition: dict[str, Any] | None = None
 
 
-@dataclass
+@dataclass(repr=False)
 class DeltaFrame(BaseFrame):
     meta: DeltaFrameMeta
 
     _NEXT_INTENTS = ("decompose", "discover", "transform")
+
+    @property
+    def semantic_shape(self) -> Literal["scalar", "time_series", "segmented", "panel"]:
+        """The frame's semantic shape (distinct from .shape, the dataframe dims)."""
+        return self.meta.semantic_kind
+
+    def as_scalar(self) -> DeltaFrame:
+        assert_semantic_shape(
+            got=self.meta.semantic_kind, expected="scalar", frame_kind=self.meta.kind
+        )
+        return self
+
+    def as_time_series(self) -> DeltaFrame:
+        assert_semantic_shape(
+            got=self.meta.semantic_kind, expected="time_series", frame_kind=self.meta.kind
+        )
+        return self
+
+    def as_segmented(self) -> DeltaFrame:
+        assert_semantic_shape(
+            got=self.meta.semantic_kind, expected="segmented", frame_kind=self.meta.kind
+        )
+        return self
+
+    def as_panel(self) -> DeltaFrame:
+        assert_semantic_shape(
+            got=self.meta.semantic_kind, expected="panel", frame_kind=self.meta.kind
+        )
+        return self
 
     def components(self) -> ComponentFrame:
         """Load the linked ComponentFrame for component-aware deltas."""

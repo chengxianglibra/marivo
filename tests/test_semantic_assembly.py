@@ -701,7 +701,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=[ms.ref("dataset.sales.orders")], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -724,7 +724,7 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=[ms.ref("dataset.sales.nonexistent")], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.nonexistent"], decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -802,7 +802,7 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
         import marivo.semantic as ms
 
         @ms.time_field(
-            dataset=ms.ref("dataset.sales.orders"),
+            dataset="sales.orders",
             data_type="string",
             granularity="hour",
             date_format="hh",
@@ -835,10 +835,10 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
 
         ms.relationship(
             name="bad_rel",
-            from_dataset=ms.ref("dataset.sales.nonexistent"),
-            to_dataset=ms.ref("dataset.sales.also_nonexistent"),
-            from_fields=[ms.ref("field.sales.f1")],
-            to_fields=[ms.ref("field.sales.f2")],
+            from_dataset="sales.nonexistent",
+            to_dataset="sales.also_nonexistent",
+            from_fields=["sales.f1"],
+            to_fields=["sales.f2"],
         )
     """)
     project = semantic_project_factory(

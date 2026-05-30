@@ -182,7 +182,6 @@ def align_calendar_frames(
 
     info = CalendarInfo(
         calendar_name=calendar.name,
-        calendar_timezone=calendar.timezone,
         session_timezone=session_tz,
         mode=policy.mode,
         align_period=policy.align_period,

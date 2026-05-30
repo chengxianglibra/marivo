@@ -1,11 +1,13 @@
-"""Pattern: create/attach an examples session with timezone and default calendar.
+"""Pattern: observe relative windows with system-derived timezone.
 
-When to use: you need session-level timezone and default calendar for relative windows
-and calendar-aware compare.
+When to use: you want v1.2 relative-window inputs using the system timezone
+(the TZ environment variable or OS default) rather than an explicit parameter.
+Output shape: scalar frame for no grain, time_series frame for day grain.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -13,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _fixtures.tiny_semantic import ensure_loaded
 
-ensure_loaded(timezone="Asia/Shanghai", default_calendar="cn_holidays")
+os.environ["TZ"] = "Asia/Shanghai"
+ensure_loaded(default_calendar="cn_holidays")
 
 import marivo.analysis as mv  # noqa: E402
 

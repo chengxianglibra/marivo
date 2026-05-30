@@ -15,7 +15,8 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo.datasource.typing import _build_ai_context as _shared_build_ai_context
 from marivo.semantic.constraints import ConstraintId
@@ -33,9 +34,7 @@ from marivo.semantic.ir import (
     ProvenanceIR,
     RelationshipIR,
     RelationshipRef,
-    SemanticRef,
     SourceLocation,
-    SymbolKind,
     TimeFieldRef,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
@@ -318,76 +317,25 @@ def _caller_location() -> SourceLocation:
     return SourceLocation(file="<unknown>", line=0)
 
 
-def _invalid_ref(message: str, refs: tuple[str, ...] = ()) -> NoReturn:
-    _raise(
-        ErrorKind.INVALID_REF,
-        message,
-        refs=refs,
-        cls=SemanticDecoratorError,
-        constraint_id=ConstraintId.REF_SHAPE,
-    )
-
-
-def _resolve_dataset_ref(ref: DatasetRef | SemanticRef) -> str:
-    if isinstance(ref, DatasetRef):
-        return ref.semantic_id
-    if isinstance(ref, SemanticRef):
-        if ref.kind is SymbolKind.DATASET:
-            return ref.semantic_id
-        _invalid_ref(
-            f"Expected dataset ref, got {ref.kind.value!r} ref {ref.semantic_id!r}.",
-            (ref.semantic_id,),
-        )
+def _resolve_ref_string(
+    ref: DatasetRef | FieldRef | TimeFieldRef | MetricRef | RelationshipRef | str,
+) -> str:
+    """Extract semantic_id string from a ref object or pass through a string."""
     if isinstance(ref, str):
-        _invalid_ref(
-            "Naked string semantic refs are not allowed; import the decorated dataset ref or use ms.ref('dataset.<model>.<name>').",
-            (ref,),
-        )
-    _invalid_ref("Expected DatasetRef or ms.ref('dataset.<model>.<name>').")
+        return ref
+    return ref.semantic_id
 
 
-def _resolve_field_ref(ref: FieldRef | TimeFieldRef | SemanticRef) -> str:
-    if isinstance(ref, (FieldRef, TimeFieldRef)):
-        return ref.semantic_id
-    if isinstance(ref, SemanticRef):
-        if ref.kind in {SymbolKind.FIELD, SymbolKind.TIME_FIELD}:
-            return ref.semantic_id
-        _invalid_ref(
-            f"Expected field or time_field ref, got {ref.kind.value!r} ref {ref.semantic_id!r}.",
-            (ref.semantic_id,),
-        )
-    if isinstance(ref, str):
-        _invalid_ref(
-            "Naked string semantic refs are not allowed; import the decorated field ref or use ms.ref('field.<model>.<name>').",
-            (ref,),
-        )
-    _invalid_ref(
-        "Expected FieldRef, TimeFieldRef, ms.ref('field.<model>.<name>'), or ms.ref('time_field.<model>.<name>')."
-    )
+def _resolve_field_refs(refs: list[FieldRef | str]) -> tuple[str, ...]:
+    """Convert a list of field refs/strings to tuple of semantic_ids."""
+    return tuple(_resolve_ref_string(r) for r in refs)
 
 
-def _resolve_metric_ref(ref: MetricRef | SemanticRef) -> str:
-    if isinstance(ref, MetricRef):
-        return ref.semantic_id
-    if isinstance(ref, SemanticRef):
-        if ref.kind is SymbolKind.METRIC:
-            return ref.semantic_id
-        _invalid_ref(
-            f"Expected metric ref, got {ref.kind.value!r} ref {ref.semantic_id!r}.",
-            (ref.semantic_id,),
-        )
-    if isinstance(ref, str):
-        _invalid_ref(
-            "Naked string semantic refs are not allowed; import the decorated metric ref or use ms.ref('metric.<model>.<name>').",
-            (ref,),
-        )
-    _invalid_ref("Expected MetricRef or ms.ref('metric.<model>.<name>').")
-
-
-def _resolve_dataset_refs(refs: list[DatasetRef | SemanticRef] | None) -> tuple[str, ...]:
+def _resolve_dataset_refs(refs: list[DatasetRef | str] | None) -> tuple[str, ...]:
+    """Convert a list of dataset refs/strings to tuple of semantic_ids."""
     if refs is None:
         return ()
-    return tuple(_resolve_dataset_ref(ref) for ref in refs)
+    return tuple(_resolve_ref_string(r) for r in refs)
 
 
 def _push_ir(ctx: LoaderContext, ir: Any, callable_: Callable[..., Any] | None) -> None:
@@ -538,7 +486,7 @@ def dataset(
 def field(
     *,
     name: str | None = None,
-    dataset: DatasetRef | SemanticRef,
+    dataset: DatasetRef | str,
     model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -551,8 +499,8 @@ def field(
 
     Args:
         name: Field name. Defaults to the function name.
-        dataset: Owning dataset, either a ``DatasetRef`` or a
-            ``ms.ref('dataset.<model>.<name>')`` typed reference.
+        dataset: Owning dataset, either a ``DatasetRef`` or a qualified
+            ``"<model>.<dataset>"`` string.
         model_name: Override the active model namespace.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
@@ -561,8 +509,8 @@ def field(
         A decorator that returns a ``FieldRef``.
 
     Raises:
-        SemanticDecoratorError: ``dataset`` is a naked string or wrong kind,
-            ``name`` collides, or the body violates the AST whitelist.
+        SemanticDecoratorError: ``dataset`` is unknown, ``name`` collides, or the
+            body violates the AST whitelist.
 
     Example:
         >>> @ms.field(name="amount_cents", dataset=orders)
@@ -577,7 +525,7 @@ def field(
         semantic_id = f"{model_name}.{obj_name}"
         _check_duplicate(ctx, semantic_id)
 
-        ds_ref = _resolve_dataset_ref(dataset)
+        ds_ref = _resolve_ref_string(dataset)
         validate_metric_body_ast(fn, "base")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
@@ -608,11 +556,12 @@ def field(
 def time_field(
     *,
     name: str | None = None,
-    dataset: DatasetRef | SemanticRef,
+    dataset: DatasetRef | str,
     data_type: Literal["date", "datetime", "timestamp", "string", "integer"],
     granularity: Literal["year", "quarter", "month", "week", "day", "hour"],
     date_format: str | None = None,
     required_prefix: str | None = None,
+    timezone: str | None = None,
     model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -626,7 +575,7 @@ def time_field(
 
     Args:
         name: Field name. Defaults to the function name.
-        dataset: Owning dataset (``DatasetRef`` or ``ms.ref('dataset.<model>.<name>')``).
+        dataset: Owning dataset (``DatasetRef`` or qualified string).
         data_type: ``date | datetime | timestamp | string | integer``.
         granularity: ``year | quarter | month | week | day | hour`` — the
             finest grain at which queries are meaningful.
@@ -645,8 +594,8 @@ def time_field(
         A decorator that returns a ``TimeFieldRef``.
 
     Raises:
-        SemanticDecoratorError: ``dataset`` is a naked string or wrong kind,
-            ``name`` collides, or the body violates the AST whitelist.
+        SemanticDecoratorError: ``dataset`` is unknown, ``name`` collides, or the
+            body violates the AST whitelist.
 
     Example:
         >>> @ms.time_field(name="created_at", dataset=orders,
@@ -662,10 +611,21 @@ def time_field(
         semantic_id = f"{model_name}.{obj_name}"
         _check_duplicate(ctx, semantic_id)
 
-        ds_ref = _resolve_dataset_ref(dataset)
+        ds_ref = _resolve_ref_string(dataset)
         validate_metric_body_ast(fn, "base")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
+
+        if timezone is not None:
+            try:
+                ZoneInfo(timezone)
+            except ZoneInfoNotFoundError:
+                _raise(
+                    ErrorKind.INVALID_REF,
+                    f"timezone {timezone!r} is not a valid IANA timezone name.",
+                    refs=(semantic_id,),
+                    cls=SemanticDecoratorError,
+                )
 
         ir = FieldIR(
             semantic_id=semantic_id,
@@ -681,6 +641,7 @@ def time_field(
             python_symbol=fn.__name__,
             location=location,
             format=date_format,
+            timezone=timezone,
         )
         _push_ir(ctx, ir, fn)
 
@@ -694,7 +655,7 @@ def time_field(
 def metric(
     *,
     name: str | None = None,
-    datasets: list[DatasetRef | SemanticRef] | None = None,
+    datasets: list[DatasetRef | str] | None = None,
     decomposition: DecompositionBuilder,
     source_sql: str | None = None,
     source_dialect: str | None = None,
@@ -721,7 +682,7 @@ def metric(
 
     Args:
         name: Metric name. Defaults to the function name.
-        datasets: Aggregate metrics: list of ``DatasetRef`` / ``ms.ref('dataset.<model>.<name>')``.
+        datasets: Aggregate metrics: list of ``DatasetRef`` / qualified strings.
             Derived metrics: omit or ``[]``.
         decomposition: ``ms.sum()`` / ``ms.ratio(numerator=..., denominator=...)``
             / ``ms.weighted_average(...)`` builder.
@@ -730,9 +691,7 @@ def metric(
         source_document: External doc reference for the metric.
         source_notes: Free-form provenance notes.
         declared_status: ``"python_native"`` or ``"unverified"``. Defaults to
-            ``None``. When ``None``, metrics without ``source_sql`` are
-            automatically ``python_native`` (no SQL oracle exists); metrics with
-            ``source_sql`` are ``unverified`` until parity succeeds.
+            ``None``, which means the metric is unverified until parity succeeds.
         model_name: Override the active model namespace.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
@@ -829,10 +788,10 @@ def metric(
 def relationship(
     *,
     name: str | None = None,
-    from_dataset: DatasetRef | SemanticRef,
-    to_dataset: DatasetRef | SemanticRef,
-    from_fields: list[FieldRef | TimeFieldRef | SemanticRef],
-    to_fields: list[FieldRef | TimeFieldRef | SemanticRef],
+    from_dataset: DatasetRef | str,
+    to_dataset: DatasetRef | str,
+    from_fields: list[FieldRef | str],
+    to_fields: list[FieldRef | str],
     model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -844,9 +803,9 @@ def relationship(
 
     Args:
         name: Required relationship name (no default).
-        from_dataset: Source dataset (``DatasetRef`` or ``ms.ref('dataset.<model>.<name>')``).
-        to_dataset: Target dataset (``DatasetRef`` or ``ms.ref('dataset.<model>.<name>')``).
-        from_fields: Columns on ``from_dataset`` (``FieldRef`` / ``TimeFieldRef`` / ``ms.ref(...)``).
+        from_dataset: Source dataset (``DatasetRef`` or qualified string).
+        to_dataset: Target dataset (``DatasetRef`` or qualified string).
+        from_fields: Columns on ``from_dataset`` (``FieldRef`` / qualified strings).
         to_fields: Columns on ``to_dataset`` — must align positionally with ``from_fields``.
         model_name: Override the active model namespace.
         description: Free-text description.
@@ -856,14 +815,14 @@ def relationship(
         A ``RelationshipRef``.
 
     Raises:
-        SemanticDecoratorError: ``name`` is missing, ref arguments are naked strings
-            or wrong kind, or ``from_fields`` / ``to_fields`` lengths disagree.
+        SemanticDecoratorError: ``name`` is missing, the datasets are unknown, or
+            ``from_fields`` / ``to_fields`` lengths disagree.
 
     Example:
         >>> ms.relationship(
         ...     name="orders_to_customers",
         ...     from_dataset=orders, to_dataset=customers,
-        ...     from_fields=[FieldRef("customer_id")], to_fields=[FieldRef("id")],
+        ...     from_fields=["customer_id"], to_fields=["id"],
         ... )
     """
     ctx = _require_ctx()
@@ -879,10 +838,10 @@ def relationship(
     semantic_id = f"{model_name}.{name}"
     _check_duplicate(ctx, semantic_id)
 
-    from_ds = _resolve_dataset_ref(from_dataset)
-    to_ds = _resolve_dataset_ref(to_dataset)
-    from_f = tuple(_resolve_field_ref(ref) for ref in from_fields)
-    to_f = tuple(_resolve_field_ref(ref) for ref in to_fields)
+    from_ds = _resolve_ref_string(from_dataset)
+    to_ds = _resolve_ref_string(to_dataset)
+    from_f = _resolve_field_refs(from_fields)
+    to_f = _resolve_field_refs(to_fields)
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
 
@@ -919,12 +878,12 @@ def sum() -> DecompositionBuilder:
 
 def ratio(
     *,
-    numerator: MetricRef | SemanticRef,
-    denominator: MetricRef | SemanticRef,
+    numerator: Any,
+    denominator: Any,
 ) -> DecompositionBuilder:
     """Ratio decomposition: derived metric expressed as numerator / denominator.
 
-    ``numerator`` and ``denominator`` are ``MetricRef`` / ``ms.ref('metric.<model>.<name>')``
+    ``numerator`` and ``denominator`` are ``MetricRef`` / qualified string
     references to other metrics. The derived metric body should call
     ``ms.component("numerator") / ms.component("denominator")``.
 
@@ -934,8 +893,8 @@ def ratio(
         ... def aov():
         ...     return ms.component("numerator") / ms.component("denominator")
     """
-    num_id = _resolve_metric_ref(numerator)
-    den_id = _resolve_metric_ref(denominator)
+    num_id = _resolve_ref_string(numerator) if not isinstance(numerator, str) else numerator
+    den_id = _resolve_ref_string(denominator) if not isinstance(denominator, str) else denominator
     return DecompositionBuilder(
         kind="ratio",
         components={"numerator": num_id, "denominator": den_id},
@@ -944,67 +903,30 @@ def ratio(
 
 def weighted_average(
     *,
-    value: MetricRef | SemanticRef,
-    weight: MetricRef | SemanticRef,
+    value: Any,
+    weight: Any,
 ) -> DecompositionBuilder:
     """Weighted-average decomposition: derived metric expressed as Σ(value)/Σ(weight).
 
-    Both ``value`` and ``weight`` are ``MetricRef`` / ``ms.ref('metric.<model>.<name>')``
+    Both ``value`` and ``weight`` are ``MetricRef`` / qualified string
     references. Use when the underlying ratio needs to be averaged by an
     additive weight (e.g. revenue-weighted average price).
     """
-    num_id = _resolve_metric_ref(value)
-    weight_id = _resolve_metric_ref(weight)
+    num_id = _resolve_ref_string(value) if not isinstance(value, str) else value
+    weight_id = _resolve_ref_string(weight) if not isinstance(weight, str) else weight
     return DecompositionBuilder(
         kind="weighted_average",
         components={"numerator": num_id, "weight": weight_id},
     )
 
 
-_REF_KINDS: dict[str, SymbolKind] = {
-    SymbolKind.DATASET.value: SymbolKind.DATASET,
-    SymbolKind.FIELD.value: SymbolKind.FIELD,
-    SymbolKind.TIME_FIELD.value: SymbolKind.TIME_FIELD,
-    SymbolKind.METRIC.value: SymbolKind.METRIC,
-    SymbolKind.RELATIONSHIP.value: SymbolKind.RELATIONSHIP,
-}
+def ref(id: str) -> str:
+    """Reference a semantic object by qualified ``"<model>.<object>"`` string.
 
-
-def ref(id: str) -> SemanticRef:
-    """Reference a semantic object by typed ``"<kind>.<model>.<name>"`` id.
-
-    Prefer importing decorated refs. Use this builder only for generated
-    definitions, forward references, import cycles, or protected model
-    boundaries. Per-kind helpers such as ``ms.dataset_ref(...)`` do not exist.
+    Pass-through helper: it returns ``id`` unchanged but makes intent
+    explicit at the call site (``datasets=[ms.ref("sales.orders")]``).
     """
-    if not isinstance(id, str):
-        _raise(
-            ErrorKind.INVALID_REF,
-            "ms.ref(...) requires a string in '<kind>.<model>.<name>' format.",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    parts = id.split(".")
-    if len(parts) != 3 or any(part == "" for part in parts):
-        _raise(
-            ErrorKind.INVALID_REF,
-            "ms.ref(...) requires '<kind>.<model>.<name>', for example 'dataset.sales.orders'.",
-            refs=(id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    kind_raw, model_name, object_name = parts
-    kind = _REF_KINDS.get(kind_raw)
-    if kind is None:
-        allowed = ", ".join(sorted(_REF_KINDS))
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"ms.ref(...) kind {kind_raw!r} is not supported; expected one of: {allowed}.",
-            refs=(id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    return SemanticRef(kind=kind, semantic_id=f"{model_name}.{object_name}")
+    return id
 
 
 def component(name: str, /) -> _ComponentSentinel:

@@ -258,8 +258,8 @@ def test_apply_time_series_bucket_day_respects_session_tz_for_timestamp(tmp_path
     con.raw_sql("CREATE TABLE orders (created_at TIMESTAMP, amount DOUBLE)")
     con.raw_sql(
         "INSERT INTO orders VALUES "
-        "(TIMESTAMP '2026-04-30 16:30:00', 10.0), "
-        "(TIMESTAMP '2026-05-01 15:30:00', 20.0)"
+        "(TIMESTAMP '2026-04-30 23:59:59', 10.0), "
+        "(TIMESTAMP '2026-05-01 00:00:00', 20.0)"
     )
 
     ds_adapter = _build_dataset_adapter(sp, "sales.orders")
@@ -271,6 +271,6 @@ def test_apply_time_series_bucket_day_respects_session_tz_for_timestamp(tmp_path
     )
     df = bucketed.order_by("created_at").execute()
     assert [item.strftime("%Y-%m-%d") for item in df["bucket_start"]] == [
-        "2026-05-01",
+        "2026-04-30",
         "2026-05-01",
     ]

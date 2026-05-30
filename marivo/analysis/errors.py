@@ -150,6 +150,43 @@ class SemanticKindMismatchError(AnalysisError):
                 ),
                 "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
             }
+        got_semantic_shape = self.details.get("got_semantic_shape")
+        expected_semantic_shape = self.details.get("expected_semantic_shape")
+        if isinstance(got_semantic_shape, str) and isinstance(expected_semantic_shape, str):
+            frame_kind = self.details.get("frame_kind")
+            frame_ref = frame_kind if isinstance(frame_kind, str) and frame_kind else "frame"
+            return {
+                "location": f"{frame_ref}.as_{expected_semantic_shape}() narrowing",
+                "cause": (
+                    f"semantic_shape is {got_semantic_shape!r}, expected "
+                    f"{expected_semantic_shape!r}; as_{expected_semantic_shape}() is only "
+                    f"valid on a {expected_semantic_shape} frame."
+                ),
+                "fix_snippet": (
+                    f'if frame.semantic_shape == "{expected_semantic_shape}":\n'
+                    f"    typed = frame.as_{expected_semantic_shape}()"
+                ),
+                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            }
+        intent = self.details.get("intent")
+        predicted_semantic_shape = self.details.get("predicted_semantic_shape")
+        expect_shape = self.details.get("expect_shape")
+        if (
+            isinstance(intent, str)
+            and isinstance(predicted_semantic_shape, str)
+            and isinstance(expect_shape, str)
+        ):
+            return {
+                "location": f"session.{intent}(expect_shape=...) guard",
+                "cause": (
+                    f"{intent} will produce semantic_shape {predicted_semantic_shape!r} "
+                    f"for these inputs, but expect_shape={expect_shape!r} was requested."
+                ),
+                "fix_snippet": (
+                    f'frame = session.{intent}(metric, expect_shape="{predicted_semantic_shape}")'
+                ),
+                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            }
         got_shape = self.details.get("got_shape")
         expected_shape = self.details.get("expected_shape")
         if isinstance(got_shape, str) and isinstance(expected_shape, str):

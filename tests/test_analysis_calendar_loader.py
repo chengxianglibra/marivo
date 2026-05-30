@@ -16,7 +16,6 @@ def test_calendar_cache_loads_project_local_json(tmp_path):
         json.dumps(
             {
                 "name": "cn_holidays",
-                "timezone": "Asia/Shanghai",
                 "holidays": [
                     {"date": "2026-01-01", "holiday_id": "new-year"},
                     {"date": "2026-02-17", "holiday_id": "spring-festival"},
@@ -30,7 +29,6 @@ def test_calendar_cache_loads_project_local_json(tmp_path):
     cache = CalendarCache(tmp_path)
     calendar = cache.get("cn_holidays")
     assert calendar.name == "cn_holidays"
-    assert calendar.timezone == "Asia/Shanghai"
     assert [entry.date for entry in calendar.holidays] == ["2026-01-01", "2026-02-17"]
     assert [entry.date for entry in calendar.adjusted_workdays] == ["2026-02-14"]
 
@@ -79,7 +77,7 @@ def test_calendar_cache_read_failure_raises_policy_error_with_read_failed_kind(
     calendar_dir.mkdir(parents=True, exist_ok=True)
     target_file = calendar_dir / "cn_holidays.json"
     target_file.write_text(
-        json.dumps({"name": "cn_holidays", "timezone": "Asia/Shanghai", "holidays": []}),
+        json.dumps({"name": "cn_holidays", "holidays": []}),
         encoding="utf-8",
     )
 
@@ -100,7 +98,31 @@ def test_calendar_cache_read_failure_raises_policy_error_with_read_failed_kind(
     assert exc_info.value.details["calendar_name"] == "cn_holidays"
 
 
-def test_calendar_cache_invalid_json_shape_missing_timezone_raises_policy_error(tmp_path):
+def test_calendar_rejects_timezone_field(tmp_path):
+    calendar_dir = tmp_path / ".marivo" / "calendar"
+    calendar_dir.mkdir(parents=True, exist_ok=True)
+    (calendar_dir / "cn_holidays.json").write_text(
+        json.dumps(
+            {
+                "name": "cn_holidays",
+                "timezone": "Asia/Shanghai",
+                "holidays": [],
+                "adjusted_workdays": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache = CalendarCache(tmp_path)
+
+    with pytest.raises(CalendarPolicyError) as exc_info:
+        cache.get("cn_holidays")
+
+    assert exc_info.value.details["calendar_name"] == "cn_holidays"
+    assert exc_info.value.details["kind"] == "CalendarFileInvalid"
+    assert "validation_errors" in exc_info.value.details
+
+
+def test_calendar_cache_invalid_json_shape_missing_required_field_raises_policy_error(tmp_path):
     calendar_dir = tmp_path / ".marivo" / "calendar"
     calendar_dir.mkdir(parents=True, exist_ok=True)
     (calendar_dir / "bad_shape.json").write_text(
@@ -108,9 +130,16 @@ def test_calendar_cache_invalid_json_shape_missing_timezone_raises_policy_error(
         encoding="utf-8",
     )
 
+    # This should succeed since timezone is no longer required
+    # but we need a test for when other required fields are missing
+    (calendar_dir / "no_name.json").write_text(
+        json.dumps({"holidays": []}),
+        encoding="utf-8",
+    )
+
     cache = CalendarCache(tmp_path)
     with pytest.raises(CalendarPolicyError) as exc_info:
-        cache.get("bad_shape")
+        cache.get("no_name")
 
     assert exc_info.value.details["kind"] == "CalendarFileInvalid"
     assert "validation_errors" in exc_info.value.details
@@ -123,7 +152,6 @@ def test_calendar_cache_invalid_json_shape_extra_field_raises_policy_error(tmp_p
         json.dumps(
             {
                 "name": "bad_shape_extra",
-                "timezone": "Asia/Shanghai",
                 "holidays": [],
                 "unknown_field": "not_allowed",
             }
@@ -146,7 +174,6 @@ def test_calendar_cache_invalid_entry_date_raises_policy_error(tmp_path):
         json.dumps(
             {
                 "name": "bad_date",
-                "timezone": "Asia/Shanghai",
                 "holidays": [{"date": "2026/01/01"}],
             }
         ),
@@ -156,28 +183,6 @@ def test_calendar_cache_invalid_entry_date_raises_policy_error(tmp_path):
     cache = CalendarCache(tmp_path)
     with pytest.raises(CalendarPolicyError) as exc_info:
         cache.get("bad_date")
-
-    assert exc_info.value.details["kind"] == "CalendarFileInvalid"
-    assert "validation_errors" in exc_info.value.details
-
-
-def test_calendar_cache_invalid_timezone_raises_policy_error(tmp_path):
-    calendar_dir = tmp_path / ".marivo" / "calendar"
-    calendar_dir.mkdir(parents=True, exist_ok=True)
-    (calendar_dir / "bad_timezone.json").write_text(
-        json.dumps(
-            {
-                "name": "bad_timezone",
-                "timezone": "Mars/Olympus",
-                "holidays": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    cache = CalendarCache(tmp_path)
-    with pytest.raises(CalendarPolicyError) as exc_info:
-        cache.get("bad_timezone")
 
     assert exc_info.value.details["kind"] == "CalendarFileInvalid"
     assert "validation_errors" in exc_info.value.details

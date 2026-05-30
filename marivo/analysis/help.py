@@ -1,11 +1,11 @@
-"""Agent-facing introspection for marivo.analysis."""
+"""Small stdout-based introspection helper for marivo.analysis."""
 
 from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
 from types import ModuleType
-from typing import Any, Literal, cast
+from typing import cast
 
 _TOP_LEVEL_ENTRIES = {
     "session.observe": "build a MetricFrame from a metric and window",
@@ -261,7 +261,7 @@ def _resolve(symbol: str) -> object | None:
     return None
 
 
-def _help_text(symbol: str | None = None) -> str:
+def help_text(symbol: str | None = None) -> str:
     """Return help text as a string instead of printing it."""
 
     if symbol is None:
@@ -286,215 +286,7 @@ def _help_text(symbol: str | None = None) -> str:
     return repr(obj)
 
 
-def _signature(name: str, obj: Any) -> str:
-    try:
-        return f"{name}{inspect.signature(obj)}"
-    except (TypeError, ValueError):
-        return name
+def help(symbol: str | None = None) -> None:
+    """Print top-level or symbol-specific help for marivo.analysis."""
 
-
-def _discover_json() -> dict[str, object]:
-    from marivo.analysis.intents.discover import (
-        _OBJECTIVE_COMPATIBILITY,
-        _OBJECTIVE_REQUIRED_KWARGS,
-        _OBJECTIVE_TO_SHAPE,
-    )
-
-    objectives: list[dict[str, object]] = []
-    for objective in sorted(_OBJECTIVE_COMPATIBILITY):
-        compat = _OBJECTIVE_COMPATIBILITY[objective]
-        compatibility: dict[str, list[str]] = {}
-        for source in sorted(compat):
-            kinds = sorted(compat[source])
-            compatibility[source] = kinds
-        objectives.append(
-            {
-                "objective": objective,
-                "shape": _OBJECTIVE_TO_SHAPE[objective],
-                "compatibility": compatibility,
-                "required_kwargs": sorted(_OBJECTIVE_REQUIRED_KWARGS.get(objective, ())),
-            }
-        )
-    return {"objectives": objectives}
-
-
-def _select_json() -> dict[str, object]:
-    from marivo.analysis.intents.select import _FIELD_BY_SHAPE
-
-    fields_by_shape: dict[str, list[str]] = {}
-    for shape in sorted(_FIELD_BY_SHAPE):
-        fields_by_shape[shape] = sorted(_FIELD_BY_SHAPE[shape])
-    return {"fields_by_shape": fields_by_shape}
-
-
-_TRANSFORM_OP_REQUIRED: dict[str, tuple[str, ...]] = {
-    "filter": ("predicate",),
-    "slice": ("where",),
-    "rollup": ("drop_axes",),
-    "topk": ("by", "limit"),
-    "bottomk": ("by", "limit"),
-    "rank": ("by",),
-    "normalize": ("kind",),
-    "window": ("window",),
-}
-
-
-def _transform_json() -> dict[str, object]:
-    from marivo.analysis.intents.transform import _SUPPORTED_OPS
-
-    ops: list[dict[str, object]] = []
-    for op in _SUPPORTED_OPS:
-        required = sorted(_TRANSFORM_OP_REQUIRED.get(op, ()))
-        ops.append({"op": op, "required_kwargs": required})
-    return {"ops": ops}
-
-
-def _alignment_json() -> dict[str, object]:
-    variants: list[dict[str, object]] = [
-        {"kind": "window_bucket", "requires_calendar": False},
-        {"kind": "dow_aligned", "requires_calendar": True},
-        {"kind": "holiday_aligned", "requires_calendar": True},
-        {"kind": "holiday_and_dow_aligned", "requires_calendar": True},
-    ]
-    behavior_notes = [
-        "shared bucket_start values -> align by bucket date",
-        "no shared dates + equal expected bucket counts -> align by ordinal position",
-        "sparse observed buckets become NaN values rather than alignment failures",
-        "there is no separate kind='ordinal'",
-    ]
-    return {"variants": variants, "behavior_notes": behavior_notes}
-
-
-def _calendar_json() -> dict[str, object]:
-    top_level_schema: dict[str, str] = {
-        "name": "string matching the file stem",
-        "timezone": "IANA timezone such as 'Asia/Shanghai'",
-        "holidays": "list[CalendarEntry]",
-        "adjusted_workdays": "optional list[CalendarEntry], defaults to []",
-    }
-    entry_schema: dict[str, str] = {
-        "date": "ISO date string, YYYY-MM-DD",
-        "holiday_id": "optional string used to match same holiday across years",
-    }
-    example: dict[str, object] = {
-        "name": "cn_holidays",
-        "timezone": "Asia/Shanghai",
-        "holidays": [{"date": "2026-05-01", "holiday_id": "labor-day"}],
-        "adjusted_workdays": [{"date": "2026-05-02"}],
-    }
-    return {
-        "location": ".marivo/calendar/<name>.json",
-        "top_level_schema": top_level_schema,
-        "entry_schema": entry_schema,
-        "notes": ["Extra fields are rejected; use holiday_id rather than name/label."],
-        "example": example,
-    }
-
-
-_MATRIX_JSON: dict[str, Callable[[], dict[str, object]]] = {
-    "discover": _discover_json,
-    "select": _select_json,
-    "transform": _transform_json,
-    "alignment": _alignment_json,
-    "calendar": _calendar_json,
-}
-
-
-def _namespace_methods_json(obj: object) -> list[dict[str, str]] | None:
-    methods = _namespace_methods(obj)
-    if not methods:
-        return None
-    result: list[dict[str, str]] = []
-    for method_name in methods:
-        method = getattr(obj, method_name)
-        try:
-            method_signature = str(inspect.signature(method))
-        except (TypeError, ValueError):
-            method_signature = "(...)"
-        result.append({"name": method_name, "signature": method_signature})
-    return result
-
-
-def _object_json(symbol: str, obj: Any) -> dict[str, object]:
-    data: dict[str, object] = {"symbol": symbol}
-    if inspect.isclass(obj):
-        data["kind"] = "class"
-        data["signature"] = f"class {symbol}"
-        data["doc"] = inspect.getdoc(obj) or ""
-    elif inspect.ismodule(obj) or isinstance(obj, ModuleType):
-        data["kind"] = "module"
-        data["signature"] = f"module {symbol}"
-        data["doc"] = inspect.getdoc(obj) or ""
-    elif callable(obj):
-        data["kind"] = "callable"
-        data["signature"] = _signature(symbol, obj)
-        doc = inspect.getdoc(obj)
-        if doc is None and getattr(obj, "__module__", None):
-            module = inspect.getmodule(obj)
-            if module is not None:
-                doc = inspect.getdoc(module)
-        data["doc"] = doc or ""
-        namespace_methods = _namespace_methods_json(obj)
-        if namespace_methods is not None:
-            data["namespace_methods"] = namespace_methods
-    else:
-        data["kind"] = "object"
-        data["repr"] = repr(obj)
-    return data
-
-
-def _help_json(symbol: str | None = None) -> dict[str, object]:
-    surface = "marivo.analysis"
-
-    if symbol is None:
-        entries = [
-            {"name": name, "summary": summary} for name, summary in _TOP_LEVEL_ENTRIES.items()
-        ]
-        return {
-            "schema_version": "1",
-            "surface": surface,
-            "entries": entries,
-            "matrix_topics": sorted(_MATRIX_TOPICS),
-        }
-
-    if symbol in _MATRIX_JSON:
-        matrix_data = _MATRIX_JSON[symbol]()
-        return {
-            "schema_version": "1",
-            "surface": surface,
-            "symbol": symbol,
-            "kind": "matrix_topic",
-            **matrix_data,
-        }
-
-    obj = _resolve(symbol)
-    if obj is None:
-        return {
-            "schema_version": "1",
-            "surface": surface,
-            "error": f"unknown symbol: {symbol!r}",
-        }
-
-    data = _object_json(symbol, obj)
-    data["schema_version"] = "1"
-    data["surface"] = surface
-    return data
-
-
-def help(
-    symbol: str | None = None,
-    *,
-    format: Literal["text", "json"] = "text",
-) -> dict[str, object] | None:
-    """Print or return agent-facing help for the analysis surface.
-
-    Without arguments, lists top-level entries. With a symbol name, prints
-    its signature, docstring, or a reference matrix. With ``format="json"``,
-    returns a structured dict and does not print.
-    """
-    if format == "json":
-        return _help_json(symbol)
-    if format != "text":
-        raise ValueError("format must be 'text' or 'json'")
-    print(_help_text(symbol))
-    return None
+    print(help_text(symbol))

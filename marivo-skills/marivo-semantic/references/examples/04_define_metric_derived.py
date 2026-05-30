@@ -32,8 +32,8 @@ import marivo.semantic as ms
 #   @ms.metric(
 #       datasets=[],
 #       decomposition=ms.ratio(
-#           numerator=ms.ref("metric.sales.revenue"),
-#           denominator=ms.ref("metric.sales.orders_count"),
+#           numerator="sales.revenue",
+#           denominator="sales.orders_count",
 #       ),
 #       name="aov",
 #   )
@@ -69,8 +69,8 @@ with tempfile.TemporaryDirectory() as tmp:
         "@ms.metric(\n"
         "    datasets=[],\n"
         "    decomposition=ms.ratio(\n"
-        "        numerator=ms.ref('metric.sales.revenue'),\n"
-        "        denominator=ms.ref('metric.sales.orders_count'),\n"
+        "        numerator='sales.revenue',\n"
+        "        denominator='sales.orders_count',\n"
         "    ),\n"
         "    name='aov',\n"
         ")\n"

@@ -35,7 +35,6 @@ __all__ = [
     "ProvenanceIR",
     "RelationshipIR",
     "RelationshipRef",
-    "SemanticRef",
     "SourceLocation",
     "SymbolKind",
     "TimeFieldRef",
@@ -145,6 +144,7 @@ class FieldIR:
     python_symbol: str
     location: SourceLocation
     format: str | None = None
+    timezone: str | None = None
 
 
 @dataclass(frozen=True)
@@ -192,19 +192,6 @@ class RelationshipIR:
 # ---------------------------------------------------------------------------
 # Ref types
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class SemanticRef:
-    """Typed reference returned by ms.ref().
-
-    This is a builder ref for generated or forward references. Decorated
-    objects still return DatasetRef, FieldRef, TimeFieldRef, MetricRef, and
-    RelationshipRef.
-    """
-
-    kind: SymbolKind
-    semantic_id: str
 
 
 class _BaseRef:
