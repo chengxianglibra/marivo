@@ -15,6 +15,7 @@ from marivo.analysis.datasources import store as _store
 from marivo.analysis.datasources.metadata import TableMetadata
 from marivo.analysis.datasources.metadata import inspect_table as _inspect_table
 from marivo.analysis.errors import DatasourceMissingError, DatasourcePreviewError
+from marivo.datasource.authoring import DatasourceSpec
 from marivo.preview import (
     PREVIEW_DEFAULT_LIMIT,
     PreviewFilter,
@@ -64,9 +65,9 @@ def _persist_backend_env_sourced_secrets(backend: Any) -> None:
         _secrets.persist_env_sourced(resolved)
 
 
-def register(name: str, *, backend_type: str, **fields: Any) -> DatasourceSummary:
+def register(spec: DatasourceSpec) -> DatasourceSummary:
     """Create or replace a project-level datasource file."""
-    stored = _store.save_one(name=name, backend_type=backend_type, fields=fields)
+    stored = _store.save_one(spec)
     return DatasourceSummary(name=stored.name, backend_type=stored.backend_type)
 
 

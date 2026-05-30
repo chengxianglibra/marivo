@@ -7,7 +7,7 @@ semantic model files.
 ## Core Rule
 
 - Use `marivo.datasource as md` in `.marivo/datasource/<name>.py`.
-- Use `@ms.dataset(datasource="<name>")` in `.marivo/semantic/...`.
+- Use `md.ref("<name>")` and pass the ref to `@ms.dataset(datasource=...)` in `.marivo/semantic/...`.
 - The datasource name is global and must not contain `.`.
 - Non-secret connection fields live in the datasource file.
 - Secret fields use environment references only: `user_env`, `password_env`,
@@ -24,7 +24,7 @@ semantic model files.
 ```python
 import marivo.datasource as md
 
-md.datasource(
+warehouse = md.DatasourceSpec(
     name="warehouse",
     backend_type="trino",
     host="trino.example.internal",
@@ -35,6 +35,7 @@ md.datasource(
     user_env="TRINO_USER",
     password_env="TRINO_PASSWORD",
 )
+md.datasource(warehouse)
 ```
 
 For Trino, `host` and `catalog` are required. `catalog` maps to the Ibis
@@ -48,11 +49,13 @@ The same datasource can be shared by multiple semantic models.
 ## Semantic Reference
 
 ```python
+import marivo.datasource as md
 import marivo.semantic as ms
 
 ms.model(name="sales")
+warehouse = md.ref("warehouse")
 
-@ms.dataset(name="orders", datasource="warehouse", primary_key=["order_id"])
+@ms.dataset(name="orders", datasource=warehouse, primary_key=["order_id"])
 def orders(backend):
     return backend.table("orders", database="sales_mart")
 ```
@@ -63,8 +66,8 @@ database="sales_mart")` for schema checks and
 `backend.list_schemas()`; it is not the Ibis table-discovery API used here.
 
 `ms.datasource(...)` has been removed. If you see it, move the datasource
-configuration to `.marivo/datasource/<name>.py` and keep only the string
-reference on `@ms.dataset`.
+configuration to `.marivo/datasource/<name>.py` and keep only a datasource ref
+or compatible string on `@ms.dataset`.
 
 ## Analysis API
 
@@ -72,11 +75,14 @@ Use `mv.datasources` for project datasource CRUD and backend checks:
 
 ```python
 import marivo.analysis as mv
+import marivo.datasource as md
 
 mv.datasources.register(
-    "warehouse",
-    backend_type="duckdb",
-    path="/data/warehouse.duckdb",
+    md.DatasourceSpec(
+        name="warehouse",
+        backend_type="duckdb",
+        path="/data/warehouse.duckdb",
+    )
 )
 mv.datasources.test("warehouse")
 backend = mv.datasources.build_backend("warehouse")

@@ -42,3 +42,30 @@ def test_load_datasources_returns_datasource_ir(tmp_path) -> None:
     assert result.errors == ()
     assert isinstance(result.datasources[0], DatasourceIR)
     assert result.datasources[0].name == "warehouse"
+
+
+def test_datasource_spec_splits_literal_fields_and_env_refs() -> None:
+    import marivo.datasource as md
+
+    spec = md.DatasourceSpec(
+        name="warehouse",
+        backend_type="trino",
+        host="trino.example",
+        catalog="hive",
+        password_env="TRINO_PASSWORD",
+    )
+
+    assert spec.name == "warehouse"
+    assert spec.backend_type == "trino"
+    assert spec.fields == {"host": "trino.example", "catalog": "hive"}
+    assert spec.env_refs == {"password": "TRINO_PASSWORD"}
+
+
+def test_datasource_ref_uses_global_short_name() -> None:
+    import marivo.datasource as md
+
+    ref = md.ref("warehouse")
+
+    assert ref.semantic_id == "warehouse"
+    assert ref.name == "warehouse"
+    assert repr(ref) == "DatasourceRef('warehouse')"

@@ -18,6 +18,7 @@ from dataclasses import field as dc_field
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.typing import _build_ai_context as _shared_build_ai_context
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
@@ -318,12 +319,26 @@ def _caller_location() -> SourceLocation:
 
 
 def _resolve_ref_string(
-    ref: DatasetRef | FieldRef | TimeFieldRef | MetricRef | RelationshipRef | str,
+    ref: DatasetRef | FieldRef | TimeFieldRef | MetricRef | RelationshipRef | DatasourceRef | str,
 ) -> str:
     """Extract semantic_id string from a ref object or pass through a string."""
     if isinstance(ref, str):
         return ref
     return ref.semantic_id
+
+
+def _resolve_datasource_ref(ref: DatasourceRef | str) -> str:
+    """Extract global datasource short name from a datasource ref or string."""
+    if isinstance(ref, str):
+        return ref
+    if isinstance(ref, DatasourceRef):
+        return ref.semantic_id
+    _raise(
+        ErrorKind.INVALID_REF,
+        "@ms.dataset(datasource=...) accepts a datasource ref or global datasource name string.",
+        cls=SemanticDecoratorError,
+        constraint_id=ConstraintId.REF_SHAPE,
+    )
 
 
 def _resolve_field_refs(refs: list[FieldRef | str]) -> tuple[str, ...]:
@@ -406,7 +421,7 @@ def model(
 def dataset(
     *,
     name: str | None = None,
-    datasource: str,
+    datasource: DatasourceRef | str,
     primary_key: list[str] | None = None,
     model_name: str | None = None,
     description: str | None = None,
@@ -420,9 +435,8 @@ def dataset(
 
     Args:
         name: Dataset name. Defaults to the function name.
-        datasource: Global datasource name (string) declared in
-            ``.marivo/datasource/*.py``. Bare references to non-string objects
-            are rejected.
+        datasource: Datasource ref returned by ``md.ref(...)`` or a global
+            datasource name string declared in ``.marivo/datasource/*.py``.
         primary_key: Optional list of column names forming the primary key.
         model_name: Override the active model namespace. Defaults to the file's
             default model.
@@ -434,7 +448,7 @@ def dataset(
         ``@ms.metric``.
 
     Raises:
-        SemanticDecoratorError: ``datasource`` is not a string, ``name``
+        SemanticDecoratorError: ``datasource`` is not a datasource ref or string, ``name``
             collides with another object, or the body violates the AST whitelist.
 
     Example:
@@ -451,16 +465,8 @@ def dataset(
         semantic_id = f"{model_name}.{obj_name}"
         _check_duplicate(ctx, semantic_id)
 
-        if not isinstance(datasource, str):
-            _raise(
-                ErrorKind.INVALID_REF,
-                "@ms.dataset(datasource=...) accepts only a global datasource name string.",
-                refs=(semantic_id,),
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.REF_SHAPE,
-            )
         validate_metric_body_ast(fn, "base")
-        ds_ref = datasource
+        ds_ref = _resolve_datasource_ref(datasource)
         pk = tuple(primary_key) if primary_key else ()
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()

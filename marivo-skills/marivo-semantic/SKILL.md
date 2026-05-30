@@ -44,14 +44,15 @@ source checkout.
 
 ```python
 import ibis
+import marivo.datasource as md
 import marivo.semantic as ms
 
 # In .marivo/datasource/tiny_orders.py:
-# import marivo.datasource as md
-# md.datasource(name="tiny_orders", backend_type="duckdb", path=":memory:")
+# tiny_orders = md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:")
+# md.datasource(tiny_orders)
 #
 # For Trino, keep catalog on the connection and pass schema per table:
-# md.datasource(
+# warehouse = md.DatasourceSpec(
 #     name="warehouse",
 #     backend_type="trino",
 #     host="trino.example.internal",
@@ -61,12 +62,15 @@ import marivo.semantic as ms
 #     client_tags=["agent", "semantic-authoring"],
 #     user_env="TRINO_USER",
 # )
+# md.datasource(warehouse)
 #
 # In a _model.py file inside .marivo/semantic/sales/:
 ms.model(name="sales")
 
 # In a sibling .py file:
-@ms.dataset(name="orders", datasource="tiny_orders", primary_key=["order_id"])
+tiny_orders = md.ref("tiny_orders")
+
+@ms.dataset(name="orders", datasource=tiny_orders, primary_key=["order_id"])
 def orders(backend):
     return backend.table("orders")
 
@@ -232,9 +236,10 @@ metadata with `mv.datasources.register(...)` or by writing
 ```python
 import marivo.datasource as md
 
-md.datasource(name="<datasource_name>", backend_type="duckdb", path=":memory:")
+datasource = md.DatasourceSpec(name="<datasource_name>", backend_type="duckdb", path=":memory:")
+md.datasource(datasource)
 
-md.datasource(
+warehouse = md.DatasourceSpec(
     name="warehouse",
     backend_type="trino",
     host="<trino_host>",
@@ -245,6 +250,7 @@ md.datasource(
     user_env="TRINO_USER",
     password_env="TRINO_PASSWORD",
 )
+md.datasource(warehouse)
 ```
 
 For Trino, `catalog` maps to the Ibis connection `database` and is required.
@@ -259,14 +265,18 @@ rejected; use `<field>_env="ENV_VAR"`.
 Runnable reference: `references/examples/02_declare_dataset.py`.
 
 ```python
+import marivo.datasource as md
 import marivo.semantic as ms
 
-@ms.dataset(name="<dataset_name>", datasource="<datasource_name>", primary_key=["<pk_col>"])
+datasource = md.ref("<datasource_name>")
+
+@ms.dataset(name="<dataset_name>", datasource=datasource, primary_key=["<pk_col>"])
 def <dataset_name>(backend):
     return backend.table("<physical_table>")
 
+warehouse = md.ref("warehouse")
 
-@ms.dataset(name="orders", datasource="warehouse", primary_key=["order_id"])
+@ms.dataset(name="orders", datasource=warehouse, primary_key=["order_id"])
 def orders(backend):
     return backend.table("orders", database="sales_mart")
 ```

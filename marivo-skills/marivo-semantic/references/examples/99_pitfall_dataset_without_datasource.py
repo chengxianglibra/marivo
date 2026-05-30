@@ -20,17 +20,20 @@ import marivo.semantic as ms
 #   ms.model(name="sales")
 #
 #   # datasets.py  (BUG: no .marivo/datasource/tiny_orders.py exists!)
+#   import marivo.datasource as md
 #   import marivo.semantic as ms
+#   tiny_orders = md.ref("tiny_orders")
 #
-#   @ms.dataset(name="orders", datasource="tiny_orders")
+#   @ms.dataset(name="orders", datasource=tiny_orders)
 #   def orders(backend):
 #       return backend.table("orders")
 #
 # The loader will produce a MISSING_DATASET_REF error because
 # 'tiny_orders' has no matching project datasource declaration.
 #
-# Fix: create .marivo/datasource/tiny_orders.py, then reference it by name:
-#   @ms.dataset(datasource="tiny_orders")
+# Fix: create .marivo/datasource/tiny_orders.py, then reference it with md.ref:
+#   tiny_orders = md.ref("tiny_orders")
+#   @ms.dataset(datasource=tiny_orders)
 #   def orders(backend):
 #       return backend.table("orders")
 
@@ -41,9 +44,12 @@ with tempfile.TemporaryDirectory() as tmp:
     (root / "__init__.py").write_text("")
     (root / "_model.py").write_text("import marivo.semantic as ms\nms.model(name='sales')\n")
     (root / "datasets.py").write_text(
+        "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
         "\n"
-        "@ms.dataset(name='orders', datasource='tiny_orders')\n"
+        "tiny_orders = md.ref('tiny_orders')\n"
+        "\n"
+        "@ms.dataset(name='orders', datasource=tiny_orders)\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
     )

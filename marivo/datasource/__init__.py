@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marivo.datasource.authoring import datasource
+from marivo.datasource.authoring import DatasourceRef, DatasourceSpec, datasource, ref
 from marivo.datasource.ir import (
     AiContextIR,
     DatasourceAiContextIR,
@@ -15,7 +15,10 @@ __all__ = [
     "AiContextIR",
     "DatasourceAiContextIR",
     "DatasourceIR",
+    "DatasourceRef",
     "DatasourceSourceLocation",
+    "DatasourceSpec",
     "datasource",
     "load_datasources",
+    "ref",
 ]

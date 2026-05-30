@@ -30,20 +30,24 @@ with that project's actual virtualenv path.
 **Why it happens:** the `datasource=` argument points at a global datasource
 name that has no `.marivo/datasource/<name>.py` declaration.
 
-**Fix:** create the project datasource, then reference its name directly:
+**Fix:** create the project datasource, then reference it with `md.ref(...)`:
 
 ```python
 # .marivo/datasource/tiny_orders.py
 import marivo.datasource as md
 
-md.datasource(name="tiny_orders", backend_type="duckdb", path=":memory:")
+tiny_orders = md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:")
+md.datasource(tiny_orders)
 ```
 
 ```python
 # .marivo/semantic/sales/datasets.py
+import marivo.datasource as md
 import marivo.semantic as ms
 
-@ms.dataset(name="orders", datasource="tiny_orders")
+tiny_orders = md.ref("tiny_orders")
+
+@ms.dataset(name="orders", datasource=tiny_orders)
 def orders(backend):
     return backend.table("orders")
 ```
@@ -79,8 +83,9 @@ an explicit `backends=` / `backend_factory=` override.
 
 ```python
 import marivo.analysis as mv
+import marivo.datasource as md
 
-mv.datasources.register("tiny_orders", backend_type="duckdb", path=":memory:")
+mv.datasources.register(md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:"))
 session = mv.session.get_or_create(name="analysis")
 ```
 

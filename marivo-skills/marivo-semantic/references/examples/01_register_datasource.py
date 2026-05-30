@@ -13,7 +13,8 @@ import marivo.semantic as ms
 
 # In .marivo/datasource/tiny_orders.py:
 #   import marivo.datasource as md
-#   md.datasource(name="tiny_orders", backend_type="duckdb", path=":memory:")
+#   tiny_orders = md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:")
+#   md.datasource(tiny_orders)
 
 # --- executable demo ---
 with tempfile.TemporaryDirectory() as tmp:
@@ -24,7 +25,8 @@ with tempfile.TemporaryDirectory() as tmp:
     (Path(tmp) / ".marivo" / "datasource").mkdir(parents=True)
     (Path(tmp) / ".marivo" / "datasource" / "tiny_orders.py").write_text(
         "import marivo.datasource as md\n"
-        "md.datasource(name='tiny_orders', backend_type='duckdb', path=':memory:')\n"
+        "tiny_orders = md.DatasourceSpec(name='tiny_orders', backend_type='duckdb', path=':memory:')\n"
+        "md.datasource(tiny_orders)\n"
     )
     project = ms.SemanticProject(root=str(Path(tmp) / ".marivo" / "semantic"))
     project.load()

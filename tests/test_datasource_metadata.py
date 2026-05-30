@@ -9,6 +9,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo.analysis.datasources.metadata import (
     ColumnMetadata,
     MetadataWarning,
@@ -65,6 +66,10 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+def _spec(name: str, *, backend_type: str, **fields: object) -> md.DatasourceSpec:
+    return md.DatasourceSpec(name=name, backend_type=backend_type, **fields)
+
+
 def _create_metadata_duckdb(path: Path) -> None:
     con = ibis.duckdb.connect(str(path))
     con.raw_sql(
@@ -83,7 +88,7 @@ def _create_metadata_duckdb(path: Path) -> None:
 def test_inspect_table_duckdb_returns_comments_and_nullable(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_metadata_duckdb(db_path)
-    mv.datasources.register("wh", backend_type="duckdb", path=str(db_path))
+    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
     metadata = mv.datasources.inspect_table("wh", table="orders")
 
@@ -154,11 +159,13 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
 ) -> None:
     monkeypatch.setenv("MYSQL_USER", "reader")
     mv.datasources.register(
-        "mysql_wh",
-        backend_type="mysql",
-        host="localhost",
-        user_env="MYSQL_USER",
-        database="mart",
+        _spec(
+            "mysql_wh",
+            backend_type="mysql",
+            host="localhost",
+            user_env="MYSQL_USER",
+            database="mart",
+        )
     )
     backend = _FakeBackend(
         {"order_id": "int64", "amount": "float64"},
@@ -197,11 +204,13 @@ def test_inspect_table_trino_adapter_uses_information_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mv.datasources.register(
-        "trino_wh",
-        backend_type="trino",
-        host="trino.example",
-        catalog="hive",
-        schema="analytics",
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
     )
     backend = _FakeBackend(
         {"order_id": "int64", "amount": "float64"},
@@ -249,11 +258,13 @@ def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mv.datasources.register(
-        "trino_wh",
-        backend_type="trino",
-        host="trino.example",
-        catalog="hive",
-        schema="analytics",
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
     )
     backend = _FakeBackend(
         {"order_id": "int64"},
@@ -285,7 +296,9 @@ def test_inspect_table_trino_without_schema_returns_schema_only(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    mv.datasources.register("trino_wh", backend_type="trino", host="trino.example", catalog="hive")
+    mv.datasources.register(
+        _spec("trino_wh", backend_type="trino", host="trino.example", catalog="hive")
+    )
     backend = _FakeBackend({"order_id": "int64"}, {})
 
     import marivo.analysis.datasources.metadata as metadata_mod
@@ -306,10 +319,12 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mv.datasources.register(
-        "ch_wh",
-        backend_type="clickhouse",
-        host="clickhouse.example",
-        database="analytics",
+        _spec(
+            "ch_wh",
+            backend_type="clickhouse",
+            host="clickhouse.example",
+            database="analytics",
+        )
     )
     backend = _FakeBackend(
         {"order_id": "int64", "amount": "float64", "region": "string"},
@@ -354,10 +369,12 @@ def test_inspect_table_clickhouse_infers_nullable_from_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     mv.datasources.register(
-        "ch_old",
-        backend_type="clickhouse",
-        host="clickhouse-old.example",
-        database="default",
+        _spec(
+            "ch_old",
+            backend_type="clickhouse",
+            host="clickhouse-old.example",
+            database="default",
+        )
     )
     backend = _FakeBackend(
         {"order_id": "int64", "amount": "float64"},
@@ -391,7 +408,7 @@ def test_inspect_table_clickhouse_infers_nullable_from_type(
 def test_inspect_table_trino_short_name_is_not_rejected(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    mv.datasources.register("wh", backend_type="trino", host="h", catalog="c")
+    mv.datasources.register(_spec("wh", backend_type="trino", host="h", catalog="c"))
     backend = _FakeBackend({"order_id": "int64"}, {})
 
     import marivo.analysis.datasources.metadata as metadata_mod

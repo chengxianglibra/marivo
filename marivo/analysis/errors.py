@@ -650,9 +650,10 @@ class NoBackendFactoryError(AnalysisError):
                 ),
                 "fix_snippet": (
                     "import marivo.analysis as mv\n"
+                    "import marivo.datasource as md\n"
                     "\n"
                     "# Recommended: persist the project datasource config once.\n"
-                    'mv.datasources.register("tiny_orders", backend_type="duckdb", path=":memory:")\n'
+                    'mv.datasources.register(md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:"))\n'
                     'session = mv.session.get_or_create(name="analysis")  # auto-loads from datasource\n'
                     "\n"
                     "# Or pass an explicit factory (no datasource lookup):\n"
@@ -673,8 +674,9 @@ class NoBackendFactoryError(AnalysisError):
             ),
             "fix_snippet": (
                 "import marivo.analysis as mv\n"
+                "import marivo.datasource as md\n"
                 "\n"
-                'mv.datasources.register("tiny_orders", backend_type="duckdb", path=":memory:")\n'
+                'mv.datasources.register(md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:"))\n'
             ),
             "doc": "marivo-skills/marivo-semantic/references/datasource.md",
         }
@@ -701,8 +703,11 @@ class DatasourceMissingError(AnalysisError):
             "cause": f"datasource {ds_ref!r} is not configured; {available_line}",
             "fix_snippet": (
                 "import marivo.analysis as mv\n"
-                f'mv.datasources.register("{ds_ref}", {bt_arg}host="...", port=..., user_env="USER_VAR")\n'
-                f'# Sensitive fields go via *_env: mv.datasources.register("{ds_ref}", ..., password_env="PWD_VAR")'
+                "import marivo.datasource as md\n"
+                "mv.datasources.register(\n"
+                f'    md.DatasourceSpec(name="{ds_ref}", {bt_arg}host="...", port=..., user_env="USER_VAR")\n'
+                ")\n"
+                "# Sensitive fields go via *_env on DatasourceSpec."
             ),
             "doc": "marivo-skills/marivo-semantic/references/datasource.md",
         }

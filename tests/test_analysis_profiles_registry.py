@@ -8,6 +8,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo.analysis.datasources import secrets as datasource_secrets
 from marivo.analysis.errors import (
     DatasourceFieldInvalidError,
@@ -23,35 +24,46 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+def _spec(name: str, *, backend_type: str, **fields: object) -> md.DatasourceSpec:
+    return md.DatasourceSpec(name=name, backend_type=backend_type, **fields)
+
+
 def test_set_returns_summary(project_root: Path) -> None:
-    summary = mv.datasources.register("wh", backend_type="duckdb", path=":memory:")
+    summary = mv.datasources.register(_spec("wh", backend_type="duckdb", path=":memory:"))
     assert summary.name == "wh"
     assert summary.backend_type == "duckdb"
     assert (project_root / ".marivo" / "datasource" / "wh.py").is_file()
 
 
+def test_register_rejects_legacy_name_and_kwargs(project_root: Path) -> None:
+    with pytest.raises(TypeError):
+        mv.datasources.register("wh", backend_type="duckdb", path=":memory:")  # type: ignore[call-arg]
+
+
 def test_set_rejects_model_qualified_name(project_root: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        mv.datasources.register("sales.warehouse", backend_type="duckdb", path=":memory:")
+        mv.datasources.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
     assert exc_info.value.details["field"] == "<name>"
     assert "global datasource name" in str(exc_info.value)
 
 
 def test_list_returns_sorted_summaries(project_root: Path) -> None:
-    mv.datasources.register("b", backend_type="duckdb", path=":memory:")
-    mv.datasources.register("a", backend_type="duckdb", path=":memory:")
+    mv.datasources.register(_spec("b", backend_type="duckdb", path=":memory:"))
+    mv.datasources.register(_spec("a", backend_type="duckdb", path=":memory:"))
     names = [p.name for p in mv.datasources.all()]
     assert names == ["a", "b"]
 
 
 def test_describe_redacts_secrets(project_root: Path) -> None:
     mv.datasources.register(
-        "wh",
-        backend_type="trino",
-        host="trino.example",
-        port=8080,
-        catalog="hive",
-        password_env="TRINO_PASSWORD",
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="trino.example",
+            port=8080,
+            catalog="hive",
+            password_env="TRINO_PASSWORD",
+        )
     )
     desc = mv.datasources.describe("wh")
     assert desc.literal_fields == {"host": "trino.example", "port": 8080, "catalog": "hive"}
@@ -62,7 +74,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    mv.datasources.register("wh", backend_type="trino", host="trino.example", catalog="hive")
+    mv.datasources.register(_spec("wh", backend_type="trino", host="trino.example", catalog="hive"))
 
     class _FakeBackend:
         disconnected = False
@@ -93,11 +105,13 @@ def test_datasource_test_success_persists_env_sourced_secret(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     mv.datasources.register(
-        "wh",
-        backend_type="trino",
-        host="trino.example",
-        catalog="hive",
-        password_env="TRINO_PASSWORD",
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            password_env="TRINO_PASSWORD",
+        )
     )
     monkeypatch.setenv("TRINO_PASSWORD", "validated-secret")
     persisted: list[tuple[str, str]] = []
@@ -137,11 +151,13 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     mv.datasources.register(
-        "wh",
-        backend_type="trino",
-        host="trino.example",
-        catalog="hive",
-        password_env="TRINO_PASSWORD",
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            password_env="TRINO_PASSWORD",
+        )
     )
     monkeypatch.setenv("TRINO_PASSWORD", "bad-secret")
     persisted: list[tuple[str, str]] = []
@@ -186,7 +202,7 @@ def test_describe_missing_raises_with_hint(project_root: Path) -> None:
 
 
 def test_remove_returns_bool(project_root: Path) -> None:
-    mv.datasources.register("wh", backend_type="duckdb", path=":memory:")
+    mv.datasources.register(_spec("wh", backend_type="duckdb", path=":memory:"))
     assert mv.datasources.remove("wh") is True
     assert mv.datasources.remove("wh") is False
 
@@ -209,7 +225,7 @@ def _create_preview_duckdb(path: Path) -> None:
 def test_preview_table_returns_bounded_result(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_preview_duckdb(db_path)
-    mv.datasources.register("wh", backend_type="duckdb", path=str(db_path))
+    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
     preview = mv.datasources.preview(
         "wh",
@@ -232,7 +248,7 @@ def test_preview_table_returns_bounded_result(project_root: Path) -> None:
 def test_preview_table_supports_structured_filter_and_order(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_preview_duckdb(db_path)
-    mv.datasources.register("wh", backend_type="duckdb", path=str(db_path))
+    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
     preview = mv.datasources.preview(
         "wh",
@@ -256,7 +272,7 @@ def test_preview_table_supports_structured_filter_and_order(project_root: Path) 
 def test_preview_table_redacts_by_default(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_preview_duckdb(db_path)
-    mv.datasources.register("wh", backend_type="duckdb", path=str(db_path))
+    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
     preview = mv.datasources.preview(
         "wh",
@@ -274,7 +290,7 @@ def test_preview_table_redacts_by_default(project_root: Path) -> None:
 def test_preview_table_can_disable_redaction(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_preview_duckdb(db_path)
-    mv.datasources.register("wh", backend_type="duckdb", path=str(db_path))
+    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
     preview = mv.datasources.preview(
         "wh",
@@ -291,7 +307,7 @@ def test_preview_table_can_disable_redaction(project_root: Path) -> None:
 def test_preview_table_rejects_raw_sql_filter(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_preview_duckdb(db_path)
-    mv.datasources.register("wh", backend_type="duckdb", path=str(db_path))
+    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
     with pytest.raises(DatasourcePreviewError) as exc_info:
         mv.datasources.preview("wh", table="orders", where=["region = 'US'"])  # type: ignore[list-item]
