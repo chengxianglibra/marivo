@@ -51,16 +51,13 @@ from marivo.analysis.session.persistence import (
     write_job_record,
     write_session_meta,
 )
-from marivo.analysis.windows.resolver import (
-    coerce_as_of,
-    resolve_to_absolute,
-)
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
-    RelativeWindow,
-    WindowInput,
+    TimeGrain,
+    TimeScopeInput,
     dump_window,
-    normalize_window_input,
+    make_absolute_window,
+    normalize_timescope_input,
 )
 from marivo.semantic.authoring import (
     _BinOpSentinel,
@@ -319,17 +316,16 @@ def _attach_metric_component_ref(
     return parent
 
 
-def _resolve_window(
-    window_in: AbsoluteWindow | RelativeWindow | None, *, session: Session
-) -> tuple[AbsoluteWindow | None, RelativeWindow | None, str | None]:
-    if window_in is None:
-        return None, None, None
-    if isinstance(window_in, AbsoluteWindow):
-        return window_in, None, None
-    session_tz = cast("ZoneInfo", session.tz)
-    as_of_dt = coerce_as_of(window_in.as_of, tz=session_tz)
-    resolved = resolve_to_absolute(window_in, as_of=as_of_dt, tz=session_tz)
-    return resolved, window_in, as_of_dt.isoformat()
+def _resolve_timescope(
+    timescope: TimeScopeInput,
+    *,
+    grain: TimeGrain | None,
+    time_field: str | None,
+) -> tuple[AbsoluteWindow | None, dict[str, Any] | None]:
+    timescope_in = normalize_timescope_input(timescope)
+    resolved = make_absolute_window(timescope_in, grain=grain, time_field=time_field)
+    original = timescope_in.model_dump(mode="json") if timescope_in is not None else None
+    return resolved, original
 
 
 def _validate_dimension_refs(dimensions: list[Any] | None) -> list[DimensionRef]:
@@ -1064,9 +1060,11 @@ def _call_metric(
 def observe(
     metric: MetricRef,
     *,
-    window: WindowInput = None,
+    timescope: TimeScopeInput = None,
+    grain: TimeGrain | None = None,
     dimensions: list[DimensionRef] | None = None,
     where: dict[str, SliceValue] | None = None,
+    time_field: str | None = None,
     expect_shape: SemanticShape | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
@@ -1075,22 +1073,22 @@ def observe(
     When to use: starting point for any metric analysis workflow.
 
     Resolves ``metric`` against the active semantic project, applies the
-    optional ``window`` / ``dimensions`` / ``where`` filters, executes against
+    optional ``timescope`` / ``grain`` / ``dimensions`` / ``where`` filters, executes against
     the session's backend, and persists the result as a MetricFrame on disk.
 
     Args:
         metric: Wrap the registered metric id with ``mv.MetricRef("<model>.<metric>")``.
             Bare strings are rejected.
-        window: ``RelativeWindow`` / ``AbsoluteWindow`` / ``{"start","end","grain"?}``
-            dict / or ``None`` to use the session default. ``grain`` makes the
-            result a time series.
+        timescope: Absolute time range as ``{"start": ..., "end": ...}``.
+        grain: Optional time bucket grain. When present, observe returns a time
+            series or panel depending on ``dimensions``.
         dimensions: Segment axes. In v1 all dimensions must resolve to the same
             dataset as ``metric``.
         where: Pre-aggregation row filter. Values are either a scalar (``==``),
             a list (``in``), or ``{"op": "<op>", "value": ...}`` where op is
             one of ``==, !=, in, >, >=, <, <=, between``.
         expect_shape: Optional guard. If set, observe predicts the output shape
-            from ``window``/``dimensions`` and raises ``SemanticKindMismatchError``
+            from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
             before any backend work when the prediction differs.
         session: Defaults to the currently-attached session.
 
@@ -1105,7 +1103,8 @@ def observe(
     Example:
         >>> frame = session.observe(
         ...     mv.MetricRef("sales.revenue"),
-        ...     window={"start": "2026-07-01", "end": "2026-09-30", "grain": "day"},
+        ...     timescope={"start": "2026-07-01", "end": "2026-09-30"},
+        ...     grain="day",
         ...     dimensions=[mv.DimensionRef("country")],
         ... )
         >>> frame.summary()
@@ -1125,8 +1124,11 @@ def observe(
     if "." not in metric_id:
         raise MetricNotFoundError(message=f"metric '{metric_id}' is not '<model>.<metric>'")
     model_name, metric_name = metric_id.split(".", 1)
-    window_in = normalize_window_input(window)
-    resolved_window, original_window, as_of_resolved = _resolve_window(window_in, session=session)
+    resolved_window, original_timescope = _resolve_timescope(
+        timescope,
+        grain=grain,
+        time_field=time_field,
+    )
     is_time_series = resolved_window is not None and resolved_window.grain is not None
 
     # Access semantic layer through session.semantic_project (SemanticProject instance)
@@ -1194,17 +1196,16 @@ def observe(
         finished_at = datetime.now(UTC)
         frame_ref = _gen_ref("frame")
         job_ref = _gen_ref("job")
-        params_window = None
+        params_timescope = None
         if resolved_window is not None:
-            params_window = {
-                "original": dump_window(original_window),
+            params_timescope = {
+                "original": original_timescope,
                 "resolved": dump_window(resolved_window),
-                "as_of_resolved": as_of_resolved,
                 "session_tz": str(session.tz),
             }
         params = {
             "metric": metric_id,
-            "window": params_window,
+            "timescope": params_timescope,
             "dimensions": _dump_dimensions(dimensions),
             "where": stored_where,
         }
@@ -1293,17 +1294,16 @@ def observe(
         finished_at = datetime.now(UTC)
         frame_ref = _gen_ref("frame")
         job_ref = _gen_ref("job")
-        params_window = None
+        params_timescope = None
         if resolved_window is not None:
-            params_window = {
-                "original": dump_window(original_window),
+            params_timescope = {
+                "original": original_timescope,
                 "resolved": dump_window(resolved_window),
-                "as_of_resolved": as_of_resolved,
                 "session_tz": str(session.tz),
             }
         params = {
             "metric": metric_id,
-            "window": params_window,
+            "timescope": params_timescope,
             "dimensions": _dump_dimensions(dimensions),
             "where": stored_where,
         }
@@ -1392,17 +1392,16 @@ def observe(
         finished_at = datetime.now(UTC)
         frame_ref = _gen_ref("frame")
         job_ref = _gen_ref("job")
-        params_window = None
+        params_timescope = None
         if resolved_window is not None:
-            params_window = {
-                "original": dump_window(original_window),
+            params_timescope = {
+                "original": original_timescope,
                 "resolved": dump_window(resolved_window),
-                "as_of_resolved": as_of_resolved,
                 "session_tz": str(session.tz),
             }
         params = {
             "metric": metric_id,
-            "window": params_window,
+            "timescope": params_timescope,
             "dimensions": _dump_dimensions(dimensions),
             "where": stored_where,
         }
@@ -1661,17 +1660,16 @@ def observe(
 
     frame_ref = _gen_ref("frame")
     job_ref = _gen_ref("job")
-    params_window = None
+    params_timescope = None
     if resolved_window is not None:
-        params_window = {
-            "original": dump_window(original_window),
+        params_timescope = {
+            "original": original_timescope,
             "resolved": dump_window(resolved_window),
-            "as_of_resolved": as_of_resolved,
             "session_tz": str(session.tz),
         }
     params = {
         "metric": metric_id,
-        "window": params_window,
+        "timescope": params_timescope,
         "dimensions": _dump_dimensions(dimensions),
         "where": stored_where,
     }

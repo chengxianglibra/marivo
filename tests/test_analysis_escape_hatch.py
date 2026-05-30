@@ -394,37 +394,24 @@ def test_promote_metric_frame_rejects_cross_session_scratch():
         )
 
 
-def test_promote_metric_frame_resolves_relative_window_to_absolute():
+def test_promote_metric_frame_rejects_relative_window():
     session = mv.session.get_or_create(name="demo")
     scratch = session.from_pandas(
         pd.DataFrame({"bucket_start": ["2026-05-25"], "value": [1.0]}),
     )
 
-    metric = session.promote_metric_frame(
-        scratch,
-        metric=mv.MetricRef("sales.revenue"),
-        semantic_kind="time_series",
-        measure_column="value",
-        semantic_model="sales",
-        time_axis="bucket_start",
-        window={"expr": "last 7 days", "as_of": "2026-05-26T12:00:00", "grain": "day"},
-    )
+    with pytest.raises(mv.errors.WindowInvalidError) as exc_info:
+        session.promote_metric_frame(
+            scratch,
+            metric=mv.MetricRef("sales.revenue"),
+            semantic_kind="time_series",
+            measure_column="value",
+            semantic_model="sales",
+            time_axis="bucket_start",
+            window={"expr": "last 7 days", "as_of": "2026-05-26T12:00:00", "grain": "day"},
+        )
 
-    assert metric.meta.axes == {
-        "time": {
-            "role": "time",
-            "column": "bucket_start",
-            "ref": "bucket_start",
-            "grain": "day",
-        }
-    }
-    assert metric.meta.window == {
-        "kind": "absolute",
-        "start": "2026-05-20",
-        "end": "2026-05-26",
-        "grain": "day",
-        "time_field": None,
-    }
+    assert exc_info.value.details["kind"] == "AbsoluteWindowModelInvalid"
 
 
 def test_promote_metric_frame_rejects_time_series_without_time_axis():

@@ -1,6 +1,6 @@
-"""Pattern: observe relative windows as scalar and day-grain time series.
+"""Pattern: observe absolute timescopes as scalar and day-grain time series.
 
-When to use: you want v1.2 relative-window inputs while controlling session timezone.
+When to use: you have resolved user time language to explicit start/end dates.
 Output shape: scalar frame for no grain, time_series frame for day grain.
 """
 
@@ -20,11 +20,12 @@ import marivo.analysis as mv  # noqa: E402
 session = mv.session.active()
 scalar = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    window={"expr": "mtd", "as_of": "2026-09-15T12:00:00+00:00"},
+    timescope={"start": "2026-09-01", "end": "2026-09-15"},
 )
 series = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    window={"expr": "mtd", "grain": "day", "as_of": "2026-09-15T12:00:00+00:00"},
+    timescope={"start": "2026-09-01", "end": "2026-09-15"},
+    grain="day",
 )
 
 assert scalar.meta.semantic_kind == "scalar"

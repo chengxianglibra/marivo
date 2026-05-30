@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from marivo.analysis.errors import WindowInvalidError
 
@@ -19,69 +19,97 @@ class AbsoluteWindow(BaseModel):
     time_field: str | None = None
 
 
-class RelativeWindow(BaseModel):
+class TimeScope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["relative"] = "relative"
-    expr: str
-    as_of: str | None = None
-    grain: TimeGrain | None = None
-    time_field: str | None = None
+    start: str
+    end: str
 
 
-WindowSpec = Annotated[AbsoluteWindow | RelativeWindow, Field(discriminator="kind")]
-WindowInput = AbsoluteWindow | RelativeWindow | dict[str, Any] | str | None
+TimeScopeInput = AbsoluteWindow | TimeScope | dict[str, Any] | None
 
 
-def _raise_window_model_invalid(
+def _raise_timescope_model_invalid(
     *,
-    model_kind: str,
     raw: dict[str, Any],
     error: ValidationError,
 ) -> None:
     raise WindowInvalidError(
-        message=f"window {model_kind} form is invalid",
+        message="timescope form is invalid",
         details={
-            "kind": "WindowModelInvalid",
-            "model": model_kind,
-            "window": dict(raw),
+            "kind": "TimeScopeModelInvalid",
+            "timescope": dict(raw),
             "validation_errors": error.errors(),
         },
     ) from error
 
 
-def normalize_window_input(raw: object) -> AbsoluteWindow | RelativeWindow | None:
+def normalize_timescope_input(raw: object) -> TimeScope | None:
     if raw is None:
         return None
-    if isinstance(raw, (AbsoluteWindow, RelativeWindow)):
+    if isinstance(raw, TimeScope):
         return raw
-    if isinstance(raw, str):
-        return RelativeWindow(expr=raw)
+    if isinstance(raw, AbsoluteWindow):
+        return TimeScope(start=raw.start, end=raw.end)
     if isinstance(raw, dict):
-        has_expr = "expr" in raw
-        has_boundary = "start" in raw or "end" in raw
-        if has_expr and has_boundary:
-            raise WindowInvalidError(
-                message="window cannot mix relative expr with absolute start/end",
-                details={"kind": "MixedWindowForm", "window": dict(raw)},
-            )
-        if has_expr:
-            try:
-                return RelativeWindow.model_validate(raw)
-            except ValidationError as exc:
-                _raise_window_model_invalid(model_kind="relative", raw=raw, error=exc)
-        if has_boundary:
-            try:
-                return AbsoluteWindow.model_validate(raw)
-            except ValidationError as exc:
-                _raise_window_model_invalid(model_kind="absolute", raw=raw, error=exc)
+        try:
+            return TimeScope.model_validate(raw)
+        except ValidationError as exc:
+            _raise_timescope_model_invalid(raw=raw, error=exc)
     raise WindowInvalidError(
-        message=f"unsupported window input type {type(raw).__name__}",
-        details={"kind": "WindowTypeInvalid", "window": repr(raw)},
+        message=f"unsupported timescope input type {type(raw).__name__}",
+        details={"kind": "TimeScopeTypeInvalid", "timescope": repr(raw)},
     )
 
 
-def dump_window(window: AbsoluteWindow | RelativeWindow | None) -> dict[str, Any] | None:
+def normalize_absolute_window_input(raw: object) -> AbsoluteWindow | None:
+    if raw is None:
+        return None
+    if isinstance(raw, AbsoluteWindow):
+        return raw
+    if isinstance(raw, TimeScope):
+        return AbsoluteWindow(start=raw.start, end=raw.end)
+    if isinstance(raw, dict):
+        try:
+            return AbsoluteWindow.model_validate(raw)
+        except ValidationError as exc:
+            raise WindowInvalidError(
+                message="absolute window form is invalid",
+                details={
+                    "kind": "AbsoluteWindowModelInvalid",
+                    "window": dict(raw),
+                    "validation_errors": exc.errors(),
+                },
+            ) from exc
+    raise WindowInvalidError(
+        message=f"unsupported absolute window input type {type(raw).__name__}",
+        details={"kind": "AbsoluteWindowTypeInvalid", "window": repr(raw)},
+    )
+
+
+def make_absolute_window(
+    timescope: TimeScope | None,
+    *,
+    grain: TimeGrain | None = None,
+    time_field: str | None = None,
+) -> AbsoluteWindow | None:
+    if timescope is None:
+        if grain is None and time_field is None:
+            return None
+        raise WindowInvalidError(
+            message="timescope is required when grain or time_field is provided",
+            hint='Pass timescope={"start": "2026-07-01", "end": "2026-07-31"}.',
+            details={"kind": "TimeScopeRequired"},
+        )
+    return AbsoluteWindow(
+        start=timescope.start,
+        end=timescope.end,
+        grain=grain,
+        time_field=time_field,
+    )
+
+
+def dump_window(window: AbsoluteWindow | None) -> dict[str, Any] | None:
     if window is None:
         return None
     return window.model_dump(mode="json")

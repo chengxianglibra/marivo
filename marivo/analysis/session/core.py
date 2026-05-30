@@ -353,18 +353,22 @@ class Session:
         self,
         metric: Any,
         *,
-        window: Any = None,
+        timescope: Any = None,
+        grain: Any = None,
         dimensions: list[Any] | None = None,
         where: dict[str, Any] | None = None,
+        time_field: str | None = None,
         expect_shape: Any = None,
     ) -> Any:
         from marivo.analysis.intents.observe import observe
 
         return observe(
             metric,
-            window=window,
+            timescope=timescope,
+            grain=grain,
             dimensions=dimensions,
             where=where,
+            time_field=time_field,
             expect_shape=expect_shape,
             session=self,
         )

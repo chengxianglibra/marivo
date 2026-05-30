@@ -79,7 +79,8 @@ def test_observe_panel_returns_time_and_dimension_axes(tmp_path):
 
     mf = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        grain="day",
         dimensions=[DimensionRef("region")],
         session=s,
     )
@@ -103,7 +104,8 @@ def test_observe_panel_multi_dimension(tmp_path):
 
     mf = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        grain="day",
         dimensions=[DimensionRef("region"), DimensionRef("channel")],
         session=s,
     )
@@ -207,7 +209,8 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
 
     frame = observe(
         MetricRef("sales.failure_rate"),
-        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-02"},
+        grain="day",
         dimensions=[DimensionRef("region")],
         session=session,
     )
@@ -242,7 +245,8 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
 
     frame = observe(
         MetricRef("sales.weighted_failure_rate"),
-        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-02"},
+        grain="day",
         dimensions=[DimensionRef("region")],
         session=session,
     )

@@ -52,12 +52,12 @@ def test_run_followup_for_assess_quality_dispatches_to_operator(tmp_path) -> Non
 
     cur = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
     base = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-24", "end": "2026-04-30"},
+        timescope={"start": "2026-04-24", "end": "2026-04-30"},
         session=session,
     )
     delta = compare(cur, base, session=session)
@@ -86,13 +86,13 @@ def test_run_followup_dispatches_decompose(tmp_path) -> None:
 
     cur = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-05-01", "end": "2026-05-07"},
         dimensions=[mv.DimensionRef("region")],
         session=session,
     )
     base = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-24", "end": "2026-04-30"},
+        timescope={"start": "2026-04-24", "end": "2026-04-30"},
         dimensions=[mv.DimensionRef("region")],
         session=session,
     )
@@ -130,7 +130,8 @@ def test_run_followup_dispatches_discover(tmp_path) -> None:
 
     series = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-24", "end": "2026-05-07", "grain": "day"},
+        timescope={"start": "2026-04-24", "end": "2026-05-07"},
+        grain="day",
         session=session,
     )
     assert series.meta.semantic_kind == "time_series"
@@ -189,7 +190,8 @@ def test_run_followup_dispatches_transform(tmp_path) -> None:
     session = _session(tmp_path, con)
     frame = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-24", "end": "2026-05-07", "grain": "day"},
+        timescope={"start": "2026-04-24", "end": "2026-05-07"},
+        grain="day",
         session=session,
     )
     action = mv.FollowupAction(
@@ -219,7 +221,8 @@ def test_run_followup_retry_evidence_pipeline_no_ops(tmp_path) -> None:
     session = _session(tmp_path, con)
     series = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-24", "end": "2026-05-07", "grain": "day"},
+        timescope={"start": "2026-04-24", "end": "2026-05-07"},
+        grain="day",
         session=session,
     )
     assert series.meta.artifact_id is not None
@@ -243,13 +246,13 @@ def test_run_followup_failure_keeps_action_unexecuted(tmp_path) -> None:
     session = _session(tmp_path, con)
     cur = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-05-01", "end": "2026-05-07"},
         dimensions=[mv.DimensionRef("region")],
         session=session,
     )
     base = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-24", "end": "2026-04-30"},
+        timescope={"start": "2026-04-24", "end": "2026-04-30"},
         dimensions=[mv.DimensionRef("region")],
         session=session,
     )
@@ -317,12 +320,12 @@ def test_next_steps_filters_executed(tmp_path) -> None:
     session = _session(tmp_path, con)
     cur = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-05-01", "end": "2026-05-07"},
+        timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
     base = observe(
         mv.MetricRef("sales.revenue"),
-        window={"start": "2026-04-24", "end": "2026-04-30"},
+        timescope={"start": "2026-04-24", "end": "2026-04-30"},
         session=session,
     )
     delta = compare(cur, base, session=session)

@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from time import monotonic
 from typing import Any, Literal, TypeGuard, cast
-from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -42,10 +41,9 @@ from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.session.persistence import write_job_record
 from marivo.analysis.windows import (
     AbsoluteWindow,
-    coerce_as_of,
     dump_window,
-    normalize_window_input,
-    resolve_to_absolute,
+    make_absolute_window,
+    normalize_timescope_input,
 )
 
 TransformOp = Literal["filter", "slice", "rollup", "topk", "bottomk", "rank", "normalize", "window"]
@@ -942,20 +940,21 @@ def _pct_change_series(frame: TransformFrame, df: pd.DataFrame, column: str) -> 
 
 
 def _resolve_transform_window(raw_window: Any, *, session: Session) -> AbsoluteWindow:
-    window = normalize_window_input(raw_window)
+    timescope = normalize_timescope_input(raw_window)
+    if timescope is None:
+        raise TransformArgError(
+            message="transform(op='window') requires window",
+            hint='Pass window={"start": "2026-07-01", "end": "2026-07-31"}.',
+            details={"op": "window", "argument": "window"},
+        )
+    window = make_absolute_window(timescope)
     if window is None:
         raise TransformArgError(
             message="transform(op='window') requires window",
             hint='Pass window={"start": "2026-07-01", "end": "2026-07-31"}.',
             details={"op": "window", "argument": "window"},
         )
-    if isinstance(window, AbsoluteWindow):
-        return window
-    return resolve_to_absolute(
-        window,
-        as_of=coerce_as_of(window.as_of, tz=cast("ZoneInfo", session.tz)),
-        tz=cast("ZoneInfo", session.tz),
-    )
+    return window
 
 
 def _window_time_axis(frame: TransformFrame, df: pd.DataFrame) -> dict[str, Any]:
@@ -1060,10 +1059,7 @@ def _op_window(frame: TransformFrame, params: _TransformParams) -> _TransformHan
     if start >= end:
         raise TransformArgError(
             message="transform(op='window') requires window.start before window.end",
-            hint=(
-                "Use a relative window that resolves to a non-empty half-open interval, "
-                "or pass explicit start/end bounds."
-            ),
+            hint="Pass explicit start/end bounds with start before end.",
             details={
                 "op": "window",
                 "kind": "WindowEmptyRange",

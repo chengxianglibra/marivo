@@ -1,8 +1,7 @@
-"""Pattern: observe relative windows with system-derived timezone.
+"""Pattern: create a session with system-derived timezone.
 
-When to use: you want v1.2 relative-window inputs using the system timezone
-(the TZ environment variable or OS default) rather than an explicit parameter.
-Output shape: scalar frame for no grain, time_series frame for day grain.
+When to use: calendar alignment or timestamp bucketing should use the process
+timezone (the TZ environment variable or OS default).
 """
 
 from __future__ import annotations

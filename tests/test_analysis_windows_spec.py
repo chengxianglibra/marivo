@@ -1,51 +1,49 @@
 import pytest
 
 from marivo.analysis.errors import WindowInvalidError
-from marivo.analysis.windows.spec import AbsoluteWindow, RelativeWindow, normalize_window_input
+from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope, normalize_timescope_input
 
 
-def test_normalize_window_input_accepts_concrete_instances():
+def test_normalize_timescope_input_accepts_concrete_instances():
     absolute = AbsoluteWindow(start="2026-05-01", end="2026-05-24")
-    relative = RelativeWindow(expr="mtd")
-    assert normalize_window_input(absolute) is absolute
-    assert normalize_window_input(relative) is relative
+    scope = TimeScope(start="2026-05-01", end="2026-05-24")
+    assert normalize_timescope_input(absolute) == scope
+    assert normalize_timescope_input(scope) is scope
 
 
-def test_normalize_window_input_string_is_relative_shortcut():
-    out = normalize_window_input("last 7 days")
-    assert isinstance(out, RelativeWindow)
-    assert out.expr == "last 7 days"
-
-
-def test_normalize_window_input_dict_routes_to_relative_or_absolute():
-    relative = normalize_window_input({"expr": "mtd", "grain": "day"})
-    absolute = normalize_window_input({"start": "2026-05-01", "end": "2026-05-24"})
-    assert isinstance(relative, RelativeWindow)
-    assert relative.grain == "day"
-    assert isinstance(absolute, AbsoluteWindow)
-
-
-def test_normalize_window_input_rejects_mixed_shape():
+def test_normalize_timescope_input_rejects_strings():
     with pytest.raises(WindowInvalidError) as exc_info:
-        normalize_window_input({"expr": "mtd", "start": "2026-05-01", "end": "2026-05-24"})
-    assert exc_info.value.details["kind"] == "MixedWindowForm"
+        normalize_timescope_input("last 7 days")
+    assert exc_info.value.details["kind"] == "TimeScopeTypeInvalid"
 
 
-def test_normalize_window_input_rejects_invalid_type():
+def test_normalize_timescope_input_accepts_start_end_dict():
+    scope = normalize_timescope_input({"start": "2026-05-01", "end": "2026-05-24"})
+    assert scope == TimeScope(start="2026-05-01", end="2026-05-24")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"expr": "mtd"},
+        {"start": "2026-05-01", "end": "2026-05-24", "grain": "day"},
+        {"start": "2026-05-01", "end": "2026-05-24", "time_field": "created_at"},
+        {"start": "2026-05-01", "end": "2026-05-24", "extra": "nope"},
+    ],
+)
+def test_normalize_timescope_input_rejects_expr_and_non_scope_keys(raw):
     with pytest.raises(WindowInvalidError) as exc_info:
-        normalize_window_input(123)
-    assert exc_info.value.details["kind"] == "WindowTypeInvalid"
+        normalize_timescope_input(raw)
+    assert exc_info.value.details["kind"] == "TimeScopeModelInvalid"
 
 
-def test_normalize_window_input_rejects_invalid_absolute_model():
+def test_normalize_timescope_input_rejects_invalid_type():
     with pytest.raises(WindowInvalidError) as exc_info:
-        normalize_window_input({"start": "2026-05-01"})
-    assert exc_info.value.details["kind"] == "WindowModelInvalid"
-    assert exc_info.value.details["model"] == "absolute"
+        normalize_timescope_input(123)
+    assert exc_info.value.details["kind"] == "TimeScopeTypeInvalid"
 
 
-def test_normalize_window_input_rejects_invalid_relative_model():
+def test_normalize_timescope_input_rejects_invalid_model():
     with pytest.raises(WindowInvalidError) as exc_info:
-        normalize_window_input({"expr": {"raw": "mtd"}, "grain": "decade"})
-    assert exc_info.value.details["kind"] == "WindowModelInvalid"
-    assert exc_info.value.details["model"] == "relative"
+        normalize_timescope_input({"start": "2026-05-01"})
+    assert exc_info.value.details["kind"] == "TimeScopeModelInvalid"

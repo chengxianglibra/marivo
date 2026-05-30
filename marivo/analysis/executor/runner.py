@@ -627,16 +627,16 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
         first_candidate = candidates[0] if candidates else "<time_field>"
         raise WindowInvalidError(
             message=(
-                f"window.time_field={requested!r} is not on dataset '{dataset_ir.name}'; "
+                f"time_field={requested!r} is not on dataset '{dataset_ir.name}'; "
                 f"candidates: {candidates}"
             ),
-            hint="Pass one of the dataset time fields in window['time_field'].",
+            hint="Pass one of the dataset time fields as observe(..., time_field=...).",
             details={
                 "candidates": candidates,
                 "fix_snippet": (
                     'session.observe(mv.MetricRef("sales.revenue"), '
-                    'window={"start": "2026-07-01", "end": "2026-07-31", '
-                    f'"time_field": "{first_candidate}"}})'
+                    'timescope={"start": "2026-07-01", "end": "2026-07-31"}, '
+                    f'time_field="{first_candidate}")'
                 ),
             },
         )
@@ -644,13 +644,13 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
     first_candidate = candidates[0]
     raise WindowInvalidError(
         message=f"dataset '{dataset_ir.name}' has multiple time_fields: {candidates}",
-        hint="Pass window['time_field'] to choose the time axis for this observe call.",
+        hint="Pass observe(..., time_field=...) to choose the time axis for this observe call.",
         details={
             "candidates": candidates,
             "fix_snippet": (
                 'session.observe(mv.MetricRef("sales.revenue"), '
-                'window={"start": "2026-07-01", "end": "2026-07-31", '
-                f'"time_field": "{first_candidate}"}})'
+                'timescope={"start": "2026-07-01", "end": "2026-07-31"}, '
+                f'time_field="{first_candidate}")'
             ),
         },
     )

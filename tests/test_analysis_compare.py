@@ -46,12 +46,12 @@ def test_compare_returns_delta_frame(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-04-01", "end": "2026-04-30"},
+        timescope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
     d = compare(q3, q2, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
@@ -73,12 +73,12 @@ def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-04-01", "end": "2026-04-30"},
+        timescope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
     d = compare(q3, q2, session=s)
@@ -92,12 +92,12 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-04-01", "end": "2026-04-30"},
+        timescope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
     delta = compare(q3, q2, session=s)
@@ -127,7 +127,8 @@ def test_compare_semantic_kind_mismatch_raises(tmp_path):
     a = observe(MetricRef("sales.revenue"), session=s)
     b = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        grain="day",
         session=s,
     )
     with pytest.raises(SemanticKindMismatchError):
@@ -156,12 +157,12 @@ def test_compare_rejects_loose_align_parameter(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-31"},
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-04-01", "end": "2026-04-30"},
+        timescope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
 
@@ -176,12 +177,14 @@ def test_window_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_pat
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-02"},
+        grain="day",
         session=s,
     )
     base = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-04-01", "end": "2026-04-02", "grain": "day"},
+        timescope={"start": "2026-04-01", "end": "2026-04-02"},
+        grain="day",
         session=s,
     )
 
@@ -234,12 +237,14 @@ def test_window_bucket_no_overlap_different_expected_counts_explains_requirement
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        timescope={"start": "2026-07-01", "end": "2026-07-02"},
+        grain="day",
         session=s,
     )
     base = observe(
         MetricRef("sales.revenue"),
-        window={"start": "2026-04-01", "end": "2026-04-01", "grain": "day"},
+        timescope={"start": "2026-04-01", "end": "2026-04-01"},
+        grain="day",
         session=s,
     )
 

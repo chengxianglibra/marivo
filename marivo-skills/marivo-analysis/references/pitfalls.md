@@ -35,8 +35,8 @@ Location: session.compare call
 Cause: got kind delta_frame, expected metric_frame; this usually means passing a compare result where an observe result is required.
 
 Fix:
-  cur  = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
-  base = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
+  cur  = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
+  base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-09-30"})
   delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 
 Docs: marivo-skills/marivo-analysis/references/pitfalls.md
@@ -46,8 +46,8 @@ Docs: marivo-skills/marivo-analysis/references/pitfalls.md
 `DeltaFrame` to `session.decompose`.
 
 ```python
-cur = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
-base = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2025-07-01", "end": "2025-09-30"})
+cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
+base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-09-30"})
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 ```
@@ -179,7 +179,7 @@ project = ms.find_project()
 assert project is not None
 project.load()
 print(project.list_metrics())
-cur = session.observe(mv.MetricRef("sales.revenue"), window={"start": "2026-07-01", "end": "2026-09-30"})
+cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
 ```
 
 Metric ids are case-sensitive strings in `<model>.<metric>` form.
@@ -199,7 +199,7 @@ or a slice validation error while applying filters.
 ```python
 session.observe(
     mv.MetricRef("sales.revenue"),
-    window={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-09-30"},
 )
 
 session.observe(
