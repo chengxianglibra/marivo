@@ -444,6 +444,32 @@ def revenue(orders, users):
 Joined datasets may provide dimensions and filters, but aggregate receivers in
 a base metric body must belong to the root dataset.
 
+### Base Metric Fan-Out Policy
+
+`@ms.metric(...)` accepts an optional kwarg:
+
+- `fanout_policy: Literal["block", "aggregate_then_join"] = "block"` — fan-out
+  policy on the metric. `"block"` (default) rejects unsafe one-to-many edges
+  with an `unsafe-fanout` repair payload that names both `set_metric_root` and
+  `set_fanout_policy` as candidate fixes. `"aggregate_then_join"` reduces the
+  unsafe-side dataset to the merge grain (root primary key plus the requested
+  non-root dimensions/filters that target that side) before the join. Requires
+  `additivity in {"additive", "semi_additive"}` and is rejected on derived
+  metrics; the kwarg is authored only on `@ms.metric` (relationships, datasets,
+  and `observe(...)` reject it).
+
+```python
+@ms.metric(
+    datasets=[orders, order_items],
+    root_dataset=orders,
+    additivity="additive",
+    decomposition=ms.sum(),
+    fanout_policy="aggregate_then_join",
+)
+def gmv_with_items(orders, order_items):
+    return orders.amount.sum()
+```
+
 ### Relationship
 
 relationship 描述 dataset 之间的连接路径：

@@ -872,6 +872,68 @@ def _resolve_validity_versioning(
     return validity_table, meta, True
 
 
+def _aggregate_then_join_pre_aggregate(
+    *,
+    project: Any,
+    metric_ir: Any,
+    unsafe_dataset_id: str,
+    relationship: Any,
+    from_dataset: str,
+    dataset_fns: dict[str, Any],
+    backend: Any,
+    resolved_fields: ResolvedObserveFields,
+) -> tuple[Any, dict[str, Any]]:
+    """Reduce the unsafe-side dataset to the merge grain before joining.
+
+    Merge grain = (join key on unsafe side) ∪ (requested non-root dimensions
+    targeting unsafe_dataset_id) ∪ (where fields targeting unsafe_dataset_id).
+    Each grain entry projects through ``_field_fn`` so the resulting table keeps
+    the physical column names that downstream field bodies expect.
+    """
+    if relationship.from_dataset == unsafe_dataset_id:
+        join_field_ids: tuple[str, ...] = tuple(relationship.from_fields)
+    else:
+        join_field_ids = tuple(relationship.to_fields)
+
+    grain_field_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for fid in join_field_ids:
+        if fid not in seen_ids:
+            grain_field_ids.append(fid)
+            seen_ids.add(fid)
+    other_fields = [f for f in resolved_fields.dimensions if f.dataset == unsafe_dataset_id] + [
+        f for f in resolved_fields.where_fields.values() if f.dataset == unsafe_dataset_id
+    ]
+    for f in other_fields:
+        if f.semantic_id not in seen_ids:
+            grain_field_ids.append(f.semantic_id)
+            seen_ids.add(f.semantic_id)
+
+    table = dataset_fns[unsafe_dataset_id](backend)
+    projections: list[Any] = []
+    grain_meta_entries: list[dict[str, Any]] = []
+    join_field_id_set = set(join_field_ids)
+    seen_columns: set[str] = set()
+    for fid in grain_field_ids:
+        expr = _field_fn(project, fid)(table)
+        column_name = expr.get_name()
+        if column_name in seen_columns:
+            continue
+        seen_columns.add(column_name)
+        projections.append(expr)
+        grain_meta_entries.append({"name": column_name, "from_join_key": fid in join_field_id_set})
+    pre_aggregated = table.select(*projections).distinct()
+
+    merge_grain_meta = {
+        "policy": "aggregate_then_join",
+        "unsafe_dataset": unsafe_dataset_id,
+        "relationship": relationship.semantic_id,
+        "from_dataset": from_dataset,
+        "merge_grain": grain_meta_entries,
+    }
+    return pre_aggregated, merge_grain_meta
+
+
 def plan_base_observe(
     *,
     project: Any,
@@ -953,17 +1015,75 @@ def plan_base_observe(
     snapshot_metadata: list[dict[str, Any]] = []
     version_resolutions: list[dict[str, Any]] = []
     plan_warnings: list[dict[str, Any]] = []
+    fanout_meta_collector: list[dict[str, Any]] = []
+    pre_aggregated_tables: dict[str, Any] = {}
     for dataset_id in sorted(required_datasets - {root}):
         current_dataset = root
         for relationship in unique_shortest_relationship_path(project, root, dataset_id):
             safety = resolved_edge_safety(project, relationship, from_dataset=current_dataset)
             if safety == JoinSafety.ONE_TO_MANY:
-                raise_observe_planning_error(
-                    code="unsafe-fanout",
-                    message=f"Traversal through {relationship.semantic_id!r} is one-to-many.",
-                    candidates={"relationship": relationship.semantic_id, "safe_root": dataset_id},
-                    repair=[],
-                )
+                policy = getattr(metric_ir, "fanout_policy", "block")
+                if policy == "aggregate_then_join":
+                    unsafe_dataset_id = (
+                        relationship.to_dataset
+                        if relationship.from_dataset == current_dataset
+                        else relationship.from_dataset
+                    )
+                    pre_table, merge_grain_meta = _aggregate_then_join_pre_aggregate(
+                        project=project,
+                        metric_ir=metric_ir,
+                        unsafe_dataset_id=unsafe_dataset_id,
+                        relationship=relationship,
+                        from_dataset=current_dataset,
+                        dataset_fns=dataset_fns,
+                        backend=backend,
+                        resolved_fields=resolved_fields,
+                    )
+                    pre_aggregated_tables[unsafe_dataset_id] = pre_table
+                    fanout_meta_collector.append(merge_grain_meta)
+                    safety = JoinSafety.MANY_TO_ONE
+                else:
+                    candidate_safe_roots = sorted(
+                        {relationship.from_dataset, relationship.to_dataset} - {current_dataset}
+                    )
+                    raise_observe_planning_error(
+                        code="unsafe-fanout",
+                        message=(
+                            f"Traversal through {relationship.semantic_id!r} is one-to-many; "
+                            "the metric must re-root, remodel the dataset key, or opt into "
+                            "fanout_policy='aggregate_then_join'."
+                        ),
+                        candidates={
+                            "relationship": relationship.semantic_id,
+                            "safe_roots": candidate_safe_roots,
+                            "fanout_policies": ["aggregate_then_join"],
+                        },
+                        repair=[
+                            RepairAction(
+                                action="set_metric_root",
+                                target=metric_ir.semantic_id,
+                                arg="root_dataset",
+                                value=candidate_safe_roots[0] if candidate_safe_roots else None,
+                                safety=RepairSafety.MODELING_DECISION,
+                                why=(
+                                    "the substantive measure may live on the many side; "
+                                    "re-root makes the metric definition match its measure space"
+                                ),
+                            ),
+                            RepairAction(
+                                action="set_fanout_policy",
+                                target=metric_ir.semantic_id,
+                                arg="fanout_policy",
+                                value="aggregate_then_join",
+                                safety=RepairSafety.MODELING_DECISION,
+                                why=(
+                                    "keep the current root and reduce the many side to merge "
+                                    "grain before join; only correct if the merge grain has "
+                                    "business meaning and every measure is additive there"
+                                ),
+                            ),
+                        ],
+                    )
             if safety == JoinSafety.UNKNOWN:
                 raise_observe_planning_error(
                     code="unknown-join-safety",
@@ -980,7 +1100,9 @@ def plan_base_observe(
                 else relationship.from_dataset
             )
             if next_dataset not in materialized:
-                next_table = dataset_fns[next_dataset](backend)
+                next_table = pre_aggregated_tables.get(next_dataset)
+                if next_table is None:
+                    next_table = dataset_fns[next_dataset](backend)
                 next_dataset_meta = project.get_dataset(next_dataset)
                 versioning = (
                     getattr(next_dataset_meta, "versioning", None)
@@ -1126,6 +1248,8 @@ def plan_base_observe(
         lineage_metadata={
             "root_dataset": root,
             "additivity": metric_ir.additivity,
+            "fanout_policy": metric_ir.fanout_policy,
+            "fanouts": fanout_meta_collector,
             "relationships": edge_metadata,
             "snapshots": snapshot_metadata,
             "version_resolutions": version_resolutions,

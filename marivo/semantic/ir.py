@@ -212,6 +212,7 @@ class MetricIR:
     location: SourceLocation
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
     root_dataset: str | None = None
+    fanout_policy: Literal["block", "aggregate_then_join"] = "block"
 
 
 @dataclass(frozen=True)

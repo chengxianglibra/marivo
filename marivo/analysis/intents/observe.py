@@ -1044,6 +1044,8 @@ def observe(
         "where": stored_where,
         "relationships": plan.lineage_metadata.get("relationships") or [],
         "version_resolutions": plan.lineage_metadata.get("version_resolutions") or [],
+        "fanout_policy": plan.lineage_metadata.get("fanout_policy"),
+        "fanouts": plan.lineage_metadata.get("fanouts") or [],
         "warnings": plan.warnings,
     }
     meta = MetricFrameMeta(

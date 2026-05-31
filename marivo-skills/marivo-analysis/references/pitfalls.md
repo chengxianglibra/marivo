@@ -336,3 +336,18 @@ raises a structured planning error with one of the component comparability codes
   cover all anchors, or backfill missing partitions.
 - `nested-derived-unsupported`: a derived component is itself derived.
   Replace it with its base components directly.
+
+## Unsafe fan-out: re-root vs `aggregate_then_join`
+
+When `observe(...)` raises `unsafe-fanout`, the repair payload lists two
+modeling decisions:
+
+1. `set_metric_root` (preferred when the substantive measure lives on the
+   many side — re-rooting makes the metric definition match its measure space).
+2. `set_fanout_policy="aggregate_then_join"` (preferred when the metric must
+   stay rooted on the one side and the merge grain has clear business
+   meaning — e.g. "GMV per item category").
+
+`aggregate_then_join` does not fix `non_additive` metrics (distinct counts,
+ratios, averages). For those, change the root, remodel the dataset key, or
+introduce a derived component.

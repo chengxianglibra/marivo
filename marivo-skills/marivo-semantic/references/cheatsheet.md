@@ -88,3 +88,22 @@ backend_factory = lambda name: mv.datasources.build_backend(name)
   do not use imports, local assignment, control flow, lambdas, or raw SQL calls
   inside the body. Inspect `ms.help("constraints", format="json")` for the
   current machine-readable rules.
+
+## Fan-Out Policy
+
+```python
+@ms.metric(
+    datasets=[orders, order_items],
+    root_dataset=orders,
+    additivity="additive",
+    decomposition=ms.sum(),
+    fanout_policy="aggregate_then_join",  # default "block"
+)
+def gmv_with_items(orders, order_items):
+    return orders.amount.sum()
+```
+
+`"aggregate_then_join"` reduces the unsafe side to the merge grain (root
+primary key plus the requested non-root dimensions/filters) before the join.
+Use only when every measure is additive on the merge grain and the merge grain
+has business meaning. Otherwise re-root or remodel.

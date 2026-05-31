@@ -57,6 +57,8 @@ class ConstraintId(StrEnum):
     METRIC_ROOT_DATASET_REQUIRED = "metric_root_dataset_required"
     METRIC_ROOT_DATASET_VALID = "metric_root_dataset_valid"
     METRIC_ROOT_ONLY_AGGREGATE = "metric_root_only_aggregate"
+    METRIC_FANOUT_POLICY_VALID = "metric_fanout_policy_valid"
+    METRIC_FANOUT_POLICY_DERIVED = "metric_fanout_policy_derived"
     DATASET_VERSIONING_VALID = "dataset_versioning_valid"
     MATERIALIZE_EXECUTION = "materialize_execution"
     BACKEND_DIALECT_MATCH = "backend_dialect_match"
@@ -477,6 +479,24 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Base metrics must aggregate only on the root dataset.",
         "Aggregating a non-root dataset changes the grain and may produce incorrect results.",
         "Ensure aggregate calls (.sum(), .mean(), etc.) only chain from the root dataset parameter.",
+    ),
+    ConstraintId.METRIC_FANOUT_POLICY_VALID: _constraint(
+        ConstraintId.METRIC_FANOUT_POLICY_VALID,
+        "invalid_metric_fanout_policy",
+        "assembly",
+        ("metric",),
+        "fanout_policy must be 'block' or 'aggregate_then_join', authored on base metrics only.",
+        "Fan-out is a metric-level decision, gated by measure additivity on the merge grain.",
+        "Set fanout_policy='aggregate_then_join' only on additive/semi_additive base metrics; derived metrics must keep the default.",
+    ),
+    ConstraintId.METRIC_FANOUT_POLICY_DERIVED: _constraint(
+        ConstraintId.METRIC_FANOUT_POLICY_DERIVED,
+        "derived_metric_fanout_policy",
+        "assembly",
+        ("metric",),
+        "Derived metrics must keep fanout_policy='block'.",
+        "Derived metrics inherit fan-out behavior from their component metrics, which each declare their own policy.",
+        "Remove fanout_policy from the derived @ms.metric and set it on the relevant base components instead.",
     ),
     ConstraintId.DATASET_VERSIONING_VALID: _constraint(
         ConstraintId.DATASET_VERSIONING_VALID,
