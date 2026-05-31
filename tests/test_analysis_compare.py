@@ -1,6 +1,7 @@
 """session.compare against two MetricFrames."""
 
 import ibis
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -290,6 +291,54 @@ def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_p
     assert pd.isna(df.iloc[1]["baseline"])
     assert pd.isna(df.iloc[1]["delta"])
     assert delta.meta.alignment["coverage"]["baseline"]["missing_buckets"] == 1
+
+
+@pytest.mark.parametrize(
+    ("current", "baseline", "expected_pct", "expected_status"),
+    [
+        (10.0, 0.0, np.inf, "from_zero_growth"),
+        (-5.0, 0.0, -np.inf, "from_zero_decline"),
+        (0.0, 0.0, np.nan, "zero_baseline_no_change"),
+        (-50.0, -100.0, 0.5, "computed"),
+        (10.0, np.nan, np.nan, "not_computable"),
+    ],
+)
+def test_compare_pct_change_status_handles_zero_missing_and_negative_baseline(
+    tmp_path, current, baseline, expected_pct, expected_status
+):
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.get_or_create(name="demo")
+    cur = MetricFrame.from_dataframe(
+        pd.DataFrame({"value": [current]}),
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        session=s,
+    )
+    base = MetricFrame.from_dataframe(
+        pd.DataFrame({"value": [baseline]}),
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        session=s,
+    )
+
+    delta = compare(cur, base, session=s)
+
+    row = delta.to_pandas().iloc[0]
+    if pd.notna(baseline):
+        assert row["delta"] == pytest.approx(current - baseline)
+    else:
+        assert pd.isna(row["delta"])
+    if pd.isna(expected_pct):
+        assert pd.isna(row["pct_change"])
+    else:
+        assert row["pct_change"] == expected_pct
+    assert row["pct_change_status"] == expected_status
 
 
 def test_window_bucket_no_overlap_supports_quarter_grain(tmp_path):

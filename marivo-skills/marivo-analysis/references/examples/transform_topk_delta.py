@@ -55,4 +55,4 @@ print(top_decreases.summary())
 # Expected output:
 # kind='delta_frame'
 # semantic_kind='segmented'
-# columns=['country', 'presence_status', 'current', 'baseline', 'delta', 'pct_change']
+# columns=['country', 'presence_status', 'current', 'baseline', 'delta', 'pct_change', 'pct_change_status']

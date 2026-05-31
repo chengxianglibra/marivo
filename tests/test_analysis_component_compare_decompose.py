@@ -203,6 +203,7 @@ def test_compare_segmented_ratio_persists_clean_delta_and_component_delta():
         "baseline",
         "delta",
         "pct_change",
+        "pct_change_status",
     ]
     components = delta.components()
     assert components.meta.parent_ref == delta.ref

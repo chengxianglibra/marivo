@@ -269,7 +269,8 @@ def test_window_bucket_panel_sparse_segment_uses_window_spine():
     assert df.iloc[11]["presence_status"] == "new"
     assert df.iloc[11]["baseline"] == pytest.approx(0.0)
     assert df.iloc[11]["delta"] == pytest.approx(11.0)
-    assert pd.isna(df.iloc[11]["pct_change"])
+    assert df.iloc[11]["pct_change"] == float("inf")
+    assert df.iloc[11]["pct_change_status"] == "from_zero_growth"
     assert out.meta.alignment["coverage"]["baseline"]["missing_buckets"] == 13
     assert out.meta.alignment["segment_info"]["coverage"]["baseline"]["missing_buckets"] == 13
 
@@ -302,6 +303,7 @@ def test_window_bucket_panel_both_missing_spine_row_is_not_new_or_churned():
     assert pd.isna(row["baseline"])
     assert pd.isna(row["delta"])
     assert pd.isna(row["pct_change"])
+    assert row["pct_change_status"] == "not_computable"
 
 
 def _write_calendar(tmp_path):
@@ -342,6 +344,7 @@ def test_compare_panel_window_bucket(tmp_path):
         "baseline",
         "delta",
         "pct_change",
+        "pct_change_status",
     ]
     by_key = {(str(row.bucket_start), row.region): row for row in df.itertuples()}
     assert by_key[("2026-07-01", "NORTH")].delta == pytest.approx(0.0)
@@ -376,6 +379,7 @@ def test_compare_panel_window_bucket_outer_joins_bucket_keys():
         "baseline",
         "delta",
         "pct_change",
+        "pct_change_status",
     ]
     by_bucket = {str(row.bucket_start): row for row in df.itertuples()}
     assert by_bucket["2026-07-01"].presence_status == "matched"
@@ -391,7 +395,8 @@ def test_compare_panel_window_bucket_outer_joins_bucket_keys():
     assert by_bucket["2026-07-03"].current == pytest.approx(30.0)
     assert by_bucket["2026-07-03"].baseline == pytest.approx(0.0)
     assert by_bucket["2026-07-03"].delta == pytest.approx(30.0)
-    assert pd.isna(by_bucket["2026-07-03"].pct_change)
+    assert by_bucket["2026-07-03"].pct_change == float("inf")
+    assert by_bucket["2026-07-03"].pct_change_status == "from_zero_growth"
 
 
 def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_columns(tmp_path):
@@ -435,6 +440,7 @@ def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_colum
         "baseline",
         "delta",
         "pct_change",
+        "pct_change_status",
     ]
     by_region = {row.region: row for row in df.itertuples()}
     assert by_region["APP"].presence_status == "new"

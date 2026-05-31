@@ -68,6 +68,7 @@ def test_compare_segmented_outer_join_preserves_one_sided_segments():
         "baseline",
         "delta",
         "pct_change",
+        "pct_change_status",
     ]
     by_region = {row["region"]: row for row in df.to_dict(orient="records")}
     assert by_region["NORTH"] == {
@@ -77,6 +78,7 @@ def test_compare_segmented_outer_join_preserves_one_sided_segments():
         "baseline": 70.0,
         "delta": 30.0,
         "pct_change": pytest.approx(30.0 / 70.0),
+        "pct_change_status": "computed",
     }
     assert by_region["SOUTH"] == {
         "region": "SOUTH",
@@ -84,7 +86,8 @@ def test_compare_segmented_outer_join_preserves_one_sided_segments():
         "current": 80.0,
         "baseline": 0.0,
         "delta": 80.0,
-        "pct_change": pytest.approx(float("nan"), nan_ok=True),
+        "pct_change": float("inf"),
+        "pct_change_status": "from_zero_growth",
     }
     assert by_region["WEST"] == {
         "region": "WEST",
@@ -93,6 +96,7 @@ def test_compare_segmented_outer_join_preserves_one_sided_segments():
         "baseline": 40.0,
         "delta": -40.0,
         "pct_change": pytest.approx(-1.0),
+        "pct_change_status": "computed",
     }
 
 
