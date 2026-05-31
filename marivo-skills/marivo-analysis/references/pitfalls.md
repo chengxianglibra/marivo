@@ -308,3 +308,31 @@ to `observe`; fix the semantic declaration instead. Common fixes:
   ambiguous duplicates.
 - Use a dimension or filter field that the planner can reach from the root
   through a many-to-one or one-to-one relationship.
+
+## Derived observe comparability errors
+
+**Symptom:** `session.observe(...)` on a derived metric (ratio, weighted-average)
+raises a structured planning error with one of the component comparability codes.
+
+**Action:** read the `code` field and apply the matching fix.
+
+- `component-axis-unreachable`: a parent dimension is reachable from one
+  component but not another. Make every component reach the dimension or
+  drop it from the `dimensions=` list.
+- `component-axis-field-mismatch`: components resolve the same dimension
+  to different semantic field ids. Conform the dimension on a single field
+  shared by all components.
+- `component-filter-unreachable`: a parent `where` filter is reachable from
+  one component but not another. Make every component reach the field or
+  drop the filter.
+- `component-filter-field-mismatch`: components resolve the same filter
+  key to different semantic field ids.
+- `component-version-mismatch`: a versioned dataset has different mode,
+  anchor, partition, or mapping digest across components. Make every
+  component pin the same version by ensuring they share the same root time
+  field and timescope.
+- `snapshot-partition-missing`: at least one root anchor has no `p <=
+  anchor` partition. Either widen `timescope` so available partitions
+  cover all anchors, or backfill missing partitions.
+- `nested-derived-unsupported`: a derived component is itself derived.
+  Replace it with its base components directly.

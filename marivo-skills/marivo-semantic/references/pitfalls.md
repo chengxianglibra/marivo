@@ -170,3 +170,37 @@ ms.model(name="sales")
 In tests/examples, write files under a temporary `.marivo/semantic/<model>/`
 directory and load them with `ms.SemanticProject(root=...).load()`, as shown in
 the runnable files under `references/examples/`.
+
+## Invalid Dataset Versioning
+
+**Symptom:** the loader raises `INVALID_DATASET_VERSIONING` when loading a
+dataset that declares `versioning=ms.validity(...)`.
+
+**Why it happens:** validity metadata is validated at author time (load time),
+not at observe time. Common causes:
+
+- `valid_from` is not listed in `primary_key`.
+- `valid_from` or `valid_to` references a field name that is not declared on
+  the same dataset.
+- `interval` is not one of `closed_open` or `closed_closed`.
+- `open_end` is not a tuple.
+
+**Fix:** ensure `valid_from` is in `primary_key`, both field names exist on the
+dataset, and `open_end` is a tuple of sentinel values:
+
+```python
+@ms.dataset(
+    name="user_history",
+    datasource=warehouse,
+    primary_key=["user_id", "valid_from"],
+    versioning=ms.validity(
+        valid_from="valid_from",
+        valid_to="valid_to",
+        interval="closed_open",
+        open_end=(None, "9999-12-31"),
+        timezone="UTC",
+    ),
+)
+def user_history(backend):
+    return backend.table("user_history")
+```

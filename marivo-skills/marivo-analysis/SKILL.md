@@ -208,6 +208,30 @@ For cross-dataset base metrics, use the normal `session.observe(...)` surface.
 Do not pass join policy or route arguments. If planning fails, read the
 structured repair error (`schema_version`, `code`, `candidates`, `repair`).
 
+For derived metrics (ratio, weighted-average), each component is planned
+independently. Derived dispatch enforces comparability across components.
+If a derived observe fails, the repair code identifies which component and
+which check failed:
+
+- `component-axis-unreachable`: a parent dimension is reachable from one
+  component but not another. Make every component reach the dimension or
+  drop it.
+- `component-axis-field-mismatch`: components resolve the same dimension
+  to different semantic field ids. Conform the dimension on a single field.
+- `component-filter-unreachable`: a parent `where` filter is reachable from
+  one component but not another. Make every component reach the field or
+  drop the filter.
+- `component-filter-field-mismatch`: components resolve the same filter
+  key to different semantic field ids.
+- `component-version-mismatch`: a versioned dataset has different mode,
+  anchor, partition, or mapping digest across components. Make every
+  component pin the same version.
+- `snapshot-partition-missing`: at least one root anchor has no `p <=
+  anchor` partition. Either widen `timescope` so available partitions
+  cover all anchors, or backfill missing partitions.
+- `nested-derived-unsupported`: a derived component is itself derived.
+  Replace it with its base components.
+
 ## Standard workflow
 
 1. `.venv/bin/python -c 'import marivo.analysis as mv; mv.help()'` — verify install.

@@ -281,6 +281,37 @@ def orders(backend):
     return backend.table("orders", database="sales_mart")
 ```
 
+### Declare a Validity-Versioned Dataset
+
+Use `ms.validity(...)` for SCD2 history tables that track row validity with
+`valid_from` / `valid_to` interval columns.
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+warehouse = md.ref("warehouse")
+
+@ms.dataset(
+    name="user_history",
+    datasource=warehouse,
+    primary_key=["user_id", "valid_from"],
+    versioning=ms.validity(
+        valid_from="valid_from",
+        valid_to="valid_to",
+        interval="closed_open",
+        open_end=(None, "9999-12-31"),
+        timezone="UTC",
+    ),
+)
+def user_history(backend):
+    return backend.table("user_history")
+```
+
+`valid_from` must be part of `primary_key`. `open_end` lists the sentinel
+values that indicate a row is still current. The planner uses the validity
+interval to collapse the table to one row per `(key, anchor)` before joining.
+
 ### Define an Aggregate Metric
 
 Runnable reference: `references/examples/03_define_metric_aggregate.py`.
@@ -357,6 +388,11 @@ How is this value computed?
 - For string time fields on Trino, build an instance expression explicitly
   before parsing/casting. Do not call ibis expression methods as class methods,
   such as `ibis.expr.types.StringValue.re_replace(...)`.
+- Datasets representing day-grain SCD2 history use `ms.validity(...)` with
+  `valid_from` / `valid_to` + `interval` (`closed_open` or `closed_closed`)
+  + `open_end` (tuple of "still current" sentinel values).
+- Component metrics may declare more than one dataset; the same
+  `root_dataset` / `additivity` / root-only-measure rules apply.
 
 ## Further Reading
 
