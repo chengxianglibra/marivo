@@ -198,6 +198,7 @@ def test_compare_segmented_ratio_persists_clean_delta_and_component_delta():
     }
     assert list(delta.to_pandas().columns) == [
         "region",
+        "presence_status",
         "current",
         "baseline",
         "delta",

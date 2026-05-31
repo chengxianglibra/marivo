@@ -266,10 +266,42 @@ def test_window_bucket_panel_sparse_segment_uses_window_spine():
         "2026-05-05 01:00:00",
     ]
     assert df.iloc[10]["baseline"] == pytest.approx(110.0)
-    assert pd.isna(df.iloc[11]["baseline"])
-    assert pd.isna(df.iloc[11]["delta"])
+    assert df.iloc[11]["presence_status"] == "new"
+    assert df.iloc[11]["baseline"] == pytest.approx(0.0)
+    assert df.iloc[11]["delta"] == pytest.approx(11.0)
+    assert pd.isna(df.iloc[11]["pct_change"])
     assert out.meta.alignment["coverage"]["baseline"]["missing_buckets"] == 13
     assert out.meta.alignment["segment_info"]["coverage"]["baseline"]["missing_buckets"] == 13
+
+
+def test_window_bucket_panel_both_missing_spine_row_is_not_new_or_churned():
+    s = session_attach.get_or_create(name="demo")
+    axes = {
+        "time": {"role": "time", "column": "bucket_start", "grain": "day"},
+        "region": {"role": "dimension", "column": "region"},
+    }
+    current = _panel_metric(
+        s,
+        [{"bucket_start": "2026-07-01", "region": "NORTH", "value": 10.0}],
+        axes=axes,
+        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+    )
+    baseline = _panel_metric(
+        s,
+        [{"bucket_start": "2026-06-24", "region": "NORTH", "value": 5.0}],
+        axes=axes,
+        window={"start": "2026-06-24", "end": "2026-06-25", "grain": "day"},
+    )
+
+    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    df = out.to_pandas()
+    row = df[df["bucket_start"].astype(str) == "2026-07-02"].iloc[0]
+    assert pd.isna(row["presence_status"])
+    assert pd.isna(row["current"])
+    assert pd.isna(row["baseline"])
+    assert pd.isna(row["delta"])
+    assert pd.isna(row["pct_change"])
 
 
 def _write_calendar(tmp_path):
@@ -305,6 +337,7 @@ def test_compare_panel_window_bucket(tmp_path):
     assert list(df.columns) == [
         "bucket_start",
         "region",
+        "presence_status",
         "current",
         "baseline",
         "delta",
@@ -338,21 +371,27 @@ def test_compare_panel_window_bucket_outer_joins_bucket_keys():
     assert list(df.columns) == [
         "bucket_start",
         "region",
+        "presence_status",
         "current",
         "baseline",
         "delta",
         "pct_change",
     ]
     by_bucket = {str(row.bucket_start): row for row in df.itertuples()}
+    assert by_bucket["2026-07-01"].presence_status == "matched"
     assert by_bucket["2026-07-01"].current == pytest.approx(10.0)
     assert by_bucket["2026-07-01"].baseline == pytest.approx(8.0)
     assert by_bucket["2026-07-01"].delta == pytest.approx(2.0)
-    assert pd.isna(by_bucket["2026-07-02"].current)
+    assert by_bucket["2026-07-02"].presence_status == "churned"
+    assert by_bucket["2026-07-02"].current == pytest.approx(0.0)
     assert by_bucket["2026-07-02"].baseline == pytest.approx(20.0)
-    assert pd.isna(by_bucket["2026-07-02"].delta)
+    assert by_bucket["2026-07-02"].delta == pytest.approx(-20.0)
+    assert by_bucket["2026-07-02"].pct_change == pytest.approx(-1.0)
+    assert by_bucket["2026-07-03"].presence_status == "new"
     assert by_bucket["2026-07-03"].current == pytest.approx(30.0)
-    assert pd.isna(by_bucket["2026-07-03"].baseline)
-    assert pd.isna(by_bucket["2026-07-03"].delta)
+    assert by_bucket["2026-07-03"].baseline == pytest.approx(0.0)
+    assert by_bucket["2026-07-03"].delta == pytest.approx(30.0)
+    assert pd.isna(by_bucket["2026-07-03"].pct_change)
 
 
 def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_columns(tmp_path):
@@ -367,7 +406,10 @@ def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_colum
     )
     baseline = _panel_metric(
         s,
-        [{"bucket_start": "2026-04-07", "region": "WEB", "value": 80.0}],
+        [
+            {"bucket_start": "2026-04-07", "region": "API", "value": 60.0},
+            {"bucket_start": "2026-04-07", "region": "WEB", "value": 80.0},
+        ],
     )
 
     out = compare(
@@ -384,6 +426,7 @@ def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_colum
     df = out.to_pandas()
     assert list(df.columns) == [
         "region",
+        "presence_status",
         "align_key",
         "align_quality",
         "bucket_start_a",
@@ -394,10 +437,20 @@ def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_colum
         "pct_change",
     ]
     by_region = {row.region: row for row in df.itertuples()}
+    assert by_region["APP"].presence_status == "new"
     assert by_region["APP"].align_quality == "unmatched"
     assert by_region["APP"].bucket_start_a == "2026-05-05"
     assert pd.isna(by_region["APP"].bucket_start_b)
+    assert by_region["APP"].baseline == pytest.approx(0.0)
+    assert by_region["APP"].delta == pytest.approx(10.0)
+    assert by_region["API"].presence_status == "churned"
+    assert by_region["API"].align_quality == "unmatched"
+    assert pd.isna(by_region["API"].bucket_start_a)
+    assert by_region["API"].bucket_start_b == "2026-04-07"
+    assert by_region["API"].current == pytest.approx(0.0)
+    assert by_region["API"].delta == pytest.approx(-60.0)
     assert by_region["WEB"].align_quality == "exact"
+    assert by_region["WEB"].presence_status == "matched"
     assert by_region["WEB"].bucket_start_a == "2026-05-05"
     assert by_region["WEB"].bucket_start_b == "2026-04-07"
 
@@ -509,4 +562,5 @@ def test_compare_calendar_panel_ratio_persists_component_delta(tmp_path):
     assert by_region.loc["WEB", "current_numerator"] == pytest.approx(25.0)
     assert by_region.loc["WEB", "baseline_numerator"] == pytest.approx(10.0)
     assert by_region.loc["APP", "align_quality"] == "unmatched"
-    assert pd.isna(by_region.loc["APP", "baseline_numerator"])
+    assert by_region.loc["APP", "baseline_numerator"] == pytest.approx(0.0)
+    assert by_region.loc["APP", "delta_numerator"] == pytest.approx(50.0)

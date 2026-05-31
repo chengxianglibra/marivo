@@ -104,6 +104,7 @@ def align_calendar_frames(
             {
                 "align_key": _json_key(key),
                 "align_quality": "exact",
+                "presence_status": "matched",
                 "bucket_start_a": row_a["bucket_start_a"],
                 "bucket_start_b": baseline["bucket_start_b"],
                 "current": row_a["current"],
@@ -149,6 +150,7 @@ def align_calendar_frames(
                 {
                     "align_key": align_key,
                     "align_quality": "fallback",
+                    "presence_status": "matched",
                     "bucket_start_a": row_a["bucket_start_a"],
                     "bucket_start_b": baseline_workdays[index][2],
                     "current": row_a["current"],
@@ -163,6 +165,7 @@ def align_calendar_frames(
             columns=[
                 "align_key",
                 "align_quality",
+                "presence_status",
                 "bucket_start_a",
                 "bucket_start_b",
                 "current",

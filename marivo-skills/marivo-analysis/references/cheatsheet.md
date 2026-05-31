@@ -168,16 +168,18 @@ Valid `AlignmentPolicy.kind` values are `window_bucket`, `dow_aligned`,
 `ordinal` kind. `AlignmentPolicy(kind="window_bucket")` aligns by shared
 `bucket_start` when available. For same-grain WoW/YoY windows with no shared
 dates, it builds the expected buckets from each window, pairs them by ordinal
-position, preserves the baseline date as `bucket_start_b`, and leaves sparse
-observed buckets as `NaN` rather than failing compare.
+position, preserves the baseline date as `bucket_start_b`, and treats sparse
+observed buckets as one-sided rows rather than failing compare. One-sided
+segmented and panel rows set the missing side to `0.0` for `delta` math and
+mark the row with `presence_status` (`matched`, `new`, or `churned`).
 
 Calendar-backed compare loads project-local files from
 `.marivo/calendar/<name>.json`. Calendar entries are objects with
 `date` and optional `holiday_id`; extra fields such as `name` or `label` are
 rejected. Use `holiday_id` to match the same business holiday across years:
 
-Calendar-backed `DeltaFrame` rows include `align_key`, `align_quality`,
-`bucket_start_a`, and `bucket_start_b`. `align_key` is a compact JSON object
+Calendar-backed `DeltaFrame` rows include `presence_status`, `align_key`,
+`align_quality`, `bucket_start_a`, and `bucket_start_b`. `align_key` is a compact JSON object
 string, not an array. For example, day-of-week matches look like
 `{"kind":"dow","iso_weekday":2,"period_week_offset":0}`, holiday matches
 look like `{"kind":"holiday","holiday_id":"labor-day","holiday_ordinal":1}`,
