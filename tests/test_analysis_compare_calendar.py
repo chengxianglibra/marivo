@@ -440,7 +440,95 @@ def test_pct_change_uses_absolute_negative_baseline_for_calendar_alignment():
     assert aligned.iloc[0]["pct_change_status"] == "computed"
 
 
-def test_rejects_multi_period_frame():
+def test_dow_aligned_multi_period_pairs_periods_by_ordinal():
+    a = pd.DataFrame({"bucket_start": ["2026-05-05", "2026-06-02"], "value": [100.0, 110.0]})
+    b = pd.DataFrame({"bucket_start": ["2025-05-06", "2025-06-03"], "value": [80.0, 90.0]})
+    policy = CalendarPolicy(mode="dow_aligned", align_period="month")
+
+    aligned, info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=_calendar(),
+        policy=policy,
+        session_tz="Asia/Shanghai",
+    )
+
+    assert info.matched_rows == 2
+    assert info.dropped_rows_a == 0
+    assert info.dropped_rows_b == 0
+    assert list(aligned["bucket_start_a"]) == ["2026-05-05", "2026-06-02"]
+    assert list(aligned["bucket_start_b"]) == ["2025-05-06", "2025-06-03"]
+    assert list(aligned["align_key"]) == [
+        '{"kind":"dow","iso_weekday":2,"period_week_offset":0}',
+        '{"kind":"dow","iso_weekday":2,"period_week_offset":0}',
+    ]
+
+
+def test_holiday_aligned_multi_period_derives_ordinals_per_period():
+    calendar = Calendar(
+        name="cn_holidays",
+        holidays=[
+            CalendarEntry(date="2025-05-01", holiday_id="promo"),
+            CalendarEntry(date="2025-05-02", holiday_id="promo"),
+            CalendarEntry(date="2025-06-01", holiday_id="promo"),
+            CalendarEntry(date="2026-05-01", holiday_id="promo"),
+            CalendarEntry(date="2026-05-02", holiday_id="promo"),
+            CalendarEntry(date="2026-06-01", holiday_id="promo"),
+        ],
+    )
+    a = pd.DataFrame({"bucket_start": ["2026-05-02", "2026-06-01"], "value": [100.0, 110.0]})
+    b = pd.DataFrame({"bucket_start": ["2025-05-02", "2025-06-01"], "value": [80.0, 90.0]})
+    policy = CalendarPolicy(mode="holiday_aligned", align_period="month")
+
+    aligned, info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=calendar,
+        policy=policy,
+        session_tz="Asia/Shanghai",
+    )
+
+    assert info.matched_rows == 2
+    assert list(aligned["bucket_start_a"]) == ["2026-05-02", "2026-06-01"]
+    assert list(aligned["bucket_start_b"]) == ["2025-05-02", "2025-06-01"]
+    assert list(aligned["align_key"]) == [
+        '{"kind":"holiday","holiday_id":"promo","holiday_ordinal":2}',
+        '{"kind":"holiday","holiday_id":"promo","holiday_ordinal":1}',
+    ]
+
+
+def test_nearest_prior_workday_fallback_uses_matching_period_pair():
+    a = pd.DataFrame({"bucket_start": ["2026-05-04", "2026-06-04"], "value": [100.0, 110.0]})
+    b = pd.DataFrame({"bucket_start": ["2025-05-02", "2025-06-03"], "value": [80.0, 90.0]})
+    policy = CalendarPolicy(
+        mode="holiday_aligned", align_period="month", fallback="nearest_prior_workday"
+    )
+
+    aligned, info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=_calendar(),
+        policy=policy,
+        session_tz="Asia/Shanghai",
+    )
+
+    assert info.matched_rows == 2
+    assert info.fallback_rows == 2
+    assert list(aligned["bucket_start_a"]) == ["2026-05-04", "2026-06-04"]
+    assert list(aligned["bucket_start_b"]) == ["2025-05-02", "2025-06-03"]
+    assert list(aligned["align_key"]) == [
+        '{"kind":"fallback_workday","baseline_date":"2025-05-02"}',
+        '{"kind":"fallback_workday","baseline_date":"2025-06-03"}',
+    ]
+
+
+def test_rejects_mismatched_multi_period_counts():
     a = pd.DataFrame({"bucket_start": ["2026-05-01", "2026-06-01"], "value": [100.0, 110.0]})
     b = pd.DataFrame({"bucket_start": ["2026-04-01"], "value": [80.0]})
     policy = CalendarPolicy(mode="dow_aligned", align_period="month")
@@ -456,7 +544,9 @@ def test_rejects_multi_period_frame():
             session_tz="Asia/Shanghai",
         )
 
-    assert exc_info.value.details["kind"] == "CalendarAlignFrameSpansMultiplePeriods"
+    assert exc_info.value.details["kind"] == "CalendarAlignPeriodPairMismatch"
+    assert exc_info.value.details["current_period_ids"] == ["2026-05", "2026-06"]
+    assert exc_info.value.details["baseline_period_ids"] == ["2026-04"]
 
 
 def test_rejects_duplicate_calendar_keys():

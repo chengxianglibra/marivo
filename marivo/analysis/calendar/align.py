@@ -44,11 +44,20 @@ def align_calendar_frames(
     dates_a = _local_dates(a[time_column], session_tz=session_tz)
     dates_b = _local_dates(b[time_column], session_tz=session_tz)
 
-    _require_single_period(dates_a, policy.align_period, side="a")
-    _require_single_period(dates_b, policy.align_period, side="b")
+    period_pairing = _period_pairing(dates_a, dates_b, policy.align_period)
 
-    keys_a = _align_keys(dates_a, calendar=calendar, policy=policy)
-    keys_b = _align_keys(dates_b, calendar=calendar, policy=policy)
+    keys_a = _align_keys(
+        dates_a,
+        calendar=calendar,
+        policy=policy,
+        period_ordinals_by_date=period_pairing.current_ordinals_by_date,
+    )
+    keys_b = _align_keys(
+        dates_b,
+        calendar=calendar,
+        policy=policy,
+        period_ordinals_by_date=period_pairing.baseline_ordinals_by_date,
+    )
 
     _require_unique_keys(keys_a, side="a")
     _require_unique_keys(keys_b, side="b")
@@ -114,33 +123,38 @@ def align_calendar_frames(
         )
 
     if policy.fallback == "nearest_prior_workday":
-        current_period_start = _period_start(cast("date", dates_a.iloc[0]), policy.align_period)
-        baseline_period_start = _period_start(cast("date", dates_b.iloc[0]), policy.align_period)
-
-        baseline_workdays: list[tuple[date, int, str, object]] = []
+        baseline_workdays_by_ordinal: dict[int, list[tuple[date, int, str, object]]] = {}
         for row_b in frame_b.to_dict("records"):
+            baseline_day = cast("date", row_b["date_b"])
             if not _is_workday(
-                cast("date", row_b["date_b"]),
+                baseline_day,
                 holiday_map=holiday_map,
                 adjusted_workdays=adjusted_workdays,
             ):
                 continue
-            baseline_workdays.append(
+            period_ordinal = period_pairing.baseline_ordinals_by_date[baseline_day]
+            baseline_workdays_by_ordinal.setdefault(period_ordinal, []).append(
                 (
-                    cast("date", row_b["date_b"]),
+                    baseline_day,
                     int(cast("int", row_b["_row_id_b"])),
                     cast("str", row_b["bucket_start_b"]),
                     row_b["baseline"],
                 )
             )
-        baseline_workdays.sort(key=lambda item: (item[0], item[1]))
-        baseline_workday_dates = [item[0] for item in baseline_workdays]
+        for baseline_workdays in baseline_workdays_by_ordinal.values():
+            baseline_workdays.sort(key=lambda item: (item[0], item[1]))
 
         for row_a in frame_a.to_dict("records"):
             row_id_a = int(cast("int", row_a["_row_id_a"]))
             if row_id_a in matched_a_rows:
                 continue
-            anchor = baseline_period_start + (cast("date", row_a["date_a"]) - current_period_start)
+            current_day = cast("date", row_a["date_a"])
+            period_ordinal = period_pairing.current_ordinals_by_date[current_day]
+            current_period_start = period_pairing.current_starts_by_ordinal[period_ordinal]
+            baseline_period_start = period_pairing.baseline_starts_by_ordinal[period_ordinal]
+            anchor = baseline_period_start + (current_day - current_period_start)
+            baseline_workdays = baseline_workdays_by_ordinal.get(period_ordinal, [])
+            baseline_workday_dates = [item[0] for item in baseline_workdays]
             index = bisect_right(baseline_workday_dates, anchor) - 1
             if index < 0:
                 continue
@@ -275,39 +289,104 @@ def _week_offset(day: date, align_period: str) -> int:
     return (day - _period_start(day, align_period)).days // 7
 
 
-def _require_single_period(dates: pd.Series, align_period: str, *, side: str) -> None:
-    period_ids = {str(_period_id(value, align_period)) for value in dates}
-    if len(period_ids) == 1:
-        return
-    raise AlignmentFailedError(
-        message=f"frame '{side}' spans multiple periods for align_period={align_period!r}",
-        details={
-            "kind": "CalendarAlignFrameSpansMultiplePeriods",
-            "side": side,
-            "align_period": align_period,
-            "period_ids": sorted(period_ids),
+class _PeriodPairing:
+    def __init__(
+        self,
+        *,
+        current_ordinals_by_date: dict[date, int],
+        baseline_ordinals_by_date: dict[date, int],
+        current_starts_by_ordinal: dict[int, date],
+        baseline_starts_by_ordinal: dict[int, date],
+    ) -> None:
+        self.current_ordinals_by_date = current_ordinals_by_date
+        self.baseline_ordinals_by_date = baseline_ordinals_by_date
+        self.current_starts_by_ordinal = current_starts_by_ordinal
+        self.baseline_starts_by_ordinal = baseline_starts_by_ordinal
+
+
+def _period_pairing(dates_a: pd.Series, dates_b: pd.Series, align_period: str) -> _PeriodPairing:
+    current_periods = _ordered_periods(dates_a, align_period)
+    baseline_periods = _ordered_periods(dates_b, align_period)
+    if len(current_periods) != len(baseline_periods):
+        raise AlignmentFailedError(
+            message=(
+                "calendar alignment requires current and baseline to span the same "
+                f"number of periods for align_period={align_period!r}"
+            ),
+            details={
+                "kind": "CalendarAlignPeriodPairMismatch",
+                "align_period": align_period,
+                "current_period_ids": [period_id for period_id, _start in current_periods],
+                "baseline_period_ids": [period_id for period_id, _start in baseline_periods],
+            },
+        )
+    current_ordinal_by_id = {
+        period_id: index for index, (period_id, _start) in enumerate(current_periods)
+    }
+    baseline_ordinal_by_id = {
+        period_id: index for index, (period_id, _start) in enumerate(baseline_periods)
+    }
+    return _PeriodPairing(
+        current_ordinals_by_date=_period_ordinals_by_date(
+            dates_a, align_period, current_ordinal_by_id
+        ),
+        baseline_ordinals_by_date=_period_ordinals_by_date(
+            dates_b, align_period, baseline_ordinal_by_id
+        ),
+        current_starts_by_ordinal={
+            index: start for index, (_period_id_value, start) in enumerate(current_periods)
+        },
+        baseline_starts_by_ordinal={
+            index: start for index, (_period_id_value, start) in enumerate(baseline_periods)
         },
     )
 
 
-def _align_keys(dates: pd.Series, *, calendar: Calendar, policy: CalendarPolicy) -> pd.Series:
+def _ordered_periods(dates: pd.Series, align_period: str) -> list[tuple[str, date]]:
+    periods = {
+        _period_id(cast("date", day), align_period): _period_start(cast("date", day), align_period)
+        for day in dates
+    }
+    return sorted(periods.items(), key=lambda item: item[1])
+
+
+def _period_ordinals_by_date(
+    dates: pd.Series, align_period: str, ordinal_by_period_id: dict[str, int]
+) -> dict[date, int]:
+    return {
+        cast("date", day): ordinal_by_period_id[_period_id(cast("date", day), align_period)]
+        for day in dates
+    }
+
+
+def _align_keys(
+    dates: pd.Series,
+    *,
+    calendar: Calendar,
+    policy: CalendarPolicy,
+    period_ordinals_by_date: dict[date, int],
+) -> pd.Series:
     holiday_map = _holiday_map(calendar.holidays)
     adjusted_workdays = {date.fromisoformat(entry.date) for entry in calendar.adjusted_workdays}
 
     needs_ordinals = policy.mode in ("holiday_aligned", "holiday_and_dow_aligned")
     ordinals: dict[date, int] = {}
-    if needs_ordinals and len(dates):
-        frame_period = _period_id(cast("date", dates.iloc[0]), policy.align_period)
-        ordinals = _holiday_ordinals(
-            calendar.holidays, align_period=policy.align_period, frame_period=frame_period
-        )
+    if needs_ordinals:
+        ordinals = _holiday_ordinals(calendar.holidays, align_period=policy.align_period)
 
     def _key_for(
         day: date,
-    ) -> tuple[str, object] | tuple[str, int, int] | tuple[str, object, int] | None:
+    ) -> tuple[object, ...] | None:
+        period_ordinal = period_ordinals_by_date[day]
         holiday = holiday_map.get(day)
         if policy.mode == "dow_aligned":
-            return ("dow", day.isoweekday(), _week_offset(day, policy.align_period))
+            return (
+                "period",
+                period_ordinal,
+                "dow",
+                day.isoweekday(),
+                _week_offset(day, policy.align_period),
+            )
         if policy.mode == "workday_aligned":
             nth = _nth_workday(
                 day,
@@ -317,15 +396,21 @@ def _align_keys(dates: pd.Series, *, calendar: Calendar, policy: CalendarPolicy)
             )
             if nth is None:
                 return None
-            return ("workday", nth)
+            return ("period", period_ordinal, "workday", nth)
         if policy.mode == "holiday_aligned":
             if holiday is not None:
-                return ("holiday", holiday, ordinals[day])
+                return ("period", period_ordinal, "holiday", holiday, ordinals[day])
             return None
         if policy.mode == "holiday_and_dow_aligned":
             if holiday is not None:
-                return ("holiday", holiday, ordinals[day])
-            return ("dow", day.isoweekday(), _week_offset(day, policy.align_period))
+                return ("period", period_ordinal, "holiday", holiday, ordinals[day])
+            return (
+                "period",
+                period_ordinal,
+                "dow",
+                day.isoweekday(),
+                _week_offset(day, policy.align_period),
+            )
         raise CalendarPolicyError(
             message=f"unsupported calendar mode {policy.mode!r}",
             details={"kind": "CalendarPolicyInvalid", "mode": policy.mode},
@@ -370,18 +455,15 @@ def _holiday_map(entries: Sequence[CalendarEntry]) -> dict[date, str]:
     return out
 
 
-def _holiday_ordinals(
-    entries: Sequence[CalendarEntry], *, align_period: str, frame_period: str
-) -> dict[date, int]:
-    by_id: dict[str, list[date]] = {}
+def _holiday_ordinals(entries: Sequence[CalendarEntry], *, align_period: str) -> dict[date, int]:
+    by_period_and_id: dict[tuple[str, str], list[date]] = {}
     for entry in entries:
         entry_date = date.fromisoformat(entry.date)
-        if _period_id(entry_date, align_period) != frame_period:
-            continue
         resolved = entry.holiday_id or entry_date.isoformat()
-        by_id.setdefault(resolved, []).append(entry_date)
+        period_id = _period_id(entry_date, align_period)
+        by_period_and_id.setdefault((period_id, resolved), []).append(entry_date)
     ordinals: dict[date, int] = {}
-    for dates_for_id in by_id.values():
+    for dates_for_id in by_period_and_id.values():
         for index, entry_date in enumerate(sorted(dates_for_id), start=1):
             ordinals[entry_date] = index
     return ordinals
@@ -405,6 +487,8 @@ def _require_unique_keys(keys: pd.Series, *, side: str) -> None:
 
 def _json_key(value: tuple[object, ...]) -> str:
     key_kind = value[0] if value else None
+    if key_kind == "period":
+        return _json_key(value[2:])
     if key_kind == "dow":
         public_key = {
             "kind": "dow",
