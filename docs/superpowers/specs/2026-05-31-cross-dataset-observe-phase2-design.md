@@ -46,11 +46,17 @@ mode for both snapshot and validity targets.
   joins.
 - Auto-select derived version mode from dataset versioning + root time context,
   with no relationship-level override and no metric-level kwarg.
-- Enforce component comparability with two fail-closed checks:
-  `component-axis-field-mismatch` (same dimension must resolve to the same
-  semantic field id across components) and `component-version-mismatch`
-  (versioned datasets used by multiple components must share derived version
-  mode + anchor + resolved partition or interval predicate).
+- Enforce component comparability with fail-closed checks across three
+  dimensions:
+  - `component-axis-unreachable` / `component-axis-field-mismatch` (every
+    parent dimension must resolve in every component, to the same semantic
+    field id),
+  - `component-filter-unreachable` / `component-filter-field-mismatch`
+    (every parent `where` predicate must apply to every component, to the
+    same semantic field id),
+  - `component-version-mismatch` (versioned datasets used by multiple
+    components must share derived version mode + anchor + resolved
+    partition or interval predicate + mapping digest).
 - Introduce `plan_observe(metric_ir, …)` as the single planner entry, returning
   `BaseObservePlan` for non-derived metrics and `DerivedObservePlan` for
   derived metrics. `observe.py` becomes a thin executor on top of the plan.
@@ -59,8 +65,6 @@ mode for both snapshot and validity targets.
 
 ## Non-Goals
 
-- No `session.explain(...)`. Phase 2 wires every plan field needed for it but
-  does not add the public read-only entry. Deferred to its own phase.
 - No nested derived metrics (a derived metric used as another derived metric's
   component). Continues to raise.
 - No `current_flag` validity dialect. Phase 2 supports `open_end` only.
@@ -169,14 +173,18 @@ def plan_observe(
 `_plan_derived_observe` does three things:
 
 1. For each component metric in
-   `metric_ir.decomposition.components.items()`, build a `BaseObservePlan` by
-   calling `plan_base_observe` with the component's own datasets plus the
-   parent dimensions and `where` keys reachable from that component's
-   `root_dataset`. Each component plan must satisfy the single-datasource rule
-   independently. Components across datasources are allowed.
+   `metric_ir.decomposition.components.items()`, build a `BaseObservePlan`
+   with the component's own datasets and **all** parent dimensions and
+   `where` keys. Per-component reachability filtering is not done at this
+   step: every component must see every parent axis and every parent
+   predicate. If a component cannot reach a parent dimension or filter, its
+   `plan_base_observe` raises a structured error and the comparability check
+   in step 2 lifts that into the parent-level `component-axis-unreachable`
+   or `component-filter-unreachable` code (next section).
 2. Run comparability checks across the resulting `component_plans`:
-   `_check_axis_comparability`, `_check_version_comparability`. Failures raise
-   `ObservePlanningError` with the appropriate code (next section).
+   `_check_axis_comparability`, `_check_filter_comparability`,
+   `_check_version_comparability`. Failures raise `ObservePlanningError`
+   with the appropriate code (next section).
 3. Merge component `axes_metadata` into `parent_axes` (axes are identical
    across components after comparability succeeds, so the merge is a
    pick-first), collect each component's `lineage_metadata` under
@@ -403,22 +411,6 @@ This is a deliberate trade-off:
   provider, the provider would return cached partition lists, no backend
   round-trip required.
 
-### Implications for `session.explain(...)`
-
-When `explain()` lands in a future phase, it must offer a `dry_plan=True`
-mode that skips the discovery queries for snapshot `as_of_root_time`. In
-dry mode:
-
-- `version_resolutions[].resolved_partition_summary` becomes `null`.
-- `version_resolutions[].anchor_to_partition_mapping_digest` becomes `null`.
-- A new `lineage_metadata.warnings[]` entry `dry_plan_skipped_discovery`
-  records that the explain output is structurally correct but does not pin
-  the resolved partitions.
-
-Phase 2 wires the lineage fields so the future dry mode does not require a
-schema change. Phase 2 itself does not implement `dry_plan`; the planner
-always runs discovery when called from observe.
-
 ### Steps
 
 Steps in `plan_base_observe`, executed when joining a versioned snapshot
@@ -556,14 +548,18 @@ detection to a future data-quality phase.
 
 ## Component Comparability
 
-Both checks are fail-closed by default. Both run after every component plan is
-constructed.
+All three checks are fail-closed by default. They run after every component
+plan is constructed.
 
 ### Axis comparability
 
 For each parent dimension `dim`, check that every component plan resolved a
 field with that name AND that they all resolved to the same semantic field
-id:
+id. As with filter comparability, reachability is detected through a probe
+pass that catches `field-ref-not-found` / `field-ref-ambiguous` for each
+parent dimension under each component, lifts the failure to the parent
+contract, and only proceeds to field-id comparison once every component
+resolved every dimension:
 
 ```python
 def _check_axis_comparability(component_plans, parent_dimensions):
@@ -574,15 +570,17 @@ def _check_axis_comparability(component_plans, parent_dimensions):
             ]
             for cp in component_plans
         }
-        missing = [cid for cid, fields in per_component.items() if not fields]
-        if missing:
-            raise component-axis-unreachable with candidates listing the
-            parent dimension and the components that could not resolve it
+        # Reachability already enforced by the probe pass; every component
+        # has at least one matching PlannedDimension here.
         ids = {fields[0].semantic_id for fields in per_component.values()}
         if len(ids) > 1:
             raise component-axis-field-mismatch with candidates listing each
             (component_metric_id, resolved_field_id)
 ```
+
+The probe pass emits `component-axis-unreachable` directly when at least one
+component cannot resolve a parent dimension; otherwise control falls through
+to the field-id check above.
 
 Two failure modes, two codes:
 
@@ -593,6 +591,66 @@ Two failure modes, two codes:
 - `component-axis-field-mismatch` — every component resolves the dimension,
   but the resolved semantic field ids differ. The classic
   `sales.country` vs `marketing.country` case the parent spec calls out.
+
+### Filter comparability
+
+A parent `where=` predicate must be applied uniformly across components — a
+ratio cannot legitimately filter only the numerator. Reachability is detected
+at component-plan construction time, then lifted to the parent error
+contract.
+
+`_plan_derived_observe` invokes each component plan in two passes:
+
+1. **Probe pass.** For each component, attempt
+   `plan_base_observe(..., where=parent_where, ...)`. If it raises
+   `field-ref-not-found` or `field-ref-ambiguous` for a parent `where` key,
+   record the offending key under that component's id rather than
+   propagating the error. Other planning errors (datasource, fan-out, etc.)
+   propagate immediately — they are not filter-reachability concerns.
+2. **Resolved-plan pass.** If every component resolved every parent
+   `where` key, return the existing per-component plans (the probe pass
+   already produced them). Otherwise raise `component-filter-unreachable`
+   with the recorded missing-key map.
+
+A field-id mismatch across components is then a follow-on check:
+
+```python
+def _check_filter_comparability(component_plans, parent_where):
+    for raw_key in parent_where or {}:
+        key = raw_key.id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        applied = {
+            cp.component_metric_ir.semantic_id: [
+                pw for pw in cp.base_plan.where if pw.original_key == key
+            ]
+            for cp in component_plans
+        }
+        # Reachability already enforced by the probe pass; every component
+        # has at least one PlannedWhere with original_key == key here.
+        field_ids = {applied[cid][0].field.semantic_id for cid in applied}
+        if len(field_ids) > 1:
+            raise component-filter-field-mismatch with candidates listing
+            each (component_metric_id, resolved_field_id)
+```
+
+The check uses the `BaseObservePlan.where: list[PlannedWhere]` already
+populated by `plan_base_observe`. `PlannedWhere.original_key` preserves the
+parent-supplied key string (qualified or short) so the lift back to the
+parent-level comparability check is unambiguous.
+
+Two failure modes:
+
+- `component-filter-unreachable` — a parent filter applies to some
+  components but not others. The parent observe surface implies "filter
+  applies to all components"; silent partial coverage would produce the same
+  class of bug as `component-axis-unreachable` but on predicates.
+- `component-filter-field-mismatch` — every component applies the filter,
+  but the resolved semantic field ids differ. Same mechanism as the axis
+  variant; same `modeling_decision` repair class.
+
+Note: the parent observe surface does not currently provide per-component
+filter scoping. If a future phase adds independent numerator / denominator
+filters (the parent spec leaves this open), it must surface that scoping
+explicitly at the parent surface; the comparability default does not change.
 
 ### Version comparability
 
@@ -665,6 +723,8 @@ load error contract instead — see "Author-time errors" below.
 | `snapshot-partition-missing` | At least one root anchor has no `p ≤ anchor` partition available | `unsafe_without_approval` |
 | `component-axis-unreachable` | A parent dimension is reachable from some components but not others | `modeling_decision` |
 | `component-axis-field-mismatch` | Same parent dimension resolves to different semantic field ids across components | `modeling_decision` |
+| `component-filter-unreachable` | A parent `where` predicate applies to some components but not others | `modeling_decision` |
+| `component-filter-field-mismatch` | Same parent filter resolves to different semantic field ids across components | `modeling_decision` |
 | `component-version-mismatch` | Same versioned dataset has different mode / anchor / resolved partition / mapping digest across components | `modeling_decision` |
 | `nested-derived-unsupported` | Derived component's own `is_derived` is true | `modeling_decision` |
 
@@ -674,6 +734,10 @@ load error contract instead — see "Author-time errors" below.
   `{"dimension": dim_name, "missing_components": [metric_id, ...], "resolved_components": [{"metric": id, "resolved_field_id": id}, ...]}`.
 - `component-axis-field-mismatch`:
   `{"dimension": dim_name, "components": [{"metric": id, "resolved_field_id": id}, ...]}`.
+- `component-filter-unreachable`:
+  `{"filter_key": key, "missing_components": [metric_id, ...], "resolved_components": [{"metric": id, "resolved_field_id": id}, ...]}`.
+- `component-filter-field-mismatch`:
+  `{"filter_key": key, "components": [{"metric": id, "resolved_field_id": id}, ...]}`.
 - `component-version-mismatch`:
   `{"versioned_dataset": ds_id, "components": [{"metric": id, "mode": ..., "anchor_source": ..., "anchor_value": ..., "resolved_partition_or_predicate": ..., "mapping_digest": ...}, ...]}`.
 - `snapshot-partition-missing`:
@@ -757,6 +821,11 @@ compatibility shim is added.
 - Axis comparability: components resolving same dimension name to different
   semantic field ids raises `component-axis-field-mismatch` with structured
   candidates.
+- Filter reachability: a parent `where` key reachable from one component but
+  not another raises `component-filter-unreachable` with `missing_components`
+  and `resolved_components` populated.
+- Filter comparability: a parent `where` key resolving to different semantic
+  field ids across components raises `component-filter-field-mismatch`.
 - Version comparability: components mixing `latest` and `as_of_root_time`
   against the same dataset raises `component-version-mismatch`. Two
   components both using `as_of_root_time` but with different
@@ -827,7 +896,8 @@ compatibility shim is added.
   `marivo-skills/marivo-analysis/references/pitfalls.md`:
   - public observe surface unchanged.
   - new repair codes: `component-axis-unreachable`,
-    `component-axis-field-mismatch`, `component-version-mismatch`,
+    `component-axis-field-mismatch`, `component-filter-unreachable`,
+    `component-filter-field-mismatch`, `component-version-mismatch`,
     `snapshot-partition-missing`, `nested-derived-unsupported`. Validity
     metadata problems are author-time `INVALID_DATASET_VERSIONING` errors,
     not observe errors.
@@ -855,7 +925,7 @@ plan to be authored separately by writing-plans):
 6. Switch `observe.py` derived dispatch to the new plan; delete legacy
    `_observe_derived_*` helpers; multi-dataset components become available.
 7. Cross-datasource components.
-8. Comparability checks (axis + version).
+8. Comparability checks (axis, filter, version).
 9. Documentation, skill, example migrations; full test matrix.
 
 Each step should keep regression suites green; the breaking inner→left join
@@ -876,9 +946,6 @@ behavior change lands at step 6.
   versioning metadata; there is no override at any layer.
 - Components may span datasources at the component boundary; single-component
   cross-datasource still raises.
-- Comparability checks are fail-closed for both axis and version.
-- `session.explain(...)`, fan-out policies, named-route selection, and
-  conformed-dimension equivalence remain out of scope, deferred to future
-  phases. Phase 2 lineage carries the data those features will surface
-  (`version_resolutions`, mapping digests, per-component datasources) so the
-  future entry can be added without re-planning.
+- Comparability checks are fail-closed for axis, filter, and version.
+- Fan-out policies, named-route selection, and conformed-dimension
+  equivalence remain out of scope, deferred to future phases.
