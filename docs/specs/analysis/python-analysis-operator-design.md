@@ -373,6 +373,43 @@ root-preserving left joins. Cross-dataset `dimensions=` and `where=` are allowed
 for base metrics. Root predicates are pushed before widening; joined predicates
 apply after widening. `session.explain(...)` is not part of this phase.
 
+### Derived Observe
+
+Phase 2 derived metrics share the same planner as base metrics. Each
+component metric is planned independently as a `BaseObservePlan` with the
+same root-only-measure, key-derived join safety, and root-preserving
+left-join rules. Component metrics may declare more than one dataset, and
+different components may use different datasources; per-component plans
+must each be single-datasource.
+
+Derived dispatch enforces three fail-closed comparability checks:
+
+- `component-axis-unreachable` / `component-axis-field-mismatch` — every
+  parent dimension must resolve to the same semantic field id in every
+  component.
+- `component-filter-unreachable` / `component-filter-field-mismatch` —
+  every parent `where` predicate must apply to every component, to the
+  same semantic field id.
+- `component-version-mismatch` — versioned datasets accessed by multiple
+  components must share derived version mode + anchor + resolved partition
+  or interval predicate + mapping digest.
+
+## Versioned Joins
+
+`ms.snapshot()` and `ms.validity()` declare dataset versioning. The
+planner auto-selects `as_of_root_time` when the root dataset has a
+day-level time field; otherwise it falls back to `latest` anchored on
+`timescope.end` or plan time. There is no per-relationship override and
+no metric-level kwarg.
+
+Snapshot `as_of_root_time` runs two narrow discovery queries before the
+join (distinct root anchor dates, distinct available partitions) to build
+a Python-side anchor-to-partition mapping that is then injected as an
+`ibis.memtable` and equi-joined against the snapshot table. Validity
+`as_of_root_time` evaluates per-row interval predicates inline; overlap is
+recorded as a single `validity_overlap_unverified` lineage warning per
+join and not validated in Phase 2.
+
 如果 agent 需要复用某种业务时间表达，例如 fiscal week、campaign-relative day 或 cohort-relative period，应先 `observe` 原始 metric，再用 `transform.align_time(policy=AlignmentPolicy(...))` 生成单 frame 的 aligned view。两个 frame 之间的 pairwise alignment 仍属于 `compare`、`correlate` 或 `test` 的职责。
 
 示例：

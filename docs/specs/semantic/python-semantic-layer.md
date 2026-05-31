@@ -312,6 +312,39 @@ def user_profile_daily(backend):
 keys, omitted when the column is already a date). Analysis joins against a
 snapshot dataset use the partition that matches the observe window end.
 
+## Validity Versioning
+
+Datasets representing day-grain SCD2 history may declare validity-interval
+versioning. Phase 2 supports the `valid_from` / `valid_to` + `interval` +
+`open_end` dialect; `current_flag` is not yet supported.
+
+```python
+@ms.dataset(
+    name="user_history",
+    datasource="warehouse",
+    primary_key=["user_id", "valid_from"],
+    versioning=ms.validity(
+        valid_from=valid_from,
+        valid_to=valid_to,
+        interval="closed_open",
+        open_end=(None, "9999-12-31"),
+        timezone="UTC",
+    ),
+)
+def user_history(backend):
+    return backend.table("user_history")
+```
+
+`valid_from` must be part of `primary_key`. Both `valid_from` and `valid_to`
+must reference declared fields on the same dataset. `open_end` is the tuple
+of values that mean "the row is still current" (typically `(None,)` or
+`(None, "9999-12-31")`).
+
+The planner subtracts both `valid_from` and `valid_to` from the effective
+key when computing relationship safety, so a relationship from a fact
+dataset to a validity dataset can resolve as many-to-one once the validity
+table is collapsed to one row per `(key, anchor)`.
+
 ### Field 和 Time Field
 
 field 是 row-level 属性，供过滤、分组、relationship 或 metric 表达式复用：
