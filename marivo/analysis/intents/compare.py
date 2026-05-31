@@ -493,7 +493,20 @@ def compare(
             _require_matching_time_series_bucket_grain(current, baseline)
             df, window_info = _align_time_series_window_bucket(current, baseline)
         else:
-            df = _align_and_compute(current.to_pandas(), baseline.to_pandas())
+            current_df = current.to_pandas()
+            baseline_df = baseline.to_pandas()
+            if current.meta.semantic_kind == "scalar" and (
+                len(current_df) != 1 or len(baseline_df) != 1
+            ):
+                raise AlignmentFailedError(
+                    message="scalar compare requires exactly one row per frame",
+                    details={
+                        "kind": "ScalarCompareRequiresSingleRow",
+                        "current_rows": len(current_df),
+                        "baseline_rows": len(baseline_df),
+                    },
+                )
+            df = _align_and_compute(current_df, baseline_df)
     else:
         calendar_ref = alignment.calendar
         if not isinstance(calendar_ref, CalendarRef):

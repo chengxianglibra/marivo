@@ -341,6 +341,36 @@ def test_compare_pct_change_status_handles_zero_missing_and_negative_baseline(
     assert row["pct_change_status"] == expected_status
 
 
+def test_compare_scalar_rejects_multirow_inputs(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.get_or_create(name="demo")
+    cur = MetricFrame.from_dataframe(
+        pd.DataFrame({"value": [10.0, 11.0]}),
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        session=s,
+    )
+    base = MetricFrame.from_dataframe(
+        pd.DataFrame({"value": [8.0]}),
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        session=s,
+    )
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        compare(cur, base, session=s)
+
+    assert exc_info.value.details["kind"] == "ScalarCompareRequiresSingleRow"
+    assert exc_info.value.details["current_rows"] == 2
+    assert exc_info.value.details["baseline_rows"] == 1
+
+
 def test_window_bucket_no_overlap_supports_quarter_grain(tmp_path):
     bootstrap_sales_project(tmp_path)
     s = session_attach.get_or_create(
