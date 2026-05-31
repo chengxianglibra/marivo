@@ -26,6 +26,12 @@ ObserveErrorCode = Literal[
     "snapshot-partition-missing",
     "unsupported-as-of-root-time",
     "derived-shared-planner-unsupported",
+    "component-axis-unreachable",
+    "component-axis-field-mismatch",
+    "component-filter-unreachable",
+    "component-filter-field-mismatch",
+    "component-version-mismatch",
+    "nested-derived-unsupported",
 ]
 
 

@@ -13,10 +13,6 @@ from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 from marivo.analysis.errors import (
-    AmbiguousDimensionError,
-    CrossBackendMetricError,
-    DimensionAcrossDatasetsError,
-    DimensionFieldNotFoundError,
     MetricNotFoundError,
     MetricShapeUnsupportedError,
     SemanticKindMismatchError,
@@ -29,9 +25,7 @@ from marivo.analysis.evidence.pipeline import (
 )
 from marivo.analysis.evidence.types import Subject
 from marivo.analysis.executor.runner import (
-    apply_slice_to_dataset,
     apply_time_series_bucket,
-    apply_window_to_dataset,
     execute,
     normalize_slice_for_storage,
     resolve_window_time_field,
@@ -40,7 +34,12 @@ from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._shape import SemanticShape, observe_output_shape
 from marivo.analysis.intents._types import SliceValue
-from marivo.analysis.intents.observe_planner import plan_base_observe
+from marivo.analysis.intents.observe_planner import (
+    BaseObservePlan,
+    DerivedObservePlan,
+    plan_base_observe,
+    plan_observe,
+)
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.refs import DimensionRef, MetricRef
 from marivo.analysis.session.attach import active as session_active
@@ -368,162 +367,6 @@ def _validate_dimension_refs(dimensions: list[Any] | None) -> list[DimensionRef]
     return validated
 
 
-def _resolve_dimensions(
-    dimensions: list[Any] | None, *, dataset_irs: dict[str, Any]
-) -> list[tuple[str, Any]]:
-    dimension_refs = _validate_dimension_refs(dimensions)
-    resolved: list[tuple[str, Any]] = []
-    for dimension in dimension_refs:
-        matches = [
-            (dataset_name, field_ir)
-            for dataset_name, dataset_ir in dataset_irs.items()
-            for field_ir in dataset_ir.fields.values()
-            if dimension.id in {field_ir.name, field_ir.semantic_id}
-        ]
-        if not matches:
-            available_ids = sorted(
-                {
-                    field_ir.name
-                    for dataset_ir in dataset_irs.values()
-                    for field_ir in dataset_ir.fields.values()
-                }
-            )
-            raise DimensionFieldNotFoundError(
-                message=f"dimension '{dimension.id}' not found",
-                details={
-                    "dimension_id": dimension.id,
-                    "searched_datasets": sorted(dataset_irs),
-                    "available_ids": available_ids,
-                },
-            )
-        if len(matches) > 1:
-            raise AmbiguousDimensionError(
-                message=f"dimension '{dimension.id}' is ambiguous",
-                details={
-                    "dimension_id": dimension.id,
-                    "candidates": sorted(
-                        f"{dataset_name}.{field_ir.name}" for dataset_name, field_ir in matches
-                    ),
-                },
-            )
-        resolved.append(matches[0])
-
-    dimensions_by_dataset: dict[str, list[str]] = {}
-    for dataset_name, field_ir in resolved:
-        dimensions_by_dataset.setdefault(dataset_name, []).append(field_ir.name)
-    if len(dimensions_by_dataset) > 1:
-        raise DimensionAcrossDatasetsError(
-            message="observe dimensions must resolve to one dataset",
-            details={"dimensions_by_dataset": dimensions_by_dataset},
-        )
-    return resolved
-
-
-def _resolve_dimensions_across_project(
-    dimensions: list[Any] | None, *, sp: Any
-) -> list[tuple[str, Any]]:
-    dimension_refs = _validate_dimension_refs(dimensions)
-    resolved: list[tuple[str, Any]] = []
-    for dimension in dimension_refs:
-        matches = [
-            (field_ir.dataset, field_ir)
-            for field_ir in [*sp.list_fields(), *sp.list_time_fields()]
-            if dimension.id in {field_ir.name, field_ir.semantic_id}
-        ]
-        if not matches:
-            available_ids = sorted(
-                {field_ir.name for field_ir in [*sp.list_fields(), *sp.list_time_fields()]}
-            )
-            raise DimensionFieldNotFoundError(
-                message=f"dimension '{dimension.id}' not found",
-                details={
-                    "dimension_id": dimension.id,
-                    "searched_datasets": sorted(d.semantic_id for d in sp.list_datasets()),
-                    "metric_shape": "derived",
-                    "available_ids": available_ids,
-                },
-            )
-        if len(matches) > 1:
-            raise AmbiguousDimensionError(
-                message=f"dimension '{dimension.id}' is ambiguous",
-                details={
-                    "dimension_id": dimension.id,
-                    "candidates": sorted(
-                        f"{dataset_name}.{field_ir.name}" for dataset_name, field_ir in matches
-                    ),
-                },
-            )
-        resolved.append(matches[0])
-
-    dimensions_by_dataset: dict[str, list[str]] = {}
-    for dataset_name, field_ir in resolved:
-        dimensions_by_dataset.setdefault(dataset_name, []).append(field_ir.name)
-    if len(dimensions_by_dataset) > 1:
-        raise DimensionAcrossDatasetsError(
-            message="observe dimensions must resolve to one dataset",
-            details={"dimensions_by_dataset": dimensions_by_dataset},
-        )
-    return resolved
-
-
-def _relationship_neighbors(sp: Any, dataset_id: str) -> list[tuple[str, Any]]:
-    neighbors: list[tuple[str, Any]] = []
-    for relationship in sp.list_relationships():
-        if relationship.from_dataset == dataset_id:
-            neighbors.append((relationship.to_dataset, relationship))
-        elif relationship.to_dataset == dataset_id:
-            neighbors.append((relationship.from_dataset, relationship))
-    return neighbors
-
-
-def _unique_relationship_path(sp: Any, start_dataset: str, end_dataset: str) -> list[Any]:
-    if start_dataset == end_dataset:
-        return []
-    queue: list[tuple[str, list[Any]]] = [(start_dataset, [])]
-    paths: list[list[Any]] = []
-    shortest_len: int | None = None
-    while queue:
-        current, path = queue.pop(0)
-        if shortest_len is not None and len(path) >= shortest_len:
-            continue
-        for next_dataset, relationship in _relationship_neighbors(sp, current):
-            if any(relationship.semantic_id == existing.semantic_id for existing in path):
-                continue
-            next_path = [*path, relationship]
-            if next_dataset == end_dataset:
-                shortest_len = len(next_path)
-                paths.append(next_path)
-                continue
-            queue.append((next_dataset, next_path))
-    if not paths:
-        raise MetricShapeUnsupportedError(
-            message=(
-                f"dimension dataset '{end_dataset}' is not reachable from "
-                f"component dataset '{start_dataset}'"
-            ),
-            details={
-                "kind": "DerivedDimensionRelationshipMissing",
-                "from_dataset": start_dataset,
-                "to_dataset": end_dataset,
-            },
-        )
-    shortest_paths = [path for path in paths if len(path) == shortest_len]
-    if len(shortest_paths) > 1:
-        raise MetricShapeUnsupportedError(
-            message=(
-                f"dimension dataset '{end_dataset}' has multiple relationship paths "
-                f"from component dataset '{start_dataset}'"
-            ),
-            details={
-                "kind": "DerivedDimensionRelationshipAmbiguous",
-                "from_dataset": start_dataset,
-                "to_dataset": end_dataset,
-                "paths": [[rel.semantic_id for rel in path] for path in shortest_paths],
-            },
-        )
-    return shortest_paths[0]
-
-
 def _field_fn(sp: Any, field_id: str) -> Callable[..., Any]:
     sidecar = sp.sidecar()
     fn = sidecar.get(field_id) if sidecar else None
@@ -533,39 +376,6 @@ def _field_fn(sp: Any, field_id: str) -> Callable[..., Any]:
             details={"field": field_id},
         )
     return cast("Callable[..., Any]", fn)
-
-
-def _join_related_dimension_table(
-    table: Any,
-    *,
-    sp: Any,
-    session: Session,
-    dataset_irs: dict[str, _DatasetIRAdapter],
-    base_dataset: str,
-    dimension_dataset: str,
-) -> Any:
-    current_table = table
-    current_dataset = base_dataset
-    for relationship in _unique_relationship_path(sp, base_dataset, dimension_dataset):
-        if relationship.from_dataset == current_dataset:
-            next_dataset = relationship.to_dataset
-            left_fields = relationship.from_fields
-            right_fields = relationship.to_fields
-        else:
-            next_dataset = relationship.from_dataset
-            left_fields = relationship.to_fields
-            right_fields = relationship.from_fields
-
-        ds_adapter = dataset_irs[next_dataset]
-        _datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
-        next_table = ds_adapter.fn(backend)
-        predicates = [
-            _field_fn(sp, left_field)(current_table) == _field_fn(sp, right_field)(next_table)
-            for left_field, right_field in zip(left_fields, right_fields, strict=True)
-        ]
-        current_table = current_table.join(next_table, predicates)
-        current_dataset = next_dataset
-    return current_table
 
 
 def _evaluate_sentinel_on_frame(node: Any, metric_ir: Any, frame: Any) -> Any:
@@ -598,144 +408,262 @@ def _evaluate_sentinel_or_literal_on_frame(node: Any, metric_ir: Any, frame: Any
     return _evaluate_sentinel_on_frame(node, metric_ir, frame)
 
 
-def _observe_derived_grouped(
+class _Result:
+    """Minimal result holder used by _execute_base and _execute_derived."""
+
+    def __init__(self, df: Any) -> None:
+        self.df = df
+        self.row_count = len(df)
+
+
+def _execute_base(
+    plan: BaseObservePlan,
     metric_ir: Any,
-    metric_name: str,
     *,
     sp: Any,
     session: Session,
     dimensions: list[Any] | None,
-    resolved_window: AbsoluteWindow,
-    where: dict[str, Any] | None,
-) -> tuple[Any, Any | None, dict[str, Any], Literal["time_series", "panel"]]:
+    resolved_window: AbsoluteWindow | None,
+) -> tuple[Any, dict[str, Any], Literal["scalar", "time_series", "segmented", "panel"]]:
+    """Execute a BaseObservePlan and return (result, axes, semantic_kind)."""
     sidecar = sp.sidecar()
-    sentinel_tree = sidecar.get(metric_ir.semantic_id) if sidecar else None
-    if sentinel_tree is None:
+    metric_fn = sidecar.get(metric_ir.semantic_id) if sidecar else None
+    if metric_fn is None:
         raise MetricNotFoundError(
-            message=f"derived metric expression for '{metric_ir.semantic_id}' not found",
+            message=f"metric callable for '{metric_ir.semantic_id}' not found",
             details={"metric": metric_ir.semantic_id},
         )
+    metric_name = metric_ir.name
+    metric_datasets = tuple(metric_ir.datasets)
+    primary_datasource = plan.datasource_name
+    dataset_tables = plan.dataset_tables
+    resolved_dimensions = [
+        (dimension.field.dataset, dimension.field) for dimension in plan.dimensions
+    ]
+    is_time_series = resolved_window is not None and resolved_window.grain is not None
 
-    resolved_dimensions = _resolve_dimensions_across_project(dimensions, sp=sp)
-    dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
-    component_ids = list(metric_ir.decomposition.components.values())
-    component_irs: list[Any] = []
-    dataset_ids: list[str] = []
-    dimension_dataset = resolved_dimensions[0][0] if resolved_dimensions else None
+    axes: dict[str, Any] = {}
+    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "scalar"
 
-    for component_id in component_ids:
-        component_ir = sp.get_metric(component_id)
-        if component_ir is None:
-            raise MetricNotFoundError(message=f"component metric '{component_id}' not found")
-        if component_ir.is_derived:
-            raise MetricShapeUnsupportedError(
-                message="nested derived time-aware metrics are not supported yet",
-                details={"kind": "NestedDerivedTimeAwareUnsupported", "metric": component_id},
-            )
-        if len(component_ir.datasets) != 1:
-            raise MetricShapeUnsupportedError(
-                message="derived time-aware metrics require single-dataset component metrics",
-                details={
-                    "kind": "DerivedComponentMultiDatasetUnsupported",
-                    "metric": component_id,
-                    "datasets": sorted(component_ir.datasets),
-                },
-            )
-        component_irs.append(component_ir)
-        for dataset_id in component_ir.datasets:
-            if dataset_id not in dataset_ids:
-                dataset_ids.append(dataset_id)
-        if dimension_dataset is not None and dimension_dataset not in dataset_ids:
-            dataset_ids.append(dimension_dataset)
-
-    dataset_irs: dict[str, _DatasetIRAdapter] = {}
-    primary_datasource: str | None = None
-    for dataset_id in dataset_ids:
-        dataset_ir = sp.get_dataset(dataset_id)
-        if dataset_ir is None:
-            raise MetricNotFoundError(message=f"dataset '{dataset_id}' not found")
-        adapter = _build_dataset_adapter(sp, dataset_ir)
-        dataset_irs[dataset_id] = adapter
-        datasource_name, _backend = _backend_for_datasource(session, adapter.datasource_name)
-        if primary_datasource is None:
-            primary_datasource = datasource_name
-        elif primary_datasource != datasource_name:
-            raise CrossBackendMetricError(
-                message=(
-                    f"derived metric '{metric_ir.semantic_id}' spans multiple "
-                    "datasources; v1 does not support federation"
-                ),
-            )
-
-    pandas = __import__("pandas")
-    component_frames: list[Any] = []
-    for component_ir in component_irs:
-        base_dataset = component_ir.datasets[0]
-        ds_adapter = dataset_irs[base_dataset]
-        datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
-        session.known_datasources.add(datasource_name)
-        table = ds_adapter.fn(backend)
-        table = apply_slice_to_dataset(table, where, dataset_ir=ds_adapter)
-        table = apply_window_to_dataset(
-            table,
-            resolved_window,
-            dataset_ir=ds_adapter,
-            session_tz=cast("ZoneInfo", session.tz),
-        )
-        if dimension_dataset is not None and base_dataset != dimension_dataset:
-            table = _join_related_dimension_table(
-                table,
-                sp=sp,
-                session=session,
-                dataset_irs=dataset_irs,
-                base_dataset=base_dataset,
-                dimension_dataset=dimension_dataset,
-            )
-        time_field_ir = resolve_window_time_field(ds_adapter, window=resolved_window)
-        table = apply_time_series_bucket(
-            table,
+    if is_time_series and resolved_window is not None and resolved_dimensions:
+        root_ds_ir = sp.get_dataset(plan.root_dataset)
+        root_adapter = _build_dataset_adapter(sp, root_ds_ir)
+        time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+        bucketed_table = apply_time_series_bucket(
+            plan.table,
             field_ir=time_field_ir,
             window=resolved_window,
             session_tz=cast("ZoneInfo", session.tz),
         )
-        if resolved_dimensions:
-            dimension_exprs = {
-                field_ir.name: _field_fn(sp, field_ir.semantic_id)(table).name(field_ir.name)
-                for _, field_ir in resolved_dimensions
-            }
-            table = table.mutate(**dimension_exprs)
-        component_fn = sidecar.get(component_ir.semantic_id) if sidecar else None
-        if component_fn is None:
-            raise MetricNotFoundError(
-                message=f"metric callable for '{component_ir.semantic_id}' not found",
-                details={"metric": component_ir.semantic_id},
-            )
-        component_name = component_ir.name
-        metric_expr = component_fn(table)
+        dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
+        dimension_exprs = {
+            field_ir.name: _field_fn(sp, field_ir.semantic_id)(bucketed_table).name(field_ir.name)
+            for _, field_ir in resolved_dimensions
+        }
+        bucketed_table = bucketed_table.mutate(**dimension_exprs)
+        dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
+        metric_expr = _call_metric(
+            metric_fn,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
+        )
         group_names = ["bucket_start", *dimension_names]
         grouped_expr = (
-            table.group_by(group_names)
-            .aggregate(**{component_name: metric_expr})
+            bucketed_table.group_by(group_names)
+            .aggregate(**{metric_name: metric_expr})
             .order_by(group_names)
-            .select(*group_names, component_name)
+            .select(*group_names, metric_name)
         )
-        result_df = execute(
+        result = execute(
             grouped_expr,
-            datasource_name=datasource_name,
+            datasource_name=primary_datasource,
+            cache=session.backend_cache,
+            session_id=session.id,
+        )
+        if resolved_window.grain == "day" and "bucket_start" in result.df:
+            with suppress(AttributeError):
+                result.df["bucket_start"] = result.df["bucket_start"].dt.date
+        axes = {
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": resolved_window.grain,
+                "time_field": time_field_ir.name,
+            },
+            **{
+                field_ir.name: {"role": "dimension", "column": field_ir.name}
+                for _, field_ir in resolved_dimensions
+            },
+        }
+        semantic_kind = "panel"
+    elif is_time_series and resolved_window is not None:
+        root_ds_ir = sp.get_dataset(plan.root_dataset)
+        root_adapter = _build_dataset_adapter(sp, root_ds_ir)
+        time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+        bucketed_table = apply_time_series_bucket(
+            plan.table,
+            field_ir=time_field_ir,
+            window=resolved_window,
+            session_tz=cast("ZoneInfo", session.tz),
+        )
+        dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
+        metric_expr = _call_metric(
+            metric_fn,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
+        )
+        grouped_expr = (
+            bucketed_table.group_by("bucket_start")
+            .aggregate(**{metric_name: metric_expr})
+            .order_by("bucket_start")
+            .select("bucket_start", metric_name)
+        )
+        result = execute(
+            grouped_expr,
+            datasource_name=primary_datasource,
+            cache=session.backend_cache,
+            session_id=session.id,
+        )
+        axes = {
+            "time": {
+                "role": "time",
+                "column": "bucket_start",
+                "grain": resolved_window.grain,
+                "time_field": time_field_ir.name,
+            }
+        }
+        semantic_kind = "time_series"
+    elif resolved_dimensions:
+        table = plan.table
+        dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
+        metric_expr = _call_metric(
+            metric_fn,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
+        )
+        grouped_expr = (
+            table.group_by(dimension_names)
+            .aggregate(**{metric_name: metric_expr})
+            .order_by(dimension_names)
+            .select(*dimension_names, metric_name)
+        )
+        result = execute(
+            grouped_expr,
+            datasource_name=primary_datasource,
+            cache=session.backend_cache,
+            session_id=session.id,
+        )
+        axes = {
+            field_ir.name: {"role": "dimension", "column": field_ir.name}
+            for _, field_ir in resolved_dimensions
+        }
+        semantic_kind = "segmented"
+    else:
+        metric_expr = _call_metric(
+            metric_fn,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
+        )
+        result = execute(
+            metric_expr,
+            datasource_name=primary_datasource,
+            cache=session.backend_cache,
+            session_id=session.id,
+        )
+    return result, axes, semantic_kind
+
+
+def _execute_derived(
+    plan: DerivedObservePlan,
+    metric_ir: Any,
+    *,
+    sp: Any,
+    session: Session,
+    resolved_window: AbsoluteWindow | None,
+) -> tuple[Any, Any | None, dict[str, Any], Literal["scalar", "time_series", "segmented", "panel"]]:
+    """Execute a DerivedObservePlan and return (result, component_df, axes, semantic_kind)."""
+    pandas = __import__("pandas")
+    sidecar = sp.sidecar()
+    metric_name = metric_ir.name
+    component_frames: list[Any] = []
+    dim_columns = list(
+        dict.fromkeys(d.column for cp in plan.component_plans for d in cp.base_plan.dimensions)
+    )
+    has_time = any(
+        cp.base_plan.axes_metadata.get("time") is not None for cp in plan.component_plans
+    )
+    merge_keys = (["bucket_start"] if has_time else []) + dim_columns
+
+    for cp in plan.component_plans:
+        component_fn = sidecar.get(cp.component_metric_ir.semantic_id) if sidecar else None
+        if component_fn is None:
+            raise MetricNotFoundError(
+                message=f"metric callable for {cp.component_metric_ir.semantic_id!r} not found",
+                details={"metric": cp.component_metric_ir.semantic_id},
+            )
+        component_name = cp.component_metric_ir.name
+        component_datasets = tuple(cp.component_metric_ir.datasets)
+        table = cp.base_plan.table
+        if has_time:
+            assert resolved_window is not None  # narrowing: has_time implies resolved_window is set
+            root_ds_ir = sp.get_dataset(cp.base_plan.root_dataset)
+            root_adapter = _build_dataset_adapter(sp, root_ds_ir)
+            time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+            table = apply_time_series_bucket(
+                table,
+                field_ir=time_field_ir,
+                window=resolved_window,
+                session_tz=cast("ZoneInfo", session.tz),
+            )
+            group_names = ["bucket_start", *dim_columns]
+        else:
+            group_names = list(dim_columns)
+        # Use _call_metric to handle multi-dataset component metrics correctly.
+        # The planner already widened all component datasets into a single table,
+        # so we map every component dataset to the same (possibly bucketed) table.
+        component_dataset_tables = dict.fromkeys(component_datasets, table)
+        metric_expr = _call_metric(
+            component_fn,
+            metric_datasets=component_datasets,
+            dataset_tables=component_dataset_tables,
+        )
+        if group_names:
+            grouped_expr = (
+                table.group_by(group_names)
+                .aggregate(**{component_name: metric_expr})
+                .order_by(group_names)
+                .select(*group_names, component_name)
+            )
+        else:
+            grouped_expr = table.aggregate(**{component_name: metric_expr}).select(component_name)
+        df = execute(
+            grouped_expr,
+            datasource_name=cp.base_plan.datasource_name,
             cache=session.backend_cache,
             session_id=session.id,
         ).df
-        if resolved_window.grain == "day" and "bucket_start" in result_df:
+        session.known_datasources.add(cp.base_plan.datasource_name)
+        if has_time and resolved_window and resolved_window.grain == "day" and "bucket_start" in df:
             with suppress(AttributeError):
-                result_df["bucket_start"] = result_df["bucket_start"].dt.date
-        component_frames.append(result_df)
+                df["bucket_start"] = df["bucket_start"].dt.date
+        component_frames.append(df)
 
-    merge_keys = ["bucket_start", *dimension_names]
-    merged = component_frames[0]
-    for frame in component_frames[1:]:
-        merged = pandas.merge(merged, frame, on=merge_keys, how="outer")
-    merged[metric_name] = _evaluate_sentinel_on_frame(sentinel_tree, metric_ir, merged)
-    result_df = merged[[*merge_keys, metric_name]].sort_values(merge_keys).reset_index(drop=True)
+    if not component_frames:
+        merged = pandas.DataFrame(columns=[*merge_keys, metric_name])
+    else:
+        merged = component_frames[0]
+        for frame in component_frames[1:]:
+            if merge_keys:
+                merged = pandas.merge(merged, frame, on=merge_keys, how="outer")
+            else:
+                merged = pandas.concat([merged, frame], axis=1)
+    merged[metric_name] = _evaluate_sentinel_on_frame(plan.sentinel_tree, metric_ir, merged)
+    if merge_keys:
+        result_df = (
+            merged[[*merge_keys, metric_name]].sort_values(merge_keys).reset_index(drop=True)
+        )
+    else:
+        result_df = merged[[metric_name]]
 
     component_df: Any | None = None
     if _is_component_aware_decomposition(metric_ir):
@@ -745,303 +673,34 @@ def _observe_derived_grouped(
             axes_columns=merge_keys,
             metric_value_column=metric_name,
         )
-        component_df = component_df.sort_values(merge_keys).reset_index(drop=True)
+        if merge_keys:
+            component_df = component_df.sort_values(merge_keys).reset_index(drop=True)
 
-    class _Result:
-        def __init__(self, df: Any) -> None:
-            self.df = df
-            self.row_count = len(df)
+    if has_time and dim_columns:
+        semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "panel"
+    elif has_time:
+        semantic_kind = "time_series"
+    elif dim_columns:
+        semantic_kind = "segmented"
+    else:
+        semantic_kind = "scalar"
 
-    axes: dict[str, Any] = {
-        "time": {
+    axes: dict[str, Any] = {}
+    if has_time and plan.component_plans and resolved_window is not None:
+        first_cp = plan.component_plans[0]
+        root_ds_ir = sp.get_dataset(first_cp.base_plan.root_dataset)
+        root_adapter = _build_dataset_adapter(sp, root_ds_ir)
+        time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+        axes["time"] = {
             "role": "time",
             "column": "bucket_start",
             "grain": resolved_window.grain,
-            "time_field": resolve_window_time_field(
-                dataset_irs[component_irs[0].datasets[0]],
-                window=resolved_window,
-            ).name,
+            "time_field": time_field_ir.name,
         }
-    }
-    axes.update(
-        {
-            field_ir.name: {"role": "dimension", "column": field_ir.name}
-            for _, field_ir in resolved_dimensions
-        }
-    )
-    semantic_kind: Literal["time_series", "panel"] = (
-        "panel" if resolved_dimensions else "time_series"
-    )
+    for col in dim_columns:
+        axes[col] = {"role": "dimension", "column": col}
+
     return _Result(result_df), component_df, axes, semantic_kind
-
-
-def _observe_derived_segmented(
-    metric_ir: Any,
-    metric_name: str,
-    *,
-    sp: Any,
-    session: Session,
-    dimensions: list[Any] | None,
-    resolved_window: AbsoluteWindow | None,
-    where: dict[str, Any] | None,
-) -> tuple[Any, Any | None, dict[str, Any], Literal["segmented"]]:
-    sidecar = sp.sidecar()
-    sentinel_tree = sidecar.get(metric_ir.semantic_id) if sidecar else None
-    if sentinel_tree is None:
-        raise MetricNotFoundError(
-            message=f"derived metric expression for '{metric_ir.semantic_id}' not found",
-            details={"metric": metric_ir.semantic_id},
-        )
-    resolved_dimensions = _resolve_dimensions_across_project(dimensions, sp=sp)
-    dimension_dataset = resolved_dimensions[0][0]
-    dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
-    component_ids = list(metric_ir.decomposition.components.values())
-    component_irs = []
-    dataset_ids: list[str] = []
-    for component_id in component_ids:
-        component_ir = sp.get_metric(component_id)
-        if component_ir is None:
-            raise MetricNotFoundError(message=f"component metric '{component_id}' not found")
-        if component_ir.is_derived:
-            raise MetricShapeUnsupportedError(
-                message="nested derived metric dimensions are not supported yet",
-                details={"kind": "NestedDerivedDimensionsUnsupported", "metric": component_id},
-            )
-        if len(component_ir.datasets) != 1:
-            raise MetricShapeUnsupportedError(
-                message="derived metric dimensions require single-dataset component metrics",
-                details={
-                    "kind": "DerivedComponentMultiDatasetUnsupported",
-                    "metric": component_id,
-                    "datasets": sorted(component_ir.datasets),
-                },
-            )
-        component_irs.append(component_ir)
-        for dataset_id in [*component_ir.datasets, dimension_dataset]:
-            if dataset_id not in dataset_ids:
-                dataset_ids.append(dataset_id)
-
-    dataset_irs: dict[str, _DatasetIRAdapter] = {}
-    primary_datasource: str | None = None
-    for dataset_id in dataset_ids:
-        dataset_ir = sp.get_dataset(dataset_id)
-        if dataset_ir is None:
-            raise MetricNotFoundError(message=f"dataset '{dataset_id}' not found")
-        adapter = _build_dataset_adapter(sp, dataset_ir)
-        dataset_irs[dataset_id] = adapter
-        datasource_name, _backend = _backend_for_datasource(session, adapter.datasource_name)
-        if primary_datasource is None:
-            primary_datasource = datasource_name
-        elif primary_datasource != datasource_name:
-            raise CrossBackendMetricError(
-                message=(
-                    f"derived metric '{metric_ir.semantic_id}' dimensions span multiple "
-                    "datasources; v1 does not support federation"
-                ),
-            )
-
-    pandas = __import__("pandas")
-    component_frames: list[Any] = []
-    for component_ir in component_irs:
-        base_dataset = component_ir.datasets[0]
-        ds_adapter = dataset_irs[base_dataset]
-        datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
-        table = ds_adapter.fn(backend)
-        table = apply_slice_to_dataset(table, where, dataset_ir=ds_adapter)
-        table = apply_window_to_dataset(
-            table,
-            resolved_window,
-            dataset_ir=ds_adapter,
-            session_tz=cast("ZoneInfo", session.tz),
-        )
-        if base_dataset != dimension_dataset:
-            table = _join_related_dimension_table(
-                table,
-                sp=sp,
-                session=session,
-                dataset_irs=dataset_irs,
-                base_dataset=base_dataset,
-                dimension_dataset=dimension_dataset,
-            )
-        dimension_exprs = {
-            field_ir.name: _field_fn(sp, field_ir.semantic_id)(table).name(field_ir.name)
-            for _, field_ir in resolved_dimensions
-        }
-        table = table.mutate(**dimension_exprs)
-        component_fn = sidecar.get(component_ir.semantic_id) if sidecar else None
-        if component_fn is None:
-            raise MetricNotFoundError(
-                message=f"metric callable for '{component_ir.semantic_id}' not found",
-                details={"metric": component_ir.semantic_id},
-            )
-        component_name = component_ir.name
-        metric_expr = component_fn(table)
-        grouped_expr = (
-            table.group_by(dimension_names)
-            .aggregate(**{component_name: metric_expr})
-            .order_by(dimension_names)
-            .select(*dimension_names, component_name)
-        )
-        component_frames.append(
-            execute(
-                grouped_expr,
-                datasource_name=datasource_name,
-                cache=session.backend_cache,
-                session_id=session.id,
-            ).df
-        )
-
-    merged = component_frames[0]
-    for frame in component_frames[1:]:
-        merged = pandas.merge(merged, frame, on=dimension_names, how="outer")
-    merged[metric_name] = _evaluate_sentinel_on_frame(sentinel_tree, metric_ir, merged)
-    result_df = merged[[*dimension_names, metric_name]].sort_values(dimension_names)
-    result_df = result_df.reset_index(drop=True)
-
-    # Build component_df for component-aware decompositions
-    component_df: Any | None = None
-    if _is_component_aware_decomposition(metric_ir):
-        component_df = _component_frame_df(
-            raw_df=merged,
-            metric_ir=metric_ir,
-            axes_columns=dimension_names,
-            metric_value_column=metric_name,
-        )
-        component_df = component_df.sort_values(dimension_names).reset_index(drop=True)
-
-    class _Result:
-        def __init__(self, df: Any) -> None:
-            self.df = df
-            self.row_count = len(df)
-
-    axes = {
-        field_ir.name: {"role": "dimension", "column": field_ir.name}
-        for _, field_ir in resolved_dimensions
-    }
-    return _Result(result_df), component_df, axes, "segmented"
-
-
-def _observe_derived_scalar(
-    metric_ir: Any,
-    metric_name: str,
-    *,
-    sp: Any,
-    session: Session,
-    resolved_window: AbsoluteWindow | None,
-    where: dict[str, Any] | None,
-) -> tuple[Any, Any | None, dict[str, Any], Literal["scalar"]]:
-    sidecar = sp.sidecar()
-    sentinel_tree = sidecar.get(metric_ir.semantic_id) if sidecar else None
-    if sentinel_tree is None:
-        raise MetricNotFoundError(
-            message=f"derived metric expression for '{metric_ir.semantic_id}' not found",
-            details={"metric": metric_ir.semantic_id},
-        )
-
-    dataset_irs: dict[str, _DatasetIRAdapter] = {}
-    primary_datasource: str | None = None
-    component_values: dict[str, Any] = {}
-    for component_id in metric_ir.decomposition.components.values():
-        component_ir = sp.get_metric(component_id)
-        if component_ir is None:
-            raise MetricNotFoundError(message=f"component metric '{component_id}' not found")
-        if component_ir.is_derived:
-            raise MetricShapeUnsupportedError(
-                message="nested derived scalar metrics are not supported yet",
-                details={"kind": "NestedDerivedScalarUnsupported", "metric": component_id},
-            )
-        if len(component_ir.datasets) == 0:
-            raise MetricShapeUnsupportedError(
-                message="derived scalar metric components must reference datasets",
-                details={"kind": "DerivedComponentDatasetMissing", "metric": component_id},
-            )
-
-        dataset_tables: dict[str, Any] = {}
-        component_datasource: str | None = None
-        for dataset_id in component_ir.datasets:
-            ds_adapter = dataset_irs.get(dataset_id)
-            if ds_adapter is None:
-                dataset_ir = sp.get_dataset(dataset_id)
-                if dataset_ir is None:
-                    raise MetricNotFoundError(message=f"dataset '{dataset_id}' not found")
-                ds_adapter = _build_dataset_adapter(sp, dataset_ir)
-                dataset_irs[dataset_id] = ds_adapter
-
-            datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
-            if primary_datasource is None:
-                primary_datasource = datasource_name
-            elif primary_datasource != datasource_name:
-                raise CrossBackendMetricError(
-                    message=(
-                        f"derived metric '{metric_ir.semantic_id}' spans multiple "
-                        "datasources; v1 does not support federation"
-                    ),
-                )
-            component_datasource = datasource_name
-            table = ds_adapter.fn(backend)
-            table = apply_slice_to_dataset(table, where, dataset_ir=ds_adapter)
-            table = apply_window_to_dataset(
-                table,
-                resolved_window,
-                dataset_ir=ds_adapter,
-                session_tz=cast("ZoneInfo", session.tz),
-            )
-            dataset_tables[dataset_id] = table
-            session.known_datasources.add(datasource_name)
-
-        component_fn = sidecar.get(component_ir.semantic_id) if sidecar else None
-        if component_fn is None:
-            raise MetricNotFoundError(
-                message=f"metric callable for '{component_ir.semantic_id}' not found",
-                details={"metric": component_ir.semantic_id},
-            )
-        if component_datasource is None:
-            raise MetricNotFoundError(
-                message=f"component metric '{component_id}' references no datasets"
-            )
-        metric_expr = _call_metric(
-            component_fn,
-            metric_datasets=tuple(component_ir.datasets),
-            dataset_tables=dataset_tables,
-        )
-        result = execute(
-            metric_expr,
-            datasource_name=component_datasource,
-            cache=session.backend_cache,
-            session_id=session.id,
-        )
-        if result.df.empty or len(result.df.columns) == 0:
-            raise MetricShapeUnsupportedError(
-                message=f"component metric '{component_id}' did not return a scalar value",
-                details={"kind": "DerivedComponentScalarEmpty", "metric": component_id},
-            )
-        component_values[component_ir.name] = result.df.iloc[0, 0]
-
-    pandas = __import__("pandas")
-    component_frame = pandas.DataFrame([component_values])
-    metric_value = _evaluate_sentinel_on_frame(sentinel_tree, metric_ir, component_frame)
-    if hasattr(metric_value, "iloc"):
-        metric_value = metric_value.iloc[0]
-    result_df = pandas.DataFrame([{metric_name: metric_value}])
-
-    # Build component_df for component-aware decompositions
-    component_df: Any | None = None
-    if _is_component_aware_decomposition(metric_ir):
-        raw_df = component_frame.copy()
-        raw_df[metric_name] = metric_value
-        component_df = _component_frame_df(
-            raw_df=raw_df,
-            metric_ir=metric_ir,
-            axes_columns=[],
-            metric_value_column=metric_name,
-        )
-
-    class _Result:
-        def __init__(self, df: Any) -> None:
-            self.df = df
-            self.row_count = len(df)
-
-    return _Result(result_df), component_df, {}, "scalar"
 
 
 def _dump_dimensions(dimensions: list[DimensionRef] | None) -> list[dict[str, Any]] | None:
@@ -1101,10 +760,9 @@ def observe(
     Raises:
         MetricNotFoundError: The metric id is unknown or not ``<model>.<metric>``.
         SemanticKindMismatchError: ``metric`` is not a ``MetricRef``.
-        AmbiguousDimensionError: A dimension resolves to multiple datasets.
-        DimensionAcrossDatasetsError: Dimensions span more than one dataset.
-        DimensionFieldNotFoundError: A dimension field does not exist on the dataset.
-        CrossBackendMetricError: ``metric`` and ``dimensions`` resolve to different backends.
+        ObservePlanningError: Planning failed (e.g. cross-datasource plan, missing
+            path, ambiguous dimension). Check ``details["code"]`` for the specific
+            error code.
 
     Example:
         >>> frame = session.observe(
@@ -1166,7 +824,6 @@ def observe(
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    dataset_tables: dict[str, Any] = {}
     dataset_irs: dict[str, _DatasetIRAdapter] = {}
     primary_datasource: str | None = None
     stored_where = normalize_slice_for_storage(where)
@@ -1188,15 +845,33 @@ def observe(
                     "expect_shape": expect_shape,
                 },
             )
-    if metric_ir.is_derived and is_time_series and resolved_window is not None:
-        result, component_df, grouped_axes, grouped_kind = _observe_derived_grouped(
+    if metric_ir.is_derived:
+        # Build dataset adapters for all datasets in the project so the planner
+        # can resolve component metrics that span different datasets.
+        all_dataset_irs: dict[str, _DatasetIRAdapter] = {}
+        for ds_ir in sp.list_datasets():
+            all_dataset_irs[ds_ir.semantic_id] = _build_dataset_adapter(sp, ds_ir)
+        all_dataset_fns = {ds_id: adapter.fn for ds_id, adapter in all_dataset_irs.items()}
+
+        derived_plan = plan_observe(
+            project=sp,
+            session=session,
+            metric_ir=metric_ir,
+            dataset_irs=all_dataset_irs,
+            dataset_fns=all_dataset_fns,
+            dimensions=dimensions,
+            where=where,
+            resolved_window=resolved_window,
+            time_field=time_field,
+        )
+        # plan_observe always returns DerivedObservePlan for derived metrics
+        assert isinstance(derived_plan, DerivedObservePlan)
+        result, component_df, derived_axes, derived_kind = _execute_derived(
+            derived_plan,
             metric_ir,
-            metric_name,
             sp=sp,
             session=session,
-            dimensions=dimensions,
             resolved_window=resolved_window,
-            where=where,
         )
         _persist_known_datasources(session)
         finished_at = datetime.now(UTC)
@@ -1214,6 +889,13 @@ def observe(
             "timescope": params_timescope,
             "dimensions": _dump_dimensions(dimensions),
             "where": stored_where,
+            "version_resolutions": [
+                vr
+                for cp in derived_plan.component_plans
+                for vr in cp.base_plan.lineage_metadata.get("version_resolutions", [])
+            ],
+            "warnings": derived_plan.warnings,
+            "lineage_metadata": derived_plan.lineage_metadata,
         }
         meta = MetricFrameMeta(
             kind="metric_frame",
@@ -1231,15 +913,16 @@ def observe(
                         job_ref=job_ref,
                         inputs=[],
                         params_digest=_params_digest(params),
+                        params=params,
                     )
                 ]
             ),
             metric_id=metric_id,
-            axes=grouped_axes,
+            axes=derived_axes,
             measure={"name": metric_name},
             window=dump_window(resolved_window),
             where=stored_where,
-            semantic_kind=grouped_kind,
+            semantic_kind=derived_kind,
             semantic_model=model_name,
         )
         frame = MetricFrame(_df=result.df, meta=meta)
@@ -1250,7 +933,7 @@ def observe(
             metric_id=metric_id,
             model_name=model_name,
             stored_where=stored_where,
-            semantic_kind=grouped_kind,
+            semantic_kind=derived_kind,
         )
         if component_df is not None:
             component = _persist_metric_component_frame(
@@ -1258,8 +941,8 @@ def observe(
                 df=component_df,
                 parent=frame,
                 metric_ir=metric_ir,
-                axes=grouped_axes,
-                semantic_kind=grouped_kind,
+                axes=derived_axes,
+                semantic_kind=derived_kind,
                 job_ref=job_ref,
             )
             frame = _attach_metric_component_ref(
@@ -1277,202 +960,6 @@ def observe(
                 "params": params,
                 "input_frame_refs": [],
                 "output_frame_ref": frame.meta.artifact_id or frame.ref,
-                "started_at": started_at.isoformat(),
-                "finished_at": finished_at.isoformat(),
-                "duration_ms": int((monotonic() - started) * 1000),
-                "status": "succeeded",
-                "error": None,
-                "semantic_project_root": session.semantic_project.root,
-                "semantic_model": model_name,
-            },
-        )
-        return frame
-    if metric_ir.is_derived and not dimension_refs:
-        result, component_df, scalar_axes, scalar_kind = _observe_derived_scalar(
-            metric_ir,
-            metric_name,
-            sp=sp,
-            session=session,
-            resolved_window=resolved_window,
-            where=where,
-        )
-        _persist_known_datasources(session)
-        finished_at = datetime.now(UTC)
-        frame_ref = _gen_ref("frame")
-        job_ref = _gen_ref("job")
-        params_timescope = None
-        if resolved_window is not None:
-            params_timescope = {
-                "original": original_timescope,
-                "resolved": dump_window(resolved_window),
-                "session_tz": str(session.tz),
-            }
-        params = {
-            "metric": metric_id,
-            "timescope": params_timescope,
-            "dimensions": _dump_dimensions(dimensions),
-            "where": stored_where,
-        }
-        meta = MetricFrameMeta(
-            kind="metric_frame",
-            ref=frame_ref,
-            session_id=session.id,
-            project_root=str(session.project_root),
-            produced_by_job=job_ref,
-            created_at=finished_at,
-            row_count=result.row_count,
-            byte_size=0,
-            lineage=Lineage(
-                steps=[
-                    LineageStep(
-                        intent="observe",
-                        job_ref=job_ref,
-                        inputs=[],
-                        params_digest=_params_digest(params),
-                    )
-                ]
-            ),
-            metric_id=metric_id,
-            axes=scalar_axes,
-            measure={"name": metric_name},
-            window=dump_window(resolved_window),
-            where=stored_where,
-            semantic_kind=scalar_kind,
-            semantic_model=model_name,
-        )
-        frame = MetricFrame(_df=result.df, meta=meta)
-        frame = _commit_observe_metric_frame(
-            session=session,
-            frame=frame,
-            params=params,
-            metric_id=metric_id,
-            model_name=model_name,
-            stored_where=stored_where,
-            semantic_kind=scalar_kind,
-        )
-        if component_df is not None:
-            component = _persist_metric_component_frame(
-                session=session,
-                df=component_df,
-                parent=frame,
-                metric_ir=metric_ir,
-                axes=scalar_axes,
-                semantic_kind=scalar_kind,
-                job_ref=job_ref,
-            )
-            frame = _attach_metric_component_ref(
-                session=session,
-                parent=frame,
-                component=component,
-                metric_ir=metric_ir,
-            )
-        write_job_record(
-            session.layout,
-            {
-                "id": job_ref,
-                "session_id": session.id,
-                "intent": "observe",
-                "params": params,
-                "input_frame_refs": [],
-                "output_frame_ref": frame.meta.artifact_id or frame.ref,
-                "started_at": started_at.isoformat(),
-                "finished_at": finished_at.isoformat(),
-                "duration_ms": int((monotonic() - started) * 1000),
-                "status": "succeeded",
-                "error": None,
-                "semantic_project_root": session.semantic_project.root,
-                "semantic_model": model_name,
-            },
-        )
-        return frame
-    if metric_ir.is_derived and dimension_refs:
-        result, component_df, segmented_axes, segmented_kind = _observe_derived_segmented(
-            metric_ir,
-            metric_name,
-            sp=sp,
-            session=session,
-            dimensions=dimensions,
-            resolved_window=resolved_window,
-            where=where,
-        )
-        finished_at = datetime.now(UTC)
-        frame_ref = _gen_ref("frame")
-        job_ref = _gen_ref("job")
-        params_timescope = None
-        if resolved_window is not None:
-            params_timescope = {
-                "original": original_timescope,
-                "resolved": dump_window(resolved_window),
-                "session_tz": str(session.tz),
-            }
-        params = {
-            "metric": metric_id,
-            "timescope": params_timescope,
-            "dimensions": _dump_dimensions(dimensions),
-            "where": stored_where,
-        }
-        meta = MetricFrameMeta(
-            kind="metric_frame",
-            ref=frame_ref,
-            session_id=session.id,
-            project_root=str(session.project_root),
-            produced_by_job=job_ref,
-            created_at=finished_at,
-            row_count=result.row_count,
-            byte_size=0,
-            lineage=Lineage(
-                steps=[
-                    LineageStep(
-                        intent="observe",
-                        job_ref=job_ref,
-                        inputs=[],
-                        params_digest=_params_digest(params),
-                    )
-                ]
-            ),
-            metric_id=metric_id,
-            axes=segmented_axes,
-            measure={"name": metric_name},
-            window=dump_window(resolved_window),
-            where=stored_where,
-            semantic_kind=segmented_kind,
-            semantic_model=model_name,
-        )
-        frame = MetricFrame(_df=result.df, meta=meta)
-        frame = _commit_observe_metric_frame(
-            session=session,
-            frame=frame,
-            params=params,
-            metric_id=metric_id,
-            model_name=model_name,
-            stored_where=stored_where,
-            semantic_kind=segmented_kind,
-        )
-        if component_df is not None:
-            component = _persist_metric_component_frame(
-                session=session,
-                df=component_df,
-                parent=frame,
-                metric_ir=metric_ir,
-                axes=segmented_axes,
-                semantic_kind=segmented_kind,
-                job_ref=job_ref,
-            )
-            frame = _attach_metric_component_ref(
-                session=session,
-                parent=frame,
-                component=component,
-                metric_ir=metric_ir,
-            )
-        write_job_record(
-            session.layout,
-            {
-                "id": job_ref,
-                "session_id": session.id,
-                "intent": "observe",
-                "params": params,
-                "input_frame_refs": [],
-                "output_frame_ref": frame_ref,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),
                 "duration_ms": int((monotonic() - started) * 1000),
@@ -1525,143 +1012,20 @@ def observe(
         time_field=time_field,
     )
     primary_datasource = plan.datasource_name
-    dataset_tables = plan.dataset_tables
-    resolved_dimensions = [
-        (dimension.field.dataset, dimension.field) for dimension in plan.dimensions
-    ]
     session.known_datasources.add(primary_datasource)
     _persist_known_datasources(session)
 
     if primary_datasource is None:
         raise MetricNotFoundError(message=f"metric '{metric_id}' references no datasets")
 
-    axes: dict[str, Any] = {}
-    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "scalar"
-    if is_time_series and resolved_window is not None and resolved_dimensions:
-        ds_adapter = dataset_irs[plan.root_dataset]
-        time_field_ir = resolve_window_time_field(ds_adapter, window=resolved_window)
-        bucketed_table = apply_time_series_bucket(
-            plan.table,
-            field_ir=time_field_ir,
-            window=resolved_window,
-            session_tz=cast("ZoneInfo", session.tz),
-        )
-        dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
-        dimension_exprs = {
-            field_ir.name: _field_fn(sp, field_ir.semantic_id)(bucketed_table).name(field_ir.name)
-            for _, field_ir in resolved_dimensions
-        }
-        bucketed_table = bucketed_table.mutate(**dimension_exprs)
-        dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
-        metric_expr = _call_metric(
-            metric_fn,
-            metric_datasets=metric_datasets,
-            dataset_tables=dataset_tables,
-        )
-        group_names = ["bucket_start", *dimension_names]
-        grouped_expr = (
-            bucketed_table.group_by(group_names)
-            .aggregate(**{metric_name: metric_expr})
-            .order_by(group_names)
-            .select(*group_names, metric_name)
-        )
-        result = execute(
-            grouped_expr,
-            datasource_name=primary_datasource,
-            cache=session.backend_cache,
-            session_id=session.id,
-        )
-        if resolved_window.grain == "day" and "bucket_start" in result.df:
-            with suppress(AttributeError):
-                result.df["bucket_start"] = result.df["bucket_start"].dt.date
-        axes = {
-            "time": {
-                "role": "time",
-                "column": "bucket_start",
-                "grain": resolved_window.grain,
-                "time_field": time_field_ir.name,
-            },
-            **{
-                field_ir.name: {"role": "dimension", "column": field_ir.name}
-                for _, field_ir in resolved_dimensions
-            },
-        }
-        semantic_kind = "panel"
-    elif is_time_series and resolved_window is not None:
-        ds_adapter = dataset_irs[plan.root_dataset]
-        time_field_ir = resolve_window_time_field(ds_adapter, window=resolved_window)
-        bucketed_table = apply_time_series_bucket(
-            plan.table,
-            field_ir=time_field_ir,
-            window=resolved_window,
-            session_tz=cast("ZoneInfo", session.tz),
-        )
-        dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
-        metric_expr = _call_metric(
-            metric_fn,
-            metric_datasets=metric_datasets,
-            dataset_tables=dataset_tables,
-        )
-        grouped_expr = (
-            bucketed_table.group_by("bucket_start")
-            .aggregate(**{metric_name: metric_expr})
-            .order_by("bucket_start")
-            .select("bucket_start", metric_name)
-        )
-        result = execute(
-            grouped_expr,
-            datasource_name=primary_datasource,
-            cache=session.backend_cache,
-            session_id=session.id,
-        )
-        axes = {
-            "time": {
-                "role": "time",
-                "column": "bucket_start",
-                "grain": resolved_window.grain,
-                "time_field": time_field_ir.name,
-            }
-        }
-        semantic_kind = "time_series"
-    elif resolved_dimensions:
-        table = plan.table
-        dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
-        # Dimensions are already mutated on the widened table by the planner,
-        # so no additional mutate step needed.
-        metric_expr = _call_metric(
-            metric_fn,
-            metric_datasets=metric_datasets,
-            dataset_tables=dataset_tables,
-        )
-        grouped_expr = (
-            table.group_by(dimension_names)
-            .aggregate(**{metric_name: metric_expr})
-            .order_by(dimension_names)
-            .select(*dimension_names, metric_name)
-        )
-        result = execute(
-            grouped_expr,
-            datasource_name=primary_datasource,
-            cache=session.backend_cache,
-            session_id=session.id,
-        )
-        axes = {
-            field_ir.name: {"role": "dimension", "column": field_ir.name}
-            for _, field_ir in resolved_dimensions
-        }
-        semantic_kind = "segmented"
-    else:
-        metric_expr = _call_metric(
-            metric_fn,
-            metric_datasets=metric_datasets,
-            dataset_tables=dataset_tables,
-        )
-        result = execute(
-            metric_expr,
-            datasource_name=primary_datasource,
-            cache=session.backend_cache,
-            session_id=session.id,
-        )
+    result, axes, semantic_kind = _execute_base(
+        plan,
+        metric_ir,
+        sp=sp,
+        session=session,
+        dimensions=dimensions,
+        resolved_window=resolved_window,
+    )
     finished_at = datetime.now(UTC)
 
     frame_ref = _gen_ref("frame")
@@ -1678,6 +1042,9 @@ def observe(
         "timescope": params_timescope,
         "dimensions": _dump_dimensions(dimensions),
         "where": stored_where,
+        "relationships": plan.lineage_metadata.get("relationships") or [],
+        "version_resolutions": plan.lineage_metadata.get("version_resolutions") or [],
+        "warnings": plan.warnings,
     }
     meta = MetricFrameMeta(
         kind="metric_frame",
@@ -1695,6 +1062,7 @@ def observe(
                     job_ref=job_ref,
                     inputs=[],
                     params_digest=_params_digest(params),
+                    params=params,
                 )
             ]
         ),

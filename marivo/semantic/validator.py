@@ -30,6 +30,8 @@ from marivo.semantic.ir import (
     MetricIR,
     ModelIR,
     RelationshipIR,
+    SnapshotVersioningIR,
+    ValidityVersioningIR,
 )
 
 __all__ = [
@@ -570,6 +572,86 @@ def validate_metric_body_ast(
 _AGGREGATE_METHODS = {"sum", "mean", "avg", "count", "nunique", "max", "min"}
 
 
+def _validate_snapshot_versioning(
+    errors: list[SemanticError],
+    ds_id: str,
+    ds_ir: DatasetIR,
+    versioning: SnapshotVersioningIR,
+) -> None:
+    """Validate snapshot versioning metadata at assembly time."""
+    partition_name = versioning.partition_field.rsplit(".", 1)[-1]
+    if partition_name not in ds_ir.primary_key:
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_DATASET_VERSIONING,
+                message=(
+                    f"Snapshot dataset {ds_id!r} partition field "
+                    f"{versioning.partition_field!r} must be part of primary_key."
+                ),
+                refs=(ds_id, versioning.partition_field),
+                details={
+                    "dataset": ds_id,
+                    "field": "partition_field",
+                    "partition_field": versioning.partition_field,
+                    "primary_key": list(ds_ir.primary_key),
+                },
+            )
+        )
+
+
+def _validate_validity_versioning(
+    errors: list[SemanticError],
+    ds_id: str,
+    ds_ir: DatasetIR,
+    versioning: ValidityVersioningIR,
+    registry: Registry,
+) -> None:
+    """Validate validity versioning metadata at assembly time."""
+    # valid_from local name must be in primary_key
+    valid_from_local = versioning.valid_from.rsplit(".", 1)[-1]
+    if valid_from_local not in ds_ir.primary_key:
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_DATASET_VERSIONING,
+                message=(
+                    f"Validity dataset {ds_id!r} valid_from field "
+                    f"{versioning.valid_from!r} must be part of primary_key."
+                ),
+                refs=(ds_id, versioning.valid_from),
+                details={
+                    "dataset": ds_id,
+                    "field": "valid_from",
+                    "reason": (
+                        f"{versioning.valid_from!r} is not in primary_key {list(ds_ir.primary_key)}"
+                    ),
+                },
+            )
+        )
+
+    # field-existence check: valid_from and valid_to must resolve to known fields in this dataset
+    for label, field_id in (
+        ("valid_from", versioning.valid_from),
+        ("valid_to", versioning.valid_to),
+    ):
+        field = registry.fields.get(field_id)
+        if field is None or field.dataset != ds_id:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_DATASET_VERSIONING,
+                    message=(
+                        f"Validity dataset {ds_id!r} {label} field "
+                        f"{field_id!r} does not resolve to a known field on this dataset."
+                    ),
+                    refs=(ds_id, field_id),
+                    details={
+                        "dataset": ds_id,
+                        "field": label,
+                        "ref": field_id,
+                    },
+                )
+            )
+
+
 def _aggregate_receiver_param_name(call: ast.Call) -> str | None:
     func = call.func
     if not isinstance(func, ast.Attribute):
@@ -647,23 +729,10 @@ def assembly_validate(
 
         versioning = ds_ir.versioning
         if versioning is not None:
-            partition_name = versioning.partition_field.rsplit(".", 1)[-1]
-            if partition_name not in ds_ir.primary_key:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.INVALID_DATASET_VERSIONING,
-                        message=(
-                            f"Snapshot dataset {ds_id!r} partition field "
-                            f"{versioning.partition_field!r} must be part of primary_key."
-                        ),
-                        refs=(ds_id, versioning.partition_field),
-                        details={
-                            "dataset": ds_id,
-                            "partition_field": versioning.partition_field,
-                            "primary_key": list(ds_ir.primary_key),
-                        },
-                    )
-                )
+            if isinstance(versioning, SnapshotVersioningIR):
+                _validate_snapshot_versioning(errors, ds_id, ds_ir, versioning)
+            elif isinstance(versioning, ValidityVersioningIR):
+                _validate_validity_versioning(errors, ds_id, ds_ir, versioning, registry)
 
     # -- Validate dataset refs on fields ------------------------------------
     for f_id, f_ir in registry.fields.items():

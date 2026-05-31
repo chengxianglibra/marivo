@@ -41,6 +41,7 @@ __all__ = [
     "SourceLocation",
     "SymbolKind",
     "TimeFieldRef",
+    "ValidityVersioningIR",
     "_BaseRef",
 ]
 
@@ -112,7 +113,19 @@ class SnapshotVersioningIR:
     format: str | None = None
 
 
-DatasetVersioningIR = SnapshotVersioningIR
+@dataclass(frozen=True)
+class ValidityVersioningIR:
+    """SCD2 validity interval versioning metadata for Phase 2."""
+
+    kind: Literal["validity"]
+    valid_from: str
+    valid_to: str
+    interval: Literal["closed_open", "closed_closed"]
+    open_end: tuple[Any, ...]
+    timezone: str | None = None
+
+
+DatasetVersioningIR = SnapshotVersioningIR | ValidityVersioningIR
 
 
 @dataclass(frozen=True)

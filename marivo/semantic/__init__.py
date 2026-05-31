@@ -28,6 +28,7 @@ from marivo.semantic.authoring import (
     snapshot,
     sum,
     time_field,
+    validity,
     weighted_average,
 )
 from marivo.semantic.help import help
@@ -65,5 +66,6 @@ __all__ = [
     "sum",
     "time_field",
     "typing",
+    "validity",
     "weighted_average",
 ]

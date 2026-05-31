@@ -38,6 +38,7 @@ from marivo.semantic.ir import (
     SnapshotVersioningIR,
     SourceLocation,
     TimeFieldRef,
+    ValidityVersioningIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 from marivo.semantic.typing import AiContext, ComponentExpr
@@ -56,6 +57,7 @@ __all__ = [
     "snapshot",
     "sum",
     "time_field",
+    "validity",
     "weighted_average",
 ]
 
@@ -425,7 +427,7 @@ def dataset(
     name: str | None = None,
     datasource: DatasourceRef | str,
     primary_key: list[str] | None = None,
-    versioning: SnapshotVersioningIR | None = None,
+    versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
     model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -919,6 +921,74 @@ def snapshot(
         grain="day",
         timezone=timezone,
         format=format,
+    )
+
+
+def validity(
+    *,
+    valid_from: FieldRef | str,
+    valid_to: FieldRef | str,
+    interval: Literal["closed_open", "closed_closed"],
+    open_end: tuple[Any, ...],
+    timezone: str | None = None,
+) -> ValidityVersioningIR:
+    """Declare SCD2 validity interval versioning for a dataset.
+
+    Args:
+        valid_from: Field semantic id (or FieldRef) for the interval start column.
+        valid_to: Field semantic id (or FieldRef) for the interval end column.
+        interval: ``"closed_open"`` (``[valid_from, valid_to)``) or
+            ``"closed_closed"`` (``[valid_from, valid_to]``).
+        open_end: Non-empty tuple of sentinel values that mean "still current"
+            in the ``valid_to`` column. Use ``None`` for SQL NULL, or a string
+            sentinel such as ``"9999-12-31"``.
+        timezone: Optional IANA timezone name for anchor date casting.
+
+    Returns:
+        A ``ValidityVersioningIR`` for use in ``@ms.dataset(versioning=...)``.
+
+    Raises:
+        SemanticDecoratorError: ``interval`` is not one of the two allowed values,
+            ``open_end`` is empty, or ``timezone`` is not a valid IANA name.
+    """
+    if interval not in ("closed_open", "closed_closed"):
+        _raise(
+            ErrorKind.INVALID_DATASET_VERSIONING,
+            f"validity versioning interval must be 'closed_open' or 'closed_closed', "
+            f"got {interval!r}.",
+            cls=SemanticDecoratorError,
+            details={"field": "interval", "reason": f"unsupported interval value {interval!r}"},
+        )
+    if not open_end:
+        _raise(
+            ErrorKind.INVALID_DATASET_VERSIONING,
+            "validity versioning open_end must be a non-empty tuple.",
+            cls=SemanticDecoratorError,
+            details={"field": "open_end", "reason": "empty tuple is not allowed"},
+        )
+    if timezone is not None:
+        try:
+            ZoneInfo(timezone)
+        except ZoneInfoNotFoundError:
+            _raise(
+                ErrorKind.INVALID_DATASET_VERSIONING,
+                f"timezone {timezone!r} is not a valid IANA timezone name.",
+                cls=SemanticDecoratorError,
+                details={"field": "timezone", "reason": f"unknown IANA timezone {timezone!r}"},
+            )
+    valid_from_ref = (
+        valid_from.semantic_id if isinstance(valid_from, (FieldRef, TimeFieldRef)) else valid_from
+    )
+    valid_to_ref = (
+        valid_to.semantic_id if isinstance(valid_to, (FieldRef, TimeFieldRef)) else valid_to
+    )
+    return ValidityVersioningIR(
+        kind="validity",
+        valid_from=valid_from_ref,
+        valid_to=valid_to_ref,
+        interval=interval,
+        open_end=open_end,
+        timezone=timezone,
     )
 
 
