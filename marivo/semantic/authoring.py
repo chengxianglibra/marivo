@@ -35,6 +35,7 @@ from marivo.semantic.ir import (
     ProvenanceIR,
     RelationshipIR,
     RelationshipRef,
+    SnapshotVersioningIR,
     SourceLocation,
     TimeFieldRef,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "ratio",
     "ref",
     "relationship",
+    "snapshot",
     "sum",
     "time_field",
     "weighted_average",
@@ -423,6 +425,7 @@ def dataset(
     name: str | None = None,
     datasource: DatasourceRef | str,
     primary_key: list[str] | None = None,
+    versioning: SnapshotVersioningIR | None = None,
     model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -481,6 +484,7 @@ def dataset(
             ai_context=ai_ctx,
             python_symbol=fn.__name__,
             location=location,
+            versioning=versioning,
         )
         _push_ir(ctx, ir, fn)
 
@@ -662,6 +666,8 @@ def metric(
     *,
     name: str | None = None,
     datasets: list[DatasetRef | str] | None = None,
+    root_dataset: DatasetRef | str | None = None,
+    additivity: Literal["additive", "semi_additive", "non_additive"] | None = None,
     decomposition: DecompositionBuilder,
     source_sql: str | None = None,
     source_dialect: str | None = None,
@@ -757,6 +763,11 @@ def metric(
             declared_status=declared_status,
         )
 
+        root_ref = _resolve_ref_string(root_dataset) if root_dataset is not None else None
+        resolved_root_ref = root_ref
+        if resolved_root_ref is None and len(ds_refs) == 1:
+            resolved_root_ref = ds_refs[0]
+
         ir = MetricIR(
             semantic_id=semantic_id,
             model=model_name,
@@ -770,6 +781,8 @@ def metric(
             body_ast_hash=body_hash,
             python_symbol=fn.__name__,
             location=location,
+            additivity=additivity,
+            root_dataset=resolved_root_ref,
         )
 
         # For derived metrics, execute the function body with
@@ -871,6 +884,42 @@ def relationship(
 # ---------------------------------------------------------------------------
 # Builder functions
 # ---------------------------------------------------------------------------
+
+
+def snapshot(
+    *,
+    partition_field: FieldRef | TimeFieldRef | str,
+    grain: Literal["day"],
+    timezone: str | None = None,
+    format: str | None = None,
+) -> SnapshotVersioningIR:
+    """Declare daily snapshot partition versioning for a dataset."""
+    if isinstance(partition_field, (FieldRef, TimeFieldRef)):
+        partition_ref = partition_field.semantic_id
+    else:
+        partition_ref = partition_field
+    if grain != "day":
+        _raise(
+            ErrorKind.INVALID_REF,
+            "snapshot versioning currently supports only grain='day'.",
+            cls=SemanticDecoratorError,
+        )
+    if timezone is not None:
+        try:
+            ZoneInfo(timezone)
+        except ZoneInfoNotFoundError:
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"timezone {timezone!r} is not a valid IANA timezone name.",
+                cls=SemanticDecoratorError,
+            )
+    return SnapshotVersioningIR(
+        kind="snapshot",
+        partition_field=partition_ref,
+        grain="day",
+        timezone=timezone,
+        format=format,
+    )
 
 
 def sum() -> DecompositionBuilder:

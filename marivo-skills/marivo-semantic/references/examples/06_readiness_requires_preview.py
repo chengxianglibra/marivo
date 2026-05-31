@@ -26,7 +26,7 @@ warehouse = md.ref("warehouse")
 def orders(backend):
     return backend.table("orders")
 
-@ms.metric(datasets=[orders], decomposition=ms.sum(), declared_status="python_native")
+@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), declared_status="python_native")
 def revenue(table):
     return table.amount.sum()
 """

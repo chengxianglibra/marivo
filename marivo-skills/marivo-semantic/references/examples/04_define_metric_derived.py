@@ -22,11 +22,11 @@ import marivo.semantic as ms
 #   def created_at(table):
 #       return table.created_at.cast("date")
 #
-#   @ms.metric(datasets=[orders], decomposition=ms.sum(), name="revenue")
+#   @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name="revenue")
 #   def revenue(table):
 #       return table.amount.sum()
 #
-#   @ms.metric(datasets=[orders], decomposition=ms.sum(), name="orders_count")
+#   @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name="orders_count")
 #   def orders_count(table):
 #       return table.count()
 #
@@ -62,11 +62,11 @@ with tempfile.TemporaryDirectory() as tmp:
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='orders_count')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='orders_count')\n"
         "def orders_count(orders):\n"
         "    return orders.count()\n"
         "\n"

@@ -359,6 +359,12 @@ metric_frame
 
 `observe` 只负责“当前观测是什么”。它不负责比较、不负责 profile、不负责异常检测，也不做跨 frame calendar pairing。
 
+Phase 1 cross-dataset observe supports base metrics whose non-root datasets are
+reachable through key-derived many-to-one or one-to-one relationships. Joins are
+root-preserving left joins. Cross-dataset `dimensions=` and `where=` are allowed
+for base metrics. Root predicates are pushed before widening; joined predicates
+apply after widening. `session.explain(...)` is not part of this phase.
+
 如果 agent 需要复用某种业务时间表达，例如 fiscal week、campaign-relative day 或 cohort-relative period，应先 `observe` 原始 metric，再用 `transform.align_time(policy=AlignmentPolicy(...))` 生成单 frame 的 aligned view。两个 frame 之间的 pairwise alignment 仍属于 `compare`、`correlate` 或 `test` 的职责。
 
 示例：

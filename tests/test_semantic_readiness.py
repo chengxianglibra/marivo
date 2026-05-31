@@ -76,6 +76,7 @@ _READY_MODEL_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[orders],
+        additivity="additive",
         decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS total_amount FROM orders",
         source_dialect="duckdb",
@@ -146,7 +147,7 @@ _UNVERIFIED_MODEL_PY = textwrap.dedent("""\
     def orders(backend):
         return backend.table("orders")
 
-    @ms.metric(datasets=[orders], decomposition=ms.sum(), description="Total amount")
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), description="Total amount")
     def total_amount(table):
         return table.amount.sum()
 """)
@@ -161,6 +162,7 @@ _DRIFTED_MODEL_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[orders],
+        additivity="additive",
         decomposition=ms.sum(),
         source_sql="SELECT 999.0 AS total_amount",
         source_dialect="duckdb",
@@ -180,6 +182,7 @@ _PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[orders],
+        additivity="additive",
         decomposition=ms.sum(),
         declared_status="python_native",
         description="Total amount",
@@ -367,7 +370,7 @@ _COMMENTLESS_MODEL_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(datasets=[orders], decomposition=ms.sum(), declared_status="python_native")
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), declared_status="python_native")
     def total_amount(table):
         return table.amount.sum()
 """)

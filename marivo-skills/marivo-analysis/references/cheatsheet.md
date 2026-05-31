@@ -113,6 +113,13 @@ Metric refs wrap exact ids such as `mv.MetricRef("model.metric")`. Do not guess
 ids from metric display names; call `project.list_metrics()` after loading the
 semantic project.
 
+For cross-dataset base metrics (datasets cover multiple datasets with an explicit
+`root_dataset`), call `session.observe(...)` with the normal arguments.
+`dimensions=` and `where=` may target joined datasets; root predicates push
+before widening, joined predicates apply after. Do not pass join policy or
+route arguments. If planning fails, the repair error includes
+`schema_version`, `code`, `candidates`, and `repair`.
+
 ## Backend Setup
 
 Analysis intents that execute against live semantic datasets need a session

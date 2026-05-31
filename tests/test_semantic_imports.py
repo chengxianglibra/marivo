@@ -71,6 +71,7 @@ def test_all_list_matches_expected() -> None:
         "weighted_average",
         "ref",
         "component",
+        "snapshot",
         "help",
         "typing",
         "errors",
@@ -272,6 +273,11 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "invalid_relationship_endpoint",
     "organization_error",
     "invalid_project",
+    "missing_metric_additivity",
+    "missing_metric_root_dataset",
+    "invalid_metric_root_dataset",
+    "invalid_dataset_versioning",
+    "non_root_metric_aggregate",
 }
 
 _EXPECTED_RUNTIME_KINDS = {

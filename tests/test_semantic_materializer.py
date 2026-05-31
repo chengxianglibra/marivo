@@ -73,7 +73,7 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def total_amount(table):
         return table.amount.sum()
 """)
@@ -331,9 +331,9 @@ def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend)
         def orders_b(backend):
             return backend.table("orders")
 
-        @ms.metric(datasets=[orders_a, orders_b], decomposition=ms.sum())
+        @ms.metric(datasets=[orders_a, orders_b], root_dataset=orders_a, additivity="additive", decomposition=ms.sum())
         def cross_metric(t1, t2):
-            return t1.amount.sum() + t2.amount.sum()
+            return t1.amount.sum()
     """)
 
     def factory(ds_id: str):
@@ -416,7 +416,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
         def orders(backend):
             return backend.table("orders")
 
-        @ms.metric(datasets=[orders], decomposition=ms.sum())
+        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
 
@@ -447,7 +447,7 @@ def test_derived_metric_with_arithmetic(semantic_project_factory, backend_factor
         def orders(backend):
             return backend.table("orders")
 
-        @ms.metric(datasets=[orders], decomposition=ms.sum())
+        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
 
@@ -478,11 +478,11 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
         def orders(backend):
             return backend.table("orders")
 
-        @ms.metric(datasets=[orders], decomposition=ms.sum())
+        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(datasets=[orders], decomposition=ms.sum())
+        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
         def count_metric(table):
             return table.count()
 
@@ -513,7 +513,7 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
         def orders(backend):
             return backend.table("orders")
 
-        @ms.metric(datasets=[orders], decomposition=ms.sum())
+        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
 
@@ -644,9 +644,9 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
         def orders_alias(backend):
             return backend.table("orders")
 
-        @ms.metric(datasets=[orders, orders_alias], decomposition=ms.sum())
+        @ms.metric(datasets=[orders, orders_alias], root_dataset=orders, additivity="additive", decomposition=ms.sum())
         def combined(t1, t2):
-            return t1.amount.sum() + t2.amount.sum()
+            return t1.amount.sum()
     """)
 
     def factory(ds_id: str):
@@ -661,8 +661,8 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
 
     metric_expr = project.materialize_metric("sales.combined", backend_factory=factory)
     result = metric_expr.to_pandas()
-    # 300 + 300 = 600
-    assert result == pytest.approx(600.0)
+    # root-only aggregation on orders = 300.0
+    assert result == pytest.approx(300.0)
 
 
 # ---------------------------------------------------------------------------

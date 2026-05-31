@@ -53,6 +53,11 @@ class ConstraintId(StrEnum):
     PROJECT_ORGANIZATION = "project_organization"
     PROJECT_ROOT_VALID = "project_root_valid"
     METRIC_EXISTS = "metric_exists"
+    METRIC_ADDITIVITY_REQUIRED = "metric_additivity_required"
+    METRIC_ROOT_DATASET_REQUIRED = "metric_root_dataset_required"
+    METRIC_ROOT_DATASET_VALID = "metric_root_dataset_valid"
+    METRIC_ROOT_ONLY_AGGREGATE = "metric_root_only_aggregate"
+    DATASET_VERSIONING_VALID = "dataset_versioning_valid"
     MATERIALIZE_EXECUTION = "materialize_execution"
     BACKEND_DIALECT_MATCH = "backend_dialect_match"
     COMPILE_EXPRESSION = "compile_expression"
@@ -436,6 +441,51 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "The project root must contain .marivo/semantic/.",
         "SemanticProject needs a concrete semantic root to load declarations.",
         "Point --project at the project root, not the semantic directory itself.",
+    ),
+    ConstraintId.METRIC_ADDITIVITY_REQUIRED: _constraint(
+        ConstraintId.METRIC_ADDITIVITY_REQUIRED,
+        "missing_metric_additivity",
+        "assembly",
+        ("metric",),
+        "Base metrics must declare additivity.",
+        "Additivity determines how metric values aggregate across dataset rows.",
+        "Set additivity to 'additive', 'semi_additive', or 'non_additive' on @ms.metric().",
+    ),
+    ConstraintId.METRIC_ROOT_DATASET_REQUIRED: _constraint(
+        ConstraintId.METRIC_ROOT_DATASET_REQUIRED,
+        "missing_metric_root_dataset",
+        "assembly",
+        ("metric",),
+        "Multi-dataset base metrics must declare root_dataset.",
+        "The root dataset determines join order and grain for cross-dataset metrics.",
+        "Pass root_dataset=<DatasetRef> when a metric references more than one dataset.",
+    ),
+    ConstraintId.METRIC_ROOT_DATASET_VALID: _constraint(
+        ConstraintId.METRIC_ROOT_DATASET_VALID,
+        "invalid_metric_root_dataset",
+        "assembly",
+        ("metric",),
+        "root_dataset must be one of the metric's datasets.",
+        "The root dataset anchors the metric's aggregation grain.",
+        "Use a DatasetRef from the metric's datasets list as root_dataset.",
+    ),
+    ConstraintId.METRIC_ROOT_ONLY_AGGREGATE: _constraint(
+        ConstraintId.METRIC_ROOT_ONLY_AGGREGATE,
+        "non_root_metric_aggregate",
+        "assembly",
+        ("metric",),
+        "Base metrics must aggregate only on the root dataset.",
+        "Aggregating a non-root dataset changes the grain and may produce incorrect results.",
+        "Ensure aggregate calls (.sum(), .mean(), etc.) only chain from the root dataset parameter.",
+    ),
+    ConstraintId.DATASET_VERSIONING_VALID: _constraint(
+        ConstraintId.DATASET_VERSIONING_VALID,
+        "invalid_dataset_versioning",
+        "assembly",
+        ("dataset",),
+        "Snapshot versioning partition field must be part of primary_key.",
+        "The partition field determines which rows are used for latest snapshot joins.",
+        "Add the partition column to the dataset's primary_key list.",
     ),
     ConstraintId.METRIC_EXISTS: _constraint(
         ConstraintId.METRIC_EXISTS,

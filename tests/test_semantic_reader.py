@@ -66,16 +66,17 @@ _FULL_MODEL_PY = textwrap.dedent("""\
     def created_at(table):
         return table.created_at
 
-    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def total_revenue(table):
         return table.amount.sum()
 
-    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def order_count(table):
         return table.count()
 
     @ms.metric(
         datasets=[orders],
+        additivity='additive',
         decomposition=ms.sum(),
         description="Average order value",
     )
@@ -97,11 +98,11 @@ _DERIVED_METRIC_MODEL_PY = textwrap.dedent("""\
     def orders(backend):
         return backend.table("orders")
 
-    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def revenue(table):
         return table.amount.sum()
 
-    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def count_metric(table):
         return table.count()
 

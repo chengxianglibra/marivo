@@ -289,3 +289,22 @@ raises
 `CandidateSet.select` raises `SemanticKindMismatchError` with `details["row_count"]` and
 `details["requested_rank"]`. Check `candidates.meta.row_count` before calling
 `select(rank=N)` with N > 1.
+
+## Cross-dataset observe planning errors
+
+**Symptom:** `session.observe(...)` raises a structured planning error with a
+`repair` block when a base metric spans multiple datasets but the planner
+cannot find a unique join path.
+
+**Action:** read `schema_version`, `code`, `candidates`, and `repair` on the
+error. The repair payload tells you exactly which relationship, root, or
+dimension is missing or ambiguous. Do not pass join policy or route arguments
+to `observe`; fix the semantic declaration instead. Common fixes:
+
+- Add `additivity="additive"` (or another explicit additivity) on the base
+  metric.
+- Add `root_dataset=<dataset>` on a multi-dataset base metric.
+- Add a unique `ms.relationship(...)` between the joined datasets, or remove
+  ambiguous duplicates.
+- Use a dimension or filter field that the planner can reach from the root
+  through a many-to-one or one-to-one relationship.

@@ -36,7 +36,7 @@ _MINIMAL_DATASET_PY = textwrap.dedent("""\
     def orders(backend):
         return backend.table("orders")
 
-    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def revenue(table):
         return table.amount.sum()
 """)
@@ -47,7 +47,7 @@ _SHARED_DATASOURCE_MODEL_A = textwrap.dedent("""\
     def orders(backend):
         return backend.table("orders")
 
-    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def revenue(orders):
         return orders.amount.sum()
 """)
@@ -59,7 +59,7 @@ _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""\
     def refunds(backend):
         return backend.table("refunds")
 
-    @ms.metric(datasets=[refunds], decomposition=ms.sum())
+    @ms.metric(datasets=[refunds], additivity='additive', decomposition=ms.sum())
     def refunds_total(refunds):
         return refunds.amount.sum()
 """)
@@ -346,7 +346,7 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.orders"], additivity="additive", decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -440,7 +440,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.orders"], additivity="additive", decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -471,7 +471,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
         import marivo.semantic as ms
         from .dataset import query_info
 
-        @ms.metric(datasets=[query_info], decomposition=ms.sum())
+        @ms.metric(datasets=[query_info], additivity="additive", decomposition=ms.sum())
         def total_query_count(table):
             return table.query_count.sum()
     """)
@@ -502,7 +502,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
         import marivo.semantic as ms
         from .dataset import query_info
 
-        @ms.metric(datasets=[query_info], decomposition=ms.sum())
+        @ms.metric(datasets=[query_info], additivity="additive", decomposition=ms.sum())
         def total_query_count(table):
             return table.query_count.sum()
     """)
@@ -532,7 +532,7 @@ def test_cross_file_missing_dataset_ref(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.nonexistent"], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.nonexistent"], additivity="additive", decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -577,6 +577,7 @@ def test_unverified_provenance_warning_in_result(semantic_project_factory) -> No
 
         @ms.metric(
             datasets=[orders],
+            additivity="additive",
             decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
             declared_status="unverified",
@@ -675,7 +676,7 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.orders"], additivity="additive", decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
