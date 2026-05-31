@@ -61,6 +61,8 @@ def test_correlate_sample_alignment_same_model_cross_metric():
         "calendar": None,
         "period": "month",
         "fallback": "drop",
+        "mode": "ordinal_bucket",
+        "strict_lengths": False,
     }
     assert out.meta.lag_policy == {"mode": "single", "offset": 0}
     df = out.to_pandas()
@@ -181,6 +183,29 @@ def test_correlate_rejects_duplicate_composite_keys_without_persisting():
     assert [job for job in session.jobs() if job.intent == "correlate"] == []
 
 
+def test_correlate_rejects_unsupported_window_bucket_sub_modes():
+    session = session_attach.get_or_create(name="demo")
+    a = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}), metric_id="sales.revenue")
+    b = _metric(session, pd.DataFrame({"value": [2.0, 4.0, 6.0]}), metric_id="sales.orders")
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        session.correlate(
+            a,
+            b,
+            alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+        )
+
+    assert "only supports default window_bucket alignment" in str(exc_info.value)
+    assert exc_info.value.details["alignment"]["mode"] == "calendar_bucket"
+
+    with pytest.raises(SemanticKindMismatchError):
+        session.correlate(
+            a,
+            b,
+            alignment=AlignmentPolicy(kind="window_bucket", strict_lengths=True),
+        )
+
+
 def test_correlate_sample_alignment_truncates_and_drops_nulls():
     session = session_attach.get_or_create(name="demo")
     a = _metric(
@@ -221,6 +246,8 @@ def test_correlate_writes_job_and_frame():
         "calendar": None,
         "period": "month",
         "fallback": "drop",
+        "mode": "ordinal_bucket",
+        "strict_lengths": False,
     }
     assert params["lag_policy"] == {"mode": "single", "offset": 0}
     assert params["method"] == "pearson"

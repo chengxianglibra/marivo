@@ -118,6 +118,11 @@ def correlate(
             message="correlate only supports AlignmentPolicy(kind='window_bucket')",
             details={"alignment": alignment.model_dump(mode="json")},
         )
+    if alignment.mode != "ordinal_bucket" or alignment.strict_lengths:
+        raise SemanticKindMismatchError(
+            message="correlate only supports default window_bucket alignment",
+            details={"alignment": alignment.model_dump(mode="json")},
+        )
     if a.meta.semantic_kind != b.meta.semantic_kind:
         raise SemanticKindMismatchError(
             message="correlate requires matching semantic_kind",
