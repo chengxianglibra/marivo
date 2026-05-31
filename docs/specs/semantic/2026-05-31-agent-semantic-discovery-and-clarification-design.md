@@ -124,7 +124,8 @@ Two rules govern interaction:
   top-priority blocker in the classification rule.
 
 The exhaustive `decision_kind` taxonomy and per-kind materiality floor table that
-sit on top of this model remain deferred to a follow-up spec.
+sit on top of this model are specified in the companion contracts spec
+(`2026-05-31-agent-semantic-discovery-and-clarification-contracts.md`, section 1).
 
 ### Content Derivation Tiers
 
@@ -241,9 +242,12 @@ high confidence backed by >= 2 independent evidence sources
     -> auto-decide, record evidence
 ```
 
-The classification rule itself is code. Only one of its inputs (`materiality`) is
-agent-supplied, and it is floored. The agent cannot bypass the rule by feeling
-confident or by deeming something unimportant.
+The classification rule itself is code. Two of its inputs are agent-supplied —
+`materiality` (floored, raise-only) and the semantic-agreement `confidence` verdict
+(clamped by the evidence-count floor); see the Determinism boundary below. The
+agent feeds these into the rule but cannot bypass it by feeling confident or by
+deeming something unimportant: blast radius, structural conflict, the materiality
+floor, and the evidence-count floor are all out of its hands.
 
 **Conflict outranks missing.** Silently resolving a contradiction between evidence
 sources is the most dangerous action under build-once — more dangerous than a
@@ -272,6 +276,34 @@ everything on the user:
   evidence is not caught. (The alternative — a forced confirmation on
   high-blast-radius decisions regardless of confidence — was considered and
   rejected to protect the "few clarifications" goal.)
+
+### Determinism boundary
+
+This consolidates, in one place, which inputs are deterministic (library-computed
+from metadata / sample / graph / rules) and which are agent-inferred and passed in.
+
+- **The Proposal Engine (Mechanism 1) is fully deterministic.** It consumes only
+  fetched or computed evidence — metadata, comment *text* (attached, not
+  interpreted), sampled values, structural signals — and emits candidates. Agent
+  inference is its *downstream* (the agent adds meaning after), never its input.
+- **The classifier rule is deterministic; two of its inputs are agent-inferred,
+  and each is clamped by a deterministic guard.**
+
+| Input | Deterministic / agent-inferred | Deterministic guard |
+| --- | --- | --- |
+| `blast_radius` | deterministic (dependency-graph closure) | — |
+| structural conflict (missing column / additivity-vs-decomposition mismatch / dialect mismatch) | deterministic (mechanical check) | — |
+| evidence count (number of Establishes/Validates sources) | deterministic (library counts sources, does not judge meaning) | — |
+| `materiality` | agent-inferred, but effective value = `max(per-kind floor, agent value)` | the floor (raise-only) |
+| `confidence` (semantic-agreement verdict) | agent-inferred | the evidence-count floor (single-source high confidence is downgraded) |
+
+Both agent-inferred inputs are sandwiched between deterministic constraints: the
+agent feeds judgment *into* a deterministic rule, it does not make the decision.
+
+`confidence` cannot be made deterministic because judging whether a comment and a
+source-SQL filter *mean the same business thing* requires language understanding —
+the irreducible Tier-2 agent task. The library can count sources and check
+structural facts; it cannot adjudicate meaning.
 
 ### Ask budget
 
@@ -453,14 +485,14 @@ usage accumulates.
 ### Pure advisory
 
 - The Richness Report **never blocks and never promotes findings into
-  `readiness`.** All gating stays in `readiness`, independently — including the
-  case of a demand-bearing metric handed to analysis with no `business_definition`.
-  This case is not mere long-tail thinness: the existing semantic spec relies on
-  `business_definition` and `guardrails` for reuse and intent matching, so their
-  absence on a handoff ref is a genuine usability hazard. Keeping it advisory-only
-  is a deliberate trade (see Accepted Risks). If a minimal enrichment floor is
-  wanted, its correct owner is `readiness` under strict mode, not this report — and
-  that floor is currently out of scope here.
+  `readiness`.** Long-tail richness — synonyms, examples, extra guardrails — is
+  advisory only. The one correctness-adjacent case is owned by `readiness`, not by
+  this report: a demand-bearing ref handed to analysis with no `business_definition`
+  is a usability hazard (the existing semantic spec relies on
+  `business_definition`/`guardrails` for reuse and intent matching), so `readiness`
+  under strict mode enforces a minimal enrichment floor on handoff refs (contracts
+  spec, section 7). That floor is a `readiness` gate, not a richness promotion; the
+  Richness Report itself still never blocks.
 - Because it has no teeth, its power comes entirely from **placement and
   ranking**: it appears at the authoring closeout (so it is unmissable) and ranks
   gaps by demand weight (so the highest-value gaps float to the top).
@@ -505,6 +537,33 @@ across sessions, makes `readiness` fail-closed, gives the Richness Report its
 demand signal, and gives the classifier its audit pass (which re-validates trusted
 verdicts when evidence changes, rather than eliminating the misread risk).
 
+## Authoring Control Model
+
+The pipeline above is a data-flow, not a step sequence. The library does **not**
+drive a fixed-step state machine and never returns "call this API next." The
+control model is declarative and goal-state driven.
+
+- **A real dependency DAG constrains construction:** `datasource -> dataset ->
+  {field, time_field} -> metric(base) -> metric(derived)`, with `relationship`
+  requiring two datasets. The DAG is enforced as *constraints* — declaring a field
+  on an unknown dataset is a validation error; a missing time axis is a readiness
+  blocker — not as a prescribed order.
+- **The agent decides the order** within that DAG. Real authoring is non-linear: a
+  missing field is discovered while writing a metric; a dataset is revised after
+  preview reveals a cast issue. The agent plans the traversal.
+- **The library answers state queries and emits a worklist-delta, not a script.**
+  The Proposal Engine emits candidates, `open_questions` emits unanswered
+  questions, `readiness` emits blockers. The agent picks what to clear next from
+  that delta.
+- **The skill provides the default loop and discipline**; it is a thin router, not
+  an executor.
+
+This is the right model for an agent-native runtime: the `.py` files are the source
+of truth and may be edited in any order and reloaded, so `load -> readiness ->
+open_questions` re-derives the current state from files and ledger every time. A
+server-side step cursor would diverge from file truth and would not survive across
+sessions; declarative re-derivation is idempotent and cross-session robust.
+
 ## Accepted Risks
 
 - **Multi-source misread.** With two or more evidence sources present, the agent's
@@ -516,11 +575,12 @@ verdicts when evidence changes, rather than eliminating the misread risk).
 - **Data-side drift.** The single-tier structural fingerprint does not detect new
   enum values or format changes. Backstopped by manual re-audit and the Richness
   Report.
-- **Advisory richness.** Richness is never enforced; it relies on a prioritized
-  advisory being acted upon. In particular, a demand-bearing metric handed to
-  analysis with no `business_definition` or `guardrails` is a usability hazard left
-  advisory-only here; closing it would require a minimal enrichment floor in
-  `readiness` (strict mode), which is deliberately out of scope for this design.
+- **Advisory richness.** Long-tail richness (synonyms, examples, extra guardrails)
+  is never enforced; it relies on a prioritized advisory being acted upon. The one
+  correctness-adjacent case — a demand-bearing handoff ref with no
+  `business_definition` — is closed by the minimal enrichment floor in `readiness`
+  strict mode (contracts spec, section 7); under non-strict mode it remains
+  advisory.
 
 Each risk was a deliberate trade in favor of the "few clarifications" and low-cost
 goals.
@@ -549,14 +609,23 @@ goals.
 - The **Proposal Engine** output is shaped as classifier input from the start.
 - The **Richness Report** is independent of `readiness` and can land last.
 
-## Left for Follow-up Specs
+## Implementation Contracts
 
-- The `decision_kind` taxonomy and the per-kind materiality floor table (e.g.,
-  time-axis / amount-unit / decomposition / exclusion = high floor;
-  field-vs-metric / equivalent-column-choice = low).
-- The candidate confidence scoring formula (mechanical signals -> score).
-- The ledger file format and on-disk schema.
-- The structural fingerprint hash composition.
+The concrete contracts that make this design buildable are specified in the
+companion document
+`2026-05-31-agent-semantic-discovery-and-clarification-contracts.md`:
+
+- the `decision_kind` taxonomy and per-kind materiality floor table (section 1);
+- the `candidate_confidence` and `agreement_confidence` formulas (section 2);
+- the core types and API signatures — `Candidate`, `Enrichment`, `OpenQuestion`,
+  `RichnessReport`, the `Materiality` scalar, and all `project.*` signatures
+  (sections 3, 4);
+- the ledger on-disk format (section 5);
+- the structural fingerprint composition (section 6);
+- the `readiness` strict enrichment floor (section 7).
+
+Calibration-only items (authority weights, `SATURATION`, the demand-weight curve)
+remain tunable without changing any contract.
 
 ## Acceptance Criteria
 
@@ -577,4 +646,6 @@ This design is successful when:
 - an unaudited model fails closed on its dangerous decisions in `readiness`;
 - the richness report drives coverage and depth against demand without ever
   blocking handoff;
+- `readiness` strict mode enforces a minimal enrichment floor (non-empty
+  `business_definition`) on refs handed to analysis;
 - Python semantic files remain the only semantic source of truth.
