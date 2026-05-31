@@ -103,7 +103,7 @@ must return ibis expressions over their dataset arguments and must not call
 **Fix:** use one of the two valid shapes:
 
 ```python
-@ms.metric(datasets=[orders], decomposition=ms.sum(), name="failed_count")
+@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="failed_count")
 def failed_count(orders):
     return (orders.state == "FAILED").cast("int64").sum()
 
@@ -135,7 +135,7 @@ calls.
 **Fix:** move setup outside the decorator body and keep only the expression:
 
 ```python
-@ms.metric(datasets=[orders], decomposition=ms.sum(), name="revenue")
+@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="revenue")
 def revenue(orders):
     return orders.amount.sum()
 ```

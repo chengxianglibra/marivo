@@ -72,6 +72,11 @@ class ErrorKind(StrEnum):
     INVALID_RELATIONSHIP_ENDPOINT = "invalid_relationship_endpoint"
     ORGANIZATION_ERROR = "organization_error"
     INVALID_PROJECT = "invalid_project"
+    MISSING_METRIC_ADDITIVITY = "missing_metric_additivity"
+    MISSING_METRIC_ROOT_DATASET = "missing_metric_root_dataset"
+    INVALID_METRIC_ROOT_DATASET = "invalid_metric_root_dataset"
+    INVALID_DATASET_VERSIONING = "invalid_dataset_versioning"
+    NON_ROOT_METRIC_AGGREGATE = "non_root_metric_aggregate"
 
     # runtime
     METRIC_NOT_FOUND = "metric_not_found"

@@ -22,12 +22,14 @@ __all__ = [
     "DatasetIR",
     "DatasetProvenance",
     "DatasetRef",
+    "DatasetVersioningIR",
     "DatasourceAiContextIR",
     "DatasourceIR",
     "DatasourceSourceLocation",
     "DecompositionIR",
     "FieldIR",
     "FieldRef",
+    "MetricAdditivity",
     "MetricIR",
     "MetricRef",
     "ModelIR",
@@ -35,6 +37,7 @@ __all__ = [
     "ProvenanceIR",
     "RelationshipIR",
     "RelationshipRef",
+    "SnapshotVersioningIR",
     "SourceLocation",
     "SymbolKind",
     "TimeFieldRef",
@@ -70,6 +73,14 @@ class ParityStatus(StrEnum):
     DRIFTED = "drifted"
 
 
+class MetricAdditivity(StrEnum):
+    """Metric summability relative to its dataset row grain."""
+
+    ADDITIVE = "additive"
+    SEMI_ADDITIVE = "semi_additive"
+    NON_ADDITIVE = "non_additive"
+
+
 class DatasetProvenance(StrEnum):
     """How a dataset's physical table was produced."""
 
@@ -88,6 +99,20 @@ class SourceLocation:
 
     file: str
     line: int
+
+
+@dataclass(frozen=True)
+class SnapshotVersioningIR:
+    """Daily snapshot versioning metadata for Phase 1 latest joins."""
+
+    kind: Literal["snapshot"]
+    partition_field: str
+    grain: Literal["day"]
+    timezone: str | None = None
+    format: str | None = None
+
+
+DatasetVersioningIR = SnapshotVersioningIR
 
 
 @dataclass(frozen=True)
@@ -125,6 +150,7 @@ class DatasetIR:
     ai_context: AiContextIR
     python_symbol: str
     location: SourceLocation
+    versioning: DatasetVersioningIR | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +197,8 @@ class MetricIR:
     body_ast_hash: str
     python_symbol: str
     location: SourceLocation
+    additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
+    root_dataset: str | None = None
 
 
 @dataclass(frozen=True)

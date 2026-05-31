@@ -64,6 +64,7 @@ def is_paid(orders):
 
 @ms.metric(
     datasets=[orders],
+    additivity="additive",
     decomposition=ms.sum(),
     description="Paid revenue.",
     source_sql="select sum(amount) as value from orders where pay_status = 1",
@@ -284,6 +285,33 @@ dataset body 允许受限使用 `backend.sql(...)` 封装 SQL view，因为实�
 - parity 工具默认拒绝把 SQL-view dataset 当作“纯 Ibis 翻译”进行同源 SQL parity；需要显式 fixture-based parity。
 - 若 SQL view 已在后端持久化为表/视图，优先用 `backend.table(...)` 暴露，减少 Python 语义层内嵌 SQL。
 
+Snapshot dataset declarations expose their partition key through
+`versioning=ms.snapshot(...)`. Use this for daily/weekly snapshot tables that
+should be observed at the latest available partition by default:
+
+```python
+@ms.dataset(
+    name="user_profile_daily",
+    datasource=warehouse,
+    primary_key=["user_id", "dt"],
+    versioning=ms.snapshot(
+        partition_field="dt",
+        grain="day",
+        timezone="Asia/Shanghai",
+        format="%Y%m%d",
+    ),
+)
+def user_profile_daily(backend):
+    return backend.table("user_profile_daily")
+```
+
+`partition_field` is the dataset field name that carries the snapshot key.
+`grain` declares the snapshot cadence (currently `day`). `timezone` resolves
+"latest" relative to the requested observe window using a real calendar.
+`format` describes the on-disk partition encoding (e.g. `%Y%m%d` for VARCHAR
+keys, omitted when the column is already a date). Analysis joins against a
+snapshot dataset use the partition that matches the observe window end.
+
 ### Field 和 Time Field
 
 field 是 row-level 属性，供过滤、分组、relationship 或 metric 表达式复用：
@@ -326,6 +354,7 @@ def order_date(orders):
 @ms.metric(
     model="sales",
     datasets=[orders],
+    additivity="additive",
     decomposition=ms.sum(),
     description="Total revenue from paid orders.",
     source_sql="select sum(amount) as value from orders where pay_status = 1",
@@ -360,6 +389,27 @@ def conversion_rate():
 - `decomposition=ms.sum()` 没有 components，因此必须是 base metric；省略 `datasets=[...]` 时直接报 `missing_datasets`。
 - `datasets` 和 component-only body 同时出现：错误。
 - 没有 `datasets` 且没有 decomposition components：错误。
+
+### Base Metric Grain And Additivity
+
+Every base metric must declare `additivity`. Single-dataset base metrics may
+omit `root_dataset`; Marivo resolves it to the only dataset. Multi-dataset base
+metrics must declare `root_dataset` explicitly. The root dataset defines the
+preserved row set, join anchor, and observe time axis.
+
+```python
+@ms.metric(
+    datasets=[orders, users],
+    root_dataset=orders,
+    additivity="additive",
+    decomposition=ms.sum(),
+)
+def revenue(orders, users):
+    return orders.amount.sum()
+```
+
+Joined datasets may provide dimensions and filters, but aggregate receivers in
+a base metric body must belong to the root dataset.
 
 ### Relationship
 

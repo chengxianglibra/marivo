@@ -72,7 +72,7 @@ def _bootstrap_sales_with_two_time_fields(tmp_path):
         "def create_time(orders):\n"
         "    return orders.created_ts\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -114,7 +114,7 @@ def _bootstrap_sales_with_string_partition_time_field(tmp_path):
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -156,7 +156,7 @@ def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
         "def log_hour(orders):\n"
         "    return orders.log_hour\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -192,7 +192,7 @@ def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
         "def log_hour(orders):\n"
         "    return orders.log_hour\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -472,11 +472,11 @@ def _bootstrap_failure_rate(tmp_path):
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())\n"
         "def failed_count(orders):\n"
         "    return (orders.state == 'FAILED').cast('int64').sum()\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())\n"
         "def total_count(orders):\n"
         "    return orders.count()\n"
         "\n"
@@ -599,7 +599,7 @@ def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -673,7 +673,7 @@ def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )

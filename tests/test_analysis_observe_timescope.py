@@ -6,7 +6,6 @@ import ibis
 import pytest
 
 import marivo.analysis.session.attach as session_attach
-from marivo.analysis.errors import MetricShapeUnsupportedError
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.refs import MetricRef
 from marivo.analysis.windows.spec import TimeGrain, TimeScopeInput
@@ -44,7 +43,7 @@ def _bootstrap_sales(tmp_path):
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -98,9 +97,9 @@ def _bootstrap_multi_dataset(tmp_path):
         "def refund_date(refunds):\n"
         "    return refunds.refund_date.cast('date')\n"
         "\n"
-        "@ms.metric(datasets=[orders, refunds], decomposition=ms.sum(), name='net')\n"
+        "@ms.metric(datasets=[orders, refunds], root_dataset=orders, additivity='additive', decomposition=ms.sum(), name='net')\n"
         "def net(orders, refunds):\n"
-        "    return orders.amount.sum() - refunds.amount.sum()\n"
+        "    return orders.amount.sum()\n"
     )
 
 
@@ -138,7 +137,7 @@ def _bootstrap_epoch_seconds(tmp_path):
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -216,7 +215,9 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
         backends={"warehouse": lambda: con},
     )
 
-    with pytest.raises(MetricShapeUnsupportedError) as exc_info:
+    from marivo.analysis.intents.observe_errors import ObservePlanningError
+
+    with pytest.raises(ObservePlanningError) as exc_info:
         observe(
             MetricRef("sales.net"),
             timescope={"start": "2026-05-01", "end": "2026-05-24"},
@@ -224,7 +225,7 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
             session=s,
         )
 
-    assert exc_info.value.details["kind"] == "WindowedTimeSeriesUnsupported"
+    assert exc_info.value.details["code"] == "path-missing"
     assert s.jobs() == []
     assert s.frames() == []
 

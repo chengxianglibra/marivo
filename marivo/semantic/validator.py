@@ -567,8 +567,61 @@ def validate_metric_body_ast(
 # ---------------------------------------------------------------------------
 
 
+_AGGREGATE_METHODS = {"sum", "mean", "avg", "count", "nunique", "max", "min"}
+
+
+def _aggregate_receiver_param_name(call: ast.Call) -> str | None:
+    func = call.func
+    if not isinstance(func, ast.Attribute):
+        return None
+    if func.attr not in _AGGREGATE_METHODS:
+        return None
+    current: ast.AST = func.value
+    while isinstance(current, (ast.Attribute, ast.Subscript, ast.Call)):
+        if isinstance(current, ast.Attribute):
+            current = current.value
+            continue
+        if isinstance(current, ast.Subscript):
+            current = current.value
+            continue
+        if isinstance(current, ast.Call):
+            current = current.func
+            continue
+    if isinstance(current, ast.Name):
+        return current.id
+    return None
+
+
+def _non_root_aggregate_dataset(
+    fn: Callable[..., Any],
+    *,
+    metric_ir: MetricIR,
+) -> str | None:
+    try:
+        source = textwrap.dedent(inspect.getsource(fn))
+    except (OSError, TypeError):
+        return None
+    tree = ast.parse(source)
+    func = next((node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None)
+    if func is None:
+        return None
+    param_names = [arg.arg for arg in func.args.args]
+    dataset_by_param = dict(zip(param_names, metric_ir.datasets, strict=False))
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Call):
+            continue
+        param = _aggregate_receiver_param_name(node)
+        if param is None:
+            continue
+        dataset = dataset_by_param.get(param)
+        if dataset is not None and dataset != metric_ir.root_dataset:
+            return dataset
+    return None
+
+
 def assembly_validate(
     registry: Registry,
+    sidecar: Sidecar | None = None,
 ) -> tuple[list[SemanticError], list[StructuredWarning]]:
     """Layer 3: assembly-time cross-object validation.
 
@@ -592,6 +645,26 @@ def assembly_validate(
         # (String refs are the norm currently, so skip warning for now.
         #  This will become meaningful when typed refs are more common.)
 
+        versioning = ds_ir.versioning
+        if versioning is not None:
+            partition_name = versioning.partition_field.rsplit(".", 1)[-1]
+            if partition_name not in ds_ir.primary_key:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_DATASET_VERSIONING,
+                        message=(
+                            f"Snapshot dataset {ds_id!r} partition field "
+                            f"{versioning.partition_field!r} must be part of primary_key."
+                        ),
+                        refs=(ds_id, versioning.partition_field),
+                        details={
+                            "dataset": ds_id,
+                            "partition_field": versioning.partition_field,
+                            "primary_key": list(ds_ir.primary_key),
+                        },
+                    )
+                )
+
     # -- Validate dataset refs on fields ------------------------------------
     for f_id, f_ir in registry.fields.items():
         if f_ir.dataset not in registry.datasets:
@@ -614,6 +687,75 @@ def assembly_validate(
                         refs=(m_id, ds_ref),
                     )
                 )
+
+    # -- Validate base metric additivity and root_dataset -------------------
+    for m_id, m_ir in registry.metrics.items():
+        if m_ir.is_derived:
+            continue
+        if m_ir.additivity is None:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.MISSING_METRIC_ADDITIVITY,
+                    message=f"Base metric {m_id!r} must declare additivity.",
+                    refs=(m_id,),
+                    details={"metric": m_id},
+                )
+            )
+        if len(m_ir.datasets) == 0:
+            continue
+        if len(m_ir.datasets) == 1 and m_ir.root_dataset is None:
+            continue
+        if len(m_ir.datasets) > 1 and m_ir.root_dataset is None:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.MISSING_METRIC_ROOT_DATASET,
+                    message=f"Multi-dataset base metric {m_id!r} must declare root_dataset.",
+                    refs=(m_id,),
+                    details={"metric": m_id, "datasets": sorted(m_ir.datasets)},
+                )
+            )
+            continue
+        if m_ir.root_dataset is not None and m_ir.root_dataset not in m_ir.datasets:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_METRIC_ROOT_DATASET,
+                    message=(
+                        f"Metric {m_id!r} root_dataset {m_ir.root_dataset!r} "
+                        "must be one of its datasets."
+                    ),
+                    refs=(m_id, m_ir.root_dataset),
+                    details={
+                        "metric": m_id,
+                        "root_dataset": m_ir.root_dataset,
+                        "datasets": sorted(m_ir.datasets),
+                    },
+                )
+            )
+
+    # -- Validate root-only aggregates for multi-dataset base metrics ----------
+    for m_id, m_ir in registry.metrics.items():
+        if m_ir.is_derived:
+            continue
+        if sidecar is not None and len(m_ir.datasets) > 1 and m_ir.root_dataset is not None:
+            fn = sidecar.get(m_id)
+            if callable(fn):
+                offending_dataset = _non_root_aggregate_dataset(fn, metric_ir=m_ir)
+                if offending_dataset is not None:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.NON_ROOT_METRIC_AGGREGATE,
+                            message=(
+                                f"Metric {m_id!r} aggregates a non-root dataset "
+                                f"{offending_dataset!r}."
+                            ),
+                            refs=(m_id, offending_dataset),
+                            details={
+                                "metric": m_id,
+                                "root_dataset": m_ir.root_dataset,
+                                "offending_dataset": offending_dataset,
+                            },
+                        )
+                    )
 
     # -- Validate metric component refs in decomposition --------------------
     for m_id, m_ir in registry.metrics.items():

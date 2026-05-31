@@ -40,7 +40,7 @@ from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._shape import SemanticShape, observe_output_shape
 from marivo.analysis.intents._types import SliceValue
-from marivo.analysis.intents._validate import raise_first, validate_observe
+from marivo.analysis.intents.observe_planner import plan_base_observe
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.refs import DimensionRef, MetricRef
 from marivo.analysis.session.attach import active as session_active
@@ -1483,16 +1483,9 @@ def observe(
             },
         )
         return frame
-    raise_first(
-        validate_observe(
-            metric_id=metric_id,
-            metric_datasets=metric_datasets,
-            is_time_series=is_time_series,
-            has_dimensions=bool(dimension_refs),
-            dimensions_dump=_dump_dimensions(dimensions),
-        )
-    )
 
+    # --- Base (non-derived) metric path: route through planner ---
+    # Build dataset adapters for all metric datasets
     for dataset_name in metric_datasets:
         dataset_ir = sp.get_dataset(dataset_name)
         if dataset_ir is None:
@@ -1502,27 +1495,41 @@ def observe(
             )
         dataset_irs[dataset_name] = _build_dataset_adapter(sp, dataset_ir)
 
-    resolved_dimensions = _resolve_dimensions(dimensions, dataset_irs=dataset_irs)
+    # Add datasets required by explicit dimensions/where
+    for field_ir in [*sp.list_fields(), *sp.list_time_fields()]:
+        if (
+            dimensions
+            and any(dim.id == field_ir.semantic_id for dim in dimension_refs)
+            and field_ir.dataset not in dataset_irs
+        ):
+            ds_ir = sp.get_dataset(field_ir.dataset)
+            if ds_ir is not None:
+                dataset_irs[field_ir.dataset] = _build_dataset_adapter(sp, ds_ir)
+        for raw_key in where or {}:
+            if raw_key == field_ir.semantic_id and field_ir.dataset not in dataset_irs:
+                ds_ir = sp.get_dataset(field_ir.dataset)
+                if ds_ir is not None:
+                    dataset_irs[field_ir.dataset] = _build_dataset_adapter(sp, ds_ir)
 
-    for dataset_name in metric_datasets:
-        ds_adapter = dataset_irs[dataset_name]
-        datasource_name, backend = _backend_for_datasource(session, ds_adapter.datasource_name)
-        if primary_datasource is None:
-            primary_datasource = datasource_name
-        elif primary_datasource != datasource_name:
-            raise CrossBackendMetricError(
-                message=f"metric '{metric_id}' spans multiple datasources; v1 does not support it",
-            )
-        table = ds_adapter.fn(backend)
-        table = apply_slice_to_dataset(table, where, dataset_ir=ds_adapter)
-        table = apply_window_to_dataset(
-            table,
-            resolved_window,
-            dataset_ir=ds_adapter,
-            session_tz=cast("ZoneInfo", session.tz),
-        )
-        dataset_tables[dataset_name] = table
-        session.known_datasources.add(datasource_name)
+    dataset_fns = {dataset_id: adapter.fn for dataset_id, adapter in dataset_irs.items()}
+
+    plan = plan_base_observe(
+        project=sp,
+        session=session,
+        metric_ir=metric_ir,
+        dataset_irs=dataset_irs,
+        dataset_fns=dataset_fns,
+        dimensions=dimensions,
+        where=where,
+        resolved_window=resolved_window,
+        time_field=time_field,
+    )
+    primary_datasource = plan.datasource_name
+    dataset_tables = plan.dataset_tables
+    resolved_dimensions = [
+        (dimension.field.dataset, dimension.field) for dimension in plan.dimensions
+    ]
+    session.known_datasources.add(primary_datasource)
     _persist_known_datasources(session)
 
     if primary_datasource is None:
@@ -1531,22 +1538,21 @@ def observe(
     axes: dict[str, Any] = {}
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "scalar"
     if is_time_series and resolved_window is not None and resolved_dimensions:
-        dataset_name = metric_datasets[0]
-        ds_adapter = dataset_irs[dataset_name]
+        ds_adapter = dataset_irs[plan.root_dataset]
         time_field_ir = resolve_window_time_field(ds_adapter, window=resolved_window)
         bucketed_table = apply_time_series_bucket(
-            dataset_tables[dataset_name],
+            plan.table,
             field_ir=time_field_ir,
             window=resolved_window,
             session_tz=cast("ZoneInfo", session.tz),
         )
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
         dimension_exprs = {
-            field_ir.name: field_ir.fn(bucketed_table).name(field_ir.name)
+            field_ir.name: _field_fn(sp, field_ir.semantic_id)(bucketed_table).name(field_ir.name)
             for _, field_ir in resolved_dimensions
         }
         bucketed_table = bucketed_table.mutate(**dimension_exprs)
-        dataset_tables[dataset_name] = bucketed_table
+        dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
         metric_expr = _call_metric(
             metric_fn,
             metric_datasets=metric_datasets,
@@ -1582,16 +1588,15 @@ def observe(
         }
         semantic_kind = "panel"
     elif is_time_series and resolved_window is not None:
-        dataset_name = metric_datasets[0]
-        ds_adapter = dataset_irs[dataset_name]
+        ds_adapter = dataset_irs[plan.root_dataset]
         time_field_ir = resolve_window_time_field(ds_adapter, window=resolved_window)
         bucketed_table = apply_time_series_bucket(
-            dataset_tables[dataset_name],
+            plan.table,
             field_ir=time_field_ir,
             window=resolved_window,
             session_tz=cast("ZoneInfo", session.tz),
         )
-        dataset_tables[dataset_name] = bucketed_table
+        dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
         metric_expr = _call_metric(
             metric_fn,
             metric_datasets=metric_datasets,
@@ -1619,15 +1624,10 @@ def observe(
         }
         semantic_kind = "time_series"
     elif resolved_dimensions:
-        dataset_name = resolved_dimensions[0][0]
-        table = dataset_tables[dataset_name]
+        table = plan.table
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
-        dimension_exprs = {
-            field_ir.name: field_ir.fn(table).name(field_ir.name)
-            for _, field_ir in resolved_dimensions
-        }
-        table = table.mutate(**dimension_exprs)
-        dataset_tables[dataset_name] = table
+        # Dimensions are already mutated on the widened table by the planner,
+        # so no additional mutate step needed.
         metric_expr = _call_metric(
             metric_fn,
             metric_datasets=metric_datasets,

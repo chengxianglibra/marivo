@@ -640,6 +640,7 @@ Base metrics read datasets:
 @ms.metric(
     name="revenue",
     datasets=[orders],
+    additivity="additive",
     decomposition=ms.sum(),
     source_sql="select sum(amount) from orders where pay_status = 1",
     source_dialect="trino",

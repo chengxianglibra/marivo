@@ -83,6 +83,7 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[orders],
+        additivity="additive",
         decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS total_amount FROM orders",
         source_dialect="duckdb",
@@ -99,6 +100,7 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[orders],
+        additivity="additive",
         decomposition=ms.sum(),
         source_sql="SELECT 999.0 AS total_amount",
         source_dialect="duckdb",
@@ -113,7 +115,7 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
     def orders(backend):
         return backend.table("orders")
 
-    @ms.metric(datasets=[orders], decomposition=ms.sum())
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def total_amount(table):
         return table.amount.sum()
 """)
@@ -126,6 +128,7 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[orders],
+        additivity="additive",
         decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) FROM orders",
         source_dialect="postgres",
@@ -142,6 +145,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[orders],
+        additivity="additive",
         decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS revenue FROM orders",
         source_dialect="duckdb",
@@ -151,6 +155,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[orders],
+        additivity="additive",
         decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS cost FROM orders",
         source_dialect="duckdb",
@@ -175,6 +180,7 @@ _DECLARED_PYTHON_NATIVE_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[orders],
+        additivity="additive",
         decomposition=ms.sum(),
         declared_status="python_native",
     )
@@ -190,6 +196,7 @@ _DECLARED_UNVERIFIED_PY = textwrap.dedent("""\
 
     @ms.metric(
         datasets=[orders],
+        additivity="additive",
         decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) FROM orders",
         source_dialect="duckdb",
@@ -276,6 +283,7 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
 
         @ms.metric(
             datasets=[orders],
+            additivity="additive",
             decomposition=ms.sum(),
             source_sql="SELECT 300.5 AS total_amount",
             source_dialect="duckdb",
@@ -370,12 +378,14 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
 
         @ms.metric(
             datasets=[orders_a, orders_b],
+            root_dataset=orders_a,
+            additivity="additive",
             decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="duckdb",
         )
         def total_amount(table_a, table_b):
-            return table_a.amount.sum() + table_b.amount.sum()
+            return table_a.amount.sum()
     """)
     project = semantic_project_factory(
         {
@@ -514,6 +524,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
 
         @ms.metric(
             datasets=[orders],
+            additivity="additive",
             decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="duckdb",
@@ -523,6 +534,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
 
         @ms.metric(
             datasets=[orders],
+            additivity="additive",
             decomposition=ms.sum(),
             source_sql="SELECT 999.0 AS cost",
             source_dialect="duckdb",
@@ -586,6 +598,7 @@ def test_derived_propagation_verified_and_python_native(
 
         @ms.metric(
             datasets=[orders],
+            additivity="additive",
             decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="duckdb",
@@ -595,6 +608,7 @@ def test_derived_propagation_verified_and_python_native(
 
         @ms.metric(
             datasets=[orders],
+            additivity="additive",
             decomposition=ms.sum(),
             declared_status="python_native",
         )

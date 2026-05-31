@@ -117,6 +117,7 @@ def _make_registry(**overrides: object) -> Registry:
         body_ast_hash="abc123",
         python_symbol="revenue",
         location=_LOC,
+        additivity="additive",
     )
     return registry
 
@@ -701,7 +702,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.orders"], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.orders"], additivity="additive", decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -724,7 +725,7 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.nonexistent"], decomposition=ms.sum())
+        @ms.metric(datasets=["sales.nonexistent"], additivity="additive", decomposition=ms.sum())
         def revenue(table):
             return table.amount.sum()
     """)
@@ -775,6 +776,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
 
         @ms.metric(
             datasets=[orders],
+            additivity='additive',
             decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
             declared_status="unverified",

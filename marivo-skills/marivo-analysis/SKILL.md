@@ -195,6 +195,12 @@ promoted = session.promote_metric_frame(scratch, metric=mv.MetricRef("sales.reve
                                    semantic_model="sales")
 ```
 
+## Cross-dataset observe
+
+For cross-dataset base metrics, use the normal `session.observe(...)` surface.
+Do not pass join policy or route arguments. If planning fails, read the
+structured repair error (`schema_version`, `code`, `candidates`, `repair`).
+
 ## Standard workflow
 
 1. `.venv/bin/python -c 'import marivo.analysis as mv; mv.help()'` — verify install.

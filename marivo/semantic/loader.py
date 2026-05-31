@@ -420,7 +420,7 @@ def load_project(root: Path) -> LoadResult:
                     seen_objects.setdefault(sid, ir)
 
         # Assembly validation
-        asm_errors, asm_warnings = assembly_validate(registry)
+        asm_errors, asm_warnings = assembly_validate(registry, sidecar)
         errors.extend(asm_errors)
         warnings.extend(asm_warnings)
 

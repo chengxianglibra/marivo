@@ -24,6 +24,7 @@ def orders(backend):
 
 @ms.metric(
     datasets=[orders],
+    additivity="additive",
     decomposition=ms.sum(),
     source_sql="SELECT 999.0 AS revenue",
     source_dialect="duckdb",

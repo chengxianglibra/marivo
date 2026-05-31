@@ -249,20 +249,24 @@ class Description:
 # ---------------------------------------------------------------------------
 
 
-def _require_registry(registry: Registry | None) -> Registry:
-    """Return the registry or raise SemanticLoadFailed."""
-    if registry is None:
-        from marivo.semantic.errors import SemanticLoadFailed
+def _require_registry(
+    self_or_registry: Registry | None, project: SemanticProject | None = None
+) -> Registry:
+    """Return the registry or raise SemanticLoadFailed with the actual errors."""
+    if self_or_registry is not None:
+        return self_or_registry
+    from marivo.semantic.errors import SemanticLoadFailed
 
-        raise SemanticLoadFailed(
-            [
-                SemanticRuntimeError(
-                    kind=ErrorKind.METRIC_NOT_FOUND,
-                    message="Project is not loaded. Call project.load() first.",
-                )
-            ]
-        )
-    return registry
+    if project is not None and project._errors:
+        raise SemanticLoadFailed(project._errors)
+    raise SemanticLoadFailed(
+        [
+            SemanticRuntimeError(
+                kind=ErrorKind.METRIC_NOT_FOUND,
+                message="Project is not loaded. Call project.load() first.",
+            )
+        ]
+    )
 
 
 def _semantic_leaf_name(semantic_id: str) -> str:
@@ -427,7 +431,7 @@ class SemanticProject:
 
     def list_models(self) -> list[ModelSummary]:
         """Return all model summaries."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         results: list[ModelSummary] = []
         for model_ir in reg.models.values():
             # Compute object counts for this model
@@ -462,7 +466,7 @@ class SemanticProject:
 
     def list_datasources(self) -> list[DatasourceSummary]:
         """Return all datasource summaries."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         return [
             DatasourceSummary(
                 semantic_id=ds_ir.semantic_id,
@@ -475,7 +479,7 @@ class SemanticProject:
 
     def list_datasets(self, *, model: str | None = None) -> list[DatasetSummary]:
         """Return dataset summaries, optionally filtered by model name."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         datasets = list(reg.datasets.values())
         if model is not None:
             datasets = [d for d in datasets if d.model == model]
@@ -497,7 +501,7 @@ class SemanticProject:
 
     def list_fields(self, *, dataset: str | None = None) -> list[FieldIR]:
         """Return field IR objects (non-time fields), optionally filtered by dataset."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         fields = [f for f in reg.fields.values() if not f.is_time_field]
         if dataset is not None:
             fields = [f for f in fields if f.dataset == dataset]
@@ -505,7 +509,7 @@ class SemanticProject:
 
     def list_time_fields(self, *, dataset: str | None = None) -> list[FieldIR]:
         """Return time field IR objects, optionally filtered by dataset."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         fields = [f for f in reg.fields.values() if f.is_time_field]
         if dataset is not None:
             fields = [f for f in fields if f.dataset == dataset]
@@ -519,7 +523,7 @@ class SemanticProject:
         provenance_status: ParityStatus | None = None,
     ) -> list[MetricSummary]:
         """Return metric summaries, optionally filtered."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         metrics = list(reg.metrics.values())
         if dataset is not None:
             metrics = [m for m in metrics if dataset in m.datasets]
@@ -547,7 +551,7 @@ class SemanticProject:
 
     def list_relationships(self, *, model: str | None = None) -> list[RelationshipIR]:
         """Return relationship IR objects, optionally filtered by model."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         rels = list(reg.relationships.values())
         if model is not None:
             rels = [r for r in rels if r.model == model]
@@ -557,22 +561,22 @@ class SemanticProject:
 
     def get_dataset(self, name: str) -> DatasetIR | None:
         """Return a dataset IR by semantic_id, or None if not found."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         return reg.datasets.get(name)
 
     def get_datasource(self, name: str) -> DatasourceIR | None:
         """Return a datasource IR by semantic_id, or None if not found."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         return reg.datasources.get(name)
 
     def get_field(self, name: str) -> FieldIR | None:
         """Return a field IR by semantic_id, or None if not found."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         return reg.fields.get(name)
 
     def get_metric(self, name: str) -> MetricIR | None:
         """Return a metric IR by semantic_id, or None if not found."""
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         return reg.metrics.get(name)
 
     # -- discovery ---------------------------------------------------------
@@ -584,7 +588,7 @@ class SemanticProject:
         semantic_id > name > description > business_definition > synonyms > examples.
         Within priority, sort by semantic_id lexicographically.
         """
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         results: list[SearchHit] = []
 
         # Search datasources
@@ -723,7 +727,7 @@ class SemanticProject:
         For datasets: includes all fields and time fields.
         For fields: just the field itself.
         """
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
 
         # Check if it is a metric
         metric_ir = reg.metrics.get(name)
@@ -812,7 +816,7 @@ class SemanticProject:
 
         Reverse of ``dependencies()``.
         """
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
 
         # For a dataset: find metrics and fields that depend on it
         if name in reg.datasets:
@@ -922,7 +926,7 @@ class SemanticProject:
         When ``format="text"``, returns ``Description`` whose
         ``to_text()`` method can be called for a human-readable string.
         """
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         obj = self._find_ir(name, reg)
         if obj is None:
             _raise(
@@ -1054,7 +1058,7 @@ class SemanticProject:
         Raises SemanticRuntimeError (COMPILE_ERROR) if the metric
         is not found or if ibis compilation fails.
         """
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         metric_ir = reg.metrics.get(metric)
         if metric_ir is None:
             _raise(
@@ -1155,7 +1159,7 @@ class SemanticProject:
     ) -> PreviewResult:
         """Return a bounded preview of a semantic field with parent dataset context."""
         limit = validate_preview_limit(limit)
-        reg = _require_registry(self._registry)
+        reg = _require_registry(self._registry, project=self)
         field_ir = reg.fields.get(name)
         if field_ir is None:
             _raise(

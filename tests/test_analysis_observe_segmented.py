@@ -4,10 +4,6 @@ import ibis
 import pytest
 
 import marivo.analysis.session.attach as session_attach
-from marivo.analysis.errors import (
-    DimensionFieldNotFoundError,
-    MetricShapeUnsupportedError,
-)
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.refs import DimensionRef, MetricRef
 
@@ -52,11 +48,11 @@ def _bootstrap_sales(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "@ms.dataset(name='orders', datasource='warehouse')\n"
+        "@ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'])\n"
         "def orders(backend):\n"
         "    return backend.table('orders')\n"
         "\n"
-        "@ms.dataset(name='users', datasource='warehouse')\n"
+        "@ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'])\n"
         "def users(backend):\n"
         "    return backend.table('users')\n"
         "\n"
@@ -88,15 +84,15 @@ def _bootstrap_sales(tmp_path):
         "def user_id(users):\n"
         "    return users.user_id\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())\n"
         "def failed_count(orders):\n"
         "    return (orders.state == 'FAILED').cast('int64').sum()\n"
         "\n"
-        "@ms.metric(datasets=[orders], decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())\n"
         "def total_count(orders):\n"
         "    return orders.count()\n"
         "\n"
@@ -110,9 +106,9 @@ def _bootstrap_sales(tmp_path):
         "def failure_rate():\n"
         "    return ms.component('numerator') / ms.component('denominator')\n"
         "\n"
-        "@ms.metric(datasets=[orders, users], decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders, users], root_dataset=orders, additivity='additive', decomposition=ms.sum())\n"
         "def revenue_plus_user_count(orders, users):\n"
-        "    return orders.amount.sum() + users.user_id.count()\n"
+        "    return orders.amount.sum()\n"
     )
     (semantic_dir / "relationships.py").write_text(
         "import marivo.semantic as ms\n"
@@ -303,88 +299,41 @@ def test_observe_duplicate_dimensions_are_rejected(tmp_path):
     assert exc_info.value.details["duplicate_dimensions"] == ["region"]
 
 
-def test_observe_segmented_rejects_multi_dataset_metric(tmp_path):
+def test_observe_segmented_multi_dataset_metric_with_root_dimension(tmp_path):
+    """Cross-dataset base metric with root-dataset dimension now works through planner."""
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    with pytest.raises(MetricShapeUnsupportedError) as exc_info:
-        observe(
-            MetricRef("sales.revenue_plus_user_count"),
-            dimensions=[DimensionRef("channel")],
-            session=s,
-        )
+    frame = observe(
+        MetricRef("sales.revenue_plus_user_count"),
+        dimensions=[DimensionRef("channel")],
+        session=s,
+    )
 
-    assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
-    assert exc_info.value.details["metric"] == "sales.revenue_plus_user_count"
-    assert exc_info.value.details["datasets"] == ["sales.orders", "sales.users"]
-    assert exc_info.value.details["dimensions"] == [{"id": "channel"}]
+    assert frame.meta.semantic_kind == "segmented"
+    df = frame.to_pandas()
+    assert set(df.columns) == {"channel", "revenue_plus_user_count"}
 
 
-def test_observe_segmented_rejects_multi_dataset_metric_before_dimension_resolution(tmp_path):
+def test_observe_segmented_multi_dataset_missing_dimension_is_blocked(tmp_path):
+    """Cross-dataset base metric with missing dimension field raises planner error."""
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_users=False)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    with pytest.raises(MetricShapeUnsupportedError) as exc_info:
+    from marivo.analysis.intents.observe_errors import ObservePlanningError
+
+    with pytest.raises(ObservePlanningError) as exc_info:
         observe(
             MetricRef("sales.revenue_plus_user_count"),
             dimensions=[DimensionRef("missing")],
             session=s,
         )
 
-    assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
-
-
-def test_observe_segmented_rejects_multi_dataset_metric_with_valid_dimension(tmp_path):
-    _bootstrap_sales(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con, with_users=False)
-    s = session_attach.get_or_create(name="demo", backends=_backends(con))
-
-    with pytest.raises(MetricShapeUnsupportedError) as exc_info:
-        observe(
-            MetricRef("sales.revenue_plus_user_count"),
-            dimensions=[DimensionRef("sales.user_region")],
-            session=s,
-        )
-
-    assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
-
-
-def test_observe_segmented_rejects_multi_dataset_metric_with_cross_dataset_dimensions(tmp_path):
-    _bootstrap_sales(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con, with_users=False)
-    s = session_attach.get_or_create(name="demo", backends=_backends(con))
-
-    with pytest.raises(MetricShapeUnsupportedError) as exc_info:
-        observe(
-            MetricRef("sales.revenue_plus_user_count"),
-            dimensions=[DimensionRef("channel"), DimensionRef("tier")],
-            session=s,
-        )
-
-    assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
-
-
-def test_observe_segmented_rejects_multi_dataset_metric_before_materialization(tmp_path):
-    _bootstrap_sales(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    _seed(con, with_users=False)
-    s = session_attach.get_or_create(name="demo", backends=_backends(con))
-
-    with pytest.raises(MetricShapeUnsupportedError) as exc_info:
-        observe(
-            MetricRef("sales.revenue_plus_user_count"),
-            dimensions=[DimensionRef("channel")],
-            session=s,
-        )
-
-    assert exc_info.value.details["kind"] == "SegmentedMultiDatasetUnsupported"
-    assert exc_info.value.details["metric"] == "sales.revenue_plus_user_count"
+    assert exc_info.value.details["code"] == "field-ref-not-found"
 
 
 def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
@@ -423,14 +372,17 @@ def test_observe_dimension_not_found(tmp_path):
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    with pytest.raises(DimensionFieldNotFoundError) as exc_info:
+    from marivo.analysis.intents.observe_errors import ObservePlanningError
+
+    with pytest.raises(ObservePlanningError) as exc_info:
         observe(
             MetricRef("sales.revenue"),
             dimensions=[DimensionRef("not_a_real_field")],
             session=s,
         )
 
-    assert exc_info.value.details["dimension_id"] == "not_a_real_field"
+    assert exc_info.value.details["code"] == "field-ref-not-found"
+    assert "searched_datasets" in exc_info.value.details["candidates"]
 
 
 def test_observe_dimension_rejects_bare_string(tmp_path):

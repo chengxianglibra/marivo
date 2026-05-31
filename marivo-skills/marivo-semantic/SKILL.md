@@ -82,11 +82,11 @@ def created_at(orders):
 def region(orders):
     return orders.region
 
-@ms.metric(datasets=[orders], decomposition=ms.sum(), name="revenue")
+@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="revenue")
 def revenue(orders):
     return orders.amount.sum()
 
-@ms.metric(datasets=[orders], decomposition=ms.sum(), name="orders_count")
+@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="orders_count")
 def orders_count(orders):
     return orders.count()
 
@@ -288,7 +288,7 @@ Runnable reference: `references/examples/03_define_metric_aggregate.py`.
 ```python
 import marivo.semantic as ms
 
-@ms.metric(datasets=[orders], decomposition=ms.sum(), name="<metric_name>")
+@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="<metric_name>")
 def <metric_name>(orders):
     return orders.<column>.sum()
 ```
@@ -300,11 +300,11 @@ Runnable reference: `references/examples/04_define_metric_derived.py`.
 ```python
 import marivo.semantic as ms
 
-@ms.metric(datasets=[orders], decomposition=ms.sum(), name="numerator_metric")
+@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="numerator_metric")
 def numerator_metric(orders):
     return orders.amount.sum()
 
-@ms.metric(datasets=[orders], decomposition=ms.sum(), name="denominator_metric")
+@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="denominator_metric")
 def denominator_metric(orders):
     return orders.count()
 
@@ -342,6 +342,8 @@ How is this value computed?
 - Run `ms.help("constraints", format="json")` or
   `ms.help("<decorator>", format="json")` before guessing allowed authoring
   shapes. The JSON catalog is the canonical error-to-hint/example map.
+- Base metrics must declare `additivity`. Multi-dataset base metrics must also
+  declare `root_dataset`; single-dataset base metrics may omit it.
 - Dataset references a datasource that has no `.marivo/datasource/*.py`
   declaration. The loader reports a `missing_dataset_ref` error.
   Runnable reference:
