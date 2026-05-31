@@ -74,6 +74,13 @@ mode for both snapshot and validity targets.
 - No metric-level `version_mode` kwarg. Mode is derived from dataset
   versioning + root time context only.
 - No relationship-level cardinality / snapshot-policy override.
+- No validity-interval overlap validation. The parent spec calls overlap a
+  data-quality error; Phase 2 defers detection to a later data-quality phase
+  and emits a single `validity_overlap_unverified` lineage warning per
+  validity join so consumers can see the assumption explicitly. If overlap
+  exists in the data, Phase 2 will silently fan out — this is the cost of
+  deferring detection and is documented here so callers can decide whether
+  to accept it.
 
 ## Architecture
 
@@ -289,8 +296,8 @@ Authoring helper validates:
 
 - `valid_from` / `valid_to` resolve to declared fields on the dataset.
 - `interval` is one of `"closed_open"` / `"closed_closed"`.
-- `open_end` is a non-empty tuple. Empty tuple is rejected with
-  `validity-metadata-invalid` because Phase 2 needs at least one current-row
+- `open_end` is a non-empty tuple. Empty tuple is rejected at load time as
+  `INVALID_DATASET_VERSIONING` because Phase 2 needs at least one current-row
   predicate.
 - `timezone` is a valid IANA name when provided.
 - `valid_from` field name is part of `primary_key` (so the effective key
@@ -310,10 +317,24 @@ def _effective_key(project, dataset_id) -> tuple[str, ...]:
         return tuple(k for k in dataset.primary_key
                      if k != _local_name(versioning.partition_field))
     if isinstance(versioning, ValidityVersioningIR):
-        return tuple(k for k in dataset.primary_key
-                     if k != _local_name(versioning.valid_from))
+        interval_locals = {
+            _local_name(versioning.valid_from),
+            _local_name(versioning.valid_to),
+        }
+        return tuple(k for k in dataset.primary_key if k not in interval_locals)
     return tuple(dataset.primary_key)
 ```
+
+Both `valid_from` and `valid_to` are subtracted when present in
+`primary_key`, because real SCD2 tables are commonly keyed
+`[entity_id, valid_from, valid_to]`. Subtracting only `valid_from` would
+leave the effective key as `[entity_id, valid_to]`, which never matches a
+relationship's `to_fields=[entity_id]` and the edge stays `unknown`.
+
+Authoring does not require `valid_to` to be in `primary_key` (a key of
+`[entity_id, valid_from]` is the more common shape and remains valid). The
+subtraction is conditional: if `valid_to` is in the key, drop it; if not,
+leave the key alone.
 
 This makes a relationship from `orders.user_id` to `user_history` resolve as
 many-to-one once the planner collapses `user_history` to a single row per
@@ -321,11 +342,11 @@ many-to-one once the planner collapses `user_history` to a single row per
 
 ## Derived Version Mode Selection
 
-`_derive_version_mode(root_meta, target_versioning, resolved_window)` returns a
-tuple `(mode, anchor_source, anchor_value)`:
+`_derive_version_mode(root_meta, root_time_field, target_versioning, resolved_window)`
+returns a tuple `(mode, anchor_source, anchor_value)`:
 
 ```
-if root has any time_field with data_type in {"date", "timestamp"}:
+if root_time_field is not None and root_time_field.data_type in {"date", "timestamp"}:
     mode = "as_of_root_time"
     anchor_source = "root"
     anchor_value = None        # per-row; recorded in lineage with summary
@@ -339,16 +360,18 @@ else:
         anchor_value = datetime.now(target_tz).date()
 ```
 
-A "day-level time field" is any `TimeFieldIR` declared on the root dataset
-whose `data_type` is `"date"` or `"timestamp"`. This is intentionally broader
-than `granularity == "day"` — a timestamp time field with a finer grain still
-qualifies, since the planner casts to date in the target timezone before
-joining.
+`root_time_field` is the single resolved time field the planner already
+chose for `timescope` and bucketing — explicit `time_field=` if provided,
+otherwise the dataset's default time field. Passing it explicitly into
+`_derive_version_mode` is load-bearing: a "qualifying time field" check that
+inspected the dataset directly could pick a different field than the one
+driving the visible time axis, and version anchors would silently diverge
+from observe buckets. The signature forces them to agree.
 
-When the root has multiple qualifying time fields, the planner picks the same
-field that drives `timescope` and bucketing: explicit `time_field=` if
-provided, otherwise the dataset's default time field. This keeps the join
-anchor consistent with the visible time axis.
+A "day-level time field" is any `TimeFieldIR` whose `data_type` is `"date"`
+or `"timestamp"`. This is intentionally broader than `granularity == "day"`
+— a timestamp time field with a finer grain still qualifies, since the
+planner casts to date in the target timezone before joining.
 
 The selection is closed: there is no relationship-level override, no
 metric-level kwarg, and no observe-time argument that toggles it. This matches
@@ -358,6 +381,45 @@ the parent spec's "deliberate closed decision" stance.
 
 Snapshot `as_of_root_time` uses Python-precomputed mapping rather than a raw
 range join, so a single root row never matches multiple snapshot rows.
+
+### Planner-execution contract amendment
+
+Phase 1 framed the planner as non-executing; observe.py owned all backend
+execution. Phase 2 amends that contract for one narrow case: snapshot
+`as_of_root_time` requires the planner to issue **two discovery queries**
+before it can finish constructing the plan — distinct root anchor dates and
+distinct available partitions. These are not the metric query itself; they
+are catalog-shaped reads needed to materialize the anchor-to-partition
+mapping. The planner does not execute the join, the metric expression, or
+any aggregation — those still live in observe.py / `_execute_base`.
+
+This is a deliberate trade-off:
+
+- The alternative — a backend-side `asof_join` or raw range join — was ruled
+  out because it does not produce a single-row-per-(key, anchor) collapse on
+  every backend Marivo supports.
+- A future provider-cached partition catalog would replace the discovery
+  queries without changing this contract: the planner would call the
+  provider, the provider would return cached partition lists, no backend
+  round-trip required.
+
+### Implications for `session.explain(...)`
+
+When `explain()` lands in a future phase, it must offer a `dry_plan=True`
+mode that skips the discovery queries for snapshot `as_of_root_time`. In
+dry mode:
+
+- `version_resolutions[].resolved_partition_summary` becomes `null`.
+- `version_resolutions[].anchor_to_partition_mapping_digest` becomes `null`.
+- A new `lineage_metadata.warnings[]` entry `dry_plan_skipped_discovery`
+  records that the explain output is structurally correct but does not pin
+  the resolved partitions.
+
+Phase 2 wires the lineage fields so the future dry mode does not require a
+schema change. Phase 2 itself does not implement `dry_plan`; the planner
+always runs discovery when called from observe.
+
+### Steps
 
 Steps in `plan_base_observe`, executed when joining a versioned snapshot
 target with mode `as_of_root_time`:
@@ -374,7 +436,8 @@ target with mode `as_of_root_time`:
    `mapping[a] = max(p for p in available_partitions if p <= a)` for each `a`
    in `anchor_dates`. Anchors with no eligible partition collect into
    `missing_anchors`. If non-empty, raise `snapshot-partition-missing` with
-   `missing_anchors` and `min_available_partition` in `candidates`.
+   `missing_anchors`, `min_available_partition`, and `max_available_partition`
+   in `candidates` (matching the payload contract in the Errors section).
 4. Re-encode each resolved partition back to its physical value via
    `versioning.format` and build an in-memory ibis table
    (`ibis.memtable([{"anchor": ..., "partition": ...}, ...])`) with two
@@ -498,28 +561,38 @@ constructed.
 
 ### Axis comparability
 
-For each parent dimension `dim`, look up how each `component_plan` resolved a
-field with that name:
+For each parent dimension `dim`, check that every component plan resolved a
+field with that name AND that they all resolved to the same semantic field
+id:
 
 ```python
 def _check_axis_comparability(component_plans, parent_dimensions):
     for dim in parent_dimensions:
-        resolutions = [
-            (cp.component_metric_ir.semantic_id, d.field.semantic_id)
+        per_component = {
+            cp.component_metric_ir.semantic_id: [
+                d.field for d in cp.base_plan.dimensions if d.column == dim.name
+            ]
             for cp in component_plans
-            for d in cp.base_plan.dimensions
-            if d.column == dim.name
-        ]
-        ids = {field_id for _, field_id in resolutions}
+        }
+        missing = [cid for cid, fields in per_component.items() if not fields]
+        if missing:
+            raise component-axis-unreachable with candidates listing the
+            parent dimension and the components that could not resolve it
+        ids = {fields[0].semantic_id for fields in per_component.values()}
         if len(ids) > 1:
             raise component-axis-field-mismatch with candidates listing each
             (component_metric_id, resolved_field_id)
 ```
 
-Mismatch means two components claimed to slice by the same dimension name but
-resolved to different semantic field ids — for example
-`sales.country` versus `marketing.country`. This blocks the silent
-ratio-with-divergent-axes class of bugs the parent spec calls out.
+Two failure modes, two codes:
+
+- `component-axis-unreachable` — a parent dimension is reachable from some
+  components but not others. Without this check, the frame-layer outer-merge
+  would silently fill the missing component's contribution with null and the
+  derived sentinel would compute against partial coverage.
+- `component-axis-field-mismatch` — every component resolves the dimension,
+  but the resolved semantic field ids differ. The classic
+  `sales.country` vs `marketing.country` case the parent spec calls out.
 
 ### Version comparability
 
@@ -530,19 +603,35 @@ def _check_version_comparability(component_plans):
     by_dataset = collect_version_resolutions_grouped_by_dataset(component_plans)
     for dataset_id, resolutions in by_dataset.items():
         keys = {
-            (r["mode"], r["anchor_source"], r.get("anchor_value"),
-             r.get("resolved_partition") or r.get("resolved_interval_predicate"))
+            (
+                r["mode"],
+                r["anchor_source"],
+                r.get("anchor_value"),
+                r.get("resolved_partition"),
+                r.get("resolved_interval_predicate"),
+                r.get("anchor_to_partition_mapping_digest"),
+            )
             for r in resolutions
         }
         if len(keys) > 1:
             raise component-version-mismatch with candidates listing each
-            (component_metric_id, mode, anchor_source, anchor_value, resolved_*)
+            (component_metric_id, mode, anchor_source, anchor_value,
+             resolved_partition, resolved_interval_predicate, mapping_digest)
 ```
+
+The mapping digest is in the comparability key because it is the only field
+that distinguishes two snapshot `as_of_root_time` resolutions: both have
+`mode="as_of_root_time"`, `anchor_source="root"`, `anchor_value=None`, and
+`resolved_partition=None`. Without the digest, two components with different
+anchor-to-partition mappings against the same dataset would compare equal
+and silently merge incomparable historical states.
 
 This protects the case where, for example, a numerator uses
 `as_of_root_time` against `user_profile_daily` (per-row historical state) and
 a denominator uses `latest` against the same table — the resulting ratio
-would silently mix two semantic shapes.
+would silently mix two semantic shapes — as well as the subtler case where
+two components both use `as_of_root_time` but their root anchor sets pin
+different physical partitions.
 
 ## Cross-Datasource Components
 
@@ -565,28 +654,46 @@ component.
 ## Errors
 
 All Phase 2 planner rejections use the existing `observe-error/v1` schema with
-`schema_version`, `code`, `message`, `candidates`, and `repair`.
+`schema_version`, `code`, `message`, `candidates`, and `repair`. Author-time
+validation failures (load-time, not observe-time) use the existing semantic
+load error contract instead — see "Author-time errors" below.
 
-### New codes
+### New planner codes
 
 | Code | When | Repair safety |
 | --- | --- | --- |
-| `validity-metadata-invalid` | `ms.validity()` author-time validation fails | `auto_safe` |
 | `snapshot-partition-missing` | At least one root anchor has no `p ≤ anchor` partition available | `unsafe_without_approval` |
+| `component-axis-unreachable` | A parent dimension is reachable from some components but not others | `modeling_decision` |
 | `component-axis-field-mismatch` | Same parent dimension resolves to different semantic field ids across components | `modeling_decision` |
-| `component-version-mismatch` | Same versioned dataset has different mode / anchor / resolved partition across components | `modeling_decision` |
+| `component-version-mismatch` | Same versioned dataset has different mode / anchor / resolved partition / mapping digest across components | `modeling_decision` |
 | `nested-derived-unsupported` | Derived component's own `is_derived` is true | `modeling_decision` |
 
 `candidates` payload conventions:
 
+- `component-axis-unreachable`:
+  `{"dimension": dim_name, "missing_components": [metric_id, ...], "resolved_components": [{"metric": id, "resolved_field_id": id}, ...]}`.
 - `component-axis-field-mismatch`:
   `{"dimension": dim_name, "components": [{"metric": id, "resolved_field_id": id}, ...]}`.
 - `component-version-mismatch`:
-  `{"versioned_dataset": ds_id, "components": [{"metric": id, "mode": ..., "anchor_source": ..., "anchor_value": ..., "resolved_partition_or_predicate": ...}, ...]}`.
+  `{"versioned_dataset": ds_id, "components": [{"metric": id, "mode": ..., "anchor_source": ..., "anchor_value": ..., "resolved_partition_or_predicate": ..., "mapping_digest": ...}, ...]}`.
 - `snapshot-partition-missing`:
   `{"dataset": ds_id, "missing_anchors": [...], "min_available_partition": ..., "max_available_partition": ...}`.
-- `validity-metadata-invalid`:
-  `{"dataset": ds_id, "field": "valid_from"|"valid_to"|"interval"|"open_end", "reason": "..."}`.
+
+### Author-time errors
+
+Validity metadata problems are caught at semantic load / readiness time, not
+at observe time, because `ms.validity()` author validation runs before any
+observe call. They use the Phase 1 `INVALID_DATASET_VERSIONING` error kind
+(already present in `marivo/semantic/errors.py`):
+
+| Kind | When | Repair safety |
+| --- | --- | --- |
+| `INVALID_DATASET_VERSIONING` | `ms.validity()` validation fails: `valid_from`/`valid_to` not declared as fields, `valid_from` not in `primary_key`, empty `open_end`, invalid `interval`, invalid timezone | `auto_safe` |
+
+The error `details` payload carries `{"dataset": ds_id, "field":
+"valid_from"|"valid_to"|"interval"|"open_end"|"timezone", "reason": "..."}`
+so loaders can present the same structured fix candidates that an
+observe-error would carry.
 
 ### Removed / replaced errors
 
@@ -626,10 +733,14 @@ compatibility shim is added.
 
 - `ms.validity()` rejects empty `open_end`, invalid `interval`,
   `valid_from`/`valid_to` not declared as fields, `valid_from` not in
-  primary_key.
+  primary_key, invalid timezone. Each rejection raises with kind
+  `INVALID_DATASET_VERSIONING` and a `details` payload that names the
+  offending field and reason.
 - `DatasetVersioningIR` discriminator (snapshot vs validity) round-trips
   through reader/loader.
 - Readiness blocker when versioning metadata is invalid.
+- Effective key subtracts both `valid_from` and `valid_to` when both are in
+  `primary_key`; subtracts only `valid_from` when `valid_to` is not.
 
 `tests/test_analysis_observe_planner_phase2.py` — narrow planner units:
 
@@ -640,11 +751,17 @@ compatibility shim is added.
 - Validity `_effective_key` subtracts `valid_from`; relationship safety
   classification flips from `unknown` (pre-fix) to `many_to_one` after the
   effective key collapses to user_id.
+- Axis reachability: a parent dimension reachable from one component but not
+  another raises `component-axis-unreachable` with `missing_components` and
+  `resolved_components` populated.
 - Axis comparability: components resolving same dimension name to different
   semantic field ids raises `component-axis-field-mismatch` with structured
   candidates.
 - Version comparability: components mixing `latest` and `as_of_root_time`
-  against the same dataset raises `component-version-mismatch`.
+  against the same dataset raises `component-version-mismatch`. Two
+  components both using `as_of_root_time` but with different
+  anchor-to-partition mappings (different root anchor sets) also raise
+  `component-version-mismatch` keyed on `mapping_digest`.
 - Snapshot `as_of_root_time` mapping: missing anchor raises
   `snapshot-partition-missing` with the missing list.
 - Validity `latest` and `as_of_root_time` produce expected predicates for
@@ -709,9 +826,11 @@ compatibility shim is added.
   `marivo-skills/marivo-analysis/references/cheatsheet.md`,
   `marivo-skills/marivo-analysis/references/pitfalls.md`:
   - public observe surface unchanged.
-  - new repair codes: `component-axis-field-mismatch`,
-    `component-version-mismatch`, `snapshot-partition-missing`,
-    `validity-metadata-invalid`, `nested-derived-unsupported`.
+  - new repair codes: `component-axis-unreachable`,
+    `component-axis-field-mismatch`, `component-version-mismatch`,
+    `snapshot-partition-missing`, `nested-derived-unsupported`. Validity
+    metadata problems are author-time `INVALID_DATASET_VERSIONING` errors,
+    not observe errors.
   - call out that derived components can be multi-dataset and span
     datasources at the component boundary.
 - `marivo-skills/marivo-semantic/SKILL.md`:
