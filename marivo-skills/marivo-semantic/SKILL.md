@@ -375,6 +375,12 @@ How is this value computed?
   shapes. The JSON catalog is the canonical error-to-hint/example map.
 - Base metrics must declare `additivity`. Multi-dataset base metrics must also
   declare `root_dataset`; single-dataset base metrics may omit it.
+- Optional `fanout_policy="block" | "aggregate_then_join"` on `@ms.metric`
+  controls how unsafe one-to-many traversal is handled. Default `"block"` rejects
+  unsafe edges with a repair payload listing both `set_metric_root` and
+  `set_fanout_policy`. `"aggregate_then_join"` reduces the unsafe-side dataset to
+  the merge grain before the join; requires `additivity in {"additive",
+  "semi_additive"}` and is rejected on derived metrics.
 - Dataset references a datasource that has no `.marivo/datasource/*.py`
   declaration. The loader reports a `missing_dataset_ref` error.
   Runnable reference:

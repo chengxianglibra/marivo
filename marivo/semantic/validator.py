@@ -801,6 +801,56 @@ def assembly_validate(
                 )
             )
 
+    # -- Validate metric fanout_policy --------------------------------------
+    for m_id, m_ir in registry.metrics.items():
+        policy = getattr(m_ir, "fanout_policy", "block")
+        if policy not in {"block", "aggregate_then_join"}:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_METRIC_FANOUT_POLICY,
+                    message=(
+                        f"Metric {m_id!r} fanout_policy {policy!r} must be "
+                        "'block' or 'aggregate_then_join'."
+                    ),
+                    refs=(m_id,),
+                    details={"metric": m_id, "fanout_policy": policy},
+                )
+            )
+            continue
+        if m_ir.is_derived and policy != "block":
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.DERIVED_METRIC_FANOUT_POLICY,
+                    message=(
+                        f"Derived metric {m_id!r} must keep fanout_policy='block'; "
+                        "fan-out is authored on the component metrics."
+                    ),
+                    refs=(m_id,),
+                    details={"metric": m_id, "fanout_policy": policy},
+                )
+            )
+            continue
+        if (
+            policy == "aggregate_then_join"
+            and not m_ir.is_derived
+            and m_ir.additivity not in {"additive", "semi_additive"}
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_METRIC_FANOUT_POLICY,
+                    message=(
+                        f"Metric {m_id!r} fanout_policy='aggregate_then_join' "
+                        "requires additivity in {'additive', 'semi_additive'}."
+                    ),
+                    refs=(m_id,),
+                    details={
+                        "metric": m_id,
+                        "fanout_policy": policy,
+                        "additivity": m_ir.additivity,
+                    },
+                )
+            )
+
     # -- Validate root-only aggregates for multi-dataset base metrics ----------
     for m_id, m_ir in registry.metrics.items():
         if m_ir.is_derived:

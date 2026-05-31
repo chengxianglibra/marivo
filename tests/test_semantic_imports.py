@@ -279,6 +279,8 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "invalid_metric_root_dataset",
     "invalid_dataset_versioning",
     "non_root_metric_aggregate",
+    "invalid_metric_fanout_policy",
+    "derived_metric_fanout_policy",
 }
 
 _EXPECTED_RUNTIME_KINDS = {

@@ -670,6 +670,7 @@ def metric(
     datasets: list[DatasetRef | str] | None = None,
     root_dataset: DatasetRef | str | None = None,
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None,
+    fanout_policy: Literal["block", "aggregate_then_join"] = "block",
     decomposition: DecompositionBuilder,
     source_sql: str | None = None,
     source_dialect: str | None = None,
@@ -785,6 +786,7 @@ def metric(
             location=location,
             additivity=additivity,
             root_dataset=resolved_root_ref,
+            fanout_policy=fanout_policy,
         )
 
         # For derived metrics, execute the function body with
