@@ -17,6 +17,7 @@ from marivo.analysis.calendar.model import (
     CalendarInfo,
     CalendarPolicy,
 )
+from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.errors import AlignmentFailedError, CalendarPolicyError
 
 
@@ -172,12 +173,7 @@ def align_calendar_frames(
                 "baseline",
             ]
         )
-    result["delta"] = result["current"] - result["baseline"]
-    result["pct_change"] = np.where(
-        result["baseline"] != 0,
-        result["delta"] / result["baseline"],
-        np.nan,
-    )
+    result = compute_delta_columns(result)
 
     info = CalendarInfo(
         calendar_name=calendar.name,

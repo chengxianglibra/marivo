@@ -15,6 +15,7 @@ import pandas as pd
 
 from marivo.analysis.calendar.align import _local_dates, align_calendar_frames
 from marivo.analysis.calendar.model import CalendarPolicy
+from marivo.analysis.delta_math import PCT_CHANGE_STATUS_COLUMN, compute_delta_columns
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyNotApplicableError,
@@ -292,7 +293,15 @@ def _aligned_key_columns(aligned: pd.DataFrame) -> list[str]:
     return [
         str(column)
         for column in aligned.columns
-        if str(column) not in {PRESENCE_STATUS_COLUMN, "current", "baseline", "delta", "pct_change"}
+        if str(column)
+        not in {
+            PRESENCE_STATUS_COLUMN,
+            "current",
+            "baseline",
+            "delta",
+            "pct_change",
+            PCT_CHANGE_STATUS_COLUMN,
+        }
     ]
 
 
@@ -909,14 +918,9 @@ def _compute_delta_columns(df: pd.DataFrame) -> pd.DataFrame:
         )
         df["current"] = df["current"].mask(df[PRESENCE_STATUS_COLUMN] == "churned", 0.0)
         df["baseline"] = df["baseline"].mask(df[PRESENCE_STATUS_COLUMN] == "new", 0.0)
-    df["delta"] = current_for_delta - baseline_for_delta
-    baseline = df["baseline"]
-    df["pct_change"] = np.where(
-        baseline.notna() & (baseline != 0),
-        df["delta"] / baseline,
-        np.nan,
-    )
-    return df
+    df["current"] = current_for_delta
+    df["baseline"] = baseline_for_delta
+    return compute_delta_columns(df)
 
 
 def _align_prepared_window_bucket(
@@ -972,7 +976,14 @@ def _align_prepared_window_bucket(
                 )
             rows.append(row)
         result = _compute_delta_columns(pd.DataFrame(rows))
-        result_columns = [time_column, "current", "baseline", "delta", "pct_change"]
+        result_columns = [
+            time_column,
+            "current",
+            "baseline",
+            "delta",
+            "pct_change",
+            PCT_CHANGE_STATUS_COLUMN,
+        ]
         if track_presence_status:
             result_columns.insert(1, PRESENCE_STATUS_COLUMN)
         return result[result_columns], None
@@ -1032,7 +1043,15 @@ def _align_prepared_window_bucket(
             "missing_buckets": len(baseline_buckets) - baseline_present,
         },
     }
-    result_columns = [time_column, f"{time_column}_b", "current", "baseline", "delta", "pct_change"]
+    result_columns = [
+        time_column,
+        f"{time_column}_b",
+        "current",
+        "baseline",
+        "delta",
+        "pct_change",
+        PCT_CHANGE_STATUS_COLUMN,
+    ]
     if track_presence_status:
         result_columns.insert(2, PRESENCE_STATUS_COLUMN)
     return result[result_columns], coverage
@@ -1158,6 +1177,7 @@ def _align_segmented(a: MetricFrame, b: MetricFrame) -> tuple[pd.DataFrame, dict
         "baseline",
         "delta",
         "pct_change",
+        PCT_CHANGE_STATUS_COLUMN,
     ]
     result = merged[result_columns]
     segment_info = {
@@ -1309,6 +1329,7 @@ def _align_panel(
                 "baseline",
                 "delta",
                 "pct_change",
+                PCT_CHANGE_STATUS_COLUMN,
             ]
         )
 
@@ -1326,6 +1347,7 @@ def _align_panel(
                 "baseline",
                 "delta",
                 "pct_change",
+                PCT_CHANGE_STATUS_COLUMN,
             ]
         ]
         sort_columns = [*dim_columns, time_column]
@@ -1546,14 +1568,14 @@ def _align_and_compute(a_df: pd.DataFrame, b_df: pd.DataFrame) -> pd.DataFrame:
         )
     current = merged[value_cols_a[0]].to_numpy()
     baseline = merged[value_cols_b[0]].to_numpy()
-    return pd.DataFrame(
-        {
-            key: merged[key],
-            "current": current,
-            "baseline": baseline,
-            "delta": current - baseline,
-            "pct_change": np.where(baseline != 0, (current - baseline) / baseline, np.nan),
-        }
+    return compute_delta_columns(
+        pd.DataFrame(
+            {
+                key: merged[key],
+                "current": current,
+                "baseline": baseline,
+            }
+        )
     )
 
 
@@ -1590,16 +1612,15 @@ def _ordinal_bucket_align(a_df: pd.DataFrame, b_df: pd.DataFrame, *, key: str) -
     b_sorted = b_df.sort_values(key).reset_index(drop=True)
     current = pd.to_numeric(a_sorted[value_cols_a[0]], errors="coerce")
     baseline = pd.to_numeric(b_sorted[value_cols_b[0]], errors="coerce")
-    delta = current - baseline
-    return pd.DataFrame(
-        {
-            key: a_sorted[key],
-            f"{key}_b": b_sorted[key],
-            "current": current,
-            "baseline": baseline,
-            "delta": delta,
-            "pct_change": np.where(baseline != 0, delta / baseline, np.nan),
-        }
+    return compute_delta_columns(
+        pd.DataFrame(
+            {
+                key: a_sorted[key],
+                f"{key}_b": b_sorted[key],
+                "current": current,
+                "baseline": baseline,
+            }
+        )
     )
 
 
@@ -1616,14 +1637,7 @@ def _sample_align(a_df: pd.DataFrame, b_df: pd.DataFrame) -> pd.DataFrame:
     n = min(len(a_df), len(b_df))
     current = a_df.reset_index(drop=True).iloc[:n, 0].to_numpy()
     baseline = b_df.reset_index(drop=True).iloc[:n, 0].to_numpy()
-    return pd.DataFrame(
-        {
-            "current": current,
-            "baseline": baseline,
-            "delta": current - baseline,
-            "pct_change": np.where(baseline != 0, (current - baseline) / baseline, np.nan),
-        }
-    )
+    return compute_delta_columns(pd.DataFrame({"current": current, "baseline": baseline}))
 
 
 def _scope_for_window(frame: MetricFrame) -> dict[str, Any] | None:

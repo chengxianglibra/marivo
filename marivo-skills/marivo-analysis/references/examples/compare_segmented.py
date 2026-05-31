@@ -32,4 +32,4 @@ print(delta.summary())
 # Expected output:
 # kind='delta_frame'
 # semantic_kind='segmented'
-# columns=['region', 'presence_status', 'current', 'baseline', 'delta', 'pct_change']
+# columns=['region', 'presence_status', 'current', 'baseline', 'delta', 'pct_change', 'pct_change_status']

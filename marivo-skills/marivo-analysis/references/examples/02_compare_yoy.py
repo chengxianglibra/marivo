@@ -3,7 +3,7 @@
 When to use: you need the current value, prior-year baseline, absolute delta,
 and percent change for the same metric over matching calendar windows.
 Output shape: a DeltaFrame with one row containing current, baseline, delta,
-and pct_change columns.
+pct_change, and pct_change_status columns.
 """
 
 from __future__ import annotations
@@ -33,4 +33,4 @@ print(f"columns={summary.columns!r}")
 # Expected output:
 # kind='delta_frame'
 # row_count=1
-# columns=['current', 'baseline', 'delta', 'pct_change']
+# columns=['current', 'baseline', 'delta', 'pct_change', 'pct_change_status']

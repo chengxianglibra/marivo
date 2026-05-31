@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -398,7 +399,7 @@ def test_nearest_prior_workday_fallback_marks_quality_and_counts_rows():
     }
 
 
-def test_pct_change_is_nan_when_baseline_is_zero():
+def test_pct_change_marks_from_zero_growth():
     a = pd.DataFrame({"bucket_start": ["2026-05-05"], "value": [100.0]})
     b = pd.DataFrame({"bucket_start": ["2026-04-07"], "value": [0.0]})
     policy = CalendarPolicy(mode="dow_aligned", align_period="month")
@@ -414,7 +415,29 @@ def test_pct_change_is_nan_when_baseline_is_zero():
     )
 
     assert len(aligned) == 1
-    assert pd.isna(aligned.iloc[0]["pct_change"])
+    assert aligned.iloc[0]["pct_change"] == np.inf
+    assert aligned.iloc[0]["pct_change_status"] == "from_zero_growth"
+
+
+def test_pct_change_uses_absolute_negative_baseline_for_calendar_alignment():
+    a = pd.DataFrame({"bucket_start": ["2026-05-05"], "value": [-50.0]})
+    b = pd.DataFrame({"bucket_start": ["2026-04-07"], "value": [-100.0]})
+    policy = CalendarPolicy(mode="dow_aligned", align_period="month")
+
+    aligned, _info = align_calendar_frames(
+        a,
+        b,
+        time_column="bucket_start",
+        value_column="value",
+        calendar=_calendar(),
+        policy=policy,
+        session_tz="Asia/Shanghai",
+    )
+
+    assert len(aligned) == 1
+    assert aligned.iloc[0]["delta"] == pytest.approx(50.0)
+    assert aligned.iloc[0]["pct_change"] == pytest.approx(0.5)
+    assert aligned.iloc[0]["pct_change_status"] == "computed"
 
 
 def test_rejects_multi_period_frame():

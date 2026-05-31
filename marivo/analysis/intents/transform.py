@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 
+from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.errors import (
     CrossSessionFrameError,
     TransformArgError,
@@ -596,16 +597,9 @@ def _rollup_measure_columns(
 
 
 def _recompute_delta_pct_change(df: pd.DataFrame) -> None:
-    if "current" in df.columns and "baseline" in df.columns:
-        df["delta"] = df["current"] - df["baseline"]
-    if "delta" not in df.columns or "baseline" not in df.columns:
+    if "current" not in df.columns or "baseline" not in df.columns:
         return
-    baseline = df["baseline"]
-    df["pct_change"] = np.where(
-        baseline.notna() & (baseline != 0),
-        df["delta"] / baseline,
-        np.nan,
-    )
+    compute_delta_columns(df)
 
 
 def _primary_normalize_column(frame: TransformFrame, df: pd.DataFrame) -> str:

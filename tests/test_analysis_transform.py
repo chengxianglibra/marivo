@@ -205,6 +205,7 @@ def _make_topk_delta_time_series() -> DeltaFrame:
             "baseline": [7.0, 13.0, 17.0, np.nan],
             "delta": [3.0, -1.0, 8.0, np.nan],
             "pct_change": [3.0 / 7.0, -1.0 / 13.0, 8.0 / 17.0, np.nan],
+            "pct_change_status": ["computed", "computed", "computed", "not_computable"],
         }
     )
     axes = {
@@ -336,6 +337,7 @@ def _make_one_sided_delta_panel() -> DeltaFrame:
             "baseline": [np.nan, 5.0],
             "delta": [np.nan, np.nan],
             "pct_change": [np.nan, np.nan],
+            "pct_change_status": ["not_computable", "not_computable"],
         }
     )
     axes = {
@@ -1238,19 +1240,17 @@ def test_transform_rollup_delta_panel_drops_dim_and_recomputes_pct_change(tmp_pa
     assert "bucket_start" in df.columns
     assert "country" not in df.columns
     assert "pct_change" in df.columns
+    assert "pct_change_status" in df.columns
 
     raw = frame.to_pandas()
     expected = raw.groupby("bucket_start", as_index=False)[["current", "baseline", "delta"]].sum(
         min_count=1
     )
     expected["delta"] = expected["current"] - expected["baseline"]
-    expected["pct_change"] = np.where(
-        expected["baseline"].notna() & (expected["baseline"] != 0),
-        expected["delta"] / expected["baseline"],
-        np.nan,
-    )
+    expected["pct_change"] = expected["delta"] / expected["baseline"].abs()
     np.testing.assert_allclose(df["delta"], expected["delta"])
     np.testing.assert_allclose(df["pct_change"], expected["pct_change"])
+    assert df["pct_change_status"].tolist() == ["computed", "computed", "not_computable"]
 
 
 def test_transform_rollup_delta_recomputes_delta_from_current_and_baseline(tmp_path):
