@@ -64,6 +64,12 @@ print(frame.summary())   # cheap next-step summary; repr shows next_intents
 Every intent returns a typed, immutable frame. Stay in frame world until you
 call `frame.to_pandas()`. Prefer `frame.summary()` before printing full data.
 
+`AlignmentPolicy(kind="window_bucket")` compares time-series and panel windows
+by ordinal bucket position by default. Use
+`AlignmentPolicy(kind="window_bucket", mode="calendar_bucket")` only when the
+same absolute bucket key should be treated as the same row. Use
+`strict_lengths=True` only when unequal window bucket counts must fail.
+
 ## Derived ratio and weighted-average components
 
 Derived ratio and weighted-average observations keep parent frames clean:
@@ -82,7 +88,8 @@ DeltaFrame also supports `delta.components()`. For segmented, time-series, or
 panel ratio/weighted-average deltas, `session.decompose(delta, axis=...)` emits
 value and mix effects with method `ratio_mix` or `weighted_mix`. Time-series
 deltas decompose by `bucket_start`; panel deltas decompose by the requested
-dimension within each bucket.
+dimension within each bucket. Ordinal window-bucket deltas include
+`bucket_start_b` for the baseline bucket paired to each current bucket.
 
 ## Evidence surfaces
 

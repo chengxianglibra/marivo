@@ -19,6 +19,7 @@ AlignmentKind = Literal[
     "holiday_aligned",
     "holiday_and_dow_aligned",
 ]
+WindowBucketMode = Literal["ordinal_bucket", "calendar_bucket"]
 
 
 class AlignmentPolicy(BaseModel):
@@ -28,6 +29,8 @@ class AlignmentPolicy(BaseModel):
     calendar: CalendarRef | None = None
     period: AlignPeriod = "month"
     fallback: CalendarFallback = "drop"
+    mode: WindowBucketMode = "ordinal_bucket"
+    strict_lengths: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -41,6 +44,23 @@ class AlignmentPolicy(BaseModel):
 
     @model_validator(mode="after")
     def validate_calendar_ref(self) -> AlignmentPolicy:
+        if self.kind != "window_bucket" and self.mode != "ordinal_bucket":
+            raise AlignmentPolicyValidationError(
+                message="calendar-backed alignment does not accept window_bucket mode",
+                details={
+                    "case": "window_bucket_mode_not_applicable",
+                    "kind": self.kind,
+                    "mode": self.mode,
+                },
+            )
+        if self.kind != "window_bucket" and self.strict_lengths:
+            raise AlignmentPolicyValidationError(
+                message="calendar-backed alignment does not accept strict_lengths",
+                details={
+                    "case": "window_bucket_strict_lengths_not_applicable",
+                    "kind": self.kind,
+                },
+            )
         if self.kind != "window_bucket" and self.calendar is None:
             raise AlignmentPolicyValidationError(
                 message=f"alignment kind {self.kind!r} requires calendar=CalendarRef(...)",

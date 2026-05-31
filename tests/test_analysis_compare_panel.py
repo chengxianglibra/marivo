@@ -112,13 +112,37 @@ def test_window_bucket_aligns_equal_length_panel_by_ordinal_bucket(tmp_path):
     assert delta.meta.alignment["mode"] == "ordinal_bucket"
 
 
-def test_window_bucket_panel_different_expected_counts_explains_requirement(tmp_path):
+def test_window_bucket_panel_different_expected_counts_uses_outer_ordinal_union(tmp_path):
+    s = _session(tmp_path)
+    cur = _panel(s, start="2026-07-01", end="2026-07-02")
+    prev = _panel(s, start="2026-06-24", end="2026-06-24")
+
+    delta = compare(cur, prev, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    df = delta.to_pandas()
+    north = df[df["region"] == "NORTH"].sort_values("bucket_start").reset_index(drop=True)
+    assert len(north) == 2
+    assert list(north["bucket_start"].astype(str)) == ["2026-07-01", "2026-07-02"]
+    assert str(north.iloc[0]["bucket_start_b"]) == "2026-06-24"
+    assert pd.isna(north.iloc[1]["bucket_start_b"])
+    assert north.iloc[1]["presence_status"] == "new"
+    assert north.iloc[1]["baseline"] == pytest.approx(0.0)
+    assert delta.meta.alignment["coverage"]["current_unpaired_buckets"] == 2
+    assert delta.meta.alignment["coverage"]["baseline_unpaired_buckets"] == 0
+
+
+def test_window_bucket_panel_strict_lengths_rejects_different_expected_counts(tmp_path):
     s = _session(tmp_path)
     cur = _panel(s, start="2026-07-01", end="2026-07-02")
     prev = _panel(s, start="2026-06-24", end="2026-06-24")
 
     with pytest.raises(AlignmentFailedError) as exc_info:
-        compare(cur, prev, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+        compare(
+            cur,
+            prev,
+            alignment=AlignmentPolicy(kind="window_bucket", strict_lengths=True),
+            session=s,
+        )
 
     assert "equal expected bucket counts" in str(exc_info.value)
     assert exc_info.value.details["kind"] == "WindowBucketExpectedCountMismatch"
@@ -329,15 +353,15 @@ def test_compare_panel_window_bucket(tmp_path):
     out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
     assert out.meta.semantic_kind == "panel"
-    assert out.meta.alignment["segment_info"] == {
-        "segment_count": 2,
-        "a_only_segments_count": 0,
-        "b_only_segments_count": 0,
-    }
+    assert out.meta.alignment["segment_info"]["segment_count"] == 2
+    assert out.meta.alignment["segment_info"]["a_only_segments_count"] == 0
+    assert out.meta.alignment["segment_info"]["b_only_segments_count"] == 0
+    assert out.meta.alignment["segment_info"]["coverage"]["paired_buckets"] == 6
     assert out.meta.alignment["axes"] == current.meta.axes
     df = out.to_pandas()
     assert list(df.columns) == [
         "bucket_start",
+        "bucket_start_b",
         "region",
         "presence_status",
         "current",
@@ -349,9 +373,10 @@ def test_compare_panel_window_bucket(tmp_path):
     by_key = {(str(row.bucket_start), row.region): row for row in df.itertuples()}
     assert by_key[("2026-07-01", "NORTH")].delta == pytest.approx(0.0)
     assert by_key[("2026-07-02", "SOUTH")].delta == pytest.approx(0.0)
+    assert out.meta.alignment["mode"] == "ordinal_bucket"
 
 
-def test_compare_panel_window_bucket_outer_joins_bucket_keys():
+def test_compare_panel_window_bucket_calendar_mode_outer_joins_bucket_keys():
     s = session_attach.get_or_create(name="demo")
     current = _panel_metric(
         s,
@@ -368,7 +393,12 @@ def test_compare_panel_window_bucket_outer_joins_bucket_keys():
         ],
     )
 
-    out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+    out = compare(
+        current,
+        baseline,
+        alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+        session=s,
+    )
 
     df = out.to_pandas()
     assert list(df.columns) == [
@@ -397,6 +427,7 @@ def test_compare_panel_window_bucket_outer_joins_bucket_keys():
     assert by_bucket["2026-07-03"].delta == pytest.approx(30.0)
     assert by_bucket["2026-07-03"].pct_change == float("inf")
     assert by_bucket["2026-07-03"].pct_change_status == "from_zero_growth"
+    assert out.meta.alignment["mode"] == "calendar_bucket"
 
 
 def test_compare_panel_calendar_alignment_one_sided_segment_has_consistent_columns(tmp_path):

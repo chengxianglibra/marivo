@@ -151,7 +151,7 @@ def test_help_alignment_prints_variants() -> None:
     assert "holiday_and_dow_aligned" in out
     assert "calendar=" in out
     assert "no separate kind='ordinal'" in out
-    assert "align by ordinal position" in out
+    assert "align by ordinal bucket position" in out
     assert "Calendar alignment output columns" in out
     assert "period_week_offset" in out
     assert "holiday_ordinal" in out

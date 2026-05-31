@@ -247,7 +247,11 @@ def _align_component_role(
         return aligned
     if current_role.meta.semantic_kind == "time_series":
         if alignment.kind == "window_bucket":
-            aligned, _window_info = _align_time_series_window_bucket(current_role, baseline_role)
+            aligned, _window_info = _align_time_series_window_bucket(
+                current_role,
+                baseline_role,
+                alignment=alignment,
+            )
             return aligned
         calendar_ref = alignment.calendar
         if not isinstance(calendar_ref, CalendarRef):
@@ -491,7 +495,11 @@ def compare(
     elif alignment.kind == "window_bucket":
         if current.meta.semantic_kind == "time_series":
             _require_matching_time_series_bucket_grain(current, baseline)
-            df, window_info = _align_time_series_window_bucket(current, baseline)
+            df, window_info = _align_time_series_window_bucket(
+                current,
+                baseline,
+                alignment=alignment,
+            )
         else:
             current_df = current.to_pandas()
             baseline_df = baseline.to_pandas()
@@ -562,7 +570,6 @@ def compare(
     job_ref = _gen_ref("job")
     alignment_dump = alignment.model_dump(mode="json")
     if alignment.kind == "window_bucket" and "bucket_start_b" in df.columns:
-        alignment_dump["mode"] = "ordinal_bucket"
         alignment_dump["baseline_bucket_column"] = "bucket_start_b"
     if calendar_info is not None:
         alignment_dump["calendar_info"] = calendar_info
@@ -936,74 +943,58 @@ def _compute_delta_columns(df: pd.DataFrame) -> pd.DataFrame:
     return compute_delta_columns(df)
 
 
-def _align_prepared_window_bucket(
-    a_prepared: pd.DataFrame,
-    b_prepared: pd.DataFrame,
+def _align_calendar_window_bucket(
+    a_values: dict[str, tuple[object, object]],
+    b_values: dict[str, tuple[object, object]],
     *,
     time_column: str,
-    a_value_column: str,
-    b_value_column: str,
+    track_presence_status: bool,
+) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for key in sorted(set(a_values) | set(b_values)):
+        has_current = key in a_values
+        has_baseline = key in b_values
+        a_time, current_value = a_values.get(key, (None, np.nan))
+        b_time, baseline_value = b_values.get(key, (None, np.nan))
+        row = {
+            time_column: a_time if a_time is not None else b_time,
+            "current": current_value,
+            "baseline": baseline_value,
+        }
+        if track_presence_status:
+            row[PRESENCE_STATUS_COLUMN] = _presence_status(
+                has_current=has_current,
+                has_baseline=has_baseline,
+            )
+        rows.append(row)
+    result = _compute_delta_columns(pd.DataFrame(rows))
+    result_columns = [
+        time_column,
+        "current",
+        "baseline",
+        "delta",
+        "pct_change",
+        PCT_CHANGE_STATUS_COLUMN,
+    ]
+    if track_presence_status:
+        result_columns.insert(1, PRESENCE_STATUS_COLUMN)
+    return result[result_columns]
+
+
+def _align_ordinal_window_bucket(
+    a_values: dict[str, tuple[object, object]],
+    b_values: dict[str, tuple[object, object]],
+    *,
+    time_column: str,
+    grain: str,
     current_frame: MetricFrame,
     baseline_frame: MetricFrame,
-    track_presence_status: bool = False,
-) -> tuple[pd.DataFrame, dict[str, Any] | None]:
-    grain = _panel_grain(current_frame)
-    if grain != _panel_grain(baseline_frame) or not isinstance(grain, str):
-        raise AlignmentFailedError(
-            message="window_bucket ordinal alignment requires same-grain windows",
-            details={
-                "kind": "WindowBucketGrainMismatch",
-                "current_grain": grain,
-                "baseline_grain": _panel_grain(baseline_frame),
-            },
-        )
-    a_values = _prepared_value_map(
-        a_prepared,
-        time_column=time_column,
-        value_column=a_value_column,
-        grain=grain,
-    )
-    b_values = _prepared_value_map(
-        b_prepared,
-        time_column=time_column,
-        value_column=b_value_column,
-        grain=grain,
-    )
-    shared_keys = set(a_values) & set(b_values)
-    if shared_keys:
-        rows: list[dict[str, object]] = []
-        for key in sorted(set(a_values) | set(b_values)):
-            has_current = key in a_values
-            has_baseline = key in b_values
-            a_time, current_value = a_values.get(key, (None, np.nan))
-            b_time, baseline_value = b_values.get(key, (None, np.nan))
-            row = {
-                time_column: a_time if a_time is not None else b_time,
-                "current": current_value,
-                "baseline": baseline_value,
-            }
-            if track_presence_status:
-                row[PRESENCE_STATUS_COLUMN] = _presence_status(
-                    has_current=has_current,
-                    has_baseline=has_baseline,
-                )
-            rows.append(row)
-        result = _compute_delta_columns(pd.DataFrame(rows))
-        result_columns = [
-            time_column,
-            "current",
-            "baseline",
-            "delta",
-            "pct_change",
-            PCT_CHANGE_STATUS_COLUMN,
-        ]
-        if track_presence_status:
-            result_columns.insert(1, PRESENCE_STATUS_COLUMN)
-        return result[result_columns], None
-
+    track_presence_status: bool,
+    strict_lengths: bool,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     current_buckets = _window_bucket_values(current_frame)
     baseline_buckets = _window_bucket_values(baseline_frame)
-    if len(current_buckets) != len(baseline_buckets):
+    if strict_lengths and len(current_buckets) != len(baseline_buckets):
         raise AlignmentFailedError(
             message=(
                 "window_bucket ordinal alignment requires equal expected bucket counts; "
@@ -1017,16 +1008,25 @@ def _align_prepared_window_bucket(
             },
         )
 
-    rows = []
+    rows: list[dict[str, object]] = []
     current_present = 0
     baseline_present = 0
-    for current_bucket, baseline_bucket in zip(current_buckets, baseline_buckets, strict=True):
-        current_key = _bucket_key(current_bucket, grain=grain)
-        baseline_key = _bucket_key(baseline_bucket, grain=grain)
-        current_value = a_values.get(current_key, (None, np.nan))[1]
-        baseline_value = b_values.get(baseline_key, (None, np.nan))[1]
-        has_current = current_key in a_values
-        has_baseline = baseline_key in b_values
+    paired_buckets = min(len(current_buckets), len(baseline_buckets))
+    for ordinal in range(max(len(current_buckets), len(baseline_buckets))):
+        current_bucket = current_buckets[ordinal] if ordinal < len(current_buckets) else pd.NaT
+        baseline_bucket = baseline_buckets[ordinal] if ordinal < len(baseline_buckets) else pd.NaT
+        current_key = (
+            "" if pd.isna(cast("Any", current_bucket)) else _bucket_key(current_bucket, grain=grain)
+        )
+        baseline_key = (
+            ""
+            if pd.isna(cast("Any", baseline_bucket))
+            else _bucket_key(baseline_bucket, grain=grain)
+        )
+        current_value = a_values.get(current_key, (None, np.nan))[1] if current_key else np.nan
+        baseline_value = b_values.get(baseline_key, (None, np.nan))[1] if baseline_key else np.nan
+        has_current = current_key in a_values if current_key else False
+        has_baseline = baseline_key in b_values if baseline_key else False
         if not pd.isna(cast("Any", current_value)):
             current_present += 1
         if not pd.isna(cast("Any", baseline_value)):
@@ -1055,6 +1055,9 @@ def _align_prepared_window_bucket(
             "present_buckets": baseline_present,
             "missing_buckets": len(baseline_buckets) - baseline_present,
         },
+        "paired_buckets": paired_buckets,
+        "current_unpaired_buckets": max(len(current_buckets) - len(baseline_buckets), 0),
+        "baseline_unpaired_buckets": max(len(baseline_buckets) - len(current_buckets), 0),
     }
     result_columns = [
         time_column,
@@ -1070,6 +1073,62 @@ def _align_prepared_window_bucket(
     return result[result_columns], coverage
 
 
+def _align_prepared_window_bucket(
+    a_prepared: pd.DataFrame,
+    b_prepared: pd.DataFrame,
+    *,
+    time_column: str,
+    a_value_column: str,
+    b_value_column: str,
+    current_frame: MetricFrame,
+    baseline_frame: MetricFrame,
+    alignment: AlignmentPolicy,
+    track_presence_status: bool = False,
+) -> tuple[pd.DataFrame, dict[str, Any] | None]:
+    grain = _panel_grain(current_frame)
+    if grain != _panel_grain(baseline_frame) or not isinstance(grain, str):
+        raise AlignmentFailedError(
+            message="window_bucket ordinal alignment requires same-grain windows",
+            details={
+                "kind": "WindowBucketGrainMismatch",
+                "current_grain": grain,
+                "baseline_grain": _panel_grain(baseline_frame),
+            },
+        )
+    a_values = _prepared_value_map(
+        a_prepared,
+        time_column=time_column,
+        value_column=a_value_column,
+        grain=grain,
+    )
+    b_values = _prepared_value_map(
+        b_prepared,
+        time_column=time_column,
+        value_column=b_value_column,
+        grain=grain,
+    )
+    if alignment.mode == "calendar_bucket":
+        return (
+            _align_calendar_window_bucket(
+                a_values,
+                b_values,
+                time_column=time_column,
+                track_presence_status=track_presence_status,
+            ),
+            None,
+        )
+    return _align_ordinal_window_bucket(
+        a_values,
+        b_values,
+        time_column=time_column,
+        grain=grain,
+        current_frame=current_frame,
+        baseline_frame=baseline_frame,
+        track_presence_status=track_presence_status,
+        strict_lengths=alignment.strict_lengths,
+    )
+
+
 def _aggregate_window_info(infos: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not infos:
         return None
@@ -1079,6 +1138,8 @@ def _aggregate_window_info(infos: list[dict[str, Any]]) -> dict[str, Any] | None
             field: sum(int(info.get(side, {}).get(field, 0)) for info in infos)
             for field in ("expected_buckets", "present_buckets", "missing_buckets")
         }
+    for field in ("paired_buckets", "current_unpaired_buckets", "baseline_unpaired_buckets"):
+        result[field] = sum(int(info.get(field, 0)) for info in infos)
     return result
 
 
@@ -1266,6 +1327,7 @@ def _align_panel(
                     b_value_column=b_value,
                     current_frame=a,
                     baseline_frame=b,
+                    alignment=alignment,
                 )
                 if window_info_piece is not None:
                     window_infos.append(window_info_piece)
@@ -1288,6 +1350,7 @@ def _align_panel(
                     b_value_column=b_value,
                     current_frame=a,
                     baseline_frame=b,
+                    alignment=alignment,
                 )
                 if window_info_piece is not None:
                     window_infos.append(window_info_piece)
@@ -1309,6 +1372,7 @@ def _align_panel(
                 b_value_column=b_value,
                 current_frame=a,
                 baseline_frame=b,
+                alignment=alignment,
             )
             if window_info_piece is not None:
                 window_infos.append(window_info_piece)
@@ -1444,6 +1508,7 @@ def _align_panel_window_bucket(
     b_value_column: str,
     current_frame: MetricFrame,
     baseline_frame: MetricFrame,
+    alignment: AlignmentPolicy,
 ) -> tuple[pd.DataFrame, dict[str, Any] | None]:
     a_prepared = (
         a_df[[time_column, a_value_column]]
@@ -1465,6 +1530,7 @@ def _align_panel_window_bucket(
         b_value_column="baseline",
         current_frame=current_frame,
         baseline_frame=baseline_frame,
+        alignment=alignment,
         track_presence_status=True,
     )
 
@@ -1527,6 +1593,8 @@ def _require_calendar_columns(
 def _align_time_series_window_bucket(
     a: MetricFrame,
     b: MetricFrame,
+    *,
+    alignment: AlignmentPolicy,
 ) -> tuple[pd.DataFrame, dict[str, Any] | None]:
     time_column = _time_axis_column(a)
     b_time_column = _time_axis_column(b)
@@ -1563,6 +1631,7 @@ def _align_time_series_window_bucket(
         b_value_column="baseline",
         current_frame=a,
         baseline_frame=b,
+        alignment=alignment,
     )
 
 
@@ -1639,10 +1708,9 @@ def _ordinal_bucket_align(a_df: pd.DataFrame, b_df: pd.DataFrame, *, key: str) -
 
 def _window_bucket_unequal_length_message(*, current_rows: int, baseline_rows: int) -> str:
     return (
-        "window_bucket alignment requires shared bucket_start values or "
-        "equal-length same-grain windows for ordinal bucket alignment; "
+        "window_bucket alignment requires equal-length rows for generic ordinal alignment; "
         f"current has {current_rows} rows, baseline has {baseline_rows} rows; "
-        "equal-length windows are required for ordinal bucket alignment"
+        "use time_series or panel MetricFrames for non-strict ordinal window bucket alignment"
     )
 
 

@@ -102,6 +102,11 @@ def hypothesis_test(
             message="test v1 only supports window_bucket alignment",
             details={"alignment": alignment.model_dump(mode="json")},
         )
+    if alignment.mode != "ordinal_bucket" or alignment.strict_lengths:
+        raise TestPolicyError(
+            message="test v1 only supports default window_bucket alignment",
+            details={"alignment": alignment.model_dump(mode="json")},
+        )
     if a.meta.semantic_kind != b.meta.semantic_kind:
         raise SemanticKindMismatchError(
             message="test requires matching semantic_kind",

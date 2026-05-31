@@ -34,4 +34,4 @@ print(delta.summary())
 # Expected output:
 # kind='delta_frame'
 # semantic_kind='panel'
-# columns=['bucket_start', 'region', 'presence_status', 'current', 'baseline', 'delta', 'pct_change', 'pct_change_status']
+# columns=['bucket_start', 'bucket_start_b', 'region', 'presence_status', 'current', 'baseline', 'delta', 'pct_change', 'pct_change_status']

@@ -8,6 +8,7 @@ import pytest
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import (
     AlignmentFailedError,
+    AlignmentPolicyValidationError,
     ComponentFrameUnavailableError,
     SemanticKindMismatchError,
     SessionStateError,
@@ -197,6 +198,7 @@ def test_window_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_pat
     assert list(df["bucket_start_b"].astype(str)) == ["2026-04-01", "2026-04-02"]
     assert list(df["delta"]) == [pytest.approx(5.0), pytest.approx(5.0)]
     assert delta.meta.alignment["mode"] == "ordinal_bucket"
+    assert delta.meta.alignment["strict_lengths"] is False
 
 
 def test_window_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
@@ -231,7 +233,41 @@ def test_window_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
     assert exc_info.value.details["baseline_grain"] == "hour"
 
 
-def test_window_bucket_no_overlap_different_expected_counts_explains_requirement(tmp_path):
+def test_window_bucket_no_overlap_different_expected_counts_uses_outer_ordinal_union(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+    cur = observe(
+        MetricRef("sales.revenue"),
+        timescope={"start": "2026-07-01", "end": "2026-07-02"},
+        grain="day",
+        session=s,
+    )
+    base = observe(
+        MetricRef("sales.revenue"),
+        timescope={"start": "2026-04-01", "end": "2026-04-01"},
+        grain="day",
+        session=s,
+    )
+
+    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    df = delta.to_pandas()
+    assert len(df) == 2
+    assert list(df["bucket_start"].astype(str)) == ["2026-07-01", "2026-07-02"]
+    assert str(df.iloc[0]["bucket_start_b"]) == "2026-04-01"
+    assert pd.isna(df.iloc[1]["bucket_start_b"])
+    assert df.iloc[0]["delta"] == pytest.approx(5.0)
+    assert pd.isna(df.iloc[1]["baseline"])
+    assert pd.isna(df.iloc[1]["delta"])
+    assert delta.meta.alignment["mode"] == "ordinal_bucket"
+    assert delta.meta.alignment["coverage"]["paired_buckets"] == 1
+    assert delta.meta.alignment["coverage"]["current_unpaired_buckets"] == 1
+    assert delta.meta.alignment["coverage"]["baseline_unpaired_buckets"] == 0
+
+
+def test_window_bucket_strict_lengths_rejects_different_expected_counts(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
@@ -250,10 +286,223 @@ def test_window_bucket_no_overlap_different_expected_counts_explains_requirement
     )
 
     with pytest.raises(AlignmentFailedError) as exc_info:
-        compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+        compare(
+            cur,
+            base,
+            alignment=AlignmentPolicy(kind="window_bucket", strict_lengths=True),
+            session=s,
+        )
 
     assert "equal expected bucket counts" in str(exc_info.value)
     assert exc_info.value.details["kind"] == "WindowBucketExpectedCountMismatch"
+
+
+def test_window_bucket_overlapping_windows_use_ordinal_mode_by_default(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.get_or_create(
+        name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
+    )
+    cur = MetricFrame.from_dataframe(
+        pd.DataFrame({"bucket_start": ["2026-07-01", "2026-07-02"], "revenue": [10.0, 20.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        session=s,
+    )
+    base = MetricFrame.from_dataframe(
+        pd.DataFrame({"bucket_start": ["2026-07-02", "2026-07-03"], "revenue": [7.0, 9.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-07-02", "end": "2026-07-03", "grain": "day"},
+        session=s,
+    )
+
+    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    df = delta.to_pandas()
+    assert list(df["bucket_start"].astype(str)) == ["2026-07-01", "2026-07-02"]
+    assert list(df["bucket_start_b"].astype(str)) == ["2026-07-02", "2026-07-03"]
+    assert list(df["delta"]) == [pytest.approx(3.0), pytest.approx(11.0)]
+    assert delta.meta.alignment["mode"] == "ordinal_bucket"
+
+
+def test_window_bucket_calendar_mode_outer_joins_bucket_keys(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.get_or_create(
+        name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
+    )
+    cur = MetricFrame.from_dataframe(
+        pd.DataFrame({"bucket_start": ["2026-07-01", "2026-07-03"], "revenue": [10.0, 30.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
+        session=s,
+    )
+    base = MetricFrame.from_dataframe(
+        pd.DataFrame({"bucket_start": ["2026-07-01", "2026-07-02"], "revenue": [8.0, 20.0]}),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
+        session=s,
+    )
+
+    delta = compare(
+        cur,
+        base,
+        alignment=AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+        session=s,
+    )
+
+    df = delta.to_pandas()
+    assert "bucket_start_b" not in df.columns
+    assert list(df["bucket_start"].astype(str)) == ["2026-07-01", "2026-07-02", "2026-07-03"]
+    assert df.iloc[0]["delta"] == pytest.approx(2.0)
+    assert pd.isna(df.iloc[1]["current"])
+    assert pd.isna(df.iloc[2]["baseline"])
+    assert delta.meta.alignment["mode"] == "calendar_bucket"
+
+
+def test_window_bucket_february_to_march_daily_uses_outer_ordinal_union(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.get_or_create(
+        name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
+    )
+    cur = MetricFrame.from_dataframe(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.date_range("2026-02-01", periods=28, freq="D"),
+                "revenue": [float(value) for value in range(1, 29)],
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-02-01", "end": "2026-02-28", "grain": "day"},
+        session=s,
+    )
+    base = MetricFrame.from_dataframe(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.date_range("2026-03-01", periods=31, freq="D"),
+                "revenue": [float(value) for value in range(101, 132)],
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-03-01", "end": "2026-03-31", "grain": "day"},
+        session=s,
+    )
+
+    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    df = delta.to_pandas()
+    assert len(df) == 31
+    assert str(df.iloc[0]["bucket_start"]).startswith("2026-02-01")
+    assert str(df.iloc[0]["bucket_start_b"]).startswith("2026-03-01")
+    assert pd.isna(df.iloc[28]["bucket_start"])
+    assert str(df.iloc[28]["bucket_start_b"]).startswith("2026-03-29")
+    assert delta.meta.alignment["coverage"]["paired_buckets"] == 28
+    assert delta.meta.alignment["coverage"]["current_unpaired_buckets"] == 0
+    assert delta.meta.alignment["coverage"]["baseline_unpaired_buckets"] == 3
+
+
+def test_window_bucket_leap_year_february_returns_rows_by_default(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.get_or_create(
+        name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
+    )
+    cur = MetricFrame.from_dataframe(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.date_range("2024-02-01", periods=29, freq="D"),
+                "revenue": [1.0] * 29,
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2024-02-01", "end": "2024-02-29", "grain": "day"},
+        session=s,
+    )
+    base = MetricFrame.from_dataframe(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.date_range("2025-02-01", periods=28, freq="D"),
+                "revenue": [1.0] * 28,
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2024-02-01", "end": "2024-02-29", "grain": "day"},
+        session=s,
+    )
+    base.meta = base.meta.model_copy(
+        update={"window": {"start": "2025-02-01", "end": "2025-02-28", "grain": "day"}}
+    )
+
+    delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
+
+    df = delta.to_pandas()
+    assert len(df) == 29
+    assert pd.isna(df.iloc[28]["bucket_start_b"])
+    assert delta.meta.alignment["coverage"]["current_unpaired_buckets"] == 1
+
+
+def test_alignment_policy_window_bucket_defaults_dump_explicit_mode():
+    policy = AlignmentPolicy(kind="window_bucket")
+
+    assert policy.model_dump(mode="json") == {
+        "kind": "window_bucket",
+        "calendar": None,
+        "period": "month",
+        "fallback": "drop",
+        "mode": "ordinal_bucket",
+        "strict_lengths": False,
+    }
+
+
+def test_alignment_policy_calendar_backed_rejects_window_bucket_mode():
+    with pytest.raises(AlignmentPolicyValidationError) as exc_info:
+        AlignmentPolicy(
+            kind="dow_aligned",
+            calendar=None,
+            mode="calendar_bucket",
+        )
+
+    assert exc_info.value.details["case"] == "window_bucket_mode_not_applicable"
+
+
+def test_alignment_policy_calendar_backed_rejects_strict_lengths():
+    with pytest.raises(AlignmentPolicyValidationError) as exc_info:
+        AlignmentPolicy(
+            kind="dow_aligned",
+            calendar=None,
+            strict_lengths=True,
+        )
+
+    assert exc_info.value.details["case"] == "window_bucket_strict_lengths_not_applicable"
 
 
 def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_path):
