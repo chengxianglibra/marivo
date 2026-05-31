@@ -44,6 +44,17 @@ from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.session.persistence import write_frame_to_disk, write_job_record
 
 EXPECTED_METRIC_FRAME_KIND = "metric_frame"
+PRESENCE_STATUS_COLUMN = "presence_status"
+
+
+def _presence_status(*, has_current: bool, has_baseline: bool) -> str | float:
+    if has_current and has_baseline:
+        return "matched"
+    if has_current:
+        return "new"
+    if has_baseline:
+        return "churned"
+    return np.nan
 
 
 def _gen_ref(prefix: str) -> str:
@@ -281,7 +292,7 @@ def _aligned_key_columns(aligned: pd.DataFrame) -> list[str]:
     return [
         str(column)
         for column in aligned.columns
-        if str(column) not in {"current", "baseline", "delta", "pct_change"}
+        if str(column) not in {PRESENCE_STATUS_COLUMN, "current", "baseline", "delta", "pct_change"}
     ]
 
 
@@ -885,7 +896,20 @@ def _prepared_value_map(
 def _compute_delta_columns(df: pd.DataFrame) -> pd.DataFrame:
     df["current"] = pd.to_numeric(df["current"], errors="coerce")
     df["baseline"] = pd.to_numeric(df["baseline"], errors="coerce")
-    df["delta"] = df["current"] - df["baseline"]
+    current_for_delta = df["current"]
+    baseline_for_delta = df["baseline"]
+    if PRESENCE_STATUS_COLUMN in df.columns:
+        current_for_delta = current_for_delta.mask(
+            df[PRESENCE_STATUS_COLUMN] == "churned",
+            0.0,
+        )
+        baseline_for_delta = baseline_for_delta.mask(
+            df[PRESENCE_STATUS_COLUMN] == "new",
+            0.0,
+        )
+        df["current"] = df["current"].mask(df[PRESENCE_STATUS_COLUMN] == "churned", 0.0)
+        df["baseline"] = df["baseline"].mask(df[PRESENCE_STATUS_COLUMN] == "new", 0.0)
+    df["delta"] = current_for_delta - baseline_for_delta
     baseline = df["baseline"]
     df["pct_change"] = np.where(
         baseline.notna() & (baseline != 0),
@@ -904,6 +928,7 @@ def _align_prepared_window_bucket(
     b_value_column: str,
     current_frame: MetricFrame,
     baseline_frame: MetricFrame,
+    track_presence_status: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, Any] | None]:
     grain = _panel_grain(current_frame)
     if grain != _panel_grain(baseline_frame) or not isinstance(grain, str):
@@ -931,17 +956,26 @@ def _align_prepared_window_bucket(
     if shared_keys:
         rows: list[dict[str, object]] = []
         for key in sorted(set(a_values) | set(b_values)):
+            has_current = key in a_values
+            has_baseline = key in b_values
             a_time, current_value = a_values.get(key, (None, np.nan))
             b_time, baseline_value = b_values.get(key, (None, np.nan))
-            rows.append(
-                {
-                    time_column: a_time if a_time is not None else b_time,
-                    "current": current_value,
-                    "baseline": baseline_value,
-                }
-            )
+            row = {
+                time_column: a_time if a_time is not None else b_time,
+                "current": current_value,
+                "baseline": baseline_value,
+            }
+            if track_presence_status:
+                row[PRESENCE_STATUS_COLUMN] = _presence_status(
+                    has_current=has_current,
+                    has_baseline=has_baseline,
+                )
+            rows.append(row)
         result = _compute_delta_columns(pd.DataFrame(rows))
-        return result[[time_column, "current", "baseline", "delta", "pct_change"]], None
+        result_columns = [time_column, "current", "baseline", "delta", "pct_change"]
+        if track_presence_status:
+            result_columns.insert(1, PRESENCE_STATUS_COLUMN)
+        return result[result_columns], None
 
     current_buckets = _window_bucket_values(current_frame)
     baseline_buckets = _window_bucket_values(baseline_frame)
@@ -967,18 +1001,24 @@ def _align_prepared_window_bucket(
         baseline_key = _bucket_key(baseline_bucket, grain=grain)
         current_value = a_values.get(current_key, (None, np.nan))[1]
         baseline_value = b_values.get(baseline_key, (None, np.nan))[1]
+        has_current = current_key in a_values
+        has_baseline = baseline_key in b_values
         if not pd.isna(cast("Any", current_value)):
             current_present += 1
         if not pd.isna(cast("Any", baseline_value)):
             baseline_present += 1
-        rows.append(
-            {
-                time_column: current_bucket,
-                f"{time_column}_b": baseline_bucket,
-                "current": current_value,
-                "baseline": baseline_value,
-            }
-        )
+        row = {
+            time_column: current_bucket,
+            f"{time_column}_b": baseline_bucket,
+            "current": current_value,
+            "baseline": baseline_value,
+        }
+        if track_presence_status:
+            row[PRESENCE_STATUS_COLUMN] = _presence_status(
+                has_current=has_current,
+                has_baseline=has_baseline,
+            )
+        rows.append(row)
     result = _compute_delta_columns(pd.DataFrame(rows))
     coverage = {
         "current": {
@@ -992,10 +1032,10 @@ def _align_prepared_window_bucket(
             "missing_buckets": len(baseline_buckets) - baseline_present,
         },
     }
-    return (
-        result[[time_column, f"{time_column}_b", "current", "baseline", "delta", "pct_change"]],
-        coverage,
-    )
+    result_columns = [time_column, f"{time_column}_b", "current", "baseline", "delta", "pct_change"]
+    if track_presence_status:
+        result_columns.insert(2, PRESENCE_STATUS_COLUMN)
+    return result[result_columns], coverage
 
 
 def _aggregate_window_info(infos: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -1107,15 +1147,18 @@ def _align_segmented(a: MetricFrame, b: MetricFrame) -> tuple[pd.DataFrame, dict
         indicator="_segment_presence",
     )
     merged = merged.sort_values(dim_columns).reset_index(drop=True)
-    merged["delta"] = merged["current"] - merged["baseline"]
-    baseline = merged["baseline"]
-    delta = merged["delta"]
-    merged["pct_change"] = np.where(
-        baseline.notna() & (baseline != 0),
-        delta / baseline,
-        np.nan,
+    merged[PRESENCE_STATUS_COLUMN] = merged["_segment_presence"].map(
+        {"both": "matched", "left_only": "new", "right_only": "churned"}
     )
-    result_columns = [*dim_columns, "current", "baseline", "delta", "pct_change"]
+    merged = _compute_delta_columns(merged)
+    result_columns = [
+        *dim_columns,
+        PRESENCE_STATUS_COLUMN,
+        "current",
+        "baseline",
+        "delta",
+        "pct_change",
+    ]
     result = merged[result_columns]
     segment_info = {
         "segment_count": len(result),
@@ -1258,7 +1301,15 @@ def _align_panel(
         result = pd.concat(pieces, ignore_index=True)
     else:
         result = pd.DataFrame(
-            columns=[time_column, *dim_columns, "current", "baseline", "delta", "pct_change"]
+            columns=[
+                time_column,
+                *dim_columns,
+                PRESENCE_STATUS_COLUMN,
+                "current",
+                "baseline",
+                "delta",
+                "pct_change",
+            ]
         )
 
     if alignment.kind == "window_bucket":
@@ -1266,7 +1317,17 @@ def _align_panel(
         baseline_time_column = f"{time_column}_b"
         if baseline_time_column in result.columns:
             time_columns.append(baseline_time_column)
-        result = result[[*time_columns, *dim_columns, "current", "baseline", "delta", "pct_change"]]
+        result = result[
+            [
+                *time_columns,
+                *dim_columns,
+                PRESENCE_STATUS_COLUMN,
+                "current",
+                "baseline",
+                "delta",
+                "pct_change",
+            ]
+        ]
         sort_columns = [*dim_columns, time_column]
     else:
         leading_columns = [*dim_columns]
@@ -1323,6 +1384,7 @@ def _one_sided_panel_calendar_delta(
     values = pd.to_numeric(prepared[value_column], errors="coerce")
     result = pd.DataFrame(
         {
+            PRESENCE_STATUS_COLUMN: "new" if side == "current" else "churned",
             "align_key": np.nan,
             "align_quality": "unmatched",
             "bucket_start_a": bucket_starts if side == "current" else np.nan,
@@ -1331,13 +1393,11 @@ def _one_sided_panel_calendar_delta(
     )
     if side == "current":
         result["current"] = values
-        result["baseline"] = np.nan
+        result["baseline"] = 0.0
     else:
-        result["current"] = np.nan
+        result["current"] = 0.0
         result["baseline"] = values
-    result["delta"] = result["current"] - result["baseline"]
-    result["pct_change"] = np.nan
-    return result
+    return _compute_delta_columns(result)
 
 
 def _align_panel_window_bucket(
@@ -1370,6 +1430,7 @@ def _align_panel_window_bucket(
         b_value_column="baseline",
         current_frame=current_frame,
         baseline_frame=baseline_frame,
+        track_presence_status=True,
     )
 
 

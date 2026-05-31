@@ -43,32 +43,57 @@ def test_compare_segmented_outer_join_preserves_one_sided_segments():
             {"region": "SOUTH", "value": 80.0},
         ],
     )
-    baseline = _segmented_metric(s, [{"region": "NORTH", "value": 70.0}])
+    baseline = _segmented_metric(
+        s,
+        [
+            {"region": "NORTH", "value": 70.0},
+            {"region": "WEST", "value": 40.0},
+        ],
+    )
 
     out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
     assert out.meta.semantic_kind == "segmented"
     assert out.meta.alignment["segment_info"] == {
-        "segment_count": 2,
+        "segment_count": 3,
         "a_only_segments_count": 1,
-        "b_only_segments_count": 0,
+        "b_only_segments_count": 1,
     }
     assert out.meta.alignment["axes"] == current.meta.axes
     df = out.to_pandas()
-    assert list(df.columns) == ["region", "current", "baseline", "delta", "pct_change"]
-    north, south = df.to_dict(orient="records")
-    assert north == {
+    assert list(df.columns) == [
+        "region",
+        "presence_status",
+        "current",
+        "baseline",
+        "delta",
+        "pct_change",
+    ]
+    by_region = {row["region"]: row for row in df.to_dict(orient="records")}
+    assert by_region["NORTH"] == {
         "region": "NORTH",
+        "presence_status": "matched",
         "current": 100.0,
         "baseline": 70.0,
         "delta": 30.0,
         "pct_change": pytest.approx(30.0 / 70.0),
     }
-    assert south["region"] == "SOUTH"
-    assert south["current"] == 80.0
-    assert pd.isna(south["baseline"])
-    assert pd.isna(south["delta"])
-    assert pd.isna(south["pct_change"])
+    assert by_region["SOUTH"] == {
+        "region": "SOUTH",
+        "presence_status": "new",
+        "current": 80.0,
+        "baseline": 0.0,
+        "delta": 80.0,
+        "pct_change": pytest.approx(float("nan"), nan_ok=True),
+    }
+    assert by_region["WEST"] == {
+        "region": "WEST",
+        "presence_status": "churned",
+        "current": 0.0,
+        "baseline": 40.0,
+        "delta": -40.0,
+        "pct_change": pytest.approx(-1.0),
+    }
 
 
 def test_compare_segmented_null_metric_values_do_not_count_as_one_sided_segments():
@@ -85,6 +110,7 @@ def test_compare_segmented_null_metric_values_do_not_count_as_one_sided_segments
     }
     row = out.to_pandas().iloc[0]
     assert row["region"] == "NORTH"
+    assert row["presence_status"] == "matched"
     assert pd.isna(row["current"])
     assert row["baseline"] == 70.0
     assert pd.isna(row["delta"])

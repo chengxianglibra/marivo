@@ -231,8 +231,10 @@ Errors should cover:
 - no valid contribution rows during decompose
 
 Calendar unmatched rows are not errors by themselves. They produce the same
-one-sided/null semantics that the parent delta produces, and decompose treats
-rows with invalid denominator or weight state as null contribution rows.
+one-sided semantics that the parent delta produces: the structurally missing
+side is treated as zero for delta math and marked with `presence_status`, while
+true null metric values remain null. Decompose treats rows with invalid
+denominator or weight state as null contribution rows.
 
 ## Testing
 

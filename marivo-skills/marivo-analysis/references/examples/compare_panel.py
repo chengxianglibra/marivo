@@ -2,7 +2,8 @@
 
 When to use: you want a (bucket x segment) delta. AlignmentPolicy controls
 how time buckets are aligned across the two windows; segment keys are
-always outer-joined.
+always outer-joined. One-sided bucket/segment cells treat the missing side as
+zero for delta math and use presence_status to mark new or churned rows.
 """
 
 from __future__ import annotations
@@ -33,4 +34,4 @@ print(delta.summary())
 # Expected output:
 # kind='delta_frame'
 # semantic_kind='panel'
-# columns=['bucket_start', 'region', 'current', 'baseline', 'delta', 'pct_change']
+# columns=['bucket_start', 'region', 'presence_status', 'current', 'baseline', 'delta', 'pct_change']

@@ -2,7 +2,8 @@
 
 When to use: you want a per-segment delta of a known metric between two
 windows, with no time grain. Segments that only appear on one side are
-returned with NaN on the missing side; lineage records the counts.
+returned with the missing side treated as zero for delta math and marked by
+presence_status; lineage records the counts.
 """
 
 from __future__ import annotations
@@ -31,4 +32,4 @@ print(delta.summary())
 # Expected output:
 # kind='delta_frame'
 # semantic_kind='segmented'
-# columns=['region', 'current', 'baseline', 'delta', 'pct_change']
+# columns=['region', 'presence_status', 'current', 'baseline', 'delta', 'pct_change']
