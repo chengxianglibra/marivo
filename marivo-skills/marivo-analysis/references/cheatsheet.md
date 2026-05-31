@@ -177,6 +177,7 @@ Calendar-backed compare loads project-local files from
 `.marivo/calendar/<name>.json`. Calendar entries are objects with
 `date` and optional `holiday_id`; extra fields such as `name` or `label` are
 rejected. Use `holiday_id` to match the same business holiday across years:
+multi-period windows pair current and baseline periods by ordinal order.
 
 Calendar-backed `DeltaFrame` rows include `presence_status`, `align_key`,
 `align_quality`, `bucket_start_a`, and `bucket_start_b`. `align_key` is a compact JSON object
