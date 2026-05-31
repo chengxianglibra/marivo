@@ -315,14 +315,14 @@ def _seed_snapshot(con):
     con.raw_sql("CREATE TABLE user_profile_daily (user_id INTEGER, dt VARCHAR, tier VARCHAR)")
     con.raw_sql(
         "INSERT INTO user_profile_daily VALUES "
-        "(100, '20260703', 'old_gold'),"
-        "(100, '20260705', 'gold'),"
-        "(200, '20260703', 'silver'),"
-        "(200, '20260705', 'new_silver')"
+        "(100, '20260630', 'old_gold'),"
+        "(100, '20260701', 'gold'),"
+        "(200, '20260630', 'silver'),"
+        "(200, '20260701', 'new_silver')"
     )
 
 
-def test_latest_snapshot_uses_timescope_end_partition(tmp_path):
+def test_snapshot_as_of_root_time_per_row_partition(tmp_path):
     _bootstrap_snapshot(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_snapshot(con)
@@ -334,5 +334,26 @@ def test_latest_snapshot_uses_timescope_end_partition(tmp_path):
     )
 
     by_tier = frame.to_pandas().set_index("tier")["revenue_by_profile"].to_dict()
-    assert by_tier == {"old_gold": pytest.approx(10.0), "silver": pytest.approx(20.0)}
+    # With as_of_root_time: order 1 (2026-07-01) -> partition 20260701 -> tier 'gold'
+    # order 2 (2026-07-02) -> partition 20260701 -> tier 'new_silver'
+    assert by_tier == {"gold": pytest.approx(10.0), "new_silver": pytest.approx(20.0)}
     assert frame.meta.lineage.steps[0].params_digest.startswith("sha256:")
+
+
+def test_relationships_lineage_records_distinct_from_and_to_dataset(tmp_path):
+    _bootstrap(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    frame = observe(
+        MetricRef("sales.revenue_by_user"),
+        dimensions=[DimensionRef("sales.tier")],
+        session=_session(con),
+    )
+
+    relationships = frame.meta.lineage.steps[0].params.get("relationships") or []
+    assert len(relationships) == 1
+    edge = relationships[0]
+    assert edge["relationship"] == "sales.orders_to_users"
+    assert edge["from_dataset"] == "sales.orders"
+    assert edge["to_dataset"] == "sales.users"
+    assert edge["from_dataset"] != edge["to_dataset"]

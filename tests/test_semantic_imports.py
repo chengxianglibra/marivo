@@ -72,6 +72,7 @@ def test_all_list_matches_expected() -> None:
         "ref",
         "component",
         "snapshot",
+        "validity",
         "help",
         "typing",
         "errors",
