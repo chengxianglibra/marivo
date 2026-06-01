@@ -105,7 +105,7 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
         evidence_summary=EvidenceSummary(
             datasources_checked=("warehouse",),
             tables_inspected=("sales.orders",),
-            raw_previews=("sales.orders",),
+            raw_previews=("warehouse.orders",),
             knowledge_documents=("revenue.md",),
             user_confirmations=("owner confirmed revenue excludes tax",),
             semantic_objects_changed=("sales.total_amount",),
@@ -232,7 +232,7 @@ def test_readiness_ready_after_required_preview_and_parity(
     report = project.readiness(
         strict_provenance=True,
         require_preview=True,
-        raw_previews=("sales.orders",),
+        raw_previews=("warehouse.orders",),
         confirmed_relationships=(),
         primary_keys_sampled=("sales.orders",),
         backend_factory=backend_factory,
@@ -246,12 +246,14 @@ def test_readiness_ready_after_required_preview_and_parity(
     assert "sales.created_at" in report.analysis_ready_refs
     assert "sales.total_amount" in report.analysis_ready_refs
     assert report.preview_summary.required_previews == (
+        "warehouse.orders",
         "sales.orders",
         "sales.amount",
         "sales.created_at",
         "sales.total_amount",
     )
     assert set(report.preview_summary.completed_previews) == {
+        "warehouse.orders",
         "sales.orders",
         "sales.amount",
         "sales.created_at",
@@ -278,6 +280,108 @@ def test_readiness_blocks_when_required_raw_preview_missing(
     assert report.status == "blocked"
     assert "missing_raw_preview" in _issue_kinds(report.blockers)
     assert "sales.orders" not in report.analysis_ready_refs
+
+
+def test_readiness_uses_collected_source_preview_evidence(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+
+    before = project.readiness(
+        strict_provenance=True,
+        require_preview=True,
+        raw_previews=(),
+        primary_keys_sampled=("sales.orders",),
+        backend_factory=backend_factory,
+    )
+    project.collect_source_preview(
+        datasource="warehouse",
+        table="orders",
+        backend_factory=backend_factory,
+    )
+    after = project.readiness(
+        strict_provenance=True,
+        require_preview=True,
+        raw_previews=(),
+        primary_keys_sampled=("sales.orders",),
+        backend_factory=backend_factory,
+    )
+
+    assert before.status == "blocked"
+    assert "missing_raw_preview" in _issue_kinds(before.blockers)
+    assert after.status == "ready"
+    assert "missing_raw_preview" not in _issue_kinds(after.blockers)
+    assert "warehouse.orders" in after.evidence_summary.raw_previews
+
+
+def test_readiness_uses_collected_physical_raw_preview_ref(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+
+    project.collect_source_preview(
+        datasource="warehouse",
+        table="orders",
+        backend_factory=backend_factory,
+    )
+    report = project.readiness(
+        strict_provenance=True,
+        require_preview=True,
+        required_raw_previews=("warehouse.orders",),
+        raw_previews=(),
+        primary_keys_sampled=("sales.orders",),
+        backend_factory=backend_factory,
+    )
+
+    assert report.status == "ready"
+    assert "warehouse.orders" in report.evidence_summary.raw_previews
+
+
+def test_readiness_failed_raw_preview_overrides_collected_evidence(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    project.collect_source_preview(
+        datasource="warehouse",
+        table="orders",
+        backend_factory=backend_factory,
+    )
+
+    report = project.readiness(
+        strict_provenance=True,
+        require_preview=True,
+        raw_previews=(),
+        failed_raw_previews=("warehouse.orders",),
+        primary_keys_sampled=("sales.orders",),
+        backend_factory=backend_factory,
+    )
+
+    assert report.status == "blocked"
+    assert "raw_preview_failed" in _issue_kinds(report.blockers)
+
+
+def test_reload_preserves_collected_source_preview_evidence(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = _project(semantic_project_factory, _READY_MODEL_PY)
+
+    project.collect_source_preview(
+        datasource="warehouse",
+        table="orders",
+        backend_factory=backend_factory,
+    )
+    assert project.raw_preview_evidence()
+
+    project.reload()
+
+    assert project.raw_preview_evidence() == ("warehouse.orders",)
 
 
 def test_readiness_strict_blocks_unverified_metric(
@@ -366,7 +470,7 @@ def test_semantic_check_run_check_returns_json_ready_report(
         format="json",
         strict_provenance=True,
         require_preview=True,
-        raw_previews=("sales.orders",),
+        raw_previews=("warehouse.orders",),
         primary_keys_sampled=("sales.orders",),
         backend_factory=backend_factory,
     )
@@ -700,7 +804,7 @@ def test_semantic_check_main_prints_json(
             "json",
             "--readiness",
             "--raw-preview",
-            "sales.orders",
+            "warehouse.orders",
             "--primary-key-sampled",
             "sales.orders",
         ]

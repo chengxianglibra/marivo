@@ -97,6 +97,11 @@ with tempfile.TemporaryDirectory() as tmp:
         def backend_factory(name: str) -> Any:
             return mv.datasources.build_backend(name)
 
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+            backend_factory=backend_factory,
+        )
         project.preview_dataset("sales.orders", backend_factory=backend_factory)
         project.parity_check("sales.drifted_revenue", backend_factory=backend_factory)
         audit_questions = project.audit(inspect_source=mv.datasources.inspect_source)
@@ -105,7 +110,6 @@ with tempfile.TemporaryDirectory() as tmp:
             strict_provenance=True,
             strict_enrichment=True,
             backend_factory=backend_factory,
-            raw_previews=(),
         )
         richness = project.richness(
             demand=ms.DemandSignal(
@@ -116,7 +120,7 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         print("audit questions:", len(audit_questions))
         print("readiness:", report.status)
-        print("missing_raw_preview:", any(b.kind == "missing_raw_preview" for b in report.blockers))
+        print("source_preview_collected:", "warehouse.orders" in project.raw_preview_evidence())
         print(
             "unverified_metric:",
             "sales.unverified_revenue" in report.parity_summary.unverified_metrics,

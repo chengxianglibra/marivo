@@ -124,7 +124,9 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "project.open_questions(" in questions
     assert "ambiguous time axis" in questions
     assert questions.index("project.open_questions(") < questions.index("_model.py")
-    assert "missing_raw_preview" in closeout
+    assert "project.collect_source_preview(" in closeout
+    assert "project.collect_raw_preview(" not in closeout
+    assert "source_preview_collected" in closeout
     assert "unverified_metric" in closeout
     assert "parity_drifted" in closeout
     assert "project.richness(" in closeout

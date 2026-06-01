@@ -14,6 +14,11 @@ print(project.reload())
 
 ```python
 backend_factory = lambda name: mv.datasources.build_backend(name)
+project.collect_source_preview(
+    datasource="warehouse",
+    table="orders",
+    backend_factory=backend_factory,
+)
 project.preview_dataset("sales.orders", backend_factory=backend_factory)
 project.preview_metric("sales.revenue", backend_factory=backend_factory)
 project.parity_check("sales.revenue", backend_factory=backend_factory)

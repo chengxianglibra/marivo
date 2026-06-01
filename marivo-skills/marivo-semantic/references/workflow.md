@@ -132,6 +132,11 @@ backend_factory = lambda name: mv.datasources.build_backend(name)
 
 print(project.reload())
 print(project.audit(inspect_source=mv.datasources.inspect_source))
+project.collect_source_preview(
+    datasource="warehouse",
+    table="orders",
+    backend_factory=backend_factory,
+)
 report = project.readiness(
     require_preview=True,
     require_evidence_ledger=True,

@@ -67,9 +67,10 @@ together.
 
 ## Missing raw preview evidence
 
-If readiness reports `missing_raw_preview`, run a bounded raw datasource preview
-and pass the completed raw preview ref to readiness. Metadata and comments do
-not replace raw samples for validating shape-sensitive columns.
+If readiness reports `missing_raw_preview`, run
+`project.collect_source_preview(datasource="warehouse", table="orders", backend_factory=backend_factory)`
+before readiness. Metadata and comments do not replace raw samples for validating
+shape-sensitive columns.
 
 ## Incomplete decision records
 
