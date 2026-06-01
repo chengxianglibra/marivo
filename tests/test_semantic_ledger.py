@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+from typing import cast
+
+import pytest
+
 from marivo.semantic import ledger as lg
 
 
@@ -16,6 +21,73 @@ def test_decision_record_round_trips_through_dict() -> None:
         decided_at="2026-05-31T10:00:00+00:00",
     )
     assert lg.DecisionRecord.from_dict(rec.to_dict()) == rec
+
+
+@pytest.mark.parametrize("blast_radius", [[1], (1,), "7", 1.2, True])
+def test_decision_record_rejects_non_int_blast_radius(blast_radius: object) -> None:
+    with pytest.raises(TypeError, match=r"DecisionRecord.blast_radius.*int"):
+        lg.DecisionRecord(
+            decision_kind="metric_decomposition",
+            chosen="sum",
+            agreement_confidence="high",
+            qualifying_sources=("source_sql",),
+            materiality="high",
+            blast_radius=cast("int", blast_radius),
+            evidence_fingerprint="sha256:abc",
+            question_id=None,
+            decided_at="2026-05-31T10:00:00+00:00",
+        )
+
+
+def test_decision_record_rejects_negative_blast_radius() -> None:
+    with pytest.raises(ValueError, match=r"DecisionRecord.blast_radius.*non-negative"):
+        lg.DecisionRecord(
+            decision_kind="metric_decomposition",
+            chosen="sum",
+            agreement_confidence="high",
+            qualifying_sources=("source_sql",),
+            materiality="high",
+            blast_radius=-1,
+            evidence_fingerprint="sha256:abc",
+            question_id=None,
+            decided_at="2026-05-31T10:00:00+00:00",
+        )
+
+
+def test_ledger_store_read_object_reports_invalid_blast_radius_path(tmp_path) -> None:
+    path = tmp_path / "sales" / "_evidence" / "objects" / "sales.revenue.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "semantic_id": "sales.revenue",
+                "authored_at": "2026-05-31T10:00:00+00:00",
+                "decisions": [
+                    {
+                        "decision_kind": "metric_decomposition",
+                        "chosen": "sum",
+                        "agreement_confidence": "high",
+                        "qualifying_sources": ["source_sql"],
+                        "materiality": "high",
+                        "blast_radius": [1],
+                        "evidence_fingerprint": "sha256:a",
+                        "question_id": None,
+                        "decided_at": "2026-05-31T10:00:00+00:00",
+                    }
+                ],
+                "rejected_candidates": [],
+            }
+        )
+        + "\n"
+    )
+
+    with pytest.raises(TypeError) as exc_info:
+        lg.LedgerStore(tmp_path).read_object("sales.revenue")
+
+    message = str(exc_info.value)
+    assert str(path) in message
+    assert "DecisionRecord.blast_radius" in message
+    assert "list" in message
 
 
 def test_confirmation_record_round_trips_through_dict() -> None:
