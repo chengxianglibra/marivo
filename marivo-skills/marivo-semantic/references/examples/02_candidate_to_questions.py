@@ -8,6 +8,7 @@ from pathlib import Path
 
 import marivo.semantic as ms
 from marivo.analysis.datasources.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.semantic.ir import TableSourceIR
 
 
 def decision_record_from_question(
@@ -40,7 +41,7 @@ def decision_record_from_question(
 def fake_inspect_source(
     datasource: str,
     *,
-    source,
+    source: TableSourceIR,
     include_partitions: bool = True,
 ) -> TableMetadata:
     return TableMetadata(

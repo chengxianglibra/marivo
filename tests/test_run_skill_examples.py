@@ -61,6 +61,40 @@ def test_runner_executes_passing_example(tmp_path: Path) -> None:
     )
 
 
+def test_runner_uses_in_process_execution_by_default(tmp_path: Path, monkeypatch: object) -> None:
+    runner = _load_runner_module()
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
+    (examples / "01_smoke.py").write_text('print("hello from example")\n')
+    _make_skill_tree(tmp_path, "marivo-semantic")
+    seen_in_process: list[bool] = []
+
+    def check_example(_example: Path, *, in_process: bool = False) -> object | None:
+        seen_in_process.append(in_process)
+        return None
+
+    monkeypatch.setattr(runner, "_check_example", check_example)
+
+    assert runner.main(["--root", str(tmp_path)]) == 0
+    assert seen_in_process == [True]
+
+
+def test_runner_can_opt_into_subprocess_execution(tmp_path: Path, monkeypatch: object) -> None:
+    runner = _load_runner_module()
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
+    (examples / "01_smoke.py").write_text('print("hello from example")\n')
+    _make_skill_tree(tmp_path, "marivo-semantic")
+    seen_in_process: list[bool] = []
+
+    def check_example(_example: Path, *, in_process: bool = False) -> object | None:
+        seen_in_process.append(in_process)
+        return None
+
+    monkeypatch.setattr(runner, "_check_example", check_example)
+
+    assert runner.main(["--root", str(tmp_path), "--subprocess"]) == 0
+    assert seen_in_process == [False]
+
+
 def test_runner_fails_when_example_exits_nonzero(tmp_path: Path) -> None:
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "01_bad.py").write_text("raise SystemExit(2)\n")
