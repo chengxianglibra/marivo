@@ -229,6 +229,23 @@ def test_help_json_metric_includes_constraints_and_examples(capsys) -> None:
     assert "examples" in result
 
 
+def test_help_json_time_field_includes_partition_pushdown_advisory(capsys) -> None:
+    result = ms.help("time_field", format="json")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert isinstance(result, dict)
+    constraints = result["constraints"]
+    assert isinstance(constraints, list)
+    constraint_ids = {entry["id"] for entry in constraints}
+    assert "time_field_partition_pushdown" in constraint_ids
+    advisory = next(
+        entry for entry in constraints if entry["id"] == "time_field_partition_pushdown"
+    )
+    assert advisory["phase"] == "assembly"
+    assert "date_format" in advisory["hint"]
+
+
 def test_help_json_decomposition_documents_supported_builders_and_aggregation_boundary(
     capsys,
 ) -> None:

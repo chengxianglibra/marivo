@@ -397,6 +397,65 @@ def test_day_time_field_no_prefix_required() -> None:
     assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
 
 
+def _cast_partition_time_field(table):
+    return table.dt.cast("date")
+
+
+def _raw_partition_time_field(table):
+    return table.dt
+
+
+def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
+    registry = _make_registry()
+    registry.fields["sales.order_date"] = FieldIR(
+        semantic_id="sales.order_date",
+        model="sales",
+        dataset="sales.orders",
+        name="order_date",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="date",
+        granularity="day",
+        required_prefix=None,
+        python_symbol="order_date",
+        location=_LOC,
+    )
+
+    errors, warnings = assembly_validate(
+        registry, sidecar={"sales.order_date": _cast_partition_time_field}
+    )
+
+    assert errors == []
+    assert any(w.kind == WarningKind.TIME_FIELD_PUSHDOWN_ADVISORY for w in warnings)
+
+
+def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
+    registry = _make_registry()
+    registry.fields["sales.order_date"] = FieldIR(
+        semantic_id="sales.order_date",
+        model="sales",
+        dataset="sales.orders",
+        name="order_date",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="string",
+        granularity="day",
+        required_prefix=None,
+        python_symbol="order_date",
+        location=_LOC,
+        format="yyyymmdd",
+    )
+
+    errors, warnings = assembly_validate(
+        registry, sidecar={"sales.order_date": _raw_partition_time_field}
+    )
+
+    assert errors == []
+    assert not any(w.kind == WarningKind.TIME_FIELD_PUSHDOWN_ADVISORY for w in warnings)
+
+
 # ---------------------------------------------------------------------------
 # Invalid relationship endpoint
 # ---------------------------------------------------------------------------

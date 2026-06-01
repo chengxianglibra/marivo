@@ -109,6 +109,12 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     )
 
     assert "partition time field" in single
+    assert 'data_type="string"' in single
+    assert 'date_format="yyyymmdd"' in single
+    assert "return table.dt" in single
+    assert "return table.dt.cast" not in single
+    assert 'date_format="HH"' in single
+    assert 'required_prefix="log_date"' in single
     assert "project.propose_candidates(" in questions
     assert "project.open_questions(" in questions
     assert "ambiguous time axis" in questions
@@ -117,6 +123,21 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "unverified_metric" in closeout
     assert "parity_drifted" in closeout
     assert "project.richness(" in closeout
+
+
+def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
+    authoring = _read("marivo-skills/marivo-semantic/references/authoring-patterns.md")
+    pitfalls = _read("marivo-skills/marivo-semantic/references/pitfalls.md")
+
+    assert 'data_type="string"' in authoring
+    assert 'date_format="yyyymmdd"' in authoring
+    assert 'date_format="HH"' in authoring
+    assert 'required_prefix="log_date"' in authoring
+    assert "return table.dt" in authoring
+    assert "return table.dt.cast" not in authoring
+    assert "predicate pushdown" in authoring
+    assert "Complex event-time expressions are still valid" in authoring
+    assert "partition field default" in pitfalls
 
 
 @pytest.mark.parametrize("example", _EXAMPLE_PARAMS)

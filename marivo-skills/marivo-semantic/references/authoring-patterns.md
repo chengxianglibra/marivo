@@ -25,16 +25,32 @@ def orders(backend):
 
 @ms.time_field(
     dataset=orders,
-    name="order_date",
-    data_type="date",
+    name="log_date",
+    data_type="string",
     granularity="day",
+    date_format="yyyymmdd",
     ai_context={
         "business_definition": "Partition date used for default order reporting windows.",
         "guardrails": ["Use event time instead only when source SQL defines that axis."],
     },
 )
-def order_date(table):
-    return table.dt.cast("date")
+def log_date(table):
+    return table.dt
+
+@ms.time_field(
+    dataset=orders,
+    name="log_hour",
+    data_type="string",
+    granularity="hour",
+    date_format="HH",
+    required_prefix="log_date",
+    ai_context={
+        "business_definition": "Hour partition used with log_date for hourly reporting windows.",
+        "guardrails": ["Use full event timestamp only when source SQL defines that axis."],
+    },
+)
+def log_hour(table):
+    return table.hh
 
 @ms.field(
     dataset=orders,
@@ -79,6 +95,36 @@ Prefer datasource partition fields such as `dt`, `log_date`, or `event_date` for
 dataset time fields. Use event time, creation time, update time, ingestion time,
 or snapshot time instead only when knowledge, source SQL, comments, or user
 confirmation establishes that business axis.
+
+For day/hour partition fields, preserve the raw sortable partition value and
+declare its physical encoding with `date_format`. This lets observe windows
+compile to simple partition comparisons for predicate pushdown:
+
+```python
+@ms.time_field(dataset=orders, name="log_date", data_type="string", granularity="day", date_format="yyyymmdd")
+def log_date(table):
+    return table.dt
+
+@ms.time_field(
+    dataset=orders,
+    name="log_hour",
+    data_type="string",
+    granularity="hour",
+    date_format="HH",
+    required_prefix="log_date",
+)
+def log_hour(table):
+    return table.hh
+```
+
+Complex event-time expressions are still valid when they are the established
+business axis, but they are not the partition field default and may not preserve
+predicate pushdown:
+
+```python
+def event_date(table):
+    return table.order_time.cast("timestamp").cast("date")
+```
 
 For Trino VARCHAR datetime columns storing values like `"2025-04-04 06:59:59"`,
 do not cast VARCHAR directly to DATE. Parse through timestamp first:

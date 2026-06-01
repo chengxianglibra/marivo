@@ -49,6 +49,7 @@ class ConstraintId(StrEnum):
     METRIC_REF_EXISTS = "metric_ref_exists"
     METRIC_GRAPH_ACYCLIC = "metric_graph_acyclic"
     HOUR_TIME_FIELD_PREFIX = "hour_time_field_prefix"
+    TIME_FIELD_PARTITION_PUSHDOWN = "time_field_partition_pushdown"
     RELATIONSHIP_ENDPOINTS = "relationship_endpoints"
     PROJECT_ORGANIZATION = "project_organization"
     PROJECT_ROOT_VALID = "project_root_valid"
@@ -415,6 +416,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Hour-only string/integer time fields need a day-level required_prefix.",
         "A standalone hour value is not a complete time axis.",
         "Set required_prefix to a registered day-level time field.",
+        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+    ),
+    ConstraintId.TIME_FIELD_PARTITION_PUSHDOWN: _constraint(
+        ConstraintId.TIME_FIELD_PARTITION_PUSHDOWN,
+        "time_field_pushdown_advisory",
+        "assembly",
+        ("time_field",),
+        "Partition time fields should preserve raw sortable encodings when possible.",
+        "Raw day/hour partition comparisons are easier for SQL engines to push down than parsed or cast expressions.",
+        "For day/hour partition columns such as dt, log_date, event_date, hh, or log_hour, prefer data_type='string' or 'integer' with date_format and a bare column body; keep cast/parse expressions only when business time semantics require them.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.RELATIONSHIP_ENDPOINTS: _constraint(
