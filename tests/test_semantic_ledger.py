@@ -142,3 +142,104 @@ def test_ledger_types_exported():
 
 def test_read_confirmations_missing_model_is_empty(tmp_path):
     assert lg.LedgerStore(tmp_path).read_confirmations("sales") == ()
+
+
+def test_decision_record_persists_fingerprint_inputs():
+    rec = lg.DecisionRecord(
+        decision_kind="time_field_identity",
+        chosen="paid_at",
+        agreement_confidence="high",
+        qualifying_sources=("comment",),
+        materiality="high",
+        blast_radius=4,
+        evidence_fingerprint="sha256:a",
+        question_id=None,
+        decided_at="2026-05-31T10:00:00+00:00",
+        cited_table="warehouse.orders",
+        cited_columns=("paid_at",),
+    )
+    restored = lg.DecisionRecord.from_dict(rec.to_dict())
+    assert restored == rec
+    assert restored.cited_table == "warehouse.orders"
+    assert restored.cited_columns == ("paid_at",)
+
+
+def test_decision_record_from_dict_defaults_when_fields_absent():
+    # records written by Plan 3 (before this field existed) still load
+    legacy = {
+        "decision_kind": "metric_decomposition",
+        "chosen": "sum",
+        "agreement_confidence": "high",
+        "qualifying_sources": ["source_sql"],
+        "materiality": "high",
+        "blast_radius": 0,
+        "evidence_fingerprint": "sha256:a",
+        "question_id": None,
+        "decided_at": "t",
+    }
+    rec = lg.DecisionRecord.from_dict(legacy)
+    assert rec.cited_table is None
+    assert rec.cited_columns == ()
+
+
+def test_iter_object_records_globs_all_models(tmp_path):
+    store = lg.LedgerStore(tmp_path)
+    store.write_object(lg.ObjectEvidence("sales.revenue", "t", (), ()))
+    store.write_object(lg.ObjectEvidence("ops.tickets", "t", (), ()))
+    ids = {obj.semantic_id for obj in store.iter_object_records()}
+    assert ids == {"sales.revenue", "ops.tickets"}
+
+
+def test_iter_object_records_empty_when_no_ledger(tmp_path):
+    assert lg.LedgerStore(tmp_path).iter_object_records() == ()
+
+
+def _decision(fp, *, cited_table="warehouse.orders", cited_columns=("status",)):
+    return lg.DecisionRecord(
+        decision_kind="field_meaning",
+        chosen="paid",
+        agreement_confidence="high",
+        qualifying_sources=("comment",),
+        materiality="high",
+        blast_radius=0,
+        evidence_fingerprint=fp,
+        question_id=None,
+        decided_at="t",
+        cited_table=cited_table,
+        cited_columns=cited_columns,
+    )
+
+
+def _metadata(status_type="INTEGER", status_comment="1=paid"):
+    from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
+
+    return TableMetadata(
+        datasource="warehouse",
+        table="orders",
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(ColumnMetadata("status", status_type, True, status_comment, None),),
+        partitions=(),
+        warnings=(),
+    )
+
+
+def test_decision_not_stale_when_evidence_unchanged():
+    md = _metadata()
+    fp = lg.evidence_fingerprint({"status": "INTEGER"}, None, {"status": "1=paid"})
+    assert lg.is_decision_stale(_decision(fp), md) is False
+
+
+def test_decision_stale_when_type_changes():
+    fp = lg.evidence_fingerprint({"status": "INTEGER"}, None, {"status": "1=paid"})
+    assert lg.is_decision_stale(_decision(fp), _metadata(status_type="VARCHAR")) is True
+
+
+def test_decision_stale_when_comment_changes():
+    fp = lg.evidence_fingerprint({"status": "INTEGER"}, None, {"status": "1=paid"})
+    assert lg.is_decision_stale(_decision(fp), _metadata(status_comment="1=paid,2=refund")) is True
+
+
+def test_decision_without_cited_table_is_never_stale():
+    assert lg.is_decision_stale(_decision("sha256:x", cited_table=None), _metadata()) is False

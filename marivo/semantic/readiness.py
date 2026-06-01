@@ -40,6 +40,7 @@ ReadinessIssueKind = Literal[
     "requires_raw_sql",
     "primary_key_unsampled",
     "fragile_string_ref",
+    "unresolved_clarification",
 ]
 
 
@@ -217,6 +218,39 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
     return kinds, objects
 
 
+_REQUIRED_DECISION_BY_KIND = {
+    _SemanticKind.TIME_FIELD: "time_field_identity",
+    _SemanticKind.METRIC: "metric_decomposition",
+}
+
+
+def _evidence_ledger_blockers(project: SemanticProject) -> list[ReadinessIssue]:
+    """Dangerous-kind authored objects with no backing ledger decision -> blockers.
+    Mapping: time_field -> time_field_identity, metric -> metric_decomposition."""
+    from marivo.semantic.ledger import LedgerStore
+
+    store = LedgerStore(project.root_path)
+    kinds, _objects = _object_maps(project)
+    issues: list[ReadinessIssue] = []
+    for semantic_id, kind in kinds.items():
+        required = _REQUIRED_DECISION_BY_KIND.get(kind)
+        if required is None:
+            continue
+        obj = store.read_object(semantic_id)
+        has_decision = obj is not None and any(d.decision_kind == required for d in obj.decisions)
+        if not has_decision:
+            issues.append(
+                _issue(
+                    "unresolved_clarification",
+                    "blocker",
+                    (semantic_id,),
+                    f"{semantic_id} has no recorded {required} decision; this dangerous decision is unaudited.",
+                    f"Record a {required} decision via the authoring loop (open_questions + answer) before handoff.",
+                )
+            )
+    return issues
+
+
 def _default_checked_refs(kinds: Mapping[str, _SemanticKind]) -> tuple[str, ...]:
     return tuple(ref for ref in kinds if kinds[ref] != _SemanticKind.RELATIONSHIP) + tuple(
         ref for ref in kinds if kinds[ref] == _SemanticKind.RELATIONSHIP
@@ -341,6 +375,7 @@ def build_readiness_report(
     strict_provenance: bool = True,
     require_preview: bool = True,
     require_comments: bool = False,
+    require_evidence_ledger: bool = False,
     backend_factory: Callable[[str], Any] | None = None,
     refs: Iterable[str] | None = None,
     required_raw_previews: Iterable[str] | None = None,
@@ -654,6 +689,9 @@ def build_readiness_report(
                     "Replace fragile string refs with stable object refs where possible.",
                 )
             )
+
+    if require_evidence_ledger:
+        blockers.extend(_evidence_ledger_blockers(project))
 
     blocked_refs = _refs_with_issue(blockers)
     analysis_ready_refs = tuple(ref for ref in checked_refs if ref not in blocked_refs)

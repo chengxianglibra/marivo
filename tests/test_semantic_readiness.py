@@ -465,6 +465,96 @@ def test_readiness_require_comments_blocks_when_metadata_lacks_comments(
     assert any(issue.kind == "missing_comments" for issue in report.blockers)
 
 
+def test_unresolved_clarification_is_a_valid_issue_kind():
+    from typing import get_args
+
+    from marivo.semantic.readiness import ReadinessIssueKind
+
+    assert "unresolved_clarification" in get_args(ReadinessIssueKind)
+
+
+def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project_factory):
+    from marivo.semantic.readiness import _evidence_ledger_blockers
+
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "@ms.dataset(name='orders', datasource='warehouse')\n"
+                "def orders(backend):\n    return backend.table('orders')\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "def revenue(orders):\n    return orders.amount.sum()\n"
+            ),
+        }
+    )
+
+    issues = _evidence_ledger_blockers(project)
+    refs = {ref for issue in issues for ref in issue.refs}
+    assert "sales.revenue" in refs  # metric has no metric_decomposition decision recorded
+    assert all(issue.kind == "unresolved_clarification" for issue in issues)
+    assert all(issue.severity == "blocker" for issue in issues)
+
+
+def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_project_factory):
+    from marivo.semantic import ledger as lg
+    from marivo.semantic.readiness import _evidence_ledger_blockers
+
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "@ms.dataset(name='orders', datasource='warehouse')\n"
+                "def orders(backend):\n    return backend.table('orders')\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "def revenue(orders):\n    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    project.record_decision(
+        "sales.revenue",
+        lg.DecisionRecord(
+            decision_kind="metric_decomposition",
+            chosen="sum",
+            agreement_confidence="high",
+            qualifying_sources=("source_sql",),
+            materiality="high",
+            blast_radius=0,
+            evidence_fingerprint="sha256:a",
+            question_id=None,
+            decided_at="t",
+        ),
+    )
+    refs = {ref for issue in _evidence_ledger_blockers(project) for ref in issue.refs}
+    assert "sales.revenue" not in refs
+
+
+def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "@ms.dataset(name='orders', datasource='warehouse')\n"
+                "def orders(backend):\n    return backend.table('orders')\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "def revenue(orders):\n    return orders.amount.sum()\n"
+            ),
+        }
+    )
+
+    # Default (flag off): no unresolved_clarification blockers.
+    default_report = project.readiness(require_preview=False)
+    assert all(b.kind != "unresolved_clarification" for b in default_report.blockers)
+
+    # Flag on: the unaudited metric is fail-closed.
+    strict_report = project.readiness(require_preview=False, require_evidence_ledger=True)
+    kinds = {b.kind for b in strict_report.blockers}
+    assert "unresolved_clarification" in kinds
+    assert strict_report.status == "blocked"
+
+
 def test_semantic_check_main_prints_json(
     semantic_project_factory,
     backend_factory,
