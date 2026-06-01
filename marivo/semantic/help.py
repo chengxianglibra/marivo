@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from types import ModuleType
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from marivo.semantic.constraints import (
     constraints_for_symbol,
@@ -24,6 +24,7 @@ _TOP_LEVEL_ENTRIES: dict[str, str] = {
     "ref": "builder - refer to another metric by qualified name",
     "sum": "builder - sum aggregation marker",
     "weighted_average": "builder - weighted-average aggregation marker",
+    "decomposition": "topic - metric decomposition builders and aggregation boundary",
     "component": "builder - refer to a decomposition component in derived metric body",
     "help": "function - this introspection entry point",
     "constraints": "catalog - authoring and validation constraints",
@@ -82,6 +83,104 @@ def _format_constraints_text() -> str:
     return "\n".join(lines)
 
 
+def _decomposition_help_json() -> dict[str, object]:
+    return {
+        "schema_version": "1",
+        "surface": "marivo.semantic",
+        "kind": "topic",
+        "topic": "decomposition",
+        "summary": (
+            "Metric decomposition is not SQL aggregation. Decomposition declares how "
+            "metric values compose during drilldown, derived calculations, and "
+            "component-aware analysis."
+        ),
+        "builders": [
+            {
+                "name": "sum",
+                "call": "ms.sum()",
+                "use": "Aggregate metric over its dataset row set.",
+                "components": [],
+            },
+            {
+                "name": "ratio",
+                "call": "ms.ratio(numerator=..., denominator=...)",
+                "use": "Derived metric expressed as numerator / denominator.",
+                "components": ["numerator", "denominator"],
+            },
+            {
+                "name": "weighted_average",
+                "call": "ms.weighted_average(value=..., weight=...)",
+                "use": "Derived metric whose value is explained by additive value and weight components.",
+                "components": ["numerator", "weight"],
+            },
+        ],
+        "guidance": [
+            {
+                "metric_shape": "additive_amount",
+                "body": ".sum() or another dataset-backed reduction",
+                "decomposition": "ms.sum()",
+            },
+            {
+                "metric_shape": "count",
+                "body": ".count() in the metric body",
+                "decomposition": "ms.sum()",
+            },
+            {
+                "metric_shape": "mean_or_average",
+                "body": "derived body using ms.component('numerator') / ms.component('denominator')",
+                "decomposition": "ms.ratio(...)",
+            },
+            {
+                "metric_shape": "weighted_average",
+                "body": "derived body using value and weight components",
+                "decomposition": "ms.weighted_average(...)",
+            },
+        ],
+        "anti_patterns": [
+            "Do not call ms.count(); count metrics use .count() in the metric body and ms.sum() decomposition.",
+            "Do not call ms.mean(); mean metrics should be modeled as ratio or weighted_average components.",
+            "Do not infer decomposition builders from common SQL aggregate names.",
+        ],
+        "related_help": [
+            "ms.help('metric', format='json')",
+            "ms.help('component', format='json')",
+            "ms.help('constraints', format='json')",
+        ],
+    }
+
+
+def _format_decomposition_text() -> str:
+    data = _decomposition_help_json()
+    lines = [
+        "marivo.semantic decomposition",
+        "",
+        str(data["summary"]),
+        "",
+        "Supported builders:",
+    ]
+    builders = cast("list[dict[str, object]]", data["builders"])
+    guidance = cast("list[dict[str, object]]", data["guidance"])
+    anti_patterns = cast("list[str]", data["anti_patterns"])
+    for builder in builders:
+        lines.append(f"  - {builder['call']}: {builder['use']}")
+    lines.extend(
+        [
+            "",
+            "Guidance:",
+        ]
+    )
+    for guidance_item in guidance:
+        lines.append(
+            f"  - {guidance_item['metric_shape']}: body {guidance_item['body']}; decomposition {guidance_item['decomposition']}"
+        )
+    lines.extend(["", "Anti-patterns:"])
+    for anti_pattern in anti_patterns:
+        lines.append(f"  - {anti_pattern}")
+    lines.append("")
+    lines.append('Call ms.help("decomposition", format="json") for agent-readable data.')
+    return "\n".join(lines)
+
+
 def _resolve(symbol: str) -> Any | None:
     import marivo.semantic as ms
     from marivo.semantic import errors as errors_mod
@@ -103,6 +202,8 @@ def help_text(symbol: str | None = None) -> str:
         return _list_top_level()
     if symbol == "constraints":
         return _format_constraints_text()
+    if symbol == "decomposition":
+        return _format_decomposition_text()
 
     obj = _resolve(symbol)
     if obj is None:
@@ -178,6 +279,8 @@ def _help_json(symbol: str | None = None) -> dict[str, object]:
             "surface": "marivo.semantic",
             "constraints": _constraints_json(),
         }
+    if symbol == "decomposition":
+        return _decomposition_help_json()
 
     obj = _resolve(symbol)
     if obj is None:

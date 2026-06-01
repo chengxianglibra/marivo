@@ -253,7 +253,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric", "sum", "ratio", "weighted_average"),
         "Metrics need a supported decomposition builder.",
         "Decomposition declares how metric values compose during drilldown and derived calculations.",
-        "Use ms.sum(), ms.ratio(...), or ms.weighted_average(...).",
+        "Run ms.help('decomposition', format='json') to inspect supported builders; SQL aggregation belongs in the metric body.",
         example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.METRIC_DATASETS_REQUIRED: _constraint(

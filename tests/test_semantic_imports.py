@@ -229,6 +229,36 @@ def test_help_json_metric_includes_constraints_and_examples(capsys) -> None:
     assert "examples" in result
 
 
+def test_help_json_decomposition_documents_supported_builders_and_aggregation_boundary(
+    capsys,
+) -> None:
+    result = ms.help("decomposition", format="json")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert isinstance(result, dict)
+    assert result["kind"] == "topic"
+    assert result["topic"] == "decomposition"
+    builder_names = {entry["name"] for entry in result["builders"]}
+    assert builder_names == {"sum", "ratio", "weighted_average"}
+    assert "SQL aggregation" in result["summary"]
+    assert any("ms.count()" in item for item in result["anti_patterns"])
+    assert any("ms.mean()" in item for item in result["anti_patterns"])
+    guidance = {entry["metric_shape"]: entry for entry in result["guidance"]}
+    assert guidance["count"]["decomposition"] == "ms.sum()"
+    assert ".count()" in guidance["count"]["body"]
+    assert guidance["mean_or_average"]["decomposition"] == "ms.ratio(...)"
+
+
+def test_help_text_decomposition_documents_aggregation_boundary(capsys) -> None:
+    ms.help("decomposition")
+
+    captured = capsys.readouterr()
+    assert "decomposition is not SQL aggregation" in captured.out
+    assert "ms.count()" in captured.out
+    assert "ms.mean()" in captured.out
+
+
 def test_help_json_constraints_cover_error_kinds() -> None:
     result = ms.help("constraints", format="json")
 
@@ -245,6 +275,13 @@ def test_constraint_example_paths_exist() -> None:
     for constraint in iter_constraints():
         if constraint.example is not None:
             assert (repo_root / constraint.example).exists(), constraint.example
+
+
+def test_invalid_decomposition_hint_points_to_decomposition_help() -> None:
+    constraint = get_constraint("decomposition_shape")
+    assert constraint is not None
+    assert "ms.help('decomposition', format='json')" in constraint.hint
+    assert "aggregation" in constraint.hint
 
 
 def test_semantic_skill_constraint_table_matches_catalog() -> None:

@@ -111,6 +111,53 @@ ms.relationship(
 )
 ```
 
+## Aggregation body vs decomposition
+
+Metric decomposition is not SQL aggregation. Before authoring metrics, inspect
+`ms.help("metric", format="json")` and
+`ms.help("decomposition", format="json")`. The supported decomposition builders
+come from runtime help; do not invent `ms.count()` or `ms.mean()`.
+
+| Business shape | Metric body | Decomposition |
+| --- | --- | --- |
+| Additive amount | `.sum()` or another dataset-backed reduction | `ms.sum()` |
+| Count | `.count()` in the metric body | `ms.sum()` |
+| Mean or average | derived `ms.component("numerator") / ms.component("denominator")` | `ms.ratio(...)` |
+| Weighted average | derived expression over value and weight components | `ms.weighted_average(...)` |
+
+```python
+@ms.metric(
+    datasets=[orders],
+    additivity="additive",
+    decomposition=ms.sum(),
+    name="orders_count",
+)
+def orders_count(table):
+    return table.order_id.count()
+```
+
+Mean/average metrics are component-aware derived metrics, not `ms.mean()`:
+
+```python
+@ms.metric(
+    datasets=[orders],
+    additivity="additive",
+    decomposition=ms.sum(),
+    name="gross_revenue",
+)
+def gross_revenue(table):
+    return table.amount.sum()
+
+@ms.metric(
+    datasets=[],
+    additivity="non_additive",
+    decomposition=ms.ratio(numerator=gross_revenue, denominator=orders_count),
+    name="average_order_value",
+)
+def average_order_value():
+    return ms.component("numerator") / ms.component("denominator")
+```
+
 ## Derived metrics
 
 Derived metric bodies use `ms.component(...)` only:
