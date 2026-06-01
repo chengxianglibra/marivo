@@ -581,9 +581,10 @@ def time_field(
     """Declare a time-aware field that carries grain and parsing metadata.
 
     Time fields are the only fields usable as window axes by ``session.observe``.
-    The body must return an ibis expression yielding a temporal value
-    matching ``data_type``; if the underlying column is a string, supply
-    ``date_format`` (and optionally ``required_prefix``).
+    The body may return any ibis expression that represents the intended time
+    axis. For sortable day/hour partition columns, prefer returning the raw
+    column with ``data_type="string"`` or ``data_type="integer"`` plus
+    ``date_format`` so window predicates can remain pushdown-friendly.
 
     Args:
         name: Field name. Defaults to the function name.

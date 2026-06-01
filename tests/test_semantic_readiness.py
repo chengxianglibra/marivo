@@ -140,6 +140,31 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
     assert json.loads(json.dumps(payload))["analysis_ready_refs"] == ["sales.total_amount"]
 
 
+def test_readiness_maps_time_field_pushdown_advisory(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": textwrap.dedent("""\
+                import marivo.semantic as ms
+
+                ms.model(name="sales")
+
+                @ms.dataset(datasource="warehouse")
+                def orders(backend):
+                    return backend.table("orders")
+
+                @ms.time_field(dataset=orders, data_type="date", granularity="day")
+                def order_date(table):
+                    return table.dt.cast("date")
+            """)
+        }
+    )
+
+    report = project.readiness(require_preview=False, strict_provenance=False)
+
+    assert report.status == "ready_with_warnings"
+    assert any(issue.kind == "time_field_pushdown_advisory" for issue in report.warnings)
+
+
 _UNVERIFIED_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 

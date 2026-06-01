@@ -23,6 +23,7 @@ from marivo.semantic.errors import (
     SemanticError,
     SemanticLoadError,
     StructuredWarning,
+    WarningKind,
 )
 from marivo.semantic.ir import (
     DatasetIR,
@@ -99,6 +100,79 @@ def _resolve_required_prefix_field(
         if candidate.dataset == field_ir.dataset and candidate.name == field_ir.required_prefix
     ]
     return matches[0] if len(matches) == 1 else None
+
+
+_PARTITION_TIME_COLUMN_NAMES = {
+    "dt",
+    "date",
+    "ds",
+    "log_date",
+    "event_date",
+    "order_date",
+    "biz_date",
+    "stat_date",
+    "partition_date",
+    "hh",
+    "hour",
+    "log_hour",
+    "event_hour",
+}
+
+_TEMPORAL_DATA_TYPES = {"date", "datetime", "timestamp"}
+_PUSHDOWN_UNFRIENDLY_CALLS = {"cast", "as_date", "as_timestamp"}
+
+
+def _source_column_name(node: ast.AST) -> str | None:
+    """Return the base table column name for simple chained column expressions."""
+    current = node
+    while isinstance(current, ast.Call):
+        current = current.func
+    while isinstance(current, ast.Attribute):
+        value = current.value
+        if isinstance(value, ast.Name):
+            return current.attr
+        current = value
+        while isinstance(current, ast.Call):
+            current = current.func
+    return None
+
+
+def _has_pushdown_unfriendly_time_call(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call) or not isinstance(child.func, ast.Attribute):
+            continue
+        if child.func.attr in _PUSHDOWN_UNFRIENDLY_CALLS:
+            return True
+    return False
+
+
+def _return_expr(fn: Callable[..., Any]) -> ast.AST | None:
+    try:
+        source = textwrap.dedent(inspect.getsource(fn))
+        tree = ast.parse(source)
+    except (OSError, TypeError, IndentationError, SyntaxError):
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for stmt in node.body:
+                if isinstance(stmt, ast.Return):
+                    return stmt.value
+            return None
+    return None
+
+
+def _time_field_pushdown_advisory(field_ir: FieldIR, fn: Callable[..., Any] | None) -> bool:
+    if not field_ir.is_time_field or field_ir.data_type not in _TEMPORAL_DATA_TYPES:
+        return False
+    if fn is None:
+        return False
+    expr = _return_expr(fn)
+    if expr is None or not _has_pushdown_unfriendly_time_call(expr):
+        return False
+    source_column = _source_column_name(expr)
+    if source_column is None:
+        return False
+    return source_column.lower() in _PARTITION_TIME_COLUMN_NAMES
 
 
 # ---------------------------------------------------------------------------
@@ -976,6 +1050,23 @@ def assembly_validate(
     # -- Warnings -----------------------------------------------------------
     # String ref warnings: datasource names are intentionally strings in the
     # target API, and cross-file refs are common, so skip string-ref warnings.
+
+    # Partition pushdown advisory warnings
+    for f_id, f_ir in registry.fields.items():
+        if _time_field_pushdown_advisory(f_ir, None if sidecar is None else sidecar.get(f_id)):
+            warnings.append(
+                StructuredWarning(
+                    kind=WarningKind.TIME_FIELD_PUSHDOWN_ADVISORY.value,
+                    message=(
+                        f"Time field {f_id!r} casts or parses a partition-like source column. "
+                        "If this is a day/hour partition axis, prefer a raw string/integer "
+                        "time_field with date_format so window filters can use simple "
+                        "partition comparisons."
+                    ),
+                    refs=(f_id,),
+                    location=f_ir.location,
+                )
+            )
 
     # Unverified provenance warnings
     for m_id, m_ir in registry.metrics.items():

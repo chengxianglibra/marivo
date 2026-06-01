@@ -40,6 +40,7 @@ ReadinessIssueKind = Literal[
     "requires_raw_sql",
     "primary_key_unsampled",
     "fragile_string_ref",
+    "time_field_pushdown_advisory",
     "unresolved_clarification",
     "missing_business_definition",
     "missing_guardrails",
@@ -747,6 +748,16 @@ def build_readiness_report(
                     sw.refs,
                     sw.message,
                     "Replace fragile string refs with stable object refs where possible.",
+                )
+            )
+        if sw.kind == "time_field_pushdown_advisory":
+            warnings.append(
+                _issue(
+                    "time_field_pushdown_advisory",
+                    "warning",
+                    sw.refs,
+                    sw.message,
+                    "If the business axis matches the partition field, keep the raw string/integer column and declare date_format; keep the expression when business semantics require it.",
                 )
             )
 

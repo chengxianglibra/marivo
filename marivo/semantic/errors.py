@@ -211,6 +211,7 @@ class WarningKind(StrEnum):
     STRING_REF = "string_ref"
     UNVERIFIED_PROVENANCE = "unverified_provenance"
     POTENTIALLY_FRAGILE_REFERENCE = "potentially_fragile_reference"
+    TIME_FIELD_PUSHDOWN_ADVISORY = "time_field_pushdown_advisory"
 
 
 @dataclass(frozen=True)
@@ -220,7 +221,12 @@ class StructuredWarning:
     Frozen dataclass matching the spec's structure.
     """
 
-    kind: Literal["string_ref", "unverified_provenance", "potentially_fragile_reference"]
+    kind: Literal[
+        "string_ref",
+        "unverified_provenance",
+        "potentially_fragile_reference",
+        "time_field_pushdown_advisory",
+    ]
     message: str
     refs: tuple[str, ...]
     location: SourceLocation | None

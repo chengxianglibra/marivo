@@ -28,16 +28,32 @@ def orders(backend):
 
 @ms.time_field(
     dataset=orders,
-    name="order_date",
-    data_type="date",
+    name="log_date",
+    data_type="string",
     granularity="day",
+    date_format="yyyymmdd",
     ai_context={
         "business_definition": "Partition time field for order reporting windows.",
         "guardrails": ["Use event time only when source evidence defines it."],
     },
 )
-def order_date(table):
-    return table.dt.cast("date")
+def log_date(table):
+    return table.dt
+
+@ms.time_field(
+    dataset=orders,
+    name="log_hour",
+    data_type="string",
+    granularity="hour",
+    date_format="HH",
+    required_prefix="log_date",
+    ai_context={
+        "business_definition": "Hour partition used with log_date for hourly reporting windows.",
+        "guardrails": ["Use full event timestamp only when source evidence defines that axis."],
+    },
+)
+def log_hour(table):
+    return table.hh
 
 @ms.field(
     dataset=orders,
@@ -81,5 +97,6 @@ with tempfile.TemporaryDirectory() as tmp:
 
     project = ms.SemanticProject(root=root / ".marivo" / "semantic")
     project.load()
-    print("partition time field:", project.describe("sales.order_date").semantic_id)
+    print("partition time field:", project.describe("sales.log_date").semantic_id)
+    print("hour partition time field:", project.describe("sales.log_hour").semantic_id)
     print("metric:", project.describe("sales.revenue").semantic_id)

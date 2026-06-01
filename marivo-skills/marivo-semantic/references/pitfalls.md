@@ -16,6 +16,16 @@ business event represented by the column, such as order creation, payment,
 shipment, cancellation, or ledger posting. Preview values and cite metadata
 before making the field the default time axis for metrics or datasets.
 
+## Parsed partition field default
+
+Do not make cast/parse expressions the partition field default when a day/hour
+partition column already stores a sortable encoded value. Prefer raw
+`data_type="string"` or `data_type="integer"` with `date_format`, and use
+`required_prefix` for hour-only fields such as `HH`. This preserves simple
+partition predicates for engine-side predicate pushdown. Use cast/parse
+expressions only when the established business time axis is not the raw
+partition value.
+
 ## Trino VARCHAR datetime cast
 
 Do not cast a Trino VARCHAR datetime directly to DATE:
