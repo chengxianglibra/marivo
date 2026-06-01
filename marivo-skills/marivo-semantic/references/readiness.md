@@ -89,3 +89,9 @@ Warnings may allow analysis handoff when the user accepts the residual risk:
 - `unverified` blocks strict readiness and is otherwise a warning.
 - `python_native` is visible as a warning but does not block by itself.
 - derived metrics inherit the weakest component status.
+
+## Richness (advisory)
+
+`project.richness(demand=...)` returns a separate, demand-ranked advisory report of
+coverage and depth gaps. It never blocks and never changes readiness. See
+`references/richness.md`.

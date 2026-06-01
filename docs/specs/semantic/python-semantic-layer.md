@@ -159,6 +159,11 @@ print(project.describe("sales.revenue", compile_sql=True))
 | `project.materialize_field(name, backend_factory=...)` | 物化 field 到 Ibis expression |
 | `project.materialize_metric(name, backend_factory=...)` | 物化 metric 到 Ibis expression |
 | `project.reload()` | 重新加载该项目 |
+| `project.richness(demand=None)` | 返回纯 advisory 的 demand-ranked semantic coverage/depth gap report，不阻塞 readiness |
+
+`project.richness(...)` returns a `RichnessReport`; callers seed ranking with
+`DemandSignal`. `DemandSignal`, `RichnessGap`, and `RichnessReport` are public
+`marivo.semantic` exports.
 
 `ms.help(symbol=None, *, format="text")` 是模块级帮助 helper，独立于
 `SemanticProject` 实例使用，不需要 active project；用于 REPL / agent 自我发现

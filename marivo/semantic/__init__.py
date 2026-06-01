@@ -57,6 +57,11 @@ from marivo.semantic.readiness import (
     ReadinessIssue,
     ReadinessReport,
 )
+from marivo.semantic.richness import (
+    DemandSignal,
+    RichnessGap,
+    RichnessReport,
+)
 from marivo.semantic.typing import AiContext
 
 __all__ = [
@@ -66,6 +71,7 @@ __all__ = [
     "DecisionInput",
     "DecisionKind",
     "DecisionRecord",
+    "DemandSignal",
     "Enrichment",
     "EvidenceRef",
     "EvidenceSummary",
@@ -75,6 +81,8 @@ __all__ = [
     "ReadinessIssue",
     "ReadinessReport",
     "RejectedCandidate",
+    "RichnessGap",
+    "RichnessReport",
     "SemanticProject",
     "classify",
     "component",
