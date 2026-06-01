@@ -67,10 +67,8 @@ def fake_inspect_table(
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp) / ".marivo" / "semantic" / "sales"
     root.mkdir(parents=True)
-    (root / "_model.py").write_text("import marivo.semantic as ms\nms.model(name='sales')\n")
 
     project = ms.SemanticProject(root=root.parent)
-    project.load()
     candidates = project.propose_candidates(
         datasource="warehouse",
         tables=["orders"],
@@ -83,6 +81,9 @@ with tempfile.TemporaryDirectory() as tmp:
     print("ambiguous time axis candidates:", [c.slot_values.get("column") for c in time_candidates])
     print("chosen partition time field:", chosen_time)
     print("open questions:", [(q.severity, q.decision_kind) for q in questions])
+
+    (root / "_model.py").write_text("import marivo.semantic as ms\nms.model(name='sales')\n")
+    project.reload()
 
     blocker = next(
         q

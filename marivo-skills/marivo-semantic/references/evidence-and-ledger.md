@@ -40,6 +40,10 @@ candidates = project.propose_candidates(
 questions = project.open_questions(candidates=candidates)
 ```
 
+`project.open_questions(...)` is safe during cold start before `_model.py` is
+authored. If the registry is not loaded, `OpenQuestion.blast_radius` is `0`; run
+`project.reload()` successfully before closeout for real dependency impact.
+
 ## Confirmations
 
 Use `project.answer(...)` for user-confirmed answers:

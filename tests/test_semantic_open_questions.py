@@ -75,6 +75,32 @@ def test_open_questions_dangerous_low_confidence_is_blocker(semantic_project_fac
     assert questions[0].blast_radius == 2
 
 
+def test_open_questions_uses_zero_blast_radius_when_registry_is_unavailable(tmp_path):
+    root = tmp_path / ".marivo" / "semantic"
+    (root / "sales").mkdir(parents=True)
+    project = ms.SemanticProject(root=root)
+
+    result = project.load()
+    assert result.status == "errored"
+    assert [error.kind for error in result.errors] == ["model_file_missing"]
+
+    cand = ms.Candidate(
+        object_kind="dataset",
+        proposed_id="sales.orders",
+        decision_kind="amount_unit",
+        slot_values={"column": "amount"},
+        evidence=(ms.EvidenceRef("metadata", "metadata:warehouse.orders.amount"),),
+        semantic_delta="unit?",
+    )
+
+    questions = project.open_questions(candidates=[cand])
+
+    assert len(questions) == 1
+    assert questions[0].severity == "blocker"
+    assert questions[0].decision_kind == "amount_unit"
+    assert questions[0].blast_radius == 0
+
+
 def test_open_questions_high_confidence_auto_decides(semantic_project_factory):
     project = _project(semantic_project_factory)
     cand = ms.Candidate(

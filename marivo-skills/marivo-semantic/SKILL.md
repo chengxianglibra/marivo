@@ -36,7 +36,9 @@ the project structure before authoring semantic objects.
 - Before authoring new objects from datasource evidence, inspect metadata with
   `mv.datasources.inspect_table(...)`, then call `project.propose_candidates(...)`
   with `inspect_table=mv.datasources.inspect_table`.
-- Classify candidate uncertainty with `project.open_questions(...)`.
+- Classify candidate uncertainty with `project.open_questions(...)`. This works
+  before `_model.py` exists; without a loaded registry, question `blast_radius`
+  falls back to `0`.
 - Ask users only for unresolved blockers or business decisions evidence cannot
   settle.
 - Record user confirmations with `project.answer(...)`.
@@ -60,7 +62,7 @@ Read `references/workflow.md` first for object construction. The short form is:
 4. Classify questions with `project.open_questions(...)`.
 5. Author a single `.marivo/semantic/<model>/_model.py` using ref variables.
 6. Record confirmations and complete decisions in the ledger.
-7. Reload, preview, and run parity where source SQL exists.
+7. Reload successfully, preview, and run parity where source SQL exists.
 8. Run `project.audit(...)`, readiness, and richness.
 
 ## Authoring Defaults

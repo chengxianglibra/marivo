@@ -49,6 +49,8 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     assert "mv.datasources.inspect_table(...)" in skill
     assert "project.propose_candidates(" in workflow
     assert "inspect_table=mv.datasources.inspect_table" in workflow
+    assert "before `_model.py` exists" in workflow
+    assert "blast_radius=0" in workflow
     assert "Table metadata evidence" in evidence
     assert "table.schema()` returns types but not comments" in skill
     assert "target preview APIs until they exist" not in skill
@@ -110,6 +112,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "project.propose_candidates(" in questions
     assert "project.open_questions(" in questions
     assert "ambiguous time axis" in questions
+    assert questions.index("project.open_questions(") < questions.index("_model.py")
     assert "missing_raw_preview" in closeout
     assert "unverified_metric" in closeout
     assert "parity_drifted" in closeout
