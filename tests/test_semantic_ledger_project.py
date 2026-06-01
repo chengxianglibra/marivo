@@ -139,3 +139,87 @@ def test_open_questions_skips_confirmed_questions(semantic_project_factory):
 
     # Second pass with identical candidate: the confirmed question is deduped away.
     assert project.open_questions(candidates=[cand]) == ()
+
+
+def test_audit_resurfaces_stale_dangerous_decision(semantic_project_factory):
+    from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
+    from marivo.semantic import ledger as lg
+
+    project = _project_loaded(semantic_project_factory)
+    project.load()
+
+    # Record a dangerous decision whose fingerprint reflects status:INTEGER.
+    old_fp = lg.evidence_fingerprint({"status": "INTEGER"}, None, {"status": "1=paid"})
+    project.record_decision(
+        "sales.revenue",
+        lg.DecisionRecord(
+            decision_kind="metric_decomposition",
+            chosen="sum",
+            agreement_confidence="high",
+            qualifying_sources=("source_sql",),
+            materiality="high",
+            blast_radius=0,
+            evidence_fingerprint=old_fp,
+            question_id=None,
+            decided_at="t",
+            cited_table="warehouse.orders",
+            cited_columns=("status",),
+        ),
+    )
+
+    # Current metadata now reports status:VARCHAR -> fingerprint changed -> stale.
+    def fake_inspect_table(datasource, *, table, database=None, include_partitions=True):
+        return TableMetadata(
+            datasource=datasource,
+            table=table,
+            database=None,
+            backend_type="duckdb",
+            comment=None,
+            columns=(ColumnMetadata("status", "VARCHAR", True, "1=paid", None),),
+            partitions=(),
+            warnings=(),
+        )
+
+    questions = project.audit(inspect_table=fake_inspect_table)
+    assert len(questions) == 1
+    assert questions[0].decision_kind == "metric_decomposition"
+    assert questions[0].subject_refs == ("sales.revenue",)
+    assert questions[0].severity == "blocker"  # dangerous kind + stale (low verdict)
+
+
+def test_audit_returns_nothing_when_evidence_unchanged(semantic_project_factory):
+    from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
+    from marivo.semantic import ledger as lg
+
+    project = _project(semantic_project_factory)
+    fp = lg.evidence_fingerprint({"status": "INTEGER"}, None, {"status": "1=paid"})
+    project.record_decision(
+        "sales.revenue",
+        lg.DecisionRecord(
+            decision_kind="metric_decomposition",
+            chosen="sum",
+            agreement_confidence="high",
+            qualifying_sources=("source_sql",),
+            materiality="high",
+            blast_radius=0,
+            evidence_fingerprint=fp,
+            question_id=None,
+            decided_at="t",
+            cited_table="warehouse.orders",
+            cited_columns=("status",),
+        ),
+    )
+
+    def fake_inspect_table(datasource, *, table, database=None, include_partitions=True):
+        return TableMetadata(
+            datasource=datasource,
+            table=table,
+            database=None,
+            backend_type="duckdb",
+            comment=None,
+            columns=(ColumnMetadata("status", "INTEGER", True, "1=paid", None),),
+            partitions=(),
+            warnings=(),
+        )
+
+    assert project.audit(inspect_table=fake_inspect_table) == ()

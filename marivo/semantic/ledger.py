@@ -12,6 +12,10 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from marivo.analysis.datasources.metadata import TableMetadata
 
 
 @dataclass(frozen=True)
@@ -25,6 +29,8 @@ class DecisionRecord:
     evidence_fingerprint: str
     question_id: str | None
     decided_at: str
+    cited_table: str | None = None
+    cited_columns: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -37,10 +43,13 @@ class DecisionRecord:
             "evidence_fingerprint": self.evidence_fingerprint,
             "question_id": self.question_id,
             "decided_at": self.decided_at,
+            "cited_table": self.cited_table,
+            "cited_columns": list(self.cited_columns),
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object]) -> DecisionRecord:
+        cited_columns_raw = data.get("cited_columns", [])
         return cls(
             decision_kind=str(data["decision_kind"]),
             chosen=data["chosen"],
@@ -51,6 +60,8 @@ class DecisionRecord:
             evidence_fingerprint=str(data["evidence_fingerprint"]),
             question_id=None if data["question_id"] is None else str(data["question_id"]),
             decided_at=str(data["decided_at"]),
+            cited_table=None if data.get("cited_table") is None else str(data["cited_table"]),
+            cited_columns=tuple(str(c) for c in cited_columns_raw),  # type: ignore[attr-defined]
         )
 
 
@@ -207,3 +218,23 @@ class LedgerStore:
             if line:
                 records.append(ConfirmationRecord.from_dict(json.loads(line)))
         return tuple(records)
+
+    def iter_object_records(self) -> tuple[ObjectEvidence, ...]:
+        records: list[ObjectEvidence] = []
+        for objects_dir in sorted(self._root.glob("*/_evidence/objects")):
+            for path in sorted(objects_dir.glob("*.json")):
+                records.append(ObjectEvidence.from_dict(json.loads(path.read_text())))
+        return tuple(records)
+
+
+def is_decision_stale(record: DecisionRecord, metadata: TableMetadata) -> bool:
+    """True if recomputing the decision's structural fingerprint over current
+    metadata differs from the stored one. A decision with no cited_table cannot be
+    recomputed and is treated as not stale (contracts spec accepts this)."""
+    if record.cited_table is None:
+        return False
+    cited = set(record.cited_columns)
+    columns = {col.name: col.type for col in metadata.columns if col.name in cited}
+    comments = {col.name: col.comment for col in metadata.columns if col.name in cited}
+    current = evidence_fingerprint(columns, metadata.comment, comments)
+    return current != record.evidence_fingerprint

@@ -1013,6 +1013,47 @@ class SemanticProject:
         confirmed = self._confirmed_question_ids(candidates)
         return tuple(q for q in questions if q.id not in confirmed)
 
+    def audit(
+        self,
+        *,
+        inspect_table: Callable[..., TableMetadata],
+    ) -> tuple[OpenQuestion, ...]:
+        """Re-validate recorded decisions against current metadata. Decisions whose
+        structural fingerprint changed are re-surfaced as OpenQuestions through the
+        classifier (stale -> low verdict, so dangerous kinds become blockers).
+
+        ``inspect_table`` is a callable with the same signature as
+        ``mv.datasources.inspect_table``; the caller injects it so that
+        ``marivo.semantic`` does not import ``marivo.analysis``.
+
+        Data-side drift over unchanged schema/comments is not detected (accepted
+        residual risk)."""
+        from typing import cast
+
+        from marivo.semantic.classifier import DecisionInput, Materiality, classify
+        from marivo.semantic.ledger import LedgerStore, is_decision_stale
+
+        store = LedgerStore(self._root)
+        stale_inputs: list[DecisionInput] = []
+        for obj in store.iter_object_records():
+            for decision in obj.decisions:
+                if decision.cited_table is None:
+                    continue
+                datasource, table = decision.cited_table.split(".", 1)
+                metadata = inspect_table(datasource, table=table)
+                if is_decision_stale(decision, metadata):
+                    stale_inputs.append(
+                        DecisionInput(
+                            decision_kind=cast("DecisionKind", decision.decision_kind),
+                            subject_refs=(obj.semantic_id,),
+                            candidates=(),
+                            agent_materiality=cast("Materiality", decision.materiality),
+                            agent_verdict="low",
+                            conflict=False,
+                        )
+                    )
+        return classify(tuple(stale_inputs), blast_radius_of=self._blast_radius_of)
+
     def _confirmed_question_ids(self, candidates: Sequence[Candidate]) -> set[str]:
         from marivo.semantic.ledger import LedgerStore
 
@@ -1400,6 +1441,7 @@ class SemanticProject:
         strict_provenance: bool = True,
         require_preview: bool = True,
         require_comments: bool = False,
+        require_evidence_ledger: bool = False,
         backend_factory: Callable[[str], Any] | None = None,
         refs: Iterable[str] | None = None,
         required_raw_previews: Iterable[str] | None = None,
@@ -1424,6 +1466,7 @@ class SemanticProject:
             strict_provenance=strict_provenance,
             require_preview=require_preview,
             require_comments=require_comments,
+            require_evidence_ledger=require_evidence_ledger,
             backend_factory=backend_factory,
             refs=refs,
             required_raw_previews=required_raw_previews,
