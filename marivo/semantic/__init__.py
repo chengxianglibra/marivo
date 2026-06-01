@@ -34,10 +34,13 @@ from marivo.semantic.authoring import (
 from marivo.semantic.classifier import (
     Candidate,
     DecisionInput,
+    DecisionKind,
+    Enrichment,
     EvidenceRef,
     OpenQuestion,
     classify,
     select_for_user,
+    to_decision_inputs,
 )
 from marivo.semantic.help import help
 from marivo.semantic.loader import find_project
@@ -55,6 +58,8 @@ __all__ = [
     "AiContext",
     "Candidate",
     "DecisionInput",
+    "DecisionKind",
+    "Enrichment",
     "EvidenceRef",
     "EvidenceSummary",
     "OpenQuestion",
@@ -79,6 +84,7 @@ __all__ = [
     "snapshot",
     "sum",
     "time_field",
+    "to_decision_inputs",
     "typing",
     "validity",
     "weighted_average",
