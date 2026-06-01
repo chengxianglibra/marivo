@@ -55,7 +55,7 @@ orders = ms.dataset(
 )
 ```
 
-Use `backend.list_schemas()` to discover schemas and
+Use `backend.list_databases(catalog="hive")` to discover schemas and
 `backend.list_tables(database="sales_mart")` to verify table reachability.
 
 ## Multi-file sprawl

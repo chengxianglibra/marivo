@@ -105,14 +105,17 @@ orders = ms.dataset(
     source=ms.table("orders", database="sales_mart"),
 )
 backend = mv.datasources.build_backend("warehouse")
+schemas = backend.list_databases(catalog="hive")
 tables = backend.list_tables(database="sales_mart")
-schemas = backend.list_schemas()
 ```
 
-Use `backend.list_schemas()` to discover available schemas, then
+Use `backend.list_databases(catalog="hive")` to discover available schemas, then
 `backend.list_tables(database="sales_mart")` to verify table reachability inside
 the selected schema. Write semantic table access as
 `source=ms.table("orders", database="sales_mart")`.
+
+`backend.get_schema("orders", database="sales_mart")` can inspect types after
+the table name is known; it cannot discover available schemas or tables.
 
 ## Trino VARCHAR datetime cast
 

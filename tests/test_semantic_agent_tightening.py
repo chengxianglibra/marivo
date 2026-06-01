@@ -73,8 +73,10 @@ def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
     assert 'sources=[ms.table("orders", database="sales_mart")]' in combined
     assert 'source=ms.file("/data/orders/*.parquet", format="parquet")' in combined
     assert 'database="sales_mart"' in combined
+    assert "backend.list_databases(catalog=" in combined
     assert "backend.list_tables(database=" in combined
-    assert "backend.list_schemas()" in combined
+    assert "backend.list_schemas()" not in combined
+    assert 'backend.get_schema("orders", database="sales_mart")' in datasource
     assert "schema` is optional" in datasource
     assert "VARCHAR" in combined and 'cast("timestamp").cast("date")' in combined
     assert "catalog.schema.table" not in combined
