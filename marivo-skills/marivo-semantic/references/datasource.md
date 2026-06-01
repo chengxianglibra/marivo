@@ -1,25 +1,55 @@
 # marivo-semantic datasource reference
 
-Datasource is a project asset. Declare it in `.marivo/datasource/*.py`, then
-reference its global name from semantic datasets. Do not declare datasources in
-semantic model files.
+Use this reference when creating, checking, or repairing project datasources used
+by semantic models from a pip-installed Marivo project.
 
-## Core Rule
+## Project datasource files
 
-- Use `marivo.datasource as md` in `.marivo/datasource/<name>.py`.
-- Use `md.ref("<name>")` and pass the ref to `@ms.dataset(datasource=...)` in `.marivo/semantic/...`.
-- The datasource name is global and must not contain `.`.
-- Non-secret connection fields live in the datasource file.
-- Secret fields use environment references only: `user_env`, `password_env`,
-  `auth_env`, `token_env`, `api_key_env`, `secret_env`, `private_key_env`, etc.
-- Sensitive literal fields are rejected: `user`, `password`, `auth`, `token`,
-  `secret`, `secret_key`, `access_key`, `private_key`, `passphrase`, and
-  `api_key`.
-- After a successful validation query, Marivo may cache the resolved secret
-  value in plaintext at `~/.marivo/secrets.toml`. The project-local
-  `.marivo/datasource/*.py` file still stores only the `*_env` reference.
+Semantic files reference datasources declared under `.marivo/datasource/*.py`.
+Use `md.ref("<name>")` in semantic files:
 
-## Datasource Definition
+```python
+import marivo.datasource as md
+
+warehouse = md.ref("warehouse")
+```
+
+## Inspect configured datasources
+
+Use `mv.datasources` from the installed project environment:
+
+```python
+import marivo.analysis as mv
+
+print(mv.datasources.all())
+print(mv.datasources.describe("warehouse"))
+print(mv.datasources.test("warehouse"))
+
+metadata = mv.datasources.inspect_table("warehouse", table="orders")
+print(metadata.to_dict())
+```
+
+`table.schema()` returns types but not comments. Prefer
+`mv.datasources.inspect_table(...)` for table comments, column comments,
+nullable flags, partition hints, and warnings.
+
+## DuckDB datasource
+
+```python
+import marivo.datasource as md
+
+warehouse = md.DatasourceSpec(
+    name="warehouse",
+    backend_type="duckdb",
+    path="warehouse.duckdb",
+)
+md.datasource(warehouse)
+```
+
+## Trino datasource
+
+For Trino, `catalog` is required and `schema` is optional. Keep schema selection
+at table access time when the datasource has no default schema.
 
 ```python
 import marivo.datasource as md
@@ -38,118 +68,33 @@ warehouse = md.DatasourceSpec(
 md.datasource(warehouse)
 ```
 
-For Trino, `host` and `catalog` are required. `catalog` maps to the Ibis
-connection `database`. `schema` is optional and only sets the connection's
-default schema; it is not required when tables pass their schema explicitly.
-Use `schema="sales_mart"` only when you want a default schema for ad hoc Ibis
-calls such as `backend.list_tables()` without a `database=` argument.
-
-The same datasource can be shared by multiple semantic models.
-
-## Semantic Reference
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-ms.model(name="sales")
-warehouse = md.ref("warehouse")
-
-@ms.dataset(name="orders", datasource=warehouse, primary_key=["order_id"])
-def orders(backend):
-    return backend.table("orders", database="sales_mart")
-```
-
-When calling Ibis directly against Trino, use `backend.table("orders",
-database="sales_mart")` for schema checks and
-`backend.list_tables(database="sales_mart")` for table enumeration. Do not use
-`backend.list_schemas()`; it is not the Ibis table-discovery API used here.
-
-`ms.datasource(...)` has been removed. If you see it, move the datasource
-configuration to `.marivo/datasource/<name>.py` and keep only a datasource ref
-or compatible string on `@ms.dataset`.
-
-## Analysis API
-
-Use `mv.datasources` for project datasource CRUD and backend checks:
+Inspect and read tables with `database="sales_mart"`:
 
 ```python
 import marivo.analysis as mv
-import marivo.datasource as md
 
-mv.datasources.register(
-    md.DatasourceSpec(
-        name="warehouse",
-        backend_type="duckdb",
-        path="/data/warehouse.duckdb",
-    )
+metadata = mv.datasources.inspect_table(
+    "warehouse",
+    table="orders",
+    database="sales_mart",
 )
-mv.datasources.test("warehouse")
 backend = mv.datasources.build_backend("warehouse")
-```
-
-## Secret Cache
-
-Datasource files stay project-local and secret-free. Sensitive fields are
-authored as environment references, for example `password_env="TRINO_PASSWORD"`.
-At connection time Marivo resolves the value in this order:
-
-1. `os.environ`
-2. `~/.marivo/secrets.toml`
-
-When `mv.datasources.test("warehouse")` succeeds, or when an analysis session
-successfully runs its first query against a datasource backend, any value that
-came from `os.environ` is written through to `~/.marivo/secrets.toml`. The file
-is plaintext, user-global, and written with `0600` permissions under a `0700`
-`~/.marivo` directory. Set `MARIVO_PERSIST_SECRETS=0` to skip writes; reads from
-an existing cache still work.
-
-If the cache file permissions are too open, fix them before retrying:
-
-```bash
-chmod 600 ~/.marivo/secrets.toml
-```
-
-## Table Metadata
-
-Use `mv.datasources.inspect_table(...)` before declaring a dataset:
-
-```python
-metadata = mv.datasources.inspect_table("warehouse", table="orders")
-metadata = mv.datasources.inspect_table("warehouse", table="orders", database="sales_mart")
-```
-
-For Trino, pass `database="sales_mart"` when the datasource has no default
-`schema`. When `schema="sales_mart"` is configured on the datasource,
-`inspect_table("warehouse", table="orders")` can use that default for metadata
-enrichment.
-
-The result includes table comment, column names, Ibis types, nullable flags,
-column comments, partition hints, and warnings for backend catalog gaps.
-DuckDB, MySQL, Trino, and ClickHouse have backend-specific metadata adapters. Other
-backends return schema-only metadata with warnings when comments or partitions
-are unavailable.
-
-## Metadata Workflow
-
-After the datasource is configured and reachable, use ibis metadata before
-modeling:
-
-```python
-backend = mv.datasources.build_backend("warehouse")
-table = backend.table("orders", database="sales_mart")
-schema = table.schema()
+orders = backend.table("orders", database="sales_mart")
 tables = backend.list_tables(database="sales_mart")
+schemas = backend.list_schemas()
 ```
 
-`table.schema()` returns names and types, not comments. Fetch comments from the
-datasource metadata catalog before assigning semantic meaning. For time-like
-VARCHAR/string columns, preview sample values before choosing casts and
-granularity.
+Use `backend.list_schemas()` to discover available schemas, then
+`backend.list_tables(database="sales_mart")` to verify table reachability inside
+the selected schema. Write table access as `table="orders",
+database="sales_mart"` or `backend.table("orders", database="sales_mart")`.
 
-## Preview Requirement
+## Trino VARCHAR datetime cast
 
-Before declaring a semantic dataset, preview the physical table with a bounded
-limit. Use `preview.md` for the Phase 0 fallback commands. Raw preview validates
-physical shape such as time formats, enum values, nulls, amount signs, and join
-keys; it does not replace comments or knowledge-base definitions.
+Do not cast a Trino VARCHAR datetime directly to date. Parse through timestamp
+first:
+
+```python
+def order_date(table):
+    return table.order_time.cast("timestamp").cast("date")
+```

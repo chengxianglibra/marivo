@@ -1,206 +1,84 @@
 # marivo-semantic pitfalls
 
-Each pitfall pairs a symptom with the structured exception you'll see and the
-correct usage.
+Known failure modes for semantic authoring agents.
 
-## Wrong Python Environment
+## Business meaning inferred from names
 
-**Symptom:** `ModuleNotFoundError: No module named 'marivo'` or output that
-clearly comes from a system install rather than the project virtualenv.
+Names are candidate signals only. Use comments, source SQL, knowledge, preview
+evidence, or user confirmation before authoring business definitions. Name-only
+semantics usually look plausible but fail when analysis users ask for exact
+metric meaning, filters, or dimensions.
 
-**Fix:** do not try `python`, `python3`, `pip`, or `pip3` again. Use the
-project virtualenv entrypoints directly:
+## Wrong time axis
 
-```bash
-.venv/bin/python -c 'import marivo.semantic as ms; ms.help()'
-.venv/bin/python -c 'import marivo.semantic as ms; print(ms.help("constraints", format="json"))'
-```
+Do not choose a time field only because its name looks common. Confirm the
+business event represented by the column, such as order creation, payment,
+shipment, cancellation, or ledger posting. Preview values and cite metadata
+before making the field the default time axis for metrics or datasets.
 
-If this skill is being used outside the Marivo source checkout, replace `.venv`
-with that project's actual virtualenv path.
+## Trino VARCHAR datetime cast
 
-## Dataset References A Missing Datasource
-
-**Symptom:**
-
-```text
-[missing_dataset_ref] Dataset 'sales.orders' references unknown datasource 'tiny_orders'.
-```
-
-**Why it happens:** the `datasource=` argument points at a global datasource
-name that has no `.marivo/datasource/<name>.py` declaration.
-
-**Fix:** create the project datasource, then reference it with `md.ref(...)`:
+Do not cast a Trino VARCHAR datetime directly to DATE:
 
 ```python
-# .marivo/datasource/tiny_orders.py
-import marivo.datasource as md
-
-tiny_orders = md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:")
-md.datasource(tiny_orders)
+def order_date(table):
+    return table.order_time.cast("date")
 ```
 
+Parse through timestamp first:
+
 ```python
-# .marivo/semantic/sales/datasets.py
-import marivo.datasource as md
-import marivo.semantic as ms
+def order_date(table):
+    return table.order_time.cast("timestamp").cast("date")
+```
 
-tiny_orders = md.ref("tiny_orders")
+## Trino fully qualified name mistake
 
-@ms.dataset(name="orders", datasource=tiny_orders)
+For Trino semantic datasets, keep schema selection in the datasource call rather
+than embedding a multi-part table string:
+
+```python
+@ms.dataset(name="orders", datasource=warehouse)
 def orders(backend):
-    return backend.table("orders")
+    return backend.table("orders", database="sales_mart")
 ```
 
-**See:** `examples/99_pitfall_dataset_without_datasource.py`.
+Use `backend.list_schemas()` to discover schemas and
+`backend.list_tables(database="sales_mart")` to verify table reachability.
 
-## Forgot To Reload The Project After Editing Source
+## Multi-file sprawl
 
-**Symptom:** the IR keeps reporting the previous datasource/dataset/metric list
-after a `.py` file changed.
+Avoid spreading one model change across many small files when a focused dataset,
+field, metric, or relationship edit would do. Sprawl makes reload, review, and
+readiness harder because related definitions become difficult to inspect
+together.
 
-Run:
+## Missing raw preview evidence
 
-```bash
-.venv/bin/python -c 'import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.reload(); print(project.list_metrics())'
-```
+If readiness reports `missing_raw_preview`, run a bounded raw datasource preview
+and pass the completed raw preview ref to readiness. Metadata and comments do
+not replace raw samples for validating shape-sensitive columns.
 
-Outside the Marivo source checkout, replace `.venv/bin/python` with the
-interpreter for the environment where Marivo is installed.
+## Incomplete decision records
 
-## Missing Backend Factory At Execution Time
+Do not call `project.record_decision(...)` with invented internal fields. Use
+`project.answer(...)` for user confirmations, or build a `DecisionRecord` from a
+real `OpenQuestion`, evidence fingerprint, cited table, and qualifying sources.
 
-**Symptom:**
+## Analysis handoff before readiness
 
-```text
-NoBackendFactoryError: session has no backend factory configured
-```
+Do not hand refs to `marivo-analysis` until readiness has no blockers for those
+refs. Preview failures, missing raw preview evidence, unresolved ambiguity, and
+broken semantic declarations are blockers for affected objects.
 
-**Why it happens:** analysis needs either `.marivo/datasource` backend config or
-an explicit `backends=` / `backend_factory=` override.
+## Unverified metric and source SQL parity drift
 
-**Fix:** create the project datasource or pass an explicit backend factory:
+When a metric is intended to match existing source SQL or a known report,
+compare the semantic expression to the cited source and verify parity before
+closeout. A renamed field, changed filter, different time axis, or missing
+status condition can silently drift from the source definition.
 
-```python
-import marivo.analysis as mv
-import marivo.datasource as md
+## Richness confused with readiness
 
-mv.datasources.register(md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:"))
-session = mv.session.get_or_create(name="analysis")
-```
-
-## Invalid Metric Shape
-
-**Symptom:** `semantic check` reports an invalid component body or the
-loader rejects a metric using `datasets=[]`. JSON output includes a
-`constraint_id` such as `metric_derived_shape` or `ast_component_arithmetic`.
-
-**Why it happens:** `datasets=[]` is reserved for derived metrics whose
-decomposition has components, such as `ms.ratio(...)`. Dataset-backed metrics
-must return ibis expressions over their dataset arguments and must not call
-`ms.component(...)`.
-
-**Fix:** use one of the two valid shapes:
-
-```python
-@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="failed_count")
-def failed_count(orders):
-    return (orders.state == "FAILED").cast("int64").sum()
-
-@ms.metric(
-    datasets=[],
-    decomposition=ms.ratio(
-        numerator="sales.failed_count",
-        denominator="sales.total_count",
-    ),
-    name="failure_rate",
-)
-def failure_rate():
-    return ms.component("numerator") / ms.component("denominator")
-```
-
-For dimension drilldowns on a derived metric, make sure the component metrics'
-datasets can reach the requested dimension through a unique relationship path.
-
-## AST Whitelist Violation
-
-**Symptom:** `semantic check --format=json` reports `ast_single_return`,
-`ast_forbidden_statement`, or `ast_sql_escape_hatch`.
-
-**Why it happens:** decorator bodies are expression declarations, not general
-Python functions. They must contain exactly one `return <ibis expression>` and
-cannot contain imports, local assignments, control flow, lambdas, or raw SQL
-calls.
-
-**Fix:** move setup outside the decorator body and keep only the expression:
-
-```python
-@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="revenue")
-def revenue(orders):
-    return orders.amount.sum()
-```
-
-Inspect the live rules with:
-
-```bash
-.venv/bin/python -c 'import marivo.semantic as ms; print(ms.help("metric", format="json"))'
-```
-
-## Ibis Expression Gotchas
-
-- Build string transformations on an expression instance. Do not call methods
-  like `ibis.expr.types.StringValue.re_replace(...)` as class methods.
-- Metric bodies return one ibis expression. `count()` and `sum()` already
-  produce aggregate expressions, so do not call another aggregate on them.
-
-## Decorator Outside `ms.model(...)` Context
-
-**Symptom:** a decorator raises a model registration error. Decorators register
-on the current model in the current registry; without `ms.model(name=...)`, there
-is nowhere to attach the declaration.
-
-**Fix:**
-
-```python
-import marivo.semantic as ms
-
-ms.model(name="sales")
-```
-
-In tests/examples, write files under a temporary `.marivo/semantic/<model>/`
-directory and load them with `ms.SemanticProject(root=...).load()`, as shown in
-the runnable files under `references/examples/`.
-
-## Invalid Dataset Versioning
-
-**Symptom:** the loader raises `INVALID_DATASET_VERSIONING` when loading a
-dataset that declares `versioning=ms.validity(...)`.
-
-**Why it happens:** validity metadata is validated at author time (load time),
-not at observe time. Common causes:
-
-- `valid_from` is not listed in `primary_key`.
-- `valid_from` or `valid_to` references a field name that is not declared on
-  the same dataset.
-- `interval` is not one of `closed_open` or `closed_closed`.
-- `open_end` is not a tuple.
-
-**Fix:** ensure `valid_from` is in `primary_key`, both field names exist on the
-dataset, and `open_end` is a tuple of sentinel values:
-
-```python
-@ms.dataset(
-    name="user_history",
-    datasource=warehouse,
-    primary_key=["user_id", "valid_from"],
-    versioning=ms.validity(
-        valid_from="valid_from",
-        valid_to="valid_to",
-        interval="closed_open",
-        open_end=(None, "9999-12-31"),
-        timezone="UTC",
-    ),
-)
-def user_history(backend):
-    return backend.table("user_history")
-```
+`project.richness(...)` is advisory. It does not block handoff. Fix readiness
+blockers first, then report richness gaps as recommended follow-up work.

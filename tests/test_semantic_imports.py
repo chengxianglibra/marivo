@@ -249,14 +249,14 @@ def test_constraint_example_paths_exist() -> None:
 
 def test_semantic_skill_constraint_table_matches_catalog() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    skill_md = repo_root / "marivo-skills/marivo-semantic/SKILL.md"
-    text = skill_md.read_text()
+    reference = repo_root / "marivo-skills/marivo-semantic/references/authoring-patterns.md"
+    text = reference.read_text()
 
     rows = re.findall(r"^\| `([^`]+)` \| [^|]+ \| `([^`]+)` \|$", text, re.MULTILINE)
     assert rows
     for constraint_id, example_path in rows:
         assert get_constraint(constraint_id) is not None, constraint_id
-        assert (skill_md.parent / example_path).exists(), example_path
+        assert (reference.parent.parent / example_path).exists(), example_path
 
 
 # ---------------------------------------------------------------------------

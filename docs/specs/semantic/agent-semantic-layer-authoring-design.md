@@ -979,14 +979,14 @@ Evidence used:
 `marivo-skills/marivo-semantic/SKILL.md` should stay short and route the agent
 through the authoring loop. Detailed procedures should move to references:
 
-- `references/authoring-workflow.md`
-- `references/evidence.md`
+- `references/workflow.md`
+- `references/authoring-patterns.md`
+- `references/evidence-and-ledger.md`
 - `references/preview.md`
-- `references/readiness.md`
+- `references/closeout.md`
 
 Existing references should remain:
 
-- `references/cheatsheet.md`
 - `references/datasource.md`
 - `references/pitfalls.md`
 - `references/examples/`

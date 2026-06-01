@@ -1,426 +1,82 @@
 ---
 name: marivo-semantic
-description: Use when the task involves declaring a Marivo semantic model -- datasource, dataset, field, metric, or relationship.
+description: Use when declaring or modifying a Marivo semantic model: datasource refs, datasets, fields, time fields, metrics, relationships, evidence, readiness, and richness.
 ---
 
 # marivo-semantic
 
-Use this skill when writing or running Python code that declares a Marivo
-semantic model: datasources, datasets, fields, time fields, metrics, and
-relationships via `marivo.semantic`.
-
-For running analyses on top of an already-declared model, switch to
-`marivo-analysis`. Modeling is owned here; analysis is owned there.
-
-## Python Environment
-
-Do not use bare `python`, `python3`, `pip`, or `pip3` commands.
-In this Marivo source checkout, use these exact entrypoints:
-
-```bash
-.venv/bin/python
-.venv/bin/pip
-```
-
-If this skill is copied into another project, first identify that project's
-virtualenv path, then use `<venv>/bin/python` and `<venv>/bin/pip`
-consistently for every install, check, and script run.
-
-## Prerequisite
-
-You need `marivo` installed in the active Python environment, plus `ibis` and
-one or more backend drivers for the datasources you intend to declare, such as
-DuckDB for this skill's examples:
-
-```bash
-.venv/bin/pip install marivo ibis-framework duckdb
-```
-
-If the surrounding project pins a different virtualenv, install into that venv
-with its explicit pip path. This skill does not assume you have the Marivo
-source checkout.
-
-## 30-Second Overview
-
-```python
-import ibis
-import marivo.datasource as md
-import marivo.semantic as ms
-
-# In .marivo/datasource/tiny_orders.py:
-# tiny_orders = md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:")
-# md.datasource(tiny_orders)
-#
-# For Trino, keep catalog on the connection and pass schema per table:
-# warehouse = md.DatasourceSpec(
-#     name="warehouse",
-#     backend_type="trino",
-#     host="trino.example.internal",
-#     port=8080,
-#     catalog="hive",
-#     source="marivo",
-#     client_tags=["agent", "semantic-authoring"],
-#     user_env="TRINO_USER",
-# )
-# md.datasource(warehouse)
-#
-# In a _model.py file inside .marivo/semantic/sales/:
-ms.model(name="sales")
-
-# In a sibling .py file:
-tiny_orders = md.ref("tiny_orders")
-
-@ms.dataset(name="orders", datasource=tiny_orders, primary_key=["order_id"])
-def orders(backend):
-    return backend.table("orders")
-
-@ms.time_field(dataset=orders, data_type="date", granularity="day")
-def created_at(orders):
-    return orders.created_at.cast("date")
-
-@ms.field(dataset=orders)
-def region(orders):
-    return orders.region
-
-@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="revenue")
-def revenue(orders):
-    return orders.amount.sum()
-
-@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="orders_count")
-def orders_count(orders):
-    return orders.count()
-
-@ms.metric(
-    datasets=[],
-    decomposition=ms.ratio(
-        numerator="sales.revenue",
-        denominator="sales.orders_count",
-    ),
-    name="aov",
-)
-def aov():
-    return ms.component("numerator") / ms.component("denominator")
-```
-
-After loading the project:
-
-```python
-project = ms.find_project()  # or ms.SemanticProject(root="/path")
-project.load()
-project.list_datasources()
-project.list_metrics()
-project.describe("sales.revenue")
-```
-
-Every decorator registers on the active model opened by `ms.model(name=...)`.
-Production projects load files from `.marivo/semantic/<model>/`.
-
-## Pre-Modeling Checklist
-
-Before writing any semantic-layer Python file, complete the Phase 0 authoring
-loop in `references/authoring-workflow.md`. Do not declare datasets, fields,
-time fields, metrics, or relationships until this checklist is done.
-
-1. Load the project and inspect existing semantic objects.
-
-   Reuse existing models, datasets, fields, metrics, and relationships when
-   their descriptions, `ai_context`, dependencies, and provenance match the
-   request. Do not create duplicate semantic refs by default.
-
-2. Check datasource configuration and reachability.
-
-   Run `mv.datasources.all()`, `mv.datasources.describe(...)`, and
-   `mv.datasources.test(...)` where live access is required. Use
-   `references/datasource.md` for datasource authoring rules.
-
-3. Fetch schema, comments, and metadata.
-
-   Use `mv.datasources.inspect_table(...)` before declaring a new dataset.
-   For Trino, pass the table name and schema the same way you would call Ibis,
-   for example
-   `mv.datasources.inspect_table("warehouse", table="orders", database="sales_mart")`.
-   `table.schema()` returns types but not comments. Table comments, column
-   comments, nullable flags, and supplied knowledge are primary sources for
-   business meaning.
-
-4. Preview raw table data with bounded standard APIs.
-
-   Preview every new dataset candidate table, string/integer time-like columns,
-   amount/status/enum/code columns, and join keys. Use `mv.datasources.preview(...)`
-   and `references/preview.md`; do not persist preview rows into semantic
-   definitions.
-
-5. Ingest knowledge and propose a semantic plan.
-
-   Extract business definitions, guardrails, synonyms, example questions,
-   source SQL, and decomposition hints. Ask only for business decisions that
-   cannot be fetched or resolved from evidence. See `references/evidence.md`.
-
-6. Author, reload, semantic-preview, parity-check, and close with readiness.
-
-   After edits, reload the project, materialize or compile new semantic
-   objects, run parity for metrics with source SQL, and report blockers or
-   warnings using `references/readiness.md`.
-
-## Time Field Choice
-
-When a table has an available time partition field such as `log_date`, `dt`,
-or `event_date`, prefer declaring that partition as the dataset's
-`@ms.time_field`. Partition fields usually give Marivo the most stable time
-filtering and partition pruning path.
-
-Use event time, creation time, update time, ingestion time, or snapshot time
-instead only when the user or knowledge base explicitly defines that business
-time axis. Record the reason in `description=` or a short model comment.
-
-For Trino VARCHAR datetime columns storing values like `"2025-04-04 06:59:59"`,
-do not use a direct `.cast("date")`; Trino rejects VARCHAR-to-DATE direct
-casts. Parse through timestamp first, for example
-`.cast("timestamp").cast("date")`.
-
-## Standard Workflow
-
-1. Follow the evidence-driven authoring loop before adding anything new.
-
-   Start with `references/authoring-workflow.md`, then use
-   `references/evidence.md`, `references/preview.md`, and
-   `references/readiness.md` for the evidence, preview, and closeout details.
-
-2. Write model declarations in Python files under
-   `.marivo/semantic/<model>/`. Each model directory needs a `_model.py`
-   that calls `ms.model(name=...)`.
-
-3. Typecheck before running. Marivo decorators preserve function signatures,
-   so type errors usually point at bad datasource/dataset wiring early.
-
-4. Inspect the unified help surface before fixing structural errors.
-
-   ```bash
-   .venv/bin/python -c 'import marivo.semantic as ms; print(ms.help("constraints", format="json"))'
-   ```
-
-   Use `ms.help("<symbol>", format="json")` for decorator-specific
-   constraints. This is the source of truth for AST whitelist rules, hints,
-   and runnable example references.
-
-5. Re-check after edits.
-
-   ```bash
-   .venv/bin/python -c 'import marivo.semantic as ms; project = ms.find_project(); assert project is not None; result = project.reload(); print(result)'
-   ```
-
-   For materialization, compile, or parity calls, pass a backend factory:
-
-   ```python
-   import marivo.analysis as mv
-
-   backend_factory = lambda name: mv.datasources.build_backend(name)
-   ```
-
-6. On Marivo exceptions, read the structured error text. Semantic exceptions
-   include `constraint_id` and a `hint` when a copyable fix is known.
-
-## Fill-In Templates
-
-### Register a Datasource
-
-Runnable reference: `references/examples/01_register_datasource.py`.
-Before declaring a dataset, read `references/datasource.md`: semantic models
-can only reference project datasources declared in `.marivo/datasource/*.py`.
-
-Credentials never enter the semantic file. Persist non-secret connection
-metadata with `mv.datasources.register(...)` or by writing
-`.marivo/datasource/<name>.py`; sensitive fields use
-`<field>_env="VAR_NAME"`. See `references/datasource.md`.
-
-```python
-import marivo.datasource as md
-
-datasource = md.DatasourceSpec(name="<datasource_name>", backend_type="duckdb", path=":memory:")
-md.datasource(datasource)
-
-warehouse = md.DatasourceSpec(
-    name="warehouse",
-    backend_type="trino",
-    host="<trino_host>",
-    port=8080,
-    catalog="hive",
-    source="marivo",
-    client_tags=["agent", "semantic-authoring"],
-    user_env="TRINO_USER",
-    password_env="TRINO_PASSWORD",
-)
-md.datasource(warehouse)
-```
-
-For Trino, `catalog` maps to the Ibis connection `database` and is required.
-`schema` is optional connection default; prefer specifying the schema at table
-access time with `backend.table("orders", database="sales_mart")`.
-Sensitive literal fields such as `user`, `password`, `auth`, `token`, `secret`,
-`secret_key`, `access_key`, `private_key`, `passphrase`, and `api_key` are
-rejected; use `<field>_env="ENV_VAR"`.
-
-### Declare a Dataset
-
-Runnable reference: `references/examples/02_declare_dataset.py`.
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-datasource = md.ref("<datasource_name>")
-
-@ms.dataset(name="<dataset_name>", datasource=datasource, primary_key=["<pk_col>"])
-def <dataset_name>(backend):
-    return backend.table("<physical_table>")
-
-warehouse = md.ref("warehouse")
-
-@ms.dataset(name="orders", datasource=warehouse, primary_key=["order_id"])
-def orders(backend):
-    return backend.table("orders", database="sales_mart")
-```
-
-### Declare a Validity-Versioned Dataset
-
-Use `ms.validity(...)` for SCD2 history tables that track row validity with
-`valid_from` / `valid_to` interval columns.
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-warehouse = md.ref("warehouse")
-
-@ms.dataset(
-    name="user_history",
-    datasource=warehouse,
-    primary_key=["user_id", "valid_from"],
-    versioning=ms.validity(
-        valid_from="valid_from",
-        valid_to="valid_to",
-        interval="closed_open",
-        open_end=(None, "9999-12-31"),
-        timezone="UTC",
-    ),
-)
-def user_history(backend):
-    return backend.table("user_history")
-```
-
-`valid_from` must be part of `primary_key`. `open_end` lists the sentinel
-values that indicate a row is still current. The planner uses the validity
-interval to collapse the table to one row per `(key, anchor)` before joining.
-
-### Define an Aggregate Metric
-
-Runnable reference: `references/examples/03_define_metric_aggregate.py`.
-
-```python
-import marivo.semantic as ms
-
-@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="<metric_name>")
-def <metric_name>(orders):
-    return orders.<column>.sum()
-```
-
-### Define a Derived Ratio Metric
-
-Runnable reference: `references/examples/04_define_metric_derived.py`.
-
-```python
-import marivo.semantic as ms
-
-@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="numerator_metric")
-def numerator_metric(orders):
-    return orders.amount.sum()
-
-@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), name="denominator_metric")
-def denominator_metric(orders):
-    return orders.count()
-
-@ms.metric(
-    datasets=[],
-    decomposition=ms.ratio(
-        numerator="sales.numerator_metric",
-        denominator="sales.denominator_metric",
-    ),
-    name="<derived_name>",
-)
-def <derived_name>():
-    return ms.component("numerator") / ms.component("denominator")
-```
-
-`datasets=[]` marks a derived metric: the body combines registered component
-metrics with `ms.component(...)` instead of reading a dataset directly. Derived
-metrics can be observed with `dimensions=` only when every component metric can
-reach that dimension through its datasets and a unique relationship path.
-
-## Decision Tree
-
-```text
-How is this value computed?
-  From one row at a time, such as user.country
-    -> field
-  Aggregation over a dataset, such as sum/count/average
-    -> metric with decomposition=ms.sum() or another decomposition marker
-  Composition of already registered metrics
-    -> metric with decomposition=ms.ratio(...) or ms.weighted_average(...)
-```
-
-## Common Pitfalls
-
-- Run `ms.help("constraints", format="json")` or
-  `ms.help("<decorator>", format="json")` before guessing allowed authoring
-  shapes. The JSON catalog is the canonical error-to-hint/example map.
-- Base metrics must declare `additivity`. Multi-dataset base metrics must also
-  declare `root_dataset`; single-dataset base metrics may omit it.
-- Optional `fanout_policy="block" | "aggregate_then_join"` on `@ms.metric`
-  controls how unsafe one-to-many traversal is handled. Default `"block"` rejects
-  unsafe edges with a repair payload listing both `set_metric_root` and
-  `set_fanout_policy`. `"aggregate_then_join"` reduces the unsafe-side dataset to
-  the merge grain before the join; requires `additivity in {"additive",
-  "semi_additive"}` and is rejected on derived metrics.
-- Dataset references a datasource that has no `.marivo/datasource/*.py`
-  declaration. The loader reports a `missing_dataset_ref` error.
-  Runnable reference:
-  `references/examples/99_pitfall_dataset_without_datasource.py`.
-- Decorators need an active model opened by `ms.model(name=...)`.
-- `ms.datasource(...)` has been removed. Put datasource config under
-  `.marivo/datasource` and reference its name from `@ms.dataset`.
-- Metric bodies return ibis expressions. Do not aggregate an aggregate result:
-  `orders.count().mean()` is invalid; use a row-level boolean/float expression
-  followed by one aggregate, such as `(orders.state == "FAILED").cast("float64").mean()`.
-- For string time fields on Trino, build an instance expression explicitly
-  before parsing/casting. Do not call ibis expression methods as class methods,
-  such as `ibis.expr.types.StringValue.re_replace(...)`.
-- Datasets representing day-grain SCD2 history use `ms.validity(...)` with
-  `valid_from` / `valid_to` + `interval` (`closed_open` or `closed_closed`)
-  + `open_end` (tuple of "still current" sentinel values).
-- Component metrics may declare more than one dataset; the same
-  `root_dataset` / `additivity` / root-only-measure rules apply.
-
-## Further Reading
-
-- `references/authoring-workflow.md` -- Phase 0 end-to-end semantic authoring loop
-- `references/evidence.md` -- required evidence and when to ask the user
-- `references/preview.md` -- raw and semantic preview using APIs available today
-- `references/readiness.md` -- blocker/warning closeout before analysis handoff
-- `references/datasource.md` -- project datasource rules and required fields
-- `references/cheatsheet.md` -- decorators, builders, project loading, introspection
-- `references/pitfalls.md` -- expanded exception explanations
-- `references/examples/` -- runnable files, one per template
-
-## High-Frequency Error References
-
-For the full structured catalog, use
-`ms.help("constraints", format="json")`. The table below keeps only the most
-common first-stop references.
-
-| Constraint | What it means | See |
-|---|---|---|
-| `dataset_ref_exists` | Dataset references a datasource with no `.marivo/datasource/*.py` declaration | `references/examples/99_pitfall_dataset_without_datasource.py` |
-| `active_model_required` | Decorator has no active `ms.model(...)` namespace | `references/examples/02_declare_dataset.py` |
-| `metric_derived_shape` | `datasets=[]` needs a component decomposition | `references/examples/04_define_metric_derived.py` |
-| `ast_component_arithmetic` | Derived metric body must use `ms.component(...)` and arithmetic only | `references/examples/04_define_metric_derived.py` |
-| `ast_single_return` | Decorator body must be one `return <expression>` | `references/examples/03_define_metric_aggregate.py` |
+Use this skill when building or changing semantic objects under
+`.marivo/semantic/<model>/`: datasets, fields, time fields, metrics, and
+relationships. For analysis on top of an already-ready model, use
+`marivo-analysis`.
+
+## Runtime Assumptions
+
+This skill is written for pip-installed Marivo in an ordinary project. Do not
+assume the Marivo source checkout, repo fixtures, `make`, or a fixed `.venv`
+name. Identify the project Python environment first, then use its explicit
+Python path such as `<venv>/bin/python`.
+
+The current project should contain `.marivo/semantic/`. If it does not, create
+the project structure before authoring semantic objects.
+
+## Non-Negotiable Rules
+
+- Python files under `.marivo/semantic/<model>/` are the only semantic source of
+  truth.
+- Names are candidate signals only. Business meaning must come from comments,
+  source SQL, knowledge, preview evidence, or user confirmation.
+- Before authoring new objects from datasource evidence, inspect metadata with
+  `mv.datasources.inspect_table(...)`, then call `project.propose_candidates(...)`
+  with `inspect_table=mv.datasources.inspect_table`.
+- Classify candidate uncertainty with `project.open_questions(...)`.
+- Ask users only for unresolved blockers or business decisions evidence cannot
+  settle.
+- Record user confirmations with `project.answer(...)`.
+- Use `project.record_decision(...)` only when a complete evidence-backed
+  `DecisionRecord` can be built from the question, chosen value, evidence
+  fingerprint, and cited table.
+- Do not hand off to `marivo-analysis` while readiness is blocked.
+- Run `project.richness(...)` at closeout and report richness gaps separately
+  from readiness blockers.
+
+`table.schema()` returns types but not comments. Do not mention target preview
+surfaces as APIs until they are implemented.
+
+## Default Workflow
+
+Read `references/workflow.md` first for object construction. The short form is:
+
+1. Discover the project and existing refs.
+2. Inspect datasource metadata and bounded previews.
+3. Generate candidates with `project.propose_candidates(...)`.
+4. Classify questions with `project.open_questions(...)`.
+5. Author a single `.marivo/semantic/<model>/_model.py` using ref variables.
+6. Record confirmations and complete decisions in the ledger.
+7. Reload, preview, and run parity where source SQL exists.
+8. Run `project.audit(...)`, readiness, and richness.
+
+## Authoring Defaults
+
+- Default to one `.marivo/semantic/<model>/_model.py` per model.
+- Use `md.ref("<datasource>")` for datasource references.
+- Use decorated Python ref variables between semantic objects.
+- Prefer a partition time field such as `dt`, `log_date`, or `event_date` as
+  the dataset `@ms.time_field`.
+- Use a non-partition business event time only when evidence establishes that
+  axis; record the reason in `description`, `ai_context`, and the ledger when
+  material.
+- Include `ai_context.business_definition` and `ai_context.guardrails` for
+  analyzable handoff refs.
+
+## Reference Routing
+
+| Need | Read |
+| --- | --- |
+| End-to-end semantic construction | `references/workflow.md` |
+| Python declaration patterns | `references/authoring-patterns.md` |
+| Evidence, questions, confirmations, ledger | `references/evidence-and-ledger.md` |
+| Preview, parity, readiness, richness | `references/closeout.md` |
+| Datasource setup and Trino access | `references/datasource.md` |
+| Preview behavior and failures | `references/preview.md` |
+| Known failure modes | `references/pitfalls.md` |

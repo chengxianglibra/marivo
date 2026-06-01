@@ -214,7 +214,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Decorators require an active semantic loader context.",
         "Semantic declarations register into the project loader registry, not global process state.",
         "Put declarations under .marivo/semantic/<model>/ and load them with SemanticProject.",
-        example=f"{_EXAMPLE_BASE}/02_declare_dataset.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.ACTIVE_MODEL_REQUIRED: _constraint(
         ConstraintId.ACTIVE_MODEL_REQUIRED,
@@ -224,7 +224,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Declarations need a model namespace.",
         "Every semantic object is stored as <model>.<name>.",
         "Call ms.model(name=...) in _model.py or pass model_name=... explicitly.",
-        example=f"{_EXAMPLE_BASE}/02_declare_dataset.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.UNIQUE_SEMANTIC_NAME: _constraint(
         ConstraintId.UNIQUE_SEMANTIC_NAME,
@@ -234,7 +234,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Names must be unique in their semantic scope.",
         "Duplicate semantic ids make registry lookups ambiguous.",
         "Rename one object or move it to a different model namespace.",
-        docs_ref="marivo-skills/marivo-semantic/references/cheatsheet.md",
+        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.REF_SHAPE: _constraint(
         ConstraintId.REF_SHAPE,
@@ -244,7 +244,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "References must be strings or decorator-returned refs.",
         "The loader persists semantic ids, not arbitrary Python objects.",
         "Use datasource names as strings and DatasetRef/FieldRef/MetricRef values returned by decorators.",
-        example=f"{_EXAMPLE_BASE}/02_declare_dataset.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.DECOMPOSITION_SHAPE: _constraint(
         ConstraintId.DECOMPOSITION_SHAPE,
@@ -254,7 +254,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metrics need a supported decomposition builder.",
         "Decomposition declares how metric values compose during drilldown and derived calculations.",
         "Use ms.sum(), ms.ratio(...), or ms.weighted_average(...).",
-        example=f"{_EXAMPLE_BASE}/03_define_metric_aggregate.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.METRIC_DATASETS_REQUIRED: _constraint(
         ConstraintId.METRIC_DATASETS_REQUIRED,
@@ -264,7 +264,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Base metrics must declare at least one dataset.",
         "Dataset-backed metrics read source rows from their declared dataset arguments.",
         "Pass datasets=[...] for aggregate metrics, or use datasets=[] only with component decompositions.",
-        example=f"{_EXAMPLE_BASE}/03_define_metric_aggregate.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.METRIC_DERIVED_SHAPE: _constraint(
         ConstraintId.METRIC_DERIVED_SHAPE,
@@ -274,7 +274,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "datasets=[] is only valid for derived metrics with components.",
         "An empty dataset list means the metric is computed from component metrics, not source rows.",
         "Use datasets=[...] for aggregate metrics or a component decomposition such as ms.ratio(...).",
-        example=f"{_EXAMPLE_BASE}/04_define_metric_derived.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.METRIC_COMPONENT_SCOPE: _constraint(
         ConstraintId.METRIC_COMPONENT_SCOPE,
@@ -284,7 +284,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ms.component() only belongs in derived metric bodies.",
         "Component sentinels resolve only while a derived metric body is being evaluated.",
         "Use datasets=[] with a component decomposition, then return arithmetic over ms.component(...).",
-        example=f"{_EXAMPLE_BASE}/04_define_metric_derived.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.COMPONENT_NAME_DECLARED: _constraint(
         ConstraintId.COMPONENT_NAME_DECLARED,
@@ -294,7 +294,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Component names must be declared by the decomposition.",
         "Derived metric bodies can only reference known component keys.",
         "Use names such as numerator, denominator, or weight that appear in the decomposition builder.",
-        example=f"{_EXAMPLE_BASE}/04_define_metric_derived.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.AI_CONTEXT_SCHEMA: _constraint(
         ConstraintId.AI_CONTEXT_SCHEMA,
@@ -304,7 +304,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ai_context must use the supported schema.",
         "Agent-facing metadata is persisted in a stable IR shape.",
         "Use business_definition, guardrails, synonyms, examples, instructions, and owner_notes.",
-        docs_ref="marivo-skills/marivo-semantic/references/cheatsheet.md",
+        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.AST_SINGLE_RETURN: _constraint(
         ConstraintId.AST_SINGLE_RETURN,
@@ -314,7 +314,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Decorator function bodies must be a single return expression.",
         "The body is captured as a restricted expression DSL, not arbitrary Python.",
         "Inline the expression directly as return <ibis expression>.",
-        example=f"{_EXAMPLE_BASE}/03_define_metric_aggregate.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_FORBIDDEN_STATEMENT: _constraint(
@@ -325,7 +325,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Decorator bodies cannot contain statements, imports, assignments, lambdas, or nested definitions.",
         "Only deterministic expression bodies can be stored and recompiled safely.",
         "Move setup outside the decorator body and keep the body to one return expression.",
-        example=f"{_EXAMPLE_BASE}/03_define_metric_aggregate.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_SQL_ESCAPE_HATCH: _constraint(
@@ -336,7 +336,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Raw SQL calls are not allowed in Python-track expression bodies.",
         "The Python semantic track stores ibis expressions; SQL text is provenance only.",
         "Use ibis expressions in the body and put the original SQL in source_sql= on metrics.",
-        example=f"{_EXAMPLE_BASE}/03_define_metric_aggregate.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_COMPONENT_ARITHMETIC: _constraint(
@@ -347,7 +347,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Derived metric bodies only allow ms.component('<literal>') and arithmetic.",
         "Derived metrics compose already-registered component metrics without source-row access.",
         "Return arithmetic over ms.component('numerator'), ms.component('denominator'), or ms.component('weight').",
-        example=f"{_EXAMPLE_BASE}/04_define_metric_derived.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
         ast_spec=_DERIVED_BODY_AST_SPEC,
     ),
     ConstraintId.MODEL_FILE_PRESENT: _constraint(
@@ -358,7 +358,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Each model directory needs a _model.py file that calls ms.model().",
         "The loader uses _model.py to establish the model namespace.",
         "Create .marivo/semantic/<model>/_model.py with ms.model(name='<model>').",
-        example=f"{_EXAMPLE_BASE}/02_declare_dataset.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.MODEL_FILE_MATCHES_DIRECTORY: _constraint(
         ConstraintId.MODEL_FILE_MATCHES_DIRECTORY,
@@ -377,7 +377,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Dataset and datasource references must resolve.",
         "Semantic objects compile through registered datasource and dataset ids.",
         "Reference a declared datasource name or DatasetRef/qualified dataset id.",
-        example=f"{_EXAMPLE_BASE}/99_pitfall_dataset_without_datasource.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.FIELD_REF_EXISTS: _constraint(
         ConstraintId.FIELD_REF_EXISTS,
@@ -396,7 +396,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metric component references must resolve.",
         "Derived metrics compose existing metrics.",
         "Reference a declared MetricRef or qualified metric id in decomposition components.",
-        example=f"{_EXAMPLE_BASE}/04_define_metric_derived.py",
+        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.METRIC_GRAPH_ACYCLIC: _constraint(
         ConstraintId.METRIC_GRAPH_ACYCLIC,
@@ -415,7 +415,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Hour-only string/integer time fields need a day-level required_prefix.",
         "A standalone hour value is not a complete time axis.",
         "Set required_prefix to a registered day-level time field.",
-        docs_ref="marivo-skills/marivo-semantic/references/time-field-patterns.md",
+        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.RELATIONSHIP_ENDPOINTS: _constraint(
         ConstraintId.RELATIONSHIP_ENDPOINTS,
