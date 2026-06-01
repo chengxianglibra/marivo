@@ -9,7 +9,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
 from marivo.preview import PreviewResult, PreviewWarning
-from marivo.semantic.ir import ParityStatus
+from marivo.semantic.ir import ParityStatus, TableSourceIR
 from marivo.semantic.parity import propagated_parity_status
 
 if TYPE_CHECKING:
@@ -326,6 +326,54 @@ def _dataset_refs(refs: Iterable[str], kinds: Mapping[str, _SemanticKind]) -> tu
     return tuple(ref for ref in refs if kinds.get(ref) == _SemanticKind.DATASET)
 
 
+def _raw_preview_ref(
+    datasource: str,
+    table: str,
+    database: str | tuple[str, ...] | None,
+) -> str:
+    if database is None:
+        return f"{datasource}.{table}"
+    namespace = ".".join(database) if isinstance(database, tuple) else database
+    return f"{datasource}.{namespace}.{table}"
+
+
+def _dataset_raw_preview_refs(
+    refs: Iterable[str],
+    objects: Mapping[str, object],
+    kinds: Mapping[str, _SemanticKind],
+) -> tuple[str, ...]:
+    raw_refs: list[str] = []
+    for ref in refs:
+        if kinds.get(ref) != _SemanticKind.DATASET:
+            continue
+        dataset = objects.get(ref)
+        source = getattr(dataset, "source", None)
+        datasource = getattr(dataset, "datasource", None)
+        if isinstance(source, TableSourceIR) and isinstance(datasource, str):
+            raw_refs.append(_raw_preview_ref(datasource, source.table, source.database))
+        else:
+            raw_refs.append(ref)
+    return tuple(raw_refs)
+
+
+def _raw_preview_datasets_by_ref(
+    refs: Iterable[str],
+    objects: Mapping[str, object],
+    kinds: Mapping[str, _SemanticKind],
+) -> dict[str, tuple[str, ...]]:
+    out: dict[str, list[str]] = {}
+    for ref in refs:
+        if kinds.get(ref) != _SemanticKind.DATASET:
+            continue
+        dataset = objects.get(ref)
+        source = getattr(dataset, "source", None)
+        datasource = getattr(dataset, "datasource", None)
+        if isinstance(source, TableSourceIR) and isinstance(datasource, str):
+            raw_ref = _raw_preview_ref(datasource, source.table, source.database)
+            out.setdefault(raw_ref, []).append(ref)
+    return {key: tuple(values) for key, values in out.items()}
+
+
 def _refs_with_issue(issues: Iterable[ReadinessIssue]) -> set[str]:
     return {ref for issue in issues for ref in issue.refs}
 
@@ -505,11 +553,12 @@ def build_readiness_report(
 
     raw_preview_set = set(raw_previews)
     failed_raw_preview_set = set(failed_raw_previews)
+    raw_ref_datasets = _raw_preview_datasets_by_ref(checked_refs, objects, kinds)
     if require_preview:
         raw_required = _dedupe(
             required_raw_previews
             if required_raw_previews is not None
-            else _dataset_refs(checked_refs, kinds)
+            else _dataset_raw_preview_refs(checked_refs, objects, kinds)
         )
         semantic_required = _dedupe(
             required_semantic_previews
@@ -521,14 +570,15 @@ def build_readiness_report(
         semantic_required = _dedupe(required_semantic_previews or ())
 
     for ref in raw_required:
+        issue_refs = (ref, *raw_ref_datasets.get(ref, ()))
         if ref in failed_raw_preview_set:
             blockers.append(
                 _issue(
                     "raw_preview_failed",
                     "blocker",
-                    (ref,),
+                    issue_refs,
                     f"Raw preview failed for {ref}.",
-                    "Run mv.datasources.preview(...) with a bounded limit and fix the datasource or table reference.",
+                    "Run project.collect_source_preview(...) with a bounded limit and fix the datasource or table reference.",
                 )
             )
             failed_previews.append(ref)
@@ -539,9 +589,9 @@ def build_readiness_report(
                 _issue(
                     "missing_raw_preview",
                     "blocker",
-                    (ref,),
+                    issue_refs,
                     f"Raw preview evidence is missing for {ref}.",
-                    "Collect a bounded raw table preview with mv.datasources.preview(...).",
+                    "Collect a bounded raw table preview with project.collect_source_preview(...).",
                 )
             )
 

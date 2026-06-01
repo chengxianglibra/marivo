@@ -99,7 +99,7 @@ has landed in their installed Marivo version.
 | Inspect semantic objects | `project.list_*()`, `search()`, `describe()` | same |
 | Build backend from datasource | `mv.datasources.build_backend(name)` | same |
 | Test datasource | `mv.datasources.test(name)` | same |
-| Raw table preview | `mv.datasources.preview(...)` | same |
+| Raw table preview | `project.collect_source_preview(..., backend_factory=...)` so readiness can consume the physical source evidence | same |
 | Semantic dataset/field/metric preview | `project.preview_dataset(...)`, `project.preview_field(...)`, `project.preview_metric(...)` | same |
 | Metric SQL parity | `project.parity_check(...)` | same |
 | Readiness report | agent-authored closeout from load, preview, and parity evidence | `project.readiness(...)` |
@@ -491,18 +491,13 @@ Available API.
 ```python
 import marivo.analysis as mv
 
-preview = mv.datasources.preview(
+preview = project.collect_source_preview(
     datasource="warehouse",
     table="orders",
     database="sales_mart",
     columns=["order_id", "created_at", "amount", "status"],
     limit=20,
-    where=[
-        {"column": "created_at", "op": ">=", "value": "2026-01-01"},
-    ],
-    order_by=[
-        {"column": "created_at", "direction": "desc"},
-    ],
+    backend_factory=backend_factory,
     include_types=True,
     redact=True,
 )
@@ -516,33 +511,7 @@ Rules:
 - `columns=` should be supported to avoid wide-table context flooding
 - default redaction should warn or mask likely secrets, tokens, emails, phone
   numbers, and sensitive identifiers
-- `where` and `order_by`, if supported, must be controlled structured
-  parameters rather than raw SQL strings
 - failures should be structured and suitable for readiness issues
-
-The target structured filter/order shapes are:
-
-```python
-PreviewFilter = TypedDict(
-    "PreviewFilter",
-    {
-        "column": str,
-        "op": Literal["=", "!=", "<", "<=", ">", ">=", "in", "is_null", "is_not_null"],
-        "value": object,
-    },
-)
-
-PreviewOrder = TypedDict(
-    "PreviewOrder",
-    {
-        "column": str,
-        "direction": Literal["asc", "desc"],
-    },
-)
-```
-
-`value` is ignored for `is_null` and `is_not_null`. Raw SQL predicates are out
-of scope for the standard preview API.
 
 ### Semantic Object Preview
 
@@ -1018,13 +987,15 @@ authoring, raw preview, semantic preview, and readiness reporting.
 
 Add:
 
-- `mv.datasources.preview(...)`
 - `PreviewResult`
 - `PreviewWarning`
 - `PreviewSamplePolicy`
 - preview value normalization
 - redaction helpers
 - backend-specific bounded preview tests
+- `project.collect_source_preview(..., backend_factory=...)` records successful
+  raw datasource previews as in-memory readiness evidence for the current
+  `SemanticProject` instance
 
 Then add:
 

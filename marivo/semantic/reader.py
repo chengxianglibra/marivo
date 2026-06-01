@@ -284,6 +284,17 @@ def _semantic_leaf_name(semantic_id: str) -> str:
     return semantic_id.rsplit(".", 1)[-1]
 
 
+def _raw_preview_ref(
+    datasource: str,
+    table: str,
+    database: str | tuple[str, ...] | None,
+) -> str:
+    if database is None:
+        return f"{datasource}.{table}"
+    namespace = ".".join(database) if isinstance(database, tuple) else database
+    return f"{datasource}.{namespace}.{table}"
+
+
 def _search_match(
     query: str,
     semantic_id: str,
@@ -383,6 +394,7 @@ class SemanticProject:
         self._sidecar: Sidecar | None = None
         self._runtime_metadata: dict[str, DatasetRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
+        self._raw_preview_evidence: tuple[str, ...] = ()
 
     @property
     def root(self) -> str:
@@ -393,6 +405,9 @@ class SemanticProject:
     def root_path(self) -> Path:
         """Return the project root path as a Path object."""
         return self._root
+
+    def _record_raw_preview_evidence(self, *refs: str) -> None:
+        self._raw_preview_evidence = tuple(dict.fromkeys((*self._raw_preview_evidence, *refs)))
 
     def answer(
         self,
@@ -1340,6 +1355,53 @@ class SemanticProject:
 
     # -- preview ---------------------------------------------------------------
 
+    def raw_preview_evidence(self) -> tuple[str, ...]:
+        """Return raw preview evidence collected in this project instance."""
+        return self._raw_preview_evidence
+
+    def collect_source_preview(
+        self,
+        *,
+        datasource: str,
+        table: str,
+        database: str | tuple[str, ...] | None = None,
+        backend_factory: Callable[[str], Any],
+        columns: Iterable[str] | None = None,
+        limit: int = PREVIEW_DEFAULT_LIMIT,
+        include_types: bool = True,
+        redact: bool = True,
+    ) -> PreviewResult:
+        """Collect a bounded raw preview for a datasource table source.
+
+        The returned preview is the datasource-table preview. A successful call
+        records the physical preview ref as raw preview evidence for subsequent
+        readiness checks on this project instance.
+        """
+        validate_preview_limit(limit)
+        backend = backend_factory(datasource)
+        source_table = table
+        preview_table = (
+            backend.table(source_table)
+            if database is None
+            else backend.table(source_table, database=database)
+        )
+        selected_columns = tuple(columns or ())
+        if selected_columns:
+            preview_table = preview_table.select(*selected_columns)
+
+        ref = _raw_preview_ref(datasource, source_table, database)
+        preview = preview_ibis_table(
+            preview_table,
+            kind="datasource_table",
+            ref=ref,
+            limit=limit,
+            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
+            include_types=include_types,
+            redact=redact,
+        )
+        self._record_raw_preview_evidence(preview.ref)
+        return preview
+
     def preview_dataset(
         self,
         name: str,
@@ -1494,6 +1556,9 @@ class SemanticProject:
         ``backend_factory`` is a callable from datasource semantic id to an
         Ibis backend, for example ``lambda name: mv.datasources.build_backend(name)``.
         """
+        collected_raw_previews = tuple(
+            dict.fromkeys((*tuple(raw_previews), *self._raw_preview_evidence))
+        )
         return build_readiness_report(
             self,
             strict_provenance=strict_provenance,
@@ -1504,7 +1569,7 @@ class SemanticProject:
             backend_factory=backend_factory,
             refs=refs,
             required_raw_previews=required_raw_previews,
-            raw_previews=raw_previews,
+            raw_previews=collected_raw_previews,
             failed_raw_previews=failed_raw_previews,
             required_semantic_previews=required_semantic_previews,
             knowledge_documents=knowledge_documents,

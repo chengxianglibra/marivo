@@ -90,6 +90,7 @@ _FULL_MODEL_PY = textwrap.dedent("""\
     )
 """)
 
+
 _DERIVED_METRIC_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
@@ -1029,3 +1030,50 @@ def test_preview_dataset_rejects_invalid_limit(semantic_project_factory, backend
 
     with pytest.raises(PreviewLimitError):
         project.preview_dataset("sales.orders", backend_factory=backend_factory, limit=0)
+
+
+def test_collect_source_preview_returns_datasource_preview_and_records_evidence(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    preview = project.collect_source_preview(
+        datasource="warehouse",
+        table="orders",
+        backend_factory=backend_factory,
+        columns=("order_id", "amount"),
+        limit=2,
+    )
+
+    assert isinstance(preview, PreviewResult)
+    assert preview.kind == "datasource_table"
+    assert preview.ref == "warehouse.orders"
+    assert preview.columns == ("order_id", "amount")
+    assert preview.returned_row_count == 2
+    assert project.raw_preview_evidence() == ("warehouse.orders",)
+
+
+def test_collect_source_preview_rejects_invalid_limit(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    with pytest.raises(PreviewLimitError):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+            backend_factory=backend_factory,
+            limit=0,
+        )

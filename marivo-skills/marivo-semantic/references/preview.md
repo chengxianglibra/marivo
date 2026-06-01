@@ -3,7 +3,7 @@
 Preview evidence validates physical shape. It does not establish business
 meaning by itself.
 
-## Raw datasource preview
+## Source preview evidence
 
 Use bounded raw previews before declaring or revising datasets, time-like
 columns, amount columns, enum/status columns, and join keys:
@@ -11,17 +11,24 @@ columns, amount columns, enum/status columns, and join keys:
 ```python
 import marivo.analysis as mv
 
-preview = mv.datasources.preview("warehouse", table="orders", limit=20)
-print(preview.to_dict())
+backend_factory = lambda name: mv.datasources.build_backend(name)
+preview = project.collect_source_preview(
+    datasource="warehouse",
+    table="orders",
+    backend_factory=backend_factory,
+    limit=20,
+)
+print(preview.rows)
 ```
 
 For Trino without a default schema:
 
 ```python
-preview = mv.datasources.preview(
-    "warehouse",
+preview = project.collect_source_preview(
+    datasource="warehouse",
     table="orders",
     database="sales_mart",
+    backend_factory=backend_factory,
     limit=20,
 )
 ```
