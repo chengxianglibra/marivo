@@ -473,6 +473,16 @@ def test_unresolved_clarification_is_a_valid_issue_kind():
     assert "unresolved_clarification" in get_args(ReadinessIssueKind)
 
 
+def test_strict_enrichment_issue_kinds_are_valid():
+    from typing import get_args
+
+    from marivo.semantic.readiness import ReadinessIssueKind
+
+    kinds = get_args(ReadinessIssueKind)
+    assert "missing_business_definition" in kinds
+    assert "missing_guardrails" in kinds
+
+
 def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project_factory):
     from marivo.semantic.readiness import _evidence_ledger_blockers
 
@@ -555,6 +565,105 @@ def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_proj
     assert strict_report.status == "blocked"
 
 
+def test_missing_business_definition_predicate():
+    from types import SimpleNamespace
+
+    from marivo.datasource.ir import AiContextIR
+    from marivo.semantic.readiness import _missing_business_definition
+
+    assert _missing_business_definition(SimpleNamespace(ai_context=AiContextIR()))
+    assert _missing_business_definition(
+        SimpleNamespace(ai_context=AiContextIR(business_definition="   "))
+    )
+    assert not _missing_business_definition(
+        SimpleNamespace(ai_context=AiContextIR(business_definition="One row per order."))
+    )
+    # description alone does NOT satisfy the strict floor.
+    assert _missing_business_definition(
+        SimpleNamespace(ai_context=AiContextIR(), description="Orders")
+    )
+
+
+def test_missing_guardrails_predicate():
+    from types import SimpleNamespace
+
+    from marivo.datasource.ir import AiContextIR
+    from marivo.semantic.readiness import _missing_guardrails
+
+    assert _missing_guardrails(SimpleNamespace(ai_context=AiContextIR()))
+    assert not _missing_guardrails(
+        SimpleNamespace(ai_context=AiContextIR(guardrails=("Exclude test orders.",)))
+    )
+
+
+def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
+    from marivo.semantic.readiness import _object_maps, _strict_enrichment_issues
+
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/objects.py": (
+                "import marivo.semantic as ms\n"
+                "@ms.dataset(name='orders', datasource='warehouse',\n"
+                "    ai_context={'business_definition': 'One row per order.',\n"
+                "               'guardrails': ['Exclude test orders.']})\n"
+                "def orders(backend):\n    return backend.table('orders')\n"
+                "@ms.field(dataset=orders, name='amount',\n"
+                "    ai_context={'business_definition': 'Gross amount.',\n"
+                "               'guardrails': ['USD only.']})\n"
+                "def amount(table):\n    return table.amount\n"
+                "@ms.field(dataset=orders, name='region')\n"
+                "def region(table):\n    return table.region\n"
+            ),
+        }
+    )
+
+    kinds, objects = _object_maps(project)
+    blockers, warnings = _strict_enrichment_issues(tuple(kinds), kinds, objects)
+
+    blocker_refs = {ref for issue in blockers for ref in issue.refs}
+    warning_refs = {ref for issue in warnings for ref in issue.refs}
+
+    # The bare field is flagged; the fully enriched dataset and field are not.
+    assert "sales.region" in blocker_refs
+    assert "sales.orders" not in blocker_refs
+    assert "sales.amount" not in blocker_refs
+    assert "sales.region" in warning_refs
+    assert all(issue.kind == "missing_business_definition" for issue in blockers)
+    assert all(issue.severity == "blocker" for issue in blockers)
+    assert all(issue.kind == "missing_guardrails" for issue in warnings)
+    assert all(issue.severity == "warning" for issue in warnings)
+
+
+def test_readiness_strict_enrichment_blocks_missing_business_definition(
+    semantic_project_factory,
+):
+    project = _project(semantic_project_factory, _COMMENTLESS_MODEL_PY)
+
+    default = project.readiness(require_preview=False)
+    assert "missing_business_definition" not in _issue_kinds(default.blockers)
+
+    strict = project.readiness(require_preview=False, strict_enrichment=True)
+    assert strict.status == "blocked"
+    assert "missing_business_definition" in _issue_kinds(strict.blockers)
+
+
+def test_readiness_strict_enrichment_warns_when_only_guardrails_missing(
+    semantic_project_factory,
+):
+    # _READY_MODEL_PY has business_definition on every object but no guardrails.
+    project = _project(semantic_project_factory, _READY_MODEL_PY)
+
+    report = project.readiness(
+        strict_provenance=False,  # isolate the floor from the unverified-metric blocker
+        require_preview=False,
+        strict_enrichment=True,
+    )
+
+    assert "missing_business_definition" not in _issue_kinds(report.blockers)
+    assert "missing_guardrails" in _issue_kinds(report.warnings)
+
+
 def test_semantic_check_main_prints_json(
     semantic_project_factory,
     backend_factory,
@@ -591,3 +700,24 @@ def test_semantic_check_main_prints_json(
     payload = json.loads(captured.out)
     assert payload["status"] == "ready"
     assert payload["readiness"]["status"] == "ready"
+
+
+def test_build_readiness_report_strict_enrichment_floor(semantic_project_factory):
+    from marivo.semantic.readiness import build_readiness_report
+
+    project = _project(semantic_project_factory, _COMMENTLESS_MODEL_PY)
+
+    # Flag off (default): no business_definition blocker.
+    off = build_readiness_report(project, require_preview=False)
+    assert all(b.kind != "missing_business_definition" for b in off.blockers)
+
+    # Flag on: every analyzable bare ref is blocked.
+    on = build_readiness_report(project, require_preview=False, strict_enrichment=True)
+    blocked_refs = {
+        ref for b in on.blockers if b.kind == "missing_business_definition" for ref in b.refs
+    }
+    assert on.status == "blocked"
+    assert blocked_refs == {"sales.orders", "sales.amount", "sales.total_amount"}
+    assert any(w.kind == "missing_guardrails" for w in on.warnings)
+    # Blocked refs are excluded from the handoff set.
+    assert "sales.orders" not in on.analysis_ready_refs

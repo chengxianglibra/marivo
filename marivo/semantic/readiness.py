@@ -41,6 +41,8 @@ ReadinessIssueKind = Literal[
     "primary_key_unsampled",
     "fragile_string_ref",
     "unresolved_clarification",
+    "missing_business_definition",
+    "missing_guardrails",
 ]
 
 
@@ -251,6 +253,51 @@ def _evidence_ledger_blockers(project: SemanticProject) -> list[ReadinessIssue]:
     return issues
 
 
+def _strict_enrichment_issues(
+    checked_refs: Iterable[str],
+    kinds: Mapping[str, _SemanticKind],
+    objects: Mapping[str, object],
+) -> tuple[list[ReadinessIssue], list[ReadinessIssue]]:
+    """Contracts section 7: analyzable handoff refs must carry a non-empty
+    business_definition (blocker) and guardrails (warning). Relationships are out
+    of scope, matching semantic-preview scoping."""
+    analyzable = {
+        _SemanticKind.DATASET,
+        _SemanticKind.FIELD,
+        _SemanticKind.TIME_FIELD,
+        _SemanticKind.METRIC,
+    }
+    blockers: list[ReadinessIssue] = []
+    warnings: list[ReadinessIssue] = []
+    for ref in checked_refs:
+        if kinds.get(ref) not in analyzable:
+            continue
+        obj = objects.get(ref)
+        if obj is None:
+            continue
+        if _missing_business_definition(obj):
+            blockers.append(
+                _issue(
+                    "missing_business_definition",
+                    "blocker",
+                    (ref,),
+                    f"{ref} has no ai_context.business_definition for analysis handoff.",
+                    "Add ai_context.business_definition so analysis can match and reuse this ref.",
+                )
+            )
+        if _missing_guardrails(obj):
+            warnings.append(
+                _issue(
+                    "missing_guardrails",
+                    "warning",
+                    (ref,),
+                    f"{ref} has no ai_context.guardrails for analysis handoff.",
+                    "Add ai_context.guardrails to record usage constraints before reuse.",
+                )
+            )
+    return blockers, warnings
+
+
 def _default_checked_refs(kinds: Mapping[str, _SemanticKind]) -> tuple[str, ...]:
     return tuple(ref for ref in kinds if kinds[ref] != _SemanticKind.RELATIONSHIP) + tuple(
         ref for ref in kinds if kinds[ref] == _SemanticKind.RELATIONSHIP
@@ -287,6 +334,18 @@ def _has_definition(obj: object) -> bool:
     ai_context = getattr(obj, "ai_context", None)
     business_definition = getattr(ai_context, "business_definition", None)
     return bool(description or business_definition)
+
+
+def _missing_business_definition(obj: object) -> bool:
+    ai_context = getattr(obj, "ai_context", None)
+    business_definition = getattr(ai_context, "business_definition", None)
+    return not (business_definition and business_definition.strip())
+
+
+def _missing_guardrails(obj: object) -> bool:
+    ai_context = getattr(obj, "ai_context", None)
+    guardrails = getattr(ai_context, "guardrails", ())
+    return not guardrails
 
 
 def _metadata_by_dataset_ref(
@@ -376,6 +435,7 @@ def build_readiness_report(
     require_preview: bool = True,
     require_comments: bool = False,
     require_evidence_ledger: bool = False,
+    strict_enrichment: bool = False,
     backend_factory: Callable[[str], Any] | None = None,
     refs: Iterable[str] | None = None,
     required_raw_previews: Iterable[str] | None = None,
@@ -692,6 +752,11 @@ def build_readiness_report(
 
     if require_evidence_ledger:
         blockers.extend(_evidence_ledger_blockers(project))
+
+    if strict_enrichment:
+        se_blockers, se_warnings = _strict_enrichment_issues(checked_refs, kinds, objects)
+        blockers.extend(se_blockers)
+        warnings.extend(se_warnings)
 
     blocked_refs = _refs_with_issue(blockers)
     analysis_ready_refs = tuple(ref for ref in checked_refs if ref not in blocked_refs)
