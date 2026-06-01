@@ -58,6 +58,7 @@ if TYPE_CHECKING:
 
     from marivo.analysis.datasources.metadata import TableMetadata
     from marivo.semantic.classifier import Candidate, DecisionKind, Enrichment, OpenQuestion
+    from marivo.semantic.ledger import DecisionRecord, RejectedCandidate
 
 __all__ = [
     "DatasetSummary",
@@ -380,6 +381,68 @@ class SemanticProject:
     def root(self) -> str:
         """Return the project root path as a string."""
         return str(self._root)
+
+    @property
+    def root_path(self) -> Path:
+        """Return the project root path as a Path object."""
+        return self._root
+
+    def answer(
+        self,
+        question: OpenQuestion,
+        answer: object,
+        *,
+        evidence_fingerprint: str = "",
+        rationale: str | None = None,
+    ) -> None:
+        """Record the user's answer to an OpenQuestion as a confirmation in the
+        ledger. rationale is accepted for caller ergonomics; it is not persisted in
+        this phase."""
+        from datetime import UTC, datetime
+
+        from marivo.semantic.ledger import ConfirmationRecord, LedgerStore
+
+        LedgerStore(self._root).append_confirmation(
+            ConfirmationRecord(
+                ts=datetime.now(UTC).isoformat(),
+                question_id=question.id,
+                decision_kind=question.decision_kind,
+                subject_refs=question.subject_refs,
+                answer=answer,
+                evidence_fingerprint=evidence_fingerprint,
+            )
+        )
+
+    def record_decision(
+        self,
+        semantic_id: str,
+        record: DecisionRecord,
+        *,
+        authored_at: str | None = None,
+        rejected: tuple[RejectedCandidate, ...] = (),
+    ) -> None:
+        """Append a decision (and optional rejected candidates) to the object's
+        ledger entry, preserving prior decisions."""
+        from datetime import UTC, datetime
+
+        from marivo.semantic.ledger import LedgerStore, ObjectEvidence
+
+        store = LedgerStore(self._root)
+        existing = store.read_object(semantic_id)
+        decisions = (existing.decisions if existing else ()) + (record,)
+        rejected_all = (existing.rejected_candidates if existing else ()) + tuple(rejected)
+        store.write_object(
+            ObjectEvidence(
+                semantic_id=semantic_id,
+                authored_at=(
+                    existing.authored_at
+                    if existing
+                    else (authored_at or datetime.now(UTC).isoformat())
+                ),
+                decisions=decisions,
+                rejected_candidates=rejected_all,
+            )
+        )
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -937,7 +1000,8 @@ class SemanticProject:
         conflicts: Mapping[tuple[DecisionKind, str], bool] | None = None,
         round_index: int = 0,
     ) -> tuple[OpenQuestion, ...]:
-        """Classify agent candidates + enrichments into ranked OpenQuestions.
+        """Classify agent candidates + enrichments into ranked OpenQuestions, then
+        drop any question already confirmed in the ledger (cross-session dedup).
 
         Backend-free: blast radius comes from the in-memory dependency graph.
         Candidate generation (which needs a backend) is ``propose_candidates``.
@@ -945,7 +1009,20 @@ class SemanticProject:
         from marivo.semantic.classifier import classify, to_decision_inputs
 
         inputs = to_decision_inputs(candidates, enrichments, conflicts=conflicts)
-        return classify(inputs, blast_radius_of=self._blast_radius_of, round_index=round_index)
+        questions = classify(inputs, blast_radius_of=self._blast_radius_of, round_index=round_index)
+        confirmed = self._confirmed_question_ids(candidates)
+        return tuple(q for q in questions if q.id not in confirmed)
+
+    def _confirmed_question_ids(self, candidates: Sequence[Candidate]) -> set[str]:
+        from marivo.semantic.ledger import LedgerStore
+
+        store = LedgerStore(self._root)
+        models = {c.proposed_id.split(".", 1)[0] for c in candidates if "." in c.proposed_id}
+        ids: set[str] = set()
+        for model in models:
+            for record in store.read_confirmations(model):
+                ids.add(record.question_id)
+        return ids
 
     def propose_candidates(
         self,
