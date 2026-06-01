@@ -2,15 +2,43 @@
 
 from __future__ import annotations
 
-import subprocess
+import importlib.util
+import os
 import sys
 from pathlib import Path
+from types import ModuleType
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _load_run_skill_examples() -> ModuleType:
+    name = "_marivo_run_skill_examples"
+    cached = sys.modules.get(name)
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location(
+        name, REPO_ROOT / "scripts" / "run_skill_examples.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text()
+
+
+_EXAMPLE_PARAMS = [
+    pytest.param(example, id=f"{example.parent.parent.parent.name}/{example.name}")
+    for skill_dir in _load_run_skill_examples()._iter_skill_dirs(REPO_ROOT)
+    for example in _load_run_skill_examples()._iter_example_files(
+        skill_dir / "references" / "examples"
+    )
+]
 
 
 def test_semantic_skill_points_to_standard_metadata_api() -> None:
@@ -69,13 +97,24 @@ def test_semantic_skill_examples_cover_phase5_cases() -> None:
     assert expected.issubset({path.name for path in examples_dir.glob("*.py")})
 
 
-def test_semantic_skill_examples_execute() -> None:
-    result = subprocess.run(
-        [sys.executable, "scripts/run_skill_examples.py", "--in-process"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+@pytest.mark.parametrize("example", _EXAMPLE_PARAMS)
+def test_semantic_skill_example_executes(example: Path) -> None:
+    run_skill_examples = _load_run_skill_examples()
+    old_cwd = Path.cwd()
+    os.chdir(REPO_ROOT)
+    try:
+        failure = run_skill_examples._check_example(example, in_process=True)
+    finally:
+        os.chdir(old_cwd)
 
-    assert result.returncode == 0, result.stderr
+    assert failure is None, f"{failure.reason}: {failure.detail}" if failure else None
+
+
+def test_semantic_skill_md_caps_respected() -> None:
+    run_skill_examples = _load_run_skill_examples()
+    failures = [
+        run_skill_examples._check_skill_md(skill_dir)
+        for skill_dir in run_skill_examples._iter_skill_dirs(REPO_ROOT)
+    ]
+    failures = [f for f in failures if f is not None]
+    assert not failures, [f"{f.reason}: {f.detail}" for f in failures]
