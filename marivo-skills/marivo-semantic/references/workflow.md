@@ -9,6 +9,8 @@ objects. It is evidence-first, ledger-aware, and readiness-gated.
 <venv>/bin/python - <<'PY'
 import marivo.semantic as ms
 
+print(ms.help(format="json"))
+print(ms.help("constraints", format="json"))
 project = ms.find_project()
 assert project is not None
 print(project.load())
@@ -66,6 +68,10 @@ for candidate in candidates:
 ```
 
 Candidates are not semantic objects. They are structural proposals with evidence.
+They do not infer metric decomposition from metric names, column names, comments,
+or other string matches. Metric decomposition must come from explicit formula or
+source SQL evidence, existing component metrics, ledger/user confirmation, or an
+open question during authoring.
 
 ## 4. Classify questions
 
@@ -82,7 +88,11 @@ is explicit and low risk.
 ## 5. Author semantic Python
 
 Default to a single `.marivo/semantic/<model>/_model.py`. Use ref variables
-between semantic objects. See `authoring-patterns.md`.
+between semantic objects. Before declaring an object kind for the first time in
+the authoring session, inspect its runtime help, for example
+`ms.help("metric", format="json")`. Metrics also require
+`ms.help("decomposition", format="json")`; derived metrics also require
+`ms.help("component", format="json")`. See `authoring-patterns.md`.
 
 ## 6. Record confirmations and decisions
 

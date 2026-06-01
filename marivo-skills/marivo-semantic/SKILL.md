@@ -22,6 +22,13 @@ the project structure before authoring semantic objects.
 
 ## Non-Negotiable Rules
 
+- At the start of each authoring session, inspect the installed runtime catalog
+  with `ms.help(format="json")` and `ms.help("constraints", format="json")`.
+- Before declaring an object kind for the first time in the session, inspect
+  `ms.help("<object_kind>", format="json")` for `dataset`, `field`,
+  `time_field`, `metric`, or `relationship`. For metrics, also inspect
+  `ms.help("decomposition", format="json")`; for derived metrics, also inspect
+  `ms.help("component", format="json")`. Do not repeat this per object.
 - Python files under `.marivo/semantic/<model>/` are the only semantic source of
   truth.
 - Names are candidate signals only. Business meaning must come from comments,
