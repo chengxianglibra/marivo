@@ -32,6 +32,9 @@ class DecisionRecord:
     cited_table: str | None = None
     cited_columns: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        _validate_blast_radius(self.blast_radius)
+
     def to_dict(self) -> dict[str, object]:
         return {
             "decision_kind": self.decision_kind,
@@ -56,13 +59,23 @@ class DecisionRecord:
             agreement_confidence=str(data["agreement_confidence"]),
             qualifying_sources=tuple(str(s) for s in data["qualifying_sources"]),  # type: ignore[attr-defined]
             materiality=str(data["materiality"]),
-            blast_radius=int(data["blast_radius"]),  # type: ignore[call-overload]
+            blast_radius=_validate_blast_radius(data["blast_radius"]),
             evidence_fingerprint=str(data["evidence_fingerprint"]),
             question_id=None if data["question_id"] is None else str(data["question_id"]),
             decided_at=str(data["decided_at"]),
             cited_table=None if data.get("cited_table") is None else str(data["cited_table"]),
             cited_columns=tuple(str(c) for c in cited_columns_raw),  # type: ignore[attr-defined]
         )
+
+
+def _validate_blast_radius(value: object, *, field: str = "DecisionRecord.blast_radius") -> int:
+    if type(value) is not int:
+        raise TypeError(
+            f"{field} must be a non-negative int; got {type(value).__name__}: {value!r}"
+        )
+    if value < 0:
+        raise ValueError(f"{field} must be a non-negative int; got {value!r}")
+    return value
 
 
 @dataclass(frozen=True)
@@ -175,6 +188,17 @@ def _model_of(semantic_id: str) -> str:
     return semantic_id.split(".", 1)[0]
 
 
+def _read_object_evidence(path: Path) -> ObjectEvidence:
+    try:
+        return ObjectEvidence.from_dict(json.loads(path.read_text()))
+    except TypeError as exc:
+        raise TypeError(f"Invalid evidence ledger object at {path}: {exc}") from exc
+    except ValueError as exc:
+        raise ValueError(f"Invalid evidence ledger object at {path}: {exc}") from exc
+    except KeyError as exc:
+        raise KeyError(f"Invalid evidence ledger object at {path}: missing field {exc}") from exc
+
+
 class LedgerStore:
     """Canonical-JSON file IO under <semantic_root>/<model>/_evidence/."""
 
@@ -196,7 +220,7 @@ class LedgerStore:
         path = self._object_path(semantic_id)
         if not path.exists():
             return None
-        return ObjectEvidence.from_dict(json.loads(path.read_text()))
+        return _read_object_evidence(path)
 
     def _confirmations_path(self, model: str) -> Path:
         return self._evidence_dir(model) / "confirmations.jsonl"
@@ -223,7 +247,7 @@ class LedgerStore:
         records: list[ObjectEvidence] = []
         for objects_dir in sorted(self._root.glob("*/_evidence/objects")):
             for path in sorted(objects_dir.glob("*.json")):
-                records.append(ObjectEvidence.from_dict(json.loads(path.read_text())))
+                records.append(_read_object_evidence(path))
         return tuple(records)
 
 

@@ -83,7 +83,8 @@ for question in questions:
 `open_questions` can run before `_model.py` exists. In that cold-start state it
 uses `blast_radius=0` because there is no loaded dependency graph yet. Reload
 successfully before closeout so audit, readiness, and richness use the authored
-registry.
+registry. Treat `blast_radius` as a non-negative integer count of distinct
+transitive dependents; do not pass ref tuples/lists or candidate lists.
 
 Ask the user only for blocker questions or business decisions evidence cannot
 settle. Optional questions may be recorded as assumptions only when the default
@@ -106,7 +107,8 @@ project.answer(question, "confirmed answer", evidence_fingerprint="sha256:...")
 
 Use `project.record_decision(...)` only when a complete `DecisionRecord` can be
 built from the real question, chosen value, evidence fingerprint, cited table,
-and qualifying sources. Do not invent internal fields.
+and qualifying sources. Use `question.blast_radius` for the ledger record. Do not
+invent internal fields.
 
 ## 7. Validate and close out
 

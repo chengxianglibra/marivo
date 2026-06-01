@@ -51,6 +51,8 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     assert "inspect_table=mv.datasources.inspect_table" in workflow
     assert "before `_model.py` exists" in workflow
     assert "blast_radius=0" in workflow
+    assert "non-negative integer count" in skill
+    assert "Do not pass `subject_refs`" in evidence
     assert "Table metadata evidence" in evidence
     assert "table.schema()` returns types but not comments" in skill
     assert "target preview APIs until they exist" not in skill

@@ -38,7 +38,8 @@ the project structure before authoring semantic objects.
   with `inspect_table=mv.datasources.inspect_table`.
 - Classify candidate uncertainty with `project.open_questions(...)`. This works
   before `_model.py` exists; without a loaded registry, question `blast_radius`
-  falls back to `0`.
+  falls back to `0`. `blast_radius` is a non-negative integer count of distinct
+  transitive dependents, not a ref tuple/list or candidate list.
 - Ask users only for unresolved blockers or business decisions evidence cannot
   settle.
 - Record user confirmations with `project.answer(...)`.

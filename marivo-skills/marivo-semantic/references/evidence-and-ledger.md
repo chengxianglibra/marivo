@@ -43,6 +43,9 @@ questions = project.open_questions(candidates=candidates)
 `project.open_questions(...)` is safe during cold start before `_model.py` is
 authored. If the registry is not loaded, `OpenQuestion.blast_radius` is `0`; run
 `project.reload()` successfully before closeout for real dependency impact.
+`blast_radius` is a non-negative integer count of distinct transitive dependents.
+Do not pass `subject_refs`, dependent ref tuples/lists, candidates, or evidence
+objects to `DecisionRecord.blast_radius`.
 
 ## Confirmations
 
@@ -56,6 +59,8 @@ project.answer(question, "Use dt as the reporting time axis", evidence_fingerpri
 
 Use `project.record_decision(...)` only when a complete `DecisionRecord` can be
 built from real question and evidence values. Do not invent internal fields.
+For `blast_radius`, use `question.blast_radius` or a dependency-graph count
+computed by the project; never pass the refs themselves.
 
 ```python
 from datetime import UTC, datetime
