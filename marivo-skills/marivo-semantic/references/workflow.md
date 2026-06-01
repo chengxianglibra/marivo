@@ -55,7 +55,6 @@ import marivo.semantic as ms
 
 project = ms.find_project()
 assert project is not None
-project.load()
 
 candidates = project.propose_candidates(
     datasource="warehouse",
@@ -80,6 +79,11 @@ questions = project.open_questions(candidates=candidates)
 for question in questions:
     print(question.severity, question.decision_kind, question.subject_refs)
 ```
+
+`open_questions` can run before `_model.py` exists. In that cold-start state it
+uses `blast_radius=0` because there is no loaded dependency graph yet. Reload
+successfully before closeout so audit, readiness, and richness use the authored
+registry.
 
 Ask the user only for blocker questions or business decisions evidence cannot
 settle. Optional questions may be recorded as assumptions only when the default

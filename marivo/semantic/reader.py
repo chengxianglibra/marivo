@@ -997,6 +997,18 @@ class SemanticProject:
             seen |= self._flatten_dependent_ids(node)
         return len(seen - set(refs))
 
+    def _open_question_blast_radius_of(self, refs: tuple[str, ...]) -> int:
+        """Best-effort blast radius for author-time question classification.
+
+        ``open_questions`` must work before a model has been authored. Without a
+        loaded registry there is no dependency graph, so author-time impact
+        ranking falls back to zero while strict reader APIs continue to fail
+        closed through ``_require_registry``.
+        """
+        if self._registry is None:
+            return 0
+        return self._blast_radius_of(refs)
+
     def open_questions(
         self,
         *,
@@ -1008,13 +1020,17 @@ class SemanticProject:
         """Classify agent candidates + enrichments into ranked OpenQuestions, then
         drop any question already confirmed in the ledger (cross-session dedup).
 
-        Backend-free: blast radius comes from the in-memory dependency graph.
-        Candidate generation (which needs a backend) is ``propose_candidates``.
+        Registry-optional and backend-free: when the project is already loaded,
+        blast radius comes from the in-memory dependency graph; before authoring
+        or after a failed load, blast radius falls back to zero. Candidate
+        generation (which needs a backend) is ``propose_candidates``.
         """
         from marivo.semantic.classifier import classify, to_decision_inputs
 
         inputs = to_decision_inputs(candidates, enrichments, conflicts=conflicts)
-        questions = classify(inputs, blast_radius_of=self._blast_radius_of, round_index=round_index)
+        questions = classify(
+            inputs, blast_radius_of=self._open_question_blast_radius_of, round_index=round_index
+        )
         confirmed = self._confirmed_question_ids(candidates)
         return tuple(q for q in questions if q.id not in confirmed)
 
