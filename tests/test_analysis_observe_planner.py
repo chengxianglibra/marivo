@@ -60,9 +60,7 @@ def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
             "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'])\n"
-                "def orders(backend):\n"
-                "    return backend.table('orders')\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
@@ -80,12 +78,8 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
             "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'])\n"
-                "def orders(backend):\n"
-                "    return backend.table('orders')\n"
-                "@ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'])\n"
-                "def users(backend):\n"
-                "    return backend.table('users')\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "users = ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
                 "@ms.field(dataset=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -124,12 +118,8 @@ def test_unique_shortest_path_and_join_safety(semantic_project_factory):
             "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'])\n"
-                "def orders(backend):\n"
-                "    return backend.table('orders')\n"
-                "@ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'])\n"
-                "def users(backend):\n"
-                "    return backend.table('users')\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "users = ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
                 "@ms.field(dataset=orders)\n"
                 "def order_user_id(orders):\n"
                 "    return orders.user_id\n"

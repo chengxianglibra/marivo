@@ -65,9 +65,7 @@ _MODEL_PY = textwrap.dedent("""\
 
 _DATASET_AND_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.field(dataset=orders)
     def amount(table):
@@ -80,7 +78,7 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
 
 _SQL_VIEW_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
+    @ms.dataset(name="orders_view", datasource="warehouse", source=ms.table("orders"))
     def orders_view(backend):
         return backend.sql("SELECT * FROM orders")
 """)
@@ -120,6 +118,78 @@ def test_dataset_materialize_returns_rows(semantic_project_factory, backend_fact
     df = table.to_pandas()
     assert len(df) == 2
     assert list(df["amount"]) == [100.0, 200.0]
+
+
+def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.dataset(\n"
+                "    name='orders',\n"
+                "    datasource='warehouse',\n"
+                "    source=ms.table('orders', database='sales_mart'),\n"
+                ")\n"
+            ),
+        }
+    )
+
+    class _Backend:
+        def table(self, name, /, *, database=None):
+            assert name == "orders"
+            assert database == "sales_mart"
+            return ibis.table({"amount": "float64"}, name=f"{database}.{name}")
+
+    table = project.materialize_dataset("sales.orders", backend_factory=lambda _: _Backend())
+    assert table.get_name() == "sales_mart.orders"
+
+
+def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.dataset(\n"
+                "    name='orders',\n"
+                "    datasource='warehouse',\n"
+                "    source=ms.file('/data/orders/*.parquet', format='parquet', hive_partitioning=True),\n"
+                ")\n"
+            ),
+        }
+    )
+
+    class _Backend:
+        def read_parquet(self, path, **options):
+            assert path == "/data/orders/*.parquet"
+            assert options == {"hive_partitioning": True}
+            return ibis.table({"amount": "float64"}, name="orders_file")
+
+    table = project.materialize_dataset("sales.orders", backend_factory=lambda _: _Backend())
+    assert table.get_name() == "orders_file"
+
+
+def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.dataset(\n"
+                "    name='orders',\n"
+                "    datasource='warehouse',\n"
+                "    source=ms.file('/data/orders.csv', format='csv'),\n"
+                ")\n"
+            ),
+        }
+    )
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        project.materialize_dataset("sales.orders", backend_factory=lambda _: object())
+
+    assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
+    assert "does not support csv file sources" in exc_info.value.message
 
 
 # ---------------------------------------------------------------------------
@@ -276,8 +346,8 @@ def test_dataset_cache_reuses_table(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_dataset_sql_escape_hatch_rejected(semantic_project_factory) -> None:
-    """Dataset bodies must use ibis expressions instead of backend.sql()."""
+def test_dataset_decorator_body_rejected(semantic_project_factory) -> None:
+    """Dataset bodies are no longer the physical-source entrypoint."""
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
@@ -290,7 +360,8 @@ def test_dataset_sql_escape_hatch_rejected(semantic_project_factory) -> None:
 
     assert result.status == "errored"
     assert result.errors
-    assert result.errors[0].kind == "sql_escape_hatch"
+    assert result.errors[0].kind == "organization_error"
+    assert "not callable" in result.errors[0].message
 
 
 def test_ibis_table_detection(semantic_project_factory, duckdb_backend) -> None:
@@ -323,13 +394,9 @@ def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend)
 
     cross_ds_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="warehouse1")
-        def orders_a(backend):
-            return backend.table("orders")
+        orders_a = ms.dataset(name="orders_a", datasource="warehouse1", source=ms.table("orders"))
 
-        @ms.dataset(datasource="warehouse2")
-        def orders_b(backend):
-            return backend.table("orders")
+        orders_b = ms.dataset(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders_a, orders_b], root_dataset=orders_a, additivity="additive", decomposition=ms.sum())
         def cross_metric(t1, t2):
@@ -412,9 +479,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="warehouse")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
         def revenue(table):
@@ -443,9 +508,7 @@ def test_derived_metric_with_arithmetic(semantic_project_factory, backend_factor
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="warehouse")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
         def revenue(table):
@@ -474,9 +537,7 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="warehouse")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
         def revenue(table):
@@ -509,9 +570,7 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="warehouse")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
         def revenue(table):
@@ -636,13 +695,9 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
 
     multi_ds_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="warehouse")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.dataset(datasource="warehouse")
-        def orders_alias(backend):
-            return backend.table("orders")
+        orders_alias = ms.dataset(name="orders_alias", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders, orders_alias], root_dataset=orders, additivity="additive", decomposition=ms.sum())
         def combined(t1, t2):

@@ -386,9 +386,10 @@ versioning.
 
 ```python
 # Daily full snapshot keyed by a dt partition.
-@ms.dataset(
+user_profile_daily = ms.dataset(
     name="user_profile_daily",
     datasource="warehouse",
+    source=ms.table("user_profile_daily"),
     primary_key=["user_id", "dt"],
     versioning=ms.snapshot(
         partition_field=dt,
@@ -397,13 +398,12 @@ versioning.
         format="%Y%m%d",            # physical encoding; or parser= for custom
     ),
 )
-def user_profile_daily(backend):
-    return backend.table("user_profile_daily")
 
 # Phase 2: zipper / SCD2 validity-interval table.
-@ms.dataset(
+price_history = ms.dataset(
     name="price_history",
     datasource="warehouse",
+    source=ms.table("price_history"),
     primary_key=["product_id", "valid_from"],
     versioning=ms.validity(
         valid_from=valid_from,
@@ -414,8 +414,6 @@ def user_profile_daily(backend):
         timezone="Asia/Shanghai",
     ),
 )
-def price_history(backend):
-    return backend.table("price_history")
 ```
 
 Phase 1 supports day-grain snapshot partitions. Phase 2 supports day-grain

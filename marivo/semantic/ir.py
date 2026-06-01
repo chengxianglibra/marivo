@@ -6,9 +6,11 @@ stored in a sidecar map, not in the IR itself.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Any, Literal
 
 from marivo.datasource.ir import (
@@ -22,6 +24,7 @@ __all__ = [
     "DatasetIR",
     "DatasetProvenance",
     "DatasetRef",
+    "DatasetSourceIR",
     "DatasetVersioningIR",
     "DatasourceAiContextIR",
     "DatasourceIR",
@@ -29,6 +32,7 @@ __all__ = [
     "DecompositionIR",
     "FieldIR",
     "FieldRef",
+    "FileSourceIR",
     "MetricAdditivity",
     "MetricIR",
     "MetricRef",
@@ -40,9 +44,14 @@ __all__ = [
     "SnapshotVersioningIR",
     "SourceLocation",
     "SymbolKind",
+    "TableSourceIR",
     "TimeFieldRef",
     "ValidityVersioningIR",
     "_BaseRef",
+    "source_from_dict",
+    "source_label",
+    "source_name",
+    "source_to_dict",
 ]
 
 DatasourceAiContextIR = AiContextIR
@@ -129,6 +138,98 @@ DatasetVersioningIR = SnapshotVersioningIR | ValidityVersioningIR
 
 
 @dataclass(frozen=True)
+class TableSourceIR:
+    """Physical table source for a dataset."""
+
+    table: str
+    database: str | tuple[str, ...] | None = None
+    kind: Literal["table"] = "table"
+
+
+@dataclass(frozen=True)
+class FileSourceIR:
+    """Physical file source for a dataset."""
+
+    path: str
+    format: Literal["parquet", "csv"]
+    options: dict[str, Any] = field(default_factory=dict)
+    kind: Literal["file"] = "file"
+
+
+DatasetSourceIR = TableSourceIR | FileSourceIR
+
+_GLOB_CHARS = re.compile(r"[*?\\[]")
+_SOURCE_NAME_CHARS = re.compile(r"[^0-9A-Za-z_]+")
+
+
+def _sanitize_source_name(value: str) -> str:
+    name = _SOURCE_NAME_CHARS.sub("_", value).strip("_").lower()
+    return name or "file_source"
+
+
+def source_name(source: DatasetSourceIR) -> str:
+    if isinstance(source, TableSourceIR):
+        return source.table
+
+    normalized_path = source.path.replace("\\", "/").rstrip("/")
+    path = PurePosixPath(normalized_path)
+    raw_name = path.name
+    raw_name = path.parent.name if _GLOB_CHARS.search(raw_name) else PurePosixPath(raw_name).stem
+    return _sanitize_source_name(raw_name)
+
+
+def source_to_dict(source: DatasetSourceIR) -> dict[str, object]:
+    if isinstance(source, TableSourceIR):
+        database: str | list[str] | None = (
+            list(source.database) if isinstance(source.database, tuple) else source.database
+        )
+        return {"kind": "table", "table": source.table, "database": database}
+    return {
+        "kind": "file",
+        "path": source.path,
+        "format": source.format,
+        "options": dict(source.options),
+    }
+
+
+def source_from_dict(data: Mapping[str, object]) -> DatasetSourceIR:
+    kind = data.get("kind")
+    if kind == "table":
+        raw_database = data.get("database")
+        database: str | tuple[str, ...] | None
+        if isinstance(raw_database, list):
+            database = tuple(str(part) for part in raw_database)
+        elif raw_database is None:
+            database = None
+        else:
+            database = str(raw_database)
+        return TableSourceIR(table=str(data["table"]), database=database)
+    if kind == "file":
+        raw_options = data.get("options", {})
+        options = dict(raw_options) if isinstance(raw_options, Mapping) else {}
+        format_value = str(data["format"])
+        if format_value not in {"parquet", "csv"}:
+            raise ValueError(f"unsupported file source format: {format_value!r}")
+        return FileSourceIR(
+            path=str(data["path"]),
+            format=format_value,  # type: ignore[arg-type]
+            options=options,
+        )
+    raise ValueError(f"unsupported dataset source kind: {kind!r}")
+
+
+def source_label(source: DatasetSourceIR) -> str:
+    if isinstance(source, TableSourceIR):
+        if source.database is None:
+            return source.table
+        database = (
+            ".".join(source.database) if isinstance(source.database, tuple) else source.database
+        )
+        return f"{database}.{source.table}"
+    return source.path
+
+
+@dataclass(frozen=True)
 class ProvenanceIR:
     """Source provenance and parity status for expression-bearing objects."""
 
@@ -158,6 +259,7 @@ class DatasetIR:
     model: str
     name: str
     datasource: str
+    source: DatasetSourceIR
     primary_key: tuple[str, ...]
     description: str | None
     ai_context: AiContextIR

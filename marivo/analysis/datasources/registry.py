@@ -13,6 +13,7 @@ from marivo.analysis.datasources import backends as _backends
 from marivo.analysis.datasources import secrets as _secrets
 from marivo.analysis.datasources import store as _store
 from marivo.analysis.datasources.metadata import TableMetadata
+from marivo.analysis.datasources.metadata import inspect_source as _inspect_source
 from marivo.analysis.datasources.metadata import inspect_table as _inspect_table
 from marivo.analysis.errors import DatasourceMissingError, DatasourcePreviewError
 from marivo.datasource.authoring import DatasourceSpec
@@ -24,6 +25,7 @@ from marivo.preview import (
     PreviewSamplePolicy,
     preview_ibis_table,
 )
+from marivo.semantic.ir import DatasetSourceIR
 
 
 @dataclass(frozen=True)
@@ -294,6 +296,20 @@ def inspect_table(
         datasource,
         table=table,
         database=database,
+        include_partitions=include_partitions,
+    )
+
+
+def inspect_source(
+    datasource: str,
+    *,
+    source: DatasetSourceIR,
+    include_partitions: bool = True,
+) -> TableMetadata:
+    """Return schema, comments, nullable flags, and partition hints for a source."""
+    return _inspect_source(
+        datasource,
+        source=source,
         include_partitions=include_partitions,
     )
 

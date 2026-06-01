@@ -73,9 +73,7 @@ _MODEL_PY = textwrap.dedent("""\
 
 _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.field(dataset=orders)
     def amount(table):
@@ -94,9 +92,7 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
 
 _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -111,9 +107,7 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
 
 _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def total_amount(table):
@@ -122,9 +116,7 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
 
 _DIALECT_MISMATCH_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -139,9 +131,7 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
 
 _DERIVED_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -174,9 +164,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 
 _DECLARED_PYTHON_NATIVE_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -190,9 +178,7 @@ _DECLARED_PYTHON_NATIVE_PY = textwrap.dedent("""\
 
 _DECLARED_UNVERIFIED_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -277,9 +263,7 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
     # Create a project where expected and actual differ by a small amount
     small_mismatch_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="warehouse")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -368,13 +352,9 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
     """Parity check on metric with cross-datasource datasets should raise."""
     cross_ds_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="warehouse1")
-        def orders_a(backend):
-            return backend.table("orders")
+        orders_a = ms.dataset(name="orders_a", datasource="warehouse1", source=ms.table("orders"))
 
-        @ms.dataset(datasource="warehouse2")
-        def orders_b(backend):
-            return backend.table("orders")
+        orders_b = ms.dataset(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders_a, orders_b],
@@ -518,9 +498,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
     """When one component metric is drifted, derived should be DRIFTED."""
     drifted_component_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="warehouse")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -592,9 +570,7 @@ def test_derived_propagation_verified_and_python_native(
     """When one component is verified and another is python_native, derived is PYTHON_NATIVE."""
     mixed_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="warehouse")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],

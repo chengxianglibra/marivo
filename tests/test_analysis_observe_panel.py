@@ -45,9 +45,7 @@ def _bootstrap_sales(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "@ms.dataset(name='orders', datasource='warehouse')\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
+        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
         "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
@@ -136,9 +134,7 @@ def _bootstrap_failure_metrics(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "@ms.dataset(name='orders', datasource='warehouse')\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
+        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
         "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"

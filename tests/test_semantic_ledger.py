@@ -227,12 +227,18 @@ def test_decision_record_persists_fingerprint_inputs():
         evidence_fingerprint="sha256:a",
         question_id=None,
         decided_at="2026-05-31T10:00:00+00:00",
-        cited_table="warehouse.orders",
+        cited_source={
+            "datasource": "warehouse",
+            "source": {"kind": "table", "table": "orders", "database": None},
+        },
         cited_columns=("paid_at",),
     )
     restored = lg.DecisionRecord.from_dict(rec.to_dict())
     assert restored == rec
-    assert restored.cited_table == "warehouse.orders"
+    assert restored.cited_source == {
+        "datasource": "warehouse",
+        "source": {"kind": "table", "table": "orders", "database": None},
+    }
     assert restored.cited_columns == ("paid_at",)
 
 
@@ -250,7 +256,7 @@ def test_decision_record_from_dict_defaults_when_fields_absent():
         "decided_at": "t",
     }
     rec = lg.DecisionRecord.from_dict(legacy)
-    assert rec.cited_table is None
+    assert rec.cited_source is None
     assert rec.cited_columns == ()
 
 
@@ -266,7 +272,20 @@ def test_iter_object_records_empty_when_no_ledger(tmp_path):
     assert lg.LedgerStore(tmp_path).iter_object_records() == ()
 
 
-def _decision(fp, *, cited_table="warehouse.orders", cited_columns=("status",)):
+_DEFAULT_CITED_SOURCE = object()
+
+
+def _decision(
+    fp,
+    *,
+    cited_source=_DEFAULT_CITED_SOURCE,
+    cited_columns=("status",),
+):
+    if cited_source is _DEFAULT_CITED_SOURCE:
+        cited_source = {
+            "datasource": "warehouse",
+            "source": {"kind": "table", "table": "orders", "database": None},
+        }
     return lg.DecisionRecord(
         decision_kind="field_meaning",
         chosen="paid",
@@ -277,7 +296,7 @@ def _decision(fp, *, cited_table="warehouse.orders", cited_columns=("status",)):
         evidence_fingerprint=fp,
         question_id=None,
         decided_at="t",
-        cited_table=cited_table,
+        cited_source=cited_source,
         cited_columns=cited_columns,
     )
 
@@ -313,5 +332,5 @@ def test_decision_stale_when_comment_changes():
     assert lg.is_decision_stale(_decision(fp), _metadata(status_comment="1=paid,2=refund")) is True
 
 
-def test_decision_without_cited_table_is_never_stale():
-    assert lg.is_decision_stale(_decision("sha256:x", cited_table=None), _metadata()) is False
+def test_decision_without_cited_source_is_never_stale():
+    assert lg.is_decision_stale(_decision("sha256:x", cited_source=None), _metadata()) is False

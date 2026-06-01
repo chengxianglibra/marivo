@@ -46,9 +46,9 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
     evidence = _read("marivo-skills/marivo-semantic/references/evidence-and-ledger.md")
 
-    assert "mv.datasources.inspect_table(...)" in skill
+    assert "mv.datasources.inspect_source(...)" in skill
     assert "project.propose_candidates(" in workflow
-    assert "inspect_table=mv.datasources.inspect_table" in workflow
+    assert "inspect_source=mv.datasources.inspect_source" in workflow
     assert "before `_model.py` exists" in workflow
     assert "blast_radius=0" in workflow
     assert "non-negative integer count" in skill
@@ -69,16 +69,16 @@ def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
     assert 'backend_type="trino"' in combined
     assert "client_tags" in combined
     assert "user_env" in combined
-    assert 'table="orders", database="sales_mart"' in combined
-    assert 'backend.table("orders", database="sales_mart")' in combined
+    assert 'source=ms.table("orders", database="sales_mart")' in combined
+    assert 'sources=[ms.table("orders", database="sales_mart")]' in combined
+    assert 'source=ms.file("/data/orders/*.parquet", format="parquet")' in combined
     assert 'database="sales_mart"' in combined
     assert "backend.list_tables(database=" in combined
     assert "backend.list_schemas()" in combined
     assert "schema` is optional" in datasource
     assert "VARCHAR" in combined and 'cast("timestamp").cast("date")' in combined
     assert "catalog.schema.table" not in combined
-    assert "does not accept `database=`" not in combined
-    assert "do not pass `database=`" not in combined
+    assert 'backend.table("orders", database="sales_mart")' not in combined
     assert "FDN" not in combined
     assert "mv.datasources.all()" in combined
     assert "mv.datasources.list()" not in combined
@@ -87,7 +87,7 @@ def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
 def test_design_spec_marks_remaining_phases_implemented() -> None:
     spec = _read("docs/specs/semantic/agent-semantic-layer-authoring-design.md")
 
-    assert "| Table metadata/comments | `mv.datasources.inspect_table(...)` | same |" in spec
+    assert "| Table metadata/comments | `mv.datasources.inspect_source(...)` | same |" in spec
     assert "### Phase 4: Metadata API\n\nImplemented:" in spec
     assert "### Phase 5: Agent Automation Tightening\n\nImplemented:" in spec
 
@@ -118,6 +118,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert 'date_format="HH"' in single
     assert 'required_prefix="log_date"' in single
     assert "project.propose_candidates(" in questions
+    assert "inspect_source=fake_inspect_source" in questions
     assert "project.open_questions(" in questions
     assert "ambiguous time axis" in questions
     assert questions.index("project.open_questions(") < questions.index("_model.py")

@@ -20,17 +20,16 @@ import marivo.semantic as ms
 ms.model(name="sales")
 warehouse = md.ref("warehouse")
 
-@ms.dataset(
+orders = ms.dataset(
     name="orders",
     datasource=warehouse,
+    source=ms.table("orders"),
     primary_key=["order_id"],
     ai_context={
         "business_definition": "One row per order.",
         "guardrails": ["Preview raw orders before analysis handoff."],
     },
 )
-def orders(backend):
-    return backend.table("orders")
 
 @ms.time_field(
     dataset=orders,
@@ -100,7 +99,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
         project.preview_dataset("sales.orders", backend_factory=backend_factory)
         project.parity_check("sales.drifted_revenue", backend_factory=backend_factory)
-        audit_questions = project.audit(inspect_table=mv.datasources.inspect_table)
+        audit_questions = project.audit(inspect_source=mv.datasources.inspect_source)
         report = project.readiness(
             require_preview=True,
             strict_provenance=True,

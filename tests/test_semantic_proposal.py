@@ -25,7 +25,12 @@ def test_dataset_candidate_is_proposed_with_metadata_evidence():
     assert len(ds) == 1
     assert ds[0].object_kind == "dataset"
     assert ds[0].proposed_id == "sales.orders"
-    assert ds[0].slot_values == {"datasource": "warehouse", "table": "orders"}
+    assert ds[0].slot_values == {
+        "datasource": "warehouse",
+        "table": "orders",
+        "database": None,
+        "source": {"kind": "table", "table": "orders", "database": None},
+    }
     # comment present -> a comment EvidenceRef is attached alongside metadata
     kinds = {e.evidence_type for e in ds[0].evidence}
     assert kinds == {"metadata", "comment"}

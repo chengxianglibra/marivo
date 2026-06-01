@@ -8,7 +8,7 @@ Public surface::
     project.load()
 
     ms.model(name="sales", default=True)
-    orders = ms.dataset(name="orders", datasource="warehouse")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
     ms.metric(name="revenue", datasets=[orders], decomposition=ms.sum())
 """
 
@@ -20,6 +20,7 @@ from marivo.semantic.authoring import (
     component,
     dataset,
     field,
+    file,
     metric,
     model,
     ratio,
@@ -27,6 +28,7 @@ from marivo.semantic.authoring import (
     relationship,
     snapshot,
     sum,
+    table,
     time_field,
     validity,
     weighted_average,
@@ -89,6 +91,7 @@ __all__ = [
     "dataset",
     "errors",
     "field",
+    "file",
     "find_project",
     "help",
     "metric",
@@ -99,6 +102,7 @@ __all__ = [
     "select_for_user",
     "snapshot",
     "sum",
+    "table",
     "time_field",
     "to_decision_inputs",
     "typing",

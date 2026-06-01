@@ -34,8 +34,8 @@ the project structure before authoring semantic objects.
 - Names are candidate signals only. Business meaning must come from comments,
   source SQL, knowledge, preview evidence, or user confirmation.
 - Before authoring new objects from datasource evidence, inspect metadata with
-  `mv.datasources.inspect_table(...)`, then call `project.propose_candidates(...)`
-  with `inspect_table=mv.datasources.inspect_table`.
+  `mv.datasources.inspect_source(...)`, then call `project.propose_candidates(...)`
+  with `inspect_source=mv.datasources.inspect_source`.
 - Classify candidate uncertainty with `project.open_questions(...)`. This works
   before `_model.py` exists; without a loaded registry, question `blast_radius`
   falls back to `0`. `blast_radius` is a non-negative integer count of distinct
@@ -45,7 +45,7 @@ the project structure before authoring semantic objects.
 - Record user confirmations with `project.answer(...)`.
 - Use `project.record_decision(...)` only when a complete evidence-backed
   `DecisionRecord` can be built from the question, chosen value, evidence
-  fingerprint, and cited table.
+  fingerprint, and cited source.
 - Do not hand off to `marivo-analysis` while readiness is blocked.
 - Run `project.richness(...)` at closeout and report richness gaps separately
   from readiness blockers.
@@ -70,7 +70,7 @@ Read `references/workflow.md` first for object construction. The short form is:
 
 - Default to one `.marivo/semantic/<model>/_model.py` per model.
 - Use `md.ref("<datasource>")` for datasource references.
-- Use decorated Python ref variables between semantic objects.
+- Use Python ref variables between semantic objects.
 - Prefer a partition time field such as `dt`, `log_date`, or `event_date` as
   the dataset `@ms.time_field`.
 - For sortable day/hour partition columns, keep the raw string/integer column

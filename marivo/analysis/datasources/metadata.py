@@ -9,6 +9,7 @@ from typing import Any, Literal
 from marivo.analysis.datasources import backends as _backends
 from marivo.analysis.datasources import store as _store
 from marivo.analysis.errors import DatasourceMetadataError
+from marivo.semantic.ir import DatasetSourceIR, FileSourceIR, TableSourceIR, source_name
 
 MetadataWarningKind = Literal[
     "comments_unavailable",
@@ -710,6 +711,72 @@ def inspect_table(
             MetadataWarning(
                 kind="partitions_unavailable",
                 message=f"{datasource_ir.backend_type} partition metadata is not supported by this adapter",
+            ),
+        ),
+    )
+
+
+def inspect_source(
+    datasource: str,
+    *,
+    source: DatasetSourceIR,
+    include_partitions: bool = True,
+) -> TableMetadata:
+    if isinstance(source, TableSourceIR):
+        return inspect_table(
+            datasource,
+            table=str(source.table),
+            database=source.database,
+            include_partitions=include_partitions,
+        )
+    if not isinstance(source, FileSourceIR):
+        raise DatasourceMetadataError(
+            message=f"unsupported datasource source kind {getattr(source, 'kind', None)!r}",
+            details={"datasource": datasource, "source_kind": getattr(source, "kind", None)},
+        )
+
+    datasource_ir = _store.load_one(datasource)
+    if datasource_ir is None:
+        raise DatasourceMetadataError(
+            message=f"datasource {datasource!r} is not configured",
+            details={"datasource": datasource, "available": _store.list_names()},
+        )
+    try:
+        backend = _backends.build_backend(datasource_ir)
+        reader_name = "read_parquet" if source.format == "parquet" else "read_csv"
+        reader = getattr(backend, reader_name, None)
+        if reader is None:
+            raise AttributeError(f"backend has no {reader_name}()")
+        table_expr = reader(source.path, **source.options)
+    except Exception as exc:
+        raise DatasourceMetadataError(
+            message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
+            details={
+                "datasource": datasource,
+                "path": source.path,
+                "format": source.format,
+                "cause": str(exc),
+            },
+        ) from exc
+
+    return _schema_only(
+        datasource=datasource,
+        table=source_name(source),
+        database=None,
+        backend_type=datasource_ir.backend_type,
+        table_expr=table_expr,
+        warnings=(
+            MetadataWarning(
+                kind="comments_unavailable",
+                message="file source comments are not available",
+            ),
+            MetadataWarning(
+                kind="nullable_unavailable",
+                message="file source nullable flags are not available",
+            ),
+            MetadataWarning(
+                kind="partitions_unavailable",
+                message="file source partition metadata is not available",
             ),
         ),
     )

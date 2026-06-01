@@ -10,6 +10,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.analysis.datasources.metadata import (
     ColumnMetadata,
     MetadataWarning,
@@ -153,6 +154,15 @@ class _FakeBackend:
         return _FakeCursor([], [])
 
 
+class _FakeFileBackend:
+    def __init__(self) -> None:
+        self.reads: list[tuple[str, dict[str, object]]] = []
+
+    def read_parquet(self, path: str, **options: object):
+        self.reads.append((path, options))
+        return _FakeTable({"order_id": "int64", "amount": "float64"})
+
+
 def test_inspect_table_mysql_adapter_uses_information_schema(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -197,6 +207,26 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
     assert by_name["order_id"].comment == "Unique order id"
     assert by_name["amount"].nullable is True
     assert any("SHOW FULL COLUMNS" in query for query in backend.queries)
+
+
+def test_inspect_source_file_derives_table_name_from_path(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mv.datasources.register(_spec("duck_wh", backend_type="duckdb", path=":memory:"))
+    backend = _FakeFileBackend()
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_source(
+        "duck_wh",
+        source=ms.file("/data/orders/*.parquet", format="parquet", hive_partitioning=True),
+    )
+
+    assert metadata.table == "orders"
+    assert backend.reads == [("/data/orders/*.parquet", {"hive_partitioning": True})]
 
 
 def test_inspect_table_trino_adapter_uses_information_schema(

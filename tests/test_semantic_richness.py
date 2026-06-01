@@ -31,19 +31,17 @@ def test_richness_report_to_dict_is_json_safe():
 
 _DEPTH_BARE = (
     "import marivo.semantic as ms\n"
-    "@ms.dataset(name='orders', datasource='warehouse')\n"
-    "def orders(backend):\n    return backend.table('orders')\n"
+    "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
     "@ms.field(dataset=orders, name='amount')\n"
     "def amount(table):\n    return table.amount\n"
 )
 
 _DEPTH_ENRICHED = (
     "import marivo.semantic as ms\n"
-    "@ms.dataset(name='orders', datasource='warehouse',\n"
+    "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
     "    ai_context={'business_definition': 'One row per order.',\n"
     "               'guardrails': ['Exclude test orders.'],\n"
     "               'synonyms': ['sales'], 'examples': ['how many orders?']})\n"
-    "def orders(backend):\n    return backend.table('orders')\n"
     "@ms.field(dataset=orders, name='amount',\n"
     "    ai_context={'business_definition': 'Gross amount.',\n"
     "               'guardrails': ['USD only.'],\n"
@@ -96,8 +94,7 @@ def test_demand_signal_defaults_are_empty():
 
 _FACT_NO_METRIC = (
     "import marivo.semantic as ms\n"
-    "@ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'])\n"
-    "def orders(backend):\n    return backend.table('orders')\n"
+    "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
     "@ms.field(dataset=orders, name='amount')\n"
     "def amount(table):\n    return table.amount\n"
 )
@@ -110,20 +107,16 @@ _FACT_WITH_METRIC = _FACT_NO_METRIC + (
 
 _SHARED_KEYS_NO_REL = (
     "import marivo.semantic as ms\n"
-    "@ms.dataset(name='orders', datasource='warehouse', primary_key=['customer_id'])\n"
-    "def orders(backend):\n    return backend.table('orders')\n"
-    "@ms.dataset(name='customers', datasource='warehouse', primary_key=['customer_id'])\n"
-    "def customers(backend):\n    return backend.table('customers')\n"
+    "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['customer_id'], source=ms.table('orders'))\n"
+    "customers = ms.dataset(name='customers', datasource='warehouse', primary_key=['customer_id'], source=ms.table('customers'))\n"
 )
 
 _SHARED_KEYS_WITH_REL = (
     "import marivo.semantic as ms\n"
-    "@ms.dataset(name='orders', datasource='warehouse', primary_key=['customer_id'])\n"
-    "def orders(backend):\n    return backend.table('orders')\n"
+    "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['customer_id'], source=ms.table('orders'))\n"
     "@ms.field(dataset=orders, name='order_customer')\n"
     "def order_customer(table):\n    return table.customer_id\n"
-    "@ms.dataset(name='customers', datasource='warehouse', primary_key=['customer_id'])\n"
-    "def customers(backend):\n    return backend.table('customers')\n"
+    "customers = ms.dataset(name='customers', datasource='warehouse', primary_key=['customer_id'], source=ms.table('customers'))\n"
     "@ms.field(dataset=customers, name='customer_pk')\n"
     "def customer_pk(table):\n    return table.customer_id\n"
     "ms.relationship(name='orders_to_customers', from_dataset=orders,\n"

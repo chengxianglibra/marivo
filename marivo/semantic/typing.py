@@ -21,7 +21,15 @@ __all__ = [
 class IbisBackend(Protocol):
     """Protocol for ibis backend objects used by dataset functions."""
 
-    def table(self, name: str, /) -> ibis.Table: ...
+    def table(
+        self,
+        name: str,
+        /,
+        *,
+        database: str | tuple[str, ...] | None = None,
+    ) -> ibis.Table: ...
+    def read_parquet(self, path: str, /, **options: object) -> ibis.Table: ...
+    def read_csv(self, path: str, /, **options: object) -> ibis.Table: ...
     def sql(self, query: str, /) -> ibis.Table: ...
 
 

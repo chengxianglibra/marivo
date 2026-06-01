@@ -7,7 +7,7 @@ Semantic authoring is evidence-driven. Names are candidate signals only.
 | Evidence | Agent responsibility |
 | --- | --- |
 | Project evidence | Load existing models, refs, descriptions, dependencies, and parity status. |
-| Table metadata evidence | Run `mv.datasources.inspect_table(...)` for schema, comments, nullable flags, partition hints, and warnings. |
+| Table metadata evidence | Run `mv.datasources.inspect_source(...)` for schema, comments, nullable flags, partition hints, and warnings. |
 | Raw preview evidence | Run bounded previews for candidate tables, time-like columns, amount columns, enum/status columns, and join keys. |
 | Knowledge evidence | Extract definitions, guardrails, synonyms, example questions, source SQL, and source documents. |
 | User confirmation evidence | Ask only when evidence conflicts or cannot settle a business decision. |
@@ -33,9 +33,9 @@ worklist of unresolved decisions.
 ```python
 candidates = project.propose_candidates(
     datasource="warehouse",
-    tables=["orders"],
+    sources=[ms.table("orders")],
     model="sales",
-    inspect_table=mv.datasources.inspect_table,
+    inspect_source=mv.datasources.inspect_source,
 )
 questions = project.open_questions(candidates=candidates)
 ```
@@ -66,7 +66,7 @@ computed by the project; never pass the refs themselves.
 from datetime import UTC, datetime
 import marivo.semantic as ms
 
-def decision_record_from_question(question, chosen, *, evidence_fingerprint, cited_table):
+def decision_record_from_question(question, chosen, *, evidence_fingerprint, cited_source):
     evidence_types = sorted(
         {e.evidence_type for candidate in question.candidates for e in candidate.evidence}
     )
@@ -80,7 +80,7 @@ def decision_record_from_question(question, chosen, *, evidence_fingerprint, cit
         evidence_fingerprint=evidence_fingerprint,
         question_id=question.id,
         decided_at=datetime.now(UTC).isoformat(),
-        cited_table=cited_table,
+        cited_source=cited_source,
     )
 ```
 

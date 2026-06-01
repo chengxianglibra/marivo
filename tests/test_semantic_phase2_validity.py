@@ -34,9 +34,10 @@ _DATASET_WITH_VALIDITY = (
     "def valid_to(t):\n"
     "    return t.valid_to\n"
     "\n"
-    "@ms.dataset(\n"
+    "user_history = ms.dataset(\n"
     "    name='user_history',\n"
     "    datasource='warehouse',\n"
+    "    source=ms.table('user_history'),\n"
     "    primary_key=['user_id', 'valid_from'],\n"
     "    versioning=ms.validity(\n"
     "        valid_from=valid_from,\n"
@@ -45,8 +46,6 @@ _DATASET_WITH_VALIDITY = (
     "        open_end=(None,),\n"
     "    ),\n"
     ")\n"
-    "def user_history(backend):\n"
-    "    return backend.table('user_history')\n"
 )
 
 
@@ -88,9 +87,10 @@ def test_validity_empty_open_end_rejected(semantic_project_factory):
             "sales/_model.py": _MODEL_FILE,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(\n"
+                "user_history = ms.dataset(\n"
                 "    name='user_history',\n"
                 "    datasource='warehouse',\n"
+                "    source=ms.table('user_history'),\n"
                 "    primary_key=['user_id', 'valid_from'],\n"
                 "    versioning=ms.validity(\n"
                 "        valid_from='valid_from',\n"
@@ -99,8 +99,6 @@ def test_validity_empty_open_end_rejected(semantic_project_factory):
                 "        open_end=(),\n"
                 "    ),\n"
                 ")\n"
-                "def user_history(backend):\n"
-                "    return backend.table('user_history')\n"
             ),
         },
         load=False,
@@ -129,9 +127,10 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
             "sales/_model.py": _MODEL_FILE,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(\n"
+                "user_history = ms.dataset(\n"
                 "    name='user_history',\n"
                 "    datasource='warehouse',\n"
+                "    source=ms.table('user_history'),\n"
                 "    primary_key=['user_id', 'valid_from'],\n"
                 "    versioning=ms.validity(\n"
                 "        valid_from='valid_from',\n"
@@ -140,8 +139,6 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
                 "        open_end=(None,),\n"
                 "    ),\n"
                 ")\n"
-                "def user_history(backend):\n"
-                "    return backend.table('user_history')\n"
             ),
         },
         load=False,
@@ -170,9 +167,10 @@ def test_validity_valid_from_not_in_primary_key_rejected(semantic_project_factor
             "sales/_model.py": _MODEL_FILE,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(\n"
+                "user_history = ms.dataset(\n"
                 "    name='user_history',\n"
                 "    datasource='warehouse',\n"
+                "    source=ms.table('user_history'),\n"
                 "    primary_key=['user_id'],\n"
                 "    versioning=ms.validity(\n"
                 "        valid_from='valid_from',\n"
@@ -181,8 +179,6 @@ def test_validity_valid_from_not_in_primary_key_rejected(semantic_project_factor
                 "        open_end=(None,),\n"
                 "    ),\n"
                 ")\n"
-                "def user_history(backend):\n"
-                "    return backend.table('user_history')\n"
             ),
         },
         load=False,
@@ -218,9 +214,10 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
                 "    return t.valid_from\n"
                 "\n"
                 "# valid_to is intentionally NOT declared\n"
-                "@ms.dataset(\n"
+                "user_history = ms.dataset(\n"
                 "    name='user_history',\n"
                 "    datasource='warehouse',\n"
+                "    source=ms.table('user_history'),\n"
                 "    primary_key=['user_id', 'valid_from'],\n"
                 "    versioning=ms.validity(\n"
                 "        valid_from=valid_from,\n"
@@ -229,8 +226,6 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
                 "        open_end=(None,),\n"
                 "    ),\n"
                 ")\n"
-                "def user_history(backend):\n"
-                "    return backend.table('user_history')\n"
             ),
         },
         load=False,

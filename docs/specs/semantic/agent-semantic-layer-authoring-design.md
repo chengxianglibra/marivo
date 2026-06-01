@@ -103,7 +103,7 @@ has landed in their installed Marivo version.
 | Semantic dataset/field/metric preview | `project.preview_dataset(...)`, `project.preview_field(...)`, `project.preview_metric(...)` | same |
 | Metric SQL parity | `project.parity_check(...)` | same |
 | Readiness report | agent-authored closeout from load, preview, and parity evidence | `project.readiness(...)` |
-| Table metadata/comments | `mv.datasources.inspect_table(...)` | same |
+| Table metadata/comments | `mv.datasources.inspect_source(...)` | same |
 
 When calling materialization, compilation, parity, or target preview/readiness
 APIs, pass a backend factory, not a backend instance:
@@ -248,7 +248,7 @@ Python files remain the source of truth:
 The agent should use `marivo.semantic` decorators and builders:
 
 - `ms.model(...)`
-- `@ms.dataset(...)`
+- `ms.dataset(...)`
 - `@ms.field(...)`
 - `@ms.time_field(...)`
 - `@ms.metric(...)`
@@ -1048,7 +1048,7 @@ Implemented:
 
 Implemented:
 
-- `mv.datasources.inspect_table(...)`
+- `mv.datasources.inspect_source(...)`
 - table comments
 - column comments
 - nullable flags
