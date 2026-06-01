@@ -49,7 +49,9 @@ objects to `DecisionRecord.blast_radius`.
 
 ## Confirmations
 
-Use `project.answer(...)` for user-confirmed answers:
+Use `project.answer(...)` for user-confirmed answers. This appends a
+confirmation record and writes a minimal object-level decision so readiness can
+recognize the answer after reload:
 
 ```python
 project.answer(question, "Use dt as the reporting time axis", evidence_fingerprint="sha256:...")
@@ -58,7 +60,8 @@ project.answer(question, "Use dt as the reporting time axis", evidence_fingerpri
 ## Decision records
 
 Use `project.record_decision(...)` only when a complete `DecisionRecord` can be
-built from real question and evidence values. Do not invent internal fields.
+built from real question and evidence values, or to replace the minimal
+user-confirmation decision with richer cited evidence. Do not invent internal fields.
 For `blast_radius`, use `question.blast_radius` or a dependency-graph count
 computed by the project; never pass the refs themselves.
 

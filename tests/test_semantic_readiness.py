@@ -681,6 +681,92 @@ def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_proj
     assert strict_report.status == "blocked"
 
 
+def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_project_factory):
+    import marivo.semantic as ms
+
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "def revenue(orders):\n    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    question = ms.OpenQuestion(
+        id="q-metric-decomposition",
+        subject_refs=("sales.revenue",),
+        decision_kind="metric_decomposition",
+        gated_by=None,
+        candidates=(),
+        materiality="high",
+        blast_radius=0,
+        agreement_confidence="low",
+        default_if_unanswered=None,
+        severity="blocker",
+        blocker_reason="high_materiality_low_confidence",
+    )
+
+    project.answer(question, "sum", evidence_fingerprint="sha256:answer")
+    reloaded = ms.SemanticProject(root=project.root_path)
+    reloaded.load()
+
+    report = reloaded.readiness(require_preview=False, require_evidence_ledger=True)
+    refs = {
+        ref
+        for issue in report.blockers
+        if issue.kind == "unresolved_clarification"
+        for ref in issue.refs
+    }
+    assert "sales.revenue" not in refs
+
+
+def test_readiness_evidence_ledger_accepts_legacy_confirmation_only(
+    semantic_project_factory,
+) -> None:
+    from datetime import UTC, datetime
+
+    import marivo.semantic as ms
+    from marivo.semantic import ledger as lg
+
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "def revenue(orders):\n    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    store = lg.LedgerStore(project.root_path)
+    store.append_confirmation(
+        lg.ConfirmationRecord(
+            ts=datetime.now(UTC).isoformat(),
+            question_id="q-metric-decomposition",
+            decision_kind="metric_decomposition",
+            subject_refs=("sales.revenue",),
+            answer="sum",
+            evidence_fingerprint="sha256:legacy",
+        )
+    )
+    reloaded = ms.SemanticProject(root=project.root_path)
+    reloaded.load()
+
+    report = reloaded.readiness(require_preview=False, require_evidence_ledger=True)
+    refs = {
+        ref
+        for issue in report.blockers
+        if issue.kind == "unresolved_clarification"
+        for ref in issue.refs
+    }
+    assert "sales.revenue" not in refs
+    assert store.read_object("sales.revenue") is None
+
+
 def test_missing_business_definition_predicate():
     from types import SimpleNamespace
 

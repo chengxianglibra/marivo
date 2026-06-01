@@ -417,16 +417,22 @@ class SemanticProject:
         evidence_fingerprint: str = "",
         rationale: str | None = None,
     ) -> None:
-        """Record the user's answer to an OpenQuestion as a confirmation in the
-        ledger. rationale is accepted for caller ergonomics; it is not persisted in
-        this phase."""
+        """Record the user's answer to an OpenQuestion in the evidence ledger.
+
+        The append-only confirmation log preserves the user's answer. Each affected
+        object also receives a minimal DecisionRecord so readiness can re-derive the
+        answered state after reload. rationale is accepted for caller ergonomics;
+        it is not persisted in this phase.
+        """
         from datetime import UTC, datetime
 
-        from marivo.semantic.ledger import ConfirmationRecord, LedgerStore
+        from marivo.semantic.ledger import ConfirmationRecord, DecisionRecord, LedgerStore
 
-        LedgerStore(self._root).append_confirmation(
+        decided_at = datetime.now(UTC).isoformat()
+        store = LedgerStore(self._root)
+        store.append_confirmation(
             ConfirmationRecord(
-                ts=datetime.now(UTC).isoformat(),
+                ts=decided_at,
                 question_id=question.id,
                 decision_kind=question.decision_kind,
                 subject_refs=question.subject_refs,
@@ -434,6 +440,21 @@ class SemanticProject:
                 evidence_fingerprint=evidence_fingerprint,
             )
         )
+        for semantic_id in question.subject_refs:
+            self.record_decision(
+                semantic_id,
+                DecisionRecord(
+                    decision_kind=question.decision_kind,
+                    chosen=answer,
+                    agreement_confidence="high",
+                    qualifying_sources=("user_confirmation",),
+                    materiality=question.materiality,
+                    blast_radius=question.blast_radius,
+                    evidence_fingerprint=evidence_fingerprint,
+                    question_id=question.id,
+                    decided_at=decided_at,
+                ),
+            )
 
     def record_decision(
         self,
@@ -451,7 +472,19 @@ class SemanticProject:
 
         store = LedgerStore(self._root)
         existing = store.read_object(semantic_id)
-        decisions = (existing.decisions if existing else ()) + (record,)
+        existing_decisions = existing.decisions if existing else ()
+        if record.question_id is None:
+            decisions = (*existing_decisions, record)
+        else:
+            replacement_key = (record.question_id, record.decision_kind)
+            decisions = (
+                *(
+                    decision
+                    for decision in existing_decisions
+                    if (decision.question_id, decision.decision_kind) != replacement_key
+                ),
+                record,
+            )
         rejected_all = (existing.rejected_candidates if existing else ()) + tuple(rejected)
         store.write_object(
             ObjectEvidence(
