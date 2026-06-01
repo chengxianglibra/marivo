@@ -15,6 +15,7 @@ docs/.obsidian/workspace.json
 # Virtual environment
 .venv
 .venv/
+uv.lock
 
 # Testing
 .pytest_cache/
