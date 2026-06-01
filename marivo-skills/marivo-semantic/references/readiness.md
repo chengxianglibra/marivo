@@ -53,6 +53,7 @@ out of scope for the current run. Record that limitation in the handoff.
 - `confirmed_relationships=(...)` suppresses join-key confirmation blockers.
 - `primary_keys_sampled=(...)` suppresses primary-key sampling warnings.
 - `raw_sql_required_refs=(...)` blocks refs that cannot be expressed through the semantic API.
+- `strict_enrichment=True` (opt-in, default off) requires every analyzable handoff ref (dataset, field, time field, metric) to carry an `ai_context.business_definition`.
 
 ## Blockers
 
@@ -69,6 +70,7 @@ Do not hand refs to `marivo-analysis` when any blocker remains:
 - relationship join keys are unconfirmed
 - metric spans multiple datasources in a workflow without federation support
 - metric body requires raw SQL to express the business logic
+- under `strict_enrichment=True`, an analyzable ref is missing `ai_context.business_definition`
 
 ## Warnings
 
@@ -78,6 +80,7 @@ Warnings may allow analysis handoff when the user accepts the residual risk:
 - preview sample is small but materialization succeeds
 - primary key uniqueness was not sampled
 - string refs resolve but are refactor-fragile
+- under `strict_enrichment=True`, an analyzable ref is missing `ai_context.guardrails`
 - comments are missing but source SQL, knowledge, and user confirmation are sufficient
 
 ## Parity status rules
