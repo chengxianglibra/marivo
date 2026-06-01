@@ -32,12 +32,8 @@ def test_metric_authoring_accepts_fanout_policy(tmp_path, monkeypatch):
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "@ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'])\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
-        "@ms.dataset(name='order_items', datasource='warehouse', primary_key=['item_id'])\n"
-        "def order_items(backend):\n"
-        "    return backend.table('order_items')\n"
+        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "order_items = ms.dataset(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
         "@ms.field(dataset=orders)\n"
         "def order_id(orders):\n"
         "    return orders.order_id\n"
@@ -92,12 +88,8 @@ def test_validator_rejects_fanout_policy_on_non_additive_metric(tmp_path, monkey
     semantic_dir = _bootstrap_min(tmp_path)
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "@ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'])\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
-        "@ms.dataset(name='order_items', datasource='warehouse', primary_key=['item_id'])\n"
-        "def order_items(backend):\n"
-        "    return backend.table('order_items')\n"
+        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "order_items = ms.dataset(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
         "@ms.metric(\n"
         "    datasets=[orders, order_items],\n"
         "    root_dataset=orders,\n"
@@ -123,9 +115,7 @@ def test_validator_rejects_fanout_policy_on_derived_metric(tmp_path, monkeypatch
     semantic_dir = _bootstrap_min(tmp_path)
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "@ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'])\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
+        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
         "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='gmv')\n"
         "def gmv(orders):\n"
         "    return orders.amount.sum()\n"

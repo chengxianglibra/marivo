@@ -28,23 +28,36 @@ and provenance match the requested intent.
 ```bash
 <venv>/bin/python - <<'PY'
 import marivo.analysis as mv
+import marivo.semantic as ms
 
 print(mv.datasources.all())
 print(mv.datasources.describe("warehouse"))
 print(mv.datasources.test("warehouse"))
-metadata = mv.datasources.inspect_table("warehouse", table="orders")
+metadata = mv.datasources.inspect_source("warehouse", source=ms.table("orders"))
 print(metadata.to_dict())
 PY
 ```
 
 `table.schema()` returns types but not comments. Use
-`mv.datasources.inspect_table(...)` for table comments, column comments,
+`mv.datasources.inspect_source(...)` for table comments, column comments,
 nullable flags, partition hints, and metadata warnings.
 
 For Trino without a default schema, pass the schema as `database`:
 
 ```python
-metadata = mv.datasources.inspect_table("warehouse", table="orders", database="sales_mart")
+metadata = mv.datasources.inspect_source(
+    "warehouse",
+    source=ms.table("orders", database="sales_mart"),
+)
+```
+
+For DuckDB external files, use a file source:
+
+```python
+metadata = mv.datasources.inspect_source(
+    "warehouse",
+    source=ms.file("/data/orders/*.parquet", format="parquet"),
+)
 ```
 
 ## 3. Generate candidates
@@ -58,9 +71,9 @@ assert project is not None
 
 candidates = project.propose_candidates(
     datasource="warehouse",
-    tables=["orders"],
+    sources=[ms.table("orders", database="sales_mart")],
     model="sales",
-    inspect_table=mv.datasources.inspect_table,
+    inspect_source=mv.datasources.inspect_source,
 )
 for candidate in candidates:
     print(candidate.decision_kind, candidate.proposed_id, candidate.semantic_delta)
@@ -106,7 +119,7 @@ project.answer(question, "confirmed answer", evidence_fingerprint="sha256:...")
 ```
 
 Use `project.record_decision(...)` only when a complete `DecisionRecord` can be
-built from the real question, chosen value, evidence fingerprint, cited table,
+built from the real question, chosen value, evidence fingerprint, cited source,
 and qualifying sources. Use `question.blast_radius` for the ledger record. Do not
 invent internal fields.
 
@@ -118,7 +131,7 @@ import marivo.analysis as mv
 backend_factory = lambda name: mv.datasources.build_backend(name)
 
 print(project.reload())
-print(project.audit(inspect_table=mv.datasources.inspect_table))
+print(project.audit(inspect_source=mv.datasources.inspect_source))
 report = project.readiness(
     require_preview=True,
     require_evidence_ledger=True,

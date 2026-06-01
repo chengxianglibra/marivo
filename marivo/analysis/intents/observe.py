@@ -135,12 +135,23 @@ def _build_dataset_adapter(
 ) -> _DatasetIRAdapter:
     """Build a _DatasetIRAdapter from a v1.1 DatasetIR + sidecar."""
     sidecar = sp.sidecar()
-    dataset_fn = sidecar.get(dataset_ir.semantic_id) if sidecar else None
 
-    def _default_fn(backend: Any) -> Any:
-        raise RuntimeError(f"No sidecar callable for dataset {dataset_ir.semantic_id!r}")
-
-    fn = dataset_fn if dataset_fn is not None else _default_fn
+    def _source_fn(backend: Any) -> Any:
+        source = dataset_ir.source
+        if source.kind == "table":
+            if source.database is None:
+                return backend.table(source.table)
+            return backend.table(source.table, database=source.database)
+        if source.kind == "file":
+            reader_name = "read_parquet" if source.format == "parquet" else "read_csv"
+            reader = getattr(backend, reader_name, None)
+            if reader is None:
+                raise RuntimeError(
+                    f"Backend for dataset {dataset_ir.semantic_id!r} does not support "
+                    f"{source.format} file sources."
+                )
+            return reader(source.path, **source.options)
+        raise RuntimeError(f"Unsupported source kind for dataset {dataset_ir.semantic_id!r}")
 
     # Build field adapters for this dataset
     field_adapters: dict[str, _FieldIRAdapter] = {}
@@ -187,7 +198,7 @@ def _build_dataset_adapter(
 
     return _DatasetIRAdapter(
         name=dataset_ir.name,
-        fn=fn,
+        fn=_source_fn,
         datasource_name=dataset_ir.datasource,
         fields=field_adapters,
     )
@@ -849,7 +860,10 @@ def observe(
         # Build dataset adapters for all datasets in the project so the planner
         # can resolve component metrics that span different datasets.
         all_dataset_irs: dict[str, _DatasetIRAdapter] = {}
-        for ds_ir in sp.list_datasets():
+        for ds_summary in sp.list_datasets():
+            ds_ir = sp.get_dataset(ds_summary.semantic_id)
+            if ds_ir is None:
+                continue
             all_dataset_irs[ds_ir.semantic_id] = _build_dataset_adapter(sp, ds_ir)
         all_dataset_fns = {ds_id: adapter.fn for ds_id, adapter in all_dataset_irs.items()}
 

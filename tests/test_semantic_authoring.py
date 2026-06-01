@@ -77,10 +77,7 @@ def test_model_outside_context_raises() -> None:
 
 def test_dataset_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-
-        @ms.dataset(datasource="wh")
-        def orders(backend: object) -> object:
-            return None  # type: ignore[unreachable]
+        ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
 
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
@@ -184,10 +181,7 @@ def test_model_requires_keyword_args() -> None:
 def test_dataset_returns_ref() -> None:
     _enter_ctx(default_model="sales")
     try:
-
-        @ms.dataset(datasource="wh")
-        def orders(backend: object) -> object:
-            return None  # type: ignore[unreachable]
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
 
         assert isinstance(orders, DatasetRef)
         assert orders.semantic_id == "sales.orders"
@@ -195,15 +189,11 @@ def test_dataset_returns_ref() -> None:
         _exit_ctx()
 
 
-def test_dataset_name_defaults_to_function_name() -> None:
+def test_dataset_requires_name_without_body() -> None:
     _enter_ctx(default_model="sales")
     try:
-
-        @ms.dataset(datasource="wh")
-        def orders(backend: object) -> object:
-            return None  # type: ignore[unreachable]
-
-        assert orders.semantic_id == "sales.orders"
+        with pytest.raises(TypeError):
+            ms.dataset(datasource="wh", source=ms.table("orders"))  # type: ignore[call-arg]
     finally:
         _exit_ctx()
 
@@ -211,10 +201,11 @@ def test_dataset_name_defaults_to_function_name() -> None:
 def test_dataset_explicit_name() -> None:
     _enter_ctx(default_model="sales")
     try:
-
-        @ms.dataset(name="orders_tbl", datasource="wh")
-        def _orders_impl(backend: object) -> object:
-            return None  # type: ignore[unreachable]
+        _orders_impl = ms.dataset(
+            name="orders_tbl",
+            datasource="wh",
+            source=ms.table("orders"),
+        )
 
         assert isinstance(_orders_impl, DatasetRef)
         assert _orders_impl.semantic_id == "sales.orders_tbl"
@@ -222,21 +213,18 @@ def test_dataset_explicit_name() -> None:
         _exit_ctx()
 
 
-def test_dataset_pushes_ir_and_callable() -> None:
+def test_dataset_pushes_ir_without_callable() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-
-        def orders_fn(backend: object) -> object:
-            return None  # type: ignore[unreachable]
-
-        ref = ms.dataset(datasource="wh")(orders_fn)
-        # Should be the second pending object (after datasource)
+        ref = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
         ir, callable_ = ctx.pending_objects[-1]
-        assert ir.semantic_id == "sales.orders_fn"
+        assert ref.semantic_id == "sales.orders"
+        assert ir.semantic_id == "sales.orders"
         assert ir.model == "sales"
-        assert ir.name == "orders_fn"
+        assert ir.name == "orders"
         assert ir.datasource == "wh"
-        assert callable_ is orders_fn
+        assert ir.source == ms.table("orders")
+        assert callable_ is None
     finally:
         _exit_ctx()
 
@@ -244,10 +232,7 @@ def test_dataset_pushes_ir_and_callable() -> None:
 def test_dataset_datasource_as_string() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-
-        @ms.dataset(datasource="wh")
-        def orders(backend: object) -> object:
-            return None  # type: ignore[unreachable]
+        ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
 
         ir, _ = ctx.pending_objects[-1]
         assert ir.datasource == "wh"
@@ -259,10 +244,7 @@ def test_dataset_datasource_as_datasource_ref() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
         warehouse = md.ref("wh")
-
-        @ms.dataset(datasource=warehouse)
-        def orders(backend: object) -> object:
-            return None  # type: ignore[unreachable]
+        ms.dataset(name="orders", datasource=warehouse, source=ms.table("orders"))
 
         ir, _ = ctx.pending_objects[-1]
         assert ir.datasource == "wh"
@@ -273,10 +255,12 @@ def test_dataset_datasource_as_datasource_ref() -> None:
 def test_dataset_primary_key() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-
-        @ms.dataset(datasource="wh", primary_key=["order_id"])
-        def orders(backend: object) -> object:
-            return None  # type: ignore[unreachable]
+        ms.dataset(
+            name="orders",
+            datasource="wh",
+            source=ms.table("orders"),
+            primary_key=["order_id"],
+        )
 
         ir, _ = ctx.pending_objects[-1]
         assert ir.primary_key == ("order_id",)
@@ -284,18 +268,57 @@ def test_dataset_primary_key() -> None:
         _exit_ctx()
 
 
-def test_dataset_body_rejects_assignment() -> None:
+def test_dataset_source_records_table_database() -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        ms.dataset(
+            name="orders",
+            datasource="wh",
+            source=ms.table("orders", database="sales_mart"),
+        )
+
+        ir, _ = ctx.pending_objects[-1]
+        assert ir.source.kind == "table"
+        assert ir.source.table == "orders"
+        assert ir.source.database == "sales_mart"
+    finally:
+        _exit_ctx()
+
+
+def test_dataset_source_records_file_source() -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        ms.dataset(
+            name="orders",
+            datasource="wh",
+            source=ms.file("/data/orders/*.parquet", format="parquet", hive_partitioning=True),
+        )
+
+        ir, _ = ctx.pending_objects[-1]
+        assert ir.source.kind == "file"
+        assert ir.source.path == "/data/orders/*.parquet"
+        assert ir.source.format == "parquet"
+        assert ir.source.options == {"hive_partitioning": True}
+    finally:
+        _exit_ctx()
+
+
+def test_file_source_rejects_unsupported_format() -> None:
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.file("/data/orders.json", format="json")  # type: ignore[arg-type]
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "format must be 'parquet' or 'csv'" in exc_info.value.message
+
+
+def test_dataset_decorator_body_is_rejected() -> None:
     _enter_ctx(default_model="sales")
     try:
-        with pytest.raises(SemanticLoadError) as exc_info:
+        with pytest.raises(TypeError):
 
-            @ms.dataset(datasource="wh")
+            @ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
             def orders(backend: object) -> object:
-                table = backend
                 return backend
-
-        assert exc_info.value.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
-        assert exc_info.value.constraint_id == "ast_single_return"
     finally:
         _exit_ctx()
 
@@ -1048,16 +1071,10 @@ def test_base_metric_sidecar_stores_callable() -> None:
 def test_duplicate_dataset_name_raises() -> None:
     _enter_ctx(default_model="sales")
     try:
-
-        @ms.dataset(datasource="wh")
-        def orders(backend: object) -> object:
-            return None  # type: ignore[unreachable]
+        ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
-
-            @ms.dataset(datasource="wh")
-            def orders(backend: object) -> object:  # type: ignore[misc]
-                return None  # type: ignore[unreachable]
+            ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
 
         assert exc_info.value.kind == ErrorKind.DUPLICATE_NAME
     finally:

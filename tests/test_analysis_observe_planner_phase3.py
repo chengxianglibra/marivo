@@ -38,12 +38,8 @@ def _bootstrap_one_to_many(tmp_path: Path, *, fanout_policy: str = "block") -> N
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "@ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'])\n"
-        "def orders(backend):\n"
-        "    return backend.table('orders')\n"
-        "@ms.dataset(name='order_items', datasource='warehouse', primary_key=['item_id'])\n"
-        "def order_items(backend):\n"
-        "    return backend.table('order_items')\n"
+        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "order_items = ms.dataset(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
         "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"

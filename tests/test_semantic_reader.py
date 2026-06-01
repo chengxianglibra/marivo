@@ -50,9 +50,7 @@ _MODEL_PY = textwrap.dedent("""\
 
 _FULL_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.field(dataset=orders)
     def amount(table):
@@ -94,9 +92,7 @@ _FULL_MODEL_PY = textwrap.dedent("""\
 
 _DERIVED_METRIC_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def revenue(table):
@@ -856,9 +852,7 @@ def test_describe_time_field_has_format(semantic_project_factory) -> None:
             "sales/_model.py": _MODEL_PY,
             "sales/objects.py": textwrap.dedent("""\
                 import marivo.semantic as ms
-                @ms.dataset(datasource="wh")
-                def orders(backend):
-                    return backend.table("orders")
+                orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
 
                 @ms.time_field(
                     dataset=orders,

@@ -47,14 +47,14 @@ _MODEL_PY = textwrap.dedent("""\
 _READY_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    @ms.dataset(
+    orders = ms.dataset(
+        name="orders",
         datasource="warehouse",
+        source=ms.table("orders"),
         primary_key=["order_id"],
         description="Orders table",
         ai_context={"business_definition": "One row per paid order."},
     )
-    def orders(backend):
-        return backend.table("orders")
 
     @ms.field(
         dataset=orders,
@@ -148,9 +148,7 @@ def test_readiness_maps_time_field_pushdown_advisory(semantic_project_factory) -
 
                 ms.model(name="sales")
 
-                @ms.dataset(datasource="warehouse")
-                def orders(backend):
-                    return backend.table("orders")
+                orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
                 @ms.time_field(dataset=orders, data_type="date", granularity="day")
                 def order_date(table):
@@ -168,9 +166,7 @@ def test_readiness_maps_time_field_pushdown_advisory(semantic_project_factory) -
 _UNVERIFIED_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    @ms.dataset(datasource="warehouse", description="Orders")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), description="Total amount")
     def total_amount(table):
@@ -181,9 +177,7 @@ _UNVERIFIED_MODEL_PY = textwrap.dedent("""\
 _DRIFTED_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    @ms.dataset(datasource="warehouse", description="Orders")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -201,9 +195,7 @@ _DRIFTED_MODEL_PY = textwrap.dedent("""\
 _PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    @ms.dataset(datasource="warehouse", description="Orders")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -387,9 +379,7 @@ def test_semantic_check_run_check_returns_json_ready_report(
 _COMMENTLESS_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    @ms.dataset(datasource="warehouse", primary_key=["order_id"])
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", primary_key=["order_id"], source=ms.table("orders"))
 
     @ms.field(dataset=orders)
     def amount(table):
@@ -516,8 +506,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
             "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(name='orders', datasource='warehouse')\n"
-                "def orders(backend):\n    return backend.table('orders')\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
@@ -540,8 +529,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
             "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(name='orders', datasource='warehouse')\n"
-                "def orders(backend):\n    return backend.table('orders')\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
@@ -571,8 +559,7 @@ def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_proj
             "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(name='orders', datasource='warehouse')\n"
-                "def orders(backend):\n    return backend.table('orders')\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
@@ -629,10 +616,9 @@ def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
             "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
             "sales/objects.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(name='orders', datasource='warehouse',\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
                 "    ai_context={'business_definition': 'One row per order.',\n"
                 "               'guardrails': ['Exclude test orders.']})\n"
-                "def orders(backend):\n    return backend.table('orders')\n"
                 "@ms.field(dataset=orders, name='amount',\n"
                 "    ai_context={'business_definition': 'Gross amount.',\n"
                 "               'guardrails': ['USD only.']})\n"

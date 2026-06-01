@@ -11,17 +11,16 @@ import marivo.semantic as ms
 ms.model(name="sales")
 warehouse = md.ref("warehouse")
 
-@ms.dataset(
+orders = ms.dataset(
     name="orders",
     datasource=warehouse,
+    source=ms.table("orders"),
     primary_key=["order_id"],
     ai_context={
         "business_definition": "One row per order.",
         "guardrails": ["Exclude test orders when the table exposes a test flag."],
     },
 )
-def orders(backend):
-    return backend.table("orders")
 
 @ms.time_field(
     dataset=orders,

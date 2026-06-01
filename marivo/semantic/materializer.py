@@ -18,7 +18,7 @@ from ibis.expr.operations.relations import SQLQueryResult
 from marivo.datasource.errors import DatasourceConfigError
 from marivo.semantic.authoring import _BinOpSentinel, _ComponentSentinel, _UnaryNegSentinel
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
-from marivo.semantic.ir import DatasetProvenance, MetricIR
+from marivo.semantic.ir import DatasetProvenance, FileSourceIR, MetricIR, TableSourceIR
 from marivo.semantic.validator import Registry, Sidecar
 
 __all__ = [
@@ -97,7 +97,7 @@ class Materializer:
         if semantic_id in self._dataset_cache:
             return self._dataset_cache[semantic_id]
 
-        registry, sidecar = self._get_registry_and_sidecar()
+        registry, _sidecar = self._get_registry_and_sidecar()
 
         ds_ir = registry.datasets.get(semantic_id)
         if ds_ir is None:
@@ -108,27 +108,18 @@ class Materializer:
                 refs=(semantic_id,),
             )
 
-        callable_ = sidecar.get(semantic_id)
-        if callable_ is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Dataset {semantic_id!r} has no sidecar callable.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-
-        # Get backend for this dataset's datasource
         backend = self._get_backend(ds_ir.datasource)
 
-        # Call the sidecar callable with the backend
         try:
-            table = callable_(backend)
+            table = self._materialize_dataset_source(semantic_id, backend, ds_ir.source)
         except DatasourceConfigError:
+            raise
+        except SemanticRuntimeError:
             raise
         except Exception as exc:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
-                f"Dataset {semantic_id!r} callable raised: {exc}",
+                f"Dataset {semantic_id!r} source materialization raised: {exc}",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
@@ -140,6 +131,40 @@ class Materializer:
         self._detect_and_store_provenance(semantic_id, table)
 
         return table
+
+    def _materialize_dataset_source(
+        self,
+        semantic_id: str,
+        backend: IbisBackend,
+        source: TableSourceIR | FileSourceIR,
+    ) -> ibis.Table:
+        if isinstance(source, TableSourceIR):
+            if source.database is None:
+                return backend.table(source.table)
+            return backend.table(source.table, database=source.database)
+
+        if isinstance(source, FileSourceIR):
+            reader_name = "read_parquet" if source.format == "parquet" else "read_csv"
+            reader = getattr(backend, reader_name, None)
+            if reader is None:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    (
+                        f"Dataset {semantic_id!r} datasource backend does not support "
+                        f"{source.format} file sources."
+                    ),
+                    cls=SemanticRuntimeError,
+                    refs=(semantic_id,),
+                    details={"source_kind": source.kind, "format": source.format},
+                )
+            return reader(source.path, **source.options)
+
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            f"Dataset {semantic_id!r} has unsupported source kind.",
+            cls=SemanticRuntimeError,
+            refs=(semantic_id,),
+        )
 
     def _detect_and_store_provenance(self, semantic_id: str, table: ibis.Table) -> None:
         """Walk the ibis expression tree to detect SQL views and store metadata."""

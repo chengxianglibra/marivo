@@ -25,14 +25,13 @@ def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
                 "@ms.field(dataset='sales.user_history')\n"
                 "def valid_to(t):\n"
                 "    return t.valid_to\n"
-                "@ms.dataset(\n"
+                "user_history = ms.dataset(\n"
                 "    name='user_history',\n"
                 "    datasource='warehouse',\n"
+                "    source=ms.table('user_history'),\n"
                 f"    primary_key={primary_key},\n"
                 "    versioning=ms.validity(valid_from=valid_from, valid_to=valid_to, interval='closed_open', open_end=(None,)),\n"
                 ")\n"
-                "def user_history(backend):\n"
-                "    return backend.table('user_history')\n"
             ),
         }
     )
@@ -144,9 +143,7 @@ def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factor
             "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'])\n"
-                "def orders(backend):\n"
-                "    return backend.table('orders')\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"

@@ -26,9 +26,11 @@ from marivo.semantic.ir import (
     AiContextIR,
     DatasetIR,
     DatasetRef,
+    DatasetSourceIR,
     DecompositionIR,
     FieldIR,
     FieldRef,
+    FileSourceIR,
     MetricIR,
     MetricRef,
     ModelIR,
@@ -37,6 +39,7 @@ from marivo.semantic.ir import (
     RelationshipRef,
     SnapshotVersioningIR,
     SourceLocation,
+    TableSourceIR,
     TimeFieldRef,
     ValidityVersioningIR,
 )
@@ -49,6 +52,7 @@ __all__ = [
     "component",
     "dataset",
     "field",
+    "file",
     "metric",
     "model",
     "ratio",
@@ -56,6 +60,7 @@ __all__ = [
     "relationship",
     "snapshot",
     "sum",
+    "table",
     "time_field",
     "validity",
     "weighted_average",
@@ -339,7 +344,7 @@ def _resolve_datasource_ref(ref: DatasourceRef | str) -> str:
         return ref.semantic_id
     _raise(
         ErrorKind.INVALID_REF,
-        "@ms.dataset(datasource=...) accepts a datasource ref or global datasource name string.",
+        "ms.dataset(datasource=...) accepts a datasource ref or global datasource name string.",
         cls=SemanticDecoratorError,
         constraint_id=ConstraintId.REF_SHAPE,
     )
@@ -422,26 +427,48 @@ def model(
 # ---------------------------------------------------------------------------
 
 
+def table(name: str, /, *, database: str | tuple[str, ...] | None = None) -> TableSourceIR:
+    """Build a structured table source for ``ms.dataset(source=...)``."""
+    return TableSourceIR(table=name, database=database)
+
+
+def file(
+    path: str,
+    /,
+    *,
+    format: Literal["parquet", "csv"],
+    **options: Any,
+) -> FileSourceIR:
+    """Build a structured file source for ``ms.dataset(source=...)``."""
+    if format not in ("parquet", "csv"):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "ms.file(format=...) format must be 'parquet' or 'csv'.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    return FileSourceIR(path=path, format=format, options=dict(options))
+
+
 def dataset(
     *,
-    name: str | None = None,
+    name: str,
     datasource: DatasourceRef | str,
+    source: DatasetSourceIR,
     primary_key: list[str] | None = None,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
     model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
-) -> Callable[[Callable[..., Any]], DatasetRef]:
-    """Declare a dataset whose body returns an ibis expression.
-
-    The decorated function body is restricted to a single-return expression
-    over ibis primitives (enforced by the AST whitelist in ``validator.py``).
-    No imports, control flow, local assignments, or lambdas inside the body.
+) -> DatasetRef:
+    """Declare a dataset over a structured physical source.
 
     Args:
-        name: Dataset name. Defaults to the function name.
+        name: Dataset name.
         datasource: Datasource ref returned by ``md.ref(...)`` or a global
             datasource name string declared in ``.marivo/datasource/*.py``.
+        source: Structured physical source, usually ``ms.table(...)`` or
+            ``ms.file(...)``.
         primary_key: Optional list of column names forming the primary key.
         model_name: Override the active model namespace. Defaults to the file's
             default model.
@@ -449,50 +476,53 @@ def dataset(
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
     Returns:
-        A decorator that returns a ``DatasetRef`` usable by ``@ms.field`` and
-        ``@ms.metric``.
+        A ``DatasetRef`` usable by ``@ms.field`` and ``@ms.metric``.
 
     Raises:
         SemanticDecoratorError: ``datasource`` is not a datasource ref or string, ``name``
-            collides with another object, or the body violates the AST whitelist.
+            collides with another object, or ``source`` is not a dataset source.
 
     Example:
-        >>> orders = ms.dataset(name="orders", datasource="warehouse")
-        >>> @orders
-        ... def _():
-        ...     return ibis.table(name="orders", schema={...})
+        >>> orders = ms.dataset(
+        ...     name="orders",
+        ...     datasource="warehouse",
+        ...     source=ms.table("orders", database="sales_mart"),
+        ... )
     """
     ctx = _require_ctx()
     model_name = _resolve_model_name(model_name, ctx)
-
-    def decorator(fn: Callable[..., Any]) -> DatasetRef:
-        obj_name = name or fn.__name__
-        semantic_id = f"{model_name}.{obj_name}"
-        _check_duplicate(ctx, semantic_id)
-
-        validate_metric_body_ast(fn, "base")
-        ds_ref = _resolve_datasource_ref(datasource)
-        pk = tuple(primary_key) if primary_key else ()
-        ai_ctx = _build_ai_context(ai_context)
-        location = _caller_location()
-
-        ir = DatasetIR(
-            semantic_id=semantic_id,
-            model=model_name,
-            name=obj_name,
-            datasource=ds_ref,
-            primary_key=pk,
-            description=description,
-            ai_context=ai_ctx,
-            python_symbol=fn.__name__,
-            location=location,
-            versioning=versioning,
+    semantic_id = f"{model_name}.{name}"
+    _check_duplicate(ctx, semantic_id)
+    if not isinstance(source, (TableSourceIR, FileSourceIR)):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "ms.dataset(source=...) accepts ms.table(...) or ms.file(...).",
+            cls=SemanticDecoratorError,
+            refs=(semantic_id,),
+            constraint_id=ConstraintId.REF_SHAPE,
         )
-        _push_ir(ctx, ir, fn)
 
-        return DatasetRef(semantic_id)
+    ds_ref = _resolve_datasource_ref(datasource)
+    pk = tuple(primary_key) if primary_key else ()
+    ai_ctx = _build_ai_context(ai_context)
+    location = _caller_location()
 
-    return decorator
+    ir = DatasetIR(
+        semantic_id=semantic_id,
+        model=model_name,
+        name=name,
+        datasource=ds_ref,
+        source=source,
+        primary_key=pk,
+        description=description,
+        ai_context=ai_ctx,
+        python_symbol=name,
+        location=location,
+        versioning=versioning,
+    )
+    _push_ir(ctx, ir, None)
+
+    return DatasetRef(semantic_id)
 
 
 def field(
@@ -948,7 +978,7 @@ def validity(
         timezone: Optional IANA timezone name for anchor date casting.
 
     Returns:
-        A ``ValidityVersioningIR`` for use in ``@ms.dataset(versioning=...)``.
+        A ``ValidityVersioningIR`` for use in ``ms.dataset(versioning=...)``.
 
     Raises:
         SemanticDecoratorError: ``interval`` is not one of the two allowed values,

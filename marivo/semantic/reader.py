@@ -6,7 +6,7 @@ All read-only access to the loaded semantic model goes through
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -33,12 +33,14 @@ from marivo.semantic.errors import (
 from marivo.semantic.ir import (
     DatasetIR,
     DatasetProvenance,
+    DatasetSourceIR,
     FieldIR,
     MetricIR,
     ParityStatus,
     RelationshipIR,
     SourceLocation,
     SymbolKind,
+    source_from_dict,
 )
 from marivo.semantic.loader import LoadResult, load_project
 from marivo.semantic.materializer import DatasetRuntimeMetadata, Materializer
@@ -59,7 +61,7 @@ from marivo.semantic.richness import (
 from marivo.semantic.validator import Registry, Sidecar
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from marivo.analysis.datasources.metadata import TableMetadata
     from marivo.semantic.classifier import Candidate, DecisionKind, Enrichment, OpenQuestion
@@ -1037,14 +1039,14 @@ class SemanticProject:
     def audit(
         self,
         *,
-        inspect_table: Callable[..., TableMetadata],
+        inspect_source: Callable[..., TableMetadata],
     ) -> tuple[OpenQuestion, ...]:
         """Re-validate recorded decisions against current metadata. Decisions whose
         structural fingerprint changed are re-surfaced as OpenQuestions through the
         classifier (stale -> low verdict, so dangerous kinds become blockers).
 
-        ``inspect_table`` is a callable with the same signature as
-        ``mv.datasources.inspect_table``; the caller injects it so that
+        ``inspect_source`` is a callable with the same signature as
+        ``mv.datasources.inspect_source``; the caller injects it so that
         ``marivo.semantic`` does not import ``marivo.analysis``.
 
         Data-side drift over unchanged schema/comments is not detected (accepted
@@ -1058,10 +1060,18 @@ class SemanticProject:
         stale_inputs: list[DecisionInput] = []
         for obj in store.iter_object_records():
             for decision in obj.decisions:
-                if decision.cited_table is None:
+                if decision.cited_source is None:
                     continue
-                datasource, table = decision.cited_table.split(".", 1)
-                metadata = inspect_table(datasource, table=table)
+                datasource_data = decision.cited_source.get("datasource")
+                source_data = decision.cited_source.get("source")
+                if datasource_data is None:
+                    continue
+                if not isinstance(source_data, Mapping):
+                    continue
+                metadata = inspect_source(
+                    str(datasource_data),
+                    source=source_from_dict(source_data),
+                )
                 if is_decision_stale(decision, metadata):
                     stale_inputs.append(
                         DecisionInput(
@@ -1090,24 +1100,25 @@ class SemanticProject:
         self,
         *,
         datasource: str,
-        tables: Sequence[str],
+        sources: Sequence[DatasetSourceIR],
         model: str,
-        inspect_table: Callable[..., TableMetadata],
+        inspect_source: Callable[..., TableMetadata],
     ) -> tuple[Candidate, ...]:
-        """Deterministic structural candidates for the named tables. Calls
-        ``inspect_table`` per table, then the pure heuristics. Returns
+        """Deterministic structural candidates for the named sources. Calls
+        ``inspect_source`` per source, then the pure heuristics. Returns
         dataset/time_field/field candidates plus cross-table relationship candidates.
 
-        ``inspect_table`` is a callable with the same signature as
-        ``mv.datasources.inspect_table``; the caller injects it so that
+        ``inspect_source`` is a callable with the same signature as
+        ``mv.datasources.inspect_source``; the caller injects it so that
         ``marivo.semantic`` does not import ``marivo.analysis``.
         """
         from marivo.semantic.proposal import candidates_from_metadata, relationship_candidates
 
-        metadatas = [inspect_table(datasource, table=table) for table in tables]
+        inspected = [(source, inspect_source(datasource, source=source)) for source in sources]
         out: list[Candidate] = []
-        for metadata in metadatas:
-            out.extend(candidates_from_metadata(metadata, model=model))
+        for source, metadata in inspected:
+            out.extend(candidates_from_metadata(metadata, model=model, source=source))
+        metadatas = [metadata for _source, metadata in inspected]
         out.extend(relationship_candidates(metadatas, model=model))
         return tuple(out)
 

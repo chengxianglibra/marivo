@@ -11,9 +11,7 @@ import marivo.datasource as md
 
 warehouse = md.ref('warehouse')
 
-@ms.dataset(name='orders', datasource=warehouse)
-def orders(backend):
-    return backend.table('orders')
+orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))
 
 @ms.field(dataset=orders)
 def region(orders):
@@ -140,18 +138,19 @@ def test_open_questions_round_index_requires_gated_by(semantic_project_factory):
         project.open_questions(candidates=[cand], round_index=1)
 
 
-def test_propose_candidates_calls_inspect_table_and_builds_candidates(
+def test_propose_candidates_calls_inspect_source_and_builds_candidates(
     semantic_project_factory,
 ):
     from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
 
     project = _project(semantic_project_factory)
 
-    def fake_inspect_table(datasource, *, table, database=None, include_partitions=True):
+    def fake_inspect_source(datasource, *, source, include_partitions=True):
+        assert source == ms.table("orders", database="sales_mart")
         return TableMetadata(
             datasource=datasource,
-            table=table,
-            database=None,
+            table=source.table,
+            database=source.database,
             backend_type="duckdb",
             comment="orders fact",
             columns=(
@@ -165,9 +164,9 @@ def test_propose_candidates_calls_inspect_table_and_builds_candidates(
 
     cands = project.propose_candidates(
         datasource="warehouse",
-        tables=["orders"],
+        sources=[ms.table("orders", database="sales_mart")],
         model="sales",
-        inspect_table=fake_inspect_table,
+        inspect_source=fake_inspect_source,
     )
     by_kind = {c.decision_kind for c in cands}
     assert "dataset_identity" in by_kind  # the orders dataset
@@ -176,6 +175,14 @@ def test_propose_candidates_calls_inspect_table_and_builds_candidates(
     proposed_ids = {c.proposed_id for c in cands}
     assert "sales.orders" in proposed_ids
     assert "sales.created_at" in proposed_ids
+    [dataset_candidate] = [c for c in cands if c.decision_kind == "dataset_identity"]
+    assert dataset_candidate.slot_values["database"] == "sales_mart"
+    assert dataset_candidate.slot_values["source"] == {
+        "kind": "table",
+        "table": "orders",
+        "database": "sales_mart",
+    }
+    assert dataset_candidate.evidence[0].locator == "metadata:warehouse.sales_mart.orders"
 
 
 def test_propose_candidates_includes_relationships_across_tables(
@@ -190,24 +197,90 @@ def test_propose_candidates_includes_relationships_across_tables(
         "users": (ColumnMetadata("id", "BIGINT", False, None, None),),
     }
 
-    def fake_inspect_table(datasource, *, table, database=None, include_partitions=True):
+    def fake_inspect_source(datasource, *, source, include_partitions=True):
         return TableMetadata(
             datasource=datasource,
-            table=table,
-            database=None,
+            table=source.table,
+            database=source.database,
             backend_type="duckdb",
             comment=None,
-            columns=tables[table],
+            columns=tables[source.table],
             partitions=(),
             warnings=(),
         )
 
     cands = project.propose_candidates(
         datasource="warehouse",
-        tables=["orders", "users"],
+        sources=[ms.table("orders"), ms.table("users")],
         model="sales",
-        inspect_table=fake_inspect_table,
+        inspect_source=fake_inspect_source,
     )
     rels = [c for c in cands if c.decision_kind == "relationship_join_keys"]
     assert len(rels) == 1
     assert rels[0].proposed_id == "sales.orders_to_users"
+
+
+def test_propose_candidates_preserves_file_source_in_dataset_slot(
+    semantic_project_factory,
+):
+    from marivo.analysis.datasources.metadata import TableMetadata
+
+    project = _project(semantic_project_factory)
+    source = ms.file("/data/orders/*.parquet", format="parquet", hive_partitioning=True)
+
+    def fake_inspect_source(datasource, *, source, include_partitions=True):
+        return TableMetadata(
+            datasource=datasource,
+            table="orders_file",
+            database=None,
+            backend_type="duckdb",
+            comment=None,
+            columns=(),
+            partitions=(),
+            warnings=(),
+        )
+
+    cands = project.propose_candidates(
+        datasource="warehouse",
+        sources=[source],
+        model="sales",
+        inspect_source=fake_inspect_source,
+    )
+    [dataset_candidate] = [c for c in cands if c.decision_kind == "dataset_identity"]
+    assert dataset_candidate.slot_values["source"] == {
+        "kind": "file",
+        "path": "/data/orders/*.parquet",
+        "format": "parquet",
+        "options": {"hive_partitioning": True},
+    }
+
+
+def test_propose_candidates_derives_valid_dataset_id_for_file_source_path(
+    semantic_project_factory,
+):
+    from marivo.analysis.datasources.metadata import TableMetadata
+
+    project = _project(semantic_project_factory)
+    source = ms.file("/data/orders/*.parquet", format="parquet")
+
+    def fake_inspect_source(datasource, *, source, include_partitions=True):
+        return TableMetadata(
+            datasource=datasource,
+            table=source.path,
+            database=None,
+            backend_type="duckdb",
+            comment=None,
+            columns=(),
+            partitions=(),
+            warnings=(),
+        )
+
+    cands = project.propose_candidates(
+        datasource="warehouse",
+        sources=[source],
+        model="sales",
+        inspect_source=fake_inspect_source,
+    )
+
+    [dataset_candidate] = [c for c in cands if c.decision_kind == "dataset_identity"]
+    assert dataset_candidate.proposed_id == "sales.orders"

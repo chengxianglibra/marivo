@@ -130,7 +130,7 @@ sit on top of this model are specified in the companion contracts spec
 ### Content Derivation Tiers
 
 Applying the authority model to the actual content slots of current semantic
-objects (`@ms.dataset` / `@ms.field` / `@ms.time_field` / `@ms.metric` /
+objects (`ms.dataset` / `@ms.field` / `@ms.time_field` / `@ms.metric` /
 `ms.relationship` and `AiContext`) sorts them into three tiers. The dividing line:
 physical shape is library-derivable; business meaning is derivable only when
 documentary evidence exists and converges; conflict resolution and trust decisions

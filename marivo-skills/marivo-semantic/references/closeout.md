@@ -22,7 +22,7 @@ project.parity_check("sales.revenue", backend_factory=backend_factory)
 ## Audit
 
 ```python
-stale_questions = project.audit(inspect_table=mv.datasources.inspect_table)
+stale_questions = project.audit(inspect_source=mv.datasources.inspect_source)
 ```
 
 If audit returns questions, re-enter the `open_questions` path. Do not silently

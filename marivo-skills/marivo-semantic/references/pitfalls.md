@@ -44,13 +44,15 @@ def order_date(table):
 
 ## Trino fully qualified name mistake
 
-For Trino semantic datasets, keep schema selection in the datasource call rather
+For Trino semantic datasets, keep schema selection in the structured source rather
 than embedding a multi-part table string:
 
 ```python
-@ms.dataset(name="orders", datasource=warehouse)
-def orders(backend):
-    return backend.table("orders", database="sales_mart")
+orders = ms.dataset(
+    name="orders",
+    datasource=warehouse,
+    source=ms.table("orders", database="sales_mart"),
+)
 ```
 
 Use `backend.list_schemas()` to discover schemas and

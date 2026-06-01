@@ -33,6 +33,7 @@ from marivo.semantic.ir import (
     ProvenanceIR,
     RelationshipIR,
     SourceLocation,
+    TableSourceIR,
 )
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.validator import Registry, assembly_validate
@@ -70,6 +71,7 @@ def _make_registry(**overrides: object) -> Registry:
         model="sales",
         name="orders",
         datasource="wh",
+        source=TableSourceIR(table="orders"),
         primary_key=(),
         description=None,
         ai_context=AiContextIR(),
@@ -175,6 +177,7 @@ def test_missing_datasource_ref_on_dataset() -> None:
         model="sales",
         name="bad_ds",
         datasource="sales.nonexistent_wh",
+        source=TableSourceIR(table="bad_ds"),
         primary_key=(),
         description=None,
         ai_context=AiContextIR(),
@@ -754,9 +757,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -804,9 +805,7 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     project = semantic_project_factory(
         {
@@ -822,16 +821,14 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
     assert "sales.orders" in reg.datasets
     side = project.sidecar()
     assert side is not None
-    assert "sales.orders" in side
+    assert "sales.orders" not in side
 
 
 def test_warnings_in_load_result(semantic_project_factory) -> None:
     """LoadResult should include warnings."""
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -873,9 +870,7 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
     """)
     datasource = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     project = semantic_project_factory(
         {

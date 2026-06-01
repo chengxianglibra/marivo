@@ -20,17 +20,18 @@ Use `mv.datasources` from the installed project environment:
 
 ```python
 import marivo.analysis as mv
+import marivo.semantic as ms
 
 print(mv.datasources.all())
 print(mv.datasources.describe("warehouse"))
 print(mv.datasources.test("warehouse"))
 
-metadata = mv.datasources.inspect_table("warehouse", table="orders")
+metadata = mv.datasources.inspect_source("warehouse", source=ms.table("orders"))
 print(metadata.to_dict())
 ```
 
 `table.schema()` returns types but not comments. Prefer
-`mv.datasources.inspect_table(...)` for table comments, column comments,
+`mv.datasources.inspect_source(...)` for table comments, column comments,
 nullable flags, partition hints, and warnings.
 
 ## DuckDB datasource
@@ -44,6 +45,26 @@ warehouse = md.DatasourceSpec(
     path="warehouse.duckdb",
 )
 md.datasource(warehouse)
+```
+
+DuckDB database-file tables use table sources:
+
+```python
+orders = ms.dataset(
+    name="orders",
+    datasource=warehouse,
+    source=ms.table("orders"),
+)
+```
+
+DuckDB external files use file sources:
+
+```python
+orders = ms.dataset(
+    name="orders",
+    datasource=warehouse,
+    source=ms.file("/data/orders/*.parquet", format="parquet"),
+)
 ```
 
 ## Trino datasource
@@ -68,26 +89,30 @@ warehouse = md.DatasourceSpec(
 md.datasource(warehouse)
 ```
 
-Inspect and read tables with `database="sales_mart"`:
+Inspect and author tables with `database="sales_mart"`:
 
 ```python
 import marivo.analysis as mv
+import marivo.semantic as ms
 
-metadata = mv.datasources.inspect_table(
+metadata = mv.datasources.inspect_source(
     "warehouse",
-    table="orders",
-    database="sales_mart",
+    source=ms.table("orders", database="sales_mart"),
+)
+orders = ms.dataset(
+    name="orders",
+    datasource=warehouse,
+    source=ms.table("orders", database="sales_mart"),
 )
 backend = mv.datasources.build_backend("warehouse")
-orders = backend.table("orders", database="sales_mart")
 tables = backend.list_tables(database="sales_mart")
 schemas = backend.list_schemas()
 ```
 
 Use `backend.list_schemas()` to discover available schemas, then
 `backend.list_tables(database="sales_mart")` to verify table reachability inside
-the selected schema. Write table access as `table="orders",
-database="sales_mart"` or `backend.table("orders", database="sales_mart")`.
+the selected schema. Write semantic table access as
+`source=ms.table("orders", database="sales_mart")`.
 
 ## Trino VARCHAR datetime cast
 

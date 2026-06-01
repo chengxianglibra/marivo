@@ -32,9 +32,7 @@ _MINIMAL_MODEL_PY = textwrap.dedent("""\
 
 _MINIMAL_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def revenue(table):
@@ -43,9 +41,7 @@ _MINIMAL_DATASET_PY = textwrap.dedent("""\
 
 _SHARED_DATASOURCE_MODEL_A = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(name="orders", datasource="warehouse")
-    def orders(backend):
-        return backend.table("orders")
+    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
     def revenue(orders):
@@ -55,9 +51,7 @@ _SHARED_DATASOURCE_MODEL_A = textwrap.dedent("""\
 _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    @ms.dataset(name="refunds", datasource="warehouse")
-    def refunds(backend):
-        return backend.table("refunds")
+    refunds = ms.dataset(name="refunds", datasource="warehouse", source=ms.table("refunds"))
 
     @ms.metric(datasets=[refunds], additivity='additive', decomposition=ms.sum())
     def refunds_total(refunds):
@@ -339,9 +333,7 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="warehouse")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -433,9 +425,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -463,9 +453,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
     dataset_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="wh")
-        def query_info(backend):
-            return backend.table("query_info")
+        query_info = ms.dataset(name="query_info", datasource="wh", source=ms.table("query_info"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -494,9 +482,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     dataset_v1 = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="wh")
-        def query_info(backend):
-            return backend.table("query_info")
+        query_info = ms.dataset(name="query_info", datasource="wh", source=ms.table("query_info"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -515,7 +501,10 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     )
     assert project.is_ready()
 
-    dataset_v2 = dataset_v1.replace("def query_info", "def query_log")
+    dataset_v2 = dataset_v1.replace(
+        'query_info = ms.dataset(name="query_info"',
+        'query_log = ms.dataset(name="query_log"',
+    ).replace('ms.table("query_info")', 'ms.table("query_log")')
     from pathlib import Path
 
     root = Path(project.root)
@@ -571,9 +560,7 @@ def test_unverified_provenance_warning_in_result(semantic_project_factory) -> No
 
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -628,9 +615,9 @@ def test_sidecar_accessible_after_load(semantic_project_factory) -> None:
     )
     side = project.sidecar()
     assert side is not None
-    assert "sales.orders" in side
+    assert "sales.orders" not in side
     assert "sales.revenue" in side
-    # Datasource doesn't have a callable
+    # Datasets and datasources don't have sidecar callables in source-based authoring.
     assert "warehouse" not in side
 
 
@@ -683,9 +670,7 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     project = semantic_project_factory(
         {
@@ -711,13 +696,9 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
 
-        @ms.dataset(datasource="wh")
-        def items(backend):
-            return backend.table("items")
+        items = ms.dataset(name="items", datasource="wh", source=ms.table("items"))
     """)
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -765,9 +746,7 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
     rels_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
 
         @ms.field(dataset=orders)
         def order_id(table):
@@ -806,9 +785,7 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     # The field ref is stored in a module-level variable
     fields_py = textwrap.dedent("""\
@@ -855,9 +832,7 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dataset(datasource="wh")
-        def orders(backend):
-            return backend.table("orders")
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     project = semantic_project_factory(
         {
@@ -951,10 +926,7 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
             ),
             "sales/objects.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse')\n"
-                "@orders\n"
-                "def _(backend):\n"
-                "    return backend.table('orders')\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
             ),
         }
     )
@@ -997,10 +969,7 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
             ),
             "sales/objects.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse')\n"
-                "@orders\n"
-                "def _(backend):\n"
-                "    return backend.table('orders', database='sales')\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders', database='sales'))\n"
             ),
         }
     )

@@ -60,9 +60,8 @@ def _bootstrap_project(
     (semantic_dir / "definitions.py").write_text(
         f"import marivo.semantic as ms\n"
         f"\n"
-        f"@ms.dataset(name='{dataset_name}', datasource='{datasource_name}')\n"
-        f"def {dataset_name}(backend):\n"
-        f"    return backend.table('{dataset_name}')\n"
+        f"{dataset_name} = ms.dataset(name='{dataset_name}', datasource='{datasource_name}', "
+        f"source=ms.table('{dataset_name}'))\n"
         f"\n"
         f"@ms.field(dataset={dataset_name})\n"
         f"def region({dataset_name}):\n"

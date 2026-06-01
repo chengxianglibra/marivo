@@ -45,9 +45,10 @@ import marivo.semantic as ms
 ms.model(name="sales", description="Sales analytics")
 warehouse = md.ref("warehouse")
 
-@ms.dataset(
+orders = ms.dataset(
     name="orders",
     datasource=warehouse,
+    source=ms.table("orders"),
     primary_key=["order_id"],
     description="Order facts.",
     ai_context={
@@ -55,8 +56,6 @@ warehouse = md.ref("warehouse")
         "guardrails": ["Do not treat this as paid orders only."],
     },
 )
-def orders(backend):
-    return backend.table("orders")
 
 @ms.field(dataset=orders, description="Paid order flag.")
 def is_paid(orders):
@@ -247,7 +246,7 @@ warehouse = md.DatasourceSpec(
     host="trino.example.com",
     port=8080,
     catalog="hive",
-    # Optional default schema; datasets may also pass database= to backend.table(...).
+    # Optional default schema; datasets may also pass database= to ms.table(...).
     schema="sales_mart",
     user_env="TRINO_USER",
     password_env="TRINO_PASSWORD",
@@ -258,9 +257,9 @@ md.datasource(warehouse)
 设计约束：
 
 - datasource name 是全局 key，禁止使用 `<model>.<datasource>`。
-- semantic model 不调用 `ms.datasource(...)`，优先用 `md.ref("warehouse")` 在 `@ms.dataset(datasource=warehouse)` 中引用全局 datasource name。
+- semantic model 不调用 `ms.datasource(...)`，优先用 `md.ref("warehouse")` 在 `ms.dataset(datasource=warehouse, source=...)` 中引用全局 datasource name。
 - 非机密连接字段写在 datasource 文件里；`user`、`password`、`auth`、`token`、`api_key`、`secret`、`private_key` 等机密字段只能通过 `<field>_env` 引用环境变量。
-- Trino `catalog` 是连接目标；`schema` 只是可选默认 schema，也可以在 `backend.table("orders", database="sales_mart")` 中显式传入。
+- Trino `catalog` 是连接目标；`schema` 只是可选默认 schema，也可以在 `ms.table("orders", database="sales_mart")` 中显式传入。
 - datasource 是 dataset 的执行来源，不是 metric 的业务口径。
 
 ### Dataset
@@ -268,36 +267,32 @@ md.datasource(warehouse)
 dataset 是业务实体或事实表的逻辑视图：
 
 ```python
-from marivo.semantic.typing import IbisBackend
-
-@ms.dataset(
+orders = ms.dataset(
     model="sales",
     name="orders",
     datasource=warehouse,
+    source=ms.table("orders"),
     primary_key=["order_id"],
     description="Order facts.",
 )
-def orders(backend: IbisBackend):
-    return backend.table("orders")
 ```
 
-dataset 函数返回 Ibis table。它可以封装物理表名、必要的基础投影或稳定的源级过滤，但不应把 metric 聚合逻辑塞进 dataset。
+dataset 通过结构化 source 指向物理来源。`ms.table(...)` 表达后端表，
+`ms.file(...)` 表达 DuckDB/Ibis 可读取的文件来源；不应把 metric 聚合逻辑塞进 dataset。
 
-dataset body 允许受限使用 `backend.sql(...)` 封装 SQL view，因为实际项目常把稳定物理视图写成 SQL。限制如下：
-
-- `describe` 必须显示 `dataset_provenance="sql_view"` 和 SQL text / source location。
-- 依赖 SQL-view dataset 的 metric 仍可 materialize，但 parity status 必须显示底层 dataset 含 SQL view。
-- parity 工具默认拒绝把 SQL-view dataset 当作“纯 Ibis 翻译”进行同源 SQL parity；需要显式 fixture-based parity。
-- 若 SQL view 已在后端持久化为表/视图，优先用 `backend.table(...)` 暴露，减少 Python 语义层内嵌 SQL。
+dataset 不再接受 Python body，因此不支持在 semantic layer 内用 `backend.sql(...)`
+内嵌 SQL view。若 SQL view 已在后端持久化为表/视图，应通过
+`source=ms.table(...)` 暴露；一次性 SQL 转换不属于 dataset source v1 的 authoring surface。
 
 Snapshot dataset declarations expose their partition key through
 `versioning=ms.snapshot(...)`. Use this for daily/weekly snapshot tables that
 should be observed at the latest available partition by default:
 
 ```python
-@ms.dataset(
+user_profile_daily = ms.dataset(
     name="user_profile_daily",
     datasource=warehouse,
+    source=ms.table("user_profile_daily"),
     primary_key=["user_id", "dt"],
     versioning=ms.snapshot(
         partition_field="dt",
@@ -306,8 +301,6 @@ should be observed at the latest available partition by default:
         format="%Y%m%d",
     ),
 )
-def user_profile_daily(backend):
-    return backend.table("user_profile_daily")
 ```
 
 `partition_field` is the dataset field name that carries the snapshot key.
@@ -324,9 +317,10 @@ versioning. Phase 2 supports the `valid_from` / `valid_to` + `interval` +
 `open_end` dialect; `current_flag` is not yet supported.
 
 ```python
-@ms.dataset(
+user_history = ms.dataset(
     name="user_history",
     datasource="warehouse",
+    source=ms.table("user_history"),
     primary_key=["user_id", "valid_from"],
     versioning=ms.validity(
         valid_from=valid_from,
@@ -336,8 +330,6 @@ versioning. Phase 2 supports the `valid_from` / `valid_to` + `interval` +
         timezone="UTC",
     ),
 )
-def user_history(backend):
-    return backend.table("user_history")
 ```
 
 `valid_from` must be part of `primary_key`. Both `valid_from` and `valid_to`
@@ -587,7 +579,7 @@ if result.errors:
 
 ### 2. 声明最小业务对象
 
-新增 metric 时的最小 happy path 是 datasource、dataset、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_field、field 和 relationship。表级证据首选 `mv.datasources.inspect_table(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
+新增 metric 时的最小 happy path 是 datasource、dataset、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_field、field 和 relationship。表级证据首选 `mv.datasources.inspect_source(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
 
 新建 metric 可以省略 provenance 并自动进入 `unverified`，但 agent 不能把它当作完成状态。若同一 PR 新增多个 unverified metrics，应停下来确认业务来源；CI 可用 `--strict-provenance` 禁止 unverified metric 合入。
 
@@ -704,7 +696,7 @@ decorator 执行时检查局部声明是否自洽：
 | `invalid_component_body` | derived metric body 只保留 `ms.component("<name>")`、数字字面量和允许的算术 |
 | `outside_loader_context` | 把定义移到 `<root>/.marivo/semantic/<model>/<file>.py`；notebook 探索改用 scratch Ibis 表达式 |
 | `unverified_provenance` | 若要进入 strict workflow，补 `source_sql` triple、改为 `python_native`，或先停止并确认业务口径 |
-| `sql_escape_hatch` | 把 raw SQL 移到 dataset SQL view 或后端持久视图；metric body 保持 Ibis expression |
+| `sql_escape_hatch` | 把 raw SQL 移到后端持久视图并通过 `ms.table(...)` 暴露；metric body 保持 Ibis expression |
 
 ### Load / Assembly-time
 
@@ -820,7 +812,7 @@ typed frames + session persistence + lineage
 - Metric provenance status 始终存在；authoring-time 缺省为 `unverified`，promotion / strict CI / analysis consumption 前必须提升为 SQL triple 或 `python_native`。
 - Parity status 成为 metric / frame / describe 的可见属性。
 - Field / time_field 不要求 provenance status；缺失 provenance 在 describe 中显示为 `null`。
-- Dataset SQL view 允许但必须显式标记 `dataset_provenance="sql_view"`，且 parity 默认要求 fixture-based 验证。
+- Dataset 不支持 Python body SQL view；持久化 SQL view 应作为普通 table source authoring。
 - 提供 Python-only check helper，显式加载 `SemanticProject` 并返回结构化 errors / warnings。
 - `check` 缺省向上查找 `.marivo/semantic/`，支持 `--strict-provenance`，并默认提示字符串 refs。
 - 提供 semantic refactor rename 工具，减少 agent 手工重命名字符串 refs。

@@ -11,9 +11,7 @@ import marivo.datasource as md
 
 warehouse = md.ref('warehouse')
 
-@ms.dataset(name='orders', datasource=warehouse)
-def orders(backend):
-    return backend.table('orders')
+orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))
 
 @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')
 def revenue(orders):
@@ -162,17 +160,22 @@ def test_audit_resurfaces_stale_dangerous_decision(semantic_project_factory):
             evidence_fingerprint=old_fp,
             question_id=None,
             decided_at="t",
-            cited_table="warehouse.orders",
+            cited_source={
+                "datasource": "warehouse",
+                "source": {"kind": "table", "table": "orders", "database": "sales_mart"},
+            },
             cited_columns=("status",),
         ),
     )
 
     # Current metadata now reports status:VARCHAR -> fingerprint changed -> stale.
-    def fake_inspect_table(datasource, *, table, database=None, include_partitions=True):
+    def fake_inspect_source(datasource, *, source, include_partitions=True):
+        assert datasource == "warehouse"
+        assert source == ms.table("orders", database="sales_mart")
         return TableMetadata(
             datasource=datasource,
-            table=table,
-            database=None,
+            table=source.table,
+            database=source.database,
             backend_type="duckdb",
             comment=None,
             columns=(ColumnMetadata("status", "VARCHAR", True, "1=paid", None),),
@@ -180,7 +183,7 @@ def test_audit_resurfaces_stale_dangerous_decision(semantic_project_factory):
             warnings=(),
         )
 
-    questions = project.audit(inspect_table=fake_inspect_table)
+    questions = project.audit(inspect_source=fake_inspect_source)
     assert len(questions) == 1
     assert questions[0].decision_kind == "metric_decomposition"
     assert questions[0].subject_refs == ("sales.revenue",)
@@ -205,16 +208,19 @@ def test_audit_returns_nothing_when_evidence_unchanged(semantic_project_factory)
             evidence_fingerprint=fp,
             question_id=None,
             decided_at="t",
-            cited_table="warehouse.orders",
+            cited_source={
+                "datasource": "warehouse",
+                "source": {"kind": "table", "table": "orders", "database": None},
+            },
             cited_columns=("status",),
         ),
     )
 
-    def fake_inspect_table(datasource, *, table, database=None, include_partitions=True):
+    def fake_inspect_source(datasource, *, source, include_partitions=True):
         return TableMetadata(
             datasource=datasource,
-            table=table,
-            database=None,
+            table=source.table,
+            database=source.database,
             backend_type="duckdb",
             comment=None,
             columns=(ColumnMetadata("status", "INTEGER", True, "1=paid", None),),
@@ -222,4 +228,31 @@ def test_audit_returns_nothing_when_evidence_unchanged(semantic_project_factory)
             warnings=(),
         )
 
-    assert project.audit(inspect_table=fake_inspect_table) == ()
+    assert project.audit(inspect_source=fake_inspect_source) == ()
+
+
+def test_audit_skips_malformed_cited_source(semantic_project_factory):
+    from marivo.semantic import ledger as lg
+
+    project = _project(semantic_project_factory)
+    project.record_decision(
+        "sales.revenue",
+        lg.DecisionRecord(
+            decision_kind="metric_decomposition",
+            chosen="sum",
+            agreement_confidence="high",
+            qualifying_sources=("source_sql",),
+            materiality="high",
+            blast_radius=0,
+            evidence_fingerprint="sha256:a",
+            question_id=None,
+            decided_at="t",
+            cited_source={"datasource": "warehouse"},
+            cited_columns=("status",),
+        ),
+    )
+
+    def fake_inspect_source(*args, **kwargs):
+        raise AssertionError("malformed cited_source should not be inspected")
+
+    assert project.audit(inspect_source=fake_inspect_source) == ()

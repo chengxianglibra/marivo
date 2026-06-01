@@ -29,7 +29,7 @@ class DecisionRecord:
     evidence_fingerprint: str
     question_id: str | None
     decided_at: str
-    cited_table: str | None = None
+    cited_source: dict[str, object] | None = None
     cited_columns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -46,13 +46,14 @@ class DecisionRecord:
             "evidence_fingerprint": self.evidence_fingerprint,
             "question_id": self.question_id,
             "decided_at": self.decided_at,
-            "cited_table": self.cited_table,
+            "cited_source": self.cited_source,
             "cited_columns": list(self.cited_columns),
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object]) -> DecisionRecord:
         cited_columns_raw = data.get("cited_columns", [])
+        cited_source_raw = data.get("cited_source")
         return cls(
             decision_kind=str(data["decision_kind"]),
             chosen=data["chosen"],
@@ -63,7 +64,9 @@ class DecisionRecord:
             evidence_fingerprint=str(data["evidence_fingerprint"]),
             question_id=None if data["question_id"] is None else str(data["question_id"]),
             decided_at=str(data["decided_at"]),
-            cited_table=None if data.get("cited_table") is None else str(data["cited_table"]),
+            cited_source=(
+                dict(cited_source_raw) if isinstance(cited_source_raw, Mapping) else None
+            ),
             cited_columns=tuple(str(c) for c in cited_columns_raw),  # type: ignore[attr-defined]
         )
 
@@ -253,9 +256,9 @@ class LedgerStore:
 
 def is_decision_stale(record: DecisionRecord, metadata: TableMetadata) -> bool:
     """True if recomputing the decision's structural fingerprint over current
-    metadata differs from the stored one. A decision with no cited_table cannot be
+    metadata differs from the stored one. A decision with no cited_source cannot be
     recomputed and is treated as not stale (contracts spec accepts this)."""
-    if record.cited_table is None:
+    if record.cited_source is None:
         return False
     cited = set(record.cited_columns)
     columns = {col.name: col.type for col in metadata.columns if col.name in cited}

@@ -15,7 +15,9 @@ from marivo.semantic.constraints import (
 _TOP_LEVEL_ENTRIES: dict[str, str] = {
     "model": "context manager - opens a model namespace for decorator registration",
     "datasource": "removed - declare project datasources in .marivo/datasource/*.py",
-    "dataset": "decorator - declare a dataset on top of a datasource",
+    "dataset": "function - declare a dataset over a structured source",
+    "table": "builder - table source for ms.dataset(source=...)",
+    "file": "builder - file source for ms.dataset(source=...)",
     "field": "decorator - declare a non-aggregated field on a dataset",
     "time_field": "decorator - declare a time-aware field used as the calendar axis",
     "metric": "decorator - declare an aggregated metric",

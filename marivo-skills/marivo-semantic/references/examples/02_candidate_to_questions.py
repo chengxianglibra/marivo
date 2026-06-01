@@ -14,7 +14,7 @@ def decision_record_from_question(
     question: ms.OpenQuestion,
     chosen: str,
     *,
-    cited_table: str,
+    cited_source: dict[str, object],
 ) -> ms.DecisionRecord:
     evidence_types = sorted(
         {e.evidence_type for candidate in question.candidates for e in candidate.evidence}
@@ -32,22 +32,21 @@ def decision_record_from_question(
         evidence_fingerprint=evidence_fingerprint,
         question_id=question.id,
         decided_at=datetime.now(UTC).isoformat(),
-        cited_table=cited_table,
+        cited_source=cited_source,
         cited_columns=(chosen,),
     )
 
 
-def fake_inspect_table(
+def fake_inspect_source(
     datasource: str,
     *,
-    table: str,
-    database: str | tuple[str, ...] | None = None,
+    source,
     include_partitions: bool = True,
 ) -> TableMetadata:
     return TableMetadata(
         datasource=datasource,
-        table=table,
-        database=database,
+        table=source.table,
+        database=source.database,
         backend_type="duckdb",
         comment="Orders fact table. dt is the reporting partition.",
         columns=(
@@ -71,9 +70,9 @@ with tempfile.TemporaryDirectory() as tmp:
     project = ms.SemanticProject(root=root.parent)
     candidates = project.propose_candidates(
         datasource="warehouse",
-        tables=["orders"],
+        sources=[ms.table("orders")],
         model="sales",
-        inspect_table=fake_inspect_table,
+        inspect_source=fake_inspect_source,
     )
     questions = project.open_questions(candidates=candidates)
     time_candidates = [c for c in candidates if c.decision_kind == "time_field_identity"]
@@ -101,7 +100,10 @@ with tempfile.TemporaryDirectory() as tmp:
     record = decision_record_from_question(
         blocker,
         chosen_time,
-        cited_table="warehouse.orders",
+        cited_source={
+            "datasource": "warehouse",
+            "source": {"kind": "table", "table": "orders", "database": None},
+        },
     )
     project.record_decision(blocker.subject_refs[0], record)
     print("recorded decision:", record.decision_kind, record.chosen)

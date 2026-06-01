@@ -17,6 +17,7 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol, runtime_checkable
 
 from marivo.semantic.classifier import Candidate, EvidenceRef
+from marivo.semantic.ir import DatasetSourceIR, source_name, source_to_dict
 
 _TEMPORAL_TYPE = re.compile(r"date|time|timestamp", re.IGNORECASE)
 _TEMPORAL_NAME = re.compile(r"(^|_)(dt|date|time|ts|at)($|_)", re.IGNORECASE)
@@ -42,6 +43,8 @@ class _TableMeta(Protocol):
     @property
     def table(self) -> str: ...
     @property
+    def database(self) -> str | tuple[str, ...] | None: ...
+    @property
     def comment(self) -> str | None: ...
     @property
     def columns(self) -> Sequence[_ColumnMeta]: ...
@@ -57,24 +60,58 @@ def _comment_evidence(locator: str, comment: str | None) -> tuple[EvidenceRef, .
     return ()
 
 
-def candidates_from_metadata(metadata: _TableMeta, *, model: str) -> tuple[Candidate, ...]:
-    table = metadata.table
+def _database_label(database: str | tuple[str, ...] | None) -> str | None:
+    if database is None:
+        return None
+    return ".".join(database) if isinstance(database, tuple) else database
+
+
+def _metadata_ref(datasource: str, table: str, database: str | tuple[str, ...] | None) -> str:
+    database_label = _database_label(database)
+    if database_label is None:
+        return f"{datasource}.{table}"
+    return f"{datasource}.{database_label}.{table}"
+
+
+def _source_slot(table: str, database: str | tuple[str, ...] | None) -> dict[str, object]:
+    database_value: str | list[str] | None = (
+        list(database) if isinstance(database, tuple) else database
+    )
+    return {"kind": "table", "table": table, "database": database_value}
+
+
+def candidates_from_metadata(
+    metadata: _TableMeta,
+    *,
+    model: str,
+    source: DatasetSourceIR | None = None,
+) -> tuple[Candidate, ...]:
+    table = source_name(source) if source is not None else metadata.table
     datasource = metadata.datasource
+    ref = _metadata_ref(datasource, table, metadata.database)
+    source_slot = (
+        source_to_dict(source) if source is not None else _source_slot(table, metadata.database)
+    )
     out: list[Candidate] = [
         Candidate(
             object_kind="dataset",
             proposed_id=_qualify(model, table),
             decision_kind="dataset_identity",
-            slot_values={"datasource": datasource, "table": table},
+            slot_values={
+                "datasource": datasource,
+                "table": table,
+                "database": _database_label(metadata.database),
+                "source": source_slot,
+            },
             evidence=(
-                EvidenceRef("metadata", f"metadata:{datasource}.{table}"),
+                EvidenceRef("metadata", f"metadata:{ref}"),
                 *_comment_evidence(f"comment:{table}", metadata.comment),
             ),
-            semantic_delta=f"declare dataset {model}.{table} over {datasource}.{table}",
+            semantic_delta=f"declare dataset {model}.{table} over {ref}",
         )
     ]
     for col in metadata.columns:
-        locator = f"metadata:{datasource}.{table}.{col.name}"
+        locator = f"metadata:{ref}.{col.name}"
         col_comment = _comment_evidence(f"comment:{table}.{col.name}", col.comment)
         if _TEMPORAL_TYPE.search(col.type) or _TEMPORAL_NAME.search(col.name):
             out.append(
