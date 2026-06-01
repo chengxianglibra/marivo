@@ -31,6 +31,14 @@ from marivo.semantic.authoring import (
     validity,
     weighted_average,
 )
+from marivo.semantic.classifier import (
+    Candidate,
+    DecisionInput,
+    EvidenceRef,
+    OpenQuestion,
+    classify,
+    select_for_user,
+)
 from marivo.semantic.help import help
 from marivo.semantic.loader import find_project
 from marivo.semantic.reader import SemanticProject
@@ -45,12 +53,17 @@ from marivo.semantic.typing import AiContext
 
 __all__ = [
     "AiContext",
+    "Candidate",
+    "DecisionInput",
+    "EvidenceRef",
     "EvidenceSummary",
+    "OpenQuestion",
     "ParitySummary",
     "PreviewSummary",
     "ReadinessIssue",
     "ReadinessReport",
     "SemanticProject",
+    "classify",
     "component",
     "dataset",
     "errors",
@@ -62,6 +75,7 @@ __all__ = [
     "ratio",
     "ref",
     "relationship",
+    "select_for_user",
     "snapshot",
     "sum",
     "time_field",

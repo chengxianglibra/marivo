@@ -81,6 +81,12 @@ def test_all_list_matches_expected() -> None:
         "PreviewSummary",
         "ReadinessIssue",
         "ReadinessReport",
+        "Candidate",
+        "DecisionInput",
+        "EvidenceRef",
+        "OpenQuestion",
+        "classify",
+        "select_for_user",
     }
     assert set(ms.__all__) == expected
     assert not hasattr(ms, "help_text")
