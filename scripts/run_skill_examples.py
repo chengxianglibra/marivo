@@ -265,11 +265,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--in-process",
         action="store_true",
-        default=False,
+        dest="in_process",
         help="Run examples in-process instead of subprocesses. "
-        "Much faster (~12x) because each example reuses the same "
-        "Python runtime and marivo imports.",
+        "This is the default because each example reuses the same Python "
+        "runtime and marivo imports.",
     )
+    parser.add_argument(
+        "--subprocess",
+        action="store_false",
+        dest="in_process",
+        help="Run each example in a fresh Python subprocess. Slower, but useful "
+        "when debugging process-global state leaks.",
+    )
+    parser.set_defaults(in_process=True)
     args = parser.parse_args(argv)
 
     failures: list[Failure] = []
