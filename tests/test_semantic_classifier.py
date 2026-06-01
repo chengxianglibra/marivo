@@ -198,3 +198,66 @@ def test_public_exports_available():
     assert hasattr(ms, "OpenQuestion")
     assert hasattr(ms, "Candidate")
     assert hasattr(ms, "classify")
+
+
+def test_enrichment_defaults_are_conservative():
+    e = clf.Enrichment(decision_kind="amount_unit", subject_ref="sales.revenue")
+    assert e.materiality == "low"
+    assert e.agreement_confidence == "low"
+    assert e.chosen is None
+
+
+def test_enrichment_is_exported():
+    import marivo.semantic as ms
+
+    assert hasattr(ms, "Enrichment")
+
+
+def _cand(kind, subject, object_kind="metric", evidence=()):
+    return clf.Candidate(
+        object_kind=object_kind,
+        proposed_id=subject,
+        decision_kind=kind,
+        slot_values={"k": "v"},
+        evidence=tuple(evidence),
+        semantic_delta="d",
+    )
+
+
+def test_to_decision_inputs_attaches_matching_enrichment():
+    cand = _cand("amount_unit", "sales.revenue")
+    enr = clf.Enrichment(
+        decision_kind="amount_unit",
+        subject_ref="sales.revenue",
+        materiality="high",
+        agreement_confidence="high",
+    )
+    [di] = clf.to_decision_inputs([cand], [enr])
+    assert di.decision_kind == "amount_unit"
+    assert di.subject_refs == ("sales.revenue",)
+    assert di.candidates == (cand,)
+    assert di.agent_materiality == "high"
+    assert di.agent_verdict == "high"
+    assert di.conflict is False
+
+
+def test_to_decision_inputs_missing_enrichment_is_conservative():
+    [di] = clf.to_decision_inputs([_cand("dataset_identity", "sales.orders")], [])
+    assert di.agent_materiality == "low"
+    assert di.agent_verdict == "low"
+
+
+def test_to_decision_inputs_groups_candidates_by_kind_and_subject():
+    a = _cand("field_meaning", "sales.status")
+    b = _cand("field_meaning", "sales.status")  # same slot -> one group
+    c = _cand("dataset_identity", "sales.orders")
+    out = clf.to_decision_inputs([a, b, c], [])
+    assert len(out) == 2
+    statuses = next(di for di in out if di.decision_kind == "field_meaning")
+    assert len(statuses.candidates) == 2
+
+
+def test_to_decision_inputs_sets_conflict_from_map():
+    cand = _cand("time_field_identity", "sales.dt")
+    out = clf.to_decision_inputs([cand], [], conflicts={("time_field_identity", "sales.dt"): True})
+    assert out[0].conflict is True

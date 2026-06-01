@@ -54,7 +54,10 @@ from marivo.semantic.readiness import (
 from marivo.semantic.validator import Registry, Sidecar
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from marivo.analysis.datasources.metadata import TableMetadata
+    from marivo.semantic.classifier import Candidate, DecisionKind, Enrichment, OpenQuestion
 
 __all__ = [
     "DatasetSummary",
@@ -906,6 +909,68 @@ class SemanticProject:
             kind=SymbolKind.METRIC,
             children=tuple(metric_children),
         )
+
+    def _flatten_dependent_ids(self, node: DependencyNode) -> set[str]:
+        ids: set[str] = set()
+        for child in node.children:
+            ids.add(child.semantic_id)
+            ids |= self._flatten_dependent_ids(child)
+        return ids
+
+    def _blast_radius_of(self, refs: tuple[str, ...]) -> int:
+        """Count distinct transitive dependents of the given refs, excluding the
+        refs themselves. Unknown (not-yet-declared) refs contribute zero."""
+        seen: set[str] = set()
+        for ref in refs:
+            try:
+                node = self.dependents(ref)
+            except SemanticRuntimeError:
+                continue
+            seen |= self._flatten_dependent_ids(node)
+        return len(seen - set(refs))
+
+    def open_questions(
+        self,
+        *,
+        candidates: Sequence[Candidate],
+        enrichments: Sequence[Enrichment] = (),
+        conflicts: Mapping[tuple[DecisionKind, str], bool] | None = None,
+        round_index: int = 0,
+    ) -> tuple[OpenQuestion, ...]:
+        """Classify agent candidates + enrichments into ranked OpenQuestions.
+
+        Backend-free: blast radius comes from the in-memory dependency graph.
+        Candidate generation (which needs a backend) is ``propose_candidates``.
+        """
+        from marivo.semantic.classifier import classify, to_decision_inputs
+
+        inputs = to_decision_inputs(candidates, enrichments, conflicts=conflicts)
+        return classify(inputs, blast_radius_of=self._blast_radius_of, round_index=round_index)
+
+    def propose_candidates(
+        self,
+        *,
+        datasource: str,
+        tables: Sequence[str],
+        model: str,
+        inspect_table: Callable[..., TableMetadata],
+    ) -> tuple[Candidate, ...]:
+        """Deterministic structural candidates for the named tables. Calls
+        ``inspect_table`` per table, then the pure heuristics. Returns
+        dataset/time_field/field candidates plus cross-table relationship candidates.
+
+        ``inspect_table`` is a callable with the same signature as
+        ``mv.datasources.inspect_table``; the caller injects it so that
+        ``marivo.semantic`` does not import ``marivo.analysis``.
+        """
+        from marivo.semantic.proposal import candidates_from_metadata, relationship_candidates
+
+        metadatas = [inspect_table(datasource, table=table) for table in tables]
+        out: list[Candidate] = []
+        for metadata in metadatas:
+            out.extend(candidates_from_metadata(metadata, model=model))
+        out.extend(relationship_candidates(metadatas, model=model))
+        return tuple(out)
 
     # -- describe -----------------------------------------------------------
 

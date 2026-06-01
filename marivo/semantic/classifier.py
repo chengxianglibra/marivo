@@ -163,6 +163,55 @@ class DecisionInput:
 
 
 @dataclass(frozen=True)
+class Enrichment:
+    decision_kind: DecisionKind
+    subject_ref: str
+    materiality: Materiality = "low"
+    agreement_confidence: AgreementConfidence = "low"
+    chosen: object | None = None
+
+
+def to_decision_inputs(
+    candidates: Sequence[Candidate],
+    enrichments: Sequence[Enrichment] = (),
+    *,
+    conflicts: Mapping[tuple[DecisionKind, str], bool] | None = None,
+) -> tuple[DecisionInput, ...]:
+    """Group candidates by (decision_kind, proposed_id), attach the matching
+    enrichment, and build DecisionInputs. A candidate group with no enrichment is
+    treated conservatively (low materiality, low verdict) so it still surfaces."""
+    enr_by_key: dict[tuple[DecisionKind, str], Enrichment] = {
+        (e.decision_kind, e.subject_ref): e for e in enrichments
+    }
+    conflict_map = conflicts or {}
+    groups: dict[tuple[DecisionKind, str], list[Candidate]] = {}
+    order: list[tuple[DecisionKind, str]] = []
+    for cand in candidates:
+        key = (cand.decision_kind, cand.proposed_id)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(cand)
+
+    out: list[DecisionInput] = []
+    for key in order:
+        kind, subject = key
+        enr = enr_by_key.get(key)
+        out.append(
+            DecisionInput(
+                decision_kind=kind,
+                subject_refs=(subject,),
+                candidates=tuple(groups[key]),
+                agent_materiality=enr.materiality if enr is not None else "low",
+                agent_verdict=enr.agreement_confidence if enr is not None else "low",
+                conflict=bool(conflict_map.get(key, False)),
+                gated_by=None,
+            )
+        )
+    return tuple(out)
+
+
+@dataclass(frozen=True)
 class OpenQuestion:
     id: str
     subject_refs: tuple[str, ...]
