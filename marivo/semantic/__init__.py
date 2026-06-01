@@ -43,6 +43,11 @@ from marivo.semantic.classifier import (
     to_decision_inputs,
 )
 from marivo.semantic.help import help
+from marivo.semantic.ledger import (
+    ConfirmationRecord,
+    DecisionRecord,
+    RejectedCandidate,
+)
 from marivo.semantic.loader import find_project
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import (
@@ -57,8 +62,10 @@ from marivo.semantic.typing import AiContext
 __all__ = [
     "AiContext",
     "Candidate",
+    "ConfirmationRecord",
     "DecisionInput",
     "DecisionKind",
+    "DecisionRecord",
     "Enrichment",
     "EvidenceRef",
     "EvidenceSummary",
@@ -67,6 +74,7 @@ __all__ = [
     "PreviewSummary",
     "ReadinessIssue",
     "ReadinessReport",
+    "RejectedCandidate",
     "SemanticProject",
     "classify",
     "component",
