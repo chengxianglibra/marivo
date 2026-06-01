@@ -51,6 +51,11 @@ from marivo.semantic.readiness import (
     ReadinessReport,
     build_readiness_report,
 )
+from marivo.semantic.richness import (
+    DemandSignal,
+    RichnessReport,
+    build_richness_report,
+)
 from marivo.semantic.validator import Registry, Sidecar
 
 if TYPE_CHECKING:
@@ -1483,6 +1488,21 @@ class SemanticProject:
             supports_federation=supports_federation,
             table_metadata=table_metadata,
         )
+
+    # -- richness -----------------------------------------------------------
+
+    def richness(
+        self,
+        *,
+        demand: DemandSignal | None = None,
+    ) -> RichnessReport:
+        """Return a demand-ranked advisory richness report.
+
+        Pure advisory: it never blocks and never mutates readiness. ``demand``
+        seeds coverage/depth ranking from example questions, analysis intents,
+        run-history refs, and the build purpose.
+        """
+        return build_richness_report(self, demand=demand)
 
     # -- internal helpers ---------------------------------------------------
 
