@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -209,6 +210,109 @@ def _nullable_from_clickhouse(is_nullable_value: object, type_str: str) -> bool 
     if result is not None:
         return result
     return bool(type_str.startswith("Nullable("))
+
+
+_CH_PARTITION_FUNC_RE = re.compile(r"^(\w+)\((\w+)\)$")
+_CH_PARTITION_BARE_RE = re.compile(r"^(\w+)$")
+
+
+def _parse_clickhouse_partition_key(
+    partition_key: str,
+    catalog_columns: Mapping[str, ColumnMetadata],
+) -> tuple[PartitionMetadata, ...]:
+    if not partition_key or partition_key == "tuple()":
+        return ()
+    # Split on commas only outside parentheses (depth-aware).
+    elements: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(partition_key):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            elements.append(partition_key[start:i].strip())
+            start = i + 1
+    elements.append(partition_key[start:].strip())
+    parts: list[PartitionMetadata] = []
+    for element in elements:
+        func_match = _CH_PARTITION_FUNC_RE.match(element)
+        if func_match:
+            func_name, col_name = func_match.group(1), func_match.group(2)
+            col = catalog_columns.get(col_name)
+            if col is not None:
+                parts.append(
+                    PartitionMetadata(
+                        name=col_name,
+                        type=col.type,
+                        transform=func_name,
+                        comment=None,
+                    )
+                )
+            continue
+        bare_match = _CH_PARTITION_BARE_RE.match(element)
+        if bare_match:
+            col_name = bare_match.group(1)
+            col = catalog_columns.get(col_name)
+            if col is not None:
+                parts.append(
+                    PartitionMetadata(
+                        name=col_name,
+                        type=col.type,
+                        transform=None,
+                        comment=None,
+                    )
+                )
+            continue
+        # Unparseable expression: store full raw string as transform.
+        # Try to identify a column name from identifier-like tokens,
+        # stripping commas so inner args like "uid," in intDiv(uid, 100) match.
+        for token in element.replace("(", " ").replace(")", " ").replace(",", " ").split():
+            col = catalog_columns.get(token)
+            if col is not None:
+                parts.append(
+                    PartitionMetadata(
+                        name=token,
+                        type=col.type,
+                        transform=element,
+                        comment=None,
+                    )
+                )
+                break
+    return tuple(parts)
+
+
+_CH_DISTRIBUTED_ENGINE_RE = re.compile(r"^Distributed\('([^']+)',\s*'([^']+)',\s*'([^']+)'")
+
+
+def _dereference_clickhouse_distributed(
+    backend: Any,
+    engine_full: str,
+    ch_database: str,
+    warnings: list[MetadataWarning],
+) -> str:
+    match = _CH_DISTRIBUTED_ENGINE_RE.match(engine_full)
+    if not match:
+        return ""
+    local_database, local_table = match.group(2), match.group(3)
+    try:
+        local_rows = _query_rows(
+            backend,
+            "SELECT partition_key FROM system.tables "
+            f"WHERE name = {_quote_literal(local_table)} "
+            f"AND database = {_quote_literal(local_database)} LIMIT 1",
+        )
+        if local_rows:
+            return str(local_rows[0].get("partition_key") or "")
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"clickhouse distributed table dereference failed: {exc}",
+            )
+        )
+    return ""
 
 
 def _schema_only(
@@ -510,23 +614,39 @@ def _inspect_clickhouse(
     ch_database = _database_label(database) or "default"
     warnings: list[MetadataWarning] = []
     table_comment: str | None = None
+    partition_key = ""
+    engine = ""
+    engine_full = ""
 
     try:
         table_rows = _query_rows(
             backend,
-            "SELECT comment FROM system.tables "
+            "SELECT comment, partition_key, engine, engine_full FROM system.tables "
             f"WHERE name = {_quote_literal(table)} "
             f"AND database = {_quote_literal(ch_database)} LIMIT 1",
         )
         if table_rows:
             table_comment = _empty_to_none(table_rows[0].get("comment"))
-    except Exception as exc:
-        warnings.append(
-            MetadataWarning(
-                kind="metadata_query_failed",
-                message=f"clickhouse table comment query failed: {exc}",
+            partition_key = str(table_rows[0].get("partition_key") or "")
+            engine = str(table_rows[0].get("engine") or "")
+            engine_full = str(table_rows[0].get("engine_full") or "")
+    except Exception:
+        try:
+            table_rows = _query_rows(
+                backend,
+                "SELECT comment FROM system.tables "
+                f"WHERE name = {_quote_literal(table)} "
+                f"AND database = {_quote_literal(ch_database)} LIMIT 1",
             )
-        )
+            if table_rows:
+                table_comment = _empty_to_none(table_rows[0].get("comment"))
+        except Exception as exc2:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"clickhouse table metadata query failed: {exc2}",
+                )
+            )
 
     catalog_columns: dict[str, ColumnMetadata] = {}
     try:
@@ -578,13 +698,19 @@ def _inspect_clickhouse(
                 )
             )
 
+    partitions: tuple[PartitionMetadata, ...] = ()
     if include_partitions:
-        warnings.append(
-            MetadataWarning(
-                kind="partitions_unavailable",
-                message="clickhouse partition metadata is expression-based and not exposed by this adapter",
+        if engine == "Distributed":
+            local_pk = _dereference_clickhouse_distributed(
+                backend,
+                engine_full,
+                ch_database,
+                warnings,
             )
-        )
+            if local_pk:
+                partitions = _parse_clickhouse_partition_key(local_pk, catalog_columns)
+        elif partition_key and partition_key != "tuple()":
+            partitions = _parse_clickhouse_partition_key(partition_key, catalog_columns)
 
     columns = _merge_columns(schema_columns, catalog_columns)
     if not any(column.comment for column in columns) and table_comment is None:
@@ -602,7 +728,7 @@ def _inspect_clickhouse(
         backend_type="clickhouse",
         comment=table_comment,
         columns=columns,
-        partitions=(),
+        partitions=partitions,
         warnings=tuple(warnings),
     )
 

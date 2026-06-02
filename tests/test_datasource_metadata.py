@@ -146,9 +146,19 @@ class _FakeQueryResult:
 
 
 class _FakeBackend:
-    def __init__(self, schema: dict[str, str], query_results: dict[str, _FakeCursor]) -> None:
+    def __init__(
+        self,
+        schema: dict[str, str],
+        query_results: dict[str, _FakeCursor | _FakeQueryResult],
+        sequential_results: list[_FakeCursor | _FakeQueryResult] | None = None,
+        raise_on_tokens: list[str] | None = None,
+    ) -> None:
         self.schema = schema
         self.query_results = query_results
+        self.sequential_results: list[_FakeCursor | _FakeQueryResult] = list(
+            sequential_results or []
+        )
+        self.raise_on_tokens: list[str] = list(raise_on_tokens or [])
         self.queries: list[str] = []
         self.table_calls: list[tuple[str, object]] = []
 
@@ -158,6 +168,11 @@ class _FakeBackend:
 
     def raw_sql(self, sql: str):
         self.queries.append(sql)
+        for token in self.raise_on_tokens:
+            if token in sql:
+                raise Exception(f"Missing columns: {token!r}")
+        if self.sequential_results:
+            return self.sequential_results.pop(0)
         for token, cursor in self.query_results.items():
             if token in sql:
                 return cursor
@@ -367,11 +382,11 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
         )
     )
     backend = _FakeBackend(
-        {"order_id": "int64", "amount": "float64", "region": "string"},
+        {"order_id": "int64", "amount": "float64", "region": "string", "created_at": "timestamp"},
         {
             "system.tables": _FakeCursor(
-                ["comment"],
-                [("One row per order",)],
+                ["comment", "partition_key", "engine", "engine_full"],
+                [("One row per order", "toYYYYMM(created_at)", "MergeTree", "")],
             ),
             "system.columns": _FakeCursor(
                 ["name", "type", "is_nullable", "comment", "position"],
@@ -379,6 +394,7 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
                     ("order_id", "Int64", 0, "Unique order id", 1),
                     ("amount", "Nullable(Float64)", 1, "Gross amount", 2),
                     ("region", "String", 0, "", 3),
+                    ("created_at", "DateTime", 0, "", 4),
                 ],
             ),
         },
@@ -401,7 +417,11 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
     assert by_name["region"].comment is None
     assert any("system.tables" in query for query in backend.queries)
     assert any("system.columns" in query for query in backend.queries)
-    assert any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
+    assert not any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
+    assert len(metadata.partitions) == 1
+    assert metadata.partitions[0].name == "created_at"
+    assert metadata.partitions[0].transform == "toYYYYMM"
+    assert metadata.partitions[0].type == "DateTime"
 
 
 def test_inspect_table_clickhouse_infers_nullable_from_type(
@@ -540,6 +560,303 @@ def test_inspect_table_clickhouse_no_is_nullable_empty_comments(
     assert by_name["lag_count"].nullable is True
     assert by_name["lag_count"].comment is None
     assert any(warning.kind == "comments_unavailable" for warning in metadata.warnings)
+
+
+def test_inspect_table_clickhouse_partition_key_parsed(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MergeTree with toYYYYMMDD(time_iso) partition — transform extracted."""
+    mv.datasources.register(
+        _spec("ch_pk", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"event_id": "string", "time_iso": "datetime", "lag_count": "float64"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("", "toYYYYMMDD(time_iso)", "ReplicatedMergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [
+                    ("event_id", "String", 0, "", 1),
+                    ("time_iso", "DateTime", 0, "", 2),
+                    ("lag_count", "Nullable(Float64)", 1, "", 3),
+                ],
+            ),
+        },
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_pk", table="analytics.events")
+
+    assert metadata.partitions == (
+        PartitionMetadata(name="time_iso", type="DateTime", transform="toYYYYMMDD", comment=None),
+    )
+    assert not any(w.kind == "partitions_unavailable" for w in metadata.warnings)
+
+
+def test_inspect_table_clickhouse_partition_key_bare_column(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bare column partition key — no transform."""
+    mv.datasources.register(
+        _spec("ch_bare", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"timestamp": "datetime", "value": "float64"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "timestamp", "MergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("timestamp", "DateTime", 0, "", 1), ("value", "Float64", 0, "", 2)],
+            ),
+        },
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_bare", table="analytics.events")
+
+    assert metadata.partitions == (
+        PartitionMetadata(name="timestamp", type="DateTime", transform=None, comment=None),
+    )
+
+
+def test_inspect_table_clickhouse_partition_key_composite(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Composite partition key — platform + toYYYYMM(timestamp)."""
+    mv.datasources.register(
+        _spec("ch_comp", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"platform": "int64", "timestamp": "datetime", "value": "float64"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "platform, toYYYYMM(timestamp)", "MergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [
+                    ("platform", "Int64", 0, "", 1),
+                    ("timestamp", "DateTime", 0, "", 2),
+                    ("value", "Float64", 0, "", 3),
+                ],
+            ),
+        },
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_comp", table="analytics.events")
+
+    assert len(metadata.partitions) == 2
+    assert metadata.partitions[0] == PartitionMetadata(
+        name="platform", type="Int64", transform=None, comment=None
+    )
+    assert metadata.partitions[1] == PartitionMetadata(
+        name="timestamp", type="DateTime", transform="toYYYYMM", comment=None
+    )
+
+
+def test_inspect_table_clickhouse_partition_key_empty_and_tuple(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty partition_key and tuple() both produce empty partitions."""
+    for pk, label in [("tuple()", "tuple"), ("", "empty")]:
+        mv.datasources.register(
+            _spec(f"ch_{label}", backend_type="clickhouse", host="ch.example", database="analytics")
+        )
+        backend = _FakeBackend(
+            {"event_id": "string"},
+            {
+                "system.tables": _FakeQueryResult(
+                    ("comment", "partition_key", "engine", "engine_full"),
+                    [("Events", pk, "MergeTree", "")],
+                ),
+                "system.columns": _FakeQueryResult(
+                    ("name", "type", "is_nullable", "comment", "position"),
+                    [("event_id", "String", 0, "", 1)],
+                ),
+            },
+        )
+
+        import marivo.analysis.datasources.metadata as metadata_mod
+
+        monkeypatch.setattr(
+            metadata_mod._backends, "build_backend", lambda _datasource, b=backend: b
+        )
+
+        metadata = mv.datasources.inspect_table(f"ch_{label}", table="analytics.events")
+        assert metadata.partitions == (), f"partition_key={pk!r} should yield empty partitions"
+
+
+def test_inspect_table_clickhouse_partition_key_unparseable(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unparseable expression intDiv(uid, 100) — stored as raw transform string."""
+    mv.datasources.register(
+        _spec("ch_unp", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"uid": "int64", "value": "float64"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "intDiv(uid, 100)", "MergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("uid", "Int64", 0, "", 1), ("value", "Float64", 0, "", 2)],
+            ),
+        },
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_unp", table="analytics.events")
+
+    assert len(metadata.partitions) == 1
+    assert metadata.partitions[0].name == "uid"
+    assert metadata.partitions[0].transform == "intDiv(uid, 100)"
+    assert metadata.partitions[0].type == "Int64"
+
+
+def test_inspect_table_clickhouse_distributed_dereferences_local_table(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Distributed table dereferences to local table for partition metadata."""
+    mv.datasources.register(
+        _spec("ch_dist", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"event_id": "string", "time_iso": "datetime", "lag_count": "float64"},
+        {},
+        sequential_results=[
+            # 1st query: system.tables for Distributed table
+            _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [
+                    (
+                        "",
+                        "",
+                        "Distributed",
+                        "Distributed('cluster1', 'analytics', 'events_local', rand())",
+                    )
+                ],
+            ),
+            # 2nd query: system.columns for column metadata
+            _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [
+                    ("event_id", "String", 0, "", 1),
+                    ("time_iso", "DateTime", 0, "", 2),
+                    ("lag_count", "Nullable(Float64)", 1, "", 3),
+                ],
+            ),
+            # 3rd query: system.tables for local table dereference
+            _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Local events", "toYYYYMMDD(time_iso)", "ReplicatedMergeTree", "")],
+            ),
+        ],
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_dist", table="analytics.events")
+
+    assert len(metadata.partitions) == 1
+    assert metadata.partitions[0] == PartitionMetadata(
+        name="time_iso", type="DateTime", transform="toYYYYMMDD", comment=None
+    )
+
+
+def test_inspect_table_clickhouse_distributed_dereference_failure(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Distributed table with unparseable engine_full → empty partitions + warning."""
+    mv.datasources.register(
+        _spec("ch_dist_fail", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"event_id": "string"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("", "", "Distributed", "some_garbage_not_matching_regex")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("event_id", "String", 0, "", 1)],
+            ),
+        },
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_dist_fail", table="analytics.events")
+
+    assert metadata.partitions == ()
+    assert not any(w.kind == "partitions_unavailable" for w in metadata.warnings)
+
+
+def test_inspect_table_clickhouse_system_tables_fallback(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Expanded system.tables query fails → fallback to comment-only query."""
+    mv.datasources.register(
+        _spec("ch_fallback", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"event_id": "string"},
+        {
+            # Fallback query: SELECT comment FROM system.tables (no partition_key columns)
+            "system.tables": _FakeCursor(["comment"], [("Orders table",)]),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("event_id", "String", 0, "", 1)],
+            ),
+        },
+        # Expanded query (with partition_key) raises — triggers the fallback
+        raise_on_tokens=["partition_key"],
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_fallback", table="analytics.orders")
+
+    assert metadata.comment == "Orders table"
+    assert metadata.partitions == ()
+    assert not any(w.kind == "partitions_unavailable" for w in metadata.warnings)
 
 
 def test_inspect_table_trino_short_name_is_not_rejected(
