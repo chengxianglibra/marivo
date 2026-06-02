@@ -80,7 +80,10 @@ with tempfile.TemporaryDirectory() as tmp:
     chosen_time = "dt" if any(c.slot_values.get("column") == "dt" for c in time_candidates) else ""
     print("ambiguous time axis candidates:", [c.slot_values.get("column") for c in time_candidates])
     print("chosen partition time field:", chosen_time)
-    print("residual columns:", [(rc.column, rc.data_type) for rc in result.residual_columns])
+    print(
+        "residual columns:",
+        [(rc.column, rc.data_type, rc.comment) for rc in result.residual_columns],
+    )
     print("open questions:", [(q.severity, q.decision_kind) for q in questions])
 
     (root / "_model.py").write_text("import marivo.semantic as ms\nms.model(name='sales')\n")
