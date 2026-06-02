@@ -374,11 +374,12 @@ def order_date(orders):
 - `data_type` 支持 `date`、`datetime`、`timestamp`、`string`、`integer`；字符串或整数时间字段用可选 `format` 声明物理格式。
 - hour-only 字段（例如 `data_type="string", format="hh"` 或 `data_type="integer", format="h"`）必须显式声明 `required_prefix`；timestamp/datetime hour 字段或单列完整 hour 格式不需要。
 - 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `field` / `time_field`，再在 metric 中引用。
-- `@ms.field` / `@ms.time_field` 不要求 provenance status。它们的可信度来自所属 dataset、row-level 表达式可读性和 materialization 校验。`source_sql` 是可选审计字段；缺失时 `describe` 显示 `provenance=null`。
+- `@ms.field` / `@ms.time_field` 不要求 provenance status。它们的可信度来自所属 dataset、row-level 表达式可读性和 materialization 校验。`source_sql` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。
 
 ### Metric
 
-目标态统一使用 `@ms.metric(...)`。`datasets=[...]` 非空时是 base metric；省略 `datasets` 且 decomposition 带 components 时是 derived metric。
+`@ms.metric(...)` only declares dataset-backed base metrics. Base metrics require
+non-empty `datasets=[...]` and a single-return Ibis reduction body.
 
 ```python
 @ms.metric(
@@ -397,27 +398,31 @@ def revenue(order_rows):
 
 base metric 使用 `datasets=[...]` 显式声明依赖。函数 body 的参数只是局部 alias，按 `datasets` 顺序注入 materialized table；参数名不能决定 dataset identity。
 
-纯派生 metric 不应强制声明无用 `datasets=[...]`。目标态仍使用 `@ms.metric`，components 的 dataset 依赖联合构成该 metric 的隐含依赖：
+Derived metrics are direct calls, not decorators. They combine already
+registered metrics through a canonical decomposition and have no Python body:
 
 ```python
-@ms.metric(
-    model="sales",
+avg_execution_time = ms.derived_metric(
+    name="avg_execution_time",
     decomposition=ms.ratio(
-        numerator=converted_users,
-        denominator=total_users,
+        numerator=total_execution_time,
+        denominator=query_count,
     ),
-    provenance="python_native",
+    additivity="non_additive",
+    ai_context={
+        "business_definition": "Average execution time per query in seconds.",
+        "guardrails": ["Unit is seconds."],
+    },
 )
-def conversion_rate():
-    return ms.component("numerator") / ms.component("denominator")
 ```
 
 形态判定必须 fail closed：
 
 - `datasets=[...]` 非空，body 使用 dataset aliases：base metric。
-- `datasets` 省略或为空，decomposition components 非空，body 只使用 `ms.component("<name>")`、数字字面量和允许的算术运算：derived metric。
+- `ms.derived_metric(...)` with `ms.ratio(...)` or `ms.weighted_average(...)`:
+  derived metric.
 - `decomposition=ms.sum()` 没有 components，因此必须是 base metric；省略 `datasets=[...]` 时直接报 `missing_datasets`。
-- `datasets` 和 component-only body 同时出现：错误。
+- `@ms.metric(...)` with an empty datasets list: error.
 - 没有 `datasets` 且没有 decomposition components：错误。
 
 ### Base Metric Grain And Additivity
@@ -499,55 +504,59 @@ decomposition 描述 metric 在变化归因中的数学结构，不等同于 SQL
 | `ms.ratio(numerator=..., denominator=...)` | 比例/转化率，如 conversion_rate | numerator 和 denominator 都是 metric ref |
 | `ms.weighted_average(value=..., weight=...)` | ratio-of-sums 或带权均值，如 ARPU | numerator 和 weight 都是 metric ref |
 
-目标态禁止在 metric body 内直接调用 decorated metric 函数来表达派生 metric。派生 metric body 应使用 `ms.component("numerator")`、`ms.component("denominator")`、`ms.component("weight")` 这类显式 sentinel call。
+Metric bodies cannot call decorated metric functions to express derived metrics.
+Derived metric component roles come entirely from their decomposition builder:
 
-`ms.component("<name>")` 只允许出现在 derived metric 函数体 AST 内。模块顶层调用或 base metric 函数体中调用必须 fail closed。`<name>` 必须是字符串字面量，并且必须匹配 decomposition builder 上声明的 component name。它的返回类型应暴露为 Ibis scalar expression Protocol，便于 type checker 和 agent 做算术表达式检查。
+| Builder | Component keys | Author-facing shape |
+| --- | --- | --- |
+| `ms.ratio(numerator=..., denominator=...)` | `numerator`, `denominator` | `ms.derived_metric(name=..., decomposition=ms.ratio(...))` |
+| `ms.weighted_average(value=..., weight=...)` | `numerator`, `weight` | `ms.derived_metric(name=..., decomposition=ms.weighted_average(...))` |
 
-`ms.help("component")` 应展示当前支持的 component names、可用算术和禁止形态，避免 agent 通过猜测 `numerator` / `denominator` / `weight` 的名称来 author derived metric。agent 需要机器可读规则时应调用 `ms.help("component", format="json")` 或 `ms.help("constraints", format="json")`。
+The `weighted_average(value=...)` argument intentionally stores the internal key
+`numerator`. Analysis output already uses that role name, and body-free
+authoring means users no longer type the internal key.
 
-`ms.component("numerator")` / `ms.component("denominator")` / `ms.component("weight")` 在 decorator-time 返回 deferred Ibis expression sentinel。sentinel 支持 `+`、`-`、`*`、`/` 和一元 `-`；运算结果仍是 deferred sentinel tree。materialize-time 将 sentinel tree 的 leaves 替换为真实 component metric 的 Ibis scalar，再编译到目标 backend。
+Derived metrics do not perform Python-side zero-division handling; the generated
+Ibis expression follows the target backend's SQL semantics. Most backends return
+`NULL` when a denominator is zero. If a metric needs an explicit fallback, first
+wrap that behavior in a base metric, then reference the base metric from the
+derived decomposition.
 
-`ms.component(...)` 的返回类型在 `marivo.semantic.typing` 中导出为 `ComponentExpr`（确定名称由实现期 freeze）。agent 通常无需显式标注；mypy / Pyright 会自动推断算术结果仍为 `ComponentExpr`。
-
-derived metric 不在 Python 层做零除保护；materialize 后的 Ibis 表达式在目标 backend 中按 SQL 语义处理，多数 backend 在分母为 0 时返回 `NULL`。需要明确 fallback（例如返回 0、跳过该 slice）时，应把保护逻辑封装到 base metric 内，再作为 component 引用，而不是在 derived metric body 内尝试条件表达式——白名单不会接受。
-
-Derived metric body AST 白名单：
-
-| 形态 | 是否允许 |
-| --- | --- |
-| `ms.component("<component_name>")` 字符串字面量调用 | 允许 |
-| 数值字面量、`None` | 允许 |
-| 二元 `+`、`-`、`*`、`/` 和一元 `-` | 允许 |
-| 括号 | 允许 |
-| `abs(...)`、`ms.literal(...)`、除 `ms.component(...)` 外的任意函数调用 | 禁止 |
-| `.xxx` attribute access | 禁止 |
-| subscription、comparison、boolean op、conditional expression、字符串字面量 | 禁止 |
-| dataset、field、time_field 或任何非 component 对象引用 | 禁止 |
-
-例外：`ms.component(...)` 调用的唯一位置参数允许且必须是字符串字面量，且必须等于当前 metric decomposition builder 声明的 component name 之一。
-
-如果派生计算需要 field/time_field 或 row-level 中间值，先把它封装成 base metric，再把该 base metric 作为 decomposition component。Derived metric 不能直接引用 dataset、field 或 time_field。
+If a derived calculation needs field/time_field or row-level intermediate values,
+first package those values as base metrics. Derived metrics cannot directly
+reference datasets, fields, or time fields.
 
 ### Provenance
+
+Metric provenance kwargs are `source_sql`, `source_dialect`, `source_document`,
+`source_notes`, and `declared_status`. `declared_status` accepts
+`"python_native"`, `"unverified"`, or `None`.
 
 目标态 metric 始终有 provenance status，但 authoring-time 不强迫 agent 先完成 SQL 溯源。缺省状态是 `unverified`；当 metric 被提升为正式分析口径、被 `analysis.observe()` 消费、进入 strict CI，或声明为可信业务对象时，必须显式选择 SQL triple 或 `python_native`：
 
 | Provenance | 含义 |
 | --- | --- |
 | `source_sql` + `source_dialect` + `source_document` | 从 SQL / BI / 知识库迁移，必须可做 parity |
-| `provenance="python_native"` | Python/Ibis 是唯一业务源头，没有上游 SQL oracle |
-| 省略 provenance 或 `provenance="unverified"` | 临时定义，允许加载但在 describe、summary、analysis frame 中显式标红 |
+| `declared_status="python_native"` | Python/Ibis 是唯一业务源头，没有上游 SQL oracle |
+| 省略 `declared_status` 或 `declared_status="unverified"` | 临时定义，允许加载但在 describe、summary、analysis frame 中显式标红 |
 
 `source_sql` 是单 dialect provenance。若同一 metric 需要多 dialect 验证，不应把多份 SQL 都塞进 decorator；应使用 fixture-based parity tests 或后续 parity fixture lifecycle 来覆盖额外 dialect。
 
 缺少 source SQL 不等于错误；缺少显式 provenance 参数也不阻塞 authoring-time 加载，但该 metric 的 status 必须被标为 `unverified`。agent 和下游 analysis frame 必须能看到该 metric 是 `verified`、`python_native`、`unverified` 还是 `drifted`。当 check 使用 `--strict-provenance`、metric 被正式 analysis workflow 消费，或项目策略要求可信对象时，`unverified` 必须导致 fail closed。
 
-Derived metric 的有效 parity status 同时受自身 provenance 和 component statuses 约束：
+For derived metrics, provenance kwargs are documentation metadata. A derived
+metric cannot be directly parity-checked; its effective parity status continues
+to propagate from component metrics. When a derived metric declares
+`declared_status="python_native"`, the loader and readiness report emit an
+advisory because this is redundant or can cap propagated status below verified
+components.
 
-- 自身有独立 SQL oracle 且 parity 通过、所有 components 都 `verified`，结果为 `verified`。
-- 自身声明 `python_native` 时，不覆盖 components 的弱状态；所有 components `verified` / `python_native` 时可暴露为 `python_native`，任一 component `unverified` 则结果为 `unverified`。
+Derived metric 的有效 parity status 来自 component statuses：
+
+- 所有 components 都 `verified`，结果为 `verified`。
+- 含有 `python_native` component 且没有更弱状态时，结果为 `python_native`。
 - 任一 component 为 `drifted`，derived metric 结果为 `drifted`。
-- 自身 `unverified` 或任一 component `unverified`，结果为 `unverified`，除非已有更弱的 `drifted`。
+- 任一 component `unverified`，结果为 `unverified`，除非已有更弱的 `drifted`。
 
 ## Agent 工作流
 
@@ -631,15 +640,13 @@ print(frame.summary())
 ```python
 from marketing._exports import sessions
 
-@ms.metric(
-    model="sales",
+sessions_per_user = ms.derived_metric(
+    name="sessions_per_user",
     decomposition=ms.ratio(
         numerator=sessions,
         denominator=total_users,
     ),
 )
-def sessions_per_user():
-    return ms.component("numerator") / ms.component("denominator")
 ```
 
 `ms.ref(...)` 的唯一位置参数格式固定为 `"<kind>.<fully-qualified-id>"`。`kind` 取值：`datasource`、`dataset`、`field`、`time_field`、`metric`、`relationship`。例：
@@ -680,7 +687,7 @@ decorator 执行时检查局部声明是否自洽：
 - derived metric 带 dataset 参数、缺少 decomposition components 或在 body 中读取 dataset table。
 - decorator / metadata call 出现在 semantic loader context 之外。
 - metric 函数体不满足单 return 表达式约束。
-- metric body 调用 decorated metric 函数，derived metric body 调用 `ms.component(...)` 之外的函数，或使用 Ibis SQL escape hatch。
+- metric body 调用 decorated metric 函数、legacy component-body calls, or Ibis SQL escape hatches.
 
 `outside_loader_context` 错误必须带可执行 hint：把定义移动到 `<project_root>/.marivo/semantic/<model>/<file>.py`，然后用 `SemanticProject(root="<project_root>/.marivo/semantic").load()` 重新加载；如果是在 notebook 中探索，使用 scratch Ibis expressions，只有注册对象才走 semantic loader。
 
@@ -693,7 +700,7 @@ decorator 执行时检查局部声明是否自洽：
 | `missing_dataset_ref` | 确认 dataset 已声明；若跨文件前向引用，改用 decorated ref 或 `ms.ref(...)` |
 | `cross_model_reference` | 优先通过 `_exports.py` 导入；没有 `_exports.py` 时可直接 import sibling file 或使用显式 `ms.ref(...)` |
 | `invalid_decomposition` | 检查 `ms.ratio(...)` / `ms.weighted_average(...)` 的 components 是否都指向已注册 metric |
-| `invalid_component_body` | derived metric body 只保留 `ms.component("<name>")`、数字字面量和允许的算术 |
+| `invalid_component_body` | 删除 metric body 内的 component-body call，改用 `ms.derived_metric(...)` |
 | `outside_loader_context` | 把定义移到 `<root>/.marivo/semantic/<model>/<file>.py`；notebook 探索改用 scratch Ibis 表达式 |
 | `unverified_provenance` | 若要进入 strict workflow，补 `source_sql` triple、改为 `python_native`，或先停止并确认业务口径 |
 | `sql_escape_hatch` | 把 raw SQL 移到后端持久视图并通过 `ms.table(...)` 暴露；metric body 保持 Ibis expression |
@@ -802,9 +809,9 @@ typed frames + session persistence + lineage
 - `ms.model(...)` 只能出现在 `<root>/<model>/_model.py`，且 `name` 必须等于目录名；`default` 缺省为 `True`，允许同目录对象省略重复 `model=`。
 - `_model.py` 可作为 single-file quick path；对象变多后推荐拆为 feature-oriented sibling files。
 - Metric 显式 `datasets=[...]`；函数参数名只做局部 alias。
-- Base 和 derived metric 统一使用 `@ms.metric`；derived metric 不要求 `datasets=[...]`，依赖来自 components。
-- Decomposition component placeholder 使用 `ms.component("<name>")` sentinel call。
-- Derived metric body 使用明确 AST 白名单；禁止 `ms.component(...)` 之外的函数调用、attribute chaining、comparison、dataset/field/time_field 引用。
+- Base metric 使用 `@ms.metric(...)`；derived metric 使用 body-free `ms.derived_metric(...)`，依赖来自 decomposition components。
+- Decomposition component roles come from `ms.ratio(...)` and `ms.weighted_average(...)` builders.
+- Derived metrics do not have Python bodies; custom derived arithmetic must be expressed through base component metrics.
 - Derived metric 的有效 parity status 从自身 provenance 和 components status 中取更弱者。
 - Datasource 和 relationship 改为顶级 metadata call，不再要求无意义 function body。
 - Relationship join keys 改为 field/time_field refs；裸字符串 `from_columns` / `to_columns` 不再是目标态契约。

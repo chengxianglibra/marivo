@@ -50,6 +50,7 @@ ReadinessIssueKind = Literal[
     "primary_key_unsampled",
     "fragile_string_ref",
     "time_field_pushdown_advisory",
+    "derived_python_native_status",
     "unresolved_clarification",
     "missing_business_definition",
     "missing_guardrails",
@@ -882,20 +883,34 @@ def build_readiness_report(
         if metric.semantic_id not in checked_ref_set:
             skipped_metrics.append(metric.semantic_id)
             continue
+        if metric.is_derived and metric.provenance.declared_status == "python_native":
+            warnings.append(
+                _issue(
+                    "derived_python_native_status",
+                    "warning",
+                    (metric.semantic_id,),
+                    (
+                        f"Derived metric {metric.semantic_id} declares python_native provenance; "
+                        "derived parity status is propagated from components."
+                    ),
+                    "Remove declared_status from the derived metric and verify or document its component metrics instead.",
+                )
+            )
         parity_status = propagated_parity_status(project, metric.semantic_id)
         if parity_status == ParityStatus.VERIFIED:
             verified_metrics.append(metric.semantic_id)
         elif parity_status == ParityStatus.PYTHON_NATIVE:
             python_native_metrics.append(metric.semantic_id)
-            warnings.append(
-                _issue(
-                    "unverified_metric",
-                    "warning",
-                    (metric.semantic_id,),
-                    f"Metric {metric.semantic_id} is declared python_native and has no SQL parity oracle.",
-                    "Keep declared_status='python_native' only when the user accepts Python-native provenance.",
+            if not metric.is_derived:
+                warnings.append(
+                    _issue(
+                        "unverified_metric",
+                        "warning",
+                        (metric.semantic_id,),
+                        f"Metric {metric.semantic_id} is declared python_native and has no SQL parity oracle.",
+                        "Keep declared_status='python_native' only when the user accepts Python-native provenance.",
+                    )
                 )
-            )
         elif parity_status == ParityStatus.UNVERIFIED:
             unverified_metrics.append(metric.semantic_id)
             severity: ReadinessSeverity = "blocker" if strict_provenance else "warning"

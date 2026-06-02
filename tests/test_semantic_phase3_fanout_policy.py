@@ -108,8 +108,7 @@ def test_validator_rejects_fanout_policy_on_non_additive_metric(tmp_path, monkey
     assert ErrorKind.INVALID_METRIC_FANOUT_POLICY in kinds
 
 
-def test_validator_rejects_fanout_policy_on_derived_metric(tmp_path, monkeypatch):
-    from marivo.semantic.errors import ErrorKind
+def test_derived_metric_keeps_default_fanout_policy(tmp_path, monkeypatch):
     from marivo.semantic.loader import load_project
 
     semantic_dir = _bootstrap_min(tmp_path)
@@ -122,17 +121,15 @@ def test_validator_rejects_fanout_policy_on_derived_metric(tmp_path, monkeypatch
         "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='cnt')\n"
         "def cnt(orders):\n"
         "    return orders.count()\n"
-        "@ms.metric(\n"
-        "    datasets=[],\n"
-        "    decomposition=ms.ratio(numerator='sales.gmv', denominator='sales.cnt'),\n"
-        "    fanout_policy='aggregate_then_join',\n"
+        "aov = ms.derived_metric(\n"
         "    name='aov',\n"
+        "    decomposition=ms.ratio(numerator='sales.gmv', denominator='sales.cnt'),\n"
         ")\n"
-        "def aov():\n"
-        "    return ms.component('numerator') / ms.component('denominator')\n"
     )
     monkeypatch.chdir(tmp_path)
     project = load_project(tmp_path / ".marivo" / "semantic")
-    assert project.status == "errored"
-    kinds = {err.kind for err in project.errors}
-    assert ErrorKind.DERIVED_METRIC_FANOUT_POLICY in kinds
+    assert project.status == "ready", project.errors
+    assert project.registry is not None
+    metric = project.registry.metrics["sales.aov"]
+    assert metric.is_derived is True
+    assert metric.fanout_policy == "block"

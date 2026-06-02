@@ -72,7 +72,7 @@ def test_all_list_matches_expected() -> None:
         "ratio",
         "weighted_average",
         "ref",
-        "component",
+        "derived_metric",
         "snapshot",
         "validity",
         "help",
@@ -103,6 +103,7 @@ def test_all_list_matches_expected() -> None:
     }
     assert set(ms.__all__) == expected
     assert not hasattr(ms, "help_text")
+    assert not hasattr(ms, "component")
 
 
 def test_semantic_project_class() -> None:
@@ -121,6 +122,7 @@ def test_readiness_public_dtos() -> None:
 
 def test_typing_submodule() -> None:
     assert ms.typing is typing_mod
+    assert not hasattr(ms.typing, "ComponentExpr")
 
 
 def test_errors_submodule() -> None:
@@ -247,6 +249,8 @@ def test_help_json_top_level_returns_compact_directory(capsys) -> None:
     entry_names = {e["name"] for e in entries}
     assert "dataset" in entry_names
     assert "metric" in entry_names
+    assert "derived_metric" in entry_names
+    assert "component" not in entry_names
     assert "constraints" in entry_names
     assert "decomposition" in entry_names
     assert "SemanticProject" in entry_names
@@ -263,8 +267,10 @@ def test_help_json_metric_includes_constraints_and_examples(capsys) -> None:
     constraints = result["constraints"]
     assert isinstance(constraints, list)
     constraint_ids = {entry["id"] for entry in constraints}
-    assert "metric_derived_shape" in constraint_ids
-    assert "ast_component_arithmetic" in constraint_ids
+    assert "metric_datasets_required" in constraint_ids
+    assert "metric_component_scope" in constraint_ids
+    assert "metric_derived_shape" not in constraint_ids
+    assert "ast_component_arithmetic" not in constraint_ids
     assert "examples" in result
 
 
@@ -303,7 +309,17 @@ def test_help_json_decomposition_documents_supported_builders_and_aggregation_bo
     guidance = {entry["metric_shape"]: entry for entry in result["guidance"]}
     assert guidance["count"]["decomposition"] == "ms.sum()"
     assert ".count()" in guidance["count"]["body"]
+    assert any("ms.derived_metric" in entry["body"] for entry in guidance.values())
     assert guidance["mean_or_average"]["decomposition"] == "ms.ratio(...)"
+    assert (
+        guidance["mean_or_average"]["body"] == "ms.derived_metric(..., decomposition=ms.ratio(...))"
+    )
+    assert (
+        guidance["weighted_average"]["body"]
+        == "ms.derived_metric(..., decomposition=ms.weighted_average(...))"
+    )
+    assert "ms.help('derived_metric', format='json')" in result["related_help"]
+    assert "ms.help('component', format='json')" not in result["related_help"]
 
 
 def test_help_text_decomposition_documents_aggregation_boundary(capsys) -> None:
@@ -340,6 +356,19 @@ def test_invalid_decomposition_hint_points_to_decomposition_help() -> None:
     assert "aggregation" in constraint.hint
 
 
+def test_derived_fanout_policy_hint_uses_derived_metric_api() -> None:
+    constraint = get_constraint("metric_fanout_policy_derived")
+    assert constraint is not None
+    assert "ms.derived_metric" in constraint.hint
+    assert "derived @ms.metric" not in constraint.hint
+
+
+def test_removed_component_body_constraints_absent() -> None:
+    assert get_constraint("metric_derived_shape") is None
+    assert get_constraint("component_name_declared") is None
+    assert get_constraint("ast_component_arithmetic") is None
+
+
 def test_semantic_skill_constraint_table_matches_catalog() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     reference = repo_root / "marivo-skills/marivo-semantic/references/authoring-patterns.md"
@@ -363,9 +392,7 @@ _EXPECTED_DECORATOR_KINDS = {
     "invalid_ref",
     "invalid_decomposition",
     "invalid_component_body",
-    "invalid_component_name",
     "outside_loader_context",
-    "outside_derived_metric_body",
     "metric_body_not_single_return",
     "invalid_ai_context",
     "sql_escape_hatch",
@@ -564,8 +591,8 @@ def test_ibis_backend_protocol() -> None:
     assert hasattr(typing_mod, "IbisBackend")
 
 
-def test_component_expr_protocol() -> None:
-    assert hasattr(typing_mod, "ComponentExpr")
+def test_component_expr_protocol_removed() -> None:
+    assert not hasattr(typing_mod, "ComponentExpr")
 
 
 def test_ai_context_typed_dict() -> None:

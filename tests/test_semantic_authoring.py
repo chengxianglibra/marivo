@@ -10,10 +10,9 @@ Tests cover:
 - Duplicate name detection
 - Provenance fields on metric
 - ms.ref() builder
-- ms.component() sentinel system
-- ms.component() outside derived metric body -> OutsideDerivedMetricBodyError
-- ms.component("unknown") -> InvalidComponentNameError
-- Derived metric form classification: empty datasets + ratio/weighted_average decomposition = derived
+- ms.derived_metric() body-free registration
+- Derived metric form validation: ratio/weighted_average only
+- Derived additivity validation: only non_additive or None
 """
 
 from __future__ import annotations
@@ -23,10 +22,8 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.semantic.authoring import (
-    _ACTIVE_DECOMPOSITION,
-    _BinOpSentinel,
-    _ComponentSentinel,
-    _UnaryNegSentinel,
+    DecompositionBuilder,
+    _compute_decomposition_ast_hash,
 )
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
 from marivo.semantic.ir import (
@@ -794,190 +791,164 @@ def test_ref_returns_string() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ms.component() sentinel system
+# ms.derived_metric() direct registration
 # ---------------------------------------------------------------------------
 
 
-def test_component_outside_derived_metric_body_raises() -> None:
-    """ms.component() outside derived metric body should raise OutsideDerivedMetricBodyError."""
-    with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.component("numerator")
-    assert exc_info.value.kind == ErrorKind.OUTSIDE_DERIVED_METRIC_BODY
-
-
-def test_component_returns_sentinel_inside_derived() -> None:
-    """ms.component() inside a derived metric body returns _ComponentSentinel."""
+def test_derived_metric_returns_ref_and_pushes_body_free_ir() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-        from marivo.semantic.ir import DecompositionIR
-
-        decomp = DecompositionIR(
-            kind="ratio",
-            components={"numerator": "sales.revenue", "denominator": "sales.cost"},
-        )
-        token = _ACTIVE_DECOMPOSITION.set(decomp)
-        try:
-            result = ms.component("numerator")
-            assert isinstance(result, _ComponentSentinel)
-            assert result.name == "numerator"
-        finally:
-            _ACTIVE_DECOMPOSITION.reset(token)
-    finally:
-        _exit_ctx()
-
-
-def test_component_arithmetic_returns_binop() -> None:
-    """Arithmetic on _ComponentSentinel returns _BinOpSentinel."""
-    from marivo.semantic.ir import DecompositionIR
-
-    decomp = DecompositionIR(
-        kind="ratio",
-        components={"numerator": "sales.revenue", "denominator": "sales.cost"},
-    )
-    token = _ACTIVE_DECOMPOSITION.set(decomp)
-    try:
-        num = ms.component("numerator")
-        den = ms.component("denominator")
-
-        # Division
-        result = num / den
-        assert isinstance(result, _BinOpSentinel)
-        assert result.op == "/"
-        assert isinstance(result.left, _ComponentSentinel)
-        assert isinstance(result.right, _ComponentSentinel)
-
-        # Addition
-        result = num + den
-        assert isinstance(result, _BinOpSentinel)
-        assert result.op == "+"
-
-        # Subtraction
-        result = num - den
-        assert isinstance(result, _BinOpSentinel)
-        assert result.op == "-"
-
-        # Multiplication
-        result = num * den
-        assert isinstance(result, _BinOpSentinel)
-        assert result.op == "*"
-    finally:
-        _ACTIVE_DECOMPOSITION.reset(token)
-
-
-def test_component_arithmetic_with_numeric_literal() -> None:
-    """Arithmetic with numeric literals should produce _BinOpSentinel."""
-    from marivo.semantic.ir import DecompositionIR
-
-    decomp = DecompositionIR(
-        kind="ratio",
-        components={"a": "sales.metric_a"},
-    )
-    token = _ACTIVE_DECOMPOSITION.set(decomp)
-    try:
-        a = ms.component("a")
-
-        # Component * 2
-        result = a * 2
-        assert isinstance(result, _BinOpSentinel)
-        assert result.op == "*"
-        assert isinstance(result.left, _ComponentSentinel)
-        assert result.right == 2
-
-        # 2 * Component (reverse op)
-        result = 2 * a
-        assert isinstance(result, _BinOpSentinel)
-        assert result.op == "*"
-        assert result.left == 2
-        assert isinstance(result.right, _ComponentSentinel)
-    finally:
-        _ACTIVE_DECOMPOSITION.reset(token)
-
-
-def test_component_negation_returns_unary_neg() -> None:
-    """Unary negation on _ComponentSentinel returns _UnaryNegSentinel."""
-    from marivo.semantic.ir import DecompositionIR
-
-    decomp = DecompositionIR(
-        kind="sum",
-        components={"x": "sales.metric_x"},
-    )
-    token = _ACTIVE_DECOMPOSITION.set(decomp)
-    try:
-        x = ms.component("x")
-        result = -x
-        assert isinstance(result, _UnaryNegSentinel)
-        assert isinstance(result.operand, _ComponentSentinel)
-    finally:
-        _ACTIVE_DECOMPOSITION.reset(token)
-
-
-def test_component_invalid_name_raises() -> None:
-    """ms.component() with name not in decomposition should raise InvalidComponentNameError."""
-    from marivo.semantic.ir import DecompositionIR
-
-    decomp = DecompositionIR(
-        kind="ratio",
-        components={"numerator": "sales.revenue", "denominator": "sales.cost"},
-    )
-    token = _ACTIVE_DECOMPOSITION.set(decomp)
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.component("unknown")
-        assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_NAME
-    finally:
-        _ACTIVE_DECOMPOSITION.reset(token)
-
-
-def test_component_empty_name_raises() -> None:
-    """ms.component('') with empty name should raise INVALID_COMPONENT_BODY."""
-    from marivo.semantic.ir import DecompositionIR
-
-    decomp = DecompositionIR(
-        kind="ratio",
-        components={"numerator": "sales.revenue"},
-    )
-    token = _ACTIVE_DECOMPOSITION.set(decomp)
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.component("")
-        assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-    finally:
-        _ACTIVE_DECOMPOSITION.reset(token)
-
-
-def test_derived_metric_form_classification() -> None:
-    """Derived metric: empty datasets + ratio/weighted_average decomposition = derived."""
-    ctx = _enter_ctx(default_model="sales")
-    try:
-
-        @ms.metric(
-            datasets=[],
+        ref = ms.derived_metric(
+            name="margin",
             decomposition=ms.ratio(
                 numerator="sales.revenue",
                 denominator="sales.cost",
             ),
+            additivity="non_additive",
+            declared_status="python_native",
+            source_document="metric-catalog.md",
+            ai_context={"business_definition": "Revenue divided by cost."},
         )
-        def margin():
-            return ms.component("numerator") / ms.component("denominator")
 
-        ir, _ = ctx.pending_objects[-1]
+        assert isinstance(ref, MetricRef)
+        assert ref.semantic_id == "sales.margin"
+        ir, sidecar_entry = ctx.pending_objects[-1]
+        assert sidecar_entry is None
+        assert ir.semantic_id == "sales.margin"
         assert ir.is_derived is True
         assert ir.datasets == ()
+        assert ir.python_symbol == "margin"
+        assert ir.additivity == "non_additive"
+        assert ir.decomposition.kind == "ratio"
+        assert ir.decomposition.components == {
+            "numerator": "sales.revenue",
+            "denominator": "sales.cost",
+        }
+        assert ir.provenance.declared_status == "python_native"
+        assert ir.provenance.source_document == "metric-catalog.md"
+        assert ir.body_ast_hash == _compute_decomposition_ast_hash(
+            ms.ratio(
+                numerator="sales.revenue",
+                denominator="sales.cost",
+            )
+        )
     finally:
         _exit_ctx()
 
 
-def test_metric_rejects_empty_datasets_without_components() -> None:
-    """Empty datasets only make sense for derived metrics with components."""
+def test_derived_metric_decomposition_hash_is_component_order_stable() -> None:
+    forward = DecompositionBuilder(
+        kind="ratio",
+        components={
+            "numerator": "sales.revenue",
+            "denominator": "sales.orders",
+        },
+    )
+    reversed_order = DecompositionBuilder(
+        kind="ratio",
+        components={
+            "denominator": "sales.orders",
+            "numerator": "sales.revenue",
+        },
+    )
+
+    assert _compute_decomposition_ast_hash(forward) == _compute_decomposition_ast_hash(
+        reversed_order
+    )
+
+
+def test_derived_metric_weighted_average_keeps_numerator_weight_keys() -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        ms.derived_metric(
+            name="aov",
+            decomposition=ms.weighted_average(
+                value="sales.revenue",
+                weight="sales.order_count",
+            ),
+        )
+
+        ir, sidecar_entry = ctx.pending_objects[-1]
+        assert sidecar_entry is None
+        assert ir.is_derived is True
+        assert ir.additivity is None
+        assert ir.decomposition.kind == "weighted_average"
+        assert ir.decomposition.components == {
+            "numerator": "sales.revenue",
+            "weight": "sales.order_count",
+        }
+    finally:
+        _exit_ctx()
+
+
+def test_derived_metric_rejects_sum_decomposition() -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.derived_metric(name="orphan", decomposition=ms.sum())
+
+        assert exc_info.value.kind == ErrorKind.INVALID_DECOMPOSITION
+        assert exc_info.value.constraint_id == "decomposition_shape"
+        assert ctx.pending_objects == []
+    finally:
+        _exit_ctx()
+
+
+@pytest.mark.parametrize("additivity", ["additive", "semi_additive"])
+def test_derived_metric_rejects_additive_additivity(additivity: str) -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.derived_metric(
+                name="margin",
+                decomposition=ms.ratio(
+                    numerator="sales.revenue",
+                    denominator="sales.cost",
+                ),
+                additivity=additivity,  # type: ignore[arg-type]
+            )
+
+        assert exc_info.value.kind == ErrorKind.INVALID_DECOMPOSITION
+        assert exc_info.value.constraint_id == "decomposition_shape"
+        assert ctx.pending_objects == []
+    finally:
+        _exit_ctx()
+
+
+def test_metric_rejects_empty_datasets_after_derived_split() -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.metric(
+                datasets=[],
+                decomposition=ms.ratio(
+                    numerator="sales.revenue",
+                    denominator="sales.cost",
+                ),
+            )
+            def margin() -> object:
+                return 1
+
+        assert exc_info.value.kind == ErrorKind.MISSING_DATASETS
+        assert exc_info.value.constraint_id == "metric_datasets_required"
+        assert ctx.pending_objects == []
+    finally:
+        _exit_ctx()
+
+
+def test_metric_rejects_empty_datasets_with_sum_after_derived_split() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.metric(datasets=[], decomposition=ms.sum())
-            def orphan_metric():
+            def orphan_metric() -> object:
                 return 1
 
-        assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+        assert exc_info.value.kind == ErrorKind.MISSING_DATASETS
+        assert exc_info.value.constraint_id == "metric_datasets_required"
+        assert ctx.pending_objects == []
     finally:
         _exit_ctx()
 
@@ -986,7 +957,7 @@ def test_base_metric_rejects_component_body_at_definition_time() -> None:
     """ms.component() cannot be hidden inside a dataset-backed metric."""
     ctx = _enter_ctx(default_model="sales")
     try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
+        with pytest.raises(SemanticLoadError) as exc_info:
 
             @ms.metric(
                 datasets=["sales.orders"],
@@ -999,51 +970,6 @@ def test_base_metric_rejects_component_body_at_definition_time() -> None:
                 return ms.component("numerator") / ms.component("denominator")
 
         assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-    finally:
-        _exit_ctx()
-
-
-def test_derived_metric_sidecar_stores_sentinel_tree() -> None:
-    """Derived metric stores sentinel tree (not raw callable) in sidecar."""
-    ctx = _enter_ctx(default_model="sales")
-    try:
-
-        @ms.metric(
-            datasets=[],
-            decomposition=ms.ratio(
-                numerator="sales.revenue",
-                denominator="sales.cost",
-            ),
-        )
-        def margin():
-            return ms.component("numerator") / ms.component("denominator")
-
-        _, sidecar_entry = ctx.pending_objects[-1]
-        # sidecar_entry should be a _BinOpSentinel, not a callable
-        assert isinstance(sidecar_entry, _BinOpSentinel)
-        assert sidecar_entry.op == "/"
-    finally:
-        _exit_ctx()
-
-
-def test_derived_metric_body_rejects_non_component_call() -> None:
-    ctx = _enter_ctx(default_model="sales")
-    try:
-        with pytest.raises(SemanticLoadError) as exc_info:
-
-            @ms.metric(
-                datasets=[],
-                decomposition=ms.ratio(
-                    numerator="sales.revenue",
-                    denominator="sales.cost",
-                ),
-            )
-            def margin():
-                return abs(ms.component("numerator"))
-
-        assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert exc_info.value.constraint_id == "ast_component_arithmetic"
-        assert ctx.pending_objects == []
     finally:
         _exit_ctx()
 

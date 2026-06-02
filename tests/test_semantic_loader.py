@@ -584,6 +584,48 @@ def test_unverified_provenance_warning_in_result(semantic_project_factory) -> No
     assert any(w.kind == WarningKind.UNVERIFIED_PROVENANCE for w in result.warnings)
 
 
+def test_derived_python_native_status_warning_in_result(semantic_project_factory) -> None:
+    from marivo.semantic.errors import WarningKind
+
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic as ms
+        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+
+        @ms.metric(
+            datasets=[orders],
+            additivity="additive",
+            decomposition=ms.sum(),
+            declared_status="python_native",
+        )
+        def revenue(table):
+            return table.amount.sum()
+
+        ratio = ms.derived_metric(
+            name="ratio",
+            decomposition=ms.ratio(
+                numerator="sales.revenue",
+                denominator="sales.revenue",
+            ),
+            declared_status="python_native",
+            source_sql="SELECT 1",
+        )
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/metrics.py": metrics_py,
+        },
+        load=False,
+    )
+    result = project.load()
+
+    assert project.is_ready()
+    assert any(
+        w.kind == WarningKind.DERIVED_PYTHON_NATIVE_STATUS and w.refs == ("sales.ratio",)
+        for w in result.warnings
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registry and Sidecar access
 # ---------------------------------------------------------------------------

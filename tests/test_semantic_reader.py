@@ -104,12 +104,13 @@ _DERIVED_METRIC_MODEL_PY = textwrap.dedent("""\
     def count_metric(table):
         return table.count()
 
-    @ms.metric(
-        datasets=[],
-        decomposition=ms.weighted_average(value="sales.revenue", weight="sales.count_metric"),
+    aov = ms.derived_metric(
+        name="aov",
+        decomposition=ms.weighted_average(
+            value="sales.revenue",
+            weight="sales.count_metric",
+        ),
     )
-    def aov():
-        return ms.component("numerator") / ms.component("weight")
 """)
 
 

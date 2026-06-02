@@ -404,10 +404,10 @@ class TimeFieldRef(_BaseRef):
 
 
 class MetricRef(_BaseRef):
-    """Ref returned by ms.metric().  Not callable.
+    """Ref returned by ms.metric() and ms.derived_metric(). Not callable.
 
-    Derived metric composition uses ms.component() sentinels, not
-    direct metric calls.
+    Derived metrics compose refs through decomposition builders, not direct
+    metric calls.
     """
 
     def __init__(self, semantic_id: str) -> None:

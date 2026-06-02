@@ -71,7 +71,6 @@ class ComponentPlan:
 @dataclass(frozen=True)
 class DerivedObservePlan:
     metric_ir: Any
-    sentinel_tree: Any
     component_plans: list[ComponentPlan]
     parent_axes: dict[str, Any]
     lineage_metadata: dict[str, Any]
@@ -1566,16 +1565,6 @@ def _plan_derived_observe(
     resolved_window: Any | None,
     time_field: Any,
 ) -> DerivedObservePlan:
-    sidecar = project.sidecar()
-    sentinel_tree = sidecar.get(metric_ir.semantic_id) if sidecar else None
-    if sentinel_tree is None:
-        raise_observe_planning_error(
-            code="derived-shared-planner-unsupported",
-            message=f"derived metric expression for {metric_ir.semantic_id!r} not found",
-            candidates={"metric": metric_ir.semantic_id},
-            repair=[],
-        )
-
     component_plans: list[ComponentPlan] = []
     component_unreachable_axes: dict[str, list[str]] = {}
     component_unreachable_where: dict[str, list[str]] = {}
@@ -1690,7 +1679,6 @@ def _plan_derived_observe(
     }
     return DerivedObservePlan(
         metric_ir=metric_ir,
-        sentinel_tree=sentinel_tree,
         component_plans=component_plans,
         parent_axes=parent_axes,
         lineage_metadata=lineage_metadata,

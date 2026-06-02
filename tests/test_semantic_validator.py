@@ -7,18 +7,12 @@ Tests cover:
 - Base metric: assignment -> error
 - Base metric: for/while/with/try -> error
 - Base metric: .sql/.raw_sql -> SQL_ESCAPE_HATCH
+- Base metric: ms.component() -> INVALID_COMPONENT_BODY
 - Base metric: calling metric ref -> error
 - Base metric: valid arithmetic expression -> ok
 - Base metric: method calls on dataset arg -> ok
 - Base metric: field ref calls -> ok
 - Base metric: lambda expression -> error
-- Derived metric: ms.component() allowed
-- Derived metric: non-component call -> error
-- Derived metric: attribute access -> error
-- Derived metric: string literal -> error
-- Derived metric: comparison -> error
-- Derived metric: boolean op -> error
-- Derived metric: conditional expression -> error
 """
 
 from __future__ import annotations
@@ -273,6 +267,29 @@ def test_base_raw_sql_escape_hatch() -> None:
     assert exc_info.value.kind == ErrorKind.SQL_ESCAPE_HATCH
 
 
+def test_base_ms_component_call_rejected() -> None:
+    """ms.component() is not supported in base metric bodies."""
+
+    def bad_metric(table):  # type: ignore[no-untyped-def]
+        return ms.component("amount")  # noqa: F821
+
+    with pytest.raises(SemanticLoadError) as exc_info:
+        validate_metric_body_ast(bad_metric, "base")
+
+    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+    assert exc_info.value.constraint_id == "metric_component_scope"
+
+
+def test_derived_validation_mode_rejected() -> None:
+    """The old derived-body validation mode should fail fast."""
+
+    def revenue(table):  # type: ignore[no-untyped-def]
+        return table.amount.sum()
+
+    with pytest.raises(ValueError, match="unsupported metric body AST validation mode"):
+        validate_metric_body_ast(revenue, "derived")  # type: ignore[arg-type]
+
+
 def test_base_lambda_error() -> None:
     """Lambda expressions in metric body are forbidden."""
 
@@ -322,210 +339,6 @@ def test_base_multiple_returns_error() -> None:
         e.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN for e in validator.errors
     )
     assert has_multi_return
-
-
-# ---------------------------------------------------------------------------
-# Derived metric: valid bodies
-# ---------------------------------------------------------------------------
-
-
-def test_derived_component_only() -> None:
-    """A derived metric body with only ms.component() is valid."""
-
-    def conversion_rate():  # type: ignore[no-untyped-def]
-        return ms.component("numerator") / ms.component("denominator")  # noqa: F821
-
-    result = validate_metric_body_ast(conversion_rate, "derived")
-    assert isinstance(result, str)
-    assert len(result) > 0
-
-
-def test_derived_component_with_arithmetic() -> None:
-    """Arithmetic on ms.component() results is valid."""
-
-    def margin():  # type: ignore[no-untyped-def]
-        return ms.component("gross") - ms.component("costs")  # noqa: F821
-
-    result = validate_metric_body_ast(margin, "derived")
-    assert isinstance(result, str)
-
-
-def test_derived_component_with_numeric_literal() -> None:
-    """Numeric literals in derived metrics are valid."""
-
-    def scaled():  # type: ignore[no-untyped-def]
-        return ms.component("revenue") * 100  # noqa: F821
-
-    result = validate_metric_body_ast(scaled, "derived")
-    assert isinstance(result, str)
-
-
-def test_derived_unary_minus() -> None:
-    """Unary minus in derived metrics is valid."""
-
-    def negated():  # type: ignore[no-untyped-def]
-        return -ms.component("value")  # noqa: F821
-
-    result = validate_metric_body_ast(negated, "derived")
-    assert isinstance(result, str)
-
-
-def test_derived_parenthesized() -> None:
-    """Parenthesized expressions are valid."""
-
-    def combined():  # type: ignore[no-untyped-def]
-        return (ms.component("a") + ms.component("b")) / ms.component("c")  # noqa: F821
-
-    result = validate_metric_body_ast(combined, "derived")
-    assert isinstance(result, str)
-
-
-# ---------------------------------------------------------------------------
-# Derived metric: forbidden bodies
-# ---------------------------------------------------------------------------
-
-
-def test_derived_non_component_call() -> None:
-    """Any function call other than ms.component() is forbidden."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return abs(ms.component("value"))  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_attribute_access() -> None:
-    """Attribute access in derived metrics is forbidden."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return ms.component("value").something  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_string_literal() -> None:
-    """String literals (outside ms.component() arg) are forbidden."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return ms.component("value") + " dollars"  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_comparison() -> None:
-    """Comparison operations are forbidden in derived metrics."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return ms.component("a") > 0  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_boolean_op() -> None:
-    """Boolean operations are forbidden in derived metrics."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return ms.component("a") and ms.component("b")  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_conditional_expression() -> None:
-    """Conditional expressions are forbidden in derived metrics."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return ms.component("a") if True else 0  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_subscript() -> None:
-    """Subscript access is forbidden in derived metrics."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return ms.component("values")[0]  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_modulo_operator() -> None:
-    """Modulo operator is not in the allowed set."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return ms.component("a") % 2  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_not_operator() -> None:
-    """Unary 'not' is not in the allowed set."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return not ms.component("a")  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_component_wrong_arg_count() -> None:
-    """ms.component() with wrong number of arguments is forbidden."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return ms.component("a", "b")  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_component_non_string_arg() -> None:
-    """ms.component() with non-string argument is forbidden."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return ms.component(42)  # type: ignore[no-untyped-def]  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_component_keyword_arg() -> None:
-    """ms.component() with keyword argument is forbidden."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        return ms.component(name="a")  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-
-
-def test_derived_no_return() -> None:
-    """Derived metric without return statement is forbidden."""
-
-    def bad_derived():  # type: ignore[no-untyped-def]
-        ms.component("a")  # noqa: F821
-
-    with pytest.raises(SemanticLoadError) as exc_info:
-        validate_metric_body_ast(bad_derived, "derived")
-    assert exc_info.value.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
 
 
 # ---------------------------------------------------------------------------

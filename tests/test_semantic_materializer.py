@@ -475,7 +475,7 @@ def test_field_not_found(semantic_project_factory, backend_factory) -> None:
 
 
 def test_derived_metric_ratio_materialize(semantic_project_factory, backend_factory) -> None:
-    """Derived ratio metric: ms.component("numerator") / ms.component("denominator")."""
+    """Derived ratio metric: synthesized numerator / denominator."""
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -485,9 +485,13 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(datasets=[], decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.revenue"))
-        def revenue_ratio():
-            return ms.component("numerator") / ms.component("denominator")
+        revenue_ratio = ms.derived_metric(
+            name="revenue_ratio",
+            decomposition=ms.ratio(
+                numerator="sales.revenue",
+                denominator="sales.revenue",
+            ),
+        )
     """)
 
     project = semantic_project_factory(
@@ -503,9 +507,10 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
     assert value == pytest.approx(1.0)
 
 
-def test_derived_metric_with_arithmetic(semantic_project_factory, backend_factory) -> None:
-    """Derived metric with arithmetic: ms.component("a") * 2 + 100."""
-
+def test_derived_metric_has_no_materializer_sidecar_entry(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
         orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
@@ -514,9 +519,13 @@ def test_derived_metric_with_arithmetic(semantic_project_factory, backend_factor
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(datasets=[], decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.revenue"))
-        def scaled_revenue():
-            return ms.component("numerator") * 2 + ms.component("denominator") * 0
+        revenue_ratio = ms.derived_metric(
+            name="revenue_ratio",
+            decomposition=ms.ratio(
+                numerator="sales.revenue",
+                denominator="sales.revenue",
+            ),
+        )
     """)
 
     project = semantic_project_factory(
@@ -526,14 +535,16 @@ def test_derived_metric_with_arithmetic(semantic_project_factory, backend_factor
         }
     )
 
-    # scaled_revenue = revenue * 2 + revenue * 0 = 600 + 0 = 600
-    result = project.materialize_metric("sales.scaled_revenue", backend_factory=backend_factory)
-    value = result.to_pandas()
-    assert value == pytest.approx(600.0)
+    sidecar = project.sidecar()
+    assert sidecar is not None
+    assert "sales.revenue" in sidecar
+    assert "sales.revenue_ratio" not in sidecar
+    result = project.materialize_metric("sales.revenue_ratio", backend_factory=backend_factory)
+    assert result.to_pandas() == pytest.approx(1.0)
 
 
 def test_derived_metric_weighted_average(semantic_project_factory, backend_factory) -> None:
-    """Derived weighted_average metric: ms.component("numerator") / ms.component("weight")."""
+    """Derived weighted_average metric: synthesized numerator / weight."""
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -547,9 +558,13 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
         def count_metric(table):
             return table.count()
 
-        @ms.metric(datasets=[], decomposition=ms.weighted_average(value="sales.revenue", weight="sales.count_metric"))
-        def aov():
-            return ms.component("numerator") / ms.component("weight")
+        aov = ms.derived_metric(
+            name="aov",
+            decomposition=ms.weighted_average(
+                value="sales.revenue",
+                weight="sales.count_metric",
+            ),
+        )
     """)
 
     project = semantic_project_factory(
@@ -576,13 +591,21 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(datasets=[], decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.revenue"))
-        def revenue_ratio():
-            return ms.component("numerator") / ms.component("denominator")
+        revenue_ratio = ms.derived_metric(
+            name="revenue_ratio",
+            decomposition=ms.ratio(
+                numerator="sales.revenue",
+                denominator="sales.revenue",
+            ),
+        )
 
-        @ms.metric(datasets=[], decomposition=ms.ratio(numerator="sales.revenue_ratio", denominator="sales.revenue_ratio"))
-        def double_ratio():
-            return ms.component("numerator") / ms.component("denominator")
+        double_ratio = ms.derived_metric(
+            name="double_ratio",
+            decomposition=ms.ratio(
+                numerator="sales.revenue_ratio",
+                denominator="sales.revenue_ratio",
+            ),
+        )
     """)
 
     project = semantic_project_factory(
