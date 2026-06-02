@@ -6,7 +6,7 @@ All read-only access to the loaded semantic model goes through
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -395,6 +395,7 @@ class SemanticProject:
         self._load_result: LoadResult | None = None
         self._registry: Registry | None = None
         self._sidecar: Sidecar | None = None
+        self._filtered_models: tuple[str, ...] = ()
         self._runtime_metadata: dict[str, DatasetRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
         self._raw_preview_evidence: tuple[str, ...] = ()
@@ -513,9 +514,20 @@ class SemanticProject:
 
     # -- lifecycle -----------------------------------------------------------
 
-    def load(self) -> LoadResult:
-        """Load the project from disk."""
-        result = load_project(self._root)
+    def load(self, *, models: Sequence[str] | None = None) -> LoadResult:
+        """Load the project from disk.
+
+        When *models* is specified, only those model directories are loaded.
+        Cross-model references to filtered-out models produce warnings instead
+        of errors, so the registry remains usable.
+        """
+        if models is not None and len(models) > 0:
+            self._filtered_models = tuple(models)
+        else:
+            self._filtered_models = ()
+        result = load_project(
+            self._root, models=self._filtered_models if self._filtered_models else None
+        )
         self._load_result = result
         self._status = result.status
         self._errors = result.errors
@@ -539,8 +551,11 @@ class SemanticProject:
             )
         return result
 
-    def reload(self) -> LoadResult:
-        """Re-load the project from disk."""
+    def reload(self, *, models: Sequence[str] | None = None) -> LoadResult:
+        """Re-load the project from disk.
+
+        If *models* is not provided, re-applies the filter from the last load.
+        """
         # Reset state before reload
         self._status = "unloaded"
         self._errors = ()
@@ -549,7 +564,13 @@ class SemanticProject:
         self._sidecar = None
         self._runtime_metadata = {}
         self._parity_results = {}
-        return self.load()
+        # Use provided models, or fall back to the previously stored filter
+        effective_models = (
+            models
+            if models is not None
+            else (self._filtered_models if self._filtered_models else None)
+        )
+        return self.load(models=effective_models)
 
     def is_ready(self) -> bool:
         """Return True if the project is in the ready state."""

@@ -19,7 +19,7 @@ def _sales_orders_template_path():
 def semantic_project_factory(tmp_path):
     """Create a SemanticProject from a mapping of project-relative files."""
 
-    def _make(files: dict[str, str], load: bool = True):
+    def _make(files: dict[str, str], load: bool = True, models: list[str] | None = None):
         from marivo.semantic.reader import SemanticProject
 
         marivo_root = tmp_path / ".marivo"
@@ -50,7 +50,7 @@ def semantic_project_factory(tmp_path):
 
         project = SemanticProject(root=root)
         if load:
-            project.load()
+            project.load(models=models)
         return project
 
     return _make

@@ -211,6 +211,7 @@ class WarningKind(StrEnum):
     UNVERIFIED_PROVENANCE = "unverified_provenance"
     POTENTIALLY_FRAGILE_REFERENCE = "potentially_fragile_reference"
     TIME_FIELD_PUSHDOWN_ADVISORY = "time_field_pushdown_advisory"
+    FILTERED_MODEL_REF = "filtered_model_ref"
 
 
 @dataclass(frozen=True)
@@ -225,6 +226,7 @@ class StructuredWarning:
         "unverified_provenance",
         "potentially_fragile_reference",
         "time_field_pushdown_advisory",
+        "filtered_model_ref",
     ]
     message: str
     refs: tuple[str, ...]
