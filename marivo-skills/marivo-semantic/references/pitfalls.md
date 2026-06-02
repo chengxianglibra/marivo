@@ -31,6 +31,7 @@ partition value.
 Do not cast a Trino VARCHAR datetime directly to DATE:
 
 ```python
+@ms.time_field(dataset=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("date")
 ```
@@ -38,6 +39,34 @@ def order_date(table):
 Parse through timestamp first:
 
 ```python
+@ms.time_field(dataset=orders, data_type="date", granularity="day")
+def order_date(table):
+    return table.order_time.cast("timestamp").cast("date")
+```
+
+Note: both examples declare `data_type="date"` because the body produces a
+DateColumn. Declaring `data_type="datetime"` with a `.cast("date")` body
+causes a TypeError at execution.
+
+## data_type vs body dtype mismatch
+
+The declared `data_type` must match the ibis dtype produced by the body
+function:
+
+- `.cast("date")` or a raw date column → `data_type="date"`
+- `.cast("timestamp")` or a raw timestamp column → `data_type="datetime"` or `data_type="timestamp"`
+
+When `data_type` does not match the body's ibis dtype, the executor dispatches
+to the wrong code path and raises TypeError (e.g., DateColumn + interval).
+
+```python
+# WRONG — data_type="datetime" with .cast("date") body
+@ms.time_field(dataset=orders, data_type="datetime", granularity="day")
+def order_date(table):
+    return table.order_time.cast("timestamp").cast("date")
+
+# CORRECT — data_type="date" with .cast("date") body
+@ms.time_field(dataset=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```

@@ -122,14 +122,21 @@ business axis, but they are not the partition field default and may not preserve
 predicate pushdown:
 
 ```python
+@ms.time_field(dataset=orders, data_type="date", granularity="day")
 def event_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
+
+When the body returns a date-typed expression (via `.cast("date")`), declare
+`data_type="date"`. Declaring `data_type="datetime"` with a `.cast("date")`
+body causes a TypeError at execution because ibis cannot add intervals to
+DateColumns.
 
 For Trino VARCHAR datetime columns storing values like `"2025-04-04 06:59:59"`,
 do not cast VARCHAR directly to DATE. Parse through timestamp first:
 
 ```python
+@ms.time_field(dataset=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```

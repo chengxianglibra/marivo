@@ -212,6 +212,7 @@ class WarningKind(StrEnum):
     UNVERIFIED_PROVENANCE = "unverified_provenance"
     POTENTIALLY_FRAGILE_REFERENCE = "potentially_fragile_reference"
     TIME_FIELD_PUSHDOWN_ADVISORY = "time_field_pushdown_advisory"
+    TIME_FIELD_DTYPE_ADVISORY = "time_field_dtype_advisory"
     FILTERED_MODEL_REF = "filtered_model_ref"
 
 
@@ -227,6 +228,7 @@ class StructuredWarning:
         "unverified_provenance",
         "potentially_fragile_reference",
         "time_field_pushdown_advisory",
+        "time_field_dtype_advisory",
         "filtered_model_ref",
     ]
     message: str

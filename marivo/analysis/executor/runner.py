@@ -21,6 +21,7 @@ import pandas as pd
 from marivo.analysis.datasources import registry as _datasource_registry
 from marivo.analysis.errors import (
     BackendError,
+    DataTypeMismatchError,
     SliceInvalidError,
     TimezoneInvalidError,
     WindowInvalidError,
@@ -427,6 +428,74 @@ def _field_timezone(field_expr: Any) -> str | None:
     return None
 
 
+_TEMPORAL_DECLARED_DATA_TYPES = {"date", "datetime", "timestamp"}
+
+_IBIS_DTYPE_TO_DECLARED: dict[str, set[str]] = {
+    "date": {"date"},
+    "timestamp": {"datetime", "timestamp"},
+    "string": {"string"},
+    "varchar": {"string"},
+    "int8": {"integer"},
+    "int16": {"integer"},
+    "int32": {"integer"},
+    "int64": {"integer"},
+    "uint8": {"integer"},
+    "uint16": {"integer"},
+    "uint32": {"integer"},
+    "uint64": {"integer"},
+}
+
+
+def _normalize_ibis_dtype(dtype_name: str) -> str:
+    """Normalize ibis dtype string for lookup.
+
+    DuckDB reports timestamps as "timestamp(6)" etc.; we normalize
+    to just "timestamp" for compatibility mapping.
+    """
+    if dtype_name.startswith("timestamp"):
+        return "timestamp"
+    return dtype_name
+
+
+def _validate_time_field_dtype(field_expr: Any, time_meta: Any) -> None:
+    declared = time_meta.data_type
+    if declared is None:
+        return
+    try:
+        dtype_name = str(field_expr.type())
+    except Exception:
+        return
+    normalized = _normalize_ibis_dtype(dtype_name)
+    compatible = _IBIS_DTYPE_TO_DECLARED.get(normalized)
+    if compatible is not None and declared not in compatible:
+        raise DataTypeMismatchError(
+            message=f"time_field declared data_type={declared!r} but the expression "
+            f"produces ibis dtype {dtype_name!r}; this mismatch causes "
+            f"TypeError at execution.",
+            hint=f"Change data_type to {sorted(compatible)[0]!r} or adjust "
+            f"the body to produce a {declared!r}-compatible expression.",
+            details={
+                "kind": "DataTypeDeclarationMismatch",
+                "declared": declared,
+                "actual_ibis_dtype": dtype_name,
+                "compatible_declarations": sorted(compatible),
+            },
+        )
+    if compatible is None and declared in _TEMPORAL_DECLARED_DATA_TYPES:
+        raise DataTypeMismatchError(
+            message=f"time_field declared data_type={declared!r} but the expression "
+            f"produces unexpected ibis dtype {dtype_name!r}; "
+            f"temporal time fields require date or timestamp dtype.",
+            hint="Adjust the body to produce a date or timestamp expression, "
+            "or change data_type to match the column's actual dtype.",
+            details={
+                "kind": "DataTypeUnexpectedForTemporal",
+                "declared": declared,
+                "actual_ibis_dtype": dtype_name,
+            },
+        )
+
+
 def _is_naive_temporal_expr(field_expr: Any) -> bool:
     """Return True if the field expression has no actual timezone attached."""
     return _field_timezone(field_expr) is None
@@ -487,6 +556,7 @@ def _window_bound_predicates(
     session_tz: ZoneInfo,
 ) -> tuple[Any, Any]:
     _validate_time_field_timezone(field_expr, time_meta)
+    _validate_time_field_dtype(field_expr, time_meta)
     data_type = time_meta.data_type
     fmt = _normalize_time_format(time_meta.format)
     strptime_fmt = _resolve_strptime_format(time_meta.format)
@@ -838,6 +908,7 @@ def apply_time_series_bucket(
         raise WindowInvalidError(message=f"field '{field_ir.name}' has no time metadata")
     raw = field_ir.fn(table)
     _validate_time_field_timezone(raw, field_ir.time_meta)
+    _validate_time_field_dtype(raw, field_ir.time_meta)
     time_meta = field_ir.time_meta
     data_type = time_meta.data_type
     fmt = time_meta.format
