@@ -70,6 +70,47 @@ def _time_field_chosen(ir: FieldIR) -> dict[str, object]:
     }
 
 
+def backfill_blast_radii(
+    semantic_root: Path | str,
+    *,
+    blast_radius_of: Callable[[tuple[str, ...]], int],
+) -> None:
+    """Replace ``blast_radius=0`` in stored DecisionRecords with the real
+    transitive-dependent count computed from the loaded registry.
+
+    Cold-start ``answer()`` calls write ``blast_radius=0`` because no
+    dependency graph exists yet. After load, this function corrects those
+    stale provenance entries. A legitimate ``0`` (isolated object with no
+    dependents) is preserved — backfill only acts when the computed value
+    differs from the stored ``0``.
+    """
+    store = LedgerStore(Path(semantic_root))
+    changed = False
+    for obj in store.iter_object_records():
+        real_br = blast_radius_of((obj.semantic_id,))
+        if real_br == 0:
+            continue
+        new_decisions: list[DecisionRecord] = []
+        for decision in obj.decisions:
+            if decision.blast_radius == 0:
+                d = decision.to_dict()
+                d["blast_radius"] = real_br
+                new_decisions.append(DecisionRecord.from_dict(d))
+                changed = True
+            else:
+                new_decisions.append(decision)
+        if changed:
+            store.write_object(
+                ObjectEvidence(
+                    semantic_id=obj.semantic_id,
+                    authored_at=obj.authored_at,
+                    decisions=tuple(new_decisions),
+                    rejected_candidates=obj.rejected_candidates,
+                )
+            )
+            changed = False
+
+
 def auto_record_authoring_decisions(
     registry: object,
     semantic_root: Path | str,
