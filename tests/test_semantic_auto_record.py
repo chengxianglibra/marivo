@@ -274,3 +274,49 @@ def test_auto_record_only_records_missing_decisions(semantic_project_factory):
         [d for d in md_decisions if d.qualifying_sources == (_AUTHORING_QUALIFYING_SOURCE,)]
     )
     assert n_authoring_md_after == n_authoring_md_before
+
+
+def test_auto_record_writes_alongside_user_confirmation_when_no_prior_authoring(
+    semantic_project_factory,
+):
+    """Bug 1 fix: auto_record always writes its DecisionRecord, even when
+    a non-authoring decision of the same decision_kind already exists and
+    no prior authoring decision is present."""
+    project = _project_with_metric(semantic_project_factory)
+    store = lg.LedgerStore(project.root_path)
+
+    # Strip the authoring auto-record, leaving only a user_confirmation decision
+    obj = store.read_object("sales.revenue")
+    assert obj is not None
+    user_confirmation = lg.DecisionRecord(
+        decision_kind="metric_decomposition",
+        chosen="Use revenue as a sum metric",
+        agreement_confidence="high",
+        qualifying_sources=("user_confirmation",),
+        materiality="high",
+        blast_radius=0,
+        evidence_fingerprint="sha256:user-answer",
+        question_id="q-1",
+        decided_at="2026-06-01T00:00:00+00:00",
+    )
+    store.write_object(
+        lg.ObjectEvidence(
+            semantic_id="sales.revenue",
+            authored_at=obj.authored_at,
+            decisions=(user_confirmation,),
+            rejected_candidates=obj.rejected_candidates,
+        )
+    )
+
+    project.reload()
+
+    obj = store.read_object("sales.revenue")
+    assert obj is not None
+    md_decisions = [d for d in obj.decisions if d.decision_kind == "metric_decomposition"]
+    # Both user_confirmation and authoring_declaration should exist
+    assert any(d.qualifying_sources == ("user_confirmation",) for d in md_decisions)
+    assert any(d.qualifying_sources == (_AUTHORING_QUALIFYING_SOURCE,) for d in md_decisions)
+    # Authoring decision has structured chosen (dict), not raw string
+    authoring = [d for d in md_decisions if d.qualifying_sources == (_AUTHORING_QUALIFYING_SOURCE,)]
+    assert isinstance(authoring[0].chosen, dict)
+    assert "kind" in authoring[0].chosen

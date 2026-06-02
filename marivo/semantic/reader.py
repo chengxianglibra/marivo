@@ -1097,6 +1097,10 @@ class SemanticProject:
         """Classify agent candidates + enrichments into ranked OpenQuestions, then
         drop any question already confirmed in the ledger (cross-session dedup).
 
+        Dedup uses two mechanisms:
+        1. question_id from ConfirmationRecords (covers answer()-produced confirmations)
+        2. (decision_kind, semantic_id) from DecisionRecords (covers auto-record decisions)
+
         Registry-optional and backend-free: when the project is already loaded,
         blast radius comes from the in-memory dependency graph; before authoring
         or after a failed load, blast radius falls back to zero. Candidate
@@ -1109,7 +1113,13 @@ class SemanticProject:
             inputs, blast_radius_of=self._open_question_blast_radius_of, round_index=round_index
         )
         confirmed = self._confirmed_question_ids(candidates)
-        return tuple(q for q in questions if q.id not in confirmed)
+        resolved = self._resolved_decision_keys()
+        return tuple(
+            q
+            for q in questions
+            if q.id not in confirmed
+            and not any((q.decision_kind, ref) in resolved for ref in q.subject_refs)
+        )
 
     def audit(
         self,
@@ -1170,6 +1180,21 @@ class SemanticProject:
             for record in store.read_confirmations(model):
                 ids.add(record.question_id)
         return ids
+
+    def _resolved_decision_keys(self) -> set[tuple[str, str]]:
+        """Return (decision_kind, semantic_id) pairs that already have a
+        DecisionRecord in the object ledger. Used by open_questions() to
+        dedup questions whose decision_kind is already resolved for a
+        given semantic_id, covering auto-record decisions that have no
+        corresponding ConfirmationRecord."""
+        from marivo.semantic.ledger import LedgerStore
+
+        store = LedgerStore(self._root)
+        resolved: set[tuple[str, str]] = set()
+        for obj in store.iter_object_records():
+            for decision in obj.decisions:
+                resolved.add((decision.decision_kind, obj.semantic_id))
+        return resolved
 
     def propose_candidates(
         self,

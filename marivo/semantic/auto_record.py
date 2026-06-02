@@ -167,15 +167,6 @@ def _auto_record_if_missing(
 ) -> None:
     existing = store.read_object(semantic_id)
 
-    # Case 1: non-authoring decision of this kind exists → preserve it
-    if existing is not None:
-        for decision in existing.decisions:
-            if (
-                decision.decision_kind == decision_kind
-                and _AUTHORING_QUALIFYING_SOURCE not in decision.qualifying_sources
-            ):
-                return
-
     # Build the new auto-record DecisionRecord
     record = DecisionRecord(
         decision_kind=decision_kind,

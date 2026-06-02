@@ -241,6 +241,26 @@ def test_open_questions_skips_confirmed_questions(semantic_project_factory):
     assert project.open_questions(candidates=[cand]) == ()
 
 
+def test_open_questions_skips_auto_recorded_decisions(semantic_project_factory):
+    """Bug 2 fix: open_questions() dedupes questions whose decision_kind
+    is already resolved by a DecisionRecord, even without ConfirmationRecords."""
+    project = _project_loaded(semantic_project_factory)
+    # After load, auto_record has written metric_decomposition for sales.revenue
+
+    # Create a candidate that would produce a metric_decomposition question
+    cand = ms.Candidate(
+        object_kind="metric",
+        proposed_id="sales.revenue",
+        decision_kind="metric_decomposition",
+        slot_values={"kind": "sum"},
+        evidence=(ms.EvidenceRef("structural", "structural:sales.revenue"),),
+        semantic_delta="decomposition?",
+    )
+    # The question should be deduped because auto-record already decided it
+    questions = project.open_questions(candidates=[cand])
+    assert questions == ()
+
+
 def test_audit_resurfaces_stale_dangerous_decision(semantic_project_factory):
     from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
     from marivo.semantic import ledger as lg
