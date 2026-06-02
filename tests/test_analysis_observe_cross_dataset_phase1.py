@@ -103,7 +103,7 @@ def test_segmented_cross_dataset_dimension_preserves_unmatched_root_rows(tmp_pat
     _seed(con)
     frame = observe(
         MetricRef("sales.revenue_by_user"),
-        dimensions=[DimensionRef("sales.tier")],
+        dimensions=[DimensionRef("sales.users.tier")],
         session=_session(con),
     )
 
@@ -125,14 +125,14 @@ def test_cross_dataset_where_filters_after_left_join(tmp_path):
     _seed(con)
     frame = observe(
         MetricRef("sales.revenue_by_user"),
-        where={"sales.country": "US"},
+        where={"sales.users.country": "US"},
         session=_session(con),
     )
 
     assert frame.meta.semantic_kind == "scalar"
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(30.0)
     # normalize_slice_for_storage compresses simple == to just the value
-    assert frame.meta.where == {"sales.country": "US"}
+    assert frame.meta.where == {"sales.users.country": "US"}
 
 
 def test_panel_cross_dataset_dimension_uses_root_time_axis(tmp_path):
@@ -143,7 +143,7 @@ def test_panel_cross_dataset_dimension_uses_root_time_axis(tmp_path):
         MetricRef("sales.revenue_by_user"),
         timescope={"start": "2026-07-01", "end": "2026-07-05"},
         grain="day",
-        dimensions=[DimensionRef("sales.tier")],
+        dimensions=[DimensionRef("sales.users.tier")],
         session=_session(con),
     )
 
@@ -226,7 +226,7 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
             MetricRef("sales.order_total_with_items"),
-            dimensions=[DimensionRef("sales.item_name")],
+            dimensions=[DimensionRef("sales.order_items.item_name")],
             session=_session(con),
         )
 
@@ -321,7 +321,7 @@ def test_snapshot_as_of_root_time_per_row_partition(tmp_path):
     frame = observe(
         MetricRef("sales.revenue_by_profile"),
         timescope={"start": "2026-07-01", "end": "2026-07-03"},
-        dimensions=[DimensionRef("sales.tier")],
+        dimensions=[DimensionRef("sales.user_profile_daily.tier")],
         session=_session(con),
     )
 
@@ -338,7 +338,7 @@ def test_relationships_lineage_records_distinct_from_and_to_dataset(tmp_path):
     _seed(con)
     frame = observe(
         MetricRef("sales.revenue_by_user"),
-        dimensions=[DimensionRef("sales.tier")],
+        dimensions=[DimensionRef("sales.users.tier")],
         session=_session(con),
     )
 

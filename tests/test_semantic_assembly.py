@@ -79,8 +79,8 @@ def _make_registry(**overrides: object) -> Registry:
         python_symbol="orders",
         location=_LOC,
     )
-    registry.fields["sales.amount"] = FieldIR(
-        semantic_id="sales.amount",
+    registry.fields["sales.orders.amount"] = FieldIR(
+        semantic_id="sales.orders.amount",
         model="sales",
         dataset="sales.orders",
         name="amount",
@@ -93,8 +93,8 @@ def _make_registry(**overrides: object) -> Registry:
         python_symbol="amount",
         location=_LOC,
     )
-    registry.fields["sales.order_date"] = FieldIR(
-        semantic_id="sales.order_date",
+    registry.fields["sales.orders.order_date"] = FieldIR(
+        semantic_id="sales.orders.order_date",
         model="sales",
         dataset="sales.orders",
         name="order_date",
@@ -133,8 +133,8 @@ def _make_registry(**overrides: object) -> Registry:
 def test_missing_dataset_ref_on_field() -> None:
     registry = _make_registry()
     # Add a field referencing a non-existent dataset
-    registry.fields["sales.bad_field"] = FieldIR(
-        semantic_id="sales.bad_field",
+    registry.fields["sales.nonexistent.bad_field"] = FieldIR(
+        semantic_id="sales.nonexistent.bad_field",
         model="sales",
         dataset="sales.nonexistent",
         name="bad_field",
@@ -224,8 +224,8 @@ def test_missing_metric_ref_in_decomposition() -> None:
 
 def test_timestamp_hour_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.order_hour"] = FieldIR(
-        semantic_id="sales.order_hour",
+    registry.fields["sales.orders.order_hour"] = FieldIR(
+        semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
         name="order_hour",
@@ -244,8 +244,8 @@ def test_timestamp_hour_time_field_without_required_prefix() -> None:
 
 def test_hour_only_string_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.order_hour"] = FieldIR(
-        semantic_id="sales.order_hour",
+    registry.fields["sales.orders.order_hour"] = FieldIR(
+        semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
         name="order_hour",
@@ -265,8 +265,8 @@ def test_hour_only_string_time_field_without_required_prefix() -> None:
 
 def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.order_hour"] = FieldIR(
-        semantic_id="sales.order_hour",
+    registry.fields["sales.orders.order_hour"] = FieldIR(
+        semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
         name="order_hour",
@@ -286,8 +286,8 @@ def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
 
 def test_complete_hour_string_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.order_hour"] = FieldIR(
-        semantic_id="sales.order_hour",
+    registry.fields["sales.orders.order_hour"] = FieldIR(
+        semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
         name="order_hour",
@@ -307,8 +307,8 @@ def test_complete_hour_string_time_field_without_required_prefix() -> None:
 
 def test_hour_time_field_with_required_prefix_ok() -> None:
     registry = _make_registry()
-    registry.fields["sales.order_hour"] = FieldIR(
-        semantic_id="sales.order_hour",
+    registry.fields["sales.orders.order_hour"] = FieldIR(
+        semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
         name="order_hour",
@@ -317,7 +317,7 @@ def test_hour_time_field_with_required_prefix_ok() -> None:
         is_time_field=True,
         data_type="timestamp",
         granularity="hour",
-        required_prefix="sales.order_date",  # Points to valid field
+        required_prefix="order_date",  # Points to valid field
         python_symbol="order_hour",
         location=_LOC,
     )
@@ -327,8 +327,8 @@ def test_hour_time_field_with_required_prefix_ok() -> None:
 
 def test_hour_time_field_with_required_prefix_name_ok() -> None:
     registry = _make_registry()
-    registry.fields["sales.order_hour"] = FieldIR(
-        semantic_id="sales.order_hour",
+    registry.fields["sales.orders.order_hour"] = FieldIR(
+        semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
         name="order_hour",
@@ -348,8 +348,8 @@ def test_hour_time_field_with_required_prefix_name_ok() -> None:
 
 def test_hour_time_field_with_invalid_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.order_hour"] = FieldIR(
-        semantic_id="sales.order_hour",
+    registry.fields["sales.orders.order_hour"] = FieldIR(
+        semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
         name="order_hour",
@@ -358,21 +358,21 @@ def test_hour_time_field_with_invalid_prefix() -> None:
         is_time_field=True,
         data_type="timestamp",
         granularity="hour",
-        required_prefix="sales.nonexistent_date",  # Not in registry
+        required_prefix="sales.orders.nonexistent_date",  # Not in registry
         python_symbol="order_hour",
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
     assert any(
-        e.kind == ErrorKind.MISSING_FIELD_REF and "sales.order_hour" in e.semantic_refs
+        e.kind == ErrorKind.MISSING_FIELD_REF and "sales.orders.order_hour" in e.semantic_refs
         for e in errors
     )
 
 
 def test_hour_time_field_prefix_must_reference_time_field() -> None:
     registry = _make_registry()
-    registry.fields["sales.order_hour"] = FieldIR(
-        semantic_id="sales.order_hour",
+    registry.fields["sales.orders.order_hour"] = FieldIR(
+        semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
         name="order_hour",
@@ -381,14 +381,14 @@ def test_hour_time_field_prefix_must_reference_time_field() -> None:
         is_time_field=True,
         data_type="string",
         granularity="hour",
-        required_prefix="sales.amount",
+        required_prefix="amount",
         python_symbol="order_hour",
         location=_LOC,
         format="hh",
     )
     errors, _warnings = assembly_validate(registry)
     assert any(
-        e.kind == ErrorKind.MISSING_FIELD_REF and "sales.order_hour" in e.semantic_refs
+        e.kind == ErrorKind.MISSING_FIELD_REF and "sales.orders.order_hour" in e.semantic_refs
         for e in errors
     )
 
@@ -411,8 +411,8 @@ def _raw_partition_time_field(table):
 
 def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
     registry = _make_registry()
-    registry.fields["sales.order_date"] = FieldIR(
-        semantic_id="sales.order_date",
+    registry.fields["sales.orders.order_date"] = FieldIR(
+        semantic_id="sales.orders.order_date",
         model="sales",
         dataset="sales.orders",
         name="order_date",
@@ -427,7 +427,7 @@ def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
     )
 
     errors, warnings = assembly_validate(
-        registry, sidecar={"sales.order_date": _cast_partition_time_field}
+        registry, sidecar={"sales.orders.order_date": _cast_partition_time_field}
     )
 
     assert errors == []
@@ -436,8 +436,8 @@ def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
 
 def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
     registry = _make_registry()
-    registry.fields["sales.order_date"] = FieldIR(
-        semantic_id="sales.order_date",
+    registry.fields["sales.orders.order_date"] = FieldIR(
+        semantic_id="sales.orders.order_date",
         model="sales",
         dataset="sales.orders",
         name="order_date",
@@ -453,7 +453,7 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
     )
 
     errors, warnings = assembly_validate(
-        registry, sidecar={"sales.order_date": _raw_partition_time_field}
+        registry, sidecar={"sales.orders.order_date": _raw_partition_time_field}
     )
 
     assert errors == []
@@ -473,8 +473,8 @@ def test_invalid_relationship_from_dataset() -> None:
         name="bad_rel",
         from_dataset="sales.nonexistent",
         to_dataset="sales.orders",
-        from_fields=("sales.amount",),
-        to_fields=("sales.amount",),
+        from_fields=("sales.orders.amount",),
+        to_fields=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -491,8 +491,8 @@ def test_invalid_relationship_to_dataset() -> None:
         name="bad_rel",
         from_dataset="sales.orders",
         to_dataset="sales.nonexistent",
-        from_fields=("sales.amount",),
-        to_fields=("sales.amount",),
+        from_fields=("sales.orders.amount",),
+        to_fields=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -509,8 +509,8 @@ def test_invalid_relationship_field_ref() -> None:
         name="bad_rel",
         from_dataset="sales.orders",
         to_dataset="sales.orders",
-        from_fields=("sales.nonexistent_field",),
-        to_fields=("sales.amount",),
+        from_fields=("sales.orders.nonexistent_field",),
+        to_fields=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -527,8 +527,8 @@ def test_valid_relationship_no_errors() -> None:
         name="self_rel",
         from_dataset="sales.orders",
         to_dataset="sales.orders",
-        from_fields=("sales.amount",),
-        to_fields=("sales.amount",),
+        from_fields=("sales.orders.amount",),
+        to_fields=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -547,8 +547,8 @@ def test_relationship_field_arity_mismatch() -> None:
         name="bad_arity",
         from_dataset="sales.orders",
         to_dataset="sales.orders",
-        from_fields=("sales.amount", "sales.order_date"),
-        to_fields=("sales.amount",),
+        from_fields=("sales.orders.amount", "sales.orders.order_date"),
+        to_fields=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -888,8 +888,8 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
             name="bad_rel",
             from_dataset="sales.nonexistent",
             to_dataset="sales.also_nonexistent",
-            from_fields=["sales.f1"],
-            to_fields=["sales.f2"],
+            from_fields=["sales.orders.f1"],
+            to_fields=["sales.orders.f2"],
         )
     """)
     project = semantic_project_factory(

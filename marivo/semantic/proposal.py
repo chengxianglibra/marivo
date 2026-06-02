@@ -133,7 +133,7 @@ def candidates_from_metadata(
             out.append(
                 Candidate(
                     object_kind="time_field",
-                    proposed_id=_qualify(model, col.name),
+                    proposed_id=f"{model}.{table}.{col.name}",
                     decision_kind="time_field_identity",
                     slot_values={
                         "dataset": _qualify(model, table),
@@ -148,7 +148,7 @@ def candidates_from_metadata(
             out.append(
                 Candidate(
                     object_kind="field",
-                    proposed_id=_qualify(model, col.name),
+                    proposed_id=f"{model}.{table}.{col.name}",
                     decision_kind="field_meaning",
                     slot_values={"dataset": _qualify(model, table), "column": col.name},
                     evidence=(EvidenceRef("metadata", locator), *col_comment),

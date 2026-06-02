@@ -103,7 +103,7 @@ def test_decompose_panel_per_bucket(tmp_path):
 def test_decompose_panel_accepts_model_prefixed_axis_ref(tmp_path):
     session, delta = _panel_delta(tmp_path)
 
-    out = decompose(delta, axis=DimensionRef("sales.region"), session=session)
+    out = decompose(delta, axis=DimensionRef("sales.orders.region"), session=session)
 
     assert out.meta.driver_field == "region"
     assert "region" in out.to_pandas().columns

@@ -25,6 +25,7 @@ from marivo.semantic.authoring import (
     DecompositionBuilder,
     _compute_decomposition_ast_hash,
 )
+from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
 from marivo.semantic.ir import (
     AiContextIR,
@@ -334,7 +335,7 @@ def test_field_returns_ref() -> None:
             return None  # type: ignore[unreachable]
 
         assert isinstance(amount, FieldRef)
-        assert amount.semantic_id == "sales.amount"
+        assert amount.semantic_id == "sales.orders.amount"
     finally:
         _exit_ctx()
 
@@ -366,7 +367,7 @@ def test_field_explicit_name() -> None:
 
         ir, _ = ctx.pending_objects[-1]
         assert ir.name == "order_amount"
-        assert ir.semantic_id == "sales.order_amount"
+        assert ir.semantic_id == "sales.orders.order_amount"
     finally:
         _exit_ctx()
 
@@ -429,7 +430,7 @@ def test_time_field_returns_ref() -> None:
             return None  # type: ignore[unreachable]
 
         assert isinstance(order_date, TimeFieldRef)
-        assert order_date.semantic_id == "sales.order_date"
+        assert order_date.semantic_id == "sales.orders.order_date"
     finally:
         _exit_ctx()
 
@@ -442,7 +443,7 @@ def test_time_field_ir_has_time_metadata() -> None:
             dataset="sales.orders",
             data_type="timestamp",
             granularity="hour",
-            required_prefix="sales.order_date",
+            required_prefix="order_date",
         )
         def order_hour(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -451,7 +452,7 @@ def test_time_field_ir_has_time_metadata() -> None:
         assert ir.is_time_field is True
         assert ir.data_type == "timestamp"
         assert ir.granularity == "hour"
-        assert ir.required_prefix == "sales.order_date"
+        assert ir.required_prefix == "order_date"
     finally:
         _exit_ctx()
 
@@ -1025,6 +1026,56 @@ def test_duplicate_metric_name_raises() -> None:
         _exit_ctx()
 
 
+def test_dataset_and_metric_same_name_no_collision() -> None:
+    """A dataset and a metric with the same model.name should coexist — kind-scoped uniqueness."""
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        ds = ms.dataset(
+            name="dau_7d_portrait",
+            datasource="warehouse",
+            source=ms.table("dau_7d_portrait"),
+        )
+        assert ds.semantic_id == "sales.dau_7d_portrait"
+
+        @ms.metric(
+            datasets=[ds],
+            additivity="additive",
+            decomposition=ms.sum(),
+            name="dau_7d_portrait",
+        )
+        def dau_7d_portrait(table):
+            return table.dau.sum()
+
+        assert dau_7d_portrait.semantic_id == "sales.dau_7d_portrait"
+    finally:
+        _exit_ctx()
+
+
+def test_field_and_time_field_same_name_same_dataset_collides() -> None:
+    """A field and a time_field with the same name on the same dataset share the fields namespace."""
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        ds = ms.dataset(
+            name="orders",
+            datasource="warehouse",
+            source=ms.table("orders"),
+        )
+
+        @ms.field(dataset=ds, name="log_date")
+        def log_date_field(table):
+            return table.log_date
+
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_field(dataset=ds, name="log_date", data_type="string", granularity="day")
+            def log_date_tf(table):
+                return table.log_date
+
+        assert exc_info.value.kind == "duplicate_name"
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # Keyword-only enforcement
 # ---------------------------------------------------------------------------
@@ -1177,6 +1228,18 @@ def test_ai_context_with_wrong_type_for_business_definition_raises() -> None:
         _exit_ctx()
 
 
+def test_ambiguous_reference_error_kind_exists() -> None:
+    """ErrorKind.AMBIGUOUS_REFERENCE must exist with value 'ambiguous_reference'."""
+    assert hasattr(ErrorKind, "AMBIGUOUS_REFERENCE")
+    assert ErrorKind.AMBIGUOUS_REFERENCE == "ambiguous_reference"
+
+
+def test_ambiguous_reference_constraint_id_exists() -> None:
+    """ConstraintId.AMBIGUOUS_REFERENCE must exist with value 'ambiguous_reference'."""
+    assert hasattr(ConstraintId, "AMBIGUOUS_REFERENCE")
+    assert ConstraintId.AMBIGUOUS_REFERENCE == "ambiguous_reference"
+
+
 def test_ai_context_with_non_string_in_list_raises() -> None:
     """ai_context with non-string items in list field should raise INVALID_AI_CONTEXT."""
     _enter_ctx(default_model="sales")
@@ -1192,5 +1255,60 @@ def test_ai_context_with_non_string_in_list_raises() -> None:
                 return None  # type: ignore[unreachable]
 
         assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
+    finally:
+        _exit_ctx()
+
+
+# ---------------------------------------------------------------------------
+# Dataset-scoped field IDs
+# ---------------------------------------------------------------------------
+
+
+def test_two_datasets_same_column_name_distinct_ids() -> None:
+    """Two datasets sharing a column name produce distinct dataset-scoped field IDs."""
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        orders_ds = ms.dataset(
+            name="orders",
+            datasource="warehouse",
+            source=ms.table("orders"),
+        )
+        portrait_ds = ms.dataset(
+            name="portrait",
+            datasource="warehouse",
+            source=ms.table("portrait"),
+        )
+
+        @ms.field(dataset=orders_ds, name="region")
+        def orders_region(table):
+            return table.region
+
+        @ms.field(dataset=portrait_ds, name="region")
+        def portrait_region(table):
+            return table.region
+
+        assert orders_region.semantic_id == "sales.orders.region"
+        assert portrait_region.semantic_id == "sales.portrait.region"
+    finally:
+        _exit_ctx()
+
+
+def test_field_model_mismatch_with_dataset_raises() -> None:
+    """A field whose model_name disagrees with the dataset's model must raise."""
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        ds = ms.dataset(
+            name="orders",
+            datasource="warehouse",
+            source=ms.table("orders"),
+        )
+
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.field(dataset=ds, name="region", model_name="inventory")
+            def region(table):
+                return table.region
+
+        assert exc_info.value.kind == "invalid_ref"
     finally:
         _exit_ctx()

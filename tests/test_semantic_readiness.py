@@ -277,21 +277,21 @@ def test_readiness_ready_after_required_preview_and_parity(
     assert report.blockers == ()
     assert report.warnings == ()
     assert "sales.orders" in report.analysis_ready_refs
-    assert "sales.amount" in report.analysis_ready_refs
-    assert "sales.created_at" in report.analysis_ready_refs
+    assert "sales.orders.amount" in report.analysis_ready_refs
+    assert "sales.orders.created_at" in report.analysis_ready_refs
     assert "sales.total_amount" in report.analysis_ready_refs
     assert report.preview_summary.required_previews == (
         "warehouse.orders",
         "sales.orders",
-        "sales.amount",
-        "sales.created_at",
+        "sales.orders.amount",
+        "sales.orders.created_at",
         "sales.total_amount",
     )
     assert set(report.preview_summary.completed_previews) == {
         "warehouse.orders",
         "sales.orders",
-        "sales.amount",
-        "sales.created_at",
+        "sales.orders.amount",
+        "sales.orders.created_at",
         "sales.total_amount",
     }
     assert report.parity_summary.verified_metrics == ("sales.total_amount",)
@@ -329,8 +329,8 @@ def test_readiness_folds_dataset_field_and_time_field_previews(
     assert set(report.preview_summary.completed_previews) == {
         "warehouse.orders",
         "sales.orders",
-        "sales.amount",
-        "sales.created_at",
+        "sales.orders.amount",
+        "sales.orders.created_at",
         "sales.total_amount",
     }
     assert execute_calls == 2
@@ -382,10 +382,10 @@ def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
 
     assert report.status == "blocked"
     assert "sales.orders" in report.preview_summary.completed_previews
-    assert "sales.amount" in report.preview_summary.completed_previews
-    assert "sales.missing_field" in report.preview_summary.failed_previews
+    assert "sales.orders.amount" in report.preview_summary.completed_previews
+    assert "sales.orders.missing_field" in report.preview_summary.failed_previews
     assert {issue.refs for issue in report.blockers if issue.kind == "field_preview_failed"} == {
-        ("sales.missing_field",)
+        ("sales.orders.missing_field",)
     }
 
 
@@ -1027,10 +1027,10 @@ def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
     warning_refs = {ref for issue in warnings for ref in issue.refs}
 
     # The bare field is flagged; the fully enriched dataset and field are not.
-    assert "sales.region" in blocker_refs
+    assert "sales.orders.region" in blocker_refs
     assert "sales.orders" not in blocker_refs
-    assert "sales.amount" not in blocker_refs
-    assert "sales.region" in warning_refs
+    assert "sales.orders.amount" not in blocker_refs
+    assert "sales.orders.region" in warning_refs
     assert all(issue.kind == "missing_business_definition" for issue in blockers)
     assert all(issue.severity == "blocker" for issue in blockers)
     assert all(issue.kind == "missing_guardrails" for issue in warnings)
@@ -1119,7 +1119,7 @@ def test_build_readiness_report_strict_enrichment_floor(semantic_project_factory
         ref for b in on.blockers if b.kind == "missing_business_definition" for ref in b.refs
     }
     assert on.status == "blocked"
-    assert blocked_refs == {"sales.orders", "sales.amount", "sales.total_amount"}
+    assert blocked_refs == {"sales.orders", "sales.orders.amount", "sales.total_amount"}
     assert any(w.kind == "missing_guardrails" for w in on.warnings)
     # Blocked refs are excluded from the handoff set.
     assert "sales.orders" not in on.analysis_ready_refs

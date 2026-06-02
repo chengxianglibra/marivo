@@ -98,7 +98,7 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
     resolved = resolve_observe_fields(
         project, metric, dimensions=[DimensionRef("region")], where=None, time_field=None
     )
-    assert [field.semantic_id for field in resolved.dimensions] == ["sales.region"]
+    assert [field.semantic_id for field in resolved.dimensions] == ["sales.orders.region"]
 
     with pytest.raises(ObservePlanningError) as exc_info:
         resolve_observe_fields(
@@ -107,9 +107,9 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
     assert exc_info.value.details["code"] == "field-ref-not-found"
 
     resolved = resolve_observe_fields(
-        project, metric, dimensions=[DimensionRef("sales.tier")], where=None, time_field=None
+        project, metric, dimensions=[DimensionRef("sales.users.tier")], where=None, time_field=None
     )
-    assert [field.semantic_id for field in resolved.dimensions] == ["sales.tier"]
+    assert [field.semantic_id for field in resolved.dimensions] == ["sales.users.tier"]
 
 
 def test_unique_shortest_path_and_join_safety(semantic_project_factory):

@@ -65,7 +65,7 @@ def test_detect_depth_flags_empty_ai_context_slots(semantic_project_factory):
     for subkind, refs in _detect_depth(project.registry()):
         by_ref.setdefault(refs[0], set()).add(subkind)
 
-    assert by_ref["sales.amount"] == {
+    assert by_ref["sales.orders.amount"] == {
         "missing_business_definition",
         "missing_guardrails",
         "missing_synonyms",
@@ -78,7 +78,7 @@ def test_detect_depth_skips_enriched_objects(semantic_project_factory):
 
     project = semantic_project_factory(_model(_DEPTH_ENRICHED))
     flagged_refs = {refs[0] for _subkind, refs in _detect_depth(project.registry())}
-    assert "sales.amount" not in flagged_refs
+    assert "sales.orders.amount" not in flagged_refs
     assert "sales.orders" not in flagged_refs
 
 

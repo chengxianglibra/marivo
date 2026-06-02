@@ -52,11 +52,11 @@ def test_effective_key_validity_subtracts_valid_from_and_valid_to(semantic_proje
 
 
 def _date_time_field():
-    return SimpleNamespace(data_type="date", semantic_id="sales.order_date")
+    return SimpleNamespace(data_type="date", semantic_id="sales.orders.order_date")
 
 
 def _timestamp_time_field():
-    return SimpleNamespace(data_type="timestamp", semantic_id="sales.created_at")
+    return SimpleNamespace(data_type="timestamp", semantic_id="sales.orders.created_at")
 
 
 def _string_time_field():

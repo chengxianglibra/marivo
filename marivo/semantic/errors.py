@@ -84,6 +84,7 @@ class ErrorKind(StrEnum):
     MATERIALIZE_FAILED = "materialize_failed"
     BACKEND_MISMATCH = "backend_mismatch"
     COMPILE_ERROR = "compile_error"
+    AMBIGUOUS_REFERENCE = "ambiguous_reference"
     CROSS_DATASOURCE_NOT_SUPPORTED = "cross_datasource_not_supported"
 
     # parity

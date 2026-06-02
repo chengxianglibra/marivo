@@ -207,7 +207,7 @@ def test_confirmation_log_appends_and_reads_in_order(tmp_path):
         ts="2026-05-31T11:00:00+00:00",
         question_id="q2",
         decision_kind="time_field_identity",
-        subject_refs=("sales.order_date",),
+        subject_refs=("sales.orders.order_date",),
         answer="paid_at",
         evidence_fingerprint="sha256:b",
     )

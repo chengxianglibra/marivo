@@ -207,7 +207,7 @@ def test_propose_candidates_calls_inspect_source_and_builds_candidates(
     assert "field_meaning" in by_kind  # pay_status
     proposed_ids = {c.proposed_id for c in cands}
     assert "sales.orders" in proposed_ids
-    assert "sales.created_at" in proposed_ids
+    assert "sales.orders.created_at" in proposed_ids
     [dataset_candidate] = [c for c in cands if c.decision_kind == "dataset_identity"]
     assert dataset_candidate.slot_values["database"] == "sales_mart"
     assert dataset_candidate.slot_values["source"] == {

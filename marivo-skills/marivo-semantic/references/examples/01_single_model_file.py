@@ -96,6 +96,6 @@ with tempfile.TemporaryDirectory() as tmp:
 
     project = ms.SemanticProject(root=root / ".marivo" / "semantic")
     project.load()
-    print("partition time field:", project.describe("sales.log_date").semantic_id)
-    print("hour partition time field:", project.describe("sales.log_hour").semantic_id)
+    print("partition time field:", project.describe("sales.orders.log_date").semantic_id)
+    print("hour partition time field:", project.describe("sales.orders.log_hour").semantic_id)
     print("metric:", project.describe("sales.revenue").semantic_id)

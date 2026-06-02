@@ -68,8 +68,8 @@ def test_validity_versioning_round_trip(semantic_project_factory):
     versioning = dataset.versioning
     assert versioning is not None
     assert versioning.kind == "validity"
-    assert versioning.valid_from == "sales.valid_from"
-    assert versioning.valid_to == "sales.valid_to"
+    assert versioning.valid_from == "sales.user_history.valid_from"
+    assert versioning.valid_to == "sales.user_history.valid_to"
     assert versioning.interval == "closed_open"
     assert versioning.open_end == (None,)
     assert versioning.timezone is None

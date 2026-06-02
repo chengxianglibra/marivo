@@ -110,10 +110,14 @@ def _resolve_model_name(explicit: str | None, ctx: LoaderContext) -> str:
     )
 
 
-def _check_duplicate(ctx: LoaderContext, semantic_id: str) -> None:
-    """Raise DUPLICATE_NAME if semantic_id already in pending_objects."""
+def _check_duplicate(
+    ctx: LoaderContext,
+    semantic_id: str,
+    ir_type: type[DatasetIR | FieldIR | MetricIR | RelationshipIR],
+) -> None:
+    """Raise DUPLICATE_NAME if semantic_id already in pending_objects of the same kind."""
     for ir, _ in ctx.pending_objects:
-        if hasattr(ir, "semantic_id") and ir.semantic_id == semantic_id:
+        if isinstance(ir, ir_type) and ir.semantic_id == semantic_id:
             _raise(
                 ErrorKind.DUPLICATE_NAME,
                 f"Name conflict: {semantic_id!r} is already declared.",
@@ -364,7 +368,7 @@ def dataset(
     ctx = _require_ctx()
     model_name = _resolve_model_name(model_name, ctx)
     semantic_id = f"{model_name}.{name}"
-    _check_duplicate(ctx, semantic_id)
+    _check_duplicate(ctx, semantic_id, DatasetIR)
     if not isinstance(source, (TableSourceIR, FileSourceIR)):
         _raise(
             ErrorKind.INVALID_REF,
@@ -436,10 +440,20 @@ def field(
 
     def decorator(fn: Callable[..., Any]) -> FieldRef:
         obj_name = name or fn.__name__
-        semantic_id = f"{model_name}.{obj_name}"
-        _check_duplicate(ctx, semantic_id)
-
         ds_ref = _resolve_ref_string(dataset)
+        semantic_id = f"{ds_ref}.{obj_name}"
+        ds_model = ds_ref.split(".", 1)[0]
+        if ds_model != model_name:
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"Field {semantic_id!r} belongs to dataset in model {ds_model!r}, "
+                f"but the active model is {model_name!r}.",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id,),
+                constraint_id=ConstraintId.REF_SHAPE,
+            )
+        _check_duplicate(ctx, semantic_id, FieldIR)
+
         validate_metric_body_ast(fn, "base")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
@@ -523,10 +537,20 @@ def time_field(
 
     def decorator(fn: Callable[..., Any]) -> TimeFieldRef:
         obj_name = name or fn.__name__
-        semantic_id = f"{model_name}.{obj_name}"
-        _check_duplicate(ctx, semantic_id)
-
         ds_ref = _resolve_ref_string(dataset)
+        semantic_id = f"{ds_ref}.{obj_name}"
+        ds_model = ds_ref.split(".", 1)[0]
+        if ds_model != model_name:
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"Time field {semantic_id!r} belongs to dataset in model {ds_model!r}, "
+                f"but the active model is {model_name!r}.",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id,),
+                constraint_id=ConstraintId.REF_SHAPE,
+            )
+        _check_duplicate(ctx, semantic_id, FieldIR)
+
         validate_metric_body_ast(fn, "base")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
@@ -623,7 +647,7 @@ def metric(
     def decorator(fn: Callable[..., Any]) -> MetricRef:
         obj_name = name or fn.__name__
         semantic_id = f"{model_name}.{obj_name}"
-        _check_duplicate(ctx, semantic_id)
+        _check_duplicate(ctx, semantic_id, MetricIR)
 
         ds_refs = _resolve_dataset_refs(datasets)
         if len(ds_refs) == 0:
@@ -805,7 +829,7 @@ def relationship(
         )
 
     semantic_id = f"{model_name}.{name}"
-    _check_duplicate(ctx, semantic_id)
+    _check_duplicate(ctx, semantic_id, RelationshipIR)
 
     from_ds = _resolve_ref_string(from_dataset)
     to_ds = _resolve_ref_string(to_dataset)

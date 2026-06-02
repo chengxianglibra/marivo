@@ -221,7 +221,7 @@ ms.derived_metric(
 | --- | --- | --- |
 | `active_loader_context` | declarations must load from project files | `references/examples/01_single_model_file.py` |
 | `active_model_required` | semantic ids need a model namespace | `references/examples/01_single_model_file.py` |
-| `unique_semantic_name` | ids must stay unique within a model scope | `references/examples/01_single_model_file.py` |
+| `unique_semantic_name` | ids must stay unique within their kind scope; fields are dataset-scoped | `references/examples/01_single_model_file.py` |
 | `ref_shape` | refs must point at the intended object kind | `references/examples/01_single_model_file.py` |
 | `decomposition_shape` | metrics need supported decomposition builders | `references/examples/01_single_model_file.py` |
 | `metric_datasets_required` | base metrics must declare datasets | `references/examples/01_single_model_file.py` |

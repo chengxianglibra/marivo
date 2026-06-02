@@ -67,6 +67,7 @@ class ConstraintId(StrEnum):
     PROVENANCE_VERIFIED = "provenance_verified"
     PARITY_VALUE_MATCH = "parity_value_match"
     PARITY_SCALAR_RESULT = "parity_scalar_result"
+    AMBIGUOUS_REFERENCE = "ambiguous_reference"
 
 
 @dataclass(frozen=True)
@@ -228,10 +229,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.UNIQUE_SEMANTIC_NAME,
         "duplicate_name",
         "decorator",
-        ("model", "dataset", "field", "time_field", "metric", "relationship"),
-        "Names must be unique in their semantic scope.",
-        "Duplicate semantic ids make registry lookups ambiguous.",
-        "Rename one object or move it to a different model namespace.",
+        ("model", "dataset", "field", "time_field", "metric", "derived_metric", "relationship"),
+        "Names must be unique within their kind scope. Fields and time fields are scoped to their dataset.",
+        "Duplicate semantic ids within the same kind make registry lookups ambiguous. Fields are dataset-scoped; datasets and metrics are model-scoped within their own kind.",
+        "Rename one object, move it to a different dataset (for fields), or use a different model namespace.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.REF_SHAPE: _constraint(
@@ -573,6 +574,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Parity SQL must return exactly one scalar result.",
         "Scalar parity compares one metric value to one source SQL value.",
         "Adjust source_sql so it returns one row and one column.",
+    ),
+    ConstraintId.AMBIGUOUS_REFERENCE: _constraint(
+        ConstraintId.AMBIGUOUS_REFERENCE,
+        "ambiguous_reference",
+        "runtime",
+        ("dataset", "field", "time_field", "metric", "relationship"),
+        "Unqualified name lookups must resolve to a single object kind.",
+        "Cross-kind name matches make registry lookups ambiguous.",
+        "Pass kind= to describe() or search(kind=...) to disambiguate.",
+        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
 }
 

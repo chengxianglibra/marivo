@@ -87,7 +87,7 @@ def test_auto_record_creates_metric_decomposition_decision(semantic_project_fact
 def test_auto_record_creates_time_field_identity_decision(semantic_project_factory):
     project = _project_with_metric_and_time_field(semantic_project_factory)
     store = lg.LedgerStore(project.root_path)
-    obj = store.read_object("sales.order_date")
+    obj = store.read_object("sales.orders.order_date")
     assert obj is not None
     decisions = [d for d in obj.decisions if d.decision_kind == "time_field_identity"]
     assert len(decisions) == 1
@@ -213,7 +213,7 @@ def test_readiness_passes_after_auto_record(semantic_project_factory):
     # No metric_decomposition or time_field_identity blockers
     blocker_refs = [i.refs for i in blockers]
     assert ("sales.revenue",) not in blocker_refs
-    assert ("sales.order_date",) not in blocker_refs
+    assert ("sales.orders.order_date",) not in blocker_refs
 
 
 def test_auto_record_only_records_missing_decisions(semantic_project_factory):
@@ -222,7 +222,7 @@ def test_auto_record_only_records_missing_decisions(semantic_project_factory):
     # Record a user-confirmed time_field_identity decision
     question = ms.OpenQuestion(
         id="q-tf",
-        subject_refs=("sales.order_date",),
+        subject_refs=("sales.orders.order_date",),
         decision_kind="time_field_identity",
         gated_by=None,
         candidates=(),
@@ -237,7 +237,7 @@ def test_auto_record_only_records_missing_decisions(semantic_project_factory):
     n_authoring_tf_before = len(
         [
             d
-            for d in store_before.read_object("sales.order_date").decisions
+            for d in store_before.read_object("sales.orders.order_date").decisions
             if d.decision_kind == "time_field_identity"
             and d.qualifying_sources == (_AUTHORING_QUALIFYING_SOURCE,)
         ]
@@ -257,7 +257,7 @@ def test_auto_record_only_records_missing_decisions(semantic_project_factory):
 
     store = lg.LedgerStore(project.root_path)
     # Time field: user_confirmation decision preserved; no new authoring auto-record added
-    tf_obj = store.read_object("sales.order_date")
+    tf_obj = store.read_object("sales.orders.order_date")
     assert tf_obj is not None
     tf_decisions = [d for d in tf_obj.decisions if d.decision_kind == "time_field_identity"]
     assert any(d.qualifying_sources == ("user_confirmation",) for d in tf_decisions)

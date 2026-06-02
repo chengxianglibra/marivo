@@ -50,7 +50,7 @@ def test_temporal_column_proposes_time_field_candidate():
     )
     cands = proposal.candidates_from_metadata(md, model="sales")
     tf = {c.proposed_id for c in cands if c.decision_kind == "time_field_identity"}
-    assert tf == {"sales.created_at", "sales.dt"}
+    assert tf == {"sales.orders.created_at", "sales.orders.dt"}
 
 
 def test_enum_named_column_proposes_field_candidate():
@@ -62,7 +62,7 @@ def test_enum_named_column_proposes_field_candidate():
     )
     cands = proposal.candidates_from_metadata(md, model="sales")
     fields = [c for c in cands if c.decision_kind == "field_meaning"]
-    assert [c.proposed_id for c in fields] == ["sales.pay_status"]
+    assert [c.proposed_id for c in fields] == ["sales.orders.pay_status"]
     assert {e.evidence_type for e in fields[0].evidence} == {"metadata", "comment"}
 
 
