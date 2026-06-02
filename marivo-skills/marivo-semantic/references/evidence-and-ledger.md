@@ -41,7 +41,7 @@ questions = project.open_questions(candidates=result.candidates)
 # result.residual_columns: columns the heuristics did not match
 # (measures, primary keys, dimensions, non-conventional FKs)
 for rc in result.residual_columns:
-    print("residual:", rc.dataset, rc.column, rc.data_type)
+    print("residual:", rc.dataset, rc.column, rc.data_type, rc.comment)
 ```
 
 `result.residual_columns` lists every column the heuristics omitted. Iterate it and

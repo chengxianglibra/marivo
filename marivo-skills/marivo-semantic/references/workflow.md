@@ -77,7 +77,7 @@ result = project.propose_candidates(
 for candidate in result.candidates:
     print(candidate.decision_kind, candidate.proposed_id, candidate.semantic_delta)
 for residual in result.residual_columns:
-    print("residual:", residual.dataset, residual.column, residual.data_type)
+    print("residual:", residual.dataset, residual.column, residual.data_type, residual.comment)
 ```
 
 The result is a **non-exhaustive structural starting set**. `result.candidates` contains
