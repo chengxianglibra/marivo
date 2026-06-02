@@ -248,7 +248,7 @@ def test_clickhouse_dispatch_with_host(monkeypatch: pytest.MonkeyPatch, project_
 
     assert captured["host"] == "ch.example.com"
     assert captured["database"] == "default"
-    assert captured["user"] == "default"
+    assert "user" not in captured
 
 
 def test_clickhouse_required_field_missing(project_root: Path) -> None:
