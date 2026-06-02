@@ -262,6 +262,98 @@ def test_readiness_ready_after_required_preview_and_parity(
     assert report.parity_summary.verified_metrics == ("sales.total_amount",)
 
 
+def test_readiness_folds_dataset_field_and_time_field_previews(
+    semantic_project_factory,
+    backend_factory,
+    monkeypatch,
+) -> None:
+    from ibis.expr.types.relations import Table
+
+    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    execute_calls = 0
+    original_execute = Table.execute
+
+    def counting_execute(self, *args, **kwargs):
+        nonlocal execute_calls
+        execute_calls += 1
+        return original_execute(self, *args, **kwargs)
+
+    monkeypatch.setattr(Table, "execute", counting_execute)
+
+    report = project.readiness(
+        strict_provenance=True,
+        require_preview=True,
+        raw_previews=("warehouse.orders",),
+        confirmed_relationships=(),
+        primary_keys_sampled=("sales.orders",),
+        backend_factory=backend_factory,
+    )
+
+    assert report.status == "ready"
+    assert set(report.preview_summary.completed_previews) == {
+        "warehouse.orders",
+        "sales.orders",
+        "sales.amount",
+        "sales.created_at",
+        "sales.total_amount",
+    }
+    assert execute_calls == 2
+
+
+def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": textwrap.dedent("""\
+                import marivo.semantic as ms
+
+                orders = ms.dataset(
+                    name="orders",
+                    datasource="warehouse",
+                    source=ms.table("orders"),
+                    description="Orders table",
+                    ai_context={"business_definition": "One row per paid order."},
+                )
+
+                @ms.field(
+                    dataset=orders,
+                    description="Order amount",
+                    ai_context={"business_definition": "Gross order amount in USD."},
+                )
+                def amount(table):
+                    return table.amount
+
+                @ms.field(
+                    dataset=orders,
+                    description="Missing field",
+                    ai_context={"business_definition": "A field with a broken expression."},
+                )
+                def missing_field(table):
+                    return table.missing_column
+            """),
+        }
+    )
+
+    report = project.readiness(
+        strict_provenance=True,
+        require_preview=True,
+        raw_previews=("warehouse.orders",),
+        backend_factory=backend_factory,
+    )
+
+    assert report.status == "blocked"
+    assert "sales.orders" in report.preview_summary.completed_previews
+    assert "sales.amount" in report.preview_summary.completed_previews
+    assert "sales.missing_field" in report.preview_summary.failed_previews
+    assert {issue.refs for issue in report.blockers if issue.kind == "field_preview_failed"} == {
+        ("sales.missing_field",)
+    }
+
+
 def test_readiness_blocks_when_required_raw_preview_missing(
     semantic_project_factory,
     backend_factory,

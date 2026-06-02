@@ -48,6 +48,11 @@ report = project.readiness(
 )
 ```
 
+`readiness()` reports required and completed previews per semantic ref, but it
+may execute compatible dataset, field, and time-field previews as one bounded
+backend query per dataset. Use the blockers and `preview_summary` refs as the
+handoff contract; do not infer one backend query per semantic object.
+
 Blocked readiness prevents analysis handoff. Under `strict_enrichment=True`,
 an analyzable handoff ref missing `ai_context.business_definition` blocks, and a
 missing `ai_context.guardrails` warns.

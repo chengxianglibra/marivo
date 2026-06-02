@@ -61,6 +61,12 @@ Preview failures are readiness blockers for affected handoff refs. Fix the
 semantic declaration, datasource access path, or cast before handing refs to
 `marivo-analysis`.
 
+Readiness may fold dataset, field, and time-field semantic previews into a
+single bounded backend query per parent dataset. Treat readiness output as
+per-ref evidence: `required_previews`, `completed_previews`, `failed_previews`,
+and blockers still name the semantic refs that are ready or blocked even when
+the backend execution was batched internally.
+
 ## Sampling and failure handling
 
 Keep preview limits bounded. Prefer representative filters only when they are
