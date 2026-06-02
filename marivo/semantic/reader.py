@@ -45,6 +45,7 @@ from marivo.semantic.ir import (
 from marivo.semantic.loader import LoadResult, load_project
 from marivo.semantic.materializer import DatasetRuntimeMetadata, Materializer
 from marivo.semantic.parity import ParityResult, parity_check, propagated_parity_status
+from marivo.semantic.proposal import ProposalResult, ResidualColumn
 from marivo.semantic.readiness import (
     EvidenceSummary,
     ParitySummary,
@@ -1203,24 +1204,38 @@ class SemanticProject:
         sources: Sequence[DatasetSourceIR],
         model: str,
         inspect_source: Callable[..., TableMetadata],
-    ) -> tuple[Candidate, ...]:
-        """Deterministic structural candidates for the named sources. Calls
-        ``inspect_source`` per source, then the pure heuristics. Returns
-        dataset/time_field/field candidates plus cross-table relationship candidates.
+    ) -> ProposalResult:
+        """Deterministic structural candidates for the named sources, plus
+        residual columns the heuristics did not match.
+
+        The result is a **non-exhaustive structural starting set**.  Callers
+        must review ``residual_columns`` for measures, primary keys, dimensions,
+        and non-conventional foreign keys that the heuristics omit.
 
         ``inspect_source`` is a callable with the same signature as
         ``mv.datasources.inspect_source``; the caller injects it so that
         ``marivo.semantic`` does not import ``marivo.analysis``.
         """
-        from marivo.semantic.proposal import candidates_from_metadata, relationship_candidates
+        from marivo.semantic.proposal import (
+            candidates_from_metadata,
+            relationship_candidates,
+            residual_columns,
+        )
 
         inspected = [(source, inspect_source(datasource, source=source)) for source in sources]
-        out: list[Candidate] = []
+        cand_out: list[Candidate] = []
+        res_out: list[ResidualColumn] = []
         for source, metadata in inspected:
-            out.extend(candidates_from_metadata(metadata, model=model, source=source))
+            cands = candidates_from_metadata(metadata, model=model, source=source)
+            cand_out.extend(cands)
+            res_out.extend(residual_columns(metadata, cands, model=model, source=source))
         metadatas = [metadata for _source, metadata in inspected]
-        out.extend(relationship_candidates(metadatas, model=model))
-        return tuple(out)
+        rel_cands = relationship_candidates(metadatas, model=model)
+        cand_out.extend(rel_cands)
+        return ProposalResult(
+            candidates=tuple(cand_out),
+            residual_columns=tuple(res_out),
+        )
 
     # -- describe -----------------------------------------------------------
 

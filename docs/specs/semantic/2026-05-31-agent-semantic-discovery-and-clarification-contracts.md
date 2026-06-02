@@ -176,6 +176,21 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class ResidualColumn:
+    dataset: str            # owning proposed dataset id, e.g. "sales.orders"
+    column: str             # column name
+    data_type: str          # raw type string, passed through verbatim
+    nullable: bool | None
+    comment: str | None     # column comment if present
+
+
+@dataclass(frozen=True)
+class ProposalResult:
+    candidates: tuple[Candidate, ...]              # same order and content as before
+    residual_columns: tuple[ResidualColumn, ...]   # columns no heuristic matched
+
+
+@dataclass(frozen=True)
 class Enrichment:
     # The agent's irreducibly-subjective inputs for one decision (design's
     # "agent-inferred" inputs). materiality is clamped to the floor; agreement is
@@ -285,12 +300,16 @@ def propose_candidates(
     self,
     *,
     datasource: str,
-    tables: Sequence[str] | None = None,        # None = all reachable tables
-    knowledge: KnowledgeBundle | None = None,
-    backend_factory: Callable[[str], Any],
-) -> tuple[Candidate, ...]:
-    """Deterministic. Structural candidates only; no business meaning. Ranked by
-    candidate_confidence, descending."""
+    sources: Sequence[DatasetSourceIR],
+    model: str,
+    inspect_source: Callable[..., TableMetadata],
+) -> ProposalResult:
+    """Non-exhaustive structural starting set. ``result.candidates`` contains
+    dataset, time_field, field, and relationship proposals the heuristics
+    matched. ``result.residual_columns`` lists every column the heuristics did
+    not match (measures, primary keys, dimensions, non-conventional FKs).
+    Callers must review residuals; do not treat candidates as the complete
+    worklist."""
 
 
 def open_questions(

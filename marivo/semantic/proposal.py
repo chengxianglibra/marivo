@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from marivo.semantic.classifier import Candidate, EvidenceRef
@@ -48,6 +49,21 @@ class _TableMeta(Protocol):
     def comment(self) -> str | None: ...
     @property
     def columns(self) -> Sequence[_ColumnMeta]: ...
+
+
+@dataclass(frozen=True)
+class ResidualColumn:
+    dataset: str  # owning proposed dataset id, e.g. "sales.orders"
+    column: str  # column name
+    data_type: str  # raw type string, passed through verbatim
+    nullable: bool | None
+    comment: str | None  # column comment if present
+
+
+@dataclass(frozen=True)
+class ProposalResult:
+    candidates: tuple[Candidate, ...]  # same order and content as today
+    residual_columns: tuple[ResidualColumn, ...]  # columns no heuristic matched
 
 
 def _qualify(model: str, name: str) -> str:
@@ -137,6 +153,43 @@ def candidates_from_metadata(
                     slot_values={"dataset": _qualify(model, table), "column": col.name},
                     evidence=(EvidenceRef("metadata", locator), *col_comment),
                     semantic_delta=f"candidate enum/status field: {col.name}",
+                )
+            )
+    return tuple(out)
+
+
+def residual_columns(
+    metadata: _TableMeta,
+    candidates: Sequence[Candidate],
+    *,
+    model: str,
+    source: DatasetSourceIR | None = None,
+) -> tuple[ResidualColumn, ...]:
+    """Columns of *metadata* not cited by any time_field or field candidate.
+
+    A column is **covered** iff it appears in ``slot_values["column"]`` of a
+    candidate whose ``object_kind`` is ``"time_field"`` or ``"field"``.  Dataset
+    and relationship candidates do not cover specific columns.  Columns used as
+    relationship join keys remain residual — they may still warrant a dimension
+    or field declaration, so the agent should see them.
+
+    Residual columns preserve source column order for deterministic output.
+    """
+    covered = {
+        c.slot_values["column"] for c in candidates if c.object_kind in ("time_field", "field")
+    }
+    table = source_name(source) if source is not None else metadata.table
+    dataset_id = _qualify(model, table)
+    out: list[ResidualColumn] = []
+    for col in metadata.columns:
+        if col.name not in covered:
+            out.append(
+                ResidualColumn(
+                    dataset=dataset_id,
+                    column=col.name,
+                    data_type=col.type,
+                    nullable=col.nullable,
+                    comment=col.comment,
                 )
             )
     return tuple(out)
