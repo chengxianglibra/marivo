@@ -723,7 +723,7 @@ def derived_metric(
     ctx = _require_ctx()
     model_name = _resolve_model_name(model_name, ctx)
     semantic_id = f"{model_name}.{name}"
-    _check_duplicate(ctx, semantic_id)
+    _check_duplicate(ctx, semantic_id, MetricIR)
 
     if decomposition.kind not in ("ratio", "weighted_average") or not decomposition.components:
         _raise(
