@@ -24,6 +24,10 @@ project.preview_metric("sales.revenue", backend_factory=backend_factory)
 project.parity_check("sales.revenue", backend_factory=backend_factory)
 ```
 
+`collect_source_preview()` persists metadata evidence for readiness. The raw
+sample rows are not persisted, and the readiness step may run in a later Python
+process.
+
 ## Audit
 
 ```python

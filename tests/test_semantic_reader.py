@@ -14,6 +14,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import json
 import textwrap
 
 import ibis
@@ -1057,6 +1058,84 @@ def test_collect_source_preview_returns_datasource_preview_and_records_evidence(
     assert preview.columns == ("order_id", "amount")
     assert preview.returned_row_count == 2
     assert project.raw_preview_evidence() == ("warehouse.orders",)
+
+
+def test_collect_source_preview_persists_metadata_without_rows(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    project.collect_source_preview(
+        datasource="warehouse",
+        table="orders",
+        backend_factory=backend_factory,
+        columns=("order_id", "amount"),
+        limit=2,
+    )
+
+    path = project.root_path / ".evidence" / "raw_previews.json"
+    payload = json.loads(path.read_text())
+
+    assert len(payload["raw_previews"]) == 1
+    record = payload["raw_previews"][0]
+    assert record["ref"] == "warehouse.orders"
+    assert record["datasource"] == "warehouse"
+    assert record["table"] == "orders"
+    assert record["database"] is None
+    assert record["columns"] == ["order_id", "amount"]
+    assert record["types"] == {"order_id": "int32", "amount": "float32"}
+    assert record["requested_limit"] == 2
+    assert record["returned_row_count"] == 2
+    assert record["sample_policy"] == {
+        "method": "bounded_limit",
+        "limit": 2,
+        "order_by": [],
+        "filters": [],
+    }
+    assert "collected_at" in record
+    assert "rows" not in record
+
+
+def test_collect_source_preview_replaces_persisted_record_for_same_ref(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    project.collect_source_preview(
+        datasource="warehouse",
+        table="orders",
+        backend_factory=backend_factory,
+        columns=("order_id",),
+        limit=1,
+    )
+    project.collect_source_preview(
+        datasource="warehouse",
+        table="orders",
+        backend_factory=backend_factory,
+        columns=("order_id", "amount"),
+        limit=2,
+    )
+
+    path = project.root_path / ".evidence" / "raw_previews.json"
+    payload = json.loads(path.read_text())
+
+    assert len(payload["raw_previews"]) == 1
+    record = payload["raw_previews"][0]
+    assert record["ref"] == "warehouse.orders"
+    assert record["columns"] == ["order_id", "amount"]
+    assert record["requested_limit"] == 2
 
 
 def test_collect_source_preview_rejects_invalid_limit(

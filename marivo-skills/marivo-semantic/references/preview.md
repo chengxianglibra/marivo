@@ -37,6 +37,11 @@ Raw previews help validate time formats, enum values, nulls, amount signs,
 amount units, JSON-like strings, and join-key shape. They do not prove that a
 column is the correct business concept.
 
+Successful source previews record project-local readiness evidence under
+`.marivo/semantic/.evidence/`, so a later Python process can run readiness
+without passing `raw_previews` manually. Marivo persists preview metadata only;
+raw sample rows are not written to the evidence file.
+
 ## Semantic preview
 
 After authoring and reload, preview the semantic objects that will be handed to
