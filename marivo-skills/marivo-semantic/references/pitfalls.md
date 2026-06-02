@@ -74,9 +74,11 @@ shape-sensitive columns.
 
 ## Incomplete decision records
 
-Do not call `project.record_decision(...)` with invented internal fields. Use
-`project.answer(...)` for user confirmations, or build a `DecisionRecord` from a
-real `OpenQuestion`, evidence fingerprint, cited table, and qualifying sources.
+Do not call `project.record_decision(semantic_id, record)` without the required
+`semantic_id` first argument (`question.subject_refs[0]`), or with invented
+internal fields. Use `project.answer(...)` for user confirmations, or build a
+`DecisionRecord` from a real `OpenQuestion`, evidence fingerprint, cited table,
+and qualifying sources.
 
 ## Analysis handoff before readiness
 

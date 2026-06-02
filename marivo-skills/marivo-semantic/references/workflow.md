@@ -118,10 +118,11 @@ the authoring session, inspect its runtime help, for example
 project.answer(question, "confirmed answer", evidence_fingerprint="sha256:...")
 ```
 
-Use `project.record_decision(...)` only when a complete `DecisionRecord` can be
-built from the real question, chosen value, evidence fingerprint, cited source,
-and qualifying sources. Use `question.blast_radius` for the ledger record. Do not
-invent internal fields.
+Use `project.record_decision(semantic_id, record)` only when a complete
+`DecisionRecord` can be built from the real question, chosen value, evidence
+fingerprint, cited source, and qualifying sources. `semantic_id` is
+`question.subject_refs[0]`. Use `question.blast_radius` for the ledger record.
+Do not invent internal fields.
 
 ## 7. Validate and close out
 

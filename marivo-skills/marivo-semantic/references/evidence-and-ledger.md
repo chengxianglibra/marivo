@@ -59,7 +59,7 @@ project.answer(question, "Use dt as the reporting time axis", evidence_fingerpri
 
 ## Decision records
 
-Use `project.record_decision(...)` only when a complete `DecisionRecord` can be
+Use `project.record_decision(semantic_id, record)` only when a complete `DecisionRecord` can be
 built from real question and evidence values, or to replace the minimal
 user-confirmation decision with richer cited evidence. Do not invent internal fields.
 For `blast_radius`, use `question.blast_radius` or a dependency-graph count
@@ -86,6 +86,24 @@ def decision_record_from_question(question, chosen, *, evidence_fingerprint, cit
         cited_source=cited_source,
     )
 ```
+
+To record the decision, pass the semantic ID as the first argument and the
+`DecisionRecord` as the second:
+
+```python
+record = decision_record_from_question(
+    question,
+    chosen,
+    evidence_fingerprint="|".join(
+        sorted(e.locator for candidate in question.candidates for e in candidate.evidence)
+    ),
+    cited_source={"datasource": "warehouse", "source": {"kind": "table", "table": "orders", "database": None}},
+)
+project.record_decision(question.subject_refs[0], record)
+```
+
+`semantic_id` comes from `question.subject_refs[0]` — the first object ref
+the question targets.
 
 Ledger records are provenance. They never replace `.marivo/semantic/<model>/*.py`
 as semantic definitions.
