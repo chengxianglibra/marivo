@@ -409,6 +409,12 @@ class SemanticProject:
     def _record_raw_preview_evidence(self, *refs: str) -> None:
         self._raw_preview_evidence = tuple(dict.fromkeys((*self._raw_preview_evidence, *refs)))
 
+    def _persisted_raw_preview_evidence(self) -> tuple[str, ...]:
+        from marivo.semantic.ledger import LedgerStore
+
+        store = LedgerStore(self._root)
+        return tuple(record.ref for record in store.read_raw_previews())
+
     def answer(
         self,
         question: OpenQuestion,
@@ -1389,8 +1395,10 @@ class SemanticProject:
     # -- preview ---------------------------------------------------------------
 
     def raw_preview_evidence(self) -> tuple[str, ...]:
-        """Return raw preview evidence collected in this project instance."""
-        return self._raw_preview_evidence
+        """Return raw preview evidence collected for this project."""
+        return tuple(
+            dict.fromkeys((*self._persisted_raw_preview_evidence(), *self._raw_preview_evidence))
+        )
 
     def collect_source_preview(
         self,
@@ -1431,6 +1439,30 @@ class SemanticProject:
             sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
             include_types=include_types,
             redact=redact,
+        )
+        from datetime import UTC, datetime
+
+        from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
+
+        sample_policy: dict[str, object] = {
+            "method": preview.sample_policy.method,
+            "limit": preview.sample_policy.limit,
+            "order_by": list(preview.sample_policy.order_by),
+            "filters": [dict(filter_) for filter_ in preview.sample_policy.filters],
+        }
+        LedgerStore(self._root).write_raw_preview(
+            RawPreviewEvidence(
+                ref=preview.ref,
+                datasource=datasource,
+                table=source_table,
+                database=database,
+                columns=preview.columns,
+                types=preview.types,
+                requested_limit=preview.requested_limit,
+                returned_row_count=preview.returned_row_count,
+                sample_policy=sample_policy,
+                collected_at=datetime.now(UTC).isoformat(),
+            )
         )
         self._record_raw_preview_evidence(preview.ref)
         return preview
@@ -1589,8 +1621,11 @@ class SemanticProject:
         ``backend_factory`` is a callable from datasource semantic id to an
         Ibis backend, for example ``lambda name: mv.datasources.build_backend(name)``.
         """
+        persisted_raw_previews = self._persisted_raw_preview_evidence()
         collected_raw_previews = tuple(
-            dict.fromkeys((*tuple(raw_previews), *self._raw_preview_evidence))
+            dict.fromkeys(
+                (*tuple(raw_previews), *persisted_raw_previews, *self._raw_preview_evidence)
+            )
         )
         return build_readiness_report(
             self,

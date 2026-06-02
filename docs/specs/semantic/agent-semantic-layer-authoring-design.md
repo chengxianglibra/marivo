@@ -994,8 +994,8 @@ Add:
 - redaction helpers
 - backend-specific bounded preview tests
 - `project.collect_source_preview(..., backend_factory=...)` records successful
-  raw datasource previews as in-memory readiness evidence for the current
-  `SemanticProject` instance
+  raw datasource previews as project-local readiness evidence under
+  `.marivo/semantic/.evidence/`; preview rows are not persisted
 
 Then add:
 

@@ -140,6 +140,70 @@ class ConfirmationRecord:
         )
 
 
+@dataclass(frozen=True)
+class RawPreviewEvidence:
+    ref: str
+    datasource: str
+    table: str
+    database: str | tuple[str, ...] | None
+    columns: tuple[str, ...]
+    types: dict[str, str]
+    requested_limit: int
+    returned_row_count: int
+    sample_policy: dict[str, object]
+    collected_at: str
+
+    def to_dict(self) -> dict[str, object]:
+        database: object = (
+            list(self.database) if isinstance(self.database, tuple) else self.database
+        )
+        return {
+            "ref": self.ref,
+            "datasource": self.datasource,
+            "table": self.table,
+            "database": database,
+            "columns": list(self.columns),
+            "types": self.types,
+            "requested_limit": self.requested_limit,
+            "returned_row_count": self.returned_row_count,
+            "sample_policy": self.sample_policy,
+            "collected_at": self.collected_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, object]) -> RawPreviewEvidence:
+        database_raw = data["database"]
+        database: str | tuple[str, ...] | None
+        if database_raw is None:
+            database = None
+        elif isinstance(database_raw, list):
+            database = tuple(str(part) for part in database_raw)
+        else:
+            database = str(database_raw)
+        sample_policy_raw = data["sample_policy"]
+        types_raw = data["types"]
+        if not isinstance(types_raw, Mapping):
+            raise TypeError("RawPreviewEvidence.types must be a mapping")
+        requested_limit_raw = data["requested_limit"]
+        if type(requested_limit_raw) is not int:
+            raise TypeError("RawPreviewEvidence.requested_limit must be an int")
+        returned_row_count_raw = data["returned_row_count"]
+        if type(returned_row_count_raw) is not int:
+            raise TypeError("RawPreviewEvidence.returned_row_count must be an int")
+        return cls(
+            ref=str(data["ref"]),
+            datasource=str(data["datasource"]),
+            table=str(data["table"]),
+            database=database,
+            columns=tuple(str(column) for column in data["columns"]),  # type: ignore[attr-defined]
+            types={str(k): str(v) for k, v in types_raw.items()},
+            requested_limit=requested_limit_raw,
+            returned_row_count=returned_row_count_raw,
+            sample_policy=dict(sample_policy_raw) if isinstance(sample_policy_raw, Mapping) else {},
+            collected_at=str(data["collected_at"]),
+        )
+
+
 def evidence_fingerprint(
     columns: Mapping[str, str],
     table_comment: str | None,
@@ -202,6 +266,20 @@ def _read_object_evidence(path: Path) -> ObjectEvidence:
         raise KeyError(f"Invalid evidence ledger object at {path}: missing field {exc}") from exc
 
 
+def _read_raw_preview_evidence(path: Path) -> tuple[RawPreviewEvidence, ...]:
+    try:
+        payload = json.loads(path.read_text())
+        return tuple(
+            RawPreviewEvidence.from_dict(record) for record in payload.get("raw_previews", [])
+        )
+    except TypeError as exc:
+        raise TypeError(f"Invalid raw preview evidence at {path}: {exc}") from exc
+    except ValueError as exc:
+        raise ValueError(f"Invalid raw preview evidence at {path}: {exc}") from exc
+    except KeyError as exc:
+        raise KeyError(f"Invalid raw preview evidence at {path}: missing field {exc}") from exc
+
+
 class LedgerStore:
     """Canonical-JSON file IO under <semantic_root>/<model>/_evidence/."""
 
@@ -213,6 +291,9 @@ class LedgerStore:
 
     def _object_path(self, semantic_id: str) -> Path:
         return self._evidence_dir(_model_of(semantic_id)) / "objects" / f"{semantic_id}.json"
+
+    def _raw_previews_path(self) -> Path:
+        return self._root / ".evidence" / "raw_previews.json"
 
     def write_object(self, obj: ObjectEvidence) -> None:
         path = self._object_path(obj.semantic_id)
@@ -252,6 +333,21 @@ class LedgerStore:
             for path in sorted(objects_dir.glob("*.json")):
                 records.append(_read_object_evidence(path))
         return tuple(records)
+
+    def write_raw_preview(self, record: RawPreviewEvidence) -> None:
+        existing = {item.ref: item for item in self.read_raw_previews()}
+        existing[record.ref] = record
+        records = [existing[ref] for ref in sorted(existing)]
+        path = self._raw_previews_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"raw_previews": [item.to_dict() for item in records]}
+        path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+
+    def read_raw_previews(self) -> tuple[RawPreviewEvidence, ...]:
+        path = self._raw_previews_path()
+        if not path.exists():
+            return ()
+        return _read_raw_preview_evidence(path)
 
 
 def is_decision_stale(record: DecisionRecord, metadata: TableMetadata) -> bool:

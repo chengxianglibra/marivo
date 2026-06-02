@@ -384,6 +384,37 @@ def test_reload_preserves_collected_source_preview_evidence(
     assert project.raw_preview_evidence() == ("warehouse.orders",)
 
 
+def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instance(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    from marivo.semantic.reader import SemanticProject
+
+    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    project.collect_source_preview(
+        datasource="warehouse",
+        table="orders",
+        backend_factory=backend_factory,
+    )
+
+    reloaded = SemanticProject(root=project.root_path)
+    reloaded.load()
+    reloaded.parity_check("sales.total_amount", backend_factory=backend_factory)
+    report = reloaded.readiness(
+        strict_provenance=True,
+        require_preview=True,
+        raw_previews=(),
+        primary_keys_sampled=("sales.orders",),
+        backend_factory=backend_factory,
+    )
+
+    assert reloaded.raw_preview_evidence() == ("warehouse.orders",)
+    assert report.status == "ready"
+    assert "missing_raw_preview" not in _issue_kinds(report.blockers)
+    assert "warehouse.orders" in report.evidence_summary.raw_previews
+
+
 def test_readiness_strict_blocks_unverified_metric(
     semantic_project_factory,
     backend_factory,
