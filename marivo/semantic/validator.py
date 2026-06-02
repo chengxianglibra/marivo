@@ -542,13 +542,42 @@ def _non_root_aggregate_dataset(
     return None
 
 
+def _is_filtered_model_ref(ref: str, loaded_models: set[str] | None) -> bool:
+    """Return True if ref points to an object in a model that was filtered out."""
+    if loaded_models is None or "." not in ref:
+        return False
+    return ref.split(".", 1)[0] not in loaded_models
+
+
+def _filtered_model_ref_warning(
+    obj_id: str,
+    ref: str,
+    ref_kind: str,
+) -> StructuredWarning:
+    """Build a warning for a cross-object ref to a filtered-out model."""
+    ref_model = ref.split(".", 1)[0]
+    return StructuredWarning(
+        kind="filtered_model_ref",
+        message=f"{ref_kind} {obj_id!r} references {ref!r} from filtered-out model {ref_model!r}.",
+        refs=(obj_id, ref),
+        location=None,
+    )
+
+
 def assembly_validate(
     registry: Registry,
     sidecar: Sidecar | None = None,
+    *,
+    loaded_models: set[str] | None = None,
 ) -> tuple[list[SemanticError], list[StructuredWarning]]:
     """Layer 3: assembly-time cross-object validation.
 
     Returns (errors, warnings).  Does not raise.
+
+    When *loaded_models* is provided, cross-object references to objects
+    in models that were intentionally not loaded produce
+    ``filtered_model_ref`` warnings instead of errors, so the registry
+    remains usable.
     """
     errors: list[SemanticError] = []
     warnings: list[StructuredWarning] = []
@@ -578,25 +607,31 @@ def assembly_validate(
     # -- Validate dataset refs on fields ------------------------------------
     for f_id, f_ir in registry.fields.items():
         if f_ir.dataset not in registry.datasets:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.MISSING_DATASET_REF,
-                    message=f"Field {f_id!r} references unknown dataset {f_ir.dataset!r}.",
-                    refs=(f_id, f_ir.dataset),
+            if _is_filtered_model_ref(f_ir.dataset, loaded_models):
+                warnings.append(_filtered_model_ref_warning(f_id, f_ir.dataset, "Field"))
+            else:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.MISSING_DATASET_REF,
+                        message=f"Field {f_id!r} references unknown dataset {f_ir.dataset!r}.",
+                        refs=(f_id, f_ir.dataset),
+                    )
                 )
-            )
 
     # -- Validate dataset refs on metrics -----------------------------------
     for m_id, m_ir in registry.metrics.items():
         for ds_ref in m_ir.datasets:
             if ds_ref not in registry.datasets:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.MISSING_DATASET_REF,
-                        message=f"Metric {m_id!r} references unknown dataset {ds_ref!r}.",
-                        refs=(m_id, ds_ref),
+                if _is_filtered_model_ref(ds_ref, loaded_models):
+                    warnings.append(_filtered_model_ref_warning(m_id, ds_ref, "Metric"))
+                else:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.MISSING_DATASET_REF,
+                            message=f"Metric {m_id!r} references unknown dataset {ds_ref!r}.",
+                            refs=(m_id, ds_ref),
+                        )
                     )
-                )
 
     # -- Validate base metric additivity and root_dataset -------------------
     for m_id, m_ir in registry.metrics.items():
@@ -721,15 +756,18 @@ def assembly_validate(
     for m_id, m_ir in registry.metrics.items():
         for comp_key, comp_ref in m_ir.decomposition.components.items():
             if comp_ref not in registry.metrics:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.MISSING_METRIC_REF,
-                        message=f"Metric {m_id!r} decomposition component "
-                        f"{comp_key!r} references unknown metric "
-                        f"{comp_ref!r}.",
-                        refs=(m_id, comp_ref),
+                if _is_filtered_model_ref(comp_ref, loaded_models):
+                    warnings.append(_filtered_model_ref_warning(m_id, comp_ref, "Metric component"))
+                else:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.MISSING_METRIC_REF,
+                            message=f"Metric {m_id!r} decomposition component "
+                            f"{comp_key!r} references unknown metric "
+                            f"{comp_ref!r}.",
+                            refs=(m_id, comp_ref),
+                        )
                     )
-                )
 
     # -- Validate field refs in relationships --------------------------------
     for r_id, r_ir in registry.relationships.items():
@@ -745,42 +783,56 @@ def assembly_validate(
                 )
             )
         if r_ir.from_dataset not in registry.datasets:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_RELATIONSHIP_ENDPOINT,
-                    message=f"Relationship {r_id!r} references unknown "
-                    f"from_dataset {r_ir.from_dataset!r}.",
-                    refs=(r_id, r_ir.from_dataset),
+            if _is_filtered_model_ref(r_ir.from_dataset, loaded_models):
+                warnings.append(
+                    _filtered_model_ref_warning(r_id, r_ir.from_dataset, "Relationship")
                 )
-            )
+            else:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_RELATIONSHIP_ENDPOINT,
+                        message=f"Relationship {r_id!r} references unknown "
+                        f"from_dataset {r_ir.from_dataset!r}.",
+                        refs=(r_id, r_ir.from_dataset),
+                    )
+                )
         if r_ir.to_dataset not in registry.datasets:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_RELATIONSHIP_ENDPOINT,
-                    message=f"Relationship {r_id!r} references unknown "
-                    f"to_dataset {r_ir.to_dataset!r}.",
-                    refs=(r_id, r_ir.to_dataset),
+            if _is_filtered_model_ref(r_ir.to_dataset, loaded_models):
+                warnings.append(_filtered_model_ref_warning(r_id, r_ir.to_dataset, "Relationship"))
+            else:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_RELATIONSHIP_ENDPOINT,
+                        message=f"Relationship {r_id!r} references unknown "
+                        f"to_dataset {r_ir.to_dataset!r}.",
+                        refs=(r_id, r_ir.to_dataset),
+                    )
                 )
-            )
         # Validate field refs
         for ff in r_ir.from_fields:
             if ff not in registry.fields:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.MISSING_FIELD_REF,
-                        message=f"Relationship {r_id!r} references unknown from_field {ff!r}.",
-                        refs=(r_id, ff),
+                if _is_filtered_model_ref(ff, loaded_models):
+                    warnings.append(_filtered_model_ref_warning(r_id, ff, "Relationship"))
+                else:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.MISSING_FIELD_REF,
+                            message=f"Relationship {r_id!r} references unknown from_field {ff!r}.",
+                            refs=(r_id, ff),
+                        )
                     )
-                )
         for tf in r_ir.to_fields:
             if tf not in registry.fields:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.MISSING_FIELD_REF,
-                        message=f"Relationship {r_id!r} references unknown to_field {tf!r}.",
-                        refs=(r_id, tf),
+                if _is_filtered_model_ref(tf, loaded_models):
+                    warnings.append(_filtered_model_ref_warning(r_id, tf, "Relationship"))
+                else:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.MISSING_FIELD_REF,
+                            message=f"Relationship {r_id!r} references unknown to_field {tf!r}.",
+                            refs=(r_id, tf),
+                        )
                     )
-                )
 
     # -- Validate hour-only time_field required_prefix -----------------------
     for f_id, f_ir in registry.fields.items():
@@ -801,14 +853,19 @@ def assembly_validate(
                 or not prefix_field.is_time_field
             )
         ):
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.MISSING_FIELD_REF,
-                    message=f"Time field {f_id!r} required_prefix "
-                    f"{f_ir.required_prefix!r} is not a registered time field.",
-                    refs=(f_id, f_ir.required_prefix),
+            if _is_filtered_model_ref(f_ir.required_prefix, loaded_models):
+                warnings.append(
+                    _filtered_model_ref_warning(f_id, f_ir.required_prefix, "Time field")
                 )
-            )
+            else:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.MISSING_FIELD_REF,
+                        message=f"Time field {f_id!r} required_prefix "
+                        f"{f_ir.required_prefix!r} is not a registered time field.",
+                        refs=(f_id, f_ir.required_prefix),
+                    )
+                )
 
     # -- Cross-model cycle detection (basic) --------------------------------
     # Check for cycles in metric component references

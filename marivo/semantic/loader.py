@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sys
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from hashlib import sha1
@@ -106,6 +106,7 @@ class LoadResult:
     warnings: tuple[StructuredWarning, ...] = ()
     registry: Registry | None = None
     sidecar: Sidecar | None = None
+    filtered_models: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +140,32 @@ def _discover_model_dirs(root: Path) -> list[Path]:
         if child.is_dir() and not child.name.startswith("."):
             dirs.append(child)
     return dirs
+
+
+def _filter_model_dirs(
+    all_dirs: list[Path],
+    models: Sequence[str] | None,
+) -> tuple[list[Path], list[StructuredWarning]]:
+    """Filter discovered model directories to only those matching the given model names.
+
+    When models is None or empty, returns all_dirs unchanged (no warnings).
+    """
+    if models is None or len(models) == 0:
+        return all_dirs, []
+    model_set = set(models)
+    filtered = [d for d in all_dirs if d.name in model_set]
+    discovered_names = {d.name for d in all_dirs}
+    missing = model_set - discovered_names
+    warnings = [
+        StructuredWarning(
+            kind="filtered_model_ref",
+            message=f"Requested model {name!r} has no directory on disk.",
+            refs=(name,),
+            location=None,
+        )
+        for name in sorted(missing)
+    ]
+    return filtered, warnings
 
 
 def _module_prefix(root: Path) -> str:
@@ -362,12 +389,16 @@ def _build_registry(
     return registry, sidecar
 
 
-def load_project(root: Path) -> LoadResult:
-    """Load all models from the semantic project root.
+def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResult:
+    """Load models from the semantic project root.
 
     Two-pass pipeline:
     1. Discover model directories and execute their files.
     2. Build registry, validate, and assemble the loaded objects.
+
+    When *models* is specified, only those model directories are loaded.
+    Cross-model references to filtered-out models produce warnings instead
+    of errors, so the registry remains usable.
 
     Returns a LoadResult with status, errors, warnings, registry, and sidecar.
     """
@@ -388,6 +419,8 @@ def load_project(root: Path) -> LoadResult:
         for error in datasource_result.errors:
             errors.append(_wrap_datasource_error(error))
         model_dirs = _discover_model_dirs(root)
+        model_dirs, filter_warnings = _filter_model_dirs(model_dirs, models)
+        warnings.extend(filter_warnings)
         all_contexts: list[LoaderContext] = []
 
         # Pass 1: Discover + Collect
@@ -420,7 +453,10 @@ def load_project(root: Path) -> LoadResult:
                     seen_objects.setdefault(sid, ir)
 
         # Assembly validation
-        asm_errors, asm_warnings = assembly_validate(registry, sidecar)
+        loaded_models_set = {d.name for d in model_dirs} if models is not None else None
+        asm_errors, asm_warnings = assembly_validate(
+            registry, sidecar, loaded_models=loaded_models_set
+        )
         errors.extend(asm_errors)
         warnings.extend(asm_warnings)
 
@@ -430,12 +466,14 @@ def load_project(root: Path) -> LoadResult:
             sys.path.remove(path_entry)
 
     status: Literal["ready", "errored"] = "ready" if not errors else "errored"
+    filtered_models_tuple = tuple(d.name for d in model_dirs) if models is not None else ()
     return LoadResult(
         status=status,
         errors=tuple(errors),
         warnings=tuple(warnings),
         registry=registry if status == "ready" else None,
         sidecar=sidecar if status == "ready" else None,
+        filtered_models=filtered_models_tuple,
     )
 
 

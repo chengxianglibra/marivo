@@ -1025,3 +1025,167 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
 
     result = project.materialize_dataset("sales.orders", backend_factory=factory)
     assert isinstance(result, ibis.expr.types.Table)
+
+
+# ---------------------------------------------------------------------------
+# models parameter on load()
+# ---------------------------------------------------------------------------
+
+_FINANCE_MODEL_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+    ms.model(name="finance", default=True)
+""")
+
+_FINANCE_DATASET_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+    refunds = ms.dataset(name="refunds", datasource="warehouse", source=ms.table("refunds"))
+
+    @ms.metric(datasets=[refunds], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    def refunds_total(refunds):
+        return refunds.amount.sum()
+""")
+
+
+def test_load_models_parameter_loads_only_specified(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasets.py": _MINIMAL_DATASET_PY,
+            "finance/_model.py": _FINANCE_MODEL_PY,
+            "finance/datasets.py": _FINANCE_DATASET_PY,
+        },
+        load=False,
+    )
+    result = project.load(models=["sales"])
+    assert project.is_ready()
+    assert project.registry() is not None
+    assert "sales" in project.registry().models
+    assert "finance" not in project.registry().models
+    assert result.filtered_models == ("sales",)
+
+
+def test_load_models_none_loads_all(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "finance/_model.py": _FINANCE_MODEL_PY,
+        },
+        load=False,
+    )
+    result = project.load()
+    assert project.is_ready()
+    assert "sales" in project.registry().models
+    assert "finance" in project.registry().models
+    assert result.filtered_models == ()
+
+
+def test_load_models_with_nonexistent_name(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+        },
+        load=False,
+    )
+    result = project.load(models=["sales", "nonexistent"])
+    assert project.is_ready()
+    assert "sales" in project.registry().models
+    filtered_warnings = [w for w in result.warnings if w.kind == "filtered_model_ref"]
+    assert any("nonexistent" in w.message for w in filtered_warnings)
+
+
+def test_load_models_skips_bad_model(semantic_project_factory) -> None:
+    bad_model = textwrap.dedent("""\
+        raise ValueError("boom")
+    """)
+    project = semantic_project_factory(
+        {
+            "bad/_model.py": bad_model,
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasets.py": _MINIMAL_DATASET_PY,
+        },
+        load=False,
+    )
+    result = project.load(models=["sales"])
+    assert project.is_ready()
+    assert project.registry() is not None
+    assert "sales" in project.registry().models
+
+
+def test_load_models_intra_model_error_still_blocks(semantic_project_factory) -> None:
+    bad_model = textwrap.dedent("""\
+        raise ValueError("boom")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": bad_model,
+        },
+        load=False,
+    )
+    result = project.load(models=["sales"])
+    assert not project.is_ready()
+    assert project.registry() is None
+
+
+def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) -> None:
+    """Cross-model relationship ref produces filtered_model_ref warning, not error."""
+    sales_with_relationship = textwrap.dedent("""\
+        import marivo.semantic as ms
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+
+        @ms.field(dataset=orders)
+        def amount(table):
+            return table.amount
+
+        ms.relationship(
+            name="orders_to_refunds",
+            from_dataset=orders,
+            to_dataset="finance.refunds",
+            from_fields=["sales.amount"],
+            to_fields=["finance.refunds_total"],
+        )
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/datasets.py": sales_with_relationship,
+            "finance/_model.py": _FINANCE_MODEL_PY,
+            "finance/datasets.py": _FINANCE_DATASET_PY,
+        },
+        load=False,
+    )
+    result = project.load(models=["sales"])
+    assert project.is_ready()
+    assert project.registry() is not None
+    filtered_warnings = [w for w in result.warnings if w.kind == "filtered_model_ref"]
+    assert any("finance" in w.message for w in filtered_warnings)
+
+
+def test_reload_reapplies_stored_filter(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "finance/_model.py": _FINANCE_MODEL_PY,
+        },
+        load=False,
+    )
+    project.load(models=["sales"])
+    assert "sales" in project.registry().models
+    assert "finance" not in project.registry().models
+    project.reload()
+    assert "sales" in project.registry().models
+    assert "finance" not in project.registry().models
+
+
+def test_reload_can_change_filter(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "finance/_model.py": _FINANCE_MODEL_PY,
+        },
+        load=False,
+    )
+    project.load(models=["sales"])
+    assert "finance" not in project.registry().models
+    project.reload(models=["sales", "finance"])
+    assert "sales" in project.registry().models
+    assert "finance" in project.registry().models
