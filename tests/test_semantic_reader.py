@@ -1019,6 +1019,12 @@ def test_preview_metric_returns_scalar_value(semantic_project_factory, backend_f
     assert preview.returned_row_count == 1
     assert preview.rows[0]["value"] == pytest.approx(300.0)
     assert preview.is_truncated is False
+    assert preview.sample_policy.method == "pre_aggregate_limit"
+    assert preview.sample_policy.limit == 20
+
+    # approximate_preview warning should always be present for metric preview
+    approx_warnings = [w for w in preview.warnings if w.kind == "approximate_preview"]
+    assert len(approx_warnings) == 1
 
 
 def test_preview_dataset_rejects_invalid_limit(semantic_project_factory, backend_factory) -> None:

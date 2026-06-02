@@ -743,3 +743,63 @@ def test_materialize_on_unloaded_project_raises(semantic_project_factory) -> Non
     # Not loaded yet
     with pytest.raises(SemanticRuntimeError):
         project.materialize_dataset("sales.orders", backend_factory=factory)
+
+
+def test_dataset_materialize_with_sample_size(semantic_project_factory) -> None:
+    """Materializer with sample_size should limit dataset rows before caching."""
+    con = ibis.duckdb.connect(":memory:")
+    con.con.execute(
+        "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
+    )
+    # Insert enough rows to exceed sample_size
+    for i in range(1, 51):
+        con.con.execute(f"INSERT INTO orders VALUES ({i}, {i * 10.0}, 'US', '2025-01-01')")
+
+    def factory(ds_id: str):
+        return con
+
+    project = semantic_project_factory(
+        {"sales/_model.py": _MODEL_PY, "sales/datasets.py": _DATASET_AND_METRIC_PY}
+    )
+
+    # Without sample_size — full table
+    mat_full = Materializer(project, factory)
+    table_full = mat_full.dataset("sales.orders")
+    assert len(table_full.to_pandas()) == 50
+
+    # With sample_size=5 — bounded table
+    mat_sampled = Materializer(project, factory, sample_size=5)
+    table_sampled = mat_sampled.dataset("sales.orders")
+    assert len(table_sampled.to_pandas()) == 5
+
+    # Sampled table is cached — subsequent calls return same bounded result
+    table_cached = mat_sampled.dataset("sales.orders")
+    assert table_cached.to_pandas().equals(table_sampled.to_pandas())
+
+
+def test_metric_materialize_with_sample_size(semantic_project_factory) -> None:
+    """Metric callable should aggregate on sampled rows when sample_size is set."""
+    con = ibis.duckdb.connect(":memory:")
+    con.con.execute(
+        "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
+    )
+    # Insert 100 rows with amounts 1..100 (total = 5050)
+    for i in range(1, 101):
+        con.con.execute(f"INSERT INTO orders VALUES ({i}, {float(i)}, 'US', '2025-01-01')")
+
+    def factory(ds_id: str):
+        return con
+
+    project = semantic_project_factory(
+        {"sales/_model.py": _MODEL_PY, "sales/datasets.py": _DATASET_AND_METRIC_PY}
+    )
+
+    # Full metric — exact result
+    mat_full = Materializer(project, factory)
+    value_full = mat_full.metric("sales.total_amount")
+    assert value_full.to_pandas() == 5050.0
+
+    # Sampled metric — approximate result (only first 10 rows, sum = 1+2+...+10 = 55)
+    mat_sampled = Materializer(project, factory, sample_size=10)
+    value_sampled = mat_sampled.metric("sales.total_amount")
+    assert value_sampled.to_pandas() == 55.0
