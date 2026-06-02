@@ -84,20 +84,21 @@ def _execute_example_in_process(example: Path) -> tuple[int, str, str]:
     Much faster than subprocess because it avoids per-example Python
     startup and marivo import overhead (~1.6s per example).
     """
-    import marivo.analysis.session.attach as session_attach
-
     old_cwd = Path.cwd()
     example_dir = str(example.parent)
-    old_path0 = sys.path[0]
+    repo_root = str(old_cwd)
+    old_path = list(sys.path)
 
     # When running via subprocess from example.parent, Python adds CWD
-    # to sys.path[0].  runpy.run_path does not, so we inject it
-    # manually so that ``from _fixtures.tiny_semantic import ...``
-    # resolves correctly.
+    # to sys.path[0] and the helper sets PYTHONPATH to repo root. runpy.run_path
+    # does neither, so inject both paths for equivalent import resolution.
+    sys.path.insert(0, repo_root)
     sys.path.insert(0, example_dir)
     os.chdir(example.parent)
 
     try:
+        import marivo.analysis.session.attach as session_attach
+
         session_attach._reset_process_state()
         stdout_buf = io.StringIO()
         old_stdout = sys.stdout
@@ -116,10 +117,7 @@ def _execute_example_in_process(example: Path) -> tuple[int, str, str]:
         sys.stdout = old_stdout
     finally:
         os.chdir(old_cwd)
-        if sys.path[0] == example_dir:
-            sys.path.pop(0)
-        else:
-            sys.path[0] = old_path0
+        sys.path[:] = old_path
 
     return rc, stdout, stderr
 

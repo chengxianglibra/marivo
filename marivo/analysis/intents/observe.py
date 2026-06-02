@@ -58,11 +58,6 @@ from marivo.analysis.windows.spec import (
     make_absolute_window,
     normalize_timescope_input,
 )
-from marivo.semantic.authoring import (
-    _BinOpSentinel,
-    _ComponentSentinel,
-    _UnaryNegSentinel,
-)
 
 # ---------------------------------------------------------------------------
 # v1.1 -> runner adapter types
@@ -249,13 +244,6 @@ def _component_parent_columns(metric_ir: Any) -> list[str]:
     return []
 
 
-def _component_metric_columns(metric_ir: Any) -> dict[str, str]:
-    return {
-        role: component_ref.rsplit(".", 1)[1]
-        for role, component_ref in metric_ir.decomposition.components.items()
-    }
-
-
 def _component_frame_df(
     *,
     raw_df: Any,
@@ -263,13 +251,11 @@ def _component_frame_df(
     axes_columns: list[str],
     metric_value_column: str,
 ) -> Any:
-    role_to_metric_column = _component_metric_columns(metric_ir)
     role_columns = _component_parent_columns(metric_ir)
-    rename_map = {role_to_metric_column[role]: role for role in role_columns}
-    selected = [*axes_columns, *rename_map.keys(), metric_value_column]
-    component_df = raw_df[selected].rename(
-        columns={**rename_map, metric_value_column: "metric_value"}
-    )
+    for role in role_columns:
+        _require_component_role_column(metric_ir, role, raw_df)
+    selected = [*axes_columns, *role_columns, metric_value_column]
+    component_df = raw_df[selected].rename(columns={metric_value_column: "metric_value"})
     return component_df[[*axes_columns, *role_columns, "metric_value"]]
 
 
@@ -389,34 +375,56 @@ def _field_fn(sp: Any, field_id: str) -> Callable[..., Any]:
     return cast("Callable[..., Any]", fn)
 
 
-def _evaluate_sentinel_on_frame(node: Any, metric_ir: Any, frame: Any) -> Any:
-    if isinstance(node, _ComponentSentinel):
-        component_metric_id = metric_ir.decomposition.components[node.name]
-        component_col = component_metric_id.rsplit(".", 1)[1]
-        return frame[component_col]
-    if isinstance(node, _BinOpSentinel):
-        left = _evaluate_sentinel_or_literal_on_frame(node.left, metric_ir, frame)
-        right = _evaluate_sentinel_or_literal_on_frame(node.right, metric_ir, frame)
-        if node.op == "+":
-            return left + right
-        if node.op == "-":
-            return left - right
-        if node.op == "*":
-            return left * right
-        if node.op == "/":
-            return left / right
-    if isinstance(node, _UnaryNegSentinel):
-        return -_evaluate_sentinel_on_frame(node.operand, metric_ir, frame)
+def _evaluate_decomposition_on_frame(metric_ir: Any, frame: Any) -> Any:
+    kind = metric_ir.decomposition.kind
+    if kind == "ratio":
+        numerator = _require_component_role_column(metric_ir, "numerator", frame)
+        denominator = _require_component_role_column(metric_ir, "denominator", frame)
+        return numerator / denominator
+    if kind == "weighted_average":
+        numerator = _require_component_role_column(metric_ir, "numerator", frame)
+        weight = _require_component_role_column(metric_ir, "weight", frame)
+        return numerator / weight
     raise MetricShapeUnsupportedError(
-        message=f"unsupported derived metric expression node {type(node).__name__}",
-        details={"kind": "DerivedMetricExpressionUnsupported"},
+        message=f"unsupported derived metric decomposition kind {kind!r}",
+        details={
+            "kind": "DerivedMetricDecompositionUnsupported",
+            "metric": metric_ir.semantic_id,
+            "decomposition_kind": kind,
+        },
     )
 
 
-def _evaluate_sentinel_or_literal_on_frame(node: Any, metric_ir: Any, frame: Any) -> Any:
-    if isinstance(node, (int, float)):
-        return node
-    return _evaluate_sentinel_on_frame(node, metric_ir, frame)
+def _require_component_role_column(
+    metric_ir: Any,
+    role: str,
+    frame: Any,
+) -> Any:
+    component_id = metric_ir.decomposition.components.get(role)
+    if component_id is None:
+        raise MetricShapeUnsupportedError(
+            message=f"derived metric {metric_ir.semantic_id!r} is missing component role {role!r}",
+            details={
+                "kind": "DerivedMetricComponentMissing",
+                "metric": metric_ir.semantic_id,
+                "role": role,
+            },
+        )
+    if role not in frame:
+        raise MetricShapeUnsupportedError(
+            message=(
+                f"derived metric {metric_ir.semantic_id!r} component role column "
+                f"{role!r} is missing"
+            ),
+            details={
+                "kind": "DerivedMetricComponentColumnMissing",
+                "metric": metric_ir.semantic_id,
+                "role": role,
+                "component_metric": component_id,
+                "column": role,
+            },
+        )
+    return frame[role]
 
 
 class _Result:
@@ -612,7 +620,7 @@ def _execute_derived(
                 message=f"metric callable for {cp.component_metric_ir.semantic_id!r} not found",
                 details={"metric": cp.component_metric_ir.semantic_id},
             )
-        component_name = cp.component_metric_ir.name
+        component_name = cp.role
         component_datasets = tuple(cp.component_metric_ir.datasets)
         table = cp.base_plan.table
         if has_time:
@@ -668,7 +676,7 @@ def _execute_derived(
                 merged = pandas.merge(merged, frame, on=merge_keys, how="outer")
             else:
                 merged = pandas.concat([merged, frame], axis=1)
-    merged[metric_name] = _evaluate_sentinel_on_frame(plan.sentinel_tree, metric_ir, merged)
+    merged[metric_name] = _evaluate_decomposition_on_frame(metric_ir, merged)
     if merge_keys:
         result_df = (
             merged[[*merge_keys, metric_name]].sort_values(merge_keys).reset_index(drop=True)
@@ -827,7 +835,7 @@ def observe(
     # Get the metric callable from the sidecar
     sidecar = sp.sidecar()
     metric_fn = sidecar.get(metric_semantic_id) if sidecar else None
-    if metric_fn is None:
+    if metric_fn is None and not metric_ir.is_derived:
         raise MetricNotFoundError(
             message=f"metric callable for '{metric_id}' not found",
             details={"model": model_name, "metric": metric_name},

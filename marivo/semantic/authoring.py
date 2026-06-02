@@ -1,7 +1,7 @@
 """Authoring decorators and builders for marivo.semantic v1.1.
 
 All authoring symbols (model, dataset, field, time_field, metric,
-relationship, sum, ratio, weighted_average, ref, component) are
+relationship, sum, ratio, weighted_average, ref, derived_metric) are
 defined here.
 """
 
@@ -12,7 +12,6 @@ import hashlib
 import inspect
 import textwrap
 from collections.abc import Callable
-from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Any, Literal
@@ -44,13 +43,13 @@ from marivo.semantic.ir import (
     ValidityVersioningIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
-from marivo.semantic.typing import AiContext, ComponentExpr
+from marivo.semantic.typing import AiContext
 from marivo.semantic.validator import validate_metric_body_ast
 
 __all__ = [
     "DecompositionBuilder",
-    "component",
     "dataset",
+    "derived_metric",
     "field",
     "file",
     "metric",
@@ -65,141 +64,6 @@ __all__ = [
     "validity",
     "weighted_average",
 ]
-
-# ---------------------------------------------------------------------------
-# Component sentinel system (derived metric bodies)
-# ---------------------------------------------------------------------------
-
-#: ContextVar active only during derived metric function execution.
-#: When set, ms.component() resolves against the decomposition IR.
-_ACTIVE_DECOMPOSITION: ContextVar[DecompositionIR | None] = ContextVar(
-    "_ACTIVE_DECOMPOSITION",
-    default=None,
-)
-
-
-class _ComponentSentinel:
-    """Leaf sentinel representing ms.component('<name>')."""
-
-    __slots__ = ("name",)
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-    def __repr__(self) -> str:
-        return f"ms.component({self.name!r})"
-
-    def __add__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("+", self, other)
-
-    def __radd__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("+", other, self)
-
-    def __sub__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("-", self, other)
-
-    def __rsub__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("-", other, self)
-
-    def __mul__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("*", self, other)
-
-    def __rmul__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("*", other, self)
-
-    def __truediv__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("/", self, other)
-
-    def __rtruediv__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("/", other, self)
-
-    def __neg__(self) -> _UnaryNegSentinel:
-        return _UnaryNegSentinel(self)
-
-
-class _BinOpSentinel:
-    """Internal node representing arithmetic on component sentinels."""
-
-    __slots__ = ("left", "op", "right")
-
-    def __init__(
-        self,
-        op: str,
-        left: ComponentExpr | int | float,
-        right: ComponentExpr | int | float,
-    ) -> None:
-        self.op = op
-        self.left = left
-        self.right = right
-
-    def __repr__(self) -> str:
-        return f"({self.left!r} {self.op} {self.right!r})"
-
-    def __add__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("+", self, other)
-
-    def __radd__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("+", other, self)
-
-    def __sub__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("-", self, other)
-
-    def __rsub__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("-", other, self)
-
-    def __mul__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("*", self, other)
-
-    def __rmul__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("*", other, self)
-
-    def __truediv__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("/", self, other)
-
-    def __rtruediv__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("/", other, self)
-
-    def __neg__(self) -> _UnaryNegSentinel:
-        return _UnaryNegSentinel(self)
-
-
-class _UnaryNegSentinel:
-    """Internal node representing unary negation on a component sentinel."""
-
-    __slots__ = ("operand",)
-
-    def __init__(self, operand: ComponentExpr) -> None:
-        self.operand = operand
-
-    def __repr__(self) -> str:
-        return f"(-{self.operand!r})"
-
-    def __add__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("+", self, other)
-
-    def __radd__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("+", other, self)
-
-    def __sub__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("-", self, other)
-
-    def __rsub__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("-", other, self)
-
-    def __mul__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("*", self, other)
-
-    def __rmul__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("*", other, self)
-
-    def __truediv__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("/", self, other)
-
-    def __rtruediv__(self, other: Any) -> _BinOpSentinel:
-        return _BinOpSentinel("/", other, self)
-
-    def __neg__(self) -> _UnaryNegSentinel:
-        return _UnaryNegSentinel(self)
 
 
 # ---------------------------------------------------------------------------
@@ -291,24 +155,32 @@ def _compute_body_ast_hash(fn: Callable[..., Any]) -> str:
         return hashlib.sha256(b"<unavailable>").hexdigest()[:16]
 
 
-def _metric_body_uses_component(fn: Callable[..., Any]) -> bool:
-    try:
-        source = textwrap.dedent(inspect.getsource(fn))
-        tree = ast.parse(source)
-    except (OSError, TypeError, IndentationError, SyntaxError):
-        return False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if (
-            isinstance(func, ast.Attribute)
-            and isinstance(func.value, ast.Name)
-            and func.value.id == "ms"
-            and func.attr == "component"
-        ):
-            return True
-    return False
+def _compute_decomposition_ast_hash(decomposition: DecompositionBuilder) -> str:
+    """Compute a stable hash from canonical derived metric structure."""
+    payload = repr(
+        {
+            "kind": decomposition.kind,
+            "components": tuple(sorted(decomposition.components.items())),
+        }
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def _build_metric_provenance(
+    *,
+    source_sql: str | None,
+    source_dialect: str | None,
+    source_document: str | None,
+    source_notes: str | None,
+    declared_status: Literal["python_native", "unverified"] | None,
+) -> ProvenanceIR:
+    return ProvenanceIR(
+        source_sql=source_sql,
+        source_dialect=source_dialect,
+        source_document=source_document,
+        source_notes=source_notes,
+        declared_status=declared_status,
+    )
 
 
 def _caller_location() -> SourceLocation:
@@ -712,24 +584,14 @@ def metric(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], MetricRef]:
-    """Declare a metric. Aggregate metrics carry datasets; derived metrics carry components.
-
-    Two flavors:
-
-    * **Aggregate**: ``datasets=[...]`` non-empty; the body returns an ibis
-      reduction (e.g. ``orders.amount.sum()``) and ``decomposition`` is
-      ``ms.sum()`` / ``ms.ratio(...)`` / ``ms.weighted_average(...)``.
-    * **Derived**: ``datasets=[]``; the body returns an arithmetic combination
-      of ``ms.component("name")`` references, and ``decomposition`` declares
-      those components.
+    """Declare a dataset-backed base metric.
 
     ``source_sql`` / ``source_dialect`` / ``source_document`` / ``source_notes``
     are persisted into ``Provenance`` on the IR.
 
     Args:
         name: Metric name. Defaults to the function name.
-        datasets: Aggregate metrics: list of ``DatasetRef`` / qualified strings.
-            Derived metrics: omit or ``[]``.
+        datasets: Non-empty list of ``DatasetRef`` / qualified strings.
         decomposition: ``ms.sum()`` / ``ms.ratio(numerator=..., denominator=...)``
             / ``ms.weighted_average(...)`` builder.
         source_sql: Original SQL definition, persisted to provenance.
@@ -746,8 +608,7 @@ def metric(
         A decorator that returns a ``MetricRef``.
 
     Raises:
-        SemanticDecoratorError: Both ``datasets`` and ``decomposition.components`` are
-            empty; or aggregate metric body calls ``ms.component()``; or the body
+        SemanticDecoratorError: ``datasets`` is empty, name collides, or the body
             violates the AST whitelist.
 
     Example:
@@ -764,24 +625,16 @@ def metric(
         _check_duplicate(ctx, semantic_id)
 
         ds_refs = _resolve_dataset_refs(datasets)
-        is_derived = len(ds_refs) == 0 and bool(decomposition.components)
-        if len(ds_refs) == 0 and not decomposition.components:
+        if len(ds_refs) == 0:
             _raise(
-                ErrorKind.INVALID_COMPONENT_BODY,
-                "@ms.metric(datasets=[]) is only valid for derived metrics with decomposition components.",
+                ErrorKind.MISSING_DATASETS,
+                "@ms.metric(...) requires non-empty datasets. "
+                "Use ms.derived_metric(...) for body-free derived metrics.",
                 refs=(semantic_id,),
                 cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.METRIC_DERIVED_SHAPE,
+                constraint_id=ConstraintId.METRIC_DATASETS_REQUIRED,
             )
-        if len(ds_refs) > 0 and _metric_body_uses_component(fn):
-            _raise(
-                ErrorKind.INVALID_COMPONENT_BODY,
-                "ms.component() can only be used in derived metric bodies; use datasets=[] with a component decomposition.",
-                refs=(semantic_id,),
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.METRIC_COMPONENT_SCOPE,
-            )
-        body_hash = validate_metric_body_ast(fn, "derived" if is_derived else "base")
+        body_hash = validate_metric_body_ast(fn, "base")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
@@ -789,7 +642,7 @@ def metric(
             kind=decomposition.kind,
             components=dict(decomposition.components),
         )
-        prov_ir = ProvenanceIR(
+        prov_ir = _build_metric_provenance(
             source_sql=source_sql,
             source_dialect=source_dialect,
             source_document=source_document,
@@ -807,7 +660,7 @@ def metric(
             model=model_name,
             name=obj_name,
             datasets=ds_refs,
-            is_derived=is_derived,
+            is_derived=False,
             decomposition=decomp_ir,
             provenance=prov_ir,
             description=description,
@@ -820,23 +673,84 @@ def metric(
             fanout_policy=fanout_policy,
         )
 
-        # For derived metrics, execute the function body with
-        # _ACTIVE_DECOMPOSITION set so that ms.component() resolves.
-        # The return value is the sentinel expression tree.
-        if is_derived:
-            token = _ACTIVE_DECOMPOSITION.set(decomp_ir)
-            try:
-                sentinel_tree = fn()
-            finally:
-                _ACTIVE_DECOMPOSITION.reset(token)
-            # Store the sentinel tree in the sidecar instead of the raw callable
-            _push_ir(ctx, ir, sentinel_tree)
-        else:
-            _push_ir(ctx, ir, fn)
+        _push_ir(ctx, ir, fn)
 
         return MetricRef(semantic_id)
 
     return decorator
+
+
+def derived_metric(
+    *,
+    name: str,
+    decomposition: DecompositionBuilder,
+    additivity: Literal["additive", "semi_additive", "non_additive"] | None = None,
+    source_sql: str | None = None,
+    source_dialect: str | None = None,
+    source_document: str | None = None,
+    source_notes: str | None = None,
+    declared_status: Literal["python_native", "unverified"] | None = None,
+    model_name: str | None = None,
+    description: str | None = None,
+    ai_context: AiContext | dict[str, Any] | None = None,
+) -> MetricRef:
+    """Declare a body-free derived metric from canonical decomposition structure."""
+    ctx = _require_ctx()
+    model_name = _resolve_model_name(model_name, ctx)
+    semantic_id = f"{model_name}.{name}"
+    _check_duplicate(ctx, semantic_id)
+
+    if decomposition.kind not in ("ratio", "weighted_average") or not decomposition.components:
+        _raise(
+            ErrorKind.INVALID_DECOMPOSITION,
+            "ms.derived_metric(...) requires a ratio or weighted_average decomposition with components.",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.DECOMPOSITION_SHAPE,
+        )
+    if additivity is not None and additivity != "non_additive":
+        _raise(
+            ErrorKind.INVALID_DECOMPOSITION,
+            "ms.derived_metric(...) additivity must be omitted or 'non_additive'.",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.DECOMPOSITION_SHAPE,
+        )
+
+    ai_ctx = _build_ai_context(ai_context)
+    location = _caller_location()
+    decomp_ir = DecompositionIR(
+        kind=decomposition.kind,
+        components=dict(decomposition.components),
+    )
+    prov_ir = _build_metric_provenance(
+        source_sql=source_sql,
+        source_dialect=source_dialect,
+        source_document=source_document,
+        source_notes=source_notes,
+        declared_status=declared_status,
+    )
+
+    ir = MetricIR(
+        semantic_id=semantic_id,
+        model=model_name,
+        name=name,
+        datasets=(),
+        is_derived=True,
+        decomposition=decomp_ir,
+        provenance=prov_ir,
+        description=description,
+        ai_context=ai_ctx,
+        body_ast_hash=_compute_decomposition_ast_hash(decomposition),
+        python_symbol=name,
+        location=location,
+        additivity=additivity,
+        root_dataset=None,
+        fanout_policy="block",
+    )
+    _push_ir(ctx, ir, None)
+
+    return MetricRef(semantic_id)
 
 
 def relationship(
@@ -1039,17 +953,17 @@ def ratio(
     numerator: Any,
     denominator: Any,
 ) -> DecompositionBuilder:
-    """Ratio decomposition: derived metric expressed as numerator / denominator.
+    """Ratio decomposition for body-free ``ms.derived_metric`` declarations.
 
     ``numerator`` and ``denominator`` are ``MetricRef`` / qualified string
-    references to other metrics. The derived metric body should call
-    ``ms.component("numerator") / ms.component("denominator")``.
+    references to other metrics. Pass the returned builder directly to
+    ``ms.derived_metric(...)``.
 
     Example:
-        >>> @ms.metric(name="aov", datasets=[],
-        ...            decomposition=ms.ratio(numerator=revenue, denominator=orders_count))
-        ... def aov():
-        ...     return ms.component("numerator") / ms.component("denominator")
+        >>> ms.derived_metric(
+        ...     name="aov",
+        ...     decomposition=ms.ratio(numerator=revenue, denominator=orders_count),
+        ... )
     """
     num_id = _resolve_ref_string(numerator) if not isinstance(numerator, str) else numerator
     den_id = _resolve_ref_string(denominator) if not isinstance(denominator, str) else denominator
@@ -1064,11 +978,11 @@ def weighted_average(
     value: Any,
     weight: Any,
 ) -> DecompositionBuilder:
-    """Weighted-average decomposition: derived metric expressed as Σ(value)/Σ(weight).
+    """Weighted-average decomposition for body-free derived metrics.
 
     Both ``value`` and ``weight`` are ``MetricRef`` / qualified string
-    references. Use when the underlying ratio needs to be averaged by an
-    additive weight (e.g. revenue-weighted average price).
+    references. Pass the returned builder directly to ``ms.derived_metric(...)``
+    when the underlying ratio needs to be averaged by an additive weight.
     """
     num_id = _resolve_ref_string(value) if not isinstance(value, str) else value
     weight_id = _resolve_ref_string(weight) if not isinstance(weight, str) else weight
@@ -1085,47 +999,3 @@ def ref(id: str) -> str:
     explicit at the call site (``datasets=[ms.ref("sales.orders")]``).
     """
     return id
-
-
-def component(name: str, /) -> _ComponentSentinel:
-    """Reference a decomposition component inside a derived metric body.
-
-    Resolvable only while the derived ``@ms.metric`` body is executing. Returns
-    a sentinel that supports ``+ - * /`` to build the expression tree consumed
-    by the compiler.
-
-    Args:
-        name: Component name, must match a key declared in the metric's
-            ``decomposition.components``.
-
-    Raises:
-        SemanticDecoratorError: Called outside a derived metric body, ``name`` is
-            empty, or ``name`` is not a declared component.
-
-    Example:
-        >>> @ms.metric(name="aov", datasets=[],
-        ...            decomposition=ms.ratio(numerator=revenue, denominator=orders_count))
-        ... def aov():
-        ...     return ms.component("numerator") / ms.component("denominator")
-    """
-    decomp = _ACTIVE_DECOMPOSITION.get()
-    if decomp is None:
-        _raise(
-            ErrorKind.OUTSIDE_DERIVED_METRIC_BODY,
-            "ms.component() can only be called inside a derived metric function body.",
-            cls=SemanticDecoratorError,
-        )
-    if not name:
-        _raise(
-            ErrorKind.INVALID_COMPONENT_BODY,
-            "ms.component() requires a non-empty string argument.",
-            cls=SemanticDecoratorError,
-        )
-    if name not in decomp.components:
-        _raise(
-            ErrorKind.INVALID_COMPONENT_NAME,
-            f"ms.component({name!r}) is not a valid component name. "
-            f"Available components: {sorted(decomp.components.keys())}",
-            cls=SemanticDecoratorError,
-        )
-    return _ComponentSentinel(name)

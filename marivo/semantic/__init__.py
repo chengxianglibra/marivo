@@ -17,8 +17,8 @@ from __future__ import annotations
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
-    component,
     dataset,
+    derived_metric,
     field,
     file,
     metric,
@@ -93,8 +93,8 @@ __all__ = [
     "RichnessReport",
     "SemanticProject",
     "classify",
-    "component",
     "dataset",
+    "derived_metric",
     "errors",
     "field",
     "file",

@@ -95,6 +95,33 @@ def test_runner_can_opt_into_subprocess_execution(tmp_path: Path, monkeypatch: o
     assert seen_in_process == [False]
 
 
+def test_in_process_example_prefers_current_root_on_sys_path(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    runner = _load_runner_module()
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
+    _make_skill_tree(tmp_path, "marivo-semantic")
+    stale_root = tmp_path / "stale"
+    stale_root.mkdir()
+    (stale_root / "worktree_marker.py").write_text("VALUE = 'stale'\n")
+    (tmp_path / "worktree_marker.py").write_text("VALUE = 'current'\n")
+    example = examples / "01_import_marker.py"
+    example.write_text(
+        "import worktree_marker\n"
+        "assert worktree_marker.VALUE == 'current', worktree_marker.VALUE\n"
+        "print('loaded current root')\n"
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(stale_root))
+    sys.modules.pop("worktree_marker", None)
+
+    failure = runner._check_example(example, in_process=True)
+
+    assert failure is None
+
+
 def test_runner_fails_when_example_exits_nonzero(tmp_path: Path) -> None:
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "01_bad.py").write_text("raise SystemExit(2)\n")

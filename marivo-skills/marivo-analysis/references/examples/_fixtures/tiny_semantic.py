@@ -113,15 +113,14 @@ def _bootstrap_semantic_project(root: Path) -> None:
         "def total_count(orders):\n"
         "    return orders.count()\n"
         "\n"
-        "@ms.metric(\n"
-        "    datasets=[],\n"
+        "failure_rate = ms.derived_metric(\n"
+        '    name="failure_rate",\n'
         "    decomposition=ms.ratio(\n"
         "        numerator='sales.failed_count',\n"
         "        denominator='sales.total_count',\n"
         "    ),\n"
+        '    additivity="non_additive",\n'
         ")\n"
-        "def failure_rate():\n"
-        "    return ms.component('numerator') / ms.component('denominator')\n"
     )
 
 

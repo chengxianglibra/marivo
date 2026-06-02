@@ -470,15 +470,21 @@ def _bootstrap_failure_rate(tmp_path):
         "def total_count(orders):\n"
         "    return orders.count()\n"
         "\n"
-        "@ms.metric(\n"
-        "    datasets=[],\n"
+        "ms.derived_metric(\n"
+        "    name='failure_rate',\n"
         "    decomposition=ms.ratio(\n"
         "        numerator='sales.failed_count',\n"
         "        denominator='sales.total_count',\n"
         "    ),\n"
         ")\n"
-        "def failure_rate():\n"
-        "    return ms.component('numerator') / ms.component('denominator')\n"
+        "\n"
+        "ms.derived_metric(\n"
+        "    name='failed_count_ratio',\n"
+        "    decomposition=ms.ratio(\n"
+        "        numerator='sales.failed_count',\n"
+        "        denominator='sales.failed_count',\n"
+        "    ),\n"
+        ")\n"
     )
 
 
@@ -524,6 +530,14 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
     assert component_df.iloc[0]["numerator"] == pytest.approx(2.0)
     assert component_df.iloc[0]["denominator"] == pytest.approx(4.0)
     assert component_df.iloc[0]["metric_value"] == pytest.approx(0.5)
+
+    self_ratio = observe(MetricRef("sales.failed_count_ratio"), session=session)
+    assert self_ratio.to_pandas().iloc[0]["failed_count_ratio"] == pytest.approx(1.0)
+    self_components = self_ratio.components().to_pandas()
+    assert list(self_components.columns) == ["numerator", "denominator", "metric_value"]
+    assert self_components.iloc[0]["numerator"] == pytest.approx(2.0)
+    assert self_components.iloc[0]["denominator"] == pytest.approx(2.0)
+    assert self_components.iloc[0]["metric_value"] == pytest.approx(1.0)
 
 
 def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):

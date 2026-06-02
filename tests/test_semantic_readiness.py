@@ -209,6 +209,34 @@ _PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
 """)
 
 
+_DERIVED_PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+
+    orders = ms.dataset(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
+
+    @ms.metric(
+        datasets=[orders],
+        additivity="additive",
+        decomposition=ms.sum(),
+        declared_status="python_native",
+        description="Total amount",
+    )
+    def total_amount(table):
+        return table.amount.sum()
+
+    avg_amount = ms.derived_metric(
+        name="avg_amount",
+        decomposition=ms.ratio(
+            numerator="sales.total_amount",
+            denominator="sales.total_amount",
+        ),
+        declared_status="python_native",
+        source_sql="SELECT 1",
+        description="Average amount placeholder.",
+    )
+""")
+
+
 def _project(semantic_project_factory, model_py: str):
     return semantic_project_factory(
         {
@@ -575,6 +603,31 @@ def test_readiness_warns_for_python_native_metric(
     assert report.parity_summary.python_native_metrics == ("sales.total_amount",)
     assert "unverified_metric" not in _issue_kinds(report.blockers)
     assert any("python_native" in issue.message for issue in report.warnings)
+
+
+def test_readiness_warns_for_derived_python_native_status(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = _project(semantic_project_factory, _DERIVED_PYTHON_NATIVE_MODEL_PY)
+
+    report = project.readiness(
+        strict_provenance=False,
+        require_preview=False,
+        backend_factory=backend_factory,
+    )
+
+    assert report.status == "ready_with_warnings"
+    assert any(
+        issue.kind == "derived_python_native_status"
+        and issue.refs == ("sales.avg_amount",)
+        and "Remove declared_status" in issue.suggested_action
+        for issue in report.warnings
+    )
+    assert not any(
+        issue.kind == "unverified_metric" and issue.refs == ("sales.avg_amount",)
+        for issue in report.warnings
+    )
 
 
 def test_semantic_check_run_check_returns_json_ready_report(

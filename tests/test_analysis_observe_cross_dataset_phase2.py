@@ -511,13 +511,10 @@ def _bootstrap_derived_ratio(tmp_path):
         "@ms.metric(datasets=[sessions, users], root_dataset=sessions, additivity='additive', decomposition=ms.sum(), name='session_count')\n"
         "def session_count(sessions, users):\n"
         "    return sessions.session_id.count()\n"
-        "@ms.metric(\n"
-        "    datasets=[],\n"
-        "    decomposition=ms.ratio(numerator='sales.gmv', denominator='sales.session_count'),\n"
+        "ms.derived_metric(\n"
         "    name='gmv_per_session',\n"
+        "    decomposition=ms.ratio(numerator='sales.gmv', denominator='sales.session_count'),\n"
         ")\n"
-        "def gmv_per_session():\n"
-        "    return ms.component('numerator') / ms.component('denominator')\n"
     )
     (semantic_dir / "relationships.py").write_text(
         "import marivo.semantic as ms\n"
@@ -585,13 +582,10 @@ def _bootstrap_axis_unreachable(tmp_path):
         "@ms.metric(datasets=[sessions], additivity='additive', decomposition=ms.sum(), name='session_count')\n"
         "def session_count(sessions):\n"
         "    return sessions.session_id.count()\n"
-        "@ms.metric(\n"
-        "    datasets=[],\n"
-        "    decomposition=ms.ratio(numerator='sales.gmv', denominator='sales.session_count'),\n"
+        "ms.derived_metric(\n"
         "    name='gmv_per_session',\n"
+        "    decomposition=ms.ratio(numerator='sales.gmv', denominator='sales.session_count'),\n"
         ")\n"
-        "def gmv_per_session():\n"
-        "    return ms.component('numerator') / ms.component('denominator')\n"
     )
     (semantic_dir / "relationships.py").write_text(
         "import marivo.semantic as ms\n"
@@ -691,13 +685,10 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
         "@ms.metric(datasets=[sessions, user_profile_daily], root_dataset=sessions, additivity='additive', decomposition=ms.sum(), name='sessions_by_tier')\n"
         "def sessions_by_tier(sessions, user_profile_daily):\n"
         "    return sessions.session_id.count()\n"
-        "@ms.metric(\n"
-        "    datasets=[],\n"
-        "    decomposition=ms.ratio(numerator='sales.gmv_by_tier', denominator='sales.sessions_by_tier'),\n"
+        "ms.derived_metric(\n"
         "    name='gmv_per_session',\n"
+        "    decomposition=ms.ratio(numerator='sales.gmv_by_tier', denominator='sales.sessions_by_tier'),\n"
         ")\n"
-        "def gmv_per_session():\n"
-        "    return ms.component('numerator') / ms.component('denominator')\n"
     )
     (semantic_dir / "relationships.py").write_text(
         "import marivo.semantic as ms\n"
@@ -771,13 +762,10 @@ def test_derived_components_can_span_datasources(tmp_path):
         "@ms.metric(datasets=[sessions], additivity='additive', decomposition=ms.sum(), name='session_count')\n"
         "def session_count(sessions):\n"
         "    return sessions.session_id.count()\n"
-        "@ms.metric(\n"
-        "    datasets=[],\n"
-        "    decomposition=ms.ratio(numerator=gmv, denominator=session_count),\n"
+        "ms.derived_metric(\n"
         "    name='gmv_per_session',\n"
+        "    decomposition=ms.ratio(numerator=gmv, denominator=session_count),\n"
         ")\n"
-        "def gmv_per_session():\n"
-        "    return ms.component('numerator') / ms.component('denominator')\n"
     )
     warehouse = ibis.duckdb.connect(":memory:")
     warehouse.raw_sql("CREATE TABLE orders (order_id INTEGER, amount DOUBLE)")

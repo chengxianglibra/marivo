@@ -252,11 +252,11 @@ The agent should use `marivo.semantic` decorators and builders:
 - `@ms.field(...)`
 - `@ms.time_field(...)`
 - `@ms.metric(...)`
+- `ms.derived_metric(...)`
 - `ms.relationship(...)`
 - `ms.sum()`
 - `ms.ratio(...)`
 - `ms.weighted_average(...)`
-- `ms.component(...)`
 
 The agent should inspect `ms.help("<symbol>", format="json")` and
 `ms.help("constraints", format="json")` instead of guessing allowed shapes.
@@ -572,7 +572,7 @@ Mapping:
   `ai_context.business_definition`
 - datasource name -> `datasource=`
 - key evidence -> `primary_key`
-- physical table access -> function body
+- physical table access -> `source=ms.table(...)` or `source=ms.file(...)`
 
 Datasets should not contain metric aggregation logic.
 
@@ -627,17 +627,14 @@ def revenue(orders):
 Derived metrics combine components:
 
 ```python
-@ms.metric(
+aov = ms.derived_metric(
     name="aov",
-    datasets=[],
     decomposition=ms.ratio(
         numerator=revenue,
         denominator=orders_count,
     ),
-    declared_status="python_native",
+    additivity="non_additive",
 )
-def aov():
-    return ms.component("numerator") / ms.component("denominator")
 ```
 
 Rules:
@@ -647,8 +644,10 @@ Rules:
 - source SQL provenance should be preserved when available
 - no-source metrics remain `unverified` unless explicitly `python_native`
 - `declared_status=None` means the metric is `unverified` until parity succeeds
-  or the author explicitly chooses `declared_status="python_native"`
-- derived metric readiness inherits the weakest component status
+  or the author explicitly chooses `declared_status="python_native"` for a base metric
+- derived metric readiness inherits the weakest component status; do not set
+  `declared_status="python_native"` on derived metrics unless intentionally
+  accepting the loader/readiness advisory
 
 ### Relationship
 
@@ -865,6 +864,7 @@ class ReadinessIssue:
         "requires_raw_sql",
         "primary_key_unsampled",
         "fragile_string_ref",
+        "derived_python_native_status",
     ]
     severity: Literal["blocker", "warning"]
     refs: tuple[str, ...]
@@ -930,7 +930,7 @@ Analysis-ready refs:
 - sales.orders_count
 
 Warnings:
-- sales.aov is python_native; no source SQL parity oracle.
+- sales.aov derives readiness from sales.revenue and sales.orders_count.
 - sales.orders primary_key was declared but uniqueness was not sampled.
 
 Blocked refs:

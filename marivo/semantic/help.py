@@ -20,19 +20,22 @@ _TOP_LEVEL_ENTRIES: dict[str, tuple[str, str]] = {
     "file": ("callable", "file source for ms.dataset(source=...)"),
     "field": ("callable", "declare a non-aggregated field on a dataset"),
     "time_field": ("callable", "declare a time-aware field used as the calendar axis"),
-    "metric": ("callable", "declare an aggregated metric"),
+    "metric": ("callable", "declare a dataset-backed aggregate metric"),
+    "derived_metric": (
+        "callable",
+        "declare a body-free canonical ratio or weighted-average metric",
+    ),
     "relationship": ("callable", "declare a relationship between datasets"),
     "ratio": ("callable", "derived metric helper (a/b)"),
     "ref": ("callable", "refer to another metric by qualified name"),
     "sum": ("callable", "sum aggregation marker"),
     "weighted_average": ("callable", "weighted-average aggregation marker"),
     "decomposition": ("topic", "metric decomposition builders and aggregation boundary"),
-    "component": ("callable", "refer to a decomposition component in derived metric body"),
     "help": ("callable", "this introspection entry point"),
     "constraints": ("topic", "authoring and validation constraints"),
     "find_project": ("callable", "discover a semantic project by walking up from a directory"),
     "SemanticProject": ("class", "primary reader for a loaded semantic project"),
-    "typing": ("module", "IbisBackend Protocol, ComponentExpr Protocol, AiContext TypedDict"),
+    "typing": ("module", "IbisBackend Protocol and AiContext TypedDict"),
     "errors": ("module", "SemanticError hierarchy and ErrorKind enum"),
 }
 
@@ -129,12 +132,12 @@ def _decomposition_help_json() -> dict[str, object]:
             },
             {
                 "metric_shape": "mean_or_average",
-                "body": "derived body using ms.component('numerator') / ms.component('denominator')",
+                "body": "ms.derived_metric(..., decomposition=ms.ratio(...))",
                 "decomposition": "ms.ratio(...)",
             },
             {
                 "metric_shape": "weighted_average",
-                "body": "derived body using value and weight components",
+                "body": "ms.derived_metric(..., decomposition=ms.weighted_average(...))",
                 "decomposition": "ms.weighted_average(...)",
             },
         ],
@@ -145,7 +148,7 @@ def _decomposition_help_json() -> dict[str, object]:
         ],
         "related_help": [
             "ms.help('metric', format='json')",
-            "ms.help('component', format='json')",
+            "ms.help('derived_metric', format='json')",
             "ms.help('constraints', format='json')",
         ],
     }

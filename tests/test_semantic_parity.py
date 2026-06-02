@@ -153,13 +153,12 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
     def cost(table):
         return table.amount.sum()
 
-    @ms.metric(
+    margin = ms.derived_metric(
+        name="margin",
         decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
         source_sql="SELECT 0.5 AS margin",
         source_dialect="duckdb",
     )
-    def margin():
-        return ms.component("numerator") / ms.component("denominator")
 """)
 
 _DECLARED_PYTHON_NATIVE_PY = textwrap.dedent("""\
@@ -520,11 +519,10 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
         def cost(table):
             return table.amount.sum()
 
-        @ms.metric(
+        margin = ms.derived_metric(
+            name="margin",
             decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
         )
-        def margin():
-            return ms.component("numerator") / ms.component("denominator")
     """)
     project = semantic_project_factory(
         {
@@ -591,11 +589,10 @@ def test_derived_propagation_verified_and_python_native(
         def cost(table):
             return table.amount.sum()
 
-        @ms.metric(
+        margin = ms.derived_metric(
+            name="margin",
             decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
         )
-        def margin():
-            return ms.component("numerator") / ms.component("denominator")
     """)
     project = semantic_project_factory(
         {

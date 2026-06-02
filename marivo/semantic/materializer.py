@@ -16,7 +16,6 @@ import ibis.expr.types as ir
 from ibis.expr.operations.relations import SQLQueryResult
 
 from marivo.datasource.errors import DatasourceConfigError
-from marivo.semantic.authoring import _BinOpSentinel, _ComponentSentinel, _UnaryNegSentinel
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import DatasetProvenance, FileSourceIR, MetricIR, TableSourceIR
 from marivo.semantic.validator import Registry, Sidecar
@@ -258,7 +257,7 @@ class Materializer:
             )
 
         if metric_ir.is_derived:
-            value = self._materialize_derived_metric(semantic_id, metric_ir, sidecar)
+            value = self._materialize_derived_metric(semantic_id, metric_ir)
         else:
             value = self._materialize_base_metric(semantic_id, metric_ir, sidecar, registry)
 
@@ -308,79 +307,40 @@ class Materializer:
         self,
         semantic_id: str,
         metric_ir: MetricIR,
-        sidecar: Sidecar,
     ) -> ir.Value:
-        """Materialize a derived metric by walking the sentinel tree."""
-        sentinel_tree = sidecar.get(semantic_id)
-        if sentinel_tree is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Derived metric {semantic_id!r} has no sentinel tree in sidecar.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-
-        return self._eval_sentinel(sentinel_tree, metric_ir)
-
-    def _eval_sentinel(
-        self,
-        node: Any,
-        metric_ir: MetricIR,
-    ) -> ir.Value:
-        """Recursively evaluate a sentinel tree into an ibis expression."""
-        if isinstance(node, _ComponentSentinel):
-            # Look up the component metric's semantic_id from decomposition
-            component_metric_id = metric_ir.decomposition.components.get(node.name)
-            if component_metric_id is None:
+        """Materialize a body-free derived metric from decomposition components."""
+        components = metric_ir.decomposition.components
+        if metric_ir.decomposition.kind == "ratio":
+            numerator = components.get("numerator")
+            denominator = components.get("denominator")
+            if numerator is None or denominator is None:
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
-                    f"Component {node.name!r} not found in decomposition of "
-                    f"metric {metric_ir.semantic_id!r}.",
+                    f"Derived metric {semantic_id!r} ratio decomposition is missing components.",
                     cls=SemanticRuntimeError,
-                    refs=(metric_ir.semantic_id,),
+                    refs=(semantic_id,),
                 )
-            # Recursively materialize the component metric
-            return self.metric(component_metric_id)
+            return self.metric(numerator) / self.metric(denominator)
 
-        if isinstance(node, _BinOpSentinel):
-            left = self._eval_sentinel_or_literal(node.left, metric_ir)
-            right = self._eval_sentinel_or_literal(node.right, metric_ir)
-            if node.op == "+":
-                return left + right
-            elif node.op == "-":
-                return left - right
-            elif node.op == "*":
-                return left * right
-            elif node.op == "/":
-                return left / right
-            else:
+        if metric_ir.decomposition.kind == "weighted_average":
+            numerator = components.get("numerator")
+            weight = components.get("weight")
+            if numerator is None or weight is None:
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
-                    f"Unsupported binary operator {node.op!r} in derived metric.",
+                    f"Derived metric {semantic_id!r} weighted_average decomposition is missing components.",
                     cls=SemanticRuntimeError,
-                    refs=(metric_ir.semantic_id,),
+                    refs=(semantic_id,),
                 )
-
-        if isinstance(node, _UnaryNegSentinel):
-            operand = self._eval_sentinel(node.operand, metric_ir)
-            return -operand
+            return self.metric(numerator) / self.metric(weight)
 
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
-            f"Unexpected sentinel node type {type(node).__name__} in derived metric.",
+            f"Derived metric {semantic_id!r} has unsupported decomposition kind "
+            f"{metric_ir.decomposition.kind!r}.",
             cls=SemanticRuntimeError,
-            refs=(metric_ir.semantic_id,),
+            refs=(semantic_id,),
         )
-
-    def _eval_sentinel_or_literal(
-        self,
-        node: Any,
-        metric_ir: MetricIR,
-    ) -> ir.Value:
-        """Evaluate a sentinel node or a numeric literal into an ibis expression."""
-        if isinstance(node, (int, float)):
-            return ibis.literal(node)
-        return self._eval_sentinel(node, metric_ir)
 
     def _check_single_datasource(self, metric_ir: MetricIR, registry: Any) -> None:
         """All datasets in a base metric must share the same datasource."""

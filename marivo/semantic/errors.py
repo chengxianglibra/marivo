@@ -54,9 +54,7 @@ class ErrorKind(StrEnum):
     INVALID_REF = "invalid_ref"
     INVALID_DECOMPOSITION = "invalid_decomposition"
     INVALID_COMPONENT_BODY = "invalid_component_body"
-    INVALID_COMPONENT_NAME = "invalid_component_name"
     OUTSIDE_LOADER_CONTEXT = "outside_loader_context"
-    OUTSIDE_DERIVED_METRIC_BODY = "outside_derived_metric_body"
     METRIC_BODY_NOT_SINGLE_RETURN = "metric_body_not_single_return"
     INVALID_AI_CONTEXT = "invalid_ai_context"
     SQL_ESCAPE_HATCH = "sql_escape_hatch"
@@ -210,6 +208,7 @@ class WarningKind(StrEnum):
 
     STRING_REF = "string_ref"
     UNVERIFIED_PROVENANCE = "unverified_provenance"
+    DERIVED_PYTHON_NATIVE_STATUS = "derived_python_native_status"
     POTENTIALLY_FRAGILE_REFERENCE = "potentially_fragile_reference"
     TIME_FIELD_PUSHDOWN_ADVISORY = "time_field_pushdown_advisory"
 
@@ -224,6 +223,7 @@ class StructuredWarning:
     kind: Literal[
         "string_ref",
         "unverified_provenance",
+        "derived_python_native_status",
         "potentially_fragile_reference",
         "time_field_pushdown_advisory",
     ]

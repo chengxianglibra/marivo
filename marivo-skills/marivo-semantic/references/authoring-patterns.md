@@ -167,8 +167,8 @@ come from runtime help; do not invent `ms.count()` or `ms.mean()`.
 | --- | --- | --- |
 | Additive amount | `.sum()` or another dataset-backed reduction | `ms.sum()` |
 | Count | `.count()` in the metric body | `ms.sum()` |
-| Mean or average | derived `ms.component("numerator") / ms.component("denominator")` | `ms.ratio(...)` |
-| Weighted average | derived expression over value and weight components | `ms.weighted_average(...)` |
+| Mean or average | `ms.derived_metric(..., decomposition=ms.ratio(...))` | `ms.ratio(...)` |
+| Weighted average | `ms.derived_metric(..., decomposition=ms.weighted_average(...))` | `ms.weighted_average(...)` |
 
 ```python
 @ms.metric(
@@ -181,7 +181,7 @@ def orders_count(table):
     return table.order_id.count()
 ```
 
-Mean/average metrics are component-aware derived metrics, not `ms.mean()`:
+Mean/average metrics are body-free derived metrics, not `ms.mean()`:
 
 ```python
 @ms.metric(
@@ -193,28 +193,25 @@ Mean/average metrics are component-aware derived metrics, not `ms.mean()`:
 def gross_revenue(table):
     return table.amount.sum()
 
-@ms.metric(
-    datasets=[],
-    additivity="non_additive",
+gross_revenue_per_order = ms.derived_metric(
+    name="gross_revenue_per_order",
     decomposition=ms.ratio(numerator=gross_revenue, denominator=orders_count),
-    name="average_order_value",
+    additivity="non_additive",
+    ai_context={
+        "business_definition": "Gross revenue divided by order count.",
+    },
 )
-def average_order_value():
-    return ms.component("numerator") / ms.component("denominator")
 ```
 
 ## Derived metrics
 
-Derived metric bodies use `ms.component(...)` only:
+Derived metrics use `ms.derived_metric(...)` and do not have Python bodies:
 
 ```python
-@ms.metric(
-    datasets=[],
-    decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.orders_count"),
+ms.derived_metric(
     name="aov",
+    decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.orders_count"),
 )
-def aov():
-    return ms.component("numerator") / ms.component("denominator")
 ```
 
 ## Constraint examples
@@ -227,14 +224,11 @@ def aov():
 | `ref_shape` | refs must point at the intended object kind | `references/examples/01_single_model_file.py` |
 | `decomposition_shape` | metrics need supported decomposition builders | `references/examples/01_single_model_file.py` |
 | `metric_datasets_required` | base metrics must declare datasets | `references/examples/01_single_model_file.py` |
-| `metric_derived_shape` | derived metrics use components, not datasets | `references/examples/01_single_model_file.py` |
-| `metric_component_scope` | components belong only in derived metric bodies | `references/examples/01_single_model_file.py` |
-| `component_name_declared` | component names must match decomposition keys | `references/examples/01_single_model_file.py` |
+| `metric_component_scope` | component-body calls are no longer supported in metric bodies | `references/examples/01_single_model_file.py` |
 | `ai_context_schema` | handoff metadata must use supported fields | `references/examples/01_single_model_file.py` |
 | `ast_single_return` | decorator bodies stay one safe expression | `references/examples/01_single_model_file.py` |
 | `ast_forbidden_statement` | decorator bodies cannot hide arbitrary code | `references/examples/01_single_model_file.py` |
 | `ast_sql_escape_hatch` | Python-track bodies must avoid raw SQL calls | `references/examples/01_single_model_file.py` |
-| `ast_component_arithmetic` | derived bodies use component arithmetic | `references/examples/01_single_model_file.py` |
 | `model_file_present` | every model directory needs `_model.py` | `references/examples/01_single_model_file.py` |
 | `dataset_ref_exists` | dataset datasource refs must resolve | `references/examples/01_single_model_file.py` |
 | `metric_ref_exists` | decomposition refs must resolve | `references/examples/01_single_model_file.py` |

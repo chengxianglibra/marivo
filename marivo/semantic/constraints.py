@@ -34,14 +34,11 @@ class ConstraintId(StrEnum):
     REF_SHAPE = "ref_shape"
     DECOMPOSITION_SHAPE = "decomposition_shape"
     METRIC_DATASETS_REQUIRED = "metric_datasets_required"
-    METRIC_DERIVED_SHAPE = "metric_derived_shape"
     METRIC_COMPONENT_SCOPE = "metric_component_scope"
-    COMPONENT_NAME_DECLARED = "component_name_declared"
     AI_CONTEXT_SCHEMA = "ai_context_schema"
     AST_SINGLE_RETURN = "ast_single_return"
     AST_FORBIDDEN_STATEMENT = "ast_forbidden_statement"
     AST_SQL_ESCAPE_HATCH = "ast_sql_escape_hatch"
-    AST_COMPONENT_ARITHMETIC = "ast_component_arithmetic"
     MODEL_FILE_PRESENT = "model_file_present"
     MODEL_FILE_MATCHES_DIRECTORY = "model_file_matches_directory"
     DATASET_REF_EXISTS = "dataset_ref_exists"
@@ -167,15 +164,6 @@ _EXPR_BODY_AST_SPEC = ASTSpec(
     forbidden_calls=("ms.component",),
 )
 
-_DERIVED_BODY_AST_SPEC = ASTSpec(
-    name="component_arithmetic_only",
-    single_return=True,
-    allowed_calls=("ms.component(<literal>)",),
-    allowed_binops=("Add", "Sub", "Mult", "Div"),
-    allowed_unary_ops=("USub",),
-    component_call_only=True,
-)
-
 
 def _constraint(
     id: ConstraintId,
@@ -211,7 +199,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.ACTIVE_LOADER_CONTEXT,
         "outside_loader_context",
         "decorator",
-        ("model", "dataset", "field", "time_field", "metric", "relationship", "component"),
+        (
+            "model",
+            "dataset",
+            "field",
+            "time_field",
+            "metric",
+            "derived_metric",
+            "relationship",
+        ),
         "Decorators require an active semantic loader context.",
         "Semantic declarations register into the project loader registry, not global process state.",
         "Put declarations under .marivo/semantic/<model>/ and load them with SemanticProject.",
@@ -221,7 +217,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.ACTIVE_MODEL_REQUIRED,
         "missing_model",
         "decorator",
-        ("dataset", "field", "time_field", "metric", "relationship"),
+        ("dataset", "field", "time_field", "metric", "derived_metric", "relationship"),
         "Declarations need a model namespace.",
         "Every semantic object is stored as <model>.<name>.",
         "Call ms.model(name=...) in _model.py or pass model_name=... explicitly.",
@@ -251,7 +247,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.DECOMPOSITION_SHAPE,
         "invalid_decomposition",
         "decorator",
-        ("metric", "sum", "ratio", "weighted_average"),
+        ("metric", "derived_metric", "sum", "ratio", "weighted_average"),
         "Metrics need a supported decomposition builder.",
         "Decomposition declares how metric values compose during drilldown and derived calculations.",
         "Run ms.help('decomposition', format='json') to inspect supported builders; SQL aggregation belongs in the metric body.",
@@ -264,37 +260,17 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Base metrics must declare at least one dataset.",
         "Dataset-backed metrics read source rows from their declared dataset arguments.",
-        "Pass datasets=[...] for aggregate metrics, or use datasets=[] only with component decompositions.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
-    ),
-    ConstraintId.METRIC_DERIVED_SHAPE: _constraint(
-        ConstraintId.METRIC_DERIVED_SHAPE,
-        "invalid_component_body",
-        "decorator",
-        ("metric",),
-        "datasets=[] is only valid for derived metrics with components.",
-        "An empty dataset list means the metric is computed from component metrics, not source rows.",
-        "Use datasets=[...] for aggregate metrics or a component decomposition such as ms.ratio(...).",
+        "Base metrics need datasets=[...]; use ms.derived_metric(...) for metrics composed from other metrics.",
         example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.METRIC_COMPONENT_SCOPE: _constraint(
         ConstraintId.METRIC_COMPONENT_SCOPE,
-        "outside_derived_metric_body",
-        "decorator",
-        ("metric", "component"),
-        "ms.component() only belongs in derived metric bodies.",
-        "Component sentinels resolve only while a derived metric body is being evaluated.",
-        "Use datasets=[] with a component decomposition, then return arithmetic over ms.component(...).",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
-    ),
-    ConstraintId.COMPONENT_NAME_DECLARED: _constraint(
-        ConstraintId.COMPONENT_NAME_DECLARED,
-        "invalid_component_name",
-        "decorator",
-        ("metric", "component"),
-        "Component names must be declared by the decomposition.",
-        "Derived metric bodies can only reference known component keys.",
-        "Use names such as numerator, denominator, or weight that appear in the decomposition builder.",
+        "invalid_component_body",
+        "ast",
+        ("metric",),
+        "ms.component() is no longer supported in metric bodies.",
+        "Derived metrics are body-free and declare composition through ms.derived_metric(...).",
+        "Remove ms.component() calls; use ms.derived_metric(...) with decomposition metadata instead.",
         example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.AI_CONTEXT_SCHEMA: _constraint(
@@ -339,17 +315,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Use ibis expressions in the body and put the original SQL in source_sql= on metrics.",
         example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
         ast_spec=_EXPR_BODY_AST_SPEC,
-    ),
-    ConstraintId.AST_COMPONENT_ARITHMETIC: _constraint(
-        ConstraintId.AST_COMPONENT_ARITHMETIC,
-        "invalid_component_body",
-        "ast",
-        ("metric", "component"),
-        "Derived metric bodies only allow ms.component('<literal>') and arithmetic.",
-        "Derived metrics compose already-registered component metrics without source-row access.",
-        "Return arithmetic over ms.component('numerator'), ms.component('denominator'), or ms.component('weight').",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
-        ast_spec=_DERIVED_BODY_AST_SPEC,
     ),
     ConstraintId.MODEL_FILE_PRESENT: _constraint(
         ConstraintId.MODEL_FILE_PRESENT,
@@ -507,7 +472,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Derived metrics must keep fanout_policy='block'.",
         "Derived metrics inherit fan-out behavior from their component metrics, which each declare their own policy.",
-        "Remove fanout_policy from the derived @ms.metric and set it on the relevant base components instead.",
+        "Use ms.derived_metric(...) without fanout_policy and set fanout_policy on the relevant base components instead.",
     ),
     ConstraintId.DATASET_VERSIONING_VALID: _constraint(
         ConstraintId.DATASET_VERSIONING_VALID,
