@@ -369,3 +369,116 @@ def test_different_bodies_different_hash() -> None:
     hash_a = validate_metric_body_ast(revenue_a, "base")
     hash_b = validate_metric_body_ast(revenue_b, "base")
     assert hash_a != hash_b
+
+
+# ---------------------------------------------------------------------------
+# _time_field_dtype_advisory tests
+# ---------------------------------------------------------------------------
+
+
+def test_time_field_dtype_advisory_cast_date_declared_datetime() -> None:
+    """Body .cast('date') with data_type='datetime' triggers advisory."""
+
+    def order_date(table):  # type: ignore[no-untyped-def]
+        return table.dt.cast("timestamp").cast("date")
+
+    from marivo.datasource.ir import AiContextIR
+    from marivo.semantic.ir import FieldIR, SourceLocation
+    from marivo.semantic.validator import _time_field_dtype_advisory
+
+    field_ir = FieldIR(
+        semantic_id="model.order_date",
+        model="model",
+        dataset="orders",
+        name="order_date",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="datetime",
+        granularity="day",
+        required_prefix=None,
+        python_symbol="order_date",
+        location=SourceLocation(file="test.py", line=1),
+    )
+    assert _time_field_dtype_advisory(field_ir, order_date) == "date"
+
+
+def test_time_field_dtype_advisory_cast_timestamp_declared_datetime_ok() -> None:
+    """Body .cast('timestamp') with data_type='datetime' is compatible — no advisory."""
+
+    def created_at(table):  # type: ignore[no-untyped-def]
+        return table.ts.cast("timestamp")
+
+    from marivo.datasource.ir import AiContextIR
+    from marivo.semantic.ir import FieldIR, SourceLocation
+    from marivo.semantic.validator import _time_field_dtype_advisory
+
+    field_ir = FieldIR(
+        semantic_id="model.created_at",
+        model="model",
+        dataset="orders",
+        name="created_at",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="datetime",
+        granularity="day",
+        required_prefix=None,
+        python_symbol="created_at",
+        location=SourceLocation(file="test.py", line=1),
+    )
+    assert _time_field_dtype_advisory(field_ir, created_at) is None
+
+
+def test_time_field_dtype_advisory_cast_date_declared_date_ok() -> None:
+    """Body .cast('date') with data_type='date' is compatible — no advisory."""
+
+    def order_date(table):  # type: ignore[no-untyped-def]
+        return table.dt.cast("date")
+
+    from marivo.datasource.ir import AiContextIR
+    from marivo.semantic.ir import FieldIR, SourceLocation
+    from marivo.semantic.validator import _time_field_dtype_advisory
+
+    field_ir = FieldIR(
+        semantic_id="model.order_date",
+        model="model",
+        dataset="orders",
+        name="order_date",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="date",
+        granularity="day",
+        required_prefix=None,
+        python_symbol="order_date",
+        location=SourceLocation(file="test.py", line=1),
+    )
+    assert _time_field_dtype_advisory(field_ir, order_date) is None
+
+
+def test_time_field_dtype_advisory_no_cast_no_advisory() -> None:
+    """Body with bare column ref has no cast — AST inference cannot determine dtype."""
+
+    def order_date(table):  # type: ignore[no-untyped-def]
+        return table.dt
+
+    from marivo.datasource.ir import AiContextIR
+    from marivo.semantic.ir import FieldIR, SourceLocation
+    from marivo.semantic.validator import _time_field_dtype_advisory
+
+    field_ir = FieldIR(
+        semantic_id="model.order_date",
+        model="model",
+        dataset="orders",
+        name="order_date",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="datetime",
+        granularity="day",
+        required_prefix=None,
+        python_symbol="order_date",
+        location=SourceLocation(file="test.py", line=1),
+    )
+    assert _time_field_dtype_advisory(field_ir, order_date) is None

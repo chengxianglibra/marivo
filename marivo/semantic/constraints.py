@@ -47,6 +47,7 @@ class ConstraintId(StrEnum):
     METRIC_GRAPH_ACYCLIC = "metric_graph_acyclic"
     HOUR_TIME_FIELD_PREFIX = "hour_time_field_prefix"
     TIME_FIELD_PARTITION_PUSHDOWN = "time_field_partition_pushdown"
+    TIME_FIELD_DTYPE_COMPAT = "time_field_dtype_compat"
     RELATIONSHIP_ENDPOINTS = "relationship_endpoints"
     PROJECT_ORGANIZATION = "project_organization"
     PROJECT_ROOT_VALID = "project_root_valid"
@@ -393,6 +394,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Partition time fields should preserve raw sortable encodings when possible.",
         "Raw day/hour partition comparisons are easier for SQL engines to push down than parsed or cast expressions.",
         "For day/hour partition columns such as dt, log_date, event_date, hh, or log_hour, prefer data_type='string' or 'integer' with date_format and a bare column body; keep cast/parse expressions only when business time semantics require them.",
+        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+    ),
+    ConstraintId.TIME_FIELD_DTYPE_COMPAT: _constraint(
+        ConstraintId.TIME_FIELD_DTYPE_COMPAT,
+        "time_field_dtype_advisory",
+        "assembly",
+        ("time_field",),
+        "Time field data_type declarations must be compatible with the body expression's ibis dtype.",
+        "A mismatch between declared data_type and the actual ibis expression dtype causes TypeError at execution.",
+        "Ensure the .cast() target in the body matches the declared data_type: .cast('date') → data_type='date'; .cast('timestamp') or raw timestamp column → data_type='datetime' or 'timestamp'.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.RELATIONSHIP_ENDPOINTS: _constraint(

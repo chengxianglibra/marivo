@@ -122,6 +122,10 @@ class TimezoneInvalidError(AnalysisError):
     pass
 
 
+class DataTypeMismatchError(AnalysisError):
+    pass
+
+
 class WindowAmbiguousError(AnalysisError): ...
 
 

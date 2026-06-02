@@ -123,6 +123,11 @@ Do not cast a Trino VARCHAR datetime directly to date. Parse through timestamp
 first:
 
 ```python
+@ms.time_field(dataset=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
+
+When the body produces a DateColumn (via `.cast("date")`), declare
+`data_type="date"`, not `data_type="datetime"`. A mismatch between declared
+data_type and the body's ibis dtype causes TypeError at execution.

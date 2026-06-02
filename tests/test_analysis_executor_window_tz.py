@@ -5,8 +5,9 @@ from zoneinfo import ZoneInfo
 import ibis
 import pytest
 
-from marivo.analysis.errors import TimezoneInvalidError, WindowInvalidError
+from marivo.analysis.errors import DataTypeMismatchError, TimezoneInvalidError, WindowInvalidError
 from marivo.analysis.executor.runner import (
+    _validate_time_field_dtype,
     _window_bound_predicates,
     apply_time_series_bucket,
     apply_window_to_dataset,
@@ -16,7 +17,7 @@ from marivo.analysis.windows.spec import AbsoluteWindow
 
 @dataclass(frozen=True)
 class FakeMeta:
-    data_type: str
+    data_type: str | None
     format: str | None = None
     timezone: str | None = None
 
@@ -329,3 +330,64 @@ def test_month_bucket_for_declared_utc_naive_timestamp_uses_session_local_month(
 
     rows = bucketed.order_by("event_ts").execute()["bucket_start"].tolist()
     assert [str(item.date()) for item in rows] == ["2026-04-01", "2026-05-01"]
+
+
+# ---------------------------------------------------------------------------
+# _validate_time_field_dtype tests
+# ---------------------------------------------------------------------------
+
+
+def test_validate_time_field_dtype_date_declared_datetime_raises():
+    """DateColumn with data_type='datetime' is a mismatch."""
+    table = ibis.table([("dt", "date")], name="events")
+    with pytest.raises(DataTypeMismatchError, match="data_type='datetime'"):
+        _validate_time_field_dtype(table.dt, FakeMeta("datetime"))
+
+
+def test_validate_time_field_dtype_date_declared_date_ok():
+    """DateColumn with data_type='date' is compatible."""
+    table = ibis.table([("dt", "date")], name="events")
+    _validate_time_field_dtype(table.dt, FakeMeta("date"))
+
+
+def test_validate_time_field_dtype_timestamp_declared_datetime_ok():
+    """TimestampColumn with data_type='datetime' is compatible (ibis uses 'timestamp' for both)."""
+    table = ibis.table([("ts", "timestamp")], name="events")
+    _validate_time_field_dtype(table.ts, FakeMeta("datetime"))
+
+
+def test_validate_time_field_dtype_timestamp_declared_timestamp_ok():
+    """TimestampColumn with data_type='timestamp' is compatible."""
+    table = ibis.table([("ts", "timestamp")], name="events")
+    _validate_time_field_dtype(table.ts, FakeMeta("timestamp"))
+
+
+def test_validate_time_field_dtype_timestamp_declared_date_raises():
+    """TimestampColumn with data_type='date' is a mismatch."""
+    table = ibis.table([("ts", "timestamp")], name="events")
+    with pytest.raises(DataTypeMismatchError, match="data_type='date'"):
+        _validate_time_field_dtype(table.ts, FakeMeta("date"))
+
+
+def test_validate_time_field_dtype_none_data_type_skips():
+    """If time_meta.data_type is None, skip silently."""
+    table = ibis.table([("dt", "date")], name="events")
+    meta_no_type = FakeMeta(data_type=None)
+    _validate_time_field_dtype(table.dt, meta_no_type)
+
+
+def test_apply_time_series_bucket_dtype_mismatch_raises():
+    """apply_time_series_bucket raises DataTypeMismatchError (not TypeError) on mismatch."""
+    table = ibis.table([("dt", "date")], name="events")
+    field = FakeField(
+        name="dt",
+        column="dt",
+        time_meta=FakeMeta("datetime"),
+    )
+    with pytest.raises(DataTypeMismatchError):
+        apply_time_series_bucket(
+            table,
+            field_ir=field,
+            window=AbsoluteWindow(start="2026-05-01", end="2026-05-31", grain="day"),
+            session_tz=ZoneInfo("UTC"),
+        )

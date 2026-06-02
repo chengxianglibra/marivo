@@ -175,6 +175,57 @@ def _time_field_pushdown_advisory(field_ir: FieldIR, fn: Callable[..., Any] | No
     return source_column.lower() in _PARTITION_TIME_COLUMN_NAMES
 
 
+_CAST_TARGET_TO_DECLARED: dict[str, set[str]] = {
+    "date": {"date"},
+    "timestamp": {"datetime", "timestamp"},
+    "string": {"string"},
+    "int32": {"integer"},
+    "int64": {"integer"},
+}
+
+
+def _infer_terminal_cast(expr: ast.AST) -> str | None:
+    """Walk a chained expression to find the terminal type-producing call.
+
+    For table.col.cast("timestamp").cast("date"), the terminal call
+    is .cast("date") — the root Call node evaluated last in the chain.
+    Also detects .as_date() → "date" and .as_timestamp() → "timestamp".
+    """
+    current = expr
+    while isinstance(current, ast.Call) and isinstance(current.func, ast.Attribute):
+        method = current.func.attr
+        if method == "cast" and current.args:
+            arg = current.args[0]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                return arg.value
+        if method == "as_date":
+            return "date"
+        if method == "as_timestamp":
+            return "timestamp"
+        current = current.func.value
+    return None
+
+
+def _time_field_dtype_advisory(field_ir: FieldIR, fn: Callable[..., Any] | None) -> str | None:
+    """Return the inferred cast target if it conflicts with declared data_type, else None."""
+    if not field_ir.is_time_field or field_ir.data_type not in _TEMPORAL_DATA_TYPES:
+        return None
+    if fn is None:
+        return None
+    expr = _return_expr(fn)
+    if expr is None:
+        return None
+    inferred = _infer_terminal_cast(expr)
+    if inferred is None:
+        return None
+    compatible = _CAST_TARGET_TO_DECLARED.get(inferred)
+    if compatible is None:
+        return None
+    if field_ir.data_type not in compatible:
+        return inferred
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Layer 1: decorator-time validation
 # ---------------------------------------------------------------------------
@@ -955,6 +1006,25 @@ def assembly_validate(
                         "If this is a day/hour partition axis, prefer a raw string/integer "
                         "time_field with date_format so window filters can use simple "
                         "partition comparisons."
+                    ),
+                    refs=(f_id,),
+                    location=f_ir.location,
+                )
+            )
+
+    # Dtype/data_type mismatch advisory warnings
+    for f_id, f_ir in registry.fields.items():
+        inferred = _time_field_dtype_advisory(f_ir, None if sidecar is None else sidecar.get(f_id))
+        if inferred is not None:
+            compatible = sorted(_CAST_TARGET_TO_DECLARED.get(inferred, set()))
+            warnings.append(
+                StructuredWarning(
+                    kind=WarningKind.TIME_FIELD_DTYPE_ADVISORY.value,
+                    message=(
+                        f"Time field {f_id!r} declared data_type={f_ir.data_type!r} "
+                        f"but body .cast({inferred!r}) produces ibis dtype {inferred!r}. "
+                        f"Compatible data_type values: {', '.join(compatible)}. "
+                        "This mismatch causes TypeError at execution."
                     ),
                     refs=(f_id,),
                     location=f_ir.location,
