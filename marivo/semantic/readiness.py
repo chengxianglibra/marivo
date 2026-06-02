@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
 from marivo.preview import (
+    METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
     PreviewResult,
     PreviewSamplePolicy,
@@ -512,6 +513,9 @@ def _run_semantic_previews(
     preview_warnings: list[PreviewWarning] = []
     required = tuple(semantic_required)
     materializer = Materializer(project, backend_factory)
+    metric_materializer = Materializer(
+        project, backend_factory, sample_size=METRIC_PREVIEW_SAMPLE_SIZE
+    )
 
     dataset_groups: dict[str, list[str]] = {}
     metric_refs: list[str] = []
@@ -556,7 +560,7 @@ def _run_semantic_previews(
         if kind is None:
             continue
         try:
-            preview = _run_metric_preview(ref, materializer)
+            preview = _run_metric_preview(ref, metric_materializer)
         except Exception as exc:
             blockers.append(_semantic_preview_blocker(ref, kind, exc))
             failed.append(ref)
@@ -620,17 +624,37 @@ def _run_dataset_group_preview(
 
 def _run_metric_preview(ref: str, materializer: Materializer) -> PreviewResult:
     metric_value = materializer.metric(ref)
-    return preview_ibis_value(
+    result = preview_ibis_value(
         metric_value,
         kind="semantic_metric",
         ref=ref,
         limit=PREVIEW_DEFAULT_LIMIT,
         column_name="value",
         sample_policy=PreviewSamplePolicy(
-            method="bounded_limit",
+            method="pre_aggregate_limit",
             limit=PREVIEW_DEFAULT_LIMIT,
         ),
     )
+    if materializer._sample_size is not None:
+        result = PreviewResult(
+            kind=result.kind,
+            ref=result.ref,
+            columns=result.columns,
+            types=result.types,
+            rows=result.rows,
+            requested_limit=result.requested_limit,
+            returned_row_count=result.returned_row_count,
+            is_truncated=result.is_truncated,
+            warnings=(
+                *result.warnings,
+                PreviewWarning(
+                    kind="approximate_preview",
+                    message=f"metric computed on {materializer._sample_size} row sample, result is approximate",
+                ),
+            ),
+            sample_policy=result.sample_policy,
+        )
+    return result
 
 
 def _run_serial_semantic_previews(

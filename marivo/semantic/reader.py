@@ -16,9 +16,11 @@ import ibis.expr.types as ir
 
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 from marivo.preview import (
+    METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
     PreviewResult,
     PreviewSamplePolicy,
+    PreviewWarning,
     preview_ibis_table,
     preview_ibis_value,
     validate_preview_limit,
@@ -1617,19 +1619,45 @@ class SemanticProject:
         include_types: bool = True,
         redact: bool = True,
     ) -> PreviewResult:
-        """Return a bounded preview of a semantic metric."""
+        """Return a bounded preview of a semantic metric.
+
+        Metric previews use a pre-aggregate-limit strategy: input datasets
+        are bounded to ``METRIC_PREVIEW_SAMPLE_SIZE`` rows before the
+        metric callable runs, so aggregation never scans the full table.
+        The result is approximate.
+        """
         limit = validate_preview_limit(limit)
-        metric_value = self.materialize_metric(name, backend_factory=backend_factory)
-        return preview_ibis_value(
+        mat = Materializer(self, backend_factory, sample_size=METRIC_PREVIEW_SAMPLE_SIZE)
+        metric_value = mat.metric(name)
+        result = preview_ibis_value(
             metric_value,
             kind="semantic_metric",
             ref=name,
             limit=limit,
             column_name="value",
-            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
+            sample_policy=PreviewSamplePolicy(method="pre_aggregate_limit", limit=limit),
             include_types=include_types,
             redact=redact,
         )
+        result_with_warning = PreviewResult(
+            kind=result.kind,
+            ref=result.ref,
+            columns=result.columns,
+            types=result.types,
+            rows=result.rows,
+            requested_limit=result.requested_limit,
+            returned_row_count=result.returned_row_count,
+            is_truncated=result.is_truncated,
+            warnings=(
+                *result.warnings,
+                PreviewWarning(
+                    kind="approximate_preview",
+                    message=f"metric computed on {METRIC_PREVIEW_SAMPLE_SIZE} row sample, result is approximate",
+                ),
+            ),
+            sample_policy=result.sample_policy,
+        )
+        return result_with_warning
 
     # -- parity -------------------------------------------------------------
 

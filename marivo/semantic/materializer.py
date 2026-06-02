@@ -53,9 +53,12 @@ class Materializer:
         self,
         project: Any,
         backend_factory: Callable[[str], IbisBackend],
+        *,
+        sample_size: int | None = None,
     ) -> None:
         self._project = project
         self._backend_factory = backend_factory
+        self._sample_size = sample_size
         self._backend_cache: dict[str, IbisBackend] = {}
         self._dataset_cache: dict[str, ibis.Table] = {}
         self._field_cache: dict[str, ir.Value] = {}
@@ -123,6 +126,10 @@ class Materializer:
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
+
+        # Apply pre-aggregate row limit when sample_size is set
+        if self._sample_size is not None:
+            table = table.limit(self._sample_size)
 
         # Cache the result
         self._dataset_cache[semantic_id] = table

@@ -26,12 +26,14 @@ PreviewWarningKind = Literal[
     "time_parse_risk",
     "empty_preview",
     "backend_limit_unknown",
+    "approximate_preview",
 ]
 
-PreviewSampleMethod = Literal["head", "bounded_limit", "ordered_limit"]
+PreviewSampleMethod = Literal["head", "bounded_limit", "ordered_limit", "pre_aggregate_limit"]
 
 PREVIEW_DEFAULT_LIMIT = 20
 PREVIEW_MAX_LIMIT = 100
+METRIC_PREVIEW_SAMPLE_SIZE = 10_000
 _PREVIEW_MIN_LIMIT = 1
 _WIDE_TABLE_THRESHOLD = 50
 
