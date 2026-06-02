@@ -125,12 +125,21 @@ def _table_ref(table: str, database: str | tuple[str, ...] | None) -> str:
 
 
 def _cursor_rows(cursor: Any) -> list[dict[str, object]]:
+    # DB-API cursor path (duckdb, mysql, postgres, trino)
     description = getattr(cursor, "description", None)
     fetchall = getattr(cursor, "fetchall", None)
-    if description is None or not callable(fetchall):
-        return []
-    columns = [str(item[0]) for item in description]
-    return [dict(zip(columns, row, strict=True)) for row in fetchall()]
+    if description is not None and callable(fetchall):
+        columns = [str(item[0]) for item in description]
+        return [dict(zip(columns, row, strict=True)) for row in fetchall()]
+
+    # QueryResult path (clickhouse via clickhouse_connect)
+    column_names = getattr(cursor, "column_names", None)
+    result_rows = getattr(cursor, "result_rows", None)
+    if column_names and result_rows is not None:
+        columns = [str(name) for name in column_names]
+        return [dict(zip(columns, row, strict=True)) for row in result_rows]
+
+    return []
 
 
 def _query_rows(backend: Any, sql: str) -> list[dict[str, object]]:
