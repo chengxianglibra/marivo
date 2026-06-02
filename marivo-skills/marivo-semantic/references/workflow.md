@@ -10,7 +10,6 @@ objects. It is evidence-first, ledger-aware, and readiness-gated.
 import marivo.semantic as ms
 
 print(ms.help(format="json"))
-print(ms.help("constraints", format="json"))
 project = ms.find_project()
 assert project is not None
 print(project.load())

@@ -12,37 +12,37 @@ from marivo.semantic.constraints import (
     iter_constraints,
 )
 
-_TOP_LEVEL_ENTRIES: dict[str, str] = {
-    "model": "context manager - opens a model namespace for decorator registration",
-    "datasource": "removed - declare project datasources in .marivo/datasource/*.py",
-    "dataset": "function - declare a dataset over a structured source",
-    "table": "builder - table source for ms.dataset(source=...)",
-    "file": "builder - file source for ms.dataset(source=...)",
-    "field": "decorator - declare a non-aggregated field on a dataset",
-    "time_field": "decorator - declare a time-aware field used as the calendar axis",
-    "metric": "decorator - declare an aggregated metric",
-    "relationship": "top-level call - declare a relationship between datasets",
-    "ratio": "builder - derived metric helper (a/b)",
-    "ref": "builder - refer to another metric by qualified name",
-    "sum": "builder - sum aggregation marker",
-    "weighted_average": "builder - weighted-average aggregation marker",
-    "decomposition": "topic - metric decomposition builders and aggregation boundary",
-    "component": "builder - refer to a decomposition component in derived metric body",
-    "help": "function - this introspection entry point",
-    "constraints": "catalog - authoring and validation constraints",
-    "find_project": "function - discover a semantic project by walking up from a directory",
-    "SemanticProject": "class - primary reader for a loaded semantic project",
-    "typing": "module - IbisBackend Protocol, ComponentExpr Protocol, AiContext TypedDict",
-    "errors": "module - SemanticError hierarchy and ErrorKind enum",
+_TOP_LEVEL_ENTRIES: dict[str, tuple[str, str]] = {
+    "model": ("callable", "opens a model namespace for decorator registration"),
+    "datasource": ("removed", "declare project datasources in .marivo/datasource/*.py"),
+    "dataset": ("callable", "declare a dataset over a structured source"),
+    "table": ("callable", "table source for ms.dataset(source=...)"),
+    "file": ("callable", "file source for ms.dataset(source=...)"),
+    "field": ("callable", "declare a non-aggregated field on a dataset"),
+    "time_field": ("callable", "declare a time-aware field used as the calendar axis"),
+    "metric": ("callable", "declare an aggregated metric"),
+    "relationship": ("callable", "declare a relationship between datasets"),
+    "ratio": ("callable", "derived metric helper (a/b)"),
+    "ref": ("callable", "refer to another metric by qualified name"),
+    "sum": ("callable", "sum aggregation marker"),
+    "weighted_average": ("callable", "weighted-average aggregation marker"),
+    "decomposition": ("topic", "metric decomposition builders and aggregation boundary"),
+    "component": ("callable", "refer to a decomposition component in derived metric body"),
+    "help": ("callable", "this introspection entry point"),
+    "constraints": ("topic", "authoring and validation constraints"),
+    "find_project": ("callable", "discover a semantic project by walking up from a directory"),
+    "SemanticProject": ("class", "primary reader for a loaded semantic project"),
+    "typing": ("module", "IbisBackend Protocol, ComponentExpr Protocol, AiContext TypedDict"),
+    "errors": ("module", "SemanticError hierarchy and ErrorKind enum"),
 }
 
 
 def _list_top_level() -> str:
-    lines = ["marivo.semantic - top-level entries:", ""]
-    for name, summary in _TOP_LEVEL_ENTRIES.items():
-        lines.append(f"  ms.{name:<18}  {summary}")
+    lines = ["marivo.semantic — top-level entries:", ""]
+    for name, (kind, desc) in _TOP_LEVEL_ENTRIES.items():
+        lines.append(f"  ms.{name:<18} [{kind}]  {desc}")
     lines.append("")
-    lines.append('Call ms.help("<name>") to inspect any of these.')
+    lines.append('Call ms.help("<name>") for detail on any entry.')
     lines.append('Call ms.help("<name>", format="json") for agent-readable data.')
     return "\n".join(lines)
 
@@ -268,12 +268,9 @@ def _help_json(symbol: str | None = None) -> dict[str, object]:
             "schema_version": "1",
             "surface": "marivo.semantic",
             "entries": [
-                {"name": name, "summary": summary} for name, summary in _TOP_LEVEL_ENTRIES.items()
+                {"name": name, "summary": desc, "kind": kind}
+                for name, (kind, desc) in _TOP_LEVEL_ENTRIES.items()
             ],
-            "authoring_constraints": _constraints_json("dataset")
-            + _constraints_json("field")
-            + _constraints_json("time_field")
-            + _constraints_json("metric"),
         }
     if symbol == "constraints":
         return {
