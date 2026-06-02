@@ -49,19 +49,26 @@ objects to `DecisionRecord.blast_radius`.
 
 ## Confirmations
 
-Use `project.answer(...)` for user-confirmed answers. This appends a
-confirmation record and writes a minimal object-level decision so readiness can
-recognize the answer after reload:
+Use `project.answer(...)` only for user-confirmed answers to real
+`OpenQuestion` objects. This appends a confirmation log entry and writes a
+minimal object-level decision so readiness can recognize the answer after
+reload. The answer must not be `None`.
 
 ```python
 project.answer(question, "Use dt as the reporting time axis", evidence_fingerprint="sha256:...")
 ```
+
+Confirmation records alone do not clear readiness. Readiness requires
+object-level `DecisionRecord` entries. After authoring `@ms.metric` or
+`@ms.time_field`, reload the project so Marivo auto-records the corresponding
+`metric_decomposition` or `time_field_identity` authoring decision.
 
 ## Decision records
 
 Use `project.record_decision(semantic_id, record)` only when a complete `DecisionRecord` can be
 built from real question and evidence values, or to replace the minimal
 user-confirmation decision with richer cited evidence. Do not invent internal fields.
+`DecisionRecord.chosen` must not be `None`.
 For `blast_radius`, use `question.blast_radius` or a dependency-graph count
 computed by the project; never pass the refs themselves.
 

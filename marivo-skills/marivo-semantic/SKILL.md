@@ -42,7 +42,11 @@ the project structure before authoring semantic objects.
   transitive dependents, not a ref tuple/list or candidate list.
 - Ask users only for unresolved blockers or business decisions evidence cannot
   settle.
-- Record user confirmations with `project.answer(...)`.
+- Record user confirmations for real `OpenQuestion` objects with
+  `project.answer(...)`; do not use it to answer readiness-only blockers.
+- Reload after authoring `@ms.metric` or `@ms.time_field` declarations so Marivo
+  can auto-record their object-level `metric_decomposition` and
+  `time_field_identity` decisions.
 - Use `project.record_decision(semantic_id, record)` only when a complete evidence-backed
   `DecisionRecord` can be built from the question, chosen value, evidence
   fingerprint, and cited source.

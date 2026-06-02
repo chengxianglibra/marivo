@@ -83,7 +83,10 @@ Candidates are not semantic objects. They are structural proposals with evidence
 They do not infer metric decomposition from metric names, column names, comments,
 or other string matches. Metric decomposition must come from explicit formula or
 source SQL evidence, existing component metrics, ledger/user confirmation, or an
-open question during authoring.
+open question during authoring. Once a metric is declared, reload the project so
+Marivo records the authored decomposition as an object-level decision; do not
+expect `propose_candidates(...)` to generate a metric-decomposition candidate for
+an already-authored metric.
 
 ## 4. Classify questions
 
@@ -117,6 +120,10 @@ the authoring session, inspect its runtime help, for example
 ```python
 project.answer(question, "confirmed answer", evidence_fingerprint="sha256:...")
 ```
+
+Use `project.answer(...)` only for real `OpenQuestion` objects, and never pass
+`None` as the answer. Confirmation log entries alone do not clear readiness;
+readiness consumes object-level `DecisionRecord` entries.
 
 Use `project.record_decision(semantic_id, record)` only when a complete
 `DecisionRecord` can be built from the real question, chosen value, evidence

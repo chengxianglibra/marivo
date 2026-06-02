@@ -54,6 +54,21 @@ def test_decision_record_rejects_negative_blast_radius() -> None:
         )
 
 
+def test_decision_record_rejects_none_chosen() -> None:
+    with pytest.raises(ValueError, match=r"DecisionRecord.chosen must not be None"):
+        lg.DecisionRecord(
+            decision_kind="metric_decomposition",
+            chosen=None,
+            agreement_confidence="high",
+            qualifying_sources=("source_sql",),
+            materiality="high",
+            blast_radius=0,
+            evidence_fingerprint="sha256:abc",
+            question_id=None,
+            decided_at="2026-05-31T10:00:00+00:00",
+        )
+
+
 def test_ledger_store_read_object_reports_invalid_blast_radius_path(tmp_path) -> None:
     path = tmp_path / "sales" / "_evidence" / "objects" / "sales.revenue.json"
     path.parent.mkdir(parents=True)
