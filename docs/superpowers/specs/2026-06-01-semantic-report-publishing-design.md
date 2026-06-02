@@ -37,7 +37,7 @@ synchronization.
 - Make analysis reports directly readable by opening `index.html`; no report
   consumption API is required.
 - Include the semantic objects used by an analysis report inside the report
-  package as a snapshot. The report package must not require an external
+  package as an embedded copy. The report package must not require an external
   semantic release to remain available.
 - Keep Marivo Python APIs deterministic. The library validates, stages,
   manifests, hashes, scans, and uploads packages; it does not ask an agent to
@@ -79,10 +79,15 @@ marivo/users/<username>
 
 The publishing code must validate that the username embedded in the target path
 matches `manifest.exported_by`. The username is intentionally stored in both
-places:
+places for organizational attribution:
 
-- The path makes ownership visible to humans browsing S3.
-- The manifest preserves ownership if the package is copied elsewhere.
+- The path makes attribution visible to humans browsing S3.
+- The manifest preserves attribution if the package is copied elsewhere.
+
+This check proves package self-consistency, not caller authorization. Real access
+control remains the responsibility of the AWS/IAM credential chain. Publishing
+helpers may default `exported_by` from the local OS username, but callers can
+override it explicitly.
 
 `blobs/<content_hash>/` stores large or reusable files such as frame snapshots,
 rendered chart assets, screenshots, and large evidence payloads. The manifest
@@ -97,7 +102,8 @@ ignore a target without `manifest.json`.
 A semantic release is a formal release of semantic-layer source and provenance.
 It is a governance artifact, not an analysis session export.
 
-Example layout:
+Example layout. File names such as `datasets.py`, `fields.py`, `metrics.py`, and
+`relationships.py` are conventions, not a required quad:
 
 ```text
 semantic-releases/sales/1.2.0/
@@ -117,7 +123,8 @@ semantic-releases/sales/1.2.0/
 
 Required content:
 
-- Semantic Python files from `.marivo/semantic/<model>/`.
+- The semantic model directory tree from `.marivo/semantic/<model>/`, copied
+  faithfully according to the loader contract.
 - Semantic evidence ledger if present.
 - Readiness report.
 - Manifest.
@@ -138,6 +145,14 @@ Excluded content:
 - SQLite files, WAL files, locks, caches, bytecode, and temporary files.
 - Data samples by default.
 
+The copied semantic tree must preserve every loadable `.py` file, not a fixed
+file list. The package builder uses the same exclusion rules as the semantic
+loader: `_model.py` is handled as the model entrypoint; `_exports.py`, dotfiles,
+`test_*.py`, and `*_test.py` are excluded from loadable objects. If `_exports.py`
+is present, it must still be copied because other semantic files may import it;
+the manifest marks it `loader_excluded`, and it must not be treated as a loaded
+declaration file.
+
 ### Semantic Release Manifest
 
 ```json
@@ -152,7 +167,7 @@ Excluded content:
   "content_hash": "sha256:...",
   "marivo_version": "...",
   "readiness": {
-    "status": "ready",
+    "status": "ready_with_warnings",
     "generated_at": "2026-06-01T09:59:00Z",
     "blocker_count": 0,
     "warning_count": 2
@@ -169,16 +184,20 @@ Excluded content:
 }
 ```
 
-By default, semantic release publishing fails unless readiness is `ready`. A
-caller may force publication of an unready release, but the manifest must record
-the non-ready status and the published package must not pretend to be approved.
+By default, semantic release publishing fails only when readiness is `blocked`.
+It publishes both `ready` and `ready_with_warnings`, recording the exact status
+and warning count in the manifest. A caller may force publication of a blocked
+release, but the manifest must record the blocked status and the published
+package must not pretend to be approved.
 
 ## Analysis Report Package
 
 An analysis report package is an HTML-first artifact. Its main user experience
 is opening `index.html`. The remaining files support audit and reproducibility.
 
-Example layout:
+Example layout. The semantic files under `semantic-embed/` follow the same
+loader-based copy rules as semantic releases; the file names shown are
+conventions, not a fixed list:
 
 ```text
 analysis-reports/sales_may_review/exp_20260601_103000/
@@ -188,7 +207,7 @@ analysis-reports/sales_may_review/exp_20260601_103000/
   flow.json
   grounding.json
   evidence/
-  semantic-snapshot/
+  semantic-embed/
     sales/
       _model.py
       datasets.py
@@ -207,7 +226,7 @@ Required content:
 - `replay.py`.
 - Flow DAG or step list.
 - Evidence chain sufficient for audit, or an explicit partial-evidence status.
-- Semantic snapshot for the semantic objects used by the report.
+- Embedded semantic copy for the semantic objects used by the report.
 - Grounding metadata for agent-generated report claims.
 
 Optional content:
@@ -218,7 +237,9 @@ Optional content:
 - Raw evidence payloads if policy allows.
 
 `replay.py` is required, but it is an attachment, not the read path. The manifest
-records whether it was only statically checked or actually executed.
+records whether it was not run, statically checked, or executed successfully. A
+statically checked script is a reproducibility recipe, not evidence that the
+report has been reproduced.
 
 ### Analysis Report Manifest
 
@@ -233,9 +254,9 @@ records whether it was only statically checked or actually executed.
   "entrypoint": "index.html",
   "content_hash": "sha256:...",
   "marivo_version": "...",
-  "semantic_snapshot": {
+  "semantic_embed": {
     "included": true,
-    "root": "semantic-snapshot/",
+    "root": "semantic-embed/",
     "hash": "sha256:..."
   },
   "analysis": {
@@ -252,7 +273,8 @@ records whether it was only statically checked or actually executed.
     "replay_script": {
       "path": "replay.py",
       "generated_by": "skill",
-      "validation": "static_only"
+      "validation": "static_checked",
+      "input_mode": "live_datasource"
     }
   },
   "data_policy": {
@@ -292,6 +314,18 @@ package, and that unsupported main claims are not marked as evidence-backed.
 The HTML must make evidence completeness visible to readers. If evidence is
 partial or unavailable, both `manifest.json` and `index.html` must say so.
 
+Replay scripts declare their data model in the manifest:
+
+- `live_datasource`: reruns against logical datasource references. Credentials
+  are never packaged and must come from the caller's environment.
+- `included_frames`: reruns from packaged frame snapshots.
+- `mixed`: uses packaged frames for some steps and live datasources for others.
+
+If `row_level_data` is omitted and the replay requires frame snapshots, the
+package must not claim executed replay validation. HTML may show the replay as
+available, but it must label `static_checked` and `not_run` scripts as not
+reproduced.
+
 ## Library Surface
 
 Publishing APIs are deterministic and file/package oriented.
@@ -327,8 +361,8 @@ mv.publish.report_package(
 ```
 
 The package directory must already contain `index.html`, `flow.json`,
-`grounding.json`, `replay.py`, the semantic snapshot, and any optional generated
-files. The library does not generate these files with an agent.
+`grounding.json`, `replay.py`, the embedded semantic copy, and any optional
+generated files. The library does not generate these files with an agent.
 
 The shared lower-level pieces are:
 
@@ -342,19 +376,27 @@ The shared lower-level pieces are:
 
 ## S3 Configuration And Credentials
 
-Non-secret publish configuration lives in project-local state:
+Shared non-secret publish configuration lives in a tracked project-root file:
 
 ```toml
-# .marivo/publish.toml
+# marivo.publish.toml
 [storage.s3]
 bucket = "my-marivo-share"
 prefix = "marivo/users/{username}"
 region = "ap-southeast-1"
+endpoint_url = ""
+```
+
+User-local overrides live under ignored project state:
+
+```toml
+# .marivo/publish.local.toml
+[storage.s3]
 profile = "analytics-publisher"
 endpoint_url = ""
 ```
 
-Environment variables override the file:
+Environment variables override the config files:
 
 ```bash
 MARIVO_PUBLISH_S3_BUCKET=my-marivo-share
@@ -368,9 +410,10 @@ Resolution order:
 
 1. Explicit API `target`.
 2. `MARIVO_PUBLISH_S3_*` environment variables.
-3. `.marivo/publish.toml`.
+3. `.marivo/publish.local.toml`.
+4. `marivo.publish.toml`.
 
-Raw access keys are not stored in `.marivo/publish.toml` or manifests. S3 access
+Raw access keys are not stored in publish config files or manifests. S3 access
 uses the standard AWS credential chain:
 
 - `AWS_ACCESS_KEY_ID`.
@@ -380,9 +423,9 @@ uses the standard AWS credential chain:
 - Shared AWS config and credentials files.
 - Web identity, instance role, container role, or other SDK-supported providers.
 
-`profile` is allowed in `.marivo/publish.toml` because it is an identity selector,
-not a secret. The library must not persist raw access keys in project state or
-published packages.
+`profile` is allowed only in environment variables or `.marivo/publish.local.toml`
+because it is usually user-specific. The library must not persist raw access
+keys in project state or published packages.
 
 When a target is resolved from config, the path expands as:
 
@@ -420,6 +463,17 @@ not be treated as published.
 Existing targets are immutable by default. Publishing to an existing target
 fails unless the caller explicitly opts into overwrite behavior.
 
+Content hashes are deterministic package hashes. They include every file listed
+as package content or referenced as an included blob, including optional files
+that are present. They exclude `manifest.json` and any pending manifest, because
+those embed timestamps and the hash itself. Hashing sorts paths bytewise,
+normalizes path separators to `/`, reads file bytes as-is, and ignores filesystem
+mtime and mode except executable-bit metadata for generated scripts.
+
+Abandoned content-addressed blobs are acceptable after interrupted publishes:
+they are immutable and harmless. Operators may run a later sweep that deletes
+blobs not referenced by any completed `manifest.json`.
+
 ## Validation Rules
 
 Shared validation:
@@ -436,14 +490,14 @@ Semantic release validation:
 
 - Semantic files load.
 - Readiness report exists.
-- Readiness is ready unless forced.
+- Readiness is `ready` or `ready_with_warnings` unless forced.
 - Manifest model/domain/version match the staged semantic content.
 
 Analysis report validation:
 
 - `index.html` exists and matches `manifest.entrypoint`.
 - HTML can be read without importing Marivo or contacting S3 APIs.
-- Semantic snapshot exists and hash matches the manifest.
+- Embedded semantic copy exists and hash matches the manifest.
 - `replay.py` exists.
 - `flow.json` exists.
 - `grounding.json` exists.
@@ -453,6 +507,9 @@ Analysis report validation:
   "omitted"` cannot publish frame parquet snapshots containing row-level data.
 - Manifest validation records whether the replay script was statically checked
   or executed.
+- If evidence requires row-level frames that are omitted by policy, evidence
+  status must degrade to `partial` unless independent aggregate evidence is
+  included.
 
 ## Failure Behavior
 
@@ -461,8 +518,8 @@ Analysis report validation:
 - Upload failure: do not write final `manifest.json`; allow retry.
 - Existing target: fail by default.
 - Username mismatch: fail.
-- Semantic readiness blockers: fail by default; forced publication records the
-  non-ready status.
+- Semantic readiness `blocked`: fail by default; forced publication records the
+  blocked status.
 - Partial report evidence: allow publication only when both HTML and manifest
   make the limitation visible.
 - Ungrounded main report claims: fail validation or require the skill to
@@ -477,25 +534,29 @@ Semantic release tests:
 - Secrets and datasource credentials are excluded.
 - Username/path mismatch is rejected.
 - Existing target rejects overwrite by default.
-- Readiness blockers reject publication by default.
-- Forced unready publication records non-ready status in the manifest.
+- Readiness `ready_with_warnings` publishes and records warning count.
+- Readiness `blocked` rejects publication by default.
+- Forced blocked publication records blocked status in the manifest.
 
 Analysis report tests:
 
 - `index.html` is the manifest entrypoint.
 - HTML can be opened as a standalone local file.
 - `replay.py` is required.
-- Semantic snapshot is included and hash-checked.
+- Embedded semantic copy is included and hash-checked.
 - Flow and grounding files are required.
 - Grounding IDs are validated against package-local evidence/artifacts.
 - Partial evidence is visible in manifest and HTML.
 - Data policy controls whether frame snapshots are included.
+- Omitted row-level frames degrade evidence status when no independent aggregate
+  evidence supports the claim.
 - `replay.py` validation mode is reflected in the manifest.
 - Unsupported evidence-backed claims are rejected.
 
 S3 publish tests:
 
-- Config resolves from explicit target, environment, then `.marivo/publish.toml`.
+- Config resolves from explicit target, environment, `.marivo/publish.local.toml`,
+  then `marivo.publish.toml`.
 - `{username}` expands from `exported_by`.
 - Raw AWS access keys are not read from or written to project config.
 - Upload writes `manifest.json` last.
@@ -508,6 +569,9 @@ S3 publish tests:
   recommended but not required in this phase.
 - Analysis report packages require `replay.py`, even though normal readers only
   open `index.html`.
+- `semantic-embed/` is the report package directory name for embedded semantic
+  source. The term `snapshot` is reserved for semantic dataset snapshot
+  versioning.
 - HTML assets may live package-local under `assets/`. Large reusable objects use
   the user-level `blobs/<content_hash>/` namespace and are referenced from the
   manifest.
