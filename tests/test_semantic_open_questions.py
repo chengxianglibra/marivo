@@ -194,12 +194,13 @@ def test_propose_candidates_calls_inspect_source_and_builds_candidates(
             warnings=(),
         )
 
-    cands = project.propose_candidates(
+    result = project.propose_candidates(
         datasource="warehouse",
         sources=[ms.table("orders", database="sales_mart")],
         model="sales",
         inspect_source=fake_inspect_source,
     )
+    cands = result.candidates
     by_kind = {c.decision_kind for c in cands}
     assert "dataset_identity" in by_kind  # the orders dataset
     assert "time_field_identity" in by_kind  # created_at
@@ -241,13 +242,13 @@ def test_propose_candidates_includes_relationships_across_tables(
             warnings=(),
         )
 
-    cands = project.propose_candidates(
+    result = project.propose_candidates(
         datasource="warehouse",
         sources=[ms.table("orders"), ms.table("users")],
         model="sales",
         inspect_source=fake_inspect_source,
     )
-    rels = [c for c in cands if c.decision_kind == "relationship_join_keys"]
+    rels = [c for c in result.candidates if c.decision_kind == "relationship_join_keys"]
     assert len(rels) == 1
     assert rels[0].proposed_id == "sales.orders_to_users"
 
@@ -272,13 +273,13 @@ def test_propose_candidates_preserves_file_source_in_dataset_slot(
             warnings=(),
         )
 
-    cands = project.propose_candidates(
+    result = project.propose_candidates(
         datasource="warehouse",
         sources=[source],
         model="sales",
         inspect_source=fake_inspect_source,
     )
-    [dataset_candidate] = [c for c in cands if c.decision_kind == "dataset_identity"]
+    [dataset_candidate] = [c for c in result.candidates if c.decision_kind == "dataset_identity"]
     assert dataset_candidate.slot_values["source"] == {
         "kind": "file",
         "path": "/data/orders/*.parquet",
@@ -307,12 +308,117 @@ def test_propose_candidates_derives_valid_dataset_id_for_file_source_path(
             warnings=(),
         )
 
-    cands = project.propose_candidates(
+    result = project.propose_candidates(
         datasource="warehouse",
         sources=[source],
         model="sales",
         inspect_source=fake_inspect_source,
     )
 
-    [dataset_candidate] = [c for c in cands if c.decision_kind == "dataset_identity"]
+    [dataset_candidate] = [c for c in result.candidates if c.decision_kind == "dataset_identity"]
     assert dataset_candidate.proposed_id == "sales.orders"
+
+
+def test_propose_candidates_returns_residual_columns(
+    semantic_project_factory,
+):
+    from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
+    from marivo.semantic.proposal import ProposalResult
+
+    project = _project(semantic_project_factory)
+
+    def fake_inspect_source(datasource, *, source, include_partitions=True):
+        return TableMetadata(
+            datasource=datasource,
+            table=source.table,
+            database=source.database,
+            backend_type="duckdb",
+            comment="orders fact",
+            columns=(
+                ColumnMetadata("order_id", "INTEGER", False, "Primary order id", None),
+                ColumnMetadata("dt", "DATE", False, "Partition date", None),
+                ColumnMetadata("created_at", "TIMESTAMP", True, "Order creation timestamp", None),
+                ColumnMetadata("amount", "DOUBLE", True, "Gross order amount", None),
+                ColumnMetadata("status_code", "INTEGER", True, "Order status code", None),
+            ),
+            partitions=(),
+            warnings=(),
+        )
+
+    result = project.propose_candidates(
+        datasource="warehouse",
+        sources=[ms.table("orders")],
+        model="sales",
+        inspect_source=fake_inspect_source,
+    )
+    assert isinstance(result, ProposalResult)
+    # candidates: dataset, time_field(dt), time_field(created_at), field(status_code)
+    by_kind = {c.decision_kind for c in result.candidates}
+    assert "dataset_identity" in by_kind
+    assert "time_field_identity" in by_kind
+    assert "field_meaning" in by_kind
+    # residual_columns: order_id and amount (not matched by time/enum heuristics)
+    residual_names = {rc.column for rc in result.residual_columns}
+    assert "order_id" in residual_names
+    assert "amount" in residual_names
+    assert "dt" not in residual_names
+    assert "created_at" not in residual_names
+    assert "status_code" not in residual_names
+
+
+def test_proposal_result_and_residual_column_reexported():
+    assert hasattr(ms, "ProposalResult")
+    assert hasattr(ms, "ResidualColumn")
+    assert "ProposalResult" in ms.__all__
+    assert "ResidualColumn" in ms.__all__
+
+
+def test_propose_candidates_residual_columns_from_multiple_sources(
+    semantic_project_factory,
+):
+    from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
+
+    project = _project(semantic_project_factory)
+
+    tables = {
+        "orders": (
+            ColumnMetadata("order_id", "INTEGER", False, "Primary order id", None),
+            ColumnMetadata("created_at", "TIMESTAMP", True, None, None),
+            ColumnMetadata("amount", "DOUBLE", True, "Gross order amount", None),
+        ),
+        "users": (
+            ColumnMetadata("id", "BIGINT", False, "Primary user id", None),
+            ColumnMetadata("region", "VARCHAR", True, None, None),
+        ),
+    }
+
+    def fake_inspect_source(datasource, *, source, include_partitions=True):
+        return TableMetadata(
+            datasource=datasource,
+            table=source.table,
+            database=source.database,
+            backend_type="duckdb",
+            comment=None,
+            columns=tables[source.table],
+            partitions=(),
+            warnings=(),
+        )
+
+    result = project.propose_candidates(
+        datasource="warehouse",
+        sources=[ms.table("orders"), ms.table("users")],
+        model="sales",
+        inspect_source=fake_inspect_source,
+    )
+    residual_by_dataset = {}
+    for rc in result.residual_columns:
+        residual_by_dataset.setdefault(rc.dataset, set()).add(rc.column)
+
+    # orders residuals: order_id and amount (created_at is covered by time_field)
+    assert "order_id" in residual_by_dataset["sales.orders"]
+    assert "amount" in residual_by_dataset["sales.orders"]
+    assert "created_at" not in residual_by_dataset["sales.orders"]
+
+    # users residuals: id and region (no time/enum heuristics match)
+    assert "id" in residual_by_dataset["sales.users"]
+    assert "region" in residual_by_dataset["sales.users"]

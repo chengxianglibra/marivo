@@ -69,17 +69,18 @@ with tempfile.TemporaryDirectory() as tmp:
     root.mkdir(parents=True)
 
     project = ms.SemanticProject(root=root.parent)
-    candidates = project.propose_candidates(
+    result = project.propose_candidates(
         datasource="warehouse",
         sources=[ms.table("orders")],
         model="sales",
         inspect_source=fake_inspect_source,
     )
-    questions = project.open_questions(candidates=candidates)
-    time_candidates = [c for c in candidates if c.decision_kind == "time_field_identity"]
+    questions = project.open_questions(candidates=result.candidates)
+    time_candidates = [c for c in result.candidates if c.decision_kind == "time_field_identity"]
     chosen_time = "dt" if any(c.slot_values.get("column") == "dt" for c in time_candidates) else ""
     print("ambiguous time axis candidates:", [c.slot_values.get("column") for c in time_candidates])
     print("chosen partition time field:", chosen_time)
+    print("residual columns:", [(rc.column, rc.data_type) for rc in result.residual_columns])
     print("open questions:", [(q.severity, q.decision_kind) for q in questions])
 
     (root / "_model.py").write_text("import marivo.semantic as ms\nms.model(name='sales')\n")

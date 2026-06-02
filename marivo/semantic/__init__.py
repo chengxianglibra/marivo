@@ -51,6 +51,10 @@ from marivo.semantic.ledger import (
     RejectedCandidate,
 )
 from marivo.semantic.loader import find_project
+from marivo.semantic.proposal import (
+    ProposalResult,
+    ResidualColumn,
+)
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import (
     EvidenceSummary,
@@ -80,9 +84,11 @@ __all__ = [
     "OpenQuestion",
     "ParitySummary",
     "PreviewSummary",
+    "ProposalResult",
     "ReadinessIssue",
     "ReadinessReport",
     "RejectedCandidate",
+    "ResidualColumn",
     "RichnessGap",
     "RichnessReport",
     "SemanticProject",

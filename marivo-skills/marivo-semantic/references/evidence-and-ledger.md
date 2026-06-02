@@ -31,14 +31,22 @@ Ask when available evidence cannot settle a business decision:
 worklist of unresolved decisions.
 
 ```python
-candidates = project.propose_candidates(
+result = project.propose_candidates(
     datasource="warehouse",
     sources=[ms.table("orders")],
     model="sales",
     inspect_source=mv.datasources.inspect_source,
 )
-questions = project.open_questions(candidates=candidates)
+questions = project.open_questions(candidates=result.candidates)
+# result.residual_columns: columns the heuristics did not match
+# (measures, primary keys, dimensions, non-conventional FKs)
+for rc in result.residual_columns:
+    print("residual:", rc.dataset, rc.column, rc.data_type)
 ```
+
+`result.residual_columns` lists every column the heuristics omitted. Iterate it and
+decide which are measures, primary keys, or dimensions worth declaring. The candidates
+list is **not exhaustive** — do not treat it as the complete worklist.
 
 `project.open_questions(...)` is safe during cold start before `_model.py` is
 authored. If the registry is not loaded, `OpenQuestion.blast_radius` is `0`; run

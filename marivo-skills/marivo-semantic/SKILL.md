@@ -39,6 +39,9 @@ the project structure before authoring semantic objects.
 - Before authoring new objects from datasource evidence, inspect metadata with
   `mv.datasources.inspect_source(...)`, then call `project.propose_candidates(...)`
   with `inspect_source=mv.datasources.inspect_source`.
+- `propose_candidates` returns structural signal only and is **not exhaustive**. Iterate
+  `result.residual_columns` and decide which are measures, primary keys, or dimensions
+  worth declaring. Do not treat the candidates list as the complete worklist.
 - Classify candidate uncertainty with `project.open_questions(...)`. This works
   before `_model.py` exists; without a loaded registry, question `blast_radius`
   falls back to `0`. `blast_radius` is a non-negative integer count of distinct
@@ -66,7 +69,10 @@ Read `references/workflow.md` first for object construction. The short form is:
 
 1. Discover the project and existing refs.
 2. Inspect datasource metadata and bounded previews.
-3. Generate candidates with `project.propose_candidates(...)`.
+3. Generate candidates with `project.propose_candidates(...)`. The result is a
+   **non-exhaustive structural starting set** — iterate `result.residual_columns`
+   for measures, primary keys, dimensions, and non-conventional foreign keys the
+   heuristics omit. Do not treat `result.candidates` as the complete worklist.
 4. Classify questions with `project.open_questions(...)`.
 5. Author a single `.marivo/semantic/<model>/_model.py` using ref variables.
 6. Record confirmations and complete decisions in the ledger.

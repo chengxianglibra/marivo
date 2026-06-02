@@ -68,15 +68,24 @@ import marivo.semantic as ms
 project = ms.find_project()
 assert project is not None
 
-candidates = project.propose_candidates(
+result = project.propose_candidates(
     datasource="warehouse",
     sources=[ms.table("orders", database="sales_mart")],
     model="sales",
     inspect_source=mv.datasources.inspect_source,
 )
-for candidate in candidates:
+for candidate in result.candidates:
     print(candidate.decision_kind, candidate.proposed_id, candidate.semantic_delta)
+for residual in result.residual_columns:
+    print("residual:", residual.dataset, residual.column, residual.data_type)
 ```
+
+The result is a **non-exhaustive structural starting set**. `result.candidates` contains
+dataset, time_field, field, and relationship proposals the heuristics matched.
+`result.residual_columns` lists every column the heuristics did not match — these include
+measures, primary keys, plain dimensions, and non-conventional foreign keys. Iterate
+residuals and decide which are worth declaring; do not treat `result.candidates` as the
+complete worklist.
 
 Candidates are not semantic objects. They are structural proposals with evidence.
 They do not infer metric decomposition from metric names, column names, comments,
@@ -90,7 +99,7 @@ an already-authored metric.
 ## 4. Classify questions
 
 ```python
-questions = project.open_questions(candidates=candidates)
+questions = project.open_questions(candidates=result.candidates)
 for question in questions:
     print(question.severity, question.decision_kind, question.subject_refs)
 ```
