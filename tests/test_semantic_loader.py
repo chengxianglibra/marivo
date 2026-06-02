@@ -1140,8 +1140,8 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
             name="orders_to_refunds",
             from_dataset=orders,
             to_dataset="finance.refunds",
-            from_fields=["sales.amount"],
-            to_fields=["finance.refunds_total"],
+            from_fields=["sales.orders.amount"],
+            to_fields=["finance.refunds.refunds_total"],
         )
     """)
     project = semantic_project_factory(
