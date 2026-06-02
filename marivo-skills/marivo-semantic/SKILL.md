@@ -43,7 +43,7 @@ the project structure before authoring semantic objects.
 - Ask users only for unresolved blockers or business decisions evidence cannot
   settle.
 - Record user confirmations with `project.answer(...)`.
-- Use `project.record_decision(...)` only when a complete evidence-backed
+- Use `project.record_decision(semantic_id, record)` only when a complete evidence-backed
   `DecisionRecord` can be built from the question, chosen value, evidence
   fingerprint, and cited source.
 - Do not hand off to `marivo-analysis` while readiness is blocked.
