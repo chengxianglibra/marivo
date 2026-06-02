@@ -8,8 +8,16 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
-from marivo.preview import PreviewResult, PreviewWarning
+from marivo.preview import (
+    PREVIEW_DEFAULT_LIMIT,
+    PreviewResult,
+    PreviewSamplePolicy,
+    PreviewWarning,
+    preview_ibis_table,
+    preview_ibis_value,
+)
 from marivo.semantic.ir import ParityStatus, TableSourceIR
+from marivo.semantic.materializer import Materializer
 from marivo.semantic.parity import propagated_parity_status
 
 if TYPE_CHECKING:
@@ -465,6 +473,10 @@ def _preview_issue_kind(kind: _SemanticKind) -> ReadinessIssueKind:
     return "metric_materialize_failed"
 
 
+def _preview_column_name(semantic_id: str) -> str:
+    return f"__marivo_preview_{semantic_id.replace('.', '__')}"
+
+
 def _run_preview(
     project: SemanticProject, ref: str, kind: _SemanticKind, backend_factory: Callable[[str], Any]
 ) -> PreviewResult:
@@ -475,6 +487,220 @@ def _run_preview(
     if kind == _SemanticKind.METRIC:
         return project.preview_metric(ref, backend_factory=backend_factory)
     raise ValueError(f"cannot preview semantic kind {kind}")
+
+
+@dataclass(frozen=True)
+class _SemanticPreviewRun:
+    completed: tuple[str, ...]
+    failed: tuple[str, ...]
+    blockers: tuple[ReadinessIssue, ...]
+    warnings: tuple[ReadinessIssue, ...]
+    preview_warnings: tuple[PreviewWarning, ...]
+
+
+def _run_semantic_previews(
+    project: SemanticProject,
+    semantic_required: Iterable[str],
+    kinds: Mapping[str, _SemanticKind],
+    objects: Mapping[str, object],
+    backend_factory: Callable[[str], Any],
+) -> _SemanticPreviewRun:
+    completed: list[str] = []
+    failed: list[str] = []
+    blockers: list[ReadinessIssue] = []
+    warnings: list[ReadinessIssue] = []
+    preview_warnings: list[PreviewWarning] = []
+    required = tuple(semantic_required)
+    materializer = Materializer(project, backend_factory)
+
+    dataset_groups: dict[str, list[str]] = {}
+    metric_refs: list[str] = []
+    serial_refs: list[str] = []
+
+    for ref in required:
+        kind = kinds.get(ref)
+        if kind == _SemanticKind.DATASET:
+            dataset_groups.setdefault(ref, []).append(ref)
+        elif kind in {_SemanticKind.FIELD, _SemanticKind.TIME_FIELD}:
+            field = objects.get(ref)
+            dataset_ref = getattr(field, "dataset", None)
+            if isinstance(dataset_ref, str):
+                dataset_groups.setdefault(dataset_ref, []).append(ref)
+            else:
+                serial_refs.append(ref)
+        elif kind == _SemanticKind.METRIC:
+            metric_refs.append(ref)
+
+    for dataset_ref, refs in dataset_groups.items():
+        try:
+            preview = _run_dataset_group_preview(
+                dataset_ref,
+                refs,
+                kinds,
+                materializer,
+            )
+        except Exception:
+            fallback = _run_serial_semantic_previews(project, refs, kinds, backend_factory)
+            completed.extend(fallback.completed)
+            failed.extend(fallback.failed)
+            blockers.extend(fallback.blockers)
+            warnings.extend(fallback.warnings)
+            preview_warnings.extend(fallback.preview_warnings)
+        else:
+            completed.extend(refs)
+            preview_warnings.extend(preview.warnings)
+            warnings.extend(_sensitive_preview_warnings(refs, preview.warnings))
+
+    for ref in metric_refs:
+        kind = kinds.get(ref)
+        if kind is None:
+            continue
+        try:
+            preview = _run_metric_preview(ref, materializer)
+        except Exception as exc:
+            blockers.append(_semantic_preview_blocker(ref, kind, exc))
+            failed.append(ref)
+        else:
+            completed.append(ref)
+            preview_warnings.extend(preview.warnings)
+            warnings.extend(_sensitive_preview_warnings((ref,), preview.warnings))
+
+    if serial_refs:
+        fallback = _run_serial_semantic_previews(project, serial_refs, kinds, backend_factory)
+        completed.extend(fallback.completed)
+        failed.extend(fallback.failed)
+        blockers.extend(fallback.blockers)
+        warnings.extend(fallback.warnings)
+        preview_warnings.extend(fallback.preview_warnings)
+
+    return _SemanticPreviewRun(
+        completed=tuple(completed),
+        failed=tuple(failed),
+        blockers=tuple(blockers),
+        warnings=tuple(warnings),
+        preview_warnings=tuple(preview_warnings),
+    )
+
+
+def _run_dataset_group_preview(
+    dataset_ref: str,
+    refs: Iterable[str],
+    kinds: Mapping[str, _SemanticKind],
+    materializer: Materializer,
+) -> PreviewResult:
+    parent_table = materializer.dataset(dataset_ref)
+    projections: list[Any] = []
+    ref_tuple = tuple(refs)
+
+    if dataset_ref in ref_tuple:
+        projections.extend(parent_table[column] for column in parent_table.columns)
+
+    for ref in ref_tuple:
+        if kinds.get(ref) not in {_SemanticKind.FIELD, _SemanticKind.TIME_FIELD}:
+            continue
+        field_value = materializer.field(ref)
+        column_name = _preview_column_name(ref)
+        projections.append(field_value.name(column_name))
+
+    if not projections:
+        projections.extend(parent_table[column] for column in parent_table.columns)
+
+    preview_table = parent_table.select(*projections)
+    return preview_ibis_table(
+        preview_table,
+        kind="semantic_dataset",
+        ref=dataset_ref,
+        limit=PREVIEW_DEFAULT_LIMIT,
+        sample_policy=PreviewSamplePolicy(
+            method="bounded_limit",
+            limit=PREVIEW_DEFAULT_LIMIT,
+        ),
+    )
+
+
+def _run_metric_preview(ref: str, materializer: Materializer) -> PreviewResult:
+    metric_value = materializer.metric(ref)
+    return preview_ibis_value(
+        metric_value,
+        kind="semantic_metric",
+        ref=ref,
+        limit=PREVIEW_DEFAULT_LIMIT,
+        column_name="value",
+        sample_policy=PreviewSamplePolicy(
+            method="bounded_limit",
+            limit=PREVIEW_DEFAULT_LIMIT,
+        ),
+    )
+
+
+def _run_serial_semantic_previews(
+    project: SemanticProject,
+    refs: Iterable[str],
+    kinds: Mapping[str, _SemanticKind],
+    backend_factory: Callable[[str], Any],
+) -> _SemanticPreviewRun:
+    completed: list[str] = []
+    failed: list[str] = []
+    blockers: list[ReadinessIssue] = []
+    warnings: list[ReadinessIssue] = []
+    preview_warnings: list[PreviewWarning] = []
+
+    for ref in refs:
+        kind = kinds.get(ref)
+        if kind is None or kind == _SemanticKind.RELATIONSHIP:
+            continue
+        try:
+            preview = _run_preview(project, ref, kind, backend_factory)
+        except Exception as exc:
+            blockers.append(_semantic_preview_blocker(ref, kind, exc))
+            failed.append(ref)
+        else:
+            completed.append(ref)
+            preview_warnings.extend(preview.warnings)
+            warnings.extend(_sensitive_preview_warnings((ref,), preview.warnings))
+
+    return _SemanticPreviewRun(
+        completed=tuple(completed),
+        failed=tuple(failed),
+        blockers=tuple(blockers),
+        warnings=tuple(warnings),
+        preview_warnings=tuple(preview_warnings),
+    )
+
+
+def _semantic_preview_blocker(
+    ref: str,
+    kind: _SemanticKind,
+    exc: Exception,
+) -> ReadinessIssue:
+    return _issue(
+        _preview_issue_kind(kind),
+        "blocker",
+        (ref,),
+        f"Semantic preview failed for {ref}: {exc}",
+        "Fix the semantic object and rerun the bounded preview.",
+    )
+
+
+def _sensitive_preview_warnings(
+    refs: Iterable[str],
+    preview_warnings: Iterable[PreviewWarning],
+) -> tuple[ReadinessIssue, ...]:
+    warnings: list[ReadinessIssue] = []
+    for warning in preview_warnings:
+        if warning.kind != "redacted_column":
+            continue
+        for ref in refs:
+            warnings.append(
+                _issue(
+                    "sensitive_preview_column",
+                    "warning",
+                    (ref,),
+                    f"Preview for {ref} redacted sensitive columns: {', '.join(warning.columns)}.",
+                    "Keep preview rows out of semantic definitions and avoid exposing sensitive values in handoff notes.",
+                )
+            )
+    return tuple(warnings)
 
 
 def build_readiness_report(
@@ -607,37 +833,18 @@ def build_readiness_report(
         )
         failed_previews.extend(semantic_required)
     elif backend_factory is not None:
-        for ref in semantic_required:
-            kind = kinds.get(ref)
-            if kind is None or kind == _SemanticKind.RELATIONSHIP:
-                continue
-            try:
-                preview = _run_preview(project, ref, kind, backend_factory)
-            except Exception as exc:
-                blockers.append(
-                    _issue(
-                        _preview_issue_kind(kind),
-                        "blocker",
-                        (ref,),
-                        f"Semantic preview failed for {ref}: {exc}",
-                        "Fix the semantic object and rerun the bounded preview.",
-                    )
-                )
-                failed_previews.append(ref)
-            else:
-                completed_previews.append(ref)
-                preview_warnings.extend(preview.warnings)
-                for warning in preview.warnings:
-                    if warning.kind == "redacted_column":
-                        warnings.append(
-                            _issue(
-                                "sensitive_preview_column",
-                                "warning",
-                                (ref,),
-                                f"Preview for {ref} redacted sensitive columns: {', '.join(warning.columns)}.",
-                                "Keep preview rows out of semantic definitions and avoid exposing sensitive values in handoff notes.",
-                            )
-                        )
+        semantic_preview_run = _run_semantic_previews(
+            project,
+            semantic_required,
+            kinds,
+            objects,
+            backend_factory,
+        )
+        completed_previews.extend(semantic_preview_run.completed)
+        failed_previews.extend(semantic_preview_run.failed)
+        blockers.extend(semantic_preview_run.blockers)
+        warnings.extend(semantic_preview_run.warnings)
+        preview_warnings.extend(semantic_preview_run.preview_warnings)
 
     verified_metrics: list[str] = []
     python_native_metrics: list[str] = []
