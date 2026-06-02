@@ -520,12 +520,19 @@ class SemanticProject:
         self._registry = result.registry
         self._sidecar = result.sidecar
         if self._registry is not None:
-            from marivo.semantic.auto_record import auto_record_authoring_decisions
+            from marivo.semantic.auto_record import (
+                auto_record_authoring_decisions,
+                backfill_blast_radii,
+            )
 
             auto_record_authoring_decisions(
                 self._registry,
                 self._root,
-                blast_radius_of=self._blast_radius_of,
+                blast_radius_of=self.blast_radius_of,
+            )
+            backfill_blast_radii(
+                self._root,
+                blast_radius_of=self.blast_radius_of,
             )
         return result
 
@@ -1052,9 +1059,12 @@ class SemanticProject:
             ids |= self._flatten_dependent_ids(child)
         return ids
 
-    def _blast_radius_of(self, refs: tuple[str, ...]) -> int:
+    def blast_radius_of(self, refs: tuple[str, ...]) -> int:
         """Count distinct transitive dependents of the given refs, excluding the
-        refs themselves. Unknown (not-yet-declared) refs contribute zero."""
+        refs themselves. Unknown (not-yet-declared) refs contribute zero.
+
+        Public API for callers who need the real transitive-dependent count
+        when constructing a ``DecisionRecord`` via ``record_decision``."""
         seen: set[str] = set()
         for ref in refs:
             try:
@@ -1074,7 +1084,7 @@ class SemanticProject:
         """
         if self._registry is None:
             return 0
-        return self._blast_radius_of(refs)
+        return self.blast_radius_of(refs)
 
     def open_questions(
         self,
@@ -1148,7 +1158,7 @@ class SemanticProject:
                             conflict=False,
                         )
                     )
-        return classify(tuple(stale_inputs), blast_radius_of=self._blast_radius_of)
+        return classify(tuple(stale_inputs), blast_radius_of=self.blast_radius_of)
 
     def _confirmed_question_ids(self, candidates: Sequence[Candidate]) -> set[str]:
         from marivo.semantic.ledger import LedgerStore

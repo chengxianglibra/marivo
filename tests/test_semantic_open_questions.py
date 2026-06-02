@@ -45,13 +45,45 @@ def _project(semantic_project_factory):
 def test_blast_radius_counts_transitive_dependents(semantic_project_factory):
     project = _project(semantic_project_factory)
     # orders has two dependents: field sales.region and metric sales.revenue
-    assert project._blast_radius_of(("sales.orders",)) == 2
+    assert project.blast_radius_of(("sales.orders",)) == 2
 
 
 def test_blast_radius_of_unknown_ref_is_zero(semantic_project_factory):
     project = _project(semantic_project_factory)
     # a not-yet-declared candidate dataset has no dependents
-    assert project._blast_radius_of(("sales.not_declared_yet",)) == 0
+    assert project.blast_radius_of(("sales.not_declared_yet",)) == 0
+
+
+def test_backfill_blast_radii_corrects_cold_start_zeros(semantic_project_factory):
+    from marivo.semantic.ledger import DecisionRecord, LedgerStore
+
+    project = _project(semantic_project_factory)
+    # Record a decision with blast_radius=0 (cold-start artifact)
+    project.record_decision(
+        "sales.orders",
+        DecisionRecord(
+            decision_kind="dataset_identity",
+            chosen={"name": "orders"},
+            agreement_confidence="low",
+            qualifying_sources=("metadata",),
+            materiality="low",
+            blast_radius=0,
+            evidence_fingerprint="sha256:cold_start",
+            question_id=None,
+            decided_at="t0",
+        ),
+    )
+
+    # Reload triggers backfill
+    project.reload()
+
+    store = LedgerStore(project.root_path)
+    obj = store.read_object("sales.orders")
+    assert obj is not None
+    cold_start_record = [d for d in obj.decisions if d.evidence_fingerprint == "sha256:cold_start"]
+    assert len(cold_start_record) == 1
+    # Backfill replaced 0 with the real transitive-dependent count (2)
+    assert cold_start_record[0].blast_radius == 2
 
 
 def test_open_questions_dangerous_low_confidence_is_blocker(semantic_project_factory):
