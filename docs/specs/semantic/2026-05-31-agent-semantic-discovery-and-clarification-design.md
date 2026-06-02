@@ -149,7 +149,7 @@ involved.
 | time_field `date_format` / `required_prefix` (string/integer time) | sampled preview values |
 | relationship join-key shape / cardinality viability | sampled join keys |
 | dataset `primary_key` (candidate + uniqueness sample) | key metadata + sample |
-| metric `declared_status` -> *verified* | library `parity_check(source_sql)` |
+| metric `verification_mode` -> *verified* | library `parity_check(source_sql)` |
 | `source_sql` / `source_dialect` / `source_document` / `source_notes` | user-supplied knowledge (ingested, not a separate confirmation) |
 
 **Tier 2 — documentary-establishable, else confirm.** Business-meaning slots.
@@ -174,7 +174,7 @@ or conflicting. This is where the "few clarifications" tension actually lives.
 | Slot / decision | Why human |
 | --- | --- |
 | resolving any source conflict (sample refutes comment; SQL contradicts comment) | authority model: overriding a refutation requires user confirmation |
-| metric `declared_status = "python_native"` (no source-SQL oracle) | trust/authorization decision with no mechanical adjudication |
+| metric `verification_mode = "python_native"` (no source-SQL oracle) | trust/authorization decision with no mechanical adjudication |
 | business intent with zero documentary evidence and ambiguous candidates | not fetchable |
 
 The `AiContext` richness slots — `synonyms`, `examples`, `instructions`,

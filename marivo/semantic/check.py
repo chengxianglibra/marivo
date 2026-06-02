@@ -29,7 +29,7 @@ def _default_backend_factory() -> Callable[[str], Any]:
 def _run_parity_checks(
     project: SemanticProject, backend_factory: Callable[[str], Any] | None
 ) -> None:
-    """Run parity checks for base metrics that have source_sql."""
+    """Run parity checks for base metrics declared as sql_parity."""
     if backend_factory is None or not project.is_ready():
         return
     reg = project.registry()
@@ -38,7 +38,7 @@ def _run_parity_checks(
     for metric in reg.metrics.values():
         if metric.is_derived:
             continue
-        if not metric.provenance.source_sql or not metric.provenance.source_dialect:
+        if metric.provenance.verification_mode != "sql_parity":
             continue
         with contextlib.suppress(Exception):
             project.parity_check(metric.semantic_id, backend_factory=backend_factory)

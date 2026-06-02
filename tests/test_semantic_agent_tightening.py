@@ -132,6 +132,23 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "project.richness(" in closeout
 
 
+def test_semantic_docs_and_skills_use_verification_mode() -> None:
+    paths = [
+        "docs/specs/semantic/python-semantic-layer.md",
+        "docs/specs/semantic/agent-semantic-layer-authoring-design.md",
+        "marivo-skills/marivo-semantic/SKILL.md",
+        "marivo-skills/marivo-semantic/references/authoring-patterns.md",
+        "marivo-skills/marivo-semantic/references/evidence-and-ledger.md",
+        "marivo-skills/marivo-semantic/references/closeout.md",
+        "marivo-skills/marivo-semantic/references/pitfalls.md",
+        "marivo-skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py",
+    ]
+    combined = "\n".join(_read(path) for path in paths)
+
+    assert "verification_mode" in combined
+    assert "declared_status" not in combined
+
+
 def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
     authoring = _read("marivo-skills/marivo-semantic/references/authoring-patterns.md")
     pitfalls = _read("marivo-skills/marivo-semantic/references/pitfalls.md")

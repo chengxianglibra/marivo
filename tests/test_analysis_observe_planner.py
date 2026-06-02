@@ -61,7 +61,7 @@ def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -86,7 +86,7 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
                 "@ms.field(dataset=users)\n"
                 "def tier(users):\n"
                 "    return users.tier\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -126,7 +126,7 @@ def test_unique_shortest_path_and_join_safety(semantic_project_factory):
                 "@ms.field(dataset=users)\n"
                 "def user_id(users):\n"
                 "    return users.user_id\n"
-                "@ms.metric(datasets=[orders, users], root_dataset=orders, additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "@ms.metric(datasets=[orders, users], root_dataset=orders, additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders, users):\n"
                 "    return orders.amount.sum()\n"
             ),

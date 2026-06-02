@@ -814,6 +814,75 @@ def assembly_validate(
     # Check for cycles in metric component references
     _detect_metric_cycles(registry, errors)
 
+    # -- Metric verification mode contract ----------------------------------
+    for m_id, m_ir in registry.metrics.items():
+        prov = m_ir.provenance
+        if m_ir.is_derived:
+            if (
+                prov.verification_mode is not None
+                or prov.source_sql is not None
+                or prov.source_dialect is not None
+            ):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_VERIFICATION_MODE,
+                        message=(
+                            f"Derived metric {m_id!r} must omit verification_mode, "
+                            "source_sql, and source_dialect. Verify its component metrics instead."
+                        ),
+                        refs=(m_id,),
+                        location=m_ir.location,
+                        constraint_id=ConstraintId.METRIC_VERIFICATION_MODE_VALID,
+                    )
+                )
+            continue
+
+        if prov.verification_mode not in {"sql_parity", "python_native"}:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_VERIFICATION_MODE,
+                    message=(
+                        f"Base metric {m_id!r} must declare verification_mode='sql_parity' "
+                        "or verification_mode='python_native'."
+                    ),
+                    refs=(m_id,),
+                    location=m_ir.location,
+                    constraint_id=ConstraintId.METRIC_VERIFICATION_MODE_VALID,
+                )
+            )
+            continue
+
+        if prov.verification_mode == "sql_parity" and (
+            not prov.source_sql or not prov.source_dialect
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.SOURCE_SQL_MISSING,
+                    message=(
+                        f"Metric {m_id!r} uses verification_mode='sql_parity' but "
+                        "does not declare both source_sql and source_dialect."
+                    ),
+                    refs=(m_id,),
+                    location=m_ir.location,
+                    constraint_id=ConstraintId.SOURCE_SQL_REQUIRED,
+                )
+            )
+        if prov.verification_mode == "python_native" and (
+            prov.source_sql is not None or prov.source_dialect is not None
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_VERIFICATION_MODE,
+                    message=(
+                        f"Metric {m_id!r} uses verification_mode='python_native' but "
+                        "declares SQL parity provenance."
+                    ),
+                    refs=(m_id,),
+                    location=m_ir.location,
+                    constraint_id=ConstraintId.METRIC_VERIFICATION_MODE_VALID,
+                )
+            )
+
     # -- Warnings -----------------------------------------------------------
     # String ref warnings: datasource names are intentionally strings in the
     # target API, and cross-file refs are common, so skip string-ref warnings.
@@ -832,35 +901,6 @@ def assembly_validate(
                     ),
                     refs=(f_id,),
                     location=f_ir.location,
-                )
-            )
-
-    # Derived python_native provenance advisory
-    for m_id, m_ir in registry.metrics.items():
-        prov = m_ir.provenance
-        if m_ir.is_derived and prov.declared_status == "python_native":
-            warnings.append(
-                StructuredWarning(
-                    kind=WarningKind.DERIVED_PYTHON_NATIVE_STATUS.value,
-                    message=(
-                        f"Derived metric {m_id!r} declares python_native provenance. "
-                        "This is redundant or can cap propagated parity below verified components."
-                    ),
-                    refs=(m_id,),
-                    location=m_ir.location,
-                )
-            )
-
-    # Unverified provenance warnings
-    for m_id, m_ir in registry.metrics.items():
-        prov = m_ir.provenance
-        if prov.source_sql and prov.declared_status != "python_native":
-            warnings.append(
-                StructuredWarning(
-                    kind="unverified_provenance",
-                    message=f"Metric {m_id!r} has source_sql but no parity verification yet.",
-                    refs=(m_id,),
-                    location=None,
                 )
             )
 

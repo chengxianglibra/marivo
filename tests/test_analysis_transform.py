@@ -70,7 +70,7 @@ def _bootstrap_sales(tmp_path, *, with_country=False):
         "    return orders.order_date.cast('date')\n"
         "\n"
         f"{country_field}"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.revenue.sum()\n"
     )

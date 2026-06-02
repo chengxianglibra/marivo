@@ -183,7 +183,7 @@ only once a partition predicate is applied — has that post-predicate grain as 
 effective row grain, and additivity is judged there.
 
 ```python
-@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum())
+@ms.metric(datasets=[orders], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
 def gmv(orders):
     return orders.amount.sum()
 
@@ -192,11 +192,11 @@ def gmv(orders):
     additivity="semi_additive",
     non_additive_dims=["dt"],     # additive across accounts, not across time
     decomposition=ms.sum(),
-)
+verification_mode="python_native",)
 def balance(account_snapshot):
     return account_snapshot.balance.sum()
 
-@ms.metric(datasets=[events], additivity="non_additive", decomposition=ms.sum())
+@ms.metric(datasets=[events], additivity="non_additive", decomposition=ms.sum(), verification_mode="python_native",)
 def active_users(events):
     return events.user_id.nunique()
 ```
@@ -238,7 +238,7 @@ and `time_field`.
     root_dataset=orders,
     additivity="additive",
     decomposition=ms.sum(),
-)
+verification_mode="python_native",)
 def revenue_by_user_state(orders, users):
     return orders.amount.sum()
 ```

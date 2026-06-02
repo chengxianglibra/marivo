@@ -75,7 +75,8 @@ def _bootstrap(tmp_path, *, root: str = "orders"):
         "    additivity='additive',\n"
         "    decomposition=ms.sum(),\n"
         "    name='revenue_by_user',\n"
-        ")\n"
+        "    verification_mode='python_native',\n"
+        "    )\n"
         "def revenue_by_user(orders, users):\n"
         "    return orders.amount.sum()\n"
     )
@@ -192,7 +193,8 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
         "    additivity='additive',\n"
         "    decomposition=ms.sum(),\n"
         "    name='order_total_with_items',\n"
-        ")\n"
+        "    verification_mode='python_native',\n"
+        "    )\n"
         "def order_total_with_items(orders, order_items):\n"
         "    return orders.amount.sum()\n"
     )
@@ -275,7 +277,8 @@ def _bootstrap_snapshot(tmp_path):
         "    additivity='additive',\n"
         "    decomposition=ms.sum(),\n"
         "    name='revenue_by_profile',\n"
-        ")\n"
+        "    verification_mode='python_native',\n"
+        "    )\n"
         "def revenue_by_profile(orders, user_profile_daily):\n"
         "    return orders.amount.sum()\n"
     )

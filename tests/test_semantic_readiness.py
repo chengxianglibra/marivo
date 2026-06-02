@@ -78,6 +78,7 @@ _READY_MODEL_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
+        verification_mode="sql_parity",
         source_sql="SELECT SUM(amount) AS total_amount FROM orders",
         source_dialect="duckdb",
         description="Total revenue",
@@ -124,7 +125,6 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
         ),
         parity_summary=ParitySummary(
             verified_metrics=("sales.total_amount",),
-            python_native_metrics=(),
             unverified_metrics=(),
             drifted_metrics=(),
             skipped_metrics=(),
@@ -168,7 +168,15 @@ _UNVERIFIED_MODEL_PY = textwrap.dedent("""\
 
     orders = ms.dataset(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), description="Total amount")
+    @ms.metric(
+        datasets=[orders],
+        additivity='additive',
+        decomposition=ms.sum(),
+        verification_mode="sql_parity",
+        source_sql="SELECT SUM(amount) AS total_amount FROM orders",
+        source_dialect="duckdb",
+        description="Total amount",
+    )
     def total_amount(table):
         return table.amount.sum()
 """)
@@ -183,6 +191,7 @@ _DRIFTED_MODEL_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
+        verification_mode="sql_parity",
         source_sql="SELECT 999.0 AS total_amount",
         source_dialect="duckdb",
         description="Total amount",
@@ -201,7 +210,7 @@ _PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
-        declared_status="python_native",
+        verification_mode="python_native",
         description="Total amount",
     )
     def total_amount(table):
@@ -209,7 +218,7 @@ _PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
 """)
 
 
-_DERIVED_PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
+_DERIVED_WITH_PYTHON_NATIVE_COMPONENT_MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
     orders = ms.dataset(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
@@ -218,7 +227,7 @@ _DERIVED_PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
-        declared_status="python_native",
+        verification_mode="python_native",
         description="Total amount",
     )
     def total_amount(table):
@@ -230,8 +239,6 @@ _DERIVED_PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
             numerator="sales.total_amount",
             denominator="sales.total_amount",
         ),
-        declared_status="python_native",
-        source_sql="SELECT 1",
         description="Average amount placeholder.",
     )
 """)
@@ -587,7 +594,7 @@ def test_readiness_blocks_drifted_metric(
     assert "parity_drifted" in _issue_kinds(report.blockers)
 
 
-def test_readiness_warns_for_python_native_metric(
+def test_readiness_treats_python_native_metric_as_verified(
     semantic_project_factory,
     backend_factory,
 ) -> None:
@@ -599,35 +606,28 @@ def test_readiness_warns_for_python_native_metric(
         backend_factory=backend_factory,
     )
 
-    assert report.status == "ready_with_warnings"
-    assert report.parity_summary.python_native_metrics == ("sales.total_amount",)
+    assert report.status == "ready"
+    assert report.parity_summary.verified_metrics == ("sales.total_amount",)
     assert "unverified_metric" not in _issue_kinds(report.blockers)
-    assert any("python_native" in issue.message for issue in report.warnings)
+    assert not any("python_native" in issue.message for issue in report.warnings)
 
 
-def test_readiness_warns_for_derived_python_native_status(
+def test_readiness_treats_derived_python_native_component_as_verified(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _DERIVED_PYTHON_NATIVE_MODEL_PY)
+    project = _project(semantic_project_factory, _DERIVED_WITH_PYTHON_NATIVE_COMPONENT_MODEL_PY)
 
     report = project.readiness(
-        strict_provenance=False,
+        strict_provenance=True,
         require_preview=False,
         backend_factory=backend_factory,
     )
 
-    assert report.status == "ready_with_warnings"
-    assert any(
-        issue.kind == "derived_python_native_status"
-        and issue.refs == ("sales.avg_amount",)
-        and "Remove declared_status" in issue.suggested_action
-        for issue in report.warnings
-    )
-    assert not any(
-        issue.kind == "unverified_metric" and issue.refs == ("sales.avg_amount",)
-        for issue in report.warnings
-    )
+    assert report.status == "ready"
+    assert "sales.avg_amount" in report.parity_summary.verified_metrics
+    assert "sales.total_amount" in report.parity_summary.verified_metrics
+    assert "unverified_metric" not in _issue_kinds(report.blockers)
 
 
 def test_semantic_check_run_check_returns_json_ready_report(
@@ -665,7 +665,12 @@ _COMMENTLESS_MODEL_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), declared_status="python_native")
+    @ms.metric(
+        datasets=[orders],
+        additivity='additive',
+        decomposition=ms.sum(),
+        verification_mode="python_native",
+    )
     def total_amount(table):
         return table.amount.sum()
 """)
@@ -711,7 +716,7 @@ def test_readiness_require_comments_accepts_table_metadata(
         primary_keys_sampled=("sales.orders",),
     )
 
-    assert report.status == "ready_with_warnings"
+    assert report.status == "ready"
     assert not any(issue.kind == "missing_comments" for issue in report.blockers)
     assert "sales.orders" in report.evidence_summary.tables_inspected
 
@@ -787,7 +792,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -816,7 +821,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -846,7 +851,7 @@ def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_proj
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -881,7 +886,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -928,7 +933,7 @@ def test_readiness_evidence_ledger_blocks_confirmation_only(
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }

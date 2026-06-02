@@ -16,7 +16,7 @@ warehouse = md.ref('warehouse')
 
 orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))
 
-@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')
+@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
     return orders.amount.sum()
 """
@@ -33,7 +33,7 @@ orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders
 def order_date(orders):
     return orders.created_at.cast('date')
 
-@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')
+@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
     return orders.amount.sum()
 """
@@ -181,7 +181,7 @@ warehouse = md.ref('warehouse')
 
 orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))
 
-@ms.metric(datasets=[orders], additivity='non_additive', decomposition=ms.sum(), name='revenue')
+@ms.metric(datasets=[orders], additivity='non_additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
     return orders.amount.sum()
 """

@@ -140,7 +140,7 @@ Base metric over an existing field (reuses `orders`):
         "business_definition": "Count of orders.",
         "guardrails": ["Counts every row; exclude test orders upstream."],
     },
-)
+verification_mode="python_native",)
 def orders_count(table):
     return table.order_id.count()
 ```

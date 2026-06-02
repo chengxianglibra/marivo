@@ -15,6 +15,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import dataclasses
 import textwrap
 
 import pytest
@@ -113,7 +114,7 @@ def _make_registry(**overrides: object) -> Registry:
         datasets=("sales.orders",),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
-        provenance=ProvenanceIR(),
+        provenance=ProvenanceIR(verification_mode="python_native"),
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc123",
@@ -159,7 +160,7 @@ def test_missing_dataset_ref_on_metric() -> None:
         datasets=("sales.nonexistent",),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
-        provenance=ProvenanceIR(),
+        provenance=ProvenanceIR(verification_mode="python_native"),
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
@@ -630,11 +631,11 @@ def test_no_cycle_when_valid() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Unverified provenance warnings
+# Verification mode validation
 # ---------------------------------------------------------------------------
 
 
-def test_unverified_provenance_warning() -> None:
+def test_sql_parity_metric_without_source_dialect_errors() -> None:
     registry = _make_registry()
     registry.metrics["sales.unverified_metric"] = MetricIR(
         semantic_id="sales.unverified_metric",
@@ -645,7 +646,7 @@ def test_unverified_provenance_warning() -> None:
         decomposition=DecompositionIR(kind="sum"),
         provenance=ProvenanceIR(
             source_sql="SELECT SUM(amount) FROM orders",
-            declared_status="unverified",
+            verification_mode="sql_parity",
         ),
         description=None,
         ai_context=AiContextIR(),
@@ -654,14 +655,11 @@ def test_unverified_provenance_warning() -> None:
         location=_LOC,
     )
     errors, warnings = assembly_validate(registry)
-    assert not any(
-        e.kind == ErrorKind.MISSING_DATASET_REF and "sales.unverified_metric" in e.semantic_refs
+    assert any(
+        e.kind == ErrorKind.SOURCE_SQL_MISSING and "sales.unverified_metric" in e.semantic_refs
         for e in errors
     )
-    assert any(
-        w.kind == WarningKind.UNVERIFIED_PROVENANCE and "sales.unverified_metric" in w.refs
-        for w in warnings
-    )
+    assert warnings == []
 
 
 def test_python_native_provenance_no_warning() -> None:
@@ -673,29 +671,29 @@ def test_python_native_provenance_no_warning() -> None:
         datasets=("sales.orders",),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
-        provenance=ProvenanceIR(
-            source_sql="SELECT SUM(amount) FROM orders",
-            declared_status="python_native",
-        ),
+        provenance=ProvenanceIR(verification_mode="python_native"),
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
         python_symbol="native_metric",
         location=_LOC,
+        additivity="additive",
     )
     errors, warnings = assembly_validate(registry)
-    assert not any(
-        w.kind == WarningKind.UNVERIFIED_PROVENANCE and "sales.native_metric" in w.refs
-        for w in warnings
-    )
+    assert not errors
+    assert not warnings
 
 
 def test_no_source_sql_no_warning() -> None:
-    """Metric without source_sql should not produce unverified warning."""
+    """python_native metric without source_sql should not produce warnings."""
     registry = _make_registry()
-    # sales.revenue has no source_sql — should not produce warning
+    registry.metrics["sales.revenue"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        provenance=ProvenanceIR(verification_mode="python_native"),
+    )
     errors, warnings = assembly_validate(registry)
-    assert not any(w.kind == WarningKind.UNVERIFIED_PROVENANCE for w in warnings)
+    assert not errors
+    assert not warnings
 
 
 # ---------------------------------------------------------------------------
@@ -762,7 +760,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.orders"], additivity="additive", decomposition=ms.sum())
+        @ms.metric(datasets=["sales.orders"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def revenue(table):
             return table.amount.sum()
     """)
@@ -785,7 +783,7 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.nonexistent"], additivity="additive", decomposition=ms.sum())
+        @ms.metric(datasets=["sales.nonexistent"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def revenue(table):
             return table.amount.sum()
     """)
@@ -825,7 +823,7 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
 
 
 def test_warnings_in_load_result(semantic_project_factory) -> None:
-    """LoadResult should include warnings."""
+    """LoadResult should expose an empty warnings tuple when no warnings exist."""
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
         orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
@@ -834,8 +832,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
             datasets=[orders],
             additivity='additive',
             decomposition=ms.sum(),
-            source_sql="SELECT SUM(amount) FROM orders",
-            declared_status="unverified",
+            verification_mode="python_native",
         )
         def revenue(table):
             return table.amount.sum()
@@ -849,9 +846,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
     )
     result = project.load()
     assert project.is_ready()
-    # Should have at least one unverified provenance warning
-    assert len(result.warnings) > 0
-    assert any(w.kind == WarningKind.UNVERIFIED_PROVENANCE for w in result.warnings)
+    assert result.warnings == ()
 
 
 def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> None:

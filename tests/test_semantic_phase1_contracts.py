@@ -14,7 +14,7 @@ def test_base_metric_requires_additivity(semantic_project_factory):
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue')\n"
+                "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -41,7 +41,8 @@ def test_single_dataset_metric_defaults_root_dataset(semantic_project_factory):
                 "    additivity='additive',\n"
                 "    decomposition=ms.sum(),\n"
                 "    name='revenue',\n"
-                ")\n"
+                "    verification_mode='python_native',\n"
+                "    )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -67,7 +68,8 @@ def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_fa
                 "    additivity='additive',\n"
                 "    decomposition=ms.sum(),\n"
                 "    name='revenue',\n"
-                ")\n"
+                "    verification_mode='python_native',\n"
+                "    )\n"
                 "def revenue(orders, users):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -96,7 +98,8 @@ def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory)
                 "    additivity='additive',\n"
                 "    decomposition=ms.sum(),\n"
                 "    name='revenue',\n"
-                ")\n"
+                "    verification_mode='python_native',\n"
+                "    )\n"
                 "def revenue(orders, users):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -122,7 +125,8 @@ def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_proje
                 "    additivity='additive',\n"
                 "    decomposition=ms.sum(),\n"
                 "    name='bad_user_sum',\n"
-                ")\n"
+                "    verification_mode='python_native',\n"
+                "    )\n"
                 "def bad_user_sum(orders, users):\n"
                 "    return users.score.sum()\n"
             ),

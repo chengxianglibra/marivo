@@ -251,7 +251,7 @@ The agent should use `marivo.semantic` decorators and builders:
 - `ms.dataset(...)`
 - `@ms.field(...)`
 - `@ms.time_field(...)`
-- `@ms.metric(...)`
+- `@ms.metric(..., verification_mode="python_native",)`
 - `ms.derived_metric(...)`
 - `ms.relationship(...)`
 - `ms.sum()`
@@ -394,7 +394,7 @@ It maps to semantic authoring fields:
 - `source_dialect`
 - `source_document`
 - `source_notes`
-- `declared_status`
+- `verification_mode`
 
 ### Runtime Evidence
 
@@ -611,6 +611,7 @@ Base metrics read datasets:
     datasets=[orders],
     additivity="additive",
     decomposition=ms.sum(),
+    verification_mode="sql_parity",
     source_sql="select sum(amount) from orders where pay_status = 1",
     source_dialect="trino",
     source_document="kb://sales/revenue",
@@ -642,12 +643,11 @@ Rules:
 - do not default to `ms.sum()` when decomposition is unclear
 - ratios and averages require explicit components
 - source SQL provenance should be preserved when available
-- no-source metrics remain `unverified` unless explicitly `python_native`
-- `declared_status=None` means the metric is `unverified` until parity succeeds
-  or the author explicitly chooses `declared_status="python_native"` for a base metric
-- derived metric readiness inherits the weakest component status; do not set
-  `declared_status="python_native"` on derived metrics unless intentionally
-  accepting the loader/readiness advisory
+- no-source base metrics must use `verification_mode="python_native"`
+- SQL-backed base metrics must use `verification_mode="sql_parity"` with
+  `source_sql` and `source_dialect`; status stays `unverified` until parity succeeds
+- derived metric readiness inherits component status; derived metrics must omit
+  `verification_mode`, `source_sql`, and `source_dialect`
 
 ### Relationship
 
@@ -864,7 +864,6 @@ class ReadinessIssue:
         "requires_raw_sql",
         "primary_key_unsampled",
         "fragile_string_ref",
-        "derived_python_native_status",
     ]
     severity: Literal["blocker", "warning"]
     refs: tuple[str, ...]
@@ -902,7 +901,6 @@ class PreviewSummary:
 @dataclass(frozen=True)
 class ParitySummary:
     verified_metrics: tuple[str, ...]
-    python_native_metrics: tuple[str, ...]
     unverified_metrics: tuple[str, ...]
     drifted_metrics: tuple[str, ...]
     skipped_metrics: tuple[str, ...]

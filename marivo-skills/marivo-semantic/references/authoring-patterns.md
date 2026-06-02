@@ -67,6 +67,7 @@ def region(table):
     additivity="additive",
     decomposition=ms.sum(),
     name="revenue",
+    verification_mode="sql_parity",
     source_sql="SELECT SUM(amount) AS revenue FROM orders",
     source_dialect="duckdb",
     ai_context={
@@ -176,7 +177,7 @@ come from runtime help; do not invent `ms.count()` or `ms.mean()`.
     additivity="additive",
     decomposition=ms.sum(),
     name="orders_count",
-)
+verification_mode="python_native",)
 def orders_count(table):
     return table.order_id.count()
 ```
@@ -189,7 +190,7 @@ Mean/average metrics are body-free derived metrics, not `ms.mean()`:
     additivity="additive",
     decomposition=ms.sum(),
     name="gross_revenue",
-)
+verification_mode="python_native",)
 def gross_revenue(table):
     return table.amount.sum()
 

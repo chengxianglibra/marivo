@@ -71,7 +71,7 @@ def _bootstrap_sales(tmp_path):
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )

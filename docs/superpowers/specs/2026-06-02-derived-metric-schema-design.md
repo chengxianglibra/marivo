@@ -18,9 +18,9 @@ surfaced by a real `avg_execution_time` ratio declaration:
         denominator="trino_query.query_count",
     ),
     name="avg_execution_time",
-    declared_status="python_native",
+    verification_mode="python_native",
     ai_context={...},
-)
+verification_mode="python_native",)
 def avg_execution_time():
     return ms.component("numerator") / ms.component("denominator")
 ```
@@ -31,14 +31,14 @@ def avg_execution_time():
    (change-attribution) meaning already, so for canonical kinds the body adds no
    information.
 
-2. **`declared_status` is misleading on derived metrics.** It defaults to `None`
+2. **`verification_mode` is misleading on derived metrics.** It defaults to `None`
    (self-status `UNVERIFIED`), but for a derived metric the effective parity
    status propagates from its component metrics; the self `UNVERIFIED` is
    deliberately excluded from propagation
-   (`marivo/semantic/parity.py:341-366`). Declaring `declared_status="python_native"`
+   (`marivo/semantic/parity.py:341-366`). Declaring `verification_mode="python_native"`
    on a derived metric is therefore redundant when components are already
    `python_native`, and actively harmful when components are `verified` — it
-   downgrades the propagated result from `VERIFIED` to `PYTHON_NATIVE`.
+   downgrades the propagated result from `VERIFIED` to `VERIFIED`.
 
 3. **Component references are stringly typed.** `ms.component("numerator")` relies
    on magic strings that must match keys produced by the decomposition builder,
@@ -52,7 +52,7 @@ def avg_execution_time():
 A fourth issue is a documentation/code drift: the spec
 `docs/specs/semantic/python-semantic-layer.md` documents the provenance
 parameter as `provenance=` (lines 409, 538-539), but the decorator only accepts
-`declared_status=` (`marivo/semantic/authoring.py:710`). There is no `provenance`
+`verification_mode=` (`marivo/semantic/authoring.py:710`). There is no `provenance`
 parameter in code.
 
 ### Key finding: custom-arithmetic derived metrics are unused
@@ -89,7 +89,7 @@ not preserve.
 - Remove the restated formula for canonical derived metrics: derived metrics
   declare structure only, with no Python body.
 - Make the derived-metric registration API explicit and body-free.
-- Stop encouraging `declared_status` on derived metrics where it is redundant or
+- Stop encouraging `verification_mode` on derived metrics where it is redundant or
   harmful; advise against it.
 - Reconcile the spec/code provenance naming drift.
 - Delete the now-unused component-sentinel machinery and its tests.
@@ -127,7 +127,7 @@ These design forks were resolved during brainstorming:
 | Derived body form | Canonical kinds only, body always omitted; remove `ms.component` and the sentinel arithmetic system. |
 | Custom arithmetic | Not preserved. Derived metrics are `ratio` or `weighted_average` only. |
 | Registration API | Direct call `ms.derived_metric(...)` returning a `MetricRef`; `@ms.metric` becomes base/aggregate only. |
-| Provenance naming | Code name `declared_status` wins; the spec is aligned to it. |
+| Provenance naming | Code name `verification_mode` wins; the spec is aligned to it. |
 
 ## New Contract
 
@@ -169,12 +169,12 @@ Signature (keyword-only):
   for derived metrics today. Add explicit tests for the rejection.
 - `model_name`, `description`, `ai_context` — same as `@ms.metric`.
 - Provenance kwargs: `source_sql`, `source_dialect`, `source_document`,
-  `source_notes`, `declared_status` — accepted and stored on `ProvenanceIR` as
+  `source_notes`, `verification_mode` — accepted and stored on `ProvenanceIR` as
   **documentation metadata only**. A derived metric cannot be SQL-parity-verified:
   `parity_check` rejects `is_derived` metrics before it looks at `source_sql`
   (`marivo/semantic/parity.py:121`). So `source_sql` on a derived metric is not a
   parity oracle, does not change the propagated parity status, and does not
-  suppress the `declared_status` advisory below. Adding direct derived parity is
+  suppress the `verification_mode` advisory below. Adding direct derived parity is
   out of scope for this redesign.
 
 It produces the same `MetricIR` field shape as today (`is_derived=True`,
@@ -223,18 +223,18 @@ appropriate builder describing its attribution structure).
 
 ### Provenance on derived metrics
 
-- `declared_status` stays optional and defaults to `None`. The effective parity
+- `verification_mode` stays optional and defaults to `None`. The effective parity
   status of a derived metric continues to propagate from its components via the
   unchanged `propagated_parity_status`.
 - **New advisory (issue #4).** When a derived metric sets
-  `declared_status="python_native"`, emit a warning at load and in readiness. On a
+  `verification_mode="python_native"`, emit a warning at load and in readiness. On a
   derived metric this is always redundant or harmful: it does not raise the metric
   above its components, and when all components are `verified` it caps the
-  propagated status at `PYTHON_NATIVE` instead of `VERIFIED`
+  propagated status at `VERIFIED` instead of `VERIFIED`
   (`docs/specs/semantic/python-semantic-layer.md:548`). The advisory fires
   regardless of `source_sql` (which, per the signature note above, is not a parity
   oracle for derived metrics). It is scoped to `python_native` only:
-  `declared_status="unverified"` and `None` are **not** warned, because an
+  `verification_mode="unverified"` and `None` are **not** warned, because an
   `unverified` self-status does not downgrade `verified` components, so the
   downgrade rationale does not apply. It is emitted as a readiness advisory
   alongside a load-time warning next to the existing unverified-provenance warning
@@ -242,7 +242,7 @@ appropriate builder describing its attribution structure).
   consistent with the provenance philosophy that only `--strict-provenance` fails
   closed (`docs/specs/semantic/python-semantic-layer.md:543`).
 - **Spec naming alignment (issue #2).** Replace `provenance=` with
-  `declared_status=` throughout `docs/specs/semantic/python-semantic-layer.md`
+  `verification_mode=` throughout `docs/specs/semantic/python-semantic-layer.md`
   so the spec matches the implemented decorator.
 
 ### Materialization
@@ -291,7 +291,7 @@ Internal machinery:
   (unchanged paths) resolves each component ref to a registered metric and runs
   cycle detection (`marivo/semantic/validator.py:1087-1099`). There is no body to
   AST-validate.
-- Readiness gains the derived `declared_status="python_native"` advisory described
+- Readiness gains the derived `verification_mode="python_native"` advisory described
   above (independent of `source_sql`). Existing parity/unverified readiness
   behavior is otherwise unchanged.
 
@@ -303,7 +303,7 @@ All updated within the same change (per the repository agent guide):
   shape rules (lines 381-421), the decomposition/component sections (494-529),
   the provenance naming (531-550), and the closing summary (805-812) to the new
   body-free contract and `ms.derived_metric` API; rename `provenance=` →
-  `declared_status=`.
+  `verification_mode=`.
 - `marivo-skills/marivo-semantic/` and `marivo-skills/marivo-analysis/`:
   migrate examples and fixtures using `ms.component` or derived `@ms.metric`
   (e.g. `marivo-analysis/references/examples/_fixtures/tiny_semantic.py`) to
@@ -318,7 +318,7 @@ All updated within the same change (per the repository agent guide):
   `ms.derived_metric` (including `additive`/`semi_additive` rejection), body-free
   materialization for both `ratio` and `weighted_average`, the synthetic
   `python_symbol` and decomposition-derived `body_ast_hash`, and the new
-  `declared_status="python_native"` advisory.
+  `verification_mode="python_native"` advisory.
 
 ## Success criteria
 
@@ -328,5 +328,5 @@ All updated within the same change (per the repository agent guide):
   of derived-body tests.
 - `make examples-check` passes with migrated examples.
 - The `avg_execution_time` example declares with no body, no `datasets=[]`, and
-  no `declared_status`, and resolves to the same materialized expression and
+  no `verification_mode`, and resolves to the same materialized expression and
   propagated parity status as before.

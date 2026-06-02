@@ -15,7 +15,7 @@ warehouse = md.ref('warehouse')
 
 orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))
 
-@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')
+@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
     return orders.amount.sum()
 """

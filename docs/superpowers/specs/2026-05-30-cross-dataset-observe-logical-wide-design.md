@@ -62,7 +62,7 @@ time-series, segmented, and panel logic used for single-dataset metrics.
 This is a deliberate behavior change for base multi-dataset metrics observed
 through `session.observe(...)`.
 
-Today a scalar metric such as `@ms.metric(datasets=[orders, users])` may be
+Today a scalar metric such as `@ms.metric(datasets=[orders, users], verification_mode="python_native",)` may be
 materialized as independent table arguments. After this change, observe always
 uses logical-wide semantics for multi-dataset base metrics with an explicit
 root dataset: non-root datasets are joined from the root through relationships,
@@ -128,7 +128,7 @@ Example:
     datasets=[orders, users],
     root_dataset=orders,
     decomposition=ms.sum(),
-)
+verification_mode="python_native",)
 def revenue_by_user_state(orders, users):
     return orders.amount.sum()
 ```

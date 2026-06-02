@@ -54,6 +54,7 @@ class ConstraintId(StrEnum):
     METRIC_ADDITIVITY_REQUIRED = "metric_additivity_required"
     METRIC_ROOT_DATASET_REQUIRED = "metric_root_dataset_required"
     METRIC_ROOT_DATASET_VALID = "metric_root_dataset_valid"
+    METRIC_VERIFICATION_MODE_VALID = "metric_verification_mode_valid"
     METRIC_ROOT_ONLY_AGGREGATE = "metric_root_only_aggregate"
     METRIC_FANOUT_POLICY_VALID = "metric_fanout_policy_valid"
     METRIC_FANOUT_POLICY_DERIVED = "metric_fanout_policy_derived"
@@ -446,6 +447,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "root_dataset must be one of the metric's datasets.",
         "The root dataset anchors the metric's aggregation grain.",
         "Use a DatasetRef from the metric's datasets list as root_dataset.",
+    ),
+    ConstraintId.METRIC_VERIFICATION_MODE_VALID: _constraint(
+        ConstraintId.METRIC_VERIFICATION_MODE_VALID,
+        "invalid_verification_mode",
+        "assembly",
+        ("metric",),
+        "Base metrics must declare a valid verification mode.",
+        "verification_mode separates author intent from computed verification status.",
+        "Use verification_mode='sql_parity' with source_sql/source_dialect, or verification_mode='python_native' without SQL provenance.",
     ),
     ConstraintId.METRIC_ROOT_ONLY_AGGREGATE: _constraint(
         ConstraintId.METRIC_ROOT_ONLY_AGGREGATE,
