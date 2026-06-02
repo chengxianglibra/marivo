@@ -135,6 +135,16 @@ class _FakeCursor:
         return self._rows
 
 
+class _FakeQueryResult:
+    """Mimics clickhouse_connect.QueryResult (column_names + result_rows, no description/fetchall)."""
+
+    def __init__(
+        self, column_names: tuple[str, ...], result_rows: list[tuple[object, ...]]
+    ) -> None:
+        self.column_names = column_names
+        self.result_rows = result_rows
+
+
 class _FakeBackend:
     def __init__(self, schema: dict[str, str], query_results: dict[str, _FakeCursor]) -> None:
         self.schema = schema
@@ -433,6 +443,103 @@ def test_inspect_table_clickhouse_infers_nullable_from_type(
     by_name = {column.name: column for column in metadata.columns}
     assert by_name["order_id"].nullable is False
     assert by_name["amount"].nullable is True
+
+
+def test_inspect_table_clickhouse_query_result(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ClickHouse raw_sql returns QueryResult (not DB-API cursor) — _cursor_rows must handle it."""
+    mv.datasources.register(
+        _spec(
+            "ch_qr",
+            backend_type="clickhouse",
+            host="clickhouse.example",
+            database="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "amount": "float64", "region": "string"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment",),
+                [("One row per order",)],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [
+                    ("order_id", "Int64", 0, "Unique order id", 1),
+                    ("amount", "Nullable(Float64)", 1, "Gross amount", 2),
+                    ("region", "String", 0, "", 3),
+                ],
+            ),
+        },
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_qr", table="analytics.orders")
+
+    assert metadata.backend_type == "clickhouse"
+    assert metadata.comment == "One row per order"
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["order_id"].nullable is False
+    assert by_name["order_id"].comment == "Unique order id"
+    assert by_name["amount"].nullable is True
+    assert by_name["amount"].comment == "Gross amount"
+    assert by_name["region"].comment is None
+
+
+def test_inspect_table_clickhouse_no_is_nullable_empty_comments(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ClickHouse ≤22.5: is_nullable missing, comment column exists but values are empty strings."""
+    mv.datasources.register(
+        _spec(
+            "ch_22_3",
+            backend_type="clickhouse",
+            host="clickhouse-old.example",
+            database="bilibili_web_monitor",
+        )
+    )
+    backend = _FakeBackend(
+        {"event_id": "string", "lag_count": "float64"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment",),
+                [("",)],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "comment", "position"),
+                [
+                    ("event_id", "String", "", 1),
+                    ("lag_count", "Nullable(Float64)", "", 2),
+                ],
+            ),
+        },
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table(
+        "ch_22_3", table="bilibili_web_monitor.ads_web_main_box_rt"
+    )
+
+    assert metadata.backend_type == "clickhouse"
+    assert metadata.comment is None
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["event_id"].type == "String"
+    assert by_name["event_id"].nullable is False
+    assert by_name["event_id"].comment is None
+    assert by_name["lag_count"].type == "Nullable(Float64)"
+    assert by_name["lag_count"].nullable is True
+    assert by_name["lag_count"].comment is None
+    assert any(warning.kind == "comments_unavailable" for warning in metadata.warnings)
 
 
 def test_inspect_table_trino_short_name_is_not_rejected(
