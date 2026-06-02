@@ -41,12 +41,13 @@ def avg_execution_time():
    downgrades the propagated result from `VERIFIED` to `PYTHON_NATIVE`.
 
 3. **Component references are stringly typed.** `ms.component("numerator")` relies
-   on magic strings that must match keys produced by the decomposition builder.
-   `ms.weighted_average(value=..., weight=...)` compounds this by producing
-   component keys `{"numerator", "weight"}` (`marivo/semantic/authoring.py:1077`):
-   the `value=` kwarg becomes the `"numerator"` key, so the body must read
-   `ms.component("numerator")` for the value. The kwarg name does not match the
-   component name.
+   on magic strings that must match keys produced by the decomposition builder,
+   and the mapping is non-obvious: `ms.weighted_average(value=..., weight=...)`
+   stores component keys `{"numerator", "weight"}` (`marivo/semantic/authoring.py:1077`),
+   so the body has to read `ms.component("numerator")` for the `value=` argument.
+   Removing the body removes this footgun: with no body, the component keys are
+   never typed by a human, so the `value`/`numerator` mismatch becomes invisible
+   rather than something to rename (see Decomposition builders).
 
 A fourth issue is a documentation/code drift: the spec
 `docs/specs/semantic/python-semantic-layer.md` documents the provenance
@@ -90,7 +91,6 @@ not preserve.
 - Make the derived-metric registration API explicit and body-free.
 - Stop encouraging `declared_status` on derived metrics where it is redundant or
   harmful; advise against it.
-- Align decomposition builder kwarg names with component key names.
 - Reconcile the spec/code provenance naming drift.
 - Delete the now-unused component-sentinel machinery and its tests.
 - Keep all changes fix-forward with no backward-compatibility shims.
@@ -161,19 +161,36 @@ Signature (keyword-only):
   `ms.weighted_average(...)` (a builder with components). `ms.sum()` is rejected
   here because it has no components.
 - `additivity: Literal["additive", "semi_additive", "non_additive"] | None` —
-  same validation as today; `additive`/`semi_additive` is rejected on derived
-  metrics (current rule at `docs/specs/semantic/python-semantic-layer.md:454`).
+  **new decorator-time validation**: `ms.derived_metric` rejects
+  `additive`/`semi_additive` (only `non_additive` or `None` are allowed). This is
+  new enforcement, not "same as today": the current assembly-time additivity check
+  skips derived metrics entirely (`marivo/semantic/validator.py:836`,
+  `if m_ir.is_derived: continue`), so the rule is documented but never enforced
+  for derived metrics today. Add explicit tests for the rejection.
 - `model_name`, `description`, `ai_context` — same as `@ms.metric`.
 - Provenance kwargs: `source_sql`, `source_dialect`, `source_document`,
-  `source_notes`, `declared_status` — accepted, because a derived metric may
-  carry its own SQL oracle (`docs/specs/semantic/python-semantic-layer.md:547`).
+  `source_notes`, `declared_status` — accepted and stored on `ProvenanceIR` as
+  **documentation metadata only**. A derived metric cannot be SQL-parity-verified:
+  `parity_check` rejects `is_derived` metrics before it looks at `source_sql`
+  (`marivo/semantic/parity.py:121`). So `source_sql` on a derived metric is not a
+  parity oracle, does not change the propagated parity status, and does not
+  suppress the `declared_status` advisory below. Adding direct derived parity is
+  out of scope for this redesign.
 
-It produces the same `MetricIR` shape as today (`is_derived=True`,
+It produces the same `MetricIR` field shape as today (`is_derived=True`,
 `datasets=()`, `decomposition` populated, `provenance` populated), so the loader,
-registry, readiness, parity, and analysis layers are unaffected downstream.
-`body_ast_hash` is computed from the decomposition structure (kind plus ordered
-component refs) so decomposition edits remain detectable; `python_symbol` is
-`None` since there is no function.
+registry, readiness, parity, and analysis layers consume it unchanged. Two fields
+have no function to derive from and get explicit synthetic values that keep the IR
+contract intact:
+
+- `python_symbol` stays a non-null `str` (the field is `str` at
+  `marivo/semantic/ir.py:312` and is surfaced by `list_metrics()` /
+  `MetricSummary` at `marivo/semantic/reader.py:685`). For a body-free derived
+  metric it is set to the metric `name` as a synthetic symbol — not `None` — so no
+  reader, summary, or `MetricSummary` consumer needs to handle a missing symbol.
+- `body_ast_hash` is computed from the decomposition structure (kind plus ordered
+  component refs) instead of source text, so decomposition edits remain
+  detectable.
 
 ### `@ms.metric` becomes base/aggregate only
 
@@ -188,8 +205,15 @@ appropriate builder describing its attribution structure).
 - `ms.ratio(numerator=<metric ref>, denominator=<metric ref>)` →
   components `{"numerator": ..., "denominator": ...}` (unchanged).
 - `ms.weighted_average(value=<metric ref>, weight=<metric ref>)` →
-  components `{"value": ..., "weight": ...}`. **Changed**: the key was
-  `"numerator"`; it becomes `"value"` so component keys match kwarg names.
+  components `{"numerator": ..., "weight": ...}` (**unchanged**). The internal key
+  stays `"numerator"` even though the kwarg is `value=`. Renaming it was considered
+  and rejected: with bodies removed the key is no longer typed by any human, and
+  the analysis layer hard-codes these role names — `numerator`/`weight` in
+  `_component_parent_columns` (`marivo/analysis/intents/observe.py:248`) and as the
+  paired measure role in `decompose` (`marivo/analysis/intents/decompose.py:122`),
+  which together form the public component-frame column contract. Renaming would
+  force an analysis-frame / decompose / evidence migration for zero user-facing
+  benefit, so the key is left as-is.
 - `ms.sum()` → base-only, no components (unchanged).
 - `DecompositionBuilder.kind` stays `Literal["sum", "ratio", "weighted_average"]`.
   No generic/custom kind is added.
@@ -202,17 +226,21 @@ appropriate builder describing its attribution structure).
 - `declared_status` stays optional and defaults to `None`. The effective parity
   status of a derived metric continues to propagate from its components via the
   unchanged `propagated_parity_status`.
-- **New advisory (issue #4).** When a derived metric sets `declared_status` but
-  has no `source_sql`, emit a warning at load and in readiness:
-  the declaration is redundant (the effective status comes from components) and
-  can downgrade `verified` components to `python_native`. It is emitted as a
-  readiness advisory alongside a load-time warning next to the existing
-  unverified-provenance warning (`marivo/semantic/validator.py:1071-1082`). This
-  is a warning, not a hard error, consistent with the provenance philosophy that
-  only `--strict-provenance` fails closed
-  (`docs/specs/semantic/python-semantic-layer.md:543`). A derived metric that
-  sets both `declared_status` and `source_sql` is not warned (it has its own
-  oracle).
+- **New advisory (issue #4).** When a derived metric sets
+  `declared_status="python_native"`, emit a warning at load and in readiness. On a
+  derived metric this is always redundant or harmful: it does not raise the metric
+  above its components, and when all components are `verified` it caps the
+  propagated status at `PYTHON_NATIVE` instead of `VERIFIED`
+  (`docs/specs/semantic/python-semantic-layer.md:548`). The advisory fires
+  regardless of `source_sql` (which, per the signature note above, is not a parity
+  oracle for derived metrics). It is scoped to `python_native` only:
+  `declared_status="unverified"` and `None` are **not** warned, because an
+  `unverified` self-status does not downgrade `verified` components, so the
+  downgrade rationale does not apply. It is emitted as a readiness advisory
+  alongside a load-time warning next to the existing unverified-provenance warning
+  (`marivo/semantic/validator.py:1071-1082`). This is a warning, not a hard error,
+  consistent with the provenance philosophy that only `--strict-provenance` fails
+  closed (`docs/specs/semantic/python-semantic-layer.md:543`).
 - **Spec naming alignment (issue #2).** Replace `provenance=` with
   `declared_status=` throughout `docs/specs/semantic/python-semantic-layer.md`
   so the spec matches the implemented decorator.
@@ -223,7 +251,7 @@ A derived metric materializes by synthesizing the division directly from its
 `kind` and components, replacing the sentinel-tree walk:
 
 - `ratio`: `metric(components["numerator"]) / metric(components["denominator"])`
-- `weighted_average`: `metric(components["value"]) / metric(components["weight"])`
+- `weighted_average`: `metric(components["numerator"]) / metric(components["weight"])`
 
 This preserves current numeric semantics — the existing body is also a
 `component / component` division — while removing the sentinel tree and its
@@ -257,13 +285,15 @@ Internal machinery:
 
 ## Validation and readiness changes
 
-- Loading a derived metric now validates: `decomposition` has components and is
-  `ratio` or `weighted_average`; `additivity` is `non_additive` or omitted; each
-  component ref resolves to a registered metric; no cycles. There is no body to
+- `ms.derived_metric` validates at decorator-time: `decomposition` has components
+  and is `ratio` or `weighted_average` (`ms.sum()` rejected); `additivity` is
+  `non_additive` or `None` (new — see signature). Assembly-time validation
+  (unchanged paths) resolves each component ref to a registered metric and runs
+  cycle detection (`marivo/semantic/validator.py:1087-1099`). There is no body to
   AST-validate.
-- Readiness gains the derived `declared_status`-without-`source_sql` advisory
-  described above. Existing parity/unverified readiness behavior is otherwise
-  unchanged.
+- Readiness gains the derived `declared_status="python_native"` advisory described
+  above (independent of `source_sql`). Existing parity/unverified readiness
+  behavior is otherwise unchanged.
 
 ## Spec, docs, examples, and tests
 
@@ -285,8 +315,10 @@ All updated within the same change (per the repository agent guide):
   `tests/test_semantic_reader.py:112`, and the derived `ms.component` fixtures in
   `tests/test_semantic_phase3_fanout_policy.py` and
   `tests/test_analysis_observe_cross_dataset_phase2.py`). Add coverage for
-  `ms.derived_metric`, the `weighted_average` `value`/`weight` keys, body-free
-  materialization, and the new `declared_status`-without-`source_sql` advisory.
+  `ms.derived_metric` (including `additive`/`semi_additive` rejection), body-free
+  materialization for both `ratio` and `weighted_average`, the synthetic
+  `python_symbol` and decomposition-derived `body_ast_hash`, and the new
+  `declared_status="python_native"` advisory.
 
 ## Success criteria
 
