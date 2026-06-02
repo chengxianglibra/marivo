@@ -69,6 +69,17 @@ AST whitelist is latent and unreachable through any builder. The spec already
 pushes complex logic down into base metrics
 (`docs/specs/semantic/python-semantic-layer.md:512,529`).
 
+This "push into base metrics" guidance is precise about its boundary:
+computability in ibis is not the base-vs-derived dividing line. Any formula that
+fits within a single dataset at a single grain (including non-additive ones such
+as `mean`/`median`/`count(distinct)`, since base metrics recompute from raw rows
+at each query grain) can be authored as a base metric. Derived metrics exist for
+two things base metrics cannot do: (1) expose change-attribution decomposition as
+an analysis surface, and (2) combine quantities that are aggregated
+*independently* across grains/datasets and combined last (the fan-trap), which
+cannot be written as one reduction. The combine-last cases that have a canonical
+shape are exactly `ratio` and `weighted_average`.
+
 Custom-arithmetic derived metrics are therefore treated as a feature to remove,
 not preserve.
 
@@ -86,9 +97,18 @@ not preserve.
 
 ## Non-Goals
 
-- No support for custom (non-canonical) arithmetic in derived metrics. Anything
-  beyond `ratio` / `weighted_average` must be expressed by composing base
-  metrics.
+- No support for custom (non-canonical) arithmetic in derived metric bodies. A
+  formula that fits within a single dataset and grain must be authored as a base
+  metric (`@ms.metric` with an ibis reduction body); cross-metric combination is
+  limited to the canonical `ratio` / `weighted_average` builders.
+- **Known gap, explicitly out of scope.** Cross-dataset additive/difference
+  composition of N metrics (e.g. `net = gross(orders) - refunds(refunds)`,
+  `total = a + b + c` across fact tables) is neither a single base metric nor a
+  `ratio`/`weighted_average`. No public builder can declare such components today
+  (the latent arithmetic AST path is unreachable), so this redesign removes no
+  usable capability — but it also adds none. If the pattern is needed it is a
+  separate feature (an additive/composite N-term builder carrying sign,
+  decomposition, and materialization semantics) with its own spec.
 - No change to the base/aggregate authoring surface (`@ms.metric` with
   `datasets`, `ms.sum()`, ibis reduction bodies). `@ms.metric` loses only its
   derived branch.
