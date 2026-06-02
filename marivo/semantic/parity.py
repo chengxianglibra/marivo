@@ -104,7 +104,7 @@ def parity_check(
     Raises SemanticParityError for pre-condition violations:
     - Metric not found
     - Derived metric (not supported for direct SQL parity)
-    - Missing source_sql or source_dialect
+    - Missing sql_parity verification mode, source_sql, or source_dialect
     - Dialect mismatch with datasource backend_type
     - Cross-datasource metric
 
@@ -123,6 +123,15 @@ def parity_check(
             ErrorKind.SOURCE_SQL_MISSING,
             f"Derived metric {metric_id!r} does not support direct SQL parity check. "
             f"Check component metrics instead.",
+            cls=SemanticParityError,
+            refs=(metric_id,),
+        )
+
+    if metric_ir.provenance.verification_mode != "sql_parity":
+        _raise(
+            ErrorKind.SOURCE_SQL_MISSING,
+            f"Metric {metric_id!r} does not use verification_mode='sql_parity'. "
+            f"Only SQL parity metrics can run parity checks.",
             cls=SemanticParityError,
             refs=(metric_id,),
         )
@@ -266,28 +275,26 @@ def compute_self_status(
 
     This is Step 1 of the two-step status computation.
 
-    | declared_status    | last parity_check | self status  |
-    |--------------------|-------------------|-------------|
-    | "python_native"    | any               | PYTHON_NATIVE|
-    | "unverified"       | any               | UNVERIFIED   |
-    | None (SQL triple)  | no / not run      | UNVERIFIED   |
-    | None               | ok=True           | VERIFIED     |
-    | None               | ok=False          | DRIFTED      |
+    | verification_mode | last parity_check | self status |
+    |-------------------|-------------------|-------------|
+    | "python_native"   | any               | VERIFIED    |
+    | "sql_parity"      | no / not run      | UNVERIFIED  |
+    | "sql_parity"      | ok=True           | VERIFIED    |
+    | "sql_parity"      | ok=False          | DRIFTED     |
 
-    For derived metrics without a declared status and no parity check,
-    the self status defaults to UNVERIFIED. The propagated_parity_status
-    function then uses component statuses to determine the effective status.
+    Derived metrics do not have a self verification mode. Their status is
+    determined by propagated component statuses.
     """
     metric_ir = _get_metric_or_raise(project, metric_id)
     prov = metric_ir.provenance
 
-    # Declared statuses override everything
-    if prov.declared_status == "python_native":
-        return ParityStatus.PYTHON_NATIVE
-    if prov.declared_status == "unverified":
+    if metric_ir.is_derived:
         return ParityStatus.UNVERIFIED
 
-    # No declared status — compute from parity check result
+    if prov.verification_mode == "python_native":
+        return ParityStatus.VERIFIED
+
+    # SQL parity metrics compute status from the latest in-memory parity result.
     parity_result = project._parity_results.get(metric_id)
 
     if parity_result is None:
@@ -309,17 +316,14 @@ def propagated_parity_status(
     Step 1: Compute self-status from provenance and parity results.
     Step 2: For derived metrics, propagate from component statuses.
 
-    For derived metrics, the self-status UNVERIFIED (from no direct parity
-    check having been run) is not included in the propagation, since derived
-    metrics cannot be directly SQL-parity-checked. Only PYTHON_NATIVE and
-    DRIFTED self-statuses propagate upward from derived metrics.
+    Derived metrics cannot be directly SQL-parity-checked; their own
+    UNVERIFIED self-status is ignored and component statuses determine the
+    effective status.
 
     Propagation rules (derived metrics only):
     - If any status is DRIFTED -> DRIFTED
     - If any component is UNVERIFIED -> UNVERIFIED
     - If all components are VERIFIED -> VERIFIED
-    - If all components are PYTHON_NATIVE -> PYTHON_NATIVE
-    - Mix of VERIFIED + PYTHON_NATIVE -> PYTHON_NATIVE
     """
     metric_ir = _get_metric_or_raise(project, metric_id)
     self_status = compute_self_status(project, metric_id)
@@ -334,33 +338,13 @@ def propagated_parity_status(
         comp_status = propagated_parity_status(project, comp_id)
         component_statuses.append(comp_status)
 
-    # For derived metrics, the self_status from "no parity check" is
-    # UNVERIFIED, but since derived metrics can't be directly checked,
-    # that UNVERIFIED should not propagate. Only PYTHON_NATIVE and DRIFTED
-    # self-statuses are meaningful for propagation.
-    effective_self: ParityStatus | None = None
-    if self_status == ParityStatus.PYTHON_NATIVE:
-        effective_self = ParityStatus.PYTHON_NATIVE
-    elif self_status == ParityStatus.DRIFTED:
-        effective_self = ParityStatus.DRIFTED
-    elif self_status == ParityStatus.VERIFIED:
-        effective_self = ParityStatus.VERIFIED
-    # UNVERIFIED self-status from "no check" is excluded —
-    # derived metrics rely on component propagation.
-
-    all_statuses: list[ParityStatus] = []
-    if effective_self is not None:
-        all_statuses.append(effective_self)
-    all_statuses.extend(component_statuses)
-
-    if not all_statuses:
+    if not component_statuses:
         return ParityStatus.UNVERIFIED
 
-    if any(s == ParityStatus.DRIFTED for s in all_statuses):
+    if any(s == ParityStatus.DRIFTED for s in component_statuses):
         return ParityStatus.DRIFTED
-    if any(s == ParityStatus.UNVERIFIED for s in all_statuses):
+    if any(s == ParityStatus.UNVERIFIED for s in component_statuses):
         return ParityStatus.UNVERIFIED
-    if all(s == ParityStatus.VERIFIED for s in all_statuses):
+    if all(s == ParityStatus.VERIFIED for s in component_statuses):
         return ParityStatus.VERIFIED
-    # Remaining case: mix of VERIFIED and PYTHON_NATIVE (no DRIFTED or UNVERIFIED)
-    return ParityStatus.PYTHON_NATIVE
+    return ParityStatus.UNVERIFIED

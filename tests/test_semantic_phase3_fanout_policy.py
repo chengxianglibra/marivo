@@ -44,7 +44,8 @@ def test_metric_authoring_accepts_fanout_policy(tmp_path, monkeypatch):
         "    decomposition=ms.sum(),\n"
         "    fanout_policy='aggregate_then_join',\n"
         "    name='gmv_with_items',\n"
-        ")\n"
+        "    verification_mode='python_native',\n"
+        "    )\n"
         "def gmv_with_items(orders, order_items):\n"
         "    return orders.amount.sum()\n"
     )
@@ -97,7 +98,8 @@ def test_validator_rejects_fanout_policy_on_non_additive_metric(tmp_path, monkey
         "    decomposition=ms.sum(),\n"
         "    fanout_policy='aggregate_then_join',\n"
         "    name='non_additive_bad',\n"
-        ")\n"
+        "    verification_mode='python_native',\n"
+        "    )\n"
         "def non_additive_bad(orders, order_items):\n"
         "    return orders.user_id.nunique()\n"
     )
@@ -115,10 +117,10 @@ def test_derived_metric_keeps_default_fanout_policy(tmp_path, monkeypatch):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='gmv')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='gmv', verification_mode='python_native',)\n"
         "def gmv(orders):\n"
         "    return orders.amount.sum()\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='cnt')\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='cnt', verification_mode='python_native',)\n"
         "def cnt(orders):\n"
         "    return orders.count()\n"
         "aov = ms.derived_metric(\n"

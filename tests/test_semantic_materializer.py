@@ -71,7 +71,7 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
+    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def total_amount(table):
         return table.amount.sum()
 """)
@@ -398,7 +398,7 @@ def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend)
 
         orders_b = ms.dataset(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders_a, orders_b], root_dataset=orders_a, additivity="additive", decomposition=ms.sum())
+        @ms.metric(datasets=[orders_a, orders_b], root_dataset=orders_a, additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def cross_metric(t1, t2):
             return t1.amount.sum()
     """)
@@ -481,7 +481,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
         import marivo.semantic as ms
         orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
+        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
             return table.amount.sum()
 
@@ -515,7 +515,7 @@ def test_derived_metric_has_no_materializer_sidecar_entry(
         import marivo.semantic as ms
         orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
+        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
             return table.amount.sum()
 
@@ -550,11 +550,11 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
         import marivo.semantic as ms
         orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
+        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
+        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def count_metric(table):
             return table.count()
 
@@ -587,7 +587,7 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
         import marivo.semantic as ms
         orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
+        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
             return table.amount.sum()
 
@@ -722,7 +722,7 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
 
         orders_alias = ms.dataset(name="orders_alias", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders, orders_alias], root_dataset=orders, additivity="additive", decomposition=ms.sum())
+        @ms.metric(datasets=[orders, orders_alias], root_dataset=orders, additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def combined(t1, t2):
             return t1.amount.sum()
     """)

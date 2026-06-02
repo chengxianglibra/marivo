@@ -73,6 +73,7 @@ class ErrorKind(StrEnum):
     MISSING_METRIC_ADDITIVITY = "missing_metric_additivity"
     MISSING_METRIC_ROOT_DATASET = "missing_metric_root_dataset"
     INVALID_METRIC_ROOT_DATASET = "invalid_metric_root_dataset"
+    INVALID_VERIFICATION_MODE = "invalid_verification_mode"
     INVALID_DATASET_VERSIONING = "invalid_dataset_versioning"
     NON_ROOT_METRIC_AGGREGATE = "non_root_metric_aggregate"
     INVALID_METRIC_FANOUT_POLICY = "invalid_metric_fanout_policy"
@@ -208,7 +209,6 @@ class WarningKind(StrEnum):
 
     STRING_REF = "string_ref"
     UNVERIFIED_PROVENANCE = "unverified_provenance"
-    DERIVED_PYTHON_NATIVE_STATUS = "derived_python_native_status"
     POTENTIALLY_FRAGILE_REFERENCE = "potentially_fragile_reference"
     TIME_FIELD_PUSHDOWN_ADVISORY = "time_field_pushdown_advisory"
 
@@ -223,7 +223,6 @@ class StructuredWarning:
     kind: Literal[
         "string_ref",
         "unverified_provenance",
-        "derived_python_native_status",
         "potentially_fragile_reference",
         "time_field_pushdown_advisory",
     ]

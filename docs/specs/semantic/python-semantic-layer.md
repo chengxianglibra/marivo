@@ -66,6 +66,7 @@ def is_paid(orders):
     additivity="additive",
     decomposition=ms.sum(),
     description="Paid revenue.",
+    verification_mode="sql_parity",
     source_sql="select sum(amount) as value from orders where pay_status = 1",
     source_dialect="duckdb",
     source_document="kb://sales/revenue",
@@ -378,7 +379,7 @@ def order_date(orders):
 
 ### Metric
 
-`@ms.metric(...)` only declares dataset-backed base metrics. Base metrics require
+`@ms.metric(..., verification_mode="python_native",)` only declares dataset-backed base metrics. Base metrics require
 non-empty `datasets=[...]` and a single-return Ibis reduction body.
 
 ```python
@@ -388,6 +389,7 @@ non-empty `datasets=[...]` and a single-return Ibis reduction body.
     additivity="additive",
     decomposition=ms.sum(),
     description="Total revenue from paid orders.",
+    verification_mode="sql_parity",
     source_sql="select sum(amount) as value from orders where pay_status = 1",
     source_dialect="duckdb",
     source_document="kb://sales/revenue",
@@ -422,7 +424,7 @@ avg_execution_time = ms.derived_metric(
 - `ms.derived_metric(...)` with `ms.ratio(...)` or `ms.weighted_average(...)`:
   derived metric.
 - `decomposition=ms.sum()` 没有 components，因此必须是 base metric；省略 `datasets=[...]` 时直接报 `missing_datasets`。
-- `@ms.metric(...)` with an empty datasets list: error.
+- `@ms.metric(..., verification_mode="python_native",)` with an empty datasets list: error.
 - 没有 `datasets` 且没有 decomposition components：错误。
 
 ### Base Metric Grain And Additivity
@@ -438,7 +440,7 @@ preserved row set, join anchor, and observe time axis.
     root_dataset=orders,
     additivity="additive",
     decomposition=ms.sum(),
-)
+verification_mode="python_native",)
 def revenue(orders, users):
     return orders.amount.sum()
 ```
@@ -448,7 +450,7 @@ a base metric body must belong to the root dataset.
 
 ### Base Metric Fan-Out Policy
 
-`@ms.metric(...)` accepts an optional kwarg:
+`@ms.metric(..., verification_mode="python_native",)` accepts an optional kwarg:
 
 - `fanout_policy: Literal["block", "aggregate_then_join"] = "block"` — fan-out
   policy on the metric. `"block"` (default) rejects unsafe one-to-many edges
@@ -467,7 +469,7 @@ a base metric body must belong to the root dataset.
     additivity="additive",
     decomposition=ms.sum(),
     fanout_policy="aggregate_then_join",
-)
+verification_mode="python_native",)
 def gmv_with_items(orders, order_items):
     return orders.amount.sum()
 ```
@@ -528,28 +530,24 @@ reference datasets, fields, or time fields.
 
 ### Provenance
 
-Metric provenance kwargs are `source_sql`, `source_dialect`, `source_document`,
-`source_notes`, and `declared_status`. `declared_status` accepts
-`"python_native"`, `"unverified"`, or `None`.
+Metric provenance kwargs are `verification_mode`, `source_sql`,
+`source_dialect`, `source_document`, and `source_notes`. Base metrics must
+declare `verification_mode="sql_parity"` or `verification_mode="python_native"`.
 
-目标态 metric 始终有 provenance status，但 authoring-time 不强迫 agent 先完成 SQL 溯源。缺省状态是 `unverified`；当 metric 被提升为正式分析口径、被 `analysis.observe()` 消费、进入 strict CI，或声明为可信业务对象时，必须显式选择 SQL triple 或 `python_native`：
+目标态 metric 始终有 computed verification status，但 authoring-time 必须显式声明验证模式。当 metric 被提升为正式分析口径、被 `analysis.observe()` 消费、进入 strict CI，或声明为可信业务对象时，不能靠缺省状态表达来源：
 
 | Provenance | 含义 |
 | --- | --- |
-| `source_sql` + `source_dialect` + `source_document` | 从 SQL / BI / 知识库迁移，必须可做 parity |
-| `declared_status="python_native"` | Python/Ibis 是唯一业务源头，没有上游 SQL oracle |
-| 省略 `declared_status` 或 `declared_status="unverified"` | 临时定义，允许加载但在 describe、summary、analysis frame 中显式标红 |
+| `verification_mode="sql_parity"` + `source_sql` + `source_dialect` | 从 SQL / BI / 知识库迁移，必须可做 parity |
+| `verification_mode="python_native"` | Python/Ibis 是唯一业务源头，没有上游 SQL oracle |
 
 `source_sql` 是单 dialect provenance。若同一 metric 需要多 dialect 验证，不应把多份 SQL 都塞进 decorator；应使用 fixture-based parity tests 或后续 parity fixture lifecycle 来覆盖额外 dialect。
 
-缺少 source SQL 不等于错误；缺少显式 provenance 参数也不阻塞 authoring-time 加载，但该 metric 的 status 必须被标为 `unverified`。agent 和下游 analysis frame 必须能看到该 metric 是 `verified`、`python_native`、`unverified` 还是 `drifted`。当 check 使用 `--strict-provenance`、metric 被正式 analysis workflow 消费，或项目策略要求可信对象时，`unverified` 必须导致 fail closed。
+缺少 source SQL 不等于错误，但此时 base metric 必须显式声明 `verification_mode="python_native"`。agent 和下游 analysis frame 必须能看到该 metric 的 computed status 是 `verified`、`unverified` 还是 `drifted`，并结合 `verification_mode` 区分 SQL parity verified 与 Python-native verified。当 check 使用 `--strict-provenance`、metric 被正式 analysis workflow 消费，或项目策略要求可信对象时，`unverified` 必须导致 fail closed。
 
-For derived metrics, provenance kwargs are documentation metadata. A derived
-metric cannot be directly parity-checked; its effective parity status continues
-to propagate from component metrics. When a derived metric declares
-`declared_status="python_native"`, the loader and readiness report emit an
-advisory because this is redundant or can cap propagated status below verified
-components.
+Derived metrics must omit `verification_mode`, `source_sql`, and
+`source_dialect`. A derived metric cannot be directly parity-checked; its
+effective verification status propagates from component metrics.
 
 Derived metric 的有效 parity status 来自 component statuses：
 
@@ -809,7 +807,7 @@ typed frames + session persistence + lineage
 - `ms.model(...)` 只能出现在 `<root>/<model>/_model.py`，且 `name` 必须等于目录名；`default` 缺省为 `True`，允许同目录对象省略重复 `model=`。
 - `_model.py` 可作为 single-file quick path；对象变多后推荐拆为 feature-oriented sibling files。
 - Metric 显式 `datasets=[...]`；函数参数名只做局部 alias。
-- Base metric 使用 `@ms.metric(...)`；derived metric 使用 body-free `ms.derived_metric(...)`，依赖来自 decomposition components。
+- Base metric 使用 `@ms.metric(..., verification_mode="python_native",)`；derived metric 使用 body-free `ms.derived_metric(...)`，依赖来自 decomposition components。
 - Decomposition component roles come from `ms.ratio(...)` and `ms.weighted_average(...)` builders.
 - Derived metrics do not have Python bodies; custom derived arithmetic must be expressed through base component metrics.
 - Derived metric 的有效 parity status 从自身 provenance 和 components status 中取更弱者。

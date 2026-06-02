@@ -23,7 +23,7 @@ Ask when available evidence cannot settle a business decision:
 - multiple time axes are plausible and no partition/business evidence settles them;
 - source SQL and comments conflict;
 - refund, cancellation, test-data, or exclusion rules are ambiguous;
-- a no-source metric needs confirmation before using `declared_status="python_native"`.
+- a no-source metric needs confirmation before using `verification_mode="python_native"`.
 
 ## Candidates and questions
 

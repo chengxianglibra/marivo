@@ -50,7 +50,6 @@ ReadinessIssueKind = Literal[
     "primary_key_unsampled",
     "fragile_string_ref",
     "time_field_pushdown_advisory",
-    "derived_python_native_status",
     "unresolved_clarification",
     "missing_business_definition",
     "missing_guardrails",
@@ -121,7 +120,6 @@ class PreviewSummary:
 @dataclass(frozen=True)
 class ParitySummary:
     verified_metrics: tuple[str, ...]
-    python_native_metrics: tuple[str, ...]
     unverified_metrics: tuple[str, ...]
     drifted_metrics: tuple[str, ...]
     skipped_metrics: tuple[str, ...]
@@ -129,7 +127,6 @@ class ParitySummary:
     def to_dict(self) -> dict[str, object]:
         return {
             "verified_metrics": list(self.verified_metrics),
-            "python_native_metrics": list(self.python_native_metrics),
             "unverified_metrics": list(self.unverified_metrics),
             "drifted_metrics": list(self.drifted_metrics),
             "skipped_metrics": list(self.skipped_metrics),
@@ -788,7 +785,6 @@ def build_readiness_report(
             ),
             parity_summary=ParitySummary(
                 verified_metrics=(),
-                python_native_metrics=(),
                 unverified_metrics=(),
                 drifted_metrics=(),
                 skipped_metrics=(),
@@ -872,7 +868,6 @@ def build_readiness_report(
         preview_warnings.extend(semantic_preview_run.preview_warnings)
 
     verified_metrics: list[str] = []
-    python_native_metrics: list[str] = []
     unverified_metrics: list[str] = []
     drifted_metrics: list[str] = []
     skipped_metrics: list[str] = []
@@ -883,34 +878,9 @@ def build_readiness_report(
         if metric.semantic_id not in checked_ref_set:
             skipped_metrics.append(metric.semantic_id)
             continue
-        if metric.is_derived and metric.provenance.declared_status == "python_native":
-            warnings.append(
-                _issue(
-                    "derived_python_native_status",
-                    "warning",
-                    (metric.semantic_id,),
-                    (
-                        f"Derived metric {metric.semantic_id} declares python_native provenance; "
-                        "derived parity status is propagated from components."
-                    ),
-                    "Remove declared_status from the derived metric and verify or document its component metrics instead.",
-                )
-            )
         parity_status = propagated_parity_status(project, metric.semantic_id)
         if parity_status == ParityStatus.VERIFIED:
             verified_metrics.append(metric.semantic_id)
-        elif parity_status == ParityStatus.PYTHON_NATIVE:
-            python_native_metrics.append(metric.semantic_id)
-            if not metric.is_derived:
-                warnings.append(
-                    _issue(
-                        "unverified_metric",
-                        "warning",
-                        (metric.semantic_id,),
-                        f"Metric {metric.semantic_id} is declared python_native and has no SQL parity oracle.",
-                        "Keep declared_status='python_native' only when the user accepts Python-native provenance.",
-                    )
-                )
         elif parity_status == ParityStatus.UNVERIFIED:
             unverified_metrics.append(metric.semantic_id)
             severity: ReadinessSeverity = "blocker" if strict_provenance else "warning"
@@ -921,7 +891,7 @@ def build_readiness_report(
                     severity,
                     (metric.semantic_id,),
                     f"Metric {metric.semantic_id} is unverified.",
-                    "Run project.parity_check(...) or explicitly declare python_native when no SQL oracle exists.",
+                    "Run project.parity_check(...) or set verification_mode='python_native' when no SQL oracle exists.",
                 )
             )
         elif parity_status == ParityStatus.DRIFTED:
@@ -1076,7 +1046,6 @@ def build_readiness_report(
     )
     parity_summary = ParitySummary(
         verified_metrics=_dedupe(verified_metrics),
-        python_native_metrics=_dedupe(python_native_metrics),
         unverified_metrics=_dedupe(unverified_metrics),
         drifted_metrics=_dedupe(drifted_metrics),
         skipped_metrics=_dedupe(skipped_metrics),

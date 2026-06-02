@@ -7,17 +7,15 @@ Tests cover:
 - Base metric parity with abs_tol
 - Derived metric parity raises error (not supported directly)
 - Missing source_sql raises error
-- Dialect mismatch raises error
+- Verification mode contract for sql_parity and python_native metrics
 - Cross-datasource metric raises error
-- Parity status computation: declared python_native -> PYTHON_NATIVE
-- Parity status computation: declared unverified -> UNVERIFIED
-- Parity status computation: no source_sql -> UNVERIFIED
+- Parity status computation: python_native mode -> VERIFIED
 - Parity status computation: parity_check ok -> VERIFIED
 - Parity status computation: parity_check fail -> DRIFTED
 - Derived propagation: all verified -> VERIFIED
 - Derived propagation: one drifted -> DRIFTED
 - Derived propagation: one unverified -> UNVERIFIED
-- Derived propagation: mix of verified + python_native -> PYTHON_NATIVE
+- Derived propagation: mix of SQL parity verified + python_native -> VERIFIED
 - Parity results cached, cleared on reload
 - list_metrics(provenance_status=...) filter works
 """
@@ -83,6 +81,7 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
+        verification_mode="sql_parity",
         source_sql="SELECT SUM(amount) AS total_amount FROM orders",
         source_dialect="duckdb",
     )
@@ -98,6 +97,7 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
+        verification_mode="sql_parity",
         source_sql="SELECT 999.0 AS total_amount",
         source_dialect="duckdb",
     )
@@ -109,7 +109,12 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum())
+    @ms.metric(
+        datasets=[orders],
+        additivity='additive',
+        decomposition=ms.sum(),
+        verification_mode="python_native",
+    )
     def total_amount(table):
         return table.amount.sum()
 """)
@@ -122,6 +127,7 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
+        verification_mode="sql_parity",
         source_sql="SELECT SUM(amount) FROM orders",
         source_dialect="postgres",
     )
@@ -137,6 +143,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
+        verification_mode="sql_parity",
         source_sql="SELECT SUM(amount) AS revenue FROM orders",
         source_dialect="duckdb",
     )
@@ -147,6 +154,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
+        verification_mode="sql_parity",
         source_sql="SELECT SUM(amount) AS cost FROM orders",
         source_dialect="duckdb",
     )
@@ -156,12 +164,10 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
     margin = ms.derived_metric(
         name="margin",
         decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
-        source_sql="SELECT 0.5 AS margin",
-        source_dialect="duckdb",
     )
 """)
 
-_DECLARED_PYTHON_NATIVE_PY = textwrap.dedent("""\
+_PYTHON_NATIVE_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
@@ -169,13 +175,13 @@ _DECLARED_PYTHON_NATIVE_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
-        declared_status="python_native",
+        verification_mode="python_native",
     )
     def total_amount(table):
         return table.amount.sum()
 """)
 
-_DECLARED_UNVERIFIED_PY = textwrap.dedent("""\
+_MISSING_VERIFICATION_MODE_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
 
@@ -183,9 +189,6 @@ _DECLARED_UNVERIFIED_PY = textwrap.dedent("""\
         datasets=[orders],
         additivity="additive",
         decomposition=ms.sum(),
-        source_sql="SELECT SUM(amount) FROM orders",
-        source_dialect="duckdb",
-        declared_status="unverified",
     )
     def total_amount(table):
         return table.amount.sum()
@@ -268,6 +271,7 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
             datasets=[orders],
             additivity="additive",
             decomposition=ms.sum(),
+            verification_mode="sql_parity",
             source_sql="SELECT 300.5 AS total_amount",
             source_dialect="duckdb",
         )
@@ -306,21 +310,107 @@ def test_derived_metric_parity_raises(semantic_project_factory, backend_factory)
 
 
 # ---------------------------------------------------------------------------
-# Missing source_sql raises error
+# Invalid verification mode contracts
 # ---------------------------------------------------------------------------
 
 
-def test_missing_source_sql_raises(semantic_project_factory, backend_factory) -> None:
-    """Parity check on metric without source_sql should raise."""
+def test_base_metric_without_verification_mode_fails_load(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
-            "sales/metrics.py": _DATASET_NO_SOURCE_SQL_PY,
-        }
+            "sales/metrics.py": _MISSING_VERIFICATION_MODE_PY,
+        },
+        load=False,
     )
-    with pytest.raises(SemanticParityError) as exc_info:
-        project.parity_check("sales.total_amount", backend_factory=backend_factory)
-    assert exc_info.value.kind == ErrorKind.SOURCE_SQL_MISSING
+    result = project.load()
+
+    assert not project.is_ready()
+    assert any(error.kind == ErrorKind.INVALID_VERIFICATION_MODE for error in result.errors)
+
+
+def test_sql_parity_metric_without_source_sql_fails_load(semantic_project_factory) -> None:
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic as ms
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+
+        @ms.metric(
+            datasets=[orders],
+            additivity="additive",
+            decomposition=ms.sum(),
+            verification_mode="sql_parity",
+            source_dialect="duckdb",
+        )
+        def total_amount(table):
+            return table.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {"sales/_model.py": _MODEL_PY, "sales/metrics.py": metrics_py},
+        load=False,
+    )
+    result = project.load()
+
+    assert not project.is_ready()
+    assert any(error.kind == ErrorKind.SOURCE_SQL_MISSING for error in result.errors)
+
+
+def test_python_native_metric_with_source_sql_fails_load(semantic_project_factory) -> None:
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic as ms
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+
+        @ms.metric(
+            datasets=[orders],
+            additivity="additive",
+            decomposition=ms.sum(),
+            verification_mode="python_native",
+            source_sql="SELECT SUM(amount) FROM orders",
+            source_dialect="duckdb",
+        )
+        def total_amount(table):
+            return table.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {"sales/_model.py": _MODEL_PY, "sales/metrics.py": metrics_py},
+        load=False,
+    )
+    result = project.load()
+
+    assert not project.is_ready()
+    assert any(error.kind == ErrorKind.INVALID_VERIFICATION_MODE for error in result.errors)
+
+
+def test_derived_metric_with_verification_provenance_fails_load(
+    semantic_project_factory,
+) -> None:
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic as ms
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+
+        @ms.metric(
+            datasets=[orders],
+            additivity="additive",
+            decomposition=ms.sum(),
+            verification_mode="python_native",
+        )
+        def revenue(table):
+            return table.amount.sum()
+
+        margin = ms.derived_metric(
+            name="margin",
+            decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.revenue"),
+            verification_mode="sql_parity",
+            source_sql="SELECT 1",
+            source_dialect="duckdb",
+        )
+    """)
+    project = semantic_project_factory(
+        {"sales/_model.py": _MODEL_PY, "sales/metrics.py": metrics_py},
+        load=False,
+    )
+    result = project.load()
+
+    assert not project.is_ready()
+    assert any(error.kind == ErrorKind.INVALID_VERIFICATION_MODE for error in result.errors)
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +450,7 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
             root_dataset=orders_a,
             additivity="additive",
             decomposition=ms.sum(),
+            verification_mode="sql_parity",
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="duckdb",
         )
@@ -378,43 +469,27 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
 
 
 # ---------------------------------------------------------------------------
-# Parity status: declared python_native -> PYTHON_NATIVE
+# Parity status: python_native mode -> VERIFIED
 # ---------------------------------------------------------------------------
 
 
-def test_status_declared_python_native(semantic_project_factory) -> None:
+def test_status_python_native_mode_is_verified(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
-            "sales/metrics.py": _DECLARED_PYTHON_NATIVE_PY,
+            "sales/metrics.py": _PYTHON_NATIVE_PY,
         }
     )
     status = propagated_parity_status(project, "sales.total_amount")
-    assert status == ParityStatus.PYTHON_NATIVE
+    assert status == ParityStatus.VERIFIED
 
 
 # ---------------------------------------------------------------------------
-# Parity status: declared unverified -> UNVERIFIED
+# Parity status: python_native without source_sql -> VERIFIED
 # ---------------------------------------------------------------------------
 
 
-def test_status_declared_unverified(semantic_project_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_model.py": _MODEL_PY,
-            "sales/metrics.py": _DECLARED_UNVERIFIED_PY,
-        }
-    )
-    status = propagated_parity_status(project, "sales.total_amount")
-    assert status == ParityStatus.UNVERIFIED
-
-
-# ---------------------------------------------------------------------------
-# Parity status: no source_sql -> UNVERIFIED
-# ---------------------------------------------------------------------------
-
-
-def test_status_no_source_sql(semantic_project_factory) -> None:
+def test_status_python_native_without_source_sql(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
@@ -422,7 +497,7 @@ def test_status_no_source_sql(semantic_project_factory) -> None:
         }
     )
     status = propagated_parity_status(project, "sales.total_amount")
-    assert status == ParityStatus.UNVERIFIED
+    assert status == ParityStatus.VERIFIED
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +578,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
             datasets=[orders],
             additivity="additive",
             decomposition=ms.sum(),
+            verification_mode="sql_parity",
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="duckdb",
         )
@@ -513,6 +589,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
             datasets=[orders],
             additivity="additive",
             decomposition=ms.sum(),
+            verification_mode="sql_parity",
             source_sql="SELECT 999.0 AS cost",
             source_dialect="duckdb",
         )
@@ -558,14 +635,14 @@ def test_derived_propagation_one_unverified(semantic_project_factory, backend_fa
 
 
 # ---------------------------------------------------------------------------
-# Derived propagation: mix of verified + python_native -> PYTHON_NATIVE
+# Derived propagation: mix of verified SQL parity + python_native -> VERIFIED
 # ---------------------------------------------------------------------------
 
 
 def test_derived_propagation_verified_and_python_native(
     semantic_project_factory, backend_factory
 ) -> None:
-    """When one component is verified and another is python_native, derived is PYTHON_NATIVE."""
+    """When one component is SQL-verified and another is python_native, derived is VERIFIED."""
     mixed_py = textwrap.dedent("""\
         import marivo.semantic as ms
         orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
@@ -574,6 +651,7 @@ def test_derived_propagation_verified_and_python_native(
             datasets=[orders],
             additivity="additive",
             decomposition=ms.sum(),
+            verification_mode="sql_parity",
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="duckdb",
         )
@@ -584,7 +662,7 @@ def test_derived_propagation_verified_and_python_native(
             datasets=[orders],
             additivity="additive",
             decomposition=ms.sum(),
-            declared_status="python_native",
+            verification_mode="python_native",
         )
         def cost(table):
             return table.amount.sum()
@@ -603,7 +681,7 @@ def test_derived_propagation_verified_and_python_native(
     project.parity_check("sales.revenue", backend_factory=backend_factory)
 
     status = propagated_parity_status(project, "sales.margin")
-    assert status == ParityStatus.PYTHON_NATIVE
+    assert status == ParityStatus.VERIFIED
 
 
 # ---------------------------------------------------------------------------

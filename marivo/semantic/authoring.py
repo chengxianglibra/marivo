@@ -172,14 +172,14 @@ def _build_metric_provenance(
     source_dialect: str | None,
     source_document: str | None,
     source_notes: str | None,
-    declared_status: Literal["python_native", "unverified"] | None,
+    verification_mode: Literal["sql_parity", "python_native"] | None,
 ) -> ProvenanceIR:
     return ProvenanceIR(
         source_sql=source_sql,
         source_dialect=source_dialect,
         source_document=source_document,
         source_notes=source_notes,
-        declared_status=declared_status,
+        verification_mode=verification_mode,
     )
 
 
@@ -579,7 +579,7 @@ def metric(
     source_dialect: str | None = None,
     source_document: str | None = None,
     source_notes: str | None = None,
-    declared_status: Literal["python_native", "unverified"] | None = None,
+    verification_mode: Literal["sql_parity", "python_native"] | None = None,
     model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -598,8 +598,9 @@ def metric(
         source_dialect: SQL dialect tag for ``source_sql``.
         source_document: External doc reference for the metric.
         source_notes: Free-form provenance notes.
-        declared_status: ``"python_native"`` or ``"unverified"``. Defaults to
-            ``None``, which means the metric is unverified until parity succeeds.
+        verification_mode: ``"sql_parity"`` or ``"python_native"``. Required
+            for loaded base metrics; ``"sql_parity"`` requires ``source_sql`` and
+            ``source_dialect``.
         model_name: Override the active model namespace.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
@@ -647,7 +648,7 @@ def metric(
             source_dialect=source_dialect,
             source_document=source_document,
             source_notes=source_notes,
-            declared_status=declared_status,
+            verification_mode=verification_mode,
         )
 
         root_ref = _resolve_ref_string(root_dataset) if root_dataset is not None else None
@@ -689,7 +690,7 @@ def derived_metric(
     source_dialect: str | None = None,
     source_document: str | None = None,
     source_notes: str | None = None,
-    declared_status: Literal["python_native", "unverified"] | None = None,
+    verification_mode: Literal["sql_parity", "python_native"] | None = None,
     model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -728,7 +729,7 @@ def derived_metric(
         source_dialect=source_dialect,
         source_document=source_document,
         source_notes=source_notes,
-        declared_status=declared_status,
+        verification_mode=verification_mode,
     )
 
     ir = MetricIR(

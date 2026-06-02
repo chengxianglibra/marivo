@@ -47,6 +47,7 @@ __all__ = [
     "TableSourceIR",
     "TimeFieldRef",
     "ValidityVersioningIR",
+    "VerificationMode",
     "_BaseRef",
     "source_from_dict",
     "source_label",
@@ -78,9 +79,15 @@ class ParityStatus(StrEnum):
     """Parity verification status for metrics."""
 
     VERIFIED = "verified"
-    PYTHON_NATIVE = "python_native"
     UNVERIFIED = "unverified"
     DRIFTED = "drifted"
+
+
+class VerificationMode(StrEnum):
+    """Author-declared metric verification mode."""
+
+    SQL_PARITY = "sql_parity"
+    PYTHON_NATIVE = "python_native"
 
 
 class MetricAdditivity(StrEnum):
@@ -231,13 +238,13 @@ def source_label(source: DatasetSourceIR) -> str:
 
 @dataclass(frozen=True)
 class ProvenanceIR:
-    """Source provenance and parity status for expression-bearing objects."""
+    """Source provenance and verification mode for expression-bearing objects."""
 
     source_sql: str | None = None
     source_dialect: str | None = None
     source_document: str | None = None
     source_notes: str | None = None
-    declared_status: Literal["python_native", "unverified"] | None = None
+    verification_mode: Literal["sql_parity", "python_native"] | None = None
 
 
 @dataclass(frozen=True)

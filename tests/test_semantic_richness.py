@@ -101,7 +101,7 @@ _FACT_NO_METRIC = (
 
 _FACT_WITH_METRIC = _FACT_NO_METRIC + (
     "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(),\n"
-    "    declared_status='python_native')\n"
+    "    verification_mode='python_native')\n"
     "def revenue(table):\n    return table.amount.sum()\n"
 )
 

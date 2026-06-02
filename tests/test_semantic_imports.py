@@ -43,6 +43,7 @@ from marivo.semantic.ir import (
     SourceLocation,
     SymbolKind,
     TimeFieldRef,
+    VerificationMode,
 )
 
 # ---------------------------------------------------------------------------
@@ -412,6 +413,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "missing_metric_additivity",
     "missing_metric_root_dataset",
     "invalid_metric_root_dataset",
+    "invalid_verification_mode",
     "invalid_dataset_versioning",
     "non_root_metric_aggregate",
     "invalid_metric_fanout_policy",
@@ -508,8 +510,14 @@ def test_symbol_kind_values() -> None:
 
 
 def test_parity_status_values() -> None:
-    expected = {"verified", "python_native", "unverified", "drifted"}
+    expected = {"verified", "unverified", "drifted"}
     actual = {k.value for k in ParityStatus}
+    assert actual == expected
+
+
+def test_verification_mode_values() -> None:
+    expected = {"sql_parity", "python_native"}
+    actual = {k.value for k in VerificationMode}
     assert actual == expected
 
 

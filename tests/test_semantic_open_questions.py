@@ -17,7 +17,7 @@ orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders
 def region(orders):
     return orders.region.upper()
 
-@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue')
+@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
     return orders.amount.sum()
 """
