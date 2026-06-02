@@ -204,7 +204,27 @@ def test_raise_helper() -> None:
     assert err.constraint_id == "unique_semantic_name"
 
 
-def test_help_json_top_level_returns_dict_without_printing(capsys) -> None:
+def test_help_text_top_level_is_compact_directory(capsys) -> None:
+    ms.help()
+
+    captured = capsys.readouterr()
+    assert "marivo.semantic" in captured.out
+    # Each line shows: name, kind tag in brackets, description
+    assert "ms.dataset" in captured.out
+    assert "ms.metric" in captured.out
+    assert "ms.constraints" in captured.out
+    # Kind tags appear as [kind] in output
+    assert "[callable]" in captured.out
+    assert "[topic]" in captured.out
+    assert "[class]" in captured.out
+    # No inline constraint dump
+    assert "Constraints:" not in captured.out
+    assert "authoring_constraints" not in captured.out
+    # Drill-down hint present
+    assert "ms.help(" in captured.out
+
+
+def test_help_json_top_level_returns_compact_directory(capsys) -> None:
     result = ms.help(format="json")
 
     captured = capsys.readouterr()
@@ -213,7 +233,22 @@ def test_help_json_top_level_returns_dict_without_printing(capsys) -> None:
     assert result["schema_version"] == "1"
     assert result["surface"] == "marivo.semantic"
     assert "entries" in result
-    assert "authoring_constraints" in result
+    assert "authoring_constraints" not in result
+    entries = result["entries"]
+    assert isinstance(entries, list)
+    assert len(entries) > 0
+    for entry in entries:
+        assert "name" in entry
+        assert "summary" in entry
+        assert "kind" in entry
+        assert entry["kind"] in {"callable", "class", "module", "topic", "removed"}
+    entry_names = {e["name"] for e in entries}
+    assert "dataset" in entry_names
+    assert "metric" in entry_names
+    assert "constraints" in entry_names
+    assert "decomposition" in entry_names
+    assert "SemanticProject" in entry_names
+    assert "typing" in entry_names
 
 
 def test_help_json_metric_includes_constraints_and_examples(capsys) -> None:
