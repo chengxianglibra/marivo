@@ -516,6 +516,14 @@ class SemanticProject:
         self._warnings = result.warnings
         self._registry = result.registry
         self._sidecar = result.sidecar
+        if self._registry is not None:
+            from marivo.semantic.auto_record import auto_record_authoring_decisions
+
+            auto_record_authoring_decisions(
+                self._registry,
+                self._root,
+                blast_radius_of=self._blast_radius_of,
+            )
         return result
 
     def reload(self) -> LoadResult:

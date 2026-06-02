@@ -648,6 +648,12 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
         }
     )
 
+    # Auto-record creates a decision during load(). Remove it to test
+    # the underlying readiness check for "no decision" state.
+    from marivo.semantic.ledger import LedgerStore
+
+    LedgerStore(project.root_path)._object_path("sales.revenue").unlink(missing_ok=True)
+
     issues = _evidence_ledger_blockers(project)
     refs = {ref for issue in issues for ref in issue.refs}
     assert "sales.revenue" in refs  # metric has no metric_decomposition decision recorded
@@ -705,7 +711,16 @@ def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_proj
     default_report = project.readiness(require_preview=False)
     assert all(b.kind != "unresolved_clarification" for b in default_report.blockers)
 
-    # Flag on: the unaudited metric is fail-closed.
+    # Auto-record creates a decision during load(), so require_evidence_ledger
+    # passes for normally-loaded projects.
+    auto_report = project.readiness(require_preview=False, require_evidence_ledger=True)
+    assert all(b.kind != "unresolved_clarification" for b in auto_report.blockers)
+
+    # Remove the auto-recorded decision to test the "no decision" edge case.
+    from marivo.semantic.ledger import LedgerStore
+
+    LedgerStore(project.root_path)._object_path("sales.revenue").unlink(missing_ok=True)
+
     strict_report = project.readiness(require_preview=False, require_evidence_ledger=True)
     kinds = {b.kind for b in strict_report.blockers}
     assert "unresolved_clarification" in kinds
@@ -795,7 +810,12 @@ def test_readiness_evidence_ledger_accepts_legacy_confirmation_only(
         for ref in issue.refs
     }
     assert "sales.revenue" not in refs
-    assert store.read_object("sales.revenue") is None
+    # Auto-record creates an ObjectEvidence during load(), so the
+    # legacy confirmation test now has both a DecisionRecord and a
+    # ConfirmationRecord — readiness passes via either path.
+    obj = store.read_object("sales.revenue")
+    assert obj is not None
+    assert any(d.decision_kind == "metric_decomposition" for d in obj.decisions)
 
 
 def test_missing_business_definition_predicate():
