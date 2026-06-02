@@ -14,7 +14,6 @@ from marivo.semantic.parity import propagated_parity_status
 
 if TYPE_CHECKING:
     from marivo.analysis.datasources.metadata import TableMetadata
-    from marivo.semantic.ledger import LedgerStore
     from marivo.semantic.reader import SemanticProject
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
@@ -228,14 +227,6 @@ _REQUIRED_DECISION_BY_KIND = {
 }
 
 
-def _has_legacy_confirmation(store: LedgerStore, semantic_id: str, decision_kind: str) -> bool:
-    model = semantic_id.split(".", 1)[0]
-    return any(
-        record.decision_kind == decision_kind and semantic_id in record.subject_refs
-        for record in store.read_confirmations(model)
-    )
-
-
 def _evidence_ledger_blockers(project: SemanticProject) -> list[ReadinessIssue]:
     """Dangerous-kind authored objects with no backing ledger decision -> blockers.
     Mapping: time_field -> time_field_identity, metric -> metric_decomposition."""
@@ -250,15 +241,14 @@ def _evidence_ledger_blockers(project: SemanticProject) -> list[ReadinessIssue]:
             continue
         obj = store.read_object(semantic_id)
         has_decision = obj is not None and any(d.decision_kind == required for d in obj.decisions)
-        has_confirmation = _has_legacy_confirmation(store, semantic_id, required)
-        if not has_decision and not has_confirmation:
+        if not has_decision:
             issues.append(
                 _issue(
                     "unresolved_clarification",
                     "blocker",
                     (semantic_id,),
                     f"{semantic_id} has no recorded {required} decision; this dangerous decision is unaudited.",
-                    f"Record a {required} decision via the authoring loop (open_questions + answer) before handoff.",
+                    f"Reload after the semantic declaration or record an object-level {required} DecisionRecord before handoff.",
                 )
             )
     return issues

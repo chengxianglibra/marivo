@@ -1,6 +1,8 @@
 # tests/test_semantic_ledger_project.py
 from __future__ import annotations
 
+import pytest
+
 import marivo.semantic as ms
 from marivo.semantic import ledger as lg
 
@@ -116,6 +118,30 @@ def test_answer_appends_confirmation(semantic_project_factory):
     assert confirmations[0].answer == "cents"
     assert confirmations[0].decision_kind == "amount_unit"
     assert confirmations[0].subject_refs == ("sales.revenue",)
+
+
+def test_answer_rejects_none_answer(semantic_project_factory):
+    project = _project(semantic_project_factory)
+    question = ms.OpenQuestion(
+        id="q-amount-unit",
+        subject_refs=("sales.revenue",),
+        decision_kind="amount_unit",
+        gated_by=None,
+        candidates=(),
+        materiality="high",
+        blast_radius=0,
+        agreement_confidence="low",
+        default_if_unanswered=None,
+        severity="blocker",
+        blocker_reason="high_materiality_low_confidence",
+    )
+
+    with pytest.raises(ValueError, match=r"answer must not be None"):
+        project.answer(question, None, evidence_fingerprint="sha256:a")
+
+    store = lg.LedgerStore(project.root_path)
+    assert store.read_confirmations("sales") == ()
+    assert store.read_object("sales.revenue") is None
 
 
 def test_answer_records_user_confirmation_decision(semantic_project_factory):

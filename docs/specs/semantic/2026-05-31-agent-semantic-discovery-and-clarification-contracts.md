@@ -205,7 +205,7 @@ class OpenQuestion:
 @dataclass(frozen=True)
 class DecisionRecord:           # per-object ledger entry
     decision_kind: DecisionKind
-    chosen: object
+    chosen: object              # required; None is invalid
     agreement_confidence: AgreementConfidence
     qualifying_sources: tuple[EvidenceType, ...]
     materiality: Materiality
@@ -311,13 +311,15 @@ def open_questions(
 
 def answer(
     self,
-    question_id: str,
+    question: OpenQuestion,
     answer: object,
     *,
+    evidence_fingerprint: str = "",
     rationale: str | None = None,
 ) -> None:
-    """Records a ConfirmationRecord in the append-only log and updates the affected
-    DecisionRecord. Confirmation evidence is highest authority."""
+    """Records a ConfirmationRecord in the append-only log and writes a minimal
+    object-level DecisionRecord for the question subjects. answer must not be
+    None. Confirmations alone are not a readiness fact source."""
 
 
 def readiness(
@@ -331,7 +333,8 @@ def readiness(
 ) -> "ReadinessReport":
     """Existing gate, extended. Reuses the open_questions engine and lifts
     unresolved high-materiality questions into unresolved_clarification blockers.
-    Fail-closed on dangerous decisions lacking a ledger record."""
+    Fail-closed on dangerous decisions lacking an object-level DecisionRecord.
+    ConfirmationRecord entries are audit logs, not readiness fallbacks."""
 
 
 def audit(
@@ -375,9 +378,14 @@ Directory, project-local, committed to git for auditable provenance:
   "decisions": [
     {
       "decision_kind": "metric_decomposition",
-      "chosen": "sum",
+      "chosen": {
+        "kind": "sum",
+        "components": {},
+        "is_derived": false,
+        "additivity": "additive"
+      },
       "agreement_confidence": "high",
-      "qualifying_sources": ["source_sql", "comment"],
+      "qualifying_sources": ["authoring_declaration"],
       "materiality": "high",
       "blast_radius": 7,
       "evidence_fingerprint": "sha256:…",

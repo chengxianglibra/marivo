@@ -434,6 +434,9 @@ class SemanticProject:
 
         from marivo.semantic.ledger import ConfirmationRecord, DecisionRecord, LedgerStore
 
+        if answer is None:
+            raise ValueError("answer must not be None")
+
         decided_at = datetime.now(UTC).isoformat()
         store = LedgerStore(self._root)
         store.append_confirmation(

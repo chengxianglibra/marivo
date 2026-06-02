@@ -769,7 +769,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
     assert "sales.revenue" not in refs
 
 
-def test_readiness_evidence_ledger_accepts_legacy_confirmation_only(
+def test_readiness_evidence_ledger_blocks_confirmation_only(
     semantic_project_factory,
 ) -> None:
     from datetime import UTC, datetime
@@ -802,6 +802,10 @@ def test_readiness_evidence_ledger_accepts_legacy_confirmation_only(
     reloaded = ms.SemanticProject(root=project.root_path)
     reloaded.load()
 
+    # Simulate the new-contract "confirmation-only" state: confirmations are
+    # append-only user logs, but readiness requires object-level decisions.
+    store._object_path("sales.revenue").unlink(missing_ok=True)
+
     report = reloaded.readiness(require_preview=False, require_evidence_ledger=True)
     refs = {
         ref
@@ -809,13 +813,9 @@ def test_readiness_evidence_ledger_accepts_legacy_confirmation_only(
         if issue.kind == "unresolved_clarification"
         for ref in issue.refs
     }
-    assert "sales.revenue" not in refs
-    # Auto-record creates an ObjectEvidence during load(), so the
-    # legacy confirmation test now has both a DecisionRecord and a
-    # ConfirmationRecord — readiness passes via either path.
-    obj = store.read_object("sales.revenue")
-    assert obj is not None
-    assert any(d.decision_kind == "metric_decomposition" for d in obj.decisions)
+    assert "sales.revenue" in refs
+    assert report.status == "blocked"
+    assert store.read_object("sales.revenue") is None
 
 
 def test_missing_business_definition_predicate():

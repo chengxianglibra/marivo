@@ -33,6 +33,8 @@ class DecisionRecord:
     cited_columns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.chosen is None:
+            raise ValueError("DecisionRecord.chosen must not be None")
         _validate_blast_radius(self.blast_radius)
 
     def to_dict(self) -> dict[str, object]:

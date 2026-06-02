@@ -80,6 +80,12 @@ internal fields. Use `project.answer(...)` for user confirmations, or build a
 `DecisionRecord` from a real `OpenQuestion`, evidence fingerprint, cited table,
 and qualifying sources.
 
+Do not use `project.answer(...)` for readiness-only blockers that have no
+`OpenQuestion`, and do not write `DecisionRecord(chosen=None, ...)`. If a
+declared metric or time field lacks a readiness decision, reload after the
+declaration so Marivo auto-records it, or record a complete object-level
+`DecisionRecord`.
+
 ## Analysis handoff before readiness
 
 Do not hand refs to `marivo-analysis` until readiness has no blockers for those
