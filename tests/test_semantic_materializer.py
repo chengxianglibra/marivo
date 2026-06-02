@@ -205,7 +205,7 @@ def test_field_materialize(semantic_project_factory, backend_factory) -> None:
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
-    field_expr = project.materialize_field("sales.amount", backend_factory=backend_factory)
+    field_expr = project.materialize_field("sales.orders.amount", backend_factory=backend_factory)
     # ibis Value is the base of column expressions
     assert field_expr is not None
 

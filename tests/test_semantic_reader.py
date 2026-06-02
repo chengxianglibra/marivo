@@ -38,7 +38,9 @@ from marivo.semantic.reader import (
     MetricSummary,
     ModelSummary,
     SearchHit,
+    SemanticProject,
 )
+from marivo.semantic.validator import Registry
 
 # ---------------------------------------------------------------------------
 # Model file templates
@@ -398,7 +400,7 @@ def test_get_field(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    f = project.get_field("sales.amount")
+    f = project.get_field("sales.orders.amount")
     assert f is not None
     assert f.name == "amount"
     assert isinstance(f, FieldIR)
@@ -559,7 +561,7 @@ def test_dependencies_metric(semantic_project_factory) -> None:
     # Dataset should have field children
     orders_node = next(c for c in root.children if c.semantic_id == "sales.orders")
     field_ids = [fc.semantic_id for fc in orders_node.children]
-    assert "sales.amount" in field_ids
+    assert "sales.orders.amount" in field_ids
 
 
 def test_dependencies_dataset(semantic_project_factory) -> None:
@@ -574,9 +576,9 @@ def test_dependencies_dataset(semantic_project_factory) -> None:
     assert root.kind == SymbolKind.DATASET
     # Should include fields belonging to this dataset
     child_ids = [c.semantic_id for c in root.children]
-    assert "sales.amount" in child_ids
-    assert "sales.region" in child_ids
-    assert "sales.created_at" in child_ids
+    assert "sales.orders.amount" in child_ids
+    assert "sales.orders.region" in child_ids
+    assert "sales.orders.created_at" in child_ids
 
 
 def test_dependencies_field(semantic_project_factory) -> None:
@@ -586,8 +588,8 @@ def test_dependencies_field(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    root = project.dependencies("sales.amount")
-    assert root.semantic_id == "sales.amount"
+    root = project.dependencies("sales.orders.amount")
+    assert root.semantic_id == "sales.orders.amount"
     assert root.kind == SymbolKind.FIELD
     assert root.children == ()
 
@@ -599,8 +601,8 @@ def test_dependencies_time_field(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    root = project.dependencies("sales.created_at")
-    assert root.semantic_id == "sales.created_at"
+    root = project.dependencies("sales.orders.created_at")
+    assert root.semantic_id == "sales.orders.created_at"
     assert root.kind == SymbolKind.TIME_FIELD
 
 
@@ -656,7 +658,7 @@ def test_dependents_dataset(semantic_project_factory) -> None:
     assert "sales.total_revenue" in child_ids
     assert "sales.order_count" in child_ids
     # Fields belonging to this dataset
-    assert "sales.amount" in child_ids
+    assert "sales.orders.amount" in child_ids
 
 
 def test_dependents_metric(semantic_project_factory) -> None:
@@ -681,8 +683,8 @@ def test_dependents_field(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    root = project.dependents("sales.amount")
-    assert root.semantic_id == "sales.amount"
+    root = project.dependents("sales.orders.amount")
+    assert root.semantic_id == "sales.orders.amount"
     assert root.kind == SymbolKind.FIELD
     child_ids = [c.semantic_id for c in root.children]
     # Field's parent dataset
@@ -830,7 +832,7 @@ def test_describe_field_has_granularity_none(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    desc = project.describe("sales.amount")
+    desc = project.describe("sales.orders.amount")
     assert isinstance(desc, Description)
     assert desc.kind == SymbolKind.FIELD
     assert desc.granularity is None  # Not a time field
@@ -843,7 +845,7 @@ def test_describe_time_field_has_granularity(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    desc = project.describe("sales.created_at")
+    desc = project.describe("sales.orders.created_at")
     assert isinstance(desc, Description)
     assert desc.kind == SymbolKind.TIME_FIELD
     assert desc.granularity == "day"
@@ -868,10 +870,119 @@ def test_describe_time_field_has_format(semantic_project_factory) -> None:
             """),
         }
     )
-    desc = project.describe("sales.log_date")
+    desc = project.describe("sales.orders.log_date")
     assert isinstance(desc, Description)
     assert desc.kind == SymbolKind.TIME_FIELD
     assert desc.format == "yyyymmdd"
+
+
+def _make_ambiguous_registry() -> Registry:
+    """Build a Registry where a dataset and metric share the same semantic_id.
+
+    The validator normally prevents this, but _find_ir must still be safe.
+    """
+    from marivo.semantic.ir import (
+        AiContextIR,
+        DatasetIR,
+        DecompositionIR,
+        MetricIR,
+        ProvenanceIR,
+        SourceLocation,
+        TableSourceIR,
+    )
+
+    shared_id = "sales.dau_7d_portrait"
+    ds = DatasetIR(
+        semantic_id=shared_id,
+        model="sales",
+        name="dau_7d_portrait",
+        datasource="warehouse",
+        source=TableSourceIR(table="dau_7d_portrait"),
+        primary_key=(),
+        description=None,
+        ai_context=AiContextIR(),
+        python_symbol="dau_portrait",
+        location=SourceLocation(file="test.py", line=1),
+    )
+    metric = MetricIR(
+        semantic_id=shared_id,
+        model="sales",
+        name="dau_7d_portrait",
+        datasets=(shared_id,),
+        is_derived=False,
+        decomposition=DecompositionIR(kind="sum"),
+        provenance=ProvenanceIR(),
+        description=None,
+        ai_context=AiContextIR(),
+        body_ast_hash="",
+        python_symbol="dau_7d_portrait_metric",
+        location=SourceLocation(file="test.py", line=2),
+        additivity="additive",
+    )
+    reg = Registry()
+    reg.datasets[shared_id] = ds
+    reg.metrics[shared_id] = metric
+    return reg
+
+
+def test_find_ir_ambiguous_name_raises() -> None:
+    """When a name matches multiple kinds in the registry, _find_ir raises AMBIGUOUS_REFERENCE."""
+    from marivo.semantic.errors import SemanticRuntimeError
+
+    reg = _make_ambiguous_registry()
+    shared_id = "sales.dau_7d_portrait"
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        SemanticProject._find_ir(shared_id, reg)
+
+    assert exc_info.value.kind == "ambiguous_reference"
+    assert "candidates" in exc_info.value.details
+    candidates = exc_info.value.details["candidates"]
+    assert len(candidates) == 2
+    kind_strs = {c[0] for c in candidates}
+    assert "dataset" in kind_strs
+    assert "metric" in kind_strs
+
+
+def test_find_ir_with_kind_returns_single_match() -> None:
+    """When kind is specified, _find_ir only searches the matching collection."""
+    from marivo.semantic.ir import DatasetIR, MetricIR, SymbolKind
+
+    reg = _make_ambiguous_registry()
+    shared_id = "sales.dau_7d_portrait"
+
+    ds_result = SemanticProject._find_ir(shared_id, reg, kind=SymbolKind.DATASET)
+    assert isinstance(ds_result, DatasetIR)
+
+    metric_result = SemanticProject._find_ir(shared_id, reg, kind=SymbolKind.METRIC)
+    assert isinstance(metric_result, MetricIR)
+
+    # kind that has no match returns None
+    none_result = SemanticProject._find_ir(shared_id, reg, kind=SymbolKind.FIELD)
+    assert none_result is None
+
+
+def test_describe_with_kind_param(semantic_project_factory) -> None:
+    """Passing kind= to describe narrows the search to the specified collection."""
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    # describe with kind=METRIC should find the metric
+    desc = project.describe("sales.total_revenue", kind=SymbolKind.METRIC)
+    assert desc.kind == SymbolKind.METRIC
+
+    # describe with kind=DATASET should find the dataset
+    desc = project.describe("sales.orders", kind=SymbolKind.DATASET)
+    assert desc.kind == SymbolKind.DATASET
+
+    # describe with kind that doesn't match should raise METRIC_NOT_FOUND
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        project.describe("sales.total_revenue", kind=SymbolKind.DATASET)
+    assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
@@ -991,10 +1102,10 @@ def test_preview_field_returns_values_with_context(
         }
     )
 
-    preview = project.preview_field("sales.amount", backend_factory=backend_factory, limit=2)
+    preview = project.preview_field("sales.orders.amount", backend_factory=backend_factory, limit=2)
 
     assert preview.kind == "semantic_field"
-    assert preview.ref == "sales.amount"
+    assert preview.ref == "sales.orders.amount"
     assert preview.columns[-1] == "amount"
     assert preview.rows[0]["amount"] == 100.0
     assert len(preview.columns) >= 2

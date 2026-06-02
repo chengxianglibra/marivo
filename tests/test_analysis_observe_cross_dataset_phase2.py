@@ -111,7 +111,7 @@ def test_snapshot_as_of_root_time_picks_per_row_partition(tmp_path):
     frame = observe(
         MetricRef("sales.revenue_by_profile"),
         timescope={"start": "2026-07-01", "end": "2026-07-06"},
-        dimensions=[DimensionRef("sales.tier")],
+        dimensions=[DimensionRef("sales.user_profile_daily.tier")],
         session=_session(con),
     )
 
@@ -135,7 +135,7 @@ def test_snapshot_as_of_root_time_partition_missing(tmp_path):
         observe(
             MetricRef("sales.revenue_by_profile"),
             timescope={"start": "2026-07-01", "end": "2026-07-06"},
-            dimensions=[DimensionRef("sales.tier")],
+            dimensions=[DimensionRef("sales.user_profile_daily.tier")],
             session=_session(con),
         )
 
@@ -235,7 +235,7 @@ def test_snapshot_latest_when_root_has_no_time_field(tmp_path, monkeypatch):
 
     frame = observe(
         MetricRef("sales.revenue_by_profile"),
-        dimensions=[DimensionRef("sales.tier")],
+        dimensions=[DimensionRef("sales.user_profile_daily.tier")],
         session=_session(con),
     )
 
@@ -281,7 +281,7 @@ def _bootstrap_validity(tmp_path, *, root_with_time: bool):
         "    datasource='warehouse',\n"
         "    source=ms.table('user_history'),\n"
         "    primary_key=['user_id', 'valid_from'],\n"
-        "    versioning=ms.validity(valid_from='sales.valid_from', valid_to='sales.valid_to', interval='closed_open', open_end=(None,)),\n"
+        "    versioning=ms.validity(valid_from='sales.user_history.valid_from', valid_to='sales.user_history.valid_to', interval='closed_open', open_end=(None,)),\n"
         ")\n" + time_field + "@ms.field(dataset=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
@@ -347,7 +347,7 @@ def test_validity_latest_uses_open_end_predicate(tmp_path):
     _seed_validity(con)
     frame = observe(
         MetricRef("sales.revenue_by_tier"),
-        dimensions=[DimensionRef("sales.tier")],
+        dimensions=[DimensionRef("sales.user_history.tier")],
         session=_session(con),
     )
 
@@ -365,7 +365,7 @@ def test_validity_as_of_root_time_closed_open_boundary(tmp_path):
     frame = observe(
         MetricRef("sales.revenue_by_tier"),
         timescope={"start": "2026-07-01", "end": "2026-07-06"},
-        dimensions=[DimensionRef("sales.tier")],
+        dimensions=[DimensionRef("sales.user_history.tier")],
         session=_session(con),
     )
 
@@ -406,7 +406,7 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
         "    datasource='warehouse',\n"
         "    source=ms.table('user_history'),\n"
         "    primary_key=['user_id', 'valid_from'],\n"
-        "    versioning=ms.validity(valid_from='sales.valid_from', valid_to='sales.valid_to', interval='closed_closed', open_end=(None,)),\n"
+        "    versioning=ms.validity(valid_from='sales.user_history.valid_from', valid_to='sales.user_history.valid_to', interval='closed_closed', open_end=(None,)),\n"
         ")\n"
         "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
@@ -464,7 +464,7 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
     frame = observe(
         MetricRef("sales.revenue_by_tier"),
         timescope={"start": "2026-07-01", "end": "2026-07-06"},
-        dimensions=[DimensionRef("sales.tier")],
+        dimensions=[DimensionRef("sales.user_history.tier")],
         session=_session(con),
     )
 
@@ -543,7 +543,7 @@ def test_derived_ratio_multi_dataset_components_with_country_dimension(tmp_path)
     _seed_derived_ratio(con)
     frame = observe(
         MetricRef("sales.gmv_per_session"),
-        dimensions=[DimensionRef("sales.country")],
+        dimensions=[DimensionRef("sales.users.country")],
         session=_session(con),
     )
 
@@ -608,7 +608,7 @@ def test_component_axis_unreachable_raises(tmp_path):
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
             MetricRef("sales.gmv_per_session"),
-            dimensions=[DimensionRef("sales.country")],
+            dimensions=[DimensionRef("sales.users.country")],
             session=_session(con),
         )
 
@@ -715,7 +715,7 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
         observe(
             MetricRef("sales.gmv_per_session"),
             timescope={"start": "2026-07-01", "end": "2026-07-05"},
-            dimensions=[DimensionRef("sales.tier")],
+            dimensions=[DimensionRef("sales.user_profile_daily.tier")],
             session=_session(con),
         )
 

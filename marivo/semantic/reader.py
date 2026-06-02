@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import ibis
 import ibis.expr.types as ir
@@ -25,6 +25,7 @@ from marivo.preview import (
     preview_ibis_value,
     validate_preview_limit,
 )
+from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
@@ -1266,6 +1267,7 @@ class SemanticProject:
         self,
         name: str,
         *,
+        kind: SymbolKind | None = None,
         compile_sql: bool = False,
         format: Literal["object", "text"] = "object",
         backend_factory: Callable[..., Any] | None = None,
@@ -1278,9 +1280,13 @@ class SemanticProject:
 
         When ``format="text"``, returns ``Description`` whose
         ``to_text()`` method can be called for a human-readable string.
+
+        When ``kind`` is given, the search is narrowed to the matching
+        collection (e.g., ``kind=SymbolKind.METRIC``).  This resolves
+        ambiguity when a name appears in multiple kind-scoped dicts.
         """
         reg = _require_registry(self._registry, project=self)
-        obj = self._find_ir(name, reg)
+        obj = self._find_ir(name, reg, kind=kind)
         if obj is None:
             _raise(
                 ErrorKind.METRIC_NOT_FOUND,
@@ -1324,7 +1330,7 @@ class SemanticProject:
             kind=kind,
             model=obj.model if hasattr(obj, "model") else "",
             name=obj.name,
-            python_symbol=obj.python_symbol,
+            python_symbol=getattr(obj, "python_symbol", ""),
             description=obj.description,
             business_definition=obj.ai_context.business_definition,
             guardrails=obj.ai_context.guardrails,
@@ -1351,7 +1357,7 @@ class SemanticProject:
     def _compute_dependency_ids(
         self,
         name: str,
-        obj: DatasetIR | DatasourceIR | FieldIR | MetricIR,
+        obj: DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR,
         reg: Registry,
     ) -> list[str]:
         """Compute flat list of dependency semantic_ids."""
@@ -1372,7 +1378,7 @@ class SemanticProject:
     def _compute_dependent_ids(
         self,
         name: str,
-        obj: DatasetIR | DatasourceIR | FieldIR | MetricIR,
+        obj: DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR,
         reg: Registry,
     ) -> list[str]:
         """Compute flat list of dependent semantic_ids."""
@@ -1777,20 +1783,70 @@ class SemanticProject:
     # -- internal helpers ---------------------------------------------------
 
     @staticmethod
-    def _find_ir(name: str, reg: Registry) -> DatasetIR | DatasourceIR | FieldIR | MetricIR | None:
-        """Look up an IR object by semantic_id across all collections."""
-        if name in reg.datasources:
-            return reg.datasources[name]
-        if name in reg.datasets:
-            return reg.datasets[name]
-        if name in reg.fields:
-            return reg.fields[name]
-        if name in reg.metrics:
-            return reg.metrics[name]
-        return None
+    def _find_ir(
+        name: str,
+        reg: Registry,
+        kind: SymbolKind | None = None,
+    ) -> DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR | None:
+        """Look up an IR object by semantic_id.
+
+        When kind is given, search only the matching collection.
+        When kind is None, search all collections. If exactly one match is
+        found, return it. If zero matches, return None. If multiple matches
+        across different kinds, raise AMBIGUOUS_REFERENCE.
+        """
+        if kind is not None:
+            collection_map: dict[SymbolKind, dict[str, Any]] = {
+                SymbolKind.DATASOURCE: reg.datasources,
+                SymbolKind.DATASET: reg.datasets,
+                SymbolKind.FIELD: reg.fields,
+                SymbolKind.TIME_FIELD: reg.fields,
+                SymbolKind.METRIC: reg.metrics,
+                SymbolKind.RELATIONSHIP: reg.relationships,
+            }
+            collection = collection_map.get(kind)
+            if collection is not None and name in collection:
+                return cast(
+                    "DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR",
+                    collection[name],
+                )
+            return None
+        # kind=None: collect matches across all collections
+        matches: list[tuple[SymbolKind, Any]] = []
+        search_order: list[tuple[SymbolKind, dict[str, Any]]] = [
+            (SymbolKind.DATASOURCE, reg.datasources),
+            (SymbolKind.DATASET, reg.datasets),
+            (SymbolKind.FIELD, reg.fields),
+            (SymbolKind.METRIC, reg.metrics),
+            (SymbolKind.RELATIONSHIP, reg.relationships),
+        ]
+        for sym_kind, collection in search_order:
+            if name in collection:
+                obj = collection[name]
+                actual_kind = (
+                    SymbolKind.TIME_FIELD
+                    if isinstance(obj, FieldIR) and obj.is_time_field
+                    else sym_kind
+                )
+                matches.append((actual_kind, obj))
+        if len(matches) == 0:
+            return None
+        if len(matches) == 1:
+            return cast(
+                "DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR", matches[0][1]
+            )
+        candidates = [(mk, obj.semantic_id) for mk, obj in matches]
+        _raise(
+            ErrorKind.AMBIGUOUS_REFERENCE,
+            f"Name {name!r} matches multiple object kinds.",
+            cls=SemanticRuntimeError,
+            refs=(name,),
+            details={"candidates": [(str(mk), sid) for mk, sid in candidates]},
+            constraint_id=ConstraintId.AMBIGUOUS_REFERENCE,
+        )
 
     @staticmethod
-    def _ir_kind(obj: DatasetIR | DatasourceIR | FieldIR | MetricIR) -> SymbolKind:
+    def _ir_kind(obj: DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR) -> SymbolKind:
         """Return the SymbolKind for an IR object."""
         if isinstance(obj, DatasourceIR):
             return SymbolKind.DATASOURCE
@@ -1800,4 +1856,6 @@ class SemanticProject:
             return SymbolKind.TIME_FIELD if obj.is_time_field else SymbolKind.FIELD
         if isinstance(obj, MetricIR):
             return SymbolKind.METRIC
+        if isinstance(obj, RelationshipIR):
+            return SymbolKind.RELATIONSHIP
         return SymbolKind.MODEL  # fallback, should not happen

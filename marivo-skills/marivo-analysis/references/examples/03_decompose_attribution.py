@@ -79,13 +79,13 @@ ratio_cur_panel = session.observe(
     mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-09-30"},
     grain="month",
-    dimensions=[mv.DimensionRef(id="sales.region")],
+    dimensions=[mv.DimensionRef(id="sales.orders.region")],
 )
 ratio_base_panel = session.observe(
     mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
     timescope={"start": "2025-07-01", "end": "2025-09-30"},
     grain="month",
-    dimensions=[mv.DimensionRef(id="sales.region")],
+    dimensions=[mv.DimensionRef(id="sales.orders.region")],
 )
 ratio_panel_delta = session.compare(
     ratio_cur_panel,
@@ -94,6 +94,6 @@ ratio_panel_delta = session.compare(
 )
 ratio_panel_attr = session.decompose(
     ratio_panel_delta,
-    axis=mv.DimensionRef(id="sales.region"),
+    axis=mv.DimensionRef(id="sales.orders.region"),
 )
 print(ratio_panel_attr.summary())

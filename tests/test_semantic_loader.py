@@ -756,8 +756,8 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
             name="orders_to_items",
             from_dataset="sales.orders",
             to_dataset="sales.items",
-            from_fields=["sales.order_id"],
-            to_fields=["sales.item_order_id"],
+            from_fields=["sales.orders.order_id"],
+            to_fields=["sales.items.item_order_id"],
         )
     """)
     project = semantic_project_factory(
@@ -775,8 +775,8 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     rel = reg.relationships["sales.orders_to_items"]
     assert rel.from_dataset == "sales.orders"
     assert rel.to_dataset == "sales.items"
-    assert rel.from_fields == ("sales.order_id",)
-    assert rel.to_fields == ("sales.item_order_id",)
+    assert rel.from_fields == ("sales.orders.order_id",)
+    assert rel.to_fields == ("sales.items.item_order_id",)
 
 
 def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) -> None:
@@ -846,7 +846,7 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
     assert project.is_ready()
     sidecar = project.sidecar()
     assert sidecar is not None
-    assert "sales.amount" in sidecar
+    assert "sales.orders.amount" in sidecar
 
 
 def test_field_ref_callable_after_load(semantic_project_factory) -> None:
@@ -888,7 +888,7 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     table = project.materialize_dataset("sales.orders", backend_factory=factory)
 
     # Materialize the field
-    field_expr = project.materialize_field("sales.region", backend_factory=factory)
+    field_expr = project.materialize_field("sales.orders.region", backend_factory=factory)
     assert field_expr is not None
 
 

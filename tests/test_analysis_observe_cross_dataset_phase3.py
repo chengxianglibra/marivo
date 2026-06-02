@@ -101,7 +101,7 @@ def test_segmented_observe_aggregate_then_join(tmp_path):
 
     frame = observe(
         MetricRef("sales.gmv_by_category"),
-        dimensions=[DimensionRef("sales.category")],
+        dimensions=[DimensionRef("sales.order_items.category")],
         session=_session(con),
     )
     df = frame.to_pandas().set_index("category")
@@ -121,7 +121,7 @@ def test_panel_observe_aggregate_then_join(tmp_path):
         MetricRef("sales.gmv_by_category"),
         timescope={"start": "2026-07-01", "end": "2026-07-05"},
         grain="day",
-        dimensions=[DimensionRef("sales.category")],
+        dimensions=[DimensionRef("sales.order_items.category")],
         session=_session(con),
     )
     df = frame.to_pandas()

@@ -53,7 +53,7 @@ import marivo.analysis as mv
 backend_factory = lambda name: mv.datasources.build_backend(name)
 
 project.preview_dataset("sales.orders", backend_factory=backend_factory, limit=20)
-project.preview_field("sales.order_date", backend_factory=backend_factory, limit=20)
+project.preview_field("sales.orders.order_date", backend_factory=backend_factory, limit=20)
 project.preview_metric("sales.revenue", backend_factory=backend_factory, limit=20)
 ```
 

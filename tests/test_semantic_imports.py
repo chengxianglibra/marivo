@@ -425,6 +425,7 @@ _EXPECTED_RUNTIME_KINDS = {
     "materialize_failed",
     "backend_mismatch",
     "compile_error",
+    "ambiguous_reference",
     "cross_datasource_not_supported",
 }
 
