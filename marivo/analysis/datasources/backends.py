@@ -169,7 +169,6 @@ def _build_clickhouse(name: str, kwargs: Mapping[str, Any]) -> Any:
     connect_kwargs: dict[str, Any] = dict(kwargs)
     connect_kwargs["host"] = host
     connect_kwargs["database"] = kwargs.get("database", "default")
-    connect_kwargs["user"] = kwargs.get("user", "default")
     if "secure" in kwargs:
         connect_kwargs["secure"] = bool(kwargs["secure"])
     if "settings" in kwargs and isinstance(kwargs["settings"], dict):
