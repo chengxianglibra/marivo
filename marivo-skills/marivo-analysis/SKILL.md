@@ -127,6 +127,13 @@ Use Surface 3 audit calls only when you need raw evidence objects:
 `session.assess_quality(result)` is an explicit auditable operator that creates a
 `QualityReport` and participates in lineage.
 
+## Final analysis report
+
+For any non-trivial close-out, read `references/final-report.md` before the
+final user response. Do not end with only `frame.summary()`, `frame.head(n)`, or
+raw tables. Synthesize the answer, scope, evidence, caveats, source details, and
+recommended next steps into a clear Markdown report.
+
 ## Decision tree
 
 ```text
@@ -308,6 +315,7 @@ for followup in delta.meta.recommended_followups:
 ## Further reading
 
 - `references/examples/*.py` — runnable templates (primary reference)
+- `references/final-report.md` — final user-facing report structure and QA
 - `references/cheatsheet.md` — intent/frame/discover/transform matrices
 - `references/pitfalls.md` — error recovery and common mistakes
 - `references/backend-setup.md` — datasource and backend wiring
