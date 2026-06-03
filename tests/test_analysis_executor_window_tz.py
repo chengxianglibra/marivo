@@ -39,6 +39,14 @@ class FakeDataset:
     fields: dict[str, FakeField]
 
 
+class FakeTypedExpr:
+    def __init__(self, dtype: object) -> None:
+        self._dtype = dtype
+
+    def type(self) -> object:
+        return self._dtype
+
+
 def _dataset_ir_for(*, field_name: str, column: str, time_meta: FakeMeta) -> FakeDataset:
     field = FakeField(name=field_name, column=column, time_meta=time_meta)
     return FakeDataset(name="events", fields={field_name: field})
@@ -350,6 +358,12 @@ def test_validate_time_field_dtype_date_declared_date_ok():
     _validate_time_field_dtype(table.dt, FakeMeta("date"))
 
 
+def test_validate_time_field_dtype_non_nullable_date_declared_date_ok():
+    """Non-nullable DateColumn with data_type='date' is compatible."""
+    expr = FakeTypedExpr(ibis.dtype("!date"))
+    _validate_time_field_dtype(expr, FakeMeta("date"))
+
+
 def test_validate_time_field_dtype_timestamp_declared_datetime_ok():
     """TimestampColumn with data_type='datetime' is compatible (ibis uses 'timestamp' for both)."""
     table = ibis.table([("ts", "timestamp")], name="events")
@@ -362,11 +376,25 @@ def test_validate_time_field_dtype_timestamp_declared_timestamp_ok():
     _validate_time_field_dtype(table.ts, FakeMeta("timestamp"))
 
 
+def test_validate_time_field_dtype_non_nullable_timestamp_declared_temporal_ok():
+    """Non-nullable TimestampColumn remains compatible with timestamp declarations."""
+    expr = FakeTypedExpr(ibis.dtype("!timestamp(6)"))
+    _validate_time_field_dtype(expr, FakeMeta("timestamp"))
+    _validate_time_field_dtype(expr, FakeMeta("datetime"))
+
+
 def test_validate_time_field_dtype_timestamp_declared_date_raises():
     """TimestampColumn with data_type='date' is a mismatch."""
     table = ibis.table([("ts", "timestamp")], name="events")
     with pytest.raises(DataTypeMismatchError, match="data_type='date'"):
         _validate_time_field_dtype(table.ts, FakeMeta("date"))
+
+
+def test_validate_time_field_dtype_non_nullable_timestamp_declared_date_raises():
+    """Non-nullable TimestampColumn with data_type='date' remains a mismatch."""
+    expr = FakeTypedExpr(ibis.dtype("!timestamp(6)"))
+    with pytest.raises(DataTypeMismatchError, match="data_type='date'"):
+        _validate_time_field_dtype(expr, FakeMeta("date"))
 
 
 def test_validate_time_field_dtype_none_data_type_skips():
