@@ -86,6 +86,24 @@ def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
     assert "mv.datasources.list()" not in combined
 
 
+def test_semantic_skill_prefers_native_datasource_backends() -> None:
+    skill = _read("marivo-skills/marivo-semantic/SKILL.md")
+    workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
+    datasource = _read("marivo-skills/marivo-semantic/references/datasource.md")
+    pitfalls = _read("marivo-skills/marivo-semantic/references/pitfalls.md")
+
+    combined = "\n".join((skill, workflow, datasource, pitfalls))
+    assert "Choose the native backend first" in datasource
+    assert "can federate to another engine" in datasource
+    assert "Do not route ClickHouse" in workflow
+    assert 'backend_type="clickhouse"' in combined
+    assert 'backend_type="mysql"' in combined
+    assert 'backend_type="duckdb"' in combined
+    assert "Hive or Iceberg lakehouse table" in datasource
+    assert "JSON files" in datasource
+    assert 'ms.file("/data/orders.json", format="json")' not in combined
+
+
 def test_design_spec_marks_remaining_phases_implemented() -> None:
     spec = _read("docs/specs/semantic/agent-semantic-layer-authoring-design.md")
 

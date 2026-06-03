@@ -87,6 +87,15 @@ orders = ms.dataset(
 Use `backend.list_databases(catalog="hive")` to discover schemas and
 `backend.list_tables(database="sales_mart")` to verify table reachability.
 
+## Federated backend chosen by habit
+
+Do not create a Trino datasource just because a Trino catalog could reach the
+table. Pick the native backend named by the source: ClickHouse tables use
+`backend_type="clickhouse"`, MySQL tables use `backend_type="mysql"`, and DuckDB
+files or supported local files use `backend_type="duckdb"`. Use Trino for
+Hive/Iceberg lakehouse tables or when the user explicitly requires Trino
+federation.
+
 ## Multi-file sprawl
 
 Avoid spreading one model change across many small files when a focused dataset,
