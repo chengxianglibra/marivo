@@ -70,13 +70,47 @@ print(candidates.meta.objective)  # "point_anomalies"
 
 ## Escape Hatch
 
+Use escape hatches only after checking the built-in intents. They are for
+session-scoped scratch work when a step needs custom joins, raw table scans,
+feature engineering, bespoke statistics, or library-specific processing that
+Marivo does not model directly.
+
 | Need | Use |
 | --- | --- |
-| Temporary pandas scratch work | `scratch = session.from_pandas(df)` |
-| Temporary Ibis scratch query | `scratch = session.explore_ibis(lambda con: con.table("orders"), datasource="warehouse")` |
-| Re-enter canonical metric flow | `session.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": mv.DimensionRef("country")}, semantic_model="sales")` |
-| Re-enter delta flow | `session.promote_delta_frame(scratch, current=mv.ArtifactRef("frame_current"), baseline=mv.ArtifactRef("frame_baseline"), delta_column="delta", current_column="current", baseline_column="baseline")` |
-| Re-enter attribution flow | `session.promote_attribution_frame(scratch, source_delta=mv.ArtifactRef("frame_delta"), driver_field="country", contribution_column="contribution")` |
+| Raw Ibis query against a registered backend | `scratch = session.explore_ibis(lambda con: con.table("orders"), datasource="warehouse", description="manual scan")` |
+| Export a Marivo frame for mutable local analysis | `df = frame.to_pandas()` |
+| Import pandas or library output into the session | `scratch = session.from_pandas(df, description="feature engineering output")` |
+| Inspect scratch provenance | `scratch.meta.source_kind`, `scratch.meta.source_query`, `scratch.meta.source_datasource` |
+| Re-enter canonical metric flow only when a typed intent needs it | `session.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": mv.DimensionRef("country")}, semantic_model="sales")` |
+| Re-enter delta flow only for typed change analysis | `session.promote_delta_frame(scratch, current=mv.ArtifactRef("frame_current"), baseline=mv.ArtifactRef("frame_baseline"), delta_column="delta", current_column="current", baseline_column="baseline")` |
+| Re-enter attribution flow only for typed driver output | `session.promote_attribution_frame(scratch, source_delta=mv.ArtifactRef("frame_delta"), driver_field="country", contribution_column="contribution")` |
+
+`session.explore_ibis(...)` calls the builder with the session backend
+connection and requires an Ibis expression. It executes immediately and returns
+an `ExplorationResult`, preserving source query and datasource metadata when
+available.
+
+```python
+scratch = session.explore_ibis(
+    lambda con: (
+        con.table("orders")
+        .filter(lambda t: t.country == "US")
+        .aggregate(value=lambda t: t.revenue.sum())
+    ),
+    datasource="warehouse",
+    description="US revenue raw scan",
+)
+print(scratch.meta.source_query)
+```
+
+Pandas output stays local until you import it. Imported scratch frames are
+session artifacts but are not valid inputs to typed intents until promoted.
+
+```python
+df = frame.to_pandas()
+df["share"] = df["value"] / df["value"].sum()
+scratch = session.from_pandas(df, description="share calculation")
+```
 
 ## Discover Objectives
 
