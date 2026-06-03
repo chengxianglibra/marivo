@@ -14,6 +14,37 @@ import marivo.datasource as md
 warehouse = md.ref("warehouse")
 ```
 
+## Secret cache
+
+Marivo resolves `*_env` credentials through a provider chain: **os.environ >
+~/.marivo/secrets.toml > error**. After a successful
+`mv.datasources.test(...)` round-trip, resolved env-sourced secrets are
+auto-persisted to the cache.
+
+Before authoring `*_env` fields on a new `DatasourceSpec`, read the cache to
+discover which env var names already hold values:
+
+```bash
+cat ~/.marivo/secrets.toml
+```
+
+The file is a flat TOML table, one env var name per line:
+
+```toml
+"MYSQL_PASSWORD" = "cached-value"
+"TRINO_PASSWORD" = "cached-value"
+"TRINO_USER" = "cached-user"
+```
+
+Reuse an existing env var name when the same credential type is already cached
+(e.g., use `TRINO_USER` and `TRINO_PASSWORD` for any additional Trino
+datasource). Do not ask the user for a secret the cache already holds; the
+resolution chain will supply it at runtime.
+
+If secrets.toml does not exist or has no relevant entries, ask the user for the
+env var name and value. After `mv.datasources.test(...)` succeeds, the new
+secret is persisted automatically.
+
 ## Choose the native backend first
 
 Default to the Marivo datasource backend that matches the physical source. Do

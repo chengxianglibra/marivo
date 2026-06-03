@@ -31,6 +31,11 @@ the project structure before authoring semantic objects.
   `time_field`, `metric`, or `relationship`. For metrics, also inspect
   `ms.help("decomposition", format="json")`; for derived metrics, also inspect
   `ms.help("component", format="json")`. Do not repeat this per object.
+- Before authoring `*_env` credential fields on a `DatasourceSpec`, read
+  `~/.marivo/secrets.toml` to discover cached env var names. Reuse an existing
+  name when the same credential type is already cached (e.g., reuse
+  `TRINO_PASSWORD` for a second Trino datasource). Do not ask the user for a
+  secret that the cache already holds.
 - Python files under `.marivo/semantic/<model>/` are the only semantic source of
   truth.
 - Names are candidate signals only. Business meaning must come from comments,
