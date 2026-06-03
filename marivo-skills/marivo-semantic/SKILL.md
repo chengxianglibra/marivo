@@ -1,13 +1,12 @@
 ---
 name: marivo-semantic
-description: Use when declaring or modifying a Marivo semantic model: datasource refs, datasets, fields, time fields, metrics, relationships, evidence, readiness, and richness.
+description: Use for any Marivo datasource definition or semantic-layer authoring task: datasource declarations/refs, datasets, fields, time fields, metrics, relationships, evidence, readiness, and analysis handoff.
 ---
 
 # marivo-semantic
 
-Use this skill when building or changing semantic objects under
-`.marivo/semantic/<model>/`: datasets, fields, time fields, metrics, and
-relationships. For analysis on top of an already-ready model, use
+Use this skill when defining project datasources or building reusable semantic
+objects. For metric-centered analysis on an already-ready model, use
 `marivo-analysis`.
 
 ## Runtime Assumptions

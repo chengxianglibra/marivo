@@ -1,12 +1,12 @@
 ---
 name: marivo-analysis
-description: Use when the task involves Marivo analysis — observe, compare, decompose, discover, correlate, test, forecast, quality assessment, or evidence-aware investigation over a Marivo semantic model.
+description: Use for any Marivo metric-centered analysis task: observe, compare, decompose, discover, correlate, test, forecast, quality assessment, evidence-aware investigation, or continuing an analysis session over semantic metrics.
 ---
 
 # marivo-analysis
 
-Use this skill when writing or running Python code against `marivo.analysis`
-(imported as `mv`).
+Use this skill when writing or running metric-centered workflows with
+`marivo.analysis` (imported as `mv`).
 
 Use `marivo-semantic` instead when the task is authoring semantic models.
 
