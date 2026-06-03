@@ -22,11 +22,22 @@ def test_current_returns_none_when_no_active_session() -> None:
     assert mv.session.current() is None
 
 
-def test_current_returns_summary_after_create() -> None:
+def test_current_returns_session_after_create() -> None:
     mv.session.get_or_create(name="s_test")
     current = mv.session.current()
     assert current is not None
     assert current.name == "s_test"
+    assert hasattr(current, "observe")
+
+
+def test_current_session_has_datetime_timestamps() -> None:
+    mv.session.get_or_create(name="s_test")
+    current = mv.session.current()
+    assert current is not None
+    from datetime import datetime
+
+    assert isinstance(current.created_at, datetime)
+    assert isinstance(current.updated_at, datetime)
 
 
 def test_history_returns_empty_list_when_no_active_session() -> None:

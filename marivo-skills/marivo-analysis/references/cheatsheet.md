@@ -98,7 +98,7 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 
 | Need | Call |
 | --- | --- |
-| Check active session without raising | `mv.session.current()` |
+| Check active session without raising; returns Session or None | `mv.session.current()` |
 | Read recent jobs | `session.recent_jobs(limit=5)` |
 | Create or attach a session (idempotent) | `mv.session.get_or_create(name=...)` |
 | List sessions | `mv.session.list()` |

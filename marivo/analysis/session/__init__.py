@@ -5,8 +5,8 @@ The public surface is intentionally narrow:
 - ``mv.session.get_or_create(name=...)`` — idempotent: attach if a session
   with that name already exists in the project, otherwise create it. Sets
   the new or attached session as active.
-- ``mv.session.current()`` — return a ``SessionSummary`` for the active
-  session or ``None`` when there is no active session. Safe probe.
+- ``mv.session.current()`` — return the active ``Session`` or ``None``
+  when there is no active session. Safe probe: check and continue work.
 - ``mv.session.list()`` — list non-archived sessions in the project.
 
 Lifecycle helpers ``archive`` / ``delete`` remain on the package for
