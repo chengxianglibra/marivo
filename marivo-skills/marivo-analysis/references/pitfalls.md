@@ -92,12 +92,14 @@ artifact refs such as `mv.ArtifactRef("frame_delta")`.
 NoActiveSessionError: no active session and none set via attach()
 ```
 
-**Action:** check cheaply, then create or attach before `observe`, `compare`,
-`decompose`, `discover`, or `correlate`.
+**Action:** ``mv.session.current()`` returns the active ``Session`` (with all
+analysis methods) or ``None``. Check and continue work in one call:
 
 ```python
-if mv.session.current() is None:
-    mv.session.get_or_create(name="my_investigation")
+session = mv.session.current()
+if session is None:
+    session = mv.session.get_or_create(name="my_investigation")
+# session now has .observe(), .compare(), etc.
 ```
 
 `mv.session.history()` returns an empty list when there is no active session, so

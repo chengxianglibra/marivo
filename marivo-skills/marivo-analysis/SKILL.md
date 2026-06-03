@@ -56,7 +56,7 @@ session.hypothesis_test(cur, base)                                              
 session.forecast(series, horizon=7)                                                   # -> ForecastFrame
 session.assess_quality(series)                                                        # -> QualityReport
 
-mv.session.current()     # safe probe, returns None when no active session
+mv.session.current()     # safe probe — returns Session or None; check and continue work
 mv.help("discover")      # prints typed objective helpers and compatibility dispatcher
 print(frame.summary())   # cheap next-step summary; repr shows next_intents
 ```
@@ -156,7 +156,7 @@ is the correct recovery. State that reason in the final output.
 ```python
 mv.session.get_or_create(name="my_analysis")          # idempotent entry point
 mv.session.get_or_create(name="x", backend_factory=f) # with live backend
-mv.session.current()                                   # None-safe probe
+mv.session.current()                                   # None-safe probe; returns Session, not SessionSummary
 mv.session.list()                                      # list sessions
 session.recent_jobs(limit=5)                           # recent job history
 ```

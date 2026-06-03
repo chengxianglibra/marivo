@@ -481,19 +481,22 @@ def active() -> Session:
     return attach(name=active_name)
 
 
-def current() -> SessionSummary | None:
-    """Return a summary for the active session, or None when no session is active."""
+def current() -> Session | None:
+    """Return the active session, or None when no session is active.
+
+    Unlike ``active()`` which raises ``NoActiveSessionError``, ``current()``
+    returns ``None`` when there is no active session. The returned ``Session``
+    has all analysis methods so you can check and continue work:
+
+        session = mv.session.current()
+        if session is not None:
+            result = session.observe(...)
+    """
     try:
         sess = active()
     except NoActiveSessionError:
         return None
-    return SessionSummary(
-        id=sess.id,
-        name=sess.name,
-        state=sess.state,
-        created_at=sess.created_at.isoformat(),
-        updated_at=sess.updated_at.isoformat(),
-    )
+    return sess
 
 
 def history(limit: int = 5) -> list[Any]:
