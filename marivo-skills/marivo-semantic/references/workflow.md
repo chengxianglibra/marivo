@@ -24,6 +24,13 @@ and provenance match the requested intent.
 
 ## 2. Inspect datasource metadata
 
+Choose the datasource backend from the physical source first. Use a native
+Marivo datasource by default: Hive/Iceberg lakehouse tables through Trino,
+ClickHouse tables through ClickHouse, MySQL tables through MySQL, and DuckDB
+database files or supported local files through DuckDB. Do not route ClickHouse
+or MySQL tables through a Trino catalog unless the user explicitly says the
+project must use Trino federation.
+
 ```bash
 <venv>/bin/python - <<'PY'
 import marivo.analysis as mv

@@ -14,6 +14,24 @@ import marivo.datasource as md
 warehouse = md.ref("warehouse")
 ```
 
+## Choose the native backend first
+
+Default to the Marivo datasource backend that matches the physical source. Do
+not choose Trino just because it can federate to another engine:
+
+| Physical source | Default datasource backend |
+| --- | --- |
+| Hive or Iceberg lakehouse table | `trino` |
+| ClickHouse table or host | `clickhouse` |
+| MySQL table or host | `mysql` |
+| DuckDB database file | `duckdb` |
+| Local Parquet or CSV files | `duckdb` |
+
+Use Trino for another engine only when the user explicitly provides a Trino
+endpoint/catalog or requires federation through Trino. For local JSON files,
+still choose DuckDB as the execution backend, but inspect runtime help before
+declaring `ms.file(...)`; do not invent unsupported file formats.
+
 ## Inspect configured datasources
 
 Use `mv.datasources` from the installed project environment:
@@ -67,7 +85,7 @@ orders = ms.dataset(
 )
 ```
 
-## Trino datasource
+## Hive/Iceberg via Trino datasource
 
 For Trino, `catalog` is required and `schema` is optional. Keep schema selection
 at table access time when the datasource has no default schema.

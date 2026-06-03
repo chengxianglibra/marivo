@@ -102,6 +102,6 @@ Read `references/workflow.md` first for object construction. The short form is:
 | Python declaration patterns | `references/authoring-patterns.md` |
 | Evidence, questions, confirmations, ledger | `references/evidence-and-ledger.md` |
 | Preview, parity, readiness, richness | `references/closeout.md` |
-| Datasource setup and Trino access | `references/datasource.md` |
+| Datasource selection and setup | `references/datasource.md` |
 | Preview behavior and failures | `references/preview.md` |
 | Known failure modes | `references/pitfalls.md` |
