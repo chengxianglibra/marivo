@@ -843,6 +843,7 @@ def observe(
 
     started_at = datetime.now(UTC)
     started = monotonic()
+    session.backend_cache.begin_query_capture()
     dataset_irs: dict[str, _DatasetIRAdapter] = {}
     primary_datasource: str | None = None
     stored_where = normalize_slice_for_storage(where)
@@ -973,6 +974,8 @@ def observe(
                 component=component,
                 metric_ir=metric_ir,
             )
+        _captured_queries = session.backend_cache.take_captured_queries()
+        _output_ref = frame.meta.artifact_id or frame.ref
         write_job_record(
             session.layout,
             {
@@ -981,7 +984,7 @@ def observe(
                 "intent": "observe",
                 "params": params,
                 "input_frame_refs": [],
-                "output_frame_ref": frame.meta.artifact_id or frame.ref,
+                "output_frame_ref": _output_ref,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),
                 "duration_ms": int((monotonic() - started) * 1000),
@@ -989,6 +992,9 @@ def observe(
                 "error": None,
                 "semantic_project_root": session.semantic_project.root,
                 "semantic_model": model_name,
+                "queries": [
+                    {**qe.to_dict(), "output_ref": _output_ref} for qe in _captured_queries
+                ],
             },
         )
         return frame
@@ -1118,6 +1124,8 @@ def observe(
         subject_grain=_subject_grain,
     )
 
+    _captured_queries = session.backend_cache.take_captured_queries()
+    _output_ref = frame.meta.artifact_id or frame.ref
     write_job_record(
         session.layout,
         {
@@ -1126,7 +1134,7 @@ def observe(
             "intent": "observe",
             "params": params,
             "input_frame_refs": [],
-            "output_frame_ref": frame.meta.artifact_id or frame.ref,
+            "output_frame_ref": _output_ref,
             "started_at": started_at.isoformat(),
             "finished_at": finished_at.isoformat(),
             "duration_ms": int((monotonic() - started) * 1000),
@@ -1134,6 +1142,7 @@ def observe(
             "error": None,
             "semantic_project_root": session.semantic_project.root,
             "semantic_model": model_name,
+            "queries": [{**qe.to_dict(), "output_ref": _output_ref} for qe in _captured_queries],
         },
     )
     return frame
