@@ -137,8 +137,17 @@ Spikes, drops, unusual buckets?            -> observe series -> discover.<object
 Two metrics move together?                 -> observe both -> correlate
 Need auditable quality evidence?           -> assess_quality
 Reshape without changing frame family?     -> transform.<op> (topk, rollup, slice, ...)
-Raw pandas?                                -> frame.to_pandas()
+Custom joins, feature engineering, or raw table exploration?
+                                           -> session.explore_ibis(...) or pandas scratch
+Raw pandas from a frame?                   -> frame.to_pandas()
 ```
+
+Prefer built-in intents first. When Marivo does not directly support an
+analysis step, use session-scoped scratch work: `session.explore_ibis(...)` for
+clean raw Ibis queries against a registered backend, or `frame.to_pandas()` plus
+`session.from_pandas(...)` for pandas/other Python analysis. Scratch outputs are
+`ExplorationResult`; keep them terminal unless they must feed typed intents, then
+promote explicitly with `session.promote_metric_frame(...)` or related helpers.
 
 ## Session
 
@@ -195,6 +204,8 @@ print(result.summary())
 ### Escape hatch
 
 ```python
+scratch = session.explore_ibis(lambda con: con.table("orders"), datasource="warehouse")
+df = frame.to_pandas()
 scratch = session.from_pandas(df)
 promoted = session.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"),
                                    semantic_kind="segmented", measure_column="value",
