@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_PATH = REPO_ROOT / "marivo-skills/marivo-analysis/SKILL.md"
 ACTIVE_SKILL_DOCS = [
     SKILL_PATH,
+    REPO_ROOT / "marivo-skills/marivo-analysis/references/final-report.md",
     REPO_ROOT / "marivo-skills/marivo-analysis/references/cheatsheet.md",
     REPO_ROOT / "marivo-skills/marivo-analysis/references/pitfalls.md",
 ]
