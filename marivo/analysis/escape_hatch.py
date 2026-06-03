@@ -573,7 +573,7 @@ def explore_ibis(
     )
     source_refs = [ref.id for ref in sources or []]
     frame_ref = _new_frame_ref()
-    query = _compile_query(expr)
+    query = result.query.sql if result.query is not None else _compile_query(expr)
     copied = _isolate_dataframe(result.df)
     meta = ExplorationResultMeta(
         kind="exploration_result",

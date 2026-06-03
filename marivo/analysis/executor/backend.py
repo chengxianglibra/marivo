@@ -14,6 +14,7 @@ class BackendCache:
         self._factory = factory
         self._cache: dict[str, Any] = {}
         self._validated: set[str] = set()
+        self._capture_buffer: list[Any] | None = None
 
     def get_or_create(self, datasource_name: str) -> Any:
         if self._factory is None:
@@ -39,3 +40,19 @@ class BackendCache:
                     disconnect()
         self._cache.clear()
         self._validated.clear()
+
+    # -- job-scoped query capture buffer --
+
+    def begin_query_capture(self) -> None:
+        self._capture_buffer = []
+
+    def record_query(self, qe: Any) -> None:
+        if self._capture_buffer is not None:
+            self._capture_buffer.append(qe)
+
+    def take_captured_queries(self) -> list[Any]:
+        if self._capture_buffer is None:
+            return []
+        queries = self._capture_buffer
+        self._capture_buffer = None
+        return queries

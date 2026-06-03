@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
 import json
+import logging
 import os
 import re
 from collections.abc import Mapping
@@ -27,6 +28,12 @@ from marivo.analysis.errors import (
     WindowInvalidError,
 )
 from marivo.analysis.executor.backend import BackendCache
+from marivo.analysis.executor.query_record import (
+    QueryExecution,
+    compute_sql_digest,
+    gen_query_ref,
+    normalize_sql,
+)
 from marivo.analysis.timezone import zoneinfo_from_name
 from marivo.analysis.windows.spec import AbsoluteWindow
 
@@ -1092,6 +1099,7 @@ class ExecutionResult:
     df: pd.DataFrame
     duration_ms: int
     row_count: int
+    query: QueryExecution | None = None
 
 
 def _sql_execution_comment(session_id: str) -> str:
@@ -1101,6 +1109,13 @@ def _sql_execution_comment(session_id: str) -> str:
 
 def _prefix_sql_for_session(sql: Any, *, session_id: str) -> str:
     return f"{_sql_execution_comment(session_id)}\n{sql}"
+
+
+def _backend_dialect(backend: Any) -> str:
+    return getattr(backend, "name", "unknown")
+
+
+_logger = logging.getLogger("marivo.analysis.executor")
 
 
 def execute(
@@ -1113,37 +1128,80 @@ def execute(
     backend = cache.get_or_create(datasource_name)
     original_compile_attr = getattr(backend, "__dict__", {}).get("compile", _MISSING_ATTR)
     original_compile = getattr(backend, "compile", None)
-    prefix_session_id: str | None = None
-    compile_fn: Any = None
-    if session_id is not None and callable(original_compile):
-        prefix_session_id = session_id
-        compile_fn = original_compile
-    started = monotonic()
-    try:
-        if prefix_session_id is not None:
+    captured_sql: str | None = None
+    if callable(original_compile):
+        if session_id is not None:
 
             def compile_with_prefix(
                 self: Any, expr: ibis.Expr, /, *args: Any, **kwargs: Any
             ) -> str:
-                return _prefix_sql_for_session(
-                    compile_fn(expr, *args, **kwargs),
-                    session_id=prefix_session_id,
-                )
+                nonlocal captured_sql
+                sql = original_compile(expr, *args, **kwargs)
+                prefixed = _prefix_sql_for_session(sql, session_id=session_id)
+                captured_sql = prefixed
+                return prefixed
 
-            backend.compile = MethodType(compile_with_prefix, backend)
+            compile_fn = compile_with_prefix
+        else:
+
+            def compile_and_capture(
+                self: Any, expr: ibis.Expr, /, *args: Any, **kwargs: Any
+            ) -> str:
+                nonlocal captured_sql
+                sql: str = original_compile(expr, *args, **kwargs)
+                captured_sql = sql
+                return sql
+
+            compile_fn = compile_and_capture
+    else:
+        compile_fn = None
+
+    query_started_at = datetime.now(UTC)
+    started = monotonic()
+    try:
+        if compile_fn is not None:
+            backend.compile = MethodType(compile_fn, backend)
         raw = backend.execute(expr)
     except Exception as exc:
+        query_finished_at = datetime.now(UTC)
+        failed_duration = int((monotonic() - started) * 1000)
+        if captured_sql is not None:
+            dialect = _backend_dialect(backend)
+            norm_sql, bind_params = normalize_sql(captured_sql, dialect=dialect)
+            failed_qe = QueryExecution(
+                query_id=gen_query_ref(),
+                datasource=datasource_name,
+                dialect=dialect,
+                sql=captured_sql,
+                normalized_sql=norm_sql,
+                sql_digest=compute_sql_digest(norm_sql),
+                bind_params=bind_params,
+                row_count=0,
+                duration_ms=failed_duration,
+                started_at=query_started_at.isoformat(),
+                finished_at=query_finished_at.isoformat(),
+                status="failed",
+                output_ref=None,
+            )
+            _logger.warning(
+                "Query failed: datasource=%s dialect=%s digest=%s sql=%s",
+                datasource_name,
+                dialect,
+                failed_qe.sql_digest,
+                captured_sql[:200],
+            )
         raise BackendError(
             message=str(exc),
             details=_debug_details(expr, datasource_name),
         ) from exc
     finally:
-        if prefix_session_id is not None:
+        if compile_fn is not None:
             if original_compile_attr is _MISSING_ATTR:
                 with suppress(AttributeError):
                     delattr(backend, "compile")
             else:
                 backend.compile = original_compile_attr
+
     if cache.should_mark_validated(datasource_name):
         _datasource_registry._persist_backend_env_sourced_secrets(backend)
         cache.mark_validated(datasource_name)
@@ -1153,10 +1211,36 @@ def execute(
         df = raw.to_frame()
     else:
         df = pd.DataFrame({"value": [raw]})
+
+    query_finished_at = datetime.now(UTC)
+    duration_ms = int((monotonic() - started) * 1000)
+
+    qe: QueryExecution | None = None
+    if captured_sql is not None:
+        dialect = _backend_dialect(backend)
+        norm_sql, bind_params = normalize_sql(captured_sql, dialect=dialect)
+        qe = QueryExecution(
+            query_id=gen_query_ref(),
+            datasource=datasource_name,
+            dialect=dialect,
+            sql=captured_sql,
+            normalized_sql=norm_sql,
+            sql_digest=compute_sql_digest(norm_sql),
+            bind_params=bind_params,
+            row_count=len(df),
+            duration_ms=duration_ms,
+            started_at=query_started_at.isoformat(),
+            finished_at=query_finished_at.isoformat(),
+            status="succeeded",
+            output_ref=None,
+        )
+        cache.record_query(qe)
+
     return ExecutionResult(
         df=df,
-        duration_ms=int((monotonic() - started) * 1000),
+        duration_ms=duration_ms,
         row_count=len(df),
+        query=qe,
     )
 
 

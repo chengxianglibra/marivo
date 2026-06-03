@@ -108,6 +108,7 @@ def persist_attribution_frame(
     started_at: datetime,
     started_monotonic: float,
 ) -> AttributionFrame:
+    session.backend_cache.begin_query_capture()
     frame_ref = gen_ref("frame")
     job_ref = gen_ref("job")
     source_refs = [source.meta.artifact_id or source.ref for source in sources]
@@ -160,6 +161,7 @@ def persist_attribution_frame(
             seeding_context={"observed_window": None},
         ),
     )
+    _captured_queries = session.backend_cache.take_captured_queries()
     write_job_record(
         session.layout,
         {
@@ -176,6 +178,7 @@ def persist_attribution_frame(
             "error": None,
             "semantic_project_root": session.semantic_project.root,
             "semantic_model": semantic_model,
+            "queries": [qe.to_dict() for qe in _captured_queries],
         },
     )
     return frame
