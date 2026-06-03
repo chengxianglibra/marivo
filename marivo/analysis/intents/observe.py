@@ -150,7 +150,7 @@ def _build_dataset_adapter(
 
     # Build field adapters for this dataset
     field_adapters: dict[str, _FieldIRAdapter] = {}
-    for field_ir in sp.list_fields(dataset=dataset_ir.semantic_id):
+    for field_ir in sp.list_fields(dataset=dataset_ir.semantic_id, display=False):
         field_fn = sidecar.get(field_ir.semantic_id) if sidecar else None
         _captured_field_sid = field_ir.semantic_id
 
@@ -167,7 +167,7 @@ def _build_dataset_adapter(
         field_adapters[field_ir.name] = adapter
 
     # Add time fields
-    for tf_ir in sp.list_time_fields(dataset=dataset_ir.semantic_id):
+    for tf_ir in sp.list_time_fields(dataset=dataset_ir.semantic_id, display=False):
         tf_fn = sidecar.get(tf_ir.semantic_id) if sidecar else None
         _captured_tf_sid = tf_ir.semantic_id
 
@@ -821,7 +821,7 @@ def observe(
     metric_semantic_id = f"{model_name}.{metric_name}"
     metric_ir = sp.get_metric(metric_semantic_id)
     if metric_ir is None:
-        available_ids = sorted(m.semantic_id for m in sp.list_metrics())
+        available_ids = sorted(m.semantic_id for m in sp.list_metrics(display=False))
         raise MetricNotFoundError(
             message=f"metric '{metric_id}' not found",
             hint="Check <project_root>/.marivo/semantic/.",
@@ -869,7 +869,7 @@ def observe(
         # Build dataset adapters for all datasets in the project so the planner
         # can resolve component metrics that span different datasets.
         all_dataset_irs: dict[str, _DatasetIRAdapter] = {}
-        for ds_summary in sp.list_datasets():
+        for ds_summary in sp.list_datasets(display=False):
             ds_ir = sp.get_dataset(ds_summary.semantic_id)
             if ds_ir is None:
                 continue
@@ -1011,7 +1011,7 @@ def observe(
         dataset_irs[dataset_name] = _build_dataset_adapter(sp, dataset_ir)
 
     # Add datasets required by explicit dimensions/where
-    for field_ir in [*sp.list_fields(), *sp.list_time_fields()]:
+    for field_ir in [*sp.list_fields(display=False), *sp.list_time_fields(display=False)]:
         if (
             dimensions
             and any(dim.id == field_ir.semantic_id for dim in dimension_refs)

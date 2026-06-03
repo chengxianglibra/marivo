@@ -164,6 +164,29 @@ class SearchHit:
     matched_snippet: str  # matched substring with short context
 
 
+def _display_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value).replace("\n", " ")
+
+
+def _print_table(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    columns: Sequence[str],
+    empty_message: str,
+) -> None:
+    if not rows:
+        print(empty_message)
+        return
+
+    print(" | ".join(columns))
+    for row in rows:
+        print(" | ".join(_display_value(row.get(column)) for column in columns))
+
+
 # ---------------------------------------------------------------------------
 # DependencyNode
 # ---------------------------------------------------------------------------
@@ -385,7 +408,7 @@ class SemanticProject:
         project = SemanticProject(root="/path/to/.marivo/semantic")
         result = project.load()
         if project.is_ready():
-            models = project.list_models()
+            models = project.list_models(display=False)
     """
 
     def __init__(self, root: str | Path) -> None:
@@ -599,7 +622,7 @@ class SemanticProject:
 
     # -- listings -----------------------------------------------------------
 
-    def list_models(self) -> list[ModelSummary]:
+    def list_models(self, display: bool = True) -> list[ModelSummary]:
         """Return all model summaries."""
         reg = _require_registry(self._registry, project=self)
         results: list[ModelSummary] = []
@@ -632,12 +655,39 @@ class SemanticProject:
                     object_counts=obj_counts,
                 )
             )
+        if display:
+            _print_table(
+                [
+                    {
+                        "name": item.name,
+                        "default": item.default,
+                        "datasets": item.object_counts.get("dataset", 0),
+                        "fields": item.object_counts.get("field", 0),
+                        "time_fields": item.object_counts.get("time_field", 0),
+                        "metrics": item.object_counts.get("metric", 0),
+                        "relationships": item.object_counts.get("relationship", 0),
+                        "description": item.description,
+                    }
+                    for item in results
+                ],
+                columns=(
+                    "name",
+                    "default",
+                    "datasets",
+                    "fields",
+                    "time_fields",
+                    "metrics",
+                    "relationships",
+                    "description",
+                ),
+                empty_message="No models found.",
+            )
         return results
 
-    def list_datasources(self) -> list[DatasourceSummary]:
+    def list_datasources(self, display: bool = True) -> list[DatasourceSummary]:
         """Return all datasource summaries."""
         reg = _require_registry(self._registry, project=self)
-        return [
+        results = [
             DatasourceSummary(
                 semantic_id=ds_ir.semantic_id,
                 name=ds_ir.name,
@@ -646,14 +696,31 @@ class SemanticProject:
             )
             for ds_ir in reg.datasources.values()
         ]
+        if display:
+            _print_table(
+                [
+                    {
+                        "semantic_id": item.semantic_id,
+                        "name": item.name,
+                        "backend_type": item.backend_type,
+                        "description": item.description,
+                    }
+                    for item in results
+                ],
+                columns=("semantic_id", "name", "backend_type", "description"),
+                empty_message="No datasources found.",
+            )
+        return results
 
-    def list_datasets(self, *, model: str | None = None) -> list[DatasetSummary]:
+    def list_datasets(
+        self, *, model: str | None = None, display: bool = True
+    ) -> list[DatasetSummary]:
         """Return dataset summaries, optionally filtered by model name."""
         reg = _require_registry(self._registry, project=self)
         datasets = list(reg.datasets.values())
         if model is not None:
             datasets = [d for d in datasets if d.model == model]
-        return [
+        results = [
             DatasetSummary(
                 semantic_id=d.semantic_id,
                 model=d.model,
@@ -668,21 +735,84 @@ class SemanticProject:
             )
             for d in datasets
         ]
+        if display:
+            _print_table(
+                [
+                    {
+                        "semantic_id": item.semantic_id,
+                        "model": item.model,
+                        "datasource": item.datasource,
+                        "description": item.description,
+                    }
+                    for item in results
+                ],
+                columns=("semantic_id", "model", "datasource", "description"),
+                empty_message="No datasets found.",
+            )
+        return results
 
-    def list_fields(self, *, dataset: str | None = None) -> list[FieldIR]:
+    def list_fields(self, *, dataset: str | None = None, display: bool = True) -> list[FieldIR]:
         """Return field IR objects (non-time fields), optionally filtered by dataset."""
         reg = _require_registry(self._registry, project=self)
         fields = [f for f in reg.fields.values() if not f.is_time_field]
         if dataset is not None:
             fields = [f for f in fields if f.dataset == dataset]
+        if display:
+            _print_table(
+                [
+                    {
+                        "semantic_id": item.semantic_id,
+                        "dataset": item.dataset,
+                        "name": item.name,
+                        "data_type": item.data_type,
+                        "granularity": item.granularity,
+                        "description": item.description,
+                    }
+                    for item in fields
+                ],
+                columns=(
+                    "semantic_id",
+                    "dataset",
+                    "name",
+                    "data_type",
+                    "granularity",
+                    "description",
+                ),
+                empty_message="No fields found.",
+            )
         return fields
 
-    def list_time_fields(self, *, dataset: str | None = None) -> list[FieldIR]:
+    def list_time_fields(
+        self, *, dataset: str | None = None, display: bool = True
+    ) -> list[FieldIR]:
         """Return time field IR objects, optionally filtered by dataset."""
         reg = _require_registry(self._registry, project=self)
         fields = [f for f in reg.fields.values() if f.is_time_field]
         if dataset is not None:
             fields = [f for f in fields if f.dataset == dataset]
+        if display:
+            _print_table(
+                [
+                    {
+                        "semantic_id": item.semantic_id,
+                        "dataset": item.dataset,
+                        "name": item.name,
+                        "data_type": item.data_type,
+                        "granularity": item.granularity,
+                        "description": item.description,
+                    }
+                    for item in fields
+                ],
+                columns=(
+                    "semantic_id",
+                    "dataset",
+                    "name",
+                    "data_type",
+                    "granularity",
+                    "description",
+                ),
+                empty_message="No time fields found.",
+            )
         return fields
 
     def list_metrics(
@@ -691,6 +821,7 @@ class SemanticProject:
         dataset: str | None = None,
         decomposition: Literal["sum", "ratio", "weighted_average"] | None = None,
         provenance_status: ParityStatus | None = None,
+        display: bool = True,
     ) -> list[MetricSummary]:
         """Return metric summaries, optionally filtered."""
         reg = _require_registry(self._registry, project=self)
@@ -705,7 +836,7 @@ class SemanticProject:
                 for m in metrics
                 if propagated_parity_status(self, m.semantic_id) == provenance_status
             ]
-        return [
+        results = [
             MetricSummary(
                 semantic_id=m.semantic_id,
                 model=m.model,
@@ -718,13 +849,56 @@ class SemanticProject:
             )
             for m in metrics
         ]
+        if display:
+            _print_table(
+                [
+                    {
+                        "semantic_id": item.semantic_id,
+                        "model": item.model,
+                        "name": item.name,
+                        "decomposition_kind": item.decomposition_kind,
+                        "is_derived": item.is_derived,
+                        "parity_status": item.parity_status,
+                        "description": item.description,
+                    }
+                    for item in results
+                ],
+                columns=(
+                    "semantic_id",
+                    "model",
+                    "name",
+                    "decomposition_kind",
+                    "is_derived",
+                    "parity_status",
+                    "description",
+                ),
+                empty_message="No metrics found.",
+            )
+        return results
 
-    def list_relationships(self, *, model: str | None = None) -> list[RelationshipIR]:
+    def list_relationships(
+        self, *, model: str | None = None, display: bool = True
+    ) -> list[RelationshipIR]:
         """Return relationship IR objects, optionally filtered by model."""
         reg = _require_registry(self._registry, project=self)
         rels = list(reg.relationships.values())
         if model is not None:
             rels = [r for r in rels if r.model == model]
+        if display:
+            _print_table(
+                [
+                    {
+                        "semantic_id": item.semantic_id,
+                        "model": item.model,
+                        "from_dataset": item.from_dataset,
+                        "to_dataset": item.to_dataset,
+                        "description": item.description,
+                    }
+                    for item in rels
+                ],
+                columns=("semantic_id", "model", "from_dataset", "to_dataset", "description"),
+                empty_message="No relationships found.",
+            )
         return rels
 
     # -- single-object accessors -------------------------------------------
@@ -751,7 +925,9 @@ class SemanticProject:
 
     # -- discovery ---------------------------------------------------------
 
-    def search(self, query: str, *, kind: SymbolKind | None = None) -> list[SearchHit]:
+    def search(
+        self, query: str, *, kind: SymbolKind | None = None, display: bool = True
+    ) -> list[SearchHit]:
         """Search across all IR objects by name, description, ai_context.
 
         Case-insensitive substring match.  Field priority:
@@ -885,6 +1061,20 @@ class SemanticProject:
             "examples": 5,
         }
         results.sort(key=lambda h: (_field_priority.get(h.matched_field, 99), h.semantic_id))
+        if display:
+            _print_table(
+                [
+                    {
+                        "semantic_id": item.semantic_id,
+                        "kind": item.kind,
+                        "matched_field": item.matched_field,
+                        "matched_snippet": item.matched_snippet,
+                    }
+                    for item in results
+                ],
+                columns=("semantic_id", "kind", "matched_field", "matched_snippet"),
+                empty_message="No search results found.",
+            )
         return results
 
     # -- dependency graph ---------------------------------------------------

@@ -85,7 +85,7 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
     )
 
     assert project.is_ready()
-    datasources = project.list_datasources()
+    datasources = project.list_datasources(display=False)
     assert [ds.semantic_id for ds in datasources] == ["warehouse"]
     assert project.get_dataset("sales.orders").datasource == "warehouse"
     assert project.get_dataset("finance.refunds").datasource == "warehouse"

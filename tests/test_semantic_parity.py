@@ -738,20 +738,20 @@ def test_list_metrics_provenance_status_filter(semantic_project_factory, backend
     )
 
     # Before parity check: UNVERIFIED
-    unverified = project.list_metrics(provenance_status=ParityStatus.UNVERIFIED)
+    unverified = project.list_metrics(provenance_status=ParityStatus.UNVERIFIED, display=False)
     assert any(m.semantic_id == "sales.total_amount" for m in unverified)
 
-    verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED)
+    verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED, display=False)
     assert not any(m.semantic_id == "sales.total_amount" for m in verified)
 
     # Run parity check
     project.parity_check("sales.total_amount", backend_factory=backend_factory)
 
     # After parity check: VERIFIED
-    verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED)
+    verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED, display=False)
     assert any(m.semantic_id == "sales.total_amount" for m in verified)
 
-    unverified = project.list_metrics(provenance_status=ParityStatus.UNVERIFIED)
+    unverified = project.list_metrics(provenance_status=ParityStatus.UNVERIFIED, display=False)
     assert not any(m.semantic_id == "sales.total_amount" for m in unverified)
 
 
