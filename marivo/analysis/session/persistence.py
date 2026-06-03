@@ -104,6 +104,6 @@ def read_frame_from_disk(
     frame_ref: str,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     frame_dir = layout.frames_dir / frame_ref
-    df = pd.read_parquet(frame_dir / "data.parquet", engine="pyarrow")
+    df = pd.read_parquet(frame_dir / "data.parquet", engine="pyarrow", to_pandas_kwargs={})
     meta = json.loads((frame_dir / "meta.json").read_text())
     return df, meta

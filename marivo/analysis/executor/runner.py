@@ -456,12 +456,14 @@ _IBIS_DTYPE_TO_DECLARED: dict[str, set[str]] = {
 def _normalize_ibis_dtype(dtype_name: str) -> str:
     """Normalize ibis dtype string for lookup.
 
-    DuckDB reports timestamps as "timestamp(6)" etc.; we normalize
-    to just "timestamp" for compatibility mapping.
+    Ibis prefixes non-nullable dtypes with "!"; DuckDB reports timestamp
+    precision as "timestamp(6)" etc. Normalize both forms for compatibility
+    mapping.
     """
-    if dtype_name.startswith("timestamp"):
+    bare = dtype_name.lstrip("!")
+    if bare.startswith("timestamp"):
         return "timestamp"
-    return dtype_name
+    return bare
 
 
 def _validate_time_field_dtype(field_expr: Any, time_meta: Any) -> None:
