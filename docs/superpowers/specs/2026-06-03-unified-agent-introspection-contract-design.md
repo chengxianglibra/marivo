@@ -67,7 +67,9 @@ drift-protection tests.
 
 When this lands, an agent consults `help('<object>', format='json')` for the
 specific object it is about to author or call — per object, not "before every
-call" — and gets a complete, uniform, machine-checkable answer.
+call" — and gets a complete, uniform, machine-checkable answer. Responses are
+**progressively disclosed**: each call returns a small, bounded layer that names
+what can be expanded next, so the agent spends context only on what it needs.
 
 ## Non-Goals
 
@@ -97,6 +99,11 @@ call" — and gets a complete, uniform, machine-checkable answer.
 4. **Thin shared core + federated catalogs.** A new internal package owns the
    canonical types and the single renderer; each surface owns its catalog,
    resolver, and top-level summaries and emits through the shared types.
+5. **Progressive disclosure is a contract property.** Responses are layered
+   (surface → symbol summary → deep drill). The default per-symbol view is a
+   bounded summary; full constraint, method, and topic detail are fetched on
+   demand by resolving the id or dotted path, not bundled into every response. A
+   size-budget test enforces it.
 
 ## Architecture
 
@@ -158,14 +165,15 @@ Common fields (every descriptor):
 | `symbol` | name asked for (`null` for the top-level `surface` listing) |
 | `summary` | one-line description |
 | `doc` | full docstring — **own docstring only** |
-| `constraints` | list of `Constraint.to_dict()` dicts |
+| `constraints` | constraint *summaries* `{id, title, hint, example}` (L1); full `Constraint` via `help("<id>")` (L2) |
 | `examples` | `list[str]` of runnable example paths |
 | `see_also` | `list[str]` of related `help(...)` calls |
 
 Kind-specific additions:
 
 - `callable` → `signature`
-- `class` / `frame` → `methods: [{name, signature, summary}]`; `frame` also adds
+- `class` / `frame` → `methods: [{name, summary}]` (L1; full per-method
+  `signature` + `doc` via `help("<Class>.<method>")`); `frame` also adds
   `next_intents: [str]` and a curated `constructed_by` string, and suppresses the
   internal dataclass `__init__` signature.
 - `topic` → `content: dict` (alignment/decomposition/discover/select/transform/
@@ -189,8 +197,8 @@ Concrete json:
   "signature":"metric(*, name, datasets, decomposition, additivity, ...)",
   "summary":"declare a dataset-backed aggregate metric",
   "doc":"Declare a base metric ...",
-  "constraints":[{"id":"metric_datasets_required","error_kind":"missing_datasets",
-    "hint":"Base metrics need datasets=[...]","example":".../01_single_model_file.py"}],
+  "constraints":[{"id":"metric_datasets_required","title":"Base metrics must declare at least one dataset.",
+    "hint":"Base metrics need datasets=[...]","example":".../01_single_model_file.py"}],   // L1 summary; help("metric_datasets_required") for why/ast_spec
   "examples":[".../01_single_model_file.py"],
   "see_also":["help('decomposition')","help('derived_metric')"] }
 
@@ -198,12 +206,49 @@ Concrete json:
 { "schema_version":"1", "surface":"marivo.analysis", "kind":"frame", "symbol":"MetricFrame",
   "summary":"typed metric result frame",
   "constructed_by":"session.observe(...)",
-  "methods":[{"name":"as_time_series","signature":"() -> MetricFrame","summary":"..."},
-             {"name":"components","signature":"() -> ComponentFrame","summary":"..."},
-             {"name":"to_pandas","signature":"() -> pd.DataFrame","summary":"materialize a copy"}],
+  "methods":[{"name":"as_time_series","summary":"reshape to a time_series frame"},
+             {"name":"components","summary":"numerator/denominator component frame"},
+             {"name":"to_pandas","summary":"materialize an isolated copy"}],  // L1; help("MetricFrame.components") for full signature+doc
   "next_intents":["compare","decompose","assess_quality"],
   "constraints":[], "examples":[...] }
 ```
+
+## Progressive Disclosure
+
+Introspection is delivered in three bounded rungs, so an agent spends context only
+on what it needs and always learns what it can expand next. This formalizes the
+layering `semantic` already approximates by hand (its SKILL warns against dumping
+the full constraints json at session start).
+
+- **L0 — surface overview.** `help()` returns the kind-grouped `entries`
+  (`{name, kind, summary}`). For large surfaces, `help("<group>")` (e.g.
+  `help("frames")`) expands a single group instead of the whole surface.
+- **L1 — symbol summary (the default).** `help("<symbol>")` returns the actionable
+  layer: `signature`, `summary`, `doc`, `see_also`, constraints as
+  `{id, title, hint, example}`, and (for classes/frames) methods as
+  `{name, summary}`. The `hint` is enough to act; the heavy `why`/`ast_spec` and
+  full method signatures are withheld.
+- **L2 — deep drill (on demand).** Expand exactly one thing by resolving its name:
+  - `help("<constraint_id>")` → the full `Constraint` (`why`, `ast_spec`,
+    `docs_ref`, `phase`, `applies_to`). Constraint ids already resolve as help
+    targets in `semantic`; the shared resolver generalizes this to all surfaces.
+  - `help("<Class>.<method>")` → that method's full signature + doc (dotted path).
+  - `help("<topic>")` → the full topic `content` (alignment/discover/etc.).
+
+`render.py` projects the L1 constraint summary `{id, title, hint, example}` and the
+L1 method summary `{name, summary}` from the full objects; `Constraint.to_dict()`
+remains the L2 shape. Each surface's `resolve` therefore accepts four target forms
+— a symbol name, a constraint id, a `Class.method` dotted path, and a topic/group
+name; unresolved input returns the `unknown` descriptor with `did_you_mean`.
+
+**Why resolvable names instead of a `detail="summary"|"full"` flag:** the L1
+payload already carries the `id`s and method names, so the agent sees exactly what
+to expand and calls `help(id)` directly — no extra parameter, and every expansion
+target is itself a first-class, discoverable help entry. A coarse flag would force
+re-downloading the whole symbol just to read one constraint's rationale.
+
+L0 and L1 sizes are bounded and CI-enforced (see Drift-Protection invariant 8):
+top-level ≤ ~2 KB, per-symbol L1 ≤ ~1.5 KB.
 
 ## Constraint Types
 
@@ -270,9 +315,10 @@ and simply imports `Constraint`/`ASTSpec` from `introspection` — a near-zero d
 ## Frame-Method Discovery
 
 In `describe.py`, `describe_frame`/`describe_class` enumerate public methods via
-`inspect`: callables defined on the class, excluding dunders and private names,
-each with its signature and a one-line summary (first line of the method's own
-docstring). This generalizes the existing `_namespace_methods` special-casing
+`inspect`: callables defined on the class, excluding dunders and private names. The
+L1 listing carries `{name, summary}` (summary = first line of the method's own
+docstring); the full signature + doc are produced on the L2 drill-in
+`help("<Class>.<method>")`. This generalizes the existing `_namespace_methods` special-casing
 (`TransformAPI`, `DiscoverAPI`) to all classes. Frames additionally expose
 `next_intents` (read from the frame's existing next-intents mechanism) and a
 curated `constructed_by` string, and suppress the auto-generated dataclass
@@ -284,7 +330,8 @@ The top-level `surface` descriptor is generated from `__all__` (not hand-curated
 so it is always complete. To stay scannable, `entries` are **grouped by kind**
 (intents · frames · refs · policies · errors · topics · modules), one line each,
 most-used groups first. The agent sees the whole surface organized, then drills in
-with `help('<name>')`. `format="text"` renders the groups as labeled sections;
+with `help('<name>')`, or expands a single group with `help('<group>')` (L0; see
+Progressive Disclosure). `format="text"` renders the groups as labeled sections;
 `format="json"` returns the flat `entries` list with each entry's `kind`.
 
 ## Introspection-Layer Error Handling
@@ -315,6 +362,12 @@ Invariants:
 6. `format="text"` renders for every symbol/topic without raising.
 7. No descriptor's `doc` equals an inherited base-class or module docstring
    (locks the `load_frame`/Pydantic trap shut).
+8. Progressive-disclosure budget: the default L1 `format="json"` response for every
+   symbol stays under ~1.5 KB and the L0 top-level listing under ~2 KB; L1
+   constraint entries carry only `{id, title, hint, example}` and L1 method entries
+   only `{name, summary}` (no `why`/`ast_spec`/full signatures bundled). The L2
+   drill-in targets (`help("<id>")`, `help("<Class>.<method>")`, `help("<topic>")`)
+   each resolve and render.
 
 These run in `make test`, are cheap, and are what make "everything in one spec"
 safe: the multi-source contract cannot silently rot. Existing
@@ -370,6 +423,9 @@ working throughout.
   by tests to match the public surface.
 - `tests/test_introspection_contract.py` enforces every invariant in the
   Drift-Protection section; `make test` and `make examples-check` pass.
+- Progressive disclosure: L0 and L1 responses stay within budget, and full
+  constraint/method/topic detail is reachable only on demand via `help("<id>")` /
+  `help("<Class>.<method>")` / `help("<topic>")`.
 
 ## Risks And Mitigations
 
