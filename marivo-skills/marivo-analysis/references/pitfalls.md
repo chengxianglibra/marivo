@@ -180,7 +180,7 @@ import marivo.semantic as ms
 project = ms.find_project()
 assert project is not None
 project.load()
-print(project.list_metrics())
+project.list_metrics()
 cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
 ```
 

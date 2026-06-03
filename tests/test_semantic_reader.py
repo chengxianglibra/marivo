@@ -156,13 +156,73 @@ def test_list_models(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    models = project.list_models()
+    models = project.list_models(display=False)
     assert len(models) >= 1
     assert any(m.name == "sales" for m in models)
     assert all(isinstance(m, ModelSummary) for m in models)
     # Verify object_counts is present
     for m in models:
         assert isinstance(m.object_counts, dict)
+
+
+def test_list_methods_display_tables_by_default(semantic_project_factory, capsys) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    method_expectations = [
+        (
+            project.list_models,
+            "name | default | datasets | fields | time_fields | metrics | relationships | description",
+            "sales",
+        ),
+        (project.list_datasources, "semantic_id | name | backend_type | description", "warehouse"),
+        (project.list_datasets, "semantic_id | model | datasource | description", "sales.orders"),
+        (
+            project.list_fields,
+            "semantic_id | dataset | name | data_type | granularity | description",
+            "sales.orders.amount",
+        ),
+        (
+            project.list_time_fields,
+            "semantic_id | dataset | name | data_type | granularity | description",
+            "sales.orders.created_at",
+        ),
+        (
+            project.list_metrics,
+            "semantic_id | model | name | decomposition_kind | is_derived | parity_status | description",
+            "sales.total_revenue",
+        ),
+        (
+            project.list_relationships,
+            "semantic_id | model | from_dataset | to_dataset | description",
+            "sales.orders_to_items",
+        ),
+    ]
+
+    for method, header, expected_value in method_expectations:
+        result = method()
+        output = capsys.readouterr().out
+        assert result
+        assert header in output
+        assert expected_value in output
+
+
+def test_list_methods_display_false_suppresses_output(semantic_project_factory, capsys) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    metrics = project.list_metrics(display=False)
+
+    assert any(metric.semantic_id == "sales.total_revenue" for metric in metrics)
+    assert capsys.readouterr().out == ""
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +237,7 @@ def test_list_datasources(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    datasources = project.list_datasources()
+    datasources = project.list_datasources(display=False)
     assert len(datasources) >= 1
     assert any(d.name == "warehouse" for d in datasources)
     assert all(isinstance(d, DatasourceSummary) for d in datasources)
@@ -195,7 +255,7 @@ def test_list_datasets(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    datasets = project.list_datasets()
+    datasets = project.list_datasets(display=False)
     assert len(datasets) >= 1
     assert any(d.name == "orders" for d in datasets)
     assert all(isinstance(d, DatasetSummary) for d in datasets)
@@ -211,12 +271,12 @@ def test_list_datasets_filter_by_model(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    datasets = project.list_datasets(model="sales")
+    datasets = project.list_datasets(model="sales", display=False)
     assert len(datasets) >= 1
     assert all(d.model == "sales" for d in datasets)
 
     # Non-existent model should return empty
-    datasets_other = project.list_datasets(model="nonexistent")
+    datasets_other = project.list_datasets(model="nonexistent", display=False)
     assert len(datasets_other) == 0
 
 
@@ -232,7 +292,7 @@ def test_list_fields(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    fields = project.list_fields()
+    fields = project.list_fields(display=False)
     # amount and region are non-time fields
     field_names = [f.name for f in fields]
     assert "amount" in field_names
@@ -248,7 +308,7 @@ def test_list_fields_filter_by_dataset(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    fields = project.list_fields(dataset="sales.orders")
+    fields = project.list_fields(dataset="sales.orders", display=False)
     assert len(fields) >= 2
     assert all(f.dataset == "sales.orders" for f in fields)
 
@@ -260,7 +320,7 @@ def test_list_time_fields(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    time_fields = project.list_time_fields()
+    time_fields = project.list_time_fields(display=False)
     assert len(time_fields) >= 1
     assert any(f.name == "created_at" for f in time_fields)
     assert all(f.is_time_field for f in time_fields)
@@ -278,7 +338,7 @@ def test_list_metrics(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    metrics = project.list_metrics()
+    metrics = project.list_metrics(display=False)
     assert len(metrics) >= 3
     metric_names = [m.name for m in metrics]
     assert "total_revenue" in metric_names
@@ -293,7 +353,7 @@ def test_list_metrics_filter_by_dataset(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    metrics = project.list_metrics(dataset="sales.orders")
+    metrics = project.list_metrics(dataset="sales.orders", display=False)
     assert len(metrics) >= 1
     # MetricSummary doesn't have .datasets; just check we got results
     assert all(isinstance(m, MetricSummary) for m in metrics)
@@ -306,7 +366,7 @@ def test_list_metrics_filter_by_decomposition(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    sum_metrics = project.list_metrics(decomposition="sum")
+    sum_metrics = project.list_metrics(decomposition="sum", display=False)
     assert len(sum_metrics) >= 1
     assert all(m.decomposition_kind == "sum" for m in sum_metrics)
 
@@ -323,7 +383,7 @@ def test_list_relationships(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    rels = project.list_relationships()
+    rels = project.list_relationships(display=False)
     assert len(rels) >= 1
     assert any(r.name == "orders_to_items" for r in rels)
     assert all(isinstance(r, RelationshipIR) for r in rels)
@@ -336,7 +396,7 @@ def test_list_relationships_filter_by_model(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    rels = project.list_relationships(model="sales")
+    rels = project.list_relationships(model="sales", display=False)
     assert len(rels) >= 1
     assert all(r.model == "sales" for r in rels)
 
@@ -441,7 +501,7 @@ def test_search_exact_semantic_id_match(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    results = project.search("sales.total_revenue")
+    results = project.search("sales.total_revenue", display=False)
     assert len(results) >= 1
     # Exact semantic_id match should be first
     top = results[0]
@@ -451,6 +511,37 @@ def test_search_exact_semantic_id_match(semantic_project_factory) -> None:
     assert isinstance(top, SearchHit)
 
 
+def test_search_displays_results_by_default(semantic_project_factory, capsys) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    results = project.search("sales.total_revenue")
+
+    output = capsys.readouterr().out
+    assert results
+    assert "semantic_id | kind | matched_field | matched_snippet" in output
+    assert "sales.total_revenue" in output
+    assert "metric" in output
+
+
+def test_search_display_false_suppresses_output(semantic_project_factory, capsys) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+
+    results = project.search("sales.total_revenue", display=False)
+
+    assert results
+    assert capsys.readouterr().out == ""
+
+
 def test_search_name_match(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
@@ -458,7 +549,7 @@ def test_search_name_match(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    results = project.search("total_revenue")
+    results = project.search("total_revenue", display=False)
     assert len(results) >= 1
     top = results[0]
     assert "total_revenue" in top.semantic_id
@@ -473,7 +564,7 @@ def test_search_description_match(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    results = project.search("average order")
+    results = project.search("average order", display=False)
     assert len(results) >= 1
     # The aov metric has description "Average order value"
     aov_results = [r for r in results if r.semantic_id == "sales.aov"]
@@ -488,7 +579,7 @@ def test_search_case_insensitive(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    results = project.search("TOTAL_REVENUE")
+    results = project.search("TOTAL_REVENUE", display=False)
     assert len(results) >= 1
     assert any(r.semantic_id == "sales.total_revenue" for r in results)
 
@@ -500,7 +591,7 @@ def test_search_kind_filter(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    results = project.search("sales", kind=SymbolKind.METRIC)
+    results = project.search("sales", kind=SymbolKind.METRIC, display=False)
     assert all(r.kind == SymbolKind.METRIC for r in results)
 
 
@@ -511,7 +602,7 @@ def test_search_no_results(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    results = project.search("zzzznonexistent")
+    results = project.search("zzzznonexistent", display=False)
     assert len(results) == 0
 
 
@@ -522,7 +613,7 @@ def test_search_results_sorted_by_field_priority(semantic_project_factory) -> No
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    results = project.search("revenue")
+    results = project.search("revenue", display=False)
     # Results should be sorted by field priority then semantic_id
     if len(results) > 1:
         _field_priority = {
@@ -999,7 +1090,7 @@ def test_reader_on_unloaded_project_raises(semantic_project_factory) -> None:
         load=False,
     )
     with pytest.raises(SemanticLoadFailed):
-        project.list_models()
+        project.list_models(display=False)
 
 
 def test_reader_on_errored_project_raises(semantic_project_factory) -> None:
@@ -1012,7 +1103,7 @@ def test_reader_on_errored_project_raises(semantic_project_factory) -> None:
         }
     )
     with pytest.raises(SemanticLoadFailed):
-        project.list_models()
+        project.list_models(display=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1027,7 +1118,7 @@ def test_returned_summary_objects_are_frozen(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    models = project.list_models()
+    models = project.list_models(display=False)
     if models:
         with pytest.raises(AttributeError):
             models[0].name = "mutated"  # type: ignore[misc]
@@ -1052,19 +1143,48 @@ def test_description_is_frozen(semantic_project_factory) -> None:
 
 def test_empty_project_list_methods(semantic_project_factory) -> None:
     project = semantic_project_factory({})
-    assert project.list_models() == []
-    assert project.list_datasources() == []
-    assert project.list_datasets() == []
-    assert project.list_fields() == []
-    assert project.list_time_fields() == []
-    assert project.list_metrics() == []
-    assert project.list_relationships() == []
+    assert project.list_models(display=False) == []
+    assert project.list_datasources(display=False) == []
+    assert project.list_datasets(display=False) == []
+    assert project.list_fields(display=False) == []
+    assert project.list_time_fields(display=False) == []
+    assert project.list_metrics(display=False) == []
+    assert project.list_relationships(display=False) == []
+
+
+def test_empty_project_list_methods_display_empty_messages(
+    semantic_project_factory, capsys
+) -> None:
+    project = semantic_project_factory({})
+
+    empty_expectations = [
+        (project.list_models, "No models found."),
+        (project.list_datasources, "No datasources found."),
+        (project.list_datasets, "No datasets found."),
+        (project.list_fields, "No fields found."),
+        (project.list_time_fields, "No time fields found."),
+        (project.list_metrics, "No metrics found."),
+        (project.list_relationships, "No relationships found."),
+    ]
+
+    for method, message in empty_expectations:
+        assert method() == []
+        assert capsys.readouterr().out == f"{message}\n"
 
 
 def test_empty_project_search(semantic_project_factory) -> None:
     project = semantic_project_factory({})
-    results = project.search("anything")
+    results = project.search("anything", display=False)
     assert results == []
+
+
+def test_empty_project_search_displays_empty_message(semantic_project_factory, capsys) -> None:
+    project = semantic_project_factory({})
+
+    results = project.search("anything")
+
+    assert results == []
+    assert capsys.readouterr().out == "No search results found.\n"
 
 
 # ---------------------------------------------------------------------------

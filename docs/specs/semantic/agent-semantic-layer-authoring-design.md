@@ -147,6 +147,10 @@ project.list_metrics()
 project.search("revenue")
 ```
 
+`project.list_*()` and `project.search(...)` print deterministic text tables by
+default for script-driven agents while still returning structured objects. When
+code consumes the returned list programmatically, pass `display=False`.
+
 Rule: reuse existing semantic refs when their `business_definition`,
 guardrails, dependencies, and provenance match the user intent. Add new objects
 only when existing objects are missing, conflicting, or at the wrong grain.

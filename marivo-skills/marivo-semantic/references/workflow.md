@@ -13,9 +13,9 @@ print(ms.help(format="json"))
 project = ms.find_project()
 assert project is not None
 print(project.load())
-print(project.list_models())
-print(project.list_datasets())
-print(project.list_metrics())
+project.list_models()
+project.list_datasets()
+project.list_metrics()
 PY
 ```
 
