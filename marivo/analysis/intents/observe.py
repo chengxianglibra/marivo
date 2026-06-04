@@ -99,6 +99,7 @@ class _FieldIRAdapter:
         fn: Callable[..., Any],
         *,
         is_time: bool = False,
+        is_default: bool = False,
         time_meta: _TimeFieldMetaAdapter | None = None,
     ) -> None:
         self.semantic_id = semantic_id
@@ -106,6 +107,7 @@ class _FieldIRAdapter:
         self.dataset_name = dataset_name
         self.fn = fn
         self.is_time = is_time
+        self.is_default = is_default
         self.time_meta = time_meta
 
 
@@ -188,6 +190,7 @@ def _build_dataset_adapter(
             dataset_name=dataset_ir.name,
             fn=tf_fn if tf_fn is not None else _default_tf_fn,
             is_time=True,
+            is_default=getattr(tf_ir, "is_default", False),
             time_meta=time_meta,
         )
         field_adapters[tf_ir.name] = adapter

@@ -31,6 +31,7 @@ orders = ms.dataset(
     data_type="string",
     granularity="day",
     date_format="yyyymmdd",
+    is_default=True,
     ai_context={
         "business_definition": "Partition time field for order reporting windows.",
         "guardrails": ["Use event time only when source evidence defines it."],

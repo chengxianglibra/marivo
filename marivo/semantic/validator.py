@@ -629,6 +629,36 @@ def _is_filtered_model_ref(ref: str, loaded_models: set[str] | None) -> bool:
     return ref.split(".", 1)[0] not in loaded_models
 
 
+def _validate_default_time_field_unique(
+    errors: list[SemanticError],
+    registry: Registry,
+) -> None:
+    from collections import defaultdict
+
+    defaults_by_dataset: dict[str, list[str]] = defaultdict(list)
+    for f_id, f_ir in registry.fields.items():
+        if f_ir.is_time_field and getattr(f_ir, "is_default", False):
+            defaults_by_dataset[f_ir.dataset].append(f_id)
+
+    for dataset_id, field_ids in defaults_by_dataset.items():
+        if len(field_ids) > 1:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.DUPLICATE_DEFAULT_TIME_FIELD,
+                    message=(
+                        f"Dataset {dataset_id!r} has {len(field_ids)} time fields "
+                        f"with is_default=True: {field_ids}. At most one is allowed."
+                    ),
+                    refs=tuple(field_ids),
+                    constraint_id=ConstraintId.TIME_FIELD_DEFAULT_UNIQUE,
+                    details={
+                        "dataset": dataset_id,
+                        "default_time_fields": field_ids,
+                    },
+                )
+            )
+
+
 def _filtered_model_ref_warning(
     obj_id: str,
     ref: str,
@@ -965,6 +995,9 @@ def assembly_validate(
                         refs=(f_id, f_ir.required_prefix),
                     )
                 )
+
+    # -- Validate at most one default time_field per dataset ----------------
+    _validate_default_time_field_unique(errors, registry)
 
     # -- Cross-model cycle detection (basic) --------------------------------
     # Check for cycles in metric component references

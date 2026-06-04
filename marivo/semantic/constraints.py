@@ -49,6 +49,7 @@ class ConstraintId(StrEnum):
     SUBDAY_GRANULARITY_WITHOUT_TIME = "subday_granularity_without_time"
     TIME_FIELD_PARTITION_PUSHDOWN = "time_field_partition_pushdown"
     TIME_FIELD_DTYPE_COMPAT = "time_field_dtype_compat"
+    TIME_FIELD_DEFAULT_UNIQUE = "time_field_default_unique"
     RELATIONSHIP_ENDPOINTS = "relationship_endpoints"
     PROJECT_ORGANIZATION = "project_organization"
     PROJECT_ROOT_VALID = "project_root_valid"
@@ -354,6 +355,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "A mismatch between declared data_type and the actual ibis expression dtype causes TypeError at execution.",
         "Ensure the .cast() target in the body matches the declared data_type: .cast('date') → data_type='date'; .cast('timestamp') or raw timestamp column → data_type='datetime' or 'timestamp'.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+    ),
+    ConstraintId.TIME_FIELD_DEFAULT_UNIQUE: _constraint(
+        ConstraintId.TIME_FIELD_DEFAULT_UNIQUE,
+        "duplicate_default_time_field",
+        "assembly",
+        ("time_field",),
+        "At most one time field per dataset may carry is_default=True.",
+        "Multiple default time fields create ambiguity at observe() time.",
+        "Remove is_default=True from all but one time field on this dataset.",
     ),
     ConstraintId.RELATIONSHIP_ENDPOINTS: _constraint(
         ConstraintId.RELATIONSHIP_ENDPOINTS,

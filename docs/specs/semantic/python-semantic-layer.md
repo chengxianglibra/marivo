@@ -380,6 +380,12 @@ def order_date(orders):
 - hour-only 字段（例如 `data_type="string", format="hh"` 或 `data_type="integer", format="h"`）必须显式声明 `required_prefix`；timestamp/datetime hour 字段或单列完整 hour 格式不需要。
 - 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `field` / `time_field`，再在 metric 中引用。
 - `@ms.field` / `@ms.time_field` 不要求 provenance status。它们的可信度来自所属 dataset、row-level 表达式可读性和 materialization 校验。`source_sql` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。
+- `is_default` (optional, default `False`): Mark this field as the default time axis
+  when the dataset has multiple time fields. When `observe()` is called without an
+  explicit `time_field=` argument, the `is_default=True` field is used automatically.
+  At most one time field per dataset may carry `is_default=True`; declaring two or
+  more raises `SemanticLoadError` with kind `duplicate_default_time_field` at assembly
+  time.
 
 ### Metric
 

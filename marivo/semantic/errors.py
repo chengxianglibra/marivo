@@ -79,6 +79,7 @@ class ErrorKind(StrEnum):
     INVALID_METRIC_FANOUT_POLICY = "invalid_metric_fanout_policy"
     DERIVED_METRIC_FANOUT_POLICY = "derived_metric_fanout_policy"
     SUBDAY_GRANULARITY_WITHOUT_TIME = "subday_granularity_without_time"
+    DUPLICATE_DEFAULT_TIME_FIELD = "duplicate_default_time_field"
 
     # runtime
     METRIC_NOT_FOUND = "metric_not_found"

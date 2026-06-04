@@ -437,9 +437,9 @@ def _root_time_field(
         return None
     if len(candidates) == 1:
         return candidates[0]
-    # Keep "default time field" simple: the first declared time field on the
-    # root dataset. The semantic loader keeps declaration order stable, which
-    # is the same convention apply_window_to_dataset already follows.
+    defaults = [tf for tf in candidates if getattr(tf, "is_default", False)]
+    if len(defaults) == 1:
+        return defaults[0]
     return candidates[0]
 
 
