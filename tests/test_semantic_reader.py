@@ -1,7 +1,7 @@
 """Tests for marivo.semantic reader API — list/search/lineage/describe/compile_sql.
 
 Tests cover:
-- list_models, list_datasources, list_datasets, list_fields, list_time_fields,
+- list_models, list_datasources, list_datasets, list_dimensions, list_time_fields,
   list_metrics, list_relationships
 - get_dataset, get_datasource, get_field, get_metric
 - search (substring match, kind filter, field priority)
@@ -182,8 +182,8 @@ def test_list_methods_display_tables_by_default(semantic_project_factory, capsys
         (project.list_datasources, "semantic_id | name | backend_type | description", "warehouse"),
         (project.list_datasets, "semantic_id | model | datasource | description", "sales.orders"),
         (
-            project.list_fields,
-            "semantic_id | dataset | name | data_type | granularity | description",
+            project.list_dimensions,
+            "semantic_id | dataset | name | description",
             "sales.orders.amount",
         ),
         (
@@ -281,36 +281,47 @@ def test_list_datasets_filter_by_model(semantic_project_factory) -> None:
 
 
 # ---------------------------------------------------------------------------
-# list_fields / list_time_fields
+# list_dimensions / list_time_fields
 # ---------------------------------------------------------------------------
 
 
-def test_list_fields(semantic_project_factory) -> None:
+def test_list_dimensions(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    fields = project.list_fields(display=False)
-    # amount and region are non-time fields
-    field_names = [f.name for f in fields]
-    assert "amount" in field_names
-    assert "region" in field_names
-    assert all(isinstance(f, FieldIR) for f in fields)
-    assert all(not f.is_time_field for f in fields)
+    dims = project.list_dimensions(display=False)
+    dim_names = [f.name for f in dims]
+    assert "amount" in dim_names
+    assert "region" in dim_names
+    assert all(isinstance(f, FieldIR) for f in dims)
+    assert all(not f.is_time_field for f in dims)
 
 
-def test_list_fields_filter_by_dataset(semantic_project_factory) -> None:
+def test_list_dimensions_filter_by_dataset_keyword(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    fields = project.list_fields(dataset="sales.orders", display=False)
-    assert len(fields) >= 2
-    assert all(f.dataset == "sales.orders" for f in fields)
+    dims = project.list_dimensions(dataset="sales.orders", display=False)
+    assert len(dims) >= 2
+    assert all(f.dataset == "sales.orders" for f in dims)
+
+
+def test_list_dimensions_filter_by_dataset_positional(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    dims = project.list_dimensions("sales.orders", display=False)
+    assert len(dims) >= 2
+    assert all(f.dataset == "sales.orders" for f in dims)
 
 
 def test_list_time_fields(semantic_project_factory) -> None:
@@ -1159,7 +1170,7 @@ def test_empty_project_list_methods(semantic_project_factory) -> None:
     assert project.list_models(display=False) == []
     assert project.list_datasources(display=False) == []
     assert project.list_datasets(display=False) == []
-    assert project.list_fields(display=False) == []
+    assert project.list_dimensions(display=False) == []
     assert project.list_time_fields(display=False) == []
     assert project.list_metrics(display=False) == []
     assert project.list_relationships(display=False) == []
@@ -1174,7 +1185,7 @@ def test_empty_project_list_methods_display_empty_messages(
         (project.list_models, "No models found."),
         (project.list_datasources, "No datasources found."),
         (project.list_datasets, "No datasets found."),
-        (project.list_fields, "No fields found."),
+        (project.list_dimensions, "No dimensions found."),
         (project.list_time_fields, "No time fields found."),
         (project.list_metrics, "No metrics found."),
         (project.list_relationships, "No relationships found."),
