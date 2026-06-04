@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from marivo.datasource.authoring import DatasourceRef, DatasourceSpec, datasource, ref
+from marivo.datasource.help import help, help_text
 from marivo.datasource.ir import (
     AiContextIR,
     DatasourceAiContextIR,
@@ -19,6 +20,8 @@ __all__ = [
     "DatasourceSourceLocation",
     "DatasourceSpec",
     "datasource",
+    "help",
+    "help_text",
     "load_datasources",
     "ref",
 ]

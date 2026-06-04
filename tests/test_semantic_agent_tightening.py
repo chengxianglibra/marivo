@@ -182,6 +182,24 @@ def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
     assert "partition field default" in pitfalls
 
 
+def test_skills_document_uniform_help_contract() -> None:
+    semantic_skill = _read("marivo-skills/marivo-semantic/SKILL.md")
+    analysis_skill = _read("marivo-skills/marivo-analysis/SKILL.md")
+    semantic_workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
+    datasource_ref = _read("marivo-skills/marivo-semantic/references/datasource.md")
+
+    combined = "\n".join((semantic_skill, analysis_skill, semantic_workflow, datasource_ref))
+    assert "help('<name>', format='json')" in combined
+    assert "ms.help('metric', format='json')" in combined
+    assert "mv.help('MetricFrame', format='json')" in combined
+    assert "md.help(format='json')" in combined
+    assert "md.help('DatasourceSpec', format='json')" in combined
+    assert "md.help('datasource_secret_env_ref', format='json')" in combined
+    assert 'ms.help("component", format="json")' not in combined
+    assert "per object" in combined
+    assert "before every call" not in combined
+
+
 @pytest.mark.parametrize("example", _EXAMPLE_PARAMS)
 def test_semantic_skill_example_executes(example: Path) -> None:
     run_skill_examples = _load_run_skill_examples()

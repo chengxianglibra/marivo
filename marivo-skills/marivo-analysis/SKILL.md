@@ -34,9 +34,15 @@ consistently for every install, check, and script run.
    `references/examples/NN_*.py`; those examples use a tiny fixture so they
    can run in CI.
 3. Confirm metric ids: `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()`.
-4. Use `mv.help("discover")` / `mv.help("select")` / `mv.help("transform")` /
-   `mv.help("alignment")` / `mv.help("calendar")` for constraint matrices and
-   project-local calendar JSON shape at runtime.
+4. Use runtime help as the authoritative per-object contract. For the intent,
+   frame, policy, or topic you are about to use, inspect
+   `mv.help('<name>', format='json')`; examples:
+   `mv.help('observe', format='json')`, `mv.help('discover', format='json')`,
+   `mv.help('alignment', format='json')`, and
+   `mv.help('MetricFrame', format='json')`. The descriptor exposes `signature`,
+   `doc`, bounded `constraints`, runnable `examples`, `methods`,
+   `next_intents`, and drill-down ids. Consult it per object when the contract
+   matters; do not turn help into a blanket ritual for each call.
 5. On errors, read the structured output — it includes a fix snippet and the
    available ids when applicable.
 

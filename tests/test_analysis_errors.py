@@ -75,7 +75,10 @@ def test_str_includes_kind_and_message():
 
 def test_optional_hint_and_details():
     err = FrameMutationError(message="frame is immutable")
-    assert err.hint is None
+    assert (
+        err.hint
+        == "Call frame.to_pandas() and mutate the copy when ad hoc analysis needs local changes."
+    )
     assert err.details == {}
 
 

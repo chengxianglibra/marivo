@@ -45,6 +45,22 @@ If secrets.toml does not exist or has no relevant entries, ask the user for the
 env var name and value. After `mv.datasources.test(...)` succeeds, the new
 secret is persisted automatically.
 
+## Runtime Help
+
+Datasource authoring has the same agent-facing help contract as semantic and
+analysis:
+
+```python
+import marivo.datasource as md
+
+md.help(format='json')                         # top-level datasource entries
+md.help('DatasourceSpec', format='json')       # constructor, doc, constraints
+md.help('datasource_secret_env_ref', format='json')  # full secret-handling rule
+```
+
+Use `md.help('DatasourceSpec', format='json')` before writing a new datasource
+declaration when credential, backend type, or field-shape details matter.
+
 ## Choose the native backend first
 
 Default to the Marivo datasource backend that matches the physical source. Do

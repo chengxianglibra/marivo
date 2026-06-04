@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import re
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -209,7 +210,7 @@ def test_raise_helper() -> None:
     assert err.constraint_id == "unique_semantic_name"
 
 
-def test_help_text_top_level_is_compact_directory(capsys) -> None:
+def test_help_text_top_level_is_compact_directory(capsys: pytest.CaptureFixture[str]) -> None:
     ms.help()
 
     captured = capsys.readouterr()
@@ -229,7 +230,9 @@ def test_help_text_top_level_is_compact_directory(capsys) -> None:
     assert "ms.help(" in captured.out
 
 
-def test_help_json_top_level_returns_compact_directory(capsys) -> None:
+def test_help_json_top_level_returns_compact_directory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     result = ms.help(format="json")
 
     captured = capsys.readouterr()
@@ -237,6 +240,7 @@ def test_help_json_top_level_returns_compact_directory(capsys) -> None:
     assert isinstance(result, dict)
     assert result["schema_version"] == "1"
     assert result["surface"] == "marivo.semantic"
+    assert result["kind"] == "surface"
     assert "entries" in result
     assert "authoring_constraints" not in result
     entries = result["entries"]
@@ -246,8 +250,9 @@ def test_help_json_top_level_returns_compact_directory(capsys) -> None:
         assert "name" in entry
         assert "summary" in entry
         assert "kind" in entry
-        assert entry["kind"] in {"callable", "class", "module", "topic", "removed"}
+        assert entry["kind"] in {"callable", "class", "module", "topic", "surface", "unknown"}
     entry_names = {e["name"] for e in entries}
+    assert entry_names == set(ms.__all__) | {"constraints", "decomposition"}
     assert "dataset" in entry_names
     assert "metric" in entry_names
     assert "derived_metric" in entry_names
@@ -258,42 +263,49 @@ def test_help_json_top_level_returns_compact_directory(capsys) -> None:
     assert "typing" in entry_names
 
 
-def test_help_json_metric_includes_constraints_and_examples(capsys) -> None:
+def test_help_json_metric_includes_constraints_and_examples(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     result = ms.help("metric", format="json")
 
     captured = capsys.readouterr()
     assert captured.out == ""
     assert isinstance(result, dict)
-    assert "metric(" in result["signature"]
-    constraints = result["constraints"]
+    assert "metric(" in cast("str", result["signature"])
+    constraints = cast("list[dict[str, Any]]", result["constraints"])
     assert isinstance(constraints, list)
     constraint_ids = {entry["id"] for entry in constraints}
     assert "metric_datasets_required" in constraint_ids
     assert "metric_component_scope" in constraint_ids
     assert "metric_derived_shape" not in constraint_ids
     assert "ast_component_arithmetic" not in constraint_ids
+    for entry in constraints:
+        assert set(entry) <= {"id", "title", "hint", "example"}
     assert "examples" in result
 
 
-def test_help_json_time_field_includes_partition_pushdown_advisory(capsys) -> None:
+def test_help_json_time_field_includes_partition_pushdown_advisory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     result = ms.help("time_field", format="json")
 
     captured = capsys.readouterr()
     assert captured.out == ""
     assert isinstance(result, dict)
-    constraints = result["constraints"]
+    constraints = cast("list[dict[str, Any]]", result["constraints"])
     assert isinstance(constraints, list)
     constraint_ids = {entry["id"] for entry in constraints}
     assert "time_field_partition_pushdown" in constraint_ids
     advisory = next(
         entry for entry in constraints if entry["id"] == "time_field_partition_pushdown"
     )
-    assert advisory["phase"] == "assembly"
+    assert set(advisory) <= {"id", "title", "hint", "example"}
+    assert "Partition time fields" in advisory["title"]
     assert "date_format" in advisory["hint"]
 
 
 def test_help_json_decomposition_documents_supported_builders_and_aggregation_boundary(
-    capsys,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     result = ms.help("decomposition", format="json")
 
@@ -301,13 +313,17 @@ def test_help_json_decomposition_documents_supported_builders_and_aggregation_bo
     assert captured.out == ""
     assert isinstance(result, dict)
     assert result["kind"] == "topic"
-    assert result["topic"] == "decomposition"
-    builder_names = {entry["name"] for entry in result["builders"]}
+    assert result["symbol"] == "decomposition"
+    content = cast("dict[str, Any]", result["content"])
+    builders = cast("list[dict[str, Any]]", content["builders"])
+    builder_names = {entry["name"] for entry in builders}
     assert builder_names == {"sum", "ratio", "weighted_average"}
-    assert "SQL aggregation" in result["summary"]
-    assert any("ms.count()" in item for item in result["anti_patterns"])
-    assert any("ms.mean()" in item for item in result["anti_patterns"])
-    guidance = {entry["metric_shape"]: entry for entry in result["guidance"]}
+    assert "SQL aggregation" in cast("str", result["summary"])
+    anti_patterns = cast("list[str]", content["anti_patterns"])
+    assert any("ms.count()" in item for item in anti_patterns)
+    assert any("ms.mean()" in item for item in anti_patterns)
+    guidance_items = cast("list[dict[str, str]]", content["guidance"])
+    guidance = {entry["metric_shape"]: entry for entry in guidance_items}
     assert guidance["count"]["decomposition"] == "ms.sum()"
     assert ".count()" in guidance["count"]["body"]
     assert any("ms.derived_metric" in entry["body"] for entry in guidance.values())
@@ -319,11 +335,15 @@ def test_help_json_decomposition_documents_supported_builders_and_aggregation_bo
         guidance["weighted_average"]["body"]
         == "ms.derived_metric(..., decomposition=ms.weighted_average(...))"
     )
-    assert "ms.help('derived_metric', format='json')" in result["related_help"]
-    assert "ms.help('component', format='json')" not in result["related_help"]
+    related_help = cast("list[str]", content["related_help"])
+    assert "ms.help('derived_metric', format='json')" in related_help
+    assert "ms.help('component', format='json')" not in related_help
+    assert "ms.help('metric', format='json')" in cast("list[str]", result["see_also"])
 
 
-def test_help_text_decomposition_documents_aggregation_boundary(capsys) -> None:
+def test_help_text_decomposition_documents_aggregation_boundary(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     ms.help("decomposition")
 
     captured = capsys.readouterr()
@@ -336,9 +356,23 @@ def test_help_json_constraints_cover_error_kinds() -> None:
     result = ms.help("constraints", format="json")
 
     assert isinstance(result, dict)
-    constraints = result["constraints"]
+    assert result["kind"] == "topic"
+    assert result["symbol"] == "constraints"
+    content = cast("dict[str, Any]", result["content"])
+    assert set(content) <= {"constraints"}
+    constraints = cast("list[dict[str, str]]", content["constraints"])
     assert isinstance(constraints, list)
-    covered = {entry["error_kind"] for entry in constraints}
+    covered = set()
+    for entry in constraints:
+        assert set(entry) <= {"id", "title"}
+        detail = ms.help(entry["id"], format="json")
+        assert isinstance(detail, dict)
+        assert detail["kind"] == "topic"
+        assert detail["symbol"] == entry["id"]
+        full_content = cast("dict[str, Any]", detail["content"])
+        assert full_content["id"] == entry["id"]
+        assert "why" in full_content
+        covered.add(cast("str", full_content["error_kind"]))
     for kind in errors_mod.ErrorKind:
         assert kind.value in covered
 
@@ -531,12 +565,12 @@ def test_dataset_provenance_values() -> None:
 
 def test_symbol_kind_is_str_enum() -> None:
     assert isinstance(SymbolKind.MODEL, str)
-    assert SymbolKind.MODEL == "model"
+    assert SymbolKind.MODEL.value == "model"
 
 
 def test_parity_status_is_str_enum() -> None:
     assert isinstance(ParityStatus.VERIFIED, str)
-    assert ParityStatus.VERIFIED == "verified"
+    assert ParityStatus.VERIFIED.value == "verified"
 
 
 # ---------------------------------------------------------------------------
@@ -695,7 +729,7 @@ def test_validate_metric_body_ast_works() -> None:
     from marivo.semantic.validator import validate_metric_body_ast
 
     # No longer a stub; should return a hash string for valid bodies
-    def good_fn(table):
+    def good_fn(table: Any) -> Any:
         return table.amount.sum()
 
     result = validate_metric_body_ast(good_fn, "base")

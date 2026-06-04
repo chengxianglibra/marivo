@@ -1,147 +1,176 @@
-"""Small stdout-based introspection helper for marivo.analysis."""
+"""mv.help - agent-facing introspection of the analysis surface."""
 
 from __future__ import annotations
 
-import inspect
-from collections.abc import Callable
-from types import ModuleType
-from typing import cast
+from functools import lru_cache
+from typing import Literal, cast
 
-_TOP_LEVEL_ENTRIES = {
-    "session.observe": "build a MetricFrame from a metric and window",
-    "session.compare": "compare two MetricFrames into a DeltaFrame",
-    "session.decompose": "decompose a DeltaFrame into an AttributionFrame",
-    "session.discover": "discover candidate follow-ups from analysis artifacts",
-    "session.transform": "family-preserving reshape of a MetricFrame / DeltaFrame",
-    "session.correlate": "correlate compatible analysis frames",
-    "session.forecast": "project a time_series or panel MetricFrame forward",
-    "session.assess_quality": "inspect MetricFrame quality and recommend follow-ups",
-    "session.hypothesis_test": "run a mean_changed paired test over compatible MetricFrames",
-    "CandidateSet.select": "pull a typed field out of a CandidateSet row",
-    "alignment": "AlignmentPolicy variants and required arguments",
-    "calendar": "project-local calendar JSON file shape",
-    "session": "session lifecycle and persistence helpers",
-    "help": "print top-level or symbol-specific introspection",
+from marivo.introspection.schema import Descriptor
+from marivo.introspection.surface import Surface, render
+
+from .constraints import iter_constraints
+
+_HELP_ONLY_ENTRIES: tuple[str, ...] = (
+    "observe",
+    "compare",
+    "decompose",
+    "discover",
+    "transform",
+    "correlate",
+    "forecast",
+    "assess_quality",
+    "hypothesis_test",
+    "alignment",
+    "calendar",
+    "select",
+)
+
+_FRAME_SYMBOLS: set[str] = {
+    "MetricFrame",
+    "DeltaFrame",
+    "AttributionFrame",
+    "ForecastFrame",
+    "QualityReport",
+    "CandidateSet",
+    "AssociationResult",
+    "ComponentFrame",
+    "ExplorationResult",
+    "HypothesisTestResult",
 }
 
-_MATRIX_TOPICS = {"discover", "select", "transform", "alignment", "calendar"}
+_CONSTRUCTED_BY: dict[str, str] = {
+    "MetricFrame": "session.observe(...), MetricFrame.from_dataframe(...)",
+    "DeltaFrame": "session.compare(...)",
+    "AttributionFrame": "session.decompose(...), session.correlate(...)",
+    "ForecastFrame": "session.forecast(...)",
+    "QualityReport": "session.assess_quality(...)",
+    "CandidateSet": "session.discover(...)",
+    "AssociationResult": "session.correlate(...)",
+    "ComponentFrame": "MetricFrame.components(), DeltaFrame.components()",
+    "ExplorationResult": "analysis exploration intents",
+    "HypothesisTestResult": "session.hypothesis_test(...)",
+}
+
+_SUMMARIES: dict[str, str] = {
+    "help": "this introspection entry point",
+    "help_text": "return analysis help text without printing",
+    "session": "analysis session lifecycle and persistence helpers",
+    "datasources": "analysis datasource registration, validation, and runtime lookup",
+    "errors": "AnalysisError hierarchy and analysis error kinds",
+    "load_frame": "load a persisted frame by ref",
+    "observe": "build a MetricFrame from a metric and window",
+    "compare": "compare two MetricFrames into a DeltaFrame",
+    "decompose": "decompose a DeltaFrame into an AttributionFrame",
+    "discover": "discover candidate follow-ups from analysis artifacts",
+    "transform": "family-preserving reshape of a MetricFrame or DeltaFrame",
+    "correlate": "correlate compatible analysis frames",
+    "forecast": "project a time_series or panel MetricFrame forward",
+    "assess_quality": "inspect MetricFrame quality and recommend follow-ups",
+    "hypothesis_test": "run a paired hypothesis test over compatible MetricFrames",
+    "alignment": "AlignmentPolicy variants and output columns",
+    "calendar": "project-local calendar JSON file shape",
+    "select": "read typed fields from a CandidateSet row",
+    "MetricFrame": "observed metric values with scalar, time_series, segmented, or panel shape",
+    "DeltaFrame": "comparison output with aligned current and baseline values",
+    "AttributionFrame": "decomposition, correlation, or anomaly attribution output",
+    "ForecastFrame": "forecast output for a time_series or panel metric history",
+    "QualityReport": "quality assessment output for an observed metric frame",
+    "CandidateSet": "ranked candidate follow-ups returned by discovery",
+    "AssociationResult": "correlation result frame",
+    "ComponentFrame": "component values linked to component-aware derived metric frames",
+    "ExplorationResult": "exploration result frame",
+    "HypothesisTestResult": "statistical test result frame",
+}
+
+_SEE_ALSO: dict[str, tuple[str, ...]] = {
+    "MetricFrame": ("mv.help('observe', format='json')", "mv.help('MetricFrame.components')"),
+    "DeltaFrame": ("mv.help('compare', format='json')", "mv.help('decompose')"),
+    "CandidateSet": ("mv.help('discover', format='json')", "mv.help('select')"),
+    "AlignmentPolicy": ("mv.help('alignment', format='json')", "mv.help('calendar')"),
+}
 
 
-def _list_top_level() -> str:
-    lines = ["marivo.analysis - top-level entries:"]
-    for name, summary in _TOP_LEVEL_ENTRIES.items():
-        prefix = "mv." if name in {"alignment", "session", "help"} else ""
-        lines.append(f"  {prefix}{name:<22} {summary}")
-    lines.append("")
-    lines.append('Call mv.help("<name>") for a signature, docstring, or reference matrix.')
-    return "\n".join(lines)
-
-
-def _describe_callable(name: str, obj: Callable[..., object]) -> str:
-    try:
-        signature = str(inspect.signature(obj))
-    except (TypeError, ValueError):
-        signature = "(...)"
-    lines = [f"{name}{signature}"]
-
-    doc = inspect.getdoc(obj)
-    if doc is None and getattr(obj, "__module__", None):
-        module = inspect.getmodule(obj)
-        doc = inspect.getdoc(module)
-    if doc:
-        lines.append("")
-        lines.append(doc)
-    namespace_methods = _namespace_methods(obj)
-    if namespace_methods:
-        lines.append("")
-        lines.append("Methods:")
-        for method_name in namespace_methods:
-            method = getattr(obj, method_name)
-            try:
-                method_signature = str(inspect.signature(method))
-            except (TypeError, ValueError):
-                method_signature = "(...)"
-            lines.append(f"  {name}.{method_name}{method_signature}")
-    return "\n".join(lines)
-
-
-def _namespace_methods(obj: object) -> tuple[str, ...]:
-    if obj.__class__.__name__ == "TransformAPI":
-        return ("filter", "slice", "rollup", "topk", "bottomk", "rank", "normalize", "window")
-    if obj.__class__.__name__ == "DiscoverAPI":
-        return (
-            "point_anomalies",
-            "period_shifts",
-            "driver_axes",
-            "interesting_slices",
-            "interesting_windows",
-            "cross_sectional_outliers",
-        )
-    return ()
-
-
-def _describe_class(name: str, obj: type[object]) -> str:
-    lines = [f"class {name}"]
-    if obj.__doc__:
-        doc = inspect.cleandoc(obj.__doc__)
-        lines.append("")
-        lines.append(doc)
-    if name == "SemanticKindMismatchError":
-        lines.append("")
-        lines.append("Common compare case: pass two MetricFrame inputs to session.compare(...).")
-    return "\n".join(lines)
-
-
-def _describe_module(name: str, obj: ModuleType) -> str:
-    lines = [f"module {name}"]
-    if doc := inspect.getdoc(obj):
-        lines.append("")
-        lines.append(doc)
-    return "\n".join(lines)
-
-
-def _format_discover_matrix() -> str:
+def _discover_content() -> dict[str, object]:
     from marivo.analysis.intents.discover import (
         _OBJECTIVE_COMPATIBILITY,
         _OBJECTIVE_REQUIRED_KWARGS,
         _OBJECTIVE_TO_SHAPE,
     )
 
+    objectives: list[dict[str, object]] = []
+    for objective in sorted(_OBJECTIVE_COMPATIBILITY):
+        compat = _OBJECTIVE_COMPATIBILITY[objective]
+        objectives.append(
+            {
+                "objective": objective,
+                "helper": f"session.discover.{objective}",
+                "shape": _OBJECTIVE_TO_SHAPE[objective],
+                "sources": {
+                    source_kind: sorted(semantic_kinds)
+                    for source_kind, semantic_kinds in sorted(compat.items())
+                },
+                "required_kwargs": list(_OBJECTIVE_REQUIRED_KWARGS.get(objective, ())),
+            }
+        )
+    return {
+        "summary": "session.discover objective helper matrix.",
+        "objectives": objectives,
+        "example": (
+            'session.discover.driver_axes(delta, search_space=[mv.DimensionRef("country")])'
+        ),
+    }
+
+
+def _discover_text(content: dict[str, object]) -> str:
+    objectives = cast("list[dict[str, object]]", content["objectives"])
     lines = ["session.discover objective helper matrix:", ""]
     header = f"  {'helper':<42}{'source':<14}{'semantic_kind':<40}{'shape':<26}required"
     lines.append(header)
     lines.append("  " + "-" * (len(header) - 2))
-    for objective in sorted(_OBJECTIVE_COMPATIBILITY):
-        compat = _OBJECTIVE_COMPATIBILITY[objective]
-        shape = _OBJECTIVE_TO_SHAPE[objective]
-        required = ", ".join(_OBJECTIVE_REQUIRED_KWARGS.get(objective, ())) or "-"
-        for source in sorted(compat):
-            kinds = "|".join(sorted(compat[source]))
-            helper = f"session.discover.{objective}"
-            lines.append(f"  {helper:<42}{source:<14}{kinds:<40}{shape:<26}{required}")
+    for item in objectives:
+        sources = cast("dict[str, list[str]]", item["sources"])
+        required = ", ".join(cast("list[str]", item["required_kwargs"])) or "-"
+        for source_kind in sorted(sources):
+            kinds = "|".join(sources[source_kind])
+            lines.append(
+                f"  {item['helper']:<42}{source_kind:<14}{kinds:<40}{item['shape']:<26}{required}"
+            )
     lines.append("")
-    lines.append("Example: session.discover.driver_axes(delta,")
-    lines.append('                                     search_space=[mv.DimensionRef("country")])')
+    lines.append(f"Example: {content['example']}")
     return "\n".join(lines)
 
 
-def _format_select_matrix() -> str:
+def _select_content() -> dict[str, object]:
     from marivo.analysis.intents.select import _FIELD_BY_SHAPE
 
+    return {
+        "summary": "CandidateSet.select attribute-by-shape matrix.",
+        "fields_by_shape": {
+            shape: sorted(fields) for shape, fields in sorted(_FIELD_BY_SHAPE.items())
+        },
+        "dot_paths": [
+            "keys.<dim>",
+            "selector.<dim>",
+        ],
+        "example": 'cs.select(rank=1, attribute="window")',
+    }
+
+
+def _select_text(content: dict[str, object]) -> str:
+    fields_by_shape = cast("dict[str, list[str]]", content["fields_by_shape"])
     lines = ["CandidateSet.select attribute-by-shape matrix:", ""]
-    for shape in sorted(_FIELD_BY_SHAPE):
-        valid = ", ".join(sorted(_FIELD_BY_SHAPE[shape]))
-        lines.append(f"  {shape:<28}{valid}")
+    for shape in sorted(fields_by_shape):
+        lines.append(f"  {shape:<28}{', '.join(fields_by_shape[shape])}")
     lines.append("")
     lines.append('Dot-paths "keys.<dim>" / "selector.<dim>" pull a single key out')
-    lines.append('of the candidate row. Example: cs.select(rank=1, attribute="window")')
+    lines.append(f"of the candidate row. Example: {content['example']}")
     return "\n".join(lines)
 
 
-def _format_transform_matrix() -> str:
+def _transform_content() -> dict[str, object]:
     from marivo.analysis.intents.transform import _SUPPORTED_OPS
 
-    op_required: dict[str, tuple[str, ...]] = {
+    required_args: dict[str, tuple[str, ...]] = {
         "filter": ("predicate",),
         "slice": ("where",),
         "rollup": ("drop_axes",),
@@ -151,66 +180,163 @@ def _format_transform_matrix() -> str:
         "normalize": ("kind",),
         "window": ("window",),
     }
+    return {
+        "summary": "session.transform op helper matrix (v1).",
+        "ops": [
+            {
+                "op": op,
+                "helper": f"session.transform.{op}",
+                "required_kwargs": list(required_args.get(op, ())),
+            }
+            for op in _SUPPORTED_OPS
+        ],
+        "notes": [
+            "normalize is MetricFrame-only in v1; DeltaFrame normalize is reserved.",
+        ],
+        "example": 'session.transform.topk(delta, by="delta", limit=3, order="decrease")',
+    }
+
+
+def _transform_text(content: dict[str, object]) -> str:
+    ops = cast("list[dict[str, object]]", content["ops"])
     lines = ["session.transform op helper matrix (v1):", ""]
-    for op in _SUPPORTED_OPS:
-        required = ", ".join(op_required.get(op, ())) or "-"
-        lines.append(f"  session.transform.{op:<12}required: {required}")
+    for op in ops:
+        required = ", ".join(cast("list[str]", op["required_kwargs"])) or "-"
+        lines.append(f"  {op['helper']:<32}required: {required}")
     lines.append("")
-    lines.append('Example: session.transform.topk(delta, by="delta", limit=3, order="decrease")')
+    lines.append(f"Example: {content['example']}")
     lines.append("")
-    lines.append("normalize is MetricFrame-only in v1; DeltaFrame normalize is reserved.")
+    for note in cast("list[str]", content["notes"]):
+        lines.append(note)
     return "\n".join(lines)
 
 
-def _format_alignment_matrix() -> str:
-    lines = ["mv.AlignmentPolicy variants:", ""]
-    lines.append("Valid kind values:")
-    lines.append("  kind='window_bucket'         no calendar argument")
-    lines.append("  kind='dow_aligned'             calendar=mv.CalendarRef(...) required")
-    lines.append("  kind='holiday_aligned'         calendar=mv.CalendarRef(...) required")
-    lines.append("  kind='holiday_and_dow_aligned' calendar=mv.CalendarRef(...) required")
-    lines.append("")
-    lines.append("window_bucket behavior:")
-    lines.append("  window_bucket default -> align by ordinal bucket position")
-    lines.append("  window_bucket mode='calendar_bucket' -> outer join absolute bucket keys")
-    lines.append("  strict_lengths=True -> require equal ordinal bucket counts")
-    lines.append("  sparse observed buckets become NaN values rather than alignment failures")
-    lines.append("  there is no separate kind='ordinal'")
-    lines.append("")
-    lines.append("Calendar alignment output columns:")
+def _alignment_content() -> dict[str, object]:
+    return {
+        "summary": "mv.AlignmentPolicy variants and calendar-backed alignment columns.",
+        "variants": [
+            {
+                "kind": "window_bucket",
+                "calendar_required": False,
+                "notes": [
+                    "window_bucket default -> align by ordinal bucket position",
+                    "window_bucket mode='calendar_bucket' -> outer join absolute bucket keys",
+                    "strict_lengths=True -> require equal ordinal bucket counts",
+                    "sparse observed buckets become NaN values rather than alignment failures",
+                    "there is no separate kind='ordinal'",
+                ],
+            },
+            {
+                "kind": "dow_aligned",
+                "calendar_required": True,
+                "calendar_arg": "calendar=mv.CalendarRef(...)",
+            },
+            {
+                "kind": "holiday_aligned",
+                "calendar_required": True,
+                "calendar_arg": "calendar=mv.CalendarRef(...)",
+            },
+            {
+                "kind": "holiday_and_dow_aligned",
+                "calendar_required": True,
+                "calendar_arg": "calendar=mv.CalendarRef(...)",
+            },
+        ],
+        "output_columns": {
+            "align_key": "compact JSON object string; fields depend on kind",
+            "align_quality": "exact or fallback",
+            "bucket_start_a": "paired current bucket date",
+            "bucket_start_b": "paired baseline bucket date",
+        },
+        "align_key_examples": [
+            {"kind": "dow", "iso_weekday": 2, "period_week_offset": 0},
+            {"kind": "holiday", "holiday_id": "labor-day", "holiday_ordinal": 1},
+            {"kind": "workday", "workday_ordinal": 1},
+            {"kind": "fallback_workday", "baseline_date": "2026-04-03"},
+        ],
+        "example": (
+            "mv.AlignmentPolicy(kind='dow_aligned', "
+            "calendar=mv.CalendarRef('cn_holidays'), period='month')"
+        ),
+    }
+
+
+def _alignment_text(content: dict[str, object]) -> str:
+    variants = cast("list[dict[str, object]]", content["variants"])
+    examples = cast("list[dict[str, object]]", content["align_key_examples"])
+    lines = ["mv.AlignmentPolicy variants:", "", "Valid kind values:"]
+    for variant in variants:
+        calendar = (
+            "calendar=mv.CalendarRef(...) required"
+            if variant["calendar_required"]
+            else "no calendar argument"
+        )
+        lines.append(f"  kind='{variant['kind']}' {calendar}")
+    lines.extend(("", "window_bucket behavior:"))
+    for note in cast("list[str]", variants[0]["notes"]):
+        lines.append(f"  {note}")
+    lines.extend(("", "Calendar alignment output columns:"))
     lines.append("  align_key is a compact JSON object string; fields depend on kind")
-    lines.append('  dow: {"kind":"dow","iso_weekday":2,"period_week_offset":0}')
-    lines.append('  holiday: {"kind":"holiday","holiday_id":"labor-day","holiday_ordinal":1}')
-    lines.append('  workday: {"kind":"workday","workday_ordinal":1}')
-    lines.append('  fallback_workday: {"kind":"fallback_workday","baseline_date":"2026-04-03"}')
+    for example in examples:
+        if example["kind"] == "dow":
+            lines.append('  dow: {"kind":"dow","iso_weekday":2,"period_week_offset":0}')
+        elif example["kind"] == "holiday":
+            lines.append(
+                '  holiday: {"kind":"holiday","holiday_id":"labor-day","holiday_ordinal":1}'
+            )
+        elif example["kind"] == "workday":
+            lines.append('  workday: {"kind":"workday","workday_ordinal":1}')
+        elif example["kind"] == "fallback_workday":
+            lines.append(
+                '  fallback_workday: {"kind":"fallback_workday","baseline_date":"2026-04-03"}'
+            )
     lines.append("  align_quality is 'exact' or 'fallback'; bucket_start_a/b show paired dates")
     lines.append("")
-    lines.append("Example: mv.AlignmentPolicy(kind='dow_aligned',")
-    lines.append("                            calendar=mv.CalendarRef('cn_holidays'),")
-    lines.append("                            period='month')")
+    lines.append(f"Example: {content['example']}")
     return "\n".join(lines)
 
 
-def _format_calendar_schema() -> str:
-    lines = ["project-local calendar JSON schema:", ""]
-    lines.append("Location:")
-    lines.append("  .marivo/calendar/<name>.json")
+def _calendar_content() -> dict[str, object]:
+    return {
+        "summary": "project-local calendar JSON schema.",
+        "location": ".marivo/calendar/<name>.json",
+        "schema": {
+            "name": "string matching the file stem",
+            "holidays": "list[CalendarEntry]",
+            "adjusted_workdays": "optional list[CalendarEntry], defaults to []",
+        },
+        "entry_schema": {
+            "date": "ISO date string, YYYY-MM-DD",
+            "holiday_id": "optional string used to match same holiday across years",
+        },
+        "rules": [
+            "Calendar files define dates only; extra top-level fields are rejected.",
+            "Extra entry fields are rejected; use holiday_id rather than name/label.",
+        ],
+        "example": {
+            "name": "cn_holidays",
+            "holidays": [{"date": "2026-05-01", "holiday_id": "labor-day"}],
+            "adjusted_workdays": [{"date": "2026-05-02"}],
+        },
+    }
+
+
+def _calendar_text(content: dict[str, object]) -> str:
+    example = cast("dict[str, object]", content["example"])
+    lines = ["project-local calendar JSON schema:", "", "Location:"]
+    lines.append(f"  {content['location']}")
     lines.append("  The directory is created when an analysis session is created or attached.")
-    lines.append("")
-    lines.append("Top-level object:")
+    lines.extend(("", "Top-level object:"))
     lines.append('  "name": string matching the file stem')
     lines.append('  "holidays": list[CalendarEntry]')
     lines.append('  "adjusted_workdays": optional list[CalendarEntry], defaults to []')
     lines.append("  Calendar files define dates only; extra top-level fields are rejected.")
-    lines.append("")
-    lines.append("CalendarEntry:")
+    lines.extend(("", "CalendarEntry:"))
     lines.append('  "date": ISO date string, YYYY-MM-DD')
     lines.append('  "holiday_id": optional string used to match same holiday across years')
     lines.append("  Extra fields are rejected; use holiday_id rather than name/label.")
-    lines.append("")
-    lines.append("Example:")
-    lines.append("{")
-    lines.append('  "name": "cn_holidays",')
+    lines.extend(("", "Example:", "{"))
+    lines.append(f'  "name": "{example["name"]}",')
     lines.append('  "holidays": [')
     lines.append('    {"date": "2026-05-01", "holiday_id": "labor-day"}')
     lines.append("  ],")
@@ -221,13 +347,15 @@ def _format_calendar_schema() -> str:
     return "\n".join(lines)
 
 
-_MATRIX_FORMATTERS: dict[str, Callable[[], str]] = {
-    "discover": _format_discover_matrix,
-    "select": _format_select_matrix,
-    "transform": _format_transform_matrix,
-    "alignment": _format_alignment_matrix,
-    "calendar": _format_calendar_schema,
-}
+def _topic(symbol: str, content: dict[str, object], doc: str) -> Descriptor:
+    return Descriptor(
+        surface="marivo.analysis",
+        kind="topic",
+        symbol=symbol,
+        summary=cast("str", content["summary"]),
+        content=content,
+        doc=doc,
+    )
 
 
 def _resolve(symbol: str) -> object | None:
@@ -236,6 +364,8 @@ def _resolve(symbol: str) -> object | None:
 
     if hasattr(mv, symbol):
         return cast("object", getattr(mv, symbol))
+    if hasattr(errors_mod, symbol):
+        return cast("object", getattr(errors_mod, symbol))
     if symbol == "observe":
         from marivo.analysis.intents.observe import observe
 
@@ -248,6 +378,18 @@ def _resolve(symbol: str) -> object | None:
         from marivo.analysis.intents.decompose import decompose
 
         return decompose
+    if symbol == "discover":
+        from marivo.analysis.intents.discover import discover
+
+        return discover
+    if symbol == "transform":
+        from marivo.analysis.intents.transform import transform
+
+        return transform
+    if symbol == "select":
+        from marivo.analysis.intents.select import select
+
+        return select
     if symbol == "correlate":
         from marivo.analysis.intents.correlate import correlate
 
@@ -264,37 +406,86 @@ def _resolve(symbol: str) -> object | None:
         from marivo.analysis.intents.test import hypothesis_test
 
         return hypothesis_test
-    if hasattr(errors_mod, symbol):
-        return cast("object", getattr(errors_mod, symbol))
     return None
+
+
+@lru_cache(maxsize=1)
+def _surface() -> Surface:
+    import marivo.analysis as mv
+
+    all_names = tuple(dict.fromkeys((*mv.__all__, *_HELP_ONLY_ENTRIES)))
+    summaries = {name: _SUMMARIES.get(name, "") for name in all_names}
+    catalog = {constraint.id: constraint for constraint in iter_constraints()}
+    discover_content = _discover_content()
+    select_content = _select_content()
+    transform_content = _transform_content()
+    alignment_content = _alignment_content()
+    calendar_content = _calendar_content()
+    return Surface(
+        name="marivo.analysis",
+        all_names=all_names,
+        summaries=summaries,
+        resolve=_resolve,
+        catalog=catalog,
+        topics={
+            "discover": _topic("discover", discover_content, _discover_text(discover_content)),
+            "select": _topic("select", select_content, _select_text(select_content)),
+            "transform": _topic(
+                "transform",
+                transform_content,
+                _transform_text(transform_content),
+            ),
+            "alignment": _topic(
+                "alignment",
+                alignment_content,
+                _alignment_text(alignment_content),
+            ),
+            "calendar": _topic("calendar", calendar_content, _calendar_text(calendar_content)),
+        },
+        frame_symbols=_FRAME_SYMBOLS,
+        constructed_by=_CONSTRUCTED_BY,
+        see_also=_SEE_ALSO,
+    )
+
+
+def _format_top_level_text() -> str:
+    data = cast("dict[str, object]", render(_surface(), None, "json"))
+    entries = cast("list[dict[str, str]]", data["entries"])
+    lines = ["marivo.analysis - top-level entries:", ""]
+    for entry in entries:
+        name = entry["name"]
+        label = f"help:{name}" if name in _HELP_ONLY_ENTRIES else f"mv.{name}"
+        lines.append(f"  {label:<27} [{entry['kind']}]  {entry['summary']}")
+    lines.append("")
+    lines.append('Call mv.help("<name>") for detail on any entry.')
+    lines.append('Call mv.help("<name>", format="json") for agent-readable data.')
+    return "\n".join(lines)
 
 
 def help_text(symbol: str | None = None) -> str:
     """Return help text as a string instead of printing it."""
 
-    if symbol is None:
-        return _list_top_level()
-
-    if symbol in _MATRIX_FORMATTERS:
-        return _MATRIX_FORMATTERS[symbol]()
-
-    obj = _resolve(symbol)
-    if obj is None:
-        return f"Unknown symbol {symbol!r}. Call mv.help() to list available entries."
-
-    if inspect.isclass(obj):
-        return _describe_class(symbol, obj)
-
-    if callable(obj):
-        return _describe_callable(symbol, obj)
-
-    if isinstance(obj, ModuleType):
-        return _describe_module(symbol, obj)
-
-    return repr(obj)
+    normalized = None if symbol == "" else symbol
+    if normalized is None:
+        return _format_top_level_text()
+    return cast("str", render(_surface(), normalized, "text"))
 
 
-def help(symbol: str | None = None) -> None:
-    """Print top-level or symbol-specific help for marivo.analysis."""
+def help(  # noqa: A001, RUF100
+    symbol: str | None = None,
+    *,
+    format: Literal["text", "json"] = "text",
+) -> dict[str, object] | None:
+    """Print or return agent-facing help for the analysis surface.
 
-    print(help_text(symbol))
+    With ``format="text"``, prints a compact text descriptor and returns None.
+    With ``format="json"``, returns a structured descriptor and does not print.
+    """
+
+    normalized = None if symbol == "" else symbol
+    if format == "json":
+        return cast("dict[str, object]", render(_surface(), normalized, "json"))
+    if format == "text":
+        print(help_text(normalized))
+        return None
+    raise ValueError("format must be 'text' or 'json'")

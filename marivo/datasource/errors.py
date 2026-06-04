@@ -17,8 +17,23 @@ class DatasourceConfigError(Exception):
     ) -> None:
         super().__init__(message)
         self.message = message
-        self.hint = hint
         self.details = details or {}
+        if hint is None:
+            from marivo.datasource.constraints import (
+                CONSTRAINTS,
+                default_constraint_for_error,
+            )
+            from marivo.introspection.errors import hint_from_catalog
+
+            constraint = default_constraint_for_error(self.kind, self.details)
+            if constraint is not None:
+                hint = constraint.hint
+            else:
+                hint = hint_from_catalog(
+                    {constraint.id: constraint for constraint in CONSTRAINTS.values()},
+                    self.kind,
+                )
+        self.hint = hint
 
     @property
     def kind(self) -> str:

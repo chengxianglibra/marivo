@@ -43,6 +43,8 @@ _FRAME_CLASSES = {
 
 
 def load_frame(ref: str, *, session: Session) -> BaseFrame:
+    """Load a persisted analysis frame by ref from the given or active session."""
+
     frame_dir = session.layout.frames_dir / ref
     if not (frame_dir / "meta.json").is_file():
         owner = _find_frame_owner(ref, session=session)

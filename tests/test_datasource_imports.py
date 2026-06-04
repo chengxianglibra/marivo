@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 
 def test_datasource_import_does_not_load_semantic_or_analysis() -> None:
@@ -26,7 +27,27 @@ assert "marivo.analysis" not in sys.modules
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_load_datasources_returns_datasource_ir(tmp_path) -> None:
+def test_datasource_help_import_does_not_load_semantic_or_analysis() -> None:
+    code = """
+import sys
+for name in list(sys.modules):
+    if name == "marivo.datasource" or name.startswith("marivo.datasource."):
+        del sys.modules[name]
+    if name == "marivo.semantic" or name.startswith("marivo.semantic."):
+        del sys.modules[name]
+    if name == "marivo.analysis" or name.startswith("marivo.analysis."):
+        del sys.modules[name]
+
+import marivo.datasource as md
+
+assert md.help(format="json")["surface"] == "marivo.datasource"
+assert "marivo.semantic" not in sys.modules
+assert "marivo.analysis" not in sys.modules
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
     import marivo.datasource as md
     from marivo.datasource.ir import DatasourceIR
 
