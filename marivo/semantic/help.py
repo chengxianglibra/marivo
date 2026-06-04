@@ -2,98 +2,90 @@
 
 from __future__ import annotations
 
-import inspect
-from types import ModuleType
+from functools import lru_cache
 from typing import Any, Literal, cast
 
-from marivo.semantic.constraints import (
-    constraints_for_symbol,
-    get_constraint,
-    iter_constraints,
-)
+from marivo.introspection.schema import Descriptor
+from marivo.introspection.surface import Surface, render
+from marivo.semantic.constraints import iter_constraints
 
-_TOP_LEVEL_ENTRIES: dict[str, tuple[str, str]] = {
-    "model": ("callable", "opens a model namespace for decorator registration"),
-    "datasource": ("removed", "declare project datasources in .marivo/datasource/*.py"),
-    "dataset": ("callable", "declare a dataset over a structured source"),
-    "table": ("callable", "table source for ms.dataset(source=...)"),
-    "file": ("callable", "file source for ms.dataset(source=...)"),
-    "field": ("callable", "declare a non-aggregated field on a dataset"),
-    "time_field": ("callable", "declare a time-aware field used as the calendar axis"),
-    "metric": ("callable", "declare a dataset-backed aggregate metric"),
-    "derived_metric": (
-        "callable",
-        "declare a body-free canonical ratio or weighted-average metric",
-    ),
-    "relationship": ("callable", "declare a relationship between datasets"),
-    "ratio": ("callable", "derived metric helper (a/b)"),
-    "ref": ("callable", "refer to another metric by qualified name"),
-    "sum": ("callable", "sum aggregation marker"),
-    "weighted_average": ("callable", "weighted-average aggregation marker"),
-    "decomposition": ("topic", "metric decomposition builders and aggregation boundary"),
-    "help": ("callable", "this introspection entry point"),
-    "constraints": ("topic", "authoring and validation constraints"),
-    "find_project": ("callable", "discover a semantic project by walking up from a directory"),
-    "SemanticProject": ("class", "primary reader for a loaded semantic project"),
-    "typing": ("module", "IbisBackend Protocol and AiContext TypedDict"),
-    "errors": ("module", "SemanticError hierarchy and ErrorKind enum"),
+_SUMMARIES: dict[str, str] = {
+    "AiContext": "agent-facing semantic metadata schema",
+    "Candidate": "candidate semantic object proposed from source evidence",
+    "ConfirmationRecord": "record of user-confirmed semantic intent",
+    "DecisionInput": "normalized input for semantic decision records",
+    "DecisionKind": "semantic decision category enum",
+    "DecisionRecord": "stored semantic authoring decision",
+    "DemandSignal": "signal used to score semantic richness gaps",
+    "Enrichment": "additional semantic metadata proposed for an object",
+    "EvidenceRef": "reference to semantic discovery evidence",
+    "EvidenceSummary": "semantic readiness evidence summary",
+    "OpenQuestion": "question that needs user confirmation",
+    "ParitySummary": "semantic parity evidence summary",
+    "PreviewSummary": "raw preview evidence summary",
+    "ProposalResult": "semantic candidate proposal result",
+    "ReadinessIssue": "semantic readiness issue",
+    "ReadinessReport": "semantic readiness report",
+    "RejectedCandidate": "candidate rejected during semantic authoring",
+    "ResidualColumn": "unmodeled source column remaining after proposal",
+    "RichnessGap": "missing semantic detail identified by richness checks",
+    "RichnessReport": "semantic richness report",
+    "SemanticProject": "primary reader for a loaded semantic project",
+    "classify": "classify source columns into semantic authoring candidates",
+    "dataset": "declare a dataset over a structured source",
+    "derived_metric": "declare a body-free canonical ratio or weighted-average metric",
+    "errors": "SemanticError hierarchy and ErrorKind enum",
+    "field": "declare a non-aggregated field on a dataset",
+    "file": "file source for ms.dataset(source=...)",
+    "find_project": "discover a semantic project by walking up from a directory",
+    "help": "this introspection entry point",
+    "metric": "declare a dataset-backed aggregate metric",
+    "model": "open a model namespace for decorator registration",
+    "ratio": "derived metric helper (a/b)",
+    "ref": "refer to another metric by qualified name",
+    "relationship": "declare a relationship between datasets",
+    "select_for_user": "select semantic candidates that need user input",
+    "snapshot": "declare snapshot versioning for a dataset",
+    "sum": "sum aggregation marker",
+    "table": "table source for ms.dataset(source=...)",
+    "time_field": "declare a time-aware field used as the calendar axis",
+    "to_decision_inputs": "convert candidates into decision inputs",
+    "typing": "IbisBackend Protocol and AiContext TypedDict",
+    "validity": "declare validity-window versioning for a dataset",
+    "weighted_average": "weighted-average aggregation marker",
+    "constraints": "authoring and validation constraints",
+    "decomposition": "metric decomposition builders and aggregation boundary",
 }
 
 
-def _list_top_level() -> str:
-    lines = ["marivo.semantic — top-level entries:", ""]
-    for name, (kind, desc) in _TOP_LEVEL_ENTRIES.items():
-        lines.append(f"  ms.{name:<18} [{kind}]  {desc}")
-    lines.append("")
-    lines.append('Call ms.help("<name>") for detail on any entry.')
-    lines.append('Call ms.help("<name>", format="json") for agent-readable data.')
-    return "\n".join(lines)
+def _constraint_topic() -> Descriptor:
+    constraints = [
+        {
+            "id": constraint.id,
+            "title": constraint.title,
+        }
+        for constraint in iter_constraints()
+    ]
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="constraints",
+        summary="Semantic authoring and validation constraints. Drill into an id for full rule details.",
+        content={"constraints": constraints},
+        doc="\n".join(
+            (
+                "marivo.semantic constraints:",
+                "",
+                *(f"  {constraint['id']:<34} {constraint['title']}" for constraint in constraints),
+                "",
+                'Call ms.help("<constraint_id>", format="json") for full rule details.',
+            )
+        ),
+    )
 
 
-def _describe_callable(name: str, obj: Any) -> str:
-    sig: str
-    try:
-        sig = f"{name}{inspect.signature(obj)}"
-    except (TypeError, ValueError):
-        sig = name
-    doc = inspect.getdoc(obj) or "(no docstring)"
-    constraint_text = _format_symbol_constraints(name)
-    if constraint_text:
-        return f"{sig}\n\n{doc}\n\n{constraint_text}"
-    return f"{sig}\n\n{doc}"
-
-
-def _describe_class(name: str, obj: type) -> str:
-    doc = inspect.getdoc(obj) or "(no docstring)"
-    return f"class {name}\n\n{doc}"
-
-
-def _format_symbol_constraints(symbol: str) -> str:
-    constraints = constraints_for_symbol(symbol)
-    if not constraints:
-        return ""
-    lines = ["Constraints:"]
-    for constraint in constraints:
-        lines.append(f"  - {constraint.id.value}: {constraint.title}")
-        lines.append(f"    hint: {constraint.hint}")
-    return "\n".join(lines)
-
-
-def _format_constraints_text() -> str:
-    lines = ["marivo.semantic constraints:", ""]
-    for constraint in iter_constraints():
-        lines.append(f"  {constraint.id.value:<34} [{constraint.error_kind}] {constraint.title}")
-    lines.append("")
-    lines.append('Call ms.help("constraints", format="json") for the full catalog.')
-    return "\n".join(lines)
-
-
-def _decomposition_help_json() -> dict[str, object]:
+def _decomposition_content() -> dict[str, object]:
     return {
-        "schema_version": "1",
-        "surface": "marivo.semantic",
-        "kind": "topic",
-        "topic": "decomposition",
         "summary": (
             "Metric decomposition is not SQL aggregation. Decomposition declares how "
             "metric values compose during drilldown, derived calculations, and "
@@ -154,36 +146,47 @@ def _decomposition_help_json() -> dict[str, object]:
     }
 
 
-def _format_decomposition_text() -> str:
-    data = _decomposition_help_json()
+def _decomposition_text(content: dict[str, object]) -> str:
+    builders = cast("list[dict[str, object]]", content["builders"])
+    guidance = cast("list[dict[str, object]]", content["guidance"])
+    anti_patterns = cast("list[str]", content["anti_patterns"])
     lines = [
         "marivo.semantic decomposition",
         "",
-        str(data["summary"]),
+        str(content["summary"]),
         "",
         "Supported builders:",
     ]
-    builders = cast("list[dict[str, object]]", data["builders"])
-    guidance = cast("list[dict[str, object]]", data["guidance"])
-    anti_patterns = cast("list[str]", data["anti_patterns"])
     for builder in builders:
         lines.append(f"  - {builder['call']}: {builder['use']}")
-    lines.extend(
-        [
-            "",
-            "Guidance:",
-        ]
-    )
+    lines.extend(("", "Guidance:"))
     for guidance_item in guidance:
         lines.append(
             f"  - {guidance_item['metric_shape']}: body {guidance_item['body']}; decomposition {guidance_item['decomposition']}"
         )
-    lines.extend(["", "Anti-patterns:"])
+    lines.extend(("", "Anti-patterns:"))
     for anti_pattern in anti_patterns:
         lines.append(f"  - {anti_pattern}")
     lines.append("")
     lines.append('Call ms.help("decomposition", format="json") for agent-readable data.')
     return "\n".join(lines)
+
+
+def _decomposition_topic() -> Descriptor:
+    content = _decomposition_content()
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="decomposition",
+        summary=cast("str", content["summary"]),
+        content=content,
+        doc=_decomposition_text(content),
+        see_also=(
+            "ms.help('metric', format='json')",
+            "ms.help('derived_metric', format='json')",
+            "ms.help('constraints', format='json')",
+        ),
+    )
 
 
 def _resolve(symbol: str) -> Any | None:
@@ -200,108 +203,45 @@ def _resolve(symbol: str) -> Any | None:
     return None
 
 
+@lru_cache(maxsize=1)
+def _surface() -> Surface:
+    import marivo.semantic as ms
+
+    all_names = tuple(dict.fromkeys((*ms.__all__, "constraints", "decomposition")))
+    summaries = {name: _SUMMARIES.get(name, "") for name in all_names}
+    catalog = {constraint.id: constraint for constraint in iter_constraints()}
+    return Surface(
+        name="marivo.semantic",
+        all_names=all_names,
+        summaries=summaries,
+        resolve=_resolve,
+        catalog=catalog,
+        topics={
+            "constraints": _constraint_topic(),
+            "decomposition": _decomposition_topic(),
+        },
+    )
+
+
+def _format_top_level_text() -> str:
+    data = cast("dict[str, object]", render(_surface(), None, "json"))
+    entries = cast("list[dict[str, str]]", data["entries"])
+    lines = ["marivo.semantic - top-level entries:", ""]
+    for entry in entries:
+        lines.append(f"  ms.{entry['name']:<18} [{entry['kind']}]  {entry['summary']}")
+    lines.append("")
+    lines.append('Call ms.help("<name>") for detail on any entry.')
+    lines.append('Call ms.help("<name>", format="json") for agent-readable data.')
+    return "\n".join(lines)
+
+
 def help_text(symbol: str | None = None) -> str:
     """Return help text as a string instead of printing it."""
 
-    if symbol is None or symbol == "":
-        return _list_top_level()
-    if symbol == "constraints":
-        return _format_constraints_text()
-    if symbol == "decomposition":
-        return _format_decomposition_text()
-
-    obj = _resolve(symbol)
-    if obj is None:
-        return f"unknown symbol: {symbol!r}\nRun ms.help() to see the top-level entry list."
-
-    if inspect.isclass(obj):
-        return _describe_class(symbol, obj)
-    elif callable(obj) or inspect.ismodule(obj):
-        return _describe_callable(symbol, obj)
-    else:
-        return repr(obj)
-
-
-def _signature(name: str, obj: Any) -> str:
-    try:
-        return f"{name}{inspect.signature(obj)}"
-    except (TypeError, ValueError):
-        return name
-
-
-def _constraints_json(symbol: str | None = None) -> list[dict[str, object]]:
-    if symbol is None:
-        return [constraint.to_dict() for constraint in iter_constraints()]
-    return [constraint.to_dict() for constraint in constraints_for_symbol(symbol)]
-
-
-def _object_json(symbol: str, obj: Any) -> dict[str, object]:
-    data: dict[str, object] = {
-        "symbol": symbol,
-        "constraints": _constraints_json(symbol),
-    }
-    if inspect.isclass(obj):
-        data["kind"] = "class"
-        data["signature"] = f"class {symbol}"
-        data["doc"] = inspect.getdoc(obj) or ""
-    elif inspect.ismodule(obj) or isinstance(obj, ModuleType):
-        data["kind"] = "module"
-        data["signature"] = f"module {symbol}"
-        data["doc"] = inspect.getdoc(obj) or ""
-    elif callable(obj):
-        data["kind"] = "callable"
-        data["signature"] = _signature(symbol, obj)
-        data["doc"] = inspect.getdoc(obj) or ""
-    else:
-        data["kind"] = "object"
-        data["repr"] = repr(obj)
-    examples = [
-        constraint.example
-        for constraint in constraints_for_symbol(symbol)
-        if constraint.example is not None
-    ]
-    if examples:
-        data["examples"] = sorted(set(examples))
-    return data
-
-
-def _help_json(symbol: str | None = None) -> dict[str, object]:
-    if symbol is None or symbol == "":
-        return {
-            "schema_version": "1",
-            "surface": "marivo.semantic",
-            "entries": [
-                {"name": name, "summary": desc, "kind": kind}
-                for name, (kind, desc) in _TOP_LEVEL_ENTRIES.items()
-            ],
-        }
-    if symbol == "constraints":
-        return {
-            "schema_version": "1",
-            "surface": "marivo.semantic",
-            "constraints": _constraints_json(),
-        }
-    if symbol == "decomposition":
-        return _decomposition_help_json()
-
-    obj = _resolve(symbol)
-    if obj is None:
-        constraint = get_constraint(symbol)
-        if constraint is not None:
-            return {
-                "schema_version": "1",
-                "surface": "marivo.semantic",
-                "constraint": constraint.to_dict(),
-            }
-        return {
-            "schema_version": "1",
-            "surface": "marivo.semantic",
-            "error": f"unknown symbol: {symbol!r}",
-        }
-    data = _object_json(symbol, obj)
-    data["schema_version"] = "1"
-    data["surface"] = "marivo.semantic"
-    return data
+    normalized = None if symbol == "" else symbol
+    if normalized is None:
+        return _format_top_level_text()
+    return cast("str", render(_surface(), normalized, "text"))
 
 
 def help(  # noqa: A001, RUF100
@@ -312,13 +252,15 @@ def help(  # noqa: A001, RUF100
     """Print or return agent-facing help for the semantic surface.
 
     Without arguments, lists top-level entries. With a symbol name (decorator,
-    builder, function, exception class, or ``"constraints"``) prints its
-    signature, docstring, and constraints. With ``format="json"``, returns a
-    structured dict and does not print.
+    builder, function, exception class, topic, or constraint id) prints its
+    signature, docstring, and bounded constraint summaries. With
+    ``format="json"``, returns a structured dict and does not print.
     """
+
+    normalized = None if symbol == "" else symbol
     if format == "json":
-        return _help_json(symbol)
+        return cast("dict[str, object]", render(_surface(), normalized, "json"))
     if format != "text":
         raise ValueError("format must be 'text' or 'json'")
-    print(help_text(symbol))
+    print(help_text(normalized))
     return None

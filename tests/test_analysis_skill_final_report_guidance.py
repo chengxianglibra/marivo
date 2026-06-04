@@ -53,3 +53,12 @@ def test_final_report_guidance_covers_cdn_review_patterns() -> None:
 
     missing = [term for term in required_terms if term not in text]
     assert missing == []
+
+
+def test_analysis_cheatsheet_points_to_runtime_help_contract() -> None:
+    cheatsheet = (REPO_ROOT / "marivo-skills/marivo-analysis/references/cheatsheet.md").read_text()
+
+    assert "mv.help('discover', format='json')" in cheatsheet
+    assert "mv.help('alignment', format='json')" in cheatsheet
+    assert "mv.help('MetricFrame', format='json')" in cheatsheet
+    assert "mv.help('MetricFrame.components', format='json')" in cheatsheet

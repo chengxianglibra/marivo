@@ -127,8 +127,9 @@ Default to a single `.marivo/semantic/<model>/_model.py`. Use ref variables
 between semantic objects. Before declaring an object kind for the first time in
 the authoring session, inspect its runtime help, for example
 `ms.help("metric", format="json")`. Metrics also require
-`ms.help("decomposition", format="json")`; derived metrics also require
-`ms.help("component", format="json")`. See `authoring-patterns.md`.
+`ms.help("decomposition", format="json")`; for derived metrics, inspect
+`ms.help("derived_metric", format="json")` and the decomposition contract. See
+`authoring-patterns.md`.
 
 ## 6. Record confirmations and decisions
 

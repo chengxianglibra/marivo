@@ -7,9 +7,9 @@ imperative checks, but they report errors through these constraint ids.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal
+
+from marivo.introspection.constraints import ASTSpec, Constraint, Phase
 
 __all__ = [
     "CONSTRAINTS",
@@ -72,68 +72,6 @@ class ConstraintId(StrEnum):
     AMBIGUOUS_REFERENCE = "ambiguous_reference"
 
 
-@dataclass(frozen=True)
-class ASTSpec:
-    """Machine-readable AST rule summary for decorator function bodies."""
-
-    name: str
-    single_return: bool
-    forbidden_statements: tuple[str, ...] = ()
-    forbidden_attributes: tuple[str, ...] = ()
-    forbidden_calls: tuple[str, ...] = ()
-    allowed_calls: tuple[str, ...] = ()
-    allowed_binops: tuple[str, ...] = ()
-    allowed_unary_ops: tuple[str, ...] = ()
-    component_call_only: bool = False
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "name": self.name,
-            "single_return": self.single_return,
-            "forbidden_statements": list(self.forbidden_statements),
-            "forbidden_attributes": list(self.forbidden_attributes),
-            "forbidden_calls": list(self.forbidden_calls),
-            "allowed_calls": list(self.allowed_calls),
-            "allowed_binops": list(self.allowed_binops),
-            "allowed_unary_ops": list(self.allowed_unary_ops),
-            "component_call_only": self.component_call_only,
-        }
-
-
-@dataclass(frozen=True)
-class Constraint:
-    """Agent-facing rule metadata."""
-
-    id: ConstraintId
-    error_kind: str
-    phase: Literal["decorator", "ast", "assembly", "runtime", "parity"]
-    applies_to: tuple[str, ...]
-    title: str
-    why: str
-    hint: str
-    example: str | None = None
-    docs_ref: str | None = None
-    ast_spec: ASTSpec | None = None
-
-    def to_dict(self) -> dict[str, object]:
-        data: dict[str, object] = {
-            "id": self.id.value,
-            "error_kind": self.error_kind,
-            "phase": self.phase,
-            "applies_to": list(self.applies_to),
-            "title": self.title,
-            "why": self.why,
-            "hint": self.hint,
-        }
-        if self.example is not None:
-            data["example"] = self.example
-        if self.docs_ref is not None:
-            data["docs_ref"] = self.docs_ref
-        if self.ast_spec is not None:
-            data["ast_spec"] = self.ast_spec.to_dict()
-        return data
-
-
 _EXPR_BODY_AST_SPEC = ASTSpec(
     name="single_return_ibis_expression",
     single_return=True,
@@ -172,7 +110,7 @@ _EXPR_BODY_AST_SPEC = ASTSpec(
 def _constraint(
     id: ConstraintId,
     error_kind: str,
-    phase: Literal["decorator", "ast", "assembly", "runtime", "parity"],
+    phase: Phase,
     applies_to: tuple[str, ...],
     title: str,
     why: str,
@@ -183,7 +121,7 @@ def _constraint(
     ast_spec: ASTSpec | None = None,
 ) -> Constraint:
     return Constraint(
-        id=id,
+        id=id.value,
         error_kind=error_kind,
         phase=phase,
         applies_to=applies_to,
@@ -609,7 +547,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
     ),
 }
 
-_DEFAULT_BY_ERROR_KIND: dict[str, ConstraintId] = {}
+_DEFAULT_BY_ERROR_KIND: dict[str, str] = {}
 for _constraint_obj in CONSTRAINTS.values():
     _DEFAULT_BY_ERROR_KIND.setdefault(_constraint_obj.error_kind, _constraint_obj.id)
 
@@ -648,7 +586,7 @@ def default_constraint_for_error_kind(error_kind: str) -> Constraint | None:
     constraint_id = _DEFAULT_BY_ERROR_KIND.get(error_kind)
     if constraint_id is None:
         return None
-    return CONSTRAINTS[constraint_id]
+    return get_constraint(constraint_id)
 
 
 def default_hint_for_error_kind(error_kind: str) -> str | None:

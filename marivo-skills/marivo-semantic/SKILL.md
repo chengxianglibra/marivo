@@ -21,16 +21,15 @@ the project structure before authoring semantic objects.
 
 ## Non-Negotiable Rules
 
-- At the start of each authoring session, inspect the installed runtime catalog
-  with `ms.help(format="json")`. The top-level call returns a compact typed
-  directory (~2KB); drill into `ms.help("<kind>", format="json")` for per-symbol
-  detail including constraints. Do not call `ms.help("constraints", format="json")`
-  at session start — access constraints on demand through per-symbol calls.
-- Before declaring an object kind for the first time in the session, inspect
-  `ms.help("<object_kind>", format="json")` for `dataset`, `field`,
-  `time_field`, `metric`, or `relationship`. For metrics, also inspect
-  `ms.help("decomposition", format="json")`; for derived metrics, also inspect
-  `ms.help("component", format="json")`. Do not repeat this per object.
+- Use runtime help as the authoritative per-object contract. For the object you
+  are about to author or call, inspect `ms.help('<name>', format='json')`;
+  examples: `ms.help('metric', format='json')`,
+  `ms.help('derived_metric', format='json')`,
+  `ms.help('decomposition', format='json')`, and
+  `ms.help('SemanticProject', format='json')`. The descriptor exposes
+  `signature`, `doc`, bounded `constraints`, runnable `examples`, `methods`,
+  and drill-down ids. Consult it per object when the contract matters; do not
+  turn help into a blanket ritual for each call.
 - Before authoring `*_env` credential fields on a `DatasourceSpec`, read
   `~/.marivo/secrets.toml` to discover cached env var names. Reuse an existing
   name when the same credential type is already cached (e.g., reuse

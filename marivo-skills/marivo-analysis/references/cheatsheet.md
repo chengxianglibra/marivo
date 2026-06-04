@@ -4,6 +4,18 @@ Use this as the compact routing table after loading the skill. For runnable
 syntax, prefer `references/examples/*.py`. Assume `marivo` is imported from the
 active Python environment, not from a local Marivo source checkout.
 
+## Runtime Help
+
+Use the uniform runtime help contract for exact callable, frame, policy, and
+topic details:
+
+```python
+mv.help('discover', format='json')      # objective compatibility and required kwargs
+mv.help('alignment', format='json')     # AlignmentPolicy variants
+mv.help('MetricFrame', format='json')   # methods and next_intents
+mv.help('MetricFrame.components', format='json')  # method signature and doc
+```
+
 ## Intents
 
 | Intent | Inputs | Output | Agent rule |

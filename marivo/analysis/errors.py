@@ -22,8 +22,16 @@ class AnalysisError(Exception):
     ) -> None:
         super().__init__(message)
         self.message = message
-        self.hint = hint
         self.details = details or {}
+        if hint is None:
+            from marivo.analysis.constraints import CONSTRAINTS
+            from marivo.introspection.errors import hint_from_catalog
+
+            hint = hint_from_catalog(
+                {constraint.id: constraint for constraint in CONSTRAINTS.values()},
+                self.kind,
+            )
+        self.hint = hint
 
     @property
     def kind(self) -> str:
