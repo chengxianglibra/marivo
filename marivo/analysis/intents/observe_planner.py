@@ -1232,10 +1232,15 @@ def plan_base_observe(
         for dimension in planned_dimensions
     }
     if has_time_axis:
+        _grain_token = (
+            resolved_window.grain.to_token()
+            if resolved_window is not None and resolved_window.grain is not None
+            else None
+        )
         axes_meta["time"] = {
             "role": "time",
             "column": "bucket_start",
-            "grain": resolved_window.grain,  # type: ignore[union-attr]
+            "grain": _grain_token,
             "time_field": root_time_field.name,  # type: ignore[union-attr]
         }
     return BaseObservePlan(

@@ -697,6 +697,22 @@ Surface 1 字段在 SQLite 的落点对应关系：
 - `normalized_params` 走 RFC 8785 JCS canonical
 - `semantic_anchors` 锁定 metric / dimension / calendar 等 catalog id + version
 
+### Subject fields
+
+| 字段 | 类型 | 语义 |
+| --- | --- | --- |
+| `metric` | `str \| None` | metric semantic id |
+| `entity` | `str \| None` | entity semantic id |
+| `slice` | `dict[str, str | int | float | bool \| None]` | segment key map |
+| `grain` | `str \| None` | grain token string (e.g. `"day"` for calendar grains, `"5minute"` for dynamic sub-day grains); produced by `Grain.to_token()` |
+| `analysis_axis` | `Literal[...]` | frame shape discriminator |
+
+`grain` stores the normalized grain token.  For calendar grains the token
+is the unit name (`"day"`, `"week"`, `"month"`, `"quarter"`, `"year"`).
+For dynamic sub-day grains the token is `"{count}{unit}"` (e.g.
+`"5minute"`).  This token is used both in `subject_key` computation and
+in cross-step `ConfidenceScope` compatibility checks.
+
 ### Subject canonical key
 
 `subject_key` 计算规则：

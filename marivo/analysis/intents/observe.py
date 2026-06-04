@@ -52,9 +52,10 @@ from marivo.analysis.session.persistence import (
 )
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
-    TimeGrain,
+    GrainInput,
     TimeScopeInput,
     dump_window,
+    ensure_grain_supported,
     make_absolute_window,
     normalize_timescope_input,
 )
@@ -315,7 +316,7 @@ def _attach_metric_component_ref(
 def _resolve_timescope(
     timescope: TimeScopeInput,
     *,
-    grain: TimeGrain | None,
+    grain: GrainInput,
     time_field: str | None,
 ) -> tuple[AbsoluteWindow | None, dict[str, Any] | None]:
     timescope_in = normalize_timescope_input(timescope)
@@ -468,6 +469,11 @@ def _execute_base(
         root_ds_ir = sp.get_dataset(plan.root_dataset)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
         time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+        if resolved_window.grain is not None:
+            base = (
+                time_field_ir.time_meta.granularity if time_field_ir.time_meta else None
+            ) or "day"
+            ensure_grain_supported(resolved_window.grain, base)
         bucketed_table = apply_time_series_bucket(
             plan.table,
             field_ir=time_field_ir,
@@ -499,14 +505,20 @@ def _execute_base(
             cache=session.backend_cache,
             session_id=session.id,
         )
-        if resolved_window.grain == "day" and "bucket_start" in result.df:
+        if (
+            resolved_window.grain is not None
+            and resolved_window.grain.is_day
+            and "bucket_start" in result.df
+        ):
             with suppress(AttributeError):
                 result.df["bucket_start"] = result.df["bucket_start"].dt.date
         axes = {
             "time": {
                 "role": "time",
                 "column": "bucket_start",
-                "grain": resolved_window.grain,
+                "grain": resolved_window.grain.to_token()
+                if resolved_window.grain is not None
+                else None,
                 "time_field": time_field_ir.name,
             },
             **{
@@ -519,6 +531,11 @@ def _execute_base(
         root_ds_ir = sp.get_dataset(plan.root_dataset)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
         time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+        if resolved_window.grain is not None:
+            base = (
+                time_field_ir.time_meta.granularity if time_field_ir.time_meta else None
+            ) or "day"
+            ensure_grain_supported(resolved_window.grain, base)
         bucketed_table = apply_time_series_bucket(
             plan.table,
             field_ir=time_field_ir,
@@ -547,7 +564,9 @@ def _execute_base(
             "time": {
                 "role": "time",
                 "column": "bucket_start",
-                "grain": resolved_window.grain,
+                "grain": resolved_window.grain.to_token()
+                if resolved_window.grain is not None
+                else None,
                 "time_field": time_field_ir.name,
             }
         }
@@ -628,6 +647,11 @@ def _execute_derived(
             root_ds_ir = sp.get_dataset(cp.base_plan.root_dataset)
             root_adapter = _build_dataset_adapter(sp, root_ds_ir)
             time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+            if resolved_window.grain is not None:
+                base = (
+                    time_field_ir.time_meta.granularity if time_field_ir.time_meta else None
+                ) or "day"
+                ensure_grain_supported(resolved_window.grain, base)
             table = apply_time_series_bucket(
                 table,
                 field_ir=time_field_ir,
@@ -662,7 +686,13 @@ def _execute_derived(
             session_id=session.id,
         ).df
         session.known_datasources.add(cp.base_plan.datasource_name)
-        if has_time and resolved_window and resolved_window.grain == "day" and "bucket_start" in df:
+        if (
+            has_time
+            and resolved_window
+            and resolved_window.grain is not None
+            and resolved_window.grain.is_day
+            and "bucket_start" in df
+        ):
             with suppress(AttributeError):
                 df["bucket_start"] = df["bucket_start"].dt.date
         component_frames.append(df)
@@ -713,7 +743,9 @@ def _execute_derived(
         axes["time"] = {
             "role": "time",
             "column": "bucket_start",
-            "grain": resolved_window.grain,
+            "grain": resolved_window.grain.to_token()
+            if resolved_window.grain is not None
+            else None,
             "time_field": time_field_ir.name,
         }
     for col in dim_columns:
@@ -745,7 +777,7 @@ def observe(
     metric: MetricRef,
     *,
     timescope: TimeScopeInput = None,
-    grain: TimeGrain | None = None,
+    grain: GrainInput = None,
     dimensions: list[DimensionRef] | None = None,
     where: dict[str, SliceValue] | None = None,
     time_field: str | None = None,
@@ -1107,10 +1139,9 @@ def observe(
     frame = MetricFrame(_df=result.df, meta=meta)
 
     # --- Evidence pipeline: commit_result replaces write_frame_to_disk ---
-    _grain_raw = resolved_window.grain if resolved_window is not None else None
-    _subject_grain: Literal["hour", "day", "week", "month"] | None = (
-        cast("Literal['hour', 'day', 'week', 'month'] | None", _grain_raw)
-        if _grain_raw in ("hour", "day", "week", "month")
+    _grain_token = (
+        resolved_window.grain.to_token()
+        if resolved_window is not None and resolved_window.grain is not None
         else None
     )
     frame = _commit_observe_metric_frame(
@@ -1121,7 +1152,7 @@ def observe(
         model_name=model_name,
         stored_where=stored_where,
         semantic_kind=semantic_kind,
-        subject_grain=_subject_grain,
+        subject_grain=_grain_token,
     )
 
     _captured_queries = session.backend_cache.take_captured_queries()
@@ -1164,7 +1195,7 @@ def _commit_observe_metric_frame(
     model_name: str,
     stored_where: dict[str, Any],
     semantic_kind: str,
-    subject_grain: Literal["hour", "day", "week", "month"] | None = None,
+    subject_grain: str | None = None,
 ) -> MetricFrame:
     """Commit an observe MetricFrame through the evidence pipeline (shared tail)."""
     return cast(

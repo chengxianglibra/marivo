@@ -8,7 +8,7 @@ import json
 import secrets
 from datetime import UTC, date, datetime, time, timedelta
 from time import monotonic
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -43,6 +43,8 @@ from marivo.analysis.refs import CalendarRef
 from marivo.analysis.session.attach import active as session_active
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.session.persistence import write_frame_to_disk, write_job_record
+from marivo.analysis.windows.grain import Grain as _Grain
+from marivo.analysis.windows.grain import normalize_grain as _normalize_grain
 
 EXPECTED_METRIC_FRAME_KIND = "metric_frame"
 PRESENCE_STATUS_COLUMN = "presence_status"
@@ -822,12 +824,35 @@ def _advance_bucket_date(value: date, *, grain: str) -> date:
     )
 
 
+_WINDOW_BUCKET_CAP = 100_000
+
+
+def _grain_is_subday_token(grain: str) -> bool:
+    try:
+        return _normalize_grain(grain).is_subday  # type: ignore[union-attr]
+    except (ValueError, TypeError):
+        return False
+
+
+def _truncate_bucket_datetime(value: datetime, *, grain: _Grain) -> datetime:
+    width = grain.width_seconds()
+    day_start = value.replace(hour=0, minute=0, second=0, microsecond=0)
+    offset = int((value - day_start).total_seconds()) // width * width
+    return day_start + timedelta(seconds=offset)
+
+
+def _advance_bucket_datetime(value: datetime, *, grain: _Grain) -> datetime:
+    return value + timedelta(seconds=grain.width_seconds())
+
+
 def _bucket_key(value: object, *, grain: str) -> str:
     if value is None or pd.isna(cast("Any", value)):
         return ""
     timestamp = pd.Timestamp(cast("Any", value))
-    if grain == "hour":
-        return timestamp.floor("h").strftime("%Y-%m-%dT%H:00:00")
+    if _grain_is_subday_token(grain):
+        normalized = cast("_Grain", _normalize_grain(grain))
+        bucketed = _truncate_bucket_datetime(timestamp.to_pydatetime(), grain=normalized)
+        return bucketed.strftime("%Y-%m-%dT%H:%M:%S")
     bucket_date = _truncate_bucket_date(timestamp.date(), grain=grain)
     return bucket_date.isoformat()
 
@@ -848,23 +873,46 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
             message="window_bucket ordinal alignment requires window.end metadata",
             details={"kind": "WindowBucketWindowMissing", "frame_ref": frame.ref},
         )
-    if not isinstance(grain, str) or grain not in {
-        "hour",
-        "day",
-        "week",
-        "month",
-        "quarter",
-        "year",
-    }:
+    grain_ok = isinstance(grain, str) and (
+        grain in {"hour", "day", "week", "month", "quarter", "year"}
+        or _grain_is_subday_token(grain)
+    )
+    if not grain_ok:
         raise AlignmentFailedError(
-            message=(
-                "window_bucket ordinal alignment requires hour/day/week/month/quarter/year grain"
-            ),
+            message=("window_bucket ordinal alignment requires a calendar or sub-day grain"),
             details={"kind": "WindowBucketGrainMissing", "frame_ref": frame.ref, "grain": grain},
         )
+    assert isinstance(grain, str)  # narrowed by grain_ok guard
 
     start_raw = window["start"]
     end_raw = window["end"]
+    if _grain_is_subday_token(grain):
+        normalized = cast("_Grain", _normalize_grain(grain))
+        current_dt = _truncate_bucket_datetime(
+            _parse_window_datetime(start_raw, field="start"), grain=normalized
+        )
+        date_only_end = _is_date_only(end_raw)
+        if date_only_end:
+            stop = datetime.combine(date.fromisoformat(end_raw), time.min) + timedelta(days=1)
+        else:
+            stop = _parse_window_datetime(end_raw, field="end")
+        buckets: list[object] = []
+        while current_dt <= stop if not date_only_end else current_dt < stop:
+            if len(buckets) >= _WINDOW_BUCKET_CAP:
+                raise AlignmentFailedError(
+                    message=(
+                        "window_bucket ordinal alignment would exceed "
+                        f"{_WINDOW_BUCKET_CAP} buckets; coarsen the grain or shrink the window"
+                    ),
+                    details={
+                        "kind": "WindowBucketCapExceeded",
+                        "frame_ref": frame.ref,
+                        "grain": grain,
+                    },
+                )
+            buckets.append(pd.Timestamp(current_dt))
+            current_dt = _advance_bucket_datetime(current_dt, grain=normalized)
+        return buckets
     if grain == "hour":
         current = _parse_window_datetime(start_raw, field="start").replace(
             minute=0, second=0, microsecond=0
@@ -1731,12 +1779,12 @@ def _scope_for_window(frame: MetricFrame) -> dict[str, Any] | None:
     return None
 
 
-def _grain_from_axes(frame: MetricFrame) -> Literal["hour", "day", "week", "month"] | None:
-    """Extract grain from a MetricFrame's axes metadata."""
+def _grain_from_axes(frame: MetricFrame) -> str | None:
+    """Extract the grain token from a MetricFrame's axes metadata."""
     axes = getattr(frame.meta, "axes", {})
     for axis in axes.values():
         if isinstance(axis, dict) and axis.get("role") == "time":
             grain = axis.get("grain")
-            if isinstance(grain, str) and grain in ("hour", "day", "week", "month"):
-                return grain  # type: ignore[return-value]
+            if isinstance(grain, str):
+                return grain
     return None

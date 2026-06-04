@@ -35,6 +35,7 @@ from marivo.analysis.executor.query_record import (
     normalize_sql,
 )
 from marivo.analysis.timezone import zoneinfo_from_name
+from marivo.analysis.windows.grain import _TRUNCATE_CODE, Grain
 from marivo.analysis.windows.spec import AbsoluteWindow
 
 _SUPPORTED_FORMATS = {
@@ -865,11 +866,23 @@ def apply_window_to_dataset(
     return table.filter(lower_predicate, upper_predicate)
 
 
+def bucket_start_expr(local_ts: Any, grain: Grain) -> Any:
+    """Bucket-start expression for a session-local timestamp/date expression."""
+    if grain.count == 1:
+        if grain.is_day:
+            return local_ts.cast("date").name("bucket_start")
+        return local_ts.truncate(_TRUNCATE_CODE[grain.unit]).name("bucket_start")
+    width = grain.width_seconds()
+    day_start = local_ts.truncate("D")
+    offset = ((local_ts.epoch_seconds() - day_start.epoch_seconds()) // width) * width
+    return (day_start + offset.as_interval("s")).name("bucket_start")
+
+
 def _local_bucket_expr(
     raw: Any,
     *,
     time_meta: Any,
-    grain: str,
+    grain: Grain,
     session_tz: ZoneInfo,
     window: AbsoluteWindow,
 ) -> Any:
@@ -892,7 +905,7 @@ def _local_bucket_expr(
         ts_expr = raw
         column_tz = zoneinfo_from_name(declared) if declared is not None else session_tz
     else:
-        return raw.truncate(grain).name("bucket_start")
+        return bucket_start_expr(raw, grain)
 
     anchor_utc = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
     column_offset = anchor_utc.astimezone(column_tz).utcoffset()
@@ -901,9 +914,7 @@ def _local_bucket_expr(
     session_seconds = int(session_offset.total_seconds()) if session_offset is not None else 0
     shift_seconds = session_seconds - column_seconds
     local_expr = ts_expr + ibis.interval(seconds=shift_seconds)
-    if grain == "day":
-        return local_expr.cast("date").name("bucket_start")
-    return local_expr.truncate(grain).name("bucket_start")
+    return bucket_start_expr(local_expr, grain)
 
 
 def apply_time_series_bucket(
@@ -933,13 +944,10 @@ def apply_time_series_bucket(
     ):
         parsed = _parse_string_column(raw, time_meta)
         classification = _classify_strptime_format(strptime_fmt)
-        if window.grain == "day":
-            if classification == "day":
-                bucket = parsed.name("bucket_start")
-            else:
-                bucket = parsed.truncate("day").name("bucket_start")
+        if window.grain.is_day and classification == "day":
+            bucket = parsed.name("bucket_start")
         else:
-            bucket = parsed.truncate(window.grain).name("bucket_start")
+            bucket = bucket_start_expr(parsed, window.grain)
         return table.mutate(bucket_start=bucket)
 
     # Timestamp / epoch_seconds: bucket in session-local calendar
@@ -956,10 +964,7 @@ def apply_time_series_bucket(
         return table.mutate(bucket_start=bucket)
 
     # Date and remaining types: simple truncate or cast
-    if window.grain == "day":
-        bucket = raw.cast("date").name("bucket_start")
-    else:
-        bucket = raw.truncate(window.grain).name("bucket_start")
+    bucket = bucket_start_expr(raw, window.grain)
     return table.mutate(bucket_start=bucket)
 
 

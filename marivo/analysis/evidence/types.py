@@ -47,7 +47,7 @@ class Subject(_FrozenModel):
     metric: str | None = None
     entity: str | None = None
     slice: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
-    grain: Literal["hour", "day", "week", "month"] | None = None
+    grain: str | None = None
     analysis_axis: Literal[
         "scalar",
         "time",

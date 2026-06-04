@@ -75,6 +75,35 @@ def _normalized_time_format(value: str | None) -> str | None:
     return stripped.lower().replace("_", "").replace("-", "").replace(" ", "")
 
 
+_SUBDAY_GRANULARITIES: frozenset[str] = frozenset({"hour", "minute", "second"})
+_TIME_BEARING_FORMAT_HINTS: tuple[str, ...] = (
+    "h",
+    "%h",
+    "%H",
+    "%I",
+    "%k",
+    "%l",
+    "%M",
+    "%S",
+    "%T",
+    "%p",
+    "epoch",
+)
+
+
+def _subday_granularity_needs_time(field_ir: FieldIR) -> bool:
+    """True when a sub-day granularity is declared on a field that cannot carry time."""
+    if not field_ir.is_time_field or field_ir.granularity not in _SUBDAY_GRANULARITIES:
+        return False
+    if field_ir.data_type in {"datetime", "timestamp"}:
+        return False
+    if field_ir.data_type in {"string", "integer"}:
+        fmt = (field_ir.format or "").lower()
+        return not any(hint.lower() in fmt for hint in _TIME_BEARING_FORMAT_HINTS)
+    # data_type == "date" or unset -> cannot carry sub-day time
+    return True
+
+
 def _requires_required_prefix(field_ir: FieldIR) -> bool:
     """Return True for hour-only string/integer time fields."""
     if not field_ir.is_time_field or field_ir.granularity != "hour":
@@ -886,6 +915,7 @@ def assembly_validate(
                     )
 
     # -- Validate hour-only time_field required_prefix -----------------------
+    # -- Validate sub-day granularity requires time-bearing data_type --------
     for f_id, f_ir in registry.fields.items():
         if _requires_required_prefix(f_ir) and not f_ir.required_prefix:
             errors.append(
@@ -894,6 +924,24 @@ def assembly_validate(
                     message=f"Hour-only time field {f_id!r} requires a "
                     f"required_prefix pointing to a day-level time field.",
                     refs=(f_id,),
+                )
+            )
+        if _subday_granularity_needs_time(f_ir):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.SUBDAY_GRANULARITY_WITHOUT_TIME,
+                    message=(
+                        f"time field {f_id!r} declares sub-day granularity "
+                        f"{f_ir.granularity!r} but its data_type {f_ir.data_type!r} cannot carry time"
+                    ),
+                    refs=(f_id,),
+                    constraint_id=ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME,
+                    details={
+                        "kind": "SubdayGranularityWithoutTime",
+                        "field": f_id,
+                        "granularity": f_ir.granularity,
+                        "data_type": f_ir.data_type,
+                    },
                 )
             )
         if (

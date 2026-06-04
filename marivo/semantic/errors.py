@@ -78,6 +78,7 @@ class ErrorKind(StrEnum):
     NON_ROOT_METRIC_AGGREGATE = "non_root_metric_aggregate"
     INVALID_METRIC_FANOUT_POLICY = "invalid_metric_fanout_policy"
     DERIVED_METRIC_FANOUT_POLICY = "derived_metric_fanout_policy"
+    SUBDAY_GRANULARITY_WITHOUT_TIME = "subday_granularity_without_time"
 
     # runtime
     METRIC_NOT_FOUND = "metric_not_found"

@@ -46,6 +46,7 @@ class ConstraintId(StrEnum):
     METRIC_REF_EXISTS = "metric_ref_exists"
     METRIC_GRAPH_ACYCLIC = "metric_graph_acyclic"
     HOUR_TIME_FIELD_PREFIX = "hour_time_field_prefix"
+    SUBDAY_GRANULARITY_WITHOUT_TIME = "subday_granularity_without_time"
     TIME_FIELD_PARTITION_PUSHDOWN = "time_field_partition_pushdown"
     TIME_FIELD_DTYPE_COMPAT = "time_field_dtype_compat"
     RELATIONSHIP_ENDPOINTS = "relationship_endpoints"
@@ -384,6 +385,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Hour-only string/integer time fields need a day-level required_prefix.",
         "A standalone hour value is not a complete time axis.",
         "Set required_prefix to a registered day-level time field.",
+        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+    ),
+    ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME: _constraint(
+        ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME,
+        "subday_granularity_without_time",
+        "assembly",
+        ("time_field",),
+        "Sub-day granularity requires a time-bearing data_type.",
+        "A time field declaring hour/minute/second granularity on data_type='date' cannot carry time-of-day information; string/integer formats that lack hour/minute/second tokens likewise cannot.",
+        "Use data_type='datetime'/'timestamp', or a time-bearing string/integer format like yyyymmddhhmm.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.TIME_FIELD_PARTITION_PUSHDOWN: _constraint(

@@ -486,7 +486,7 @@ def time_field(
     name: str | None = None,
     dataset: DatasetRef | str,
     data_type: Literal["date", "datetime", "timestamp", "string", "integer"],
-    granularity: Literal["year", "quarter", "month", "week", "day", "hour"],
+    granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
     date_format: str | None = None,
     required_prefix: str | None = None,
     timezone: str | None = None,
@@ -506,7 +506,7 @@ def time_field(
         name: Field name. Defaults to the function name.
         dataset: Owning dataset (``DatasetRef`` or qualified string).
         data_type: ``date | datetime | timestamp | string | integer``.
-        granularity: ``year | quarter | month | week | day | hour`` — the
+        granularity: ``year | quarter | month | week | day | hour | minute | second`` — the
             finest grain at which queries are meaningful.
         date_format: Required when ``data_type="string"`` or ``data_type="integer"``.
             Accepts shorthand aliases (``"yyyymmdd"``, ``"yyyy-mm-dd"``,

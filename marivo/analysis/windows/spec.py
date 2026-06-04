@@ -2,11 +2,33 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_serializer, field_validator
 
 from marivo.analysis.errors import WindowInvalidError
+from marivo.analysis.windows.grain import (
+    Grain,
+    GrainInput,
+    ensure_grain_supported,
+    normalize_grain,
+)
 
-TimeGrain = Literal["hour", "day", "week", "month", "quarter", "year"]
+# Deprecated alias: the analysis grain surface is now the structured Grain input union.
+TimeGrain = GrainInput
+
+__all__ = [
+    "AbsoluteWindow",
+    "Grain",
+    "GrainInput",
+    "TimeGrain",
+    "TimeScope",
+    "TimeScopeInput",
+    "dump_window",
+    "ensure_grain_supported",
+    "make_absolute_window",
+    "normalize_absolute_window_input",
+    "normalize_grain",
+    "normalize_timescope_input",
+]
 
 
 class AbsoluteWindow(BaseModel):
@@ -15,8 +37,17 @@ class AbsoluteWindow(BaseModel):
     kind: Literal["absolute"] = "absolute"
     start: str
     end: str
-    grain: TimeGrain | None = None
+    grain: Grain | None = None
     time_field: str | None = None
+
+    @field_validator("grain", mode="before")
+    @classmethod
+    def _normalize_grain(cls, value: Any) -> Grain | None:
+        return normalize_grain(value)
+
+    @field_serializer("grain")
+    def _serialize_grain(self, value: Grain | None) -> str | None:
+        return value.to_token() if value is not None else None
 
 
 class TimeScope(BaseModel):
@@ -90,7 +121,7 @@ def normalize_absolute_window_input(raw: object) -> AbsoluteWindow | None:
 def make_absolute_window(
     timescope: TimeScope | None,
     *,
-    grain: TimeGrain | None = None,
+    grain: GrainInput = None,
     time_field: str | None = None,
 ) -> AbsoluteWindow | None:
     if timescope is None:
@@ -101,10 +132,11 @@ def make_absolute_window(
             hint='Pass timescope={"start": "2026-07-01", "end": "2026-07-31"}.',
             details={"kind": "TimeScopeRequired"},
         )
+    resolved_grain = normalize_grain(grain)
     return AbsoluteWindow(
         start=timescope.start,
         end=timescope.end,
-        grain=grain,
+        grain=resolved_grain,
         time_field=time_field,
     )
 
