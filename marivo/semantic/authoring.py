@@ -515,6 +515,12 @@ def time_field(
             (e.g. ``"%Y-%m-%d"``, ``"%Y/%m/%d"``, ``"%Y%m%d%H"``,
             ``"%Y-%m-%d %H:%M:%S"``).
         required_prefix: Optional fixed prefix the source value must start with.
+        timezone: Optional IANA timezone for timestamp-like values. For naive
+            timestamp expressions and time-bearing string/integer formats,
+            Marivo interprets source values in this timezone before converting
+            them to the analysis session timezone for windowing and bucketing.
+            Day partition encodings such as ``yyyymmdd`` should omit it so
+            predicates stay as raw partition comparisons.
         model_name: Override the active model namespace.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.

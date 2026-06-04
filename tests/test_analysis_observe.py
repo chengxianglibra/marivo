@@ -650,6 +650,71 @@ def test_observe_strptime_day_format_time_series(tmp_path):
     assert len(df) == 4
 
 
+def _bootstrap_sales_with_string_timestamp_timezone(tmp_path):
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    )
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "\n"
+        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='string', granularity='minute', "
+        "date_format='%Y-%m-%d %H:%M:%S', timezone='UTC')\n"
+        "def create_time(orders):\n"
+        "    return orders.create_time\n"
+        "\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+
+
+def _seed_string_timestamp_timezone_orders(con):
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER, create_time VARCHAR, amount DOUBLE)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, '2026-04-30 16:15:00', 10.0),"
+        "(2, '2026-04-30 16:35:00', 20.0),"
+        "(3, '2026-05-01 16:00:00', 30.0)"
+    )
+
+
+def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypatch):
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
+    session_attach._reset_process_state()
+    _bootstrap_sales_with_string_timestamp_timezone(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_string_timestamp_timezone_orders(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+    frame = observe(
+        MetricRef("sales.revenue"),
+        timescope={"start": "2026-05-01", "end": "2026-05-01"},
+        grain=(30, "minute"),
+        time_field="create_time",
+        session=s,
+    )
+
+    assert frame.meta.semantic_kind == "time_series"
+    assert frame.meta.axes["time"]["grain"] == "30minute"
+    assert frame.meta.axes["time"]["time_field"] == "create_time"
+    df = frame.to_pandas()
+    assert [str(item) for item in df["bucket_start"]] == [
+        "2026-05-01 00:00:00",
+        "2026-05-01 00:30:00",
+    ]
+    assert df["revenue"].tolist() == pytest.approx([10.0, 20.0])
+
+
 def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
