@@ -814,11 +814,19 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
                 ),
             },
         )
+    # No explicit request — check for a declared default
+    defaults = [f for f in time_fields if getattr(f, "is_default", False)]
+    if len(defaults) == 1:
+        return defaults[0]
     candidates = [field.name for field in time_fields]
     first_candidate = candidates[0]
     raise WindowInvalidError(
         message=f"dataset '{dataset_ir.name}' has multiple time_fields: {candidates}",
-        hint="Pass observe(..., time_field=...) to choose the time axis for this observe call.",
+        hint=(
+            "Pass observe(..., time_field=...) to choose the time axis, "
+            "or mark one time field as @ms.time_field(..., is_default=True) "
+            "in the semantic definition."
+        ),
         details={
             "candidates": candidates,
             "fix_snippet": (

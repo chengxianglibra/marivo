@@ -293,6 +293,7 @@ class FieldIR:
     location: SourceLocation
     format: str | None = None
     timezone: str | None = None
+    is_default: bool = False
 
 
 @dataclass(frozen=True)

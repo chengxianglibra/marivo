@@ -778,6 +778,37 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     assert "sales.revenue" in reg.metrics
 
 
+def test_duplicate_default_time_field_raises() -> None:
+    registry = _make_registry()
+    # Add a second time field with is_default=True on the same dataset
+    registry.fields["sales.orders.order_date2"] = FieldIR(
+        semantic_id="sales.orders.order_date2",
+        model="sales",
+        dataset="sales.orders",
+        name="order_date2",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="date",
+        granularity="day",
+        required_prefix=None,
+        python_symbol="order_date2",
+        location=_LOC,
+        is_default=True,
+    )
+    # Mark the existing order_date as default too
+    registry.fields["sales.orders.order_date"] = dataclasses.replace(
+        registry.fields["sales.orders.order_date"],
+        is_default=True,
+    )
+
+    errors, _warnings = assembly_validate(registry)
+
+    assert any(e.kind == ErrorKind.DUPLICATE_DEFAULT_TIME_FIELD for e in errors), (
+        f"Expected DUPLICATE_DEFAULT_TIME_FIELD, got: {[e.kind for e in errors]}"
+    )
+
+
 def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     """Metric referencing a non-existent dataset should produce an error."""
     metrics_py = textwrap.dedent("""\
@@ -901,3 +932,40 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
     assert not project.is_ready()
     errors = project.errors()
     assert any(e.kind == ErrorKind.INVALID_RELATIONSHIP_ENDPOINT for e in errors)
+
+
+def test_field_ir_accepts_is_default_flag() -> None:
+    field = FieldIR(
+        semantic_id="sales.orders.log_date",
+        model="sales",
+        dataset="sales.orders",
+        name="log_date",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="date",
+        granularity="day",
+        required_prefix=None,
+        python_symbol="log_date",
+        location=_LOC,
+        is_default=True,
+    )
+    assert field.is_default is True
+
+
+def test_field_ir_is_default_defaults_to_false() -> None:
+    field = FieldIR(
+        semantic_id="sales.orders.log_date",
+        model="sales",
+        dataset="sales.orders",
+        name="log_date",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="date",
+        granularity="day",
+        required_prefix=None,
+        python_symbol="log_date",
+        location=_LOC,
+    )
+    assert field.is_default is False

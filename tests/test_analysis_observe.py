@@ -76,6 +76,38 @@ def _bootstrap_sales_with_two_time_fields(tmp_path):
     )
 
 
+def _bootstrap_sales_with_default_time_field(tmp_path):
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    )
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "\n"
+        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day', is_default=True)\n"
+        "def create_date(orders):\n"
+        "    return orders.created_at.cast('date')\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='timestamp', granularity='hour')\n"
+        "def create_time(orders):\n"
+        "    return orders.created_ts\n"
+        "\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+
+
 def _seed_two_time_fields(con):
     con.raw_sql(
         "CREATE TABLE orders (order_id INTEGER, created_at DATE, created_ts TIMESTAMP, amount DOUBLE)"
@@ -325,6 +357,7 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
     assert "create_date" in rendered
     assert "create_time" in rendered
     assert 'time_field="create_date"' in rendered
+    assert "is_default=True" in rendered
 
 
 def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
@@ -341,6 +374,38 @@ def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
     )
 
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
+
+
+def test_observe_uses_default_time_field_when_not_specified(tmp_path):
+    _bootstrap_sales_with_default_time_field(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_two_time_fields(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    mf = observe(
+        MetricRef("sales.revenue"),
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        session=s,
+    )
+
+    assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
+
+
+def test_observe_multiple_time_fields_no_default_error_mentions_is_default(tmp_path):
+    _bootstrap_sales_with_two_time_fields(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_two_time_fields(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    with pytest.raises(WindowInvalidError) as exc_info:
+        observe(
+            MetricRef("sales.revenue"),
+            timescope={"start": "2026-07-01", "end": "2026-07-31"},
+            session=s,
+        )
+
+    rendered = str(exc_info.value)
+    assert "is_default=True" in rendered
 
 
 def test_observe_applies_slice(tmp_path):

@@ -442,6 +442,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "cross_model_cycle",
     "hour_time_field_prefix_missing",
     "subday_granularity_without_time",
+    "duplicate_default_time_field",
     "invalid_relationship_endpoint",
     "organization_error",
     "invalid_project",

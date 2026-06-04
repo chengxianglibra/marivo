@@ -490,6 +490,7 @@ def time_field(
     date_format: str | None = None,
     required_prefix: str | None = None,
     timezone: str | None = None,
+    is_default: bool = False,
     model_name: str | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -521,6 +522,10 @@ def time_field(
             them to the analysis session timezone for windowing and bucketing.
             Day partition encodings such as ``yyyymmdd`` should omit it so
             predicates stay as raw partition comparisons.
+        is_default: Mark this field as the default time axis when multiple time fields
+            exist on the dataset. At most one time field per dataset may carry
+            is_default=True. When observe() is called without time_field=, the default
+            field is used automatically.
         model_name: Override the active model namespace.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
@@ -587,6 +592,7 @@ def time_field(
             location=location,
             format=date_format,
             timezone=timezone,
+            is_default=is_default,
         )
         _push_ir(ctx, ir, fn)
 
