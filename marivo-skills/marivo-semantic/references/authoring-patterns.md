@@ -98,7 +98,9 @@ confirmation establishes that business axis.
 
 For day/hour partition fields, preserve the raw sortable partition value and
 declare its physical encoding with `date_format`. This lets observe windows
-compile to simple partition comparisons for predicate pushdown:
+compile to simple partition comparisons for predicate pushdown. Do not add
+`timezone` to day partition encodings such as `yyyymmdd`; those values are
+filtered as physical partition keys, not interpreted instants.
 
 ```python
 @ms.time_field(dataset=orders, name="log_date", data_type="string", granularity="day", date_format="yyyymmdd")
@@ -125,6 +127,23 @@ predicate pushdown:
 @ms.time_field(dataset=orders, data_type="date", granularity="day")
 def event_date(table):
     return table.order_time.cast("timestamp").cast("date")
+```
+
+For string or integer event-time columns that include time-of-day, declare both
+the physical `date_format` and source `timezone`. `session.observe(...)` parses
+the value as source-local time, converts it to the analysis session timezone,
+and then applies sub-day bucketing:
+
+```python
+@ms.time_field(
+    dataset=orders,
+    data_type="string",
+    granularity="minute",
+    date_format="%Y-%m-%d %H:%M:%S",
+    timezone="UTC",
+)
+def create_time(table):
+    return table.create_time
 ```
 
 When the body returns a date-typed expression (via `.cast("date")`), declare
