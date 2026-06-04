@@ -422,6 +422,35 @@ dau = analysis.observe(
 )
 ```
 
+#### Grain parameter
+
+`observe` and `compare` accept `grain` to specify time-series bucket
+resolution.  `grain` accepts three input forms:
+
+| Form | Example | Semantics |
+| --- | --- | --- |
+| `Grain(count, unit)` | `Grain(count=5, unit="minute")` | Typed value object |
+| `(count, unit)` tuple | `(5, "minute")` | Convenience shorthand; normalized to `Grain` internally |
+| Legacy string | `"day"` or `"5minute"` | Token format for single-unit calendar grains or sub-day multi-bucket grains |
+
+Dynamic sub-day grains (`count > 1` with unit `minute` or `hour`) produce
+time-series buckets at a finer resolution than day.  The requested grain
+must satisfy two constraints relative to the metric's time field:
+
+1. **Base granularity rule**: the time field must declare `granularity`
+   at least as fine as the requested grain.  For example, requesting
+   `grain=(5, "minute")` requires the time field to have
+   `granularity="minute"` or `granularity="second"`; a day-level time
+   field cannot serve minute-level buckets.  Violations raise
+   `GrainUnsupportedError`.
+
+2. **Day divisibility rule**: sub-day grains must divide a day evenly.
+   `5minute` (288 buckets/day), `15minute`, `30minute`, `1hour`, and
+   `4hour` are valid; `7minute` is not (86400 % 420 != 0).
+
+Calendar grains (`day`, `week`, `month`, `quarter`, `year`) only support
+`count == 1` and do not require sub-day time fields.
+
 ### `transform`
 
 职责：对 frame artifact 做 family-preserving 改写，使其适合下游消费。

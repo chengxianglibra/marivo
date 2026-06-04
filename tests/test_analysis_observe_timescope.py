@@ -8,7 +8,7 @@ import pytest
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.refs import MetricRef
-from marivo.analysis.windows.spec import TimeGrain, TimeScopeInput
+from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +60,7 @@ def _seed_sales_orders(con):
 def test_observe_time_type_hints_match_supported_input_forms():
     hints = get_type_hints(observe)
     assert hints["timescope"] == TimeScopeInput
-    assert hints["grain"] == TimeGrain | None
+    assert hints["grain"] == GrainInput
 
 
 def _bootstrap_multi_dataset(tmp_path):

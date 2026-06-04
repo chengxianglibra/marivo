@@ -71,7 +71,15 @@ from marivo.analysis.policies import (
 from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.validation import ValidationIssue
-from marivo.analysis.windows.spec import AbsoluteWindow, TimeGrain, TimeScope, TimeScopeInput
+from marivo.analysis.windows import GrainUnit, ensure_grain_supported
+from marivo.analysis.windows.spec import (
+    AbsoluteWindow,
+    Grain,
+    GrainInput,
+    TimeGrain,
+    TimeScope,
+    TimeScopeInput,
+)
 from marivo.preview import PreviewResult, PreviewSamplePolicy, PreviewWarning
 
 
@@ -124,6 +132,9 @@ __all__ = [
     "ForecastFrameMeta",
     "ForecastSummary",
     "FramePreview",
+    "Grain",
+    "GrainInput",
+    "GrainUnit",
     "HypothesisTestResult",
     "HypothesisTestResultMeta",
     "LagPolicy",
@@ -160,6 +171,7 @@ __all__ = [
     "TriggeredByFollowup",
     "ValidationIssue",
     "datasources",
+    "ensure_grain_supported",
     "errors",
     "help",
     "help_text",

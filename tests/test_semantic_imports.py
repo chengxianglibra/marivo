@@ -407,6 +407,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "missing_metric_ref",
     "cross_model_cycle",
     "hour_time_field_prefix_missing",
+    "subday_granularity_without_time",
     "invalid_relationship_endpoint",
     "organization_error",
     "invalid_project",

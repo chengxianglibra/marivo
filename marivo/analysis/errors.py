@@ -68,6 +68,10 @@ class AnalysisError(Exception):
         return "\n".join(lines)
 
 
+class GrainUnsupportedError(AnalysisError):
+    """A requested analysis grain is incompatible with the time field base granularity."""
+
+
 class MetricNotFoundError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         metric_id = self.details.get("metric_id")

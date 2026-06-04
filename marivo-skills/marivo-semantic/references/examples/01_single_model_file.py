@@ -54,6 +54,19 @@ def log_date(table):
 def log_hour(table):
     return table.hh
 
+@ms.time_field(
+    dataset=orders,
+    name="event_ts",
+    data_type="timestamp",
+    granularity="minute",
+    ai_context={
+        "business_definition": "Minute-grain event timestamp for sub-day time-series analysis.",
+        "guardrails": ["Use only when the analysis requires sub-day granularity (e.g. 5-minute buckets)."],
+    },
+)
+def event_ts(table):
+    return table.event_ts
+
 @ms.field(
     dataset=orders,
     name="region",
@@ -98,4 +111,5 @@ with tempfile.TemporaryDirectory() as tmp:
     project.load()
     print("partition time field:", project.describe("sales.orders.log_date").semantic_id)
     print("hour partition time field:", project.describe("sales.orders.log_hour").semantic_id)
+    print("minute time field:", project.describe("sales.orders.event_ts").semantic_id)
     print("metric:", project.describe("sales.revenue").semantic_id)
