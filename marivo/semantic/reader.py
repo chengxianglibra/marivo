@@ -751,8 +751,13 @@ class SemanticProject:
             )
         return results
 
-    def list_fields(self, *, dataset: str | None = None, display: bool = True) -> list[FieldIR]:
-        """Return field IR objects (non-time fields), optionally filtered by dataset."""
+    def list_dimensions(self, dataset: str | None = None, *, display: bool = True) -> list[FieldIR]:
+        """Return dimension field IR objects usable as decompose axes, optionally filtered by dataset.
+
+        Dimensions are all @ms.field declarations — the concrete group-by axes
+        available to decompose operations.  Time fields are excluded; use
+        list_time_fields() to browse the temporal axis.
+        """
         reg = _require_registry(self._registry, project=self)
         fields = [f for f in reg.fields.values() if not f.is_time_field]
         if dataset is not None:
@@ -764,21 +769,12 @@ class SemanticProject:
                         "semantic_id": item.semantic_id,
                         "dataset": item.dataset,
                         "name": item.name,
-                        "data_type": item.data_type,
-                        "granularity": item.granularity,
                         "description": item.description,
                     }
                     for item in fields
                 ],
-                columns=(
-                    "semantic_id",
-                    "dataset",
-                    "name",
-                    "data_type",
-                    "granularity",
-                    "description",
-                ),
-                empty_message="No fields found.",
+                columns=("semantic_id", "dataset", "name", "description"),
+                empty_message="No dimensions found.",
             )
         return fields
 
