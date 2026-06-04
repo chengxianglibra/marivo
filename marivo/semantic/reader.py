@@ -783,7 +783,7 @@ class SemanticProject:
         return fields
 
     def list_time_fields(
-        self, *, dataset: str | None = None, display: bool = True
+        self, dataset: str | None = None, *, display: bool = True
     ) -> list[FieldIR]:
         """Return time field IR objects, optionally filtered by dataset."""
         reg = _require_registry(self._registry, project=self)
