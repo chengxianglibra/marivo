@@ -92,7 +92,7 @@ These forks were resolved during brainstorming:
 ### The incremental loop
 
 1. **Load and locate.** `project.load()`; pick the target model; enumerate
-   existing refs with `list_datasets`, `list_fields`, `list_time_fields`,
+   existing refs with `list_datasets`, `list_dimensions`, `list_time_fields`,
    `list_metrics`, `list_relationships`.
 2. **Reuse first.** Bind existing objects as ref variables; never re-declare an
    existing dataset, field, or component metric. (Existing reuse guidance in
