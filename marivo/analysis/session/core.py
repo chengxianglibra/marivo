@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, tzinfo
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.analysis.session.persistence import (
     PersistenceLayout,
@@ -16,6 +16,31 @@ from marivo.analysis.session.persistence import (
     read_session_meta,
 )
 from marivo.analysis.timezone import resolve_system_timezone
+
+if TYPE_CHECKING:
+    from marivo.analysis.evidence import (
+        Assessment,
+        EvidenceTrace,
+        Finding,
+        Proposition,
+        SessionKnowledge,
+    )
+    from marivo.analysis.evidence.store import JudgmentStore
+    from marivo.analysis.frames.association import AssociationResult
+    from marivo.analysis.frames.attribution import AttributionFrame
+    from marivo.analysis.frames.base import BaseFrame
+    from marivo.analysis.frames.candidate import CandidateSet
+    from marivo.analysis.frames.delta import DeltaFrame
+    from marivo.analysis.frames.exploration import ExplorationResult
+    from marivo.analysis.frames.forecast import ForecastFrame
+    from marivo.analysis.frames.hypothesis import HypothesisTestResult
+    from marivo.analysis.frames.metric import MetricFrame
+    from marivo.analysis.frames.quality import QualityReport
+    from marivo.analysis.intents._shape import SemanticShape
+    from marivo.analysis.intents._types import SliceValue
+    from marivo.analysis.policies import AlignmentPolicy, LagPolicy, SamplingPolicy
+    from marivo.analysis.refs import DimensionRef, MetricRef
+    from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
 
 SessionState = Literal["active", "archived"]
 BackendFactory = Callable[[str], Any]
@@ -56,7 +81,7 @@ class Session:
     calendars: Any = None
     known_datasources: set[str] = field(default_factory=set)
     backend_cache: Any = None
-    judgment_store: Any = None
+    judgment_store: JudgmentStore | None = None
     judgment_store_unavailable: bool = False
 
     def __post_init__(self) -> None:
@@ -71,9 +96,20 @@ class Session:
 
     @property
     def is_read_only(self) -> bool:
+        """Whether this session can execute queries against datasources.
+
+        Returns ``True`` when no backend factory is configured, meaning the
+        session can read persisted artifacts but cannot run new analysis that
+        touches a datasource.
+        """
         return self.backend_factory is None
 
     def jobs(self) -> list[JobSummary]:
+        """Return lightweight summaries for every recorded job, oldest first.
+
+        Each entry is a :class:`JobSummary` (id, intent, status, timing, output
+        frame ref). For the full record of a single job, use :meth:`job`.
+        """
         summaries: list[JobSummary] = []
         for job_id in list_job_ids(self.layout):
             record = read_job_record(self.layout, job_id)
@@ -91,14 +127,28 @@ class Session:
         return summaries
 
     def recent_jobs(self, limit: int = 5) -> list[JobSummary]:
+        """Return the most recent ``limit`` job summaries, oldest first.
+
+        A non-positive ``limit`` returns an empty list.
+        """
         if limit <= 0:
             return []
         return self.jobs()[-limit:]
 
     def job(self, job_id: str) -> dict[str, Any]:
+        """Return the full record for a single job as a dict.
+
+        Unlike :meth:`jobs`, which returns lightweight :class:`JobSummary`
+        objects, this returns the complete persisted record including fields
+        such as ``params``. Raises if no job with ``job_id`` exists.
+        """
         return read_job_record(self.layout, job_id)
 
     def frames(self) -> list[FrameRef]:
+        """Return a :class:`FrameRef` for each persisted frame in this session.
+
+        Returns an empty list when no frames have been persisted yet.
+        """
         if not self.layout.frames_dir.is_dir():
             return []
         refs: list[FrameRef] = []
@@ -110,13 +160,18 @@ class Session:
         return refs
 
     def close(self) -> None:
+        """Release session resources: the evidence store and cached backends.
+
+        Safe to call more than once. After closing, the evidence store is
+        reopened lazily on next access via :meth:`evidence_store`.
+        """
         if self.judgment_store is not None:
             self.judgment_store.close()
             self.judgment_store = None
         if self.backend_cache is not None:
             self.backend_cache.close_all()
 
-    def evidence_store(self) -> Any:
+    def evidence_store(self) -> JudgmentStore | None:
         """Return the lazily-opened JudgmentStore, or None if unavailable."""
         if self.judgment_store is not None:
             return self.judgment_store
@@ -135,7 +190,7 @@ class Session:
         self.judgment_store = store
         return store
 
-    def knowledge(self) -> Any:
+    def knowledge(self) -> SessionKnowledge:
         """Return a SessionKnowledge projection for this session."""
         from marivo.analysis.evidence.knowledge import build_session_knowledge
 
@@ -156,7 +211,20 @@ class Session:
         return build_session_knowledge(db_path=db_path, session_id=self.id)
 
     def run_followup(self, action: Any) -> Any:
-        """Dispatch a FollowupAction to the appropriate operator."""
+        """Dispatch a FollowupAction to the appropriate operator.
+
+        Loads the source frame referenced by ``action`` and re-runs the named
+        operator (``assess_quality``, ``decompose``, ``discover``, ``forecast``,
+        ``transform``), recording the result as a followup execution. The return
+        type depends on the operator (e.g. a QualityReport, AttributionFrame,
+        CandidateSet, ForecastFrame, or transformed frame); ``adjust_policy``
+        no-ops and returns ``None``.
+
+        Raises:
+            TypeError: ``action`` is not a FollowupAction.
+            NotImplementedError: the operator is not dispatchable here (e.g.
+                ``compare`` / ``observe``, which require explicit operands).
+        """
         from marivo.analysis.evidence.types import TriggeredByFollowup
         from marivo.analysis.followups import FollowupAction
         from marivo.analysis.session._load import load_frame
@@ -285,17 +353,17 @@ class Session:
     def findings(
         self,
         *,
-        artifact: str | None = None,
+        artifact_id: str | None = None,
         finding_type: str | None = None,
         subject: Any = None,
-    ) -> Any:
+    ) -> Iterator[Finding]:
         """Return Surface 3 findings for this session."""
         from marivo.analysis.evidence.audit import query_findings
 
         return query_findings(
             db_path=self.layout.session_dir / "judgment.db",
             session_id=self.id,
-            artifact_id=artifact,
+            artifact_id=artifact_id,
             finding_type=finding_type,
             subject=subject,
         )
@@ -303,17 +371,17 @@ class Session:
     def propositions(
         self,
         *,
-        type: str | None = None,
+        proposition_type: str | None = None,
         subject: Any = None,
         status: str | None = None,
-    ) -> Any:
+    ) -> Iterator[Proposition]:
         """Return Surface 3 propositions for this session."""
         from marivo.analysis.evidence.audit import query_propositions
 
         return query_propositions(
             db_path=self.layout.session_dir / "judgment.db",
             session_id=self.id,
-            proposition_type=type,
+            proposition_type=proposition_type,
             subject=subject,
             status=status,
         )
@@ -323,7 +391,7 @@ class Session:
         *,
         proposition_id: str | None = None,
         latest_only: bool = True,
-    ) -> Any:
+    ) -> Iterator[Assessment]:
         """Return Surface 3 assessments for this session."""
         from marivo.analysis.evidence.audit import query_assessments
 
@@ -351,15 +419,15 @@ class Session:
 
     def observe(
         self,
-        metric: Any,
+        metric: MetricRef,
         *,
-        timescope: Any = None,
-        grain: Any = None,
-        dimensions: list[Any] | None = None,
-        where: dict[str, Any] | None = None,
+        timescope: TimeScopeInput = None,
+        grain: GrainInput = None,
+        dimensions: list[DimensionRef] | None = None,
+        where: dict[str, SliceValue] | None = None,
         time_field: str | None = None,
-        expect_shape: Any = None,
-    ) -> Any:
+        expect_shape: SemanticShape | None = None,
+    ) -> MetricFrame:
         from marivo.analysis.intents.observe import observe
 
         return observe(
@@ -375,21 +443,21 @@ class Session:
 
     def compare(
         self,
-        current: Any,
-        baseline: Any,
+        current: MetricFrame,
+        baseline: MetricFrame,
         *,
-        alignment: Any = None,
-    ) -> Any:
+        alignment: AlignmentPolicy | None = None,
+    ) -> DeltaFrame:
         from marivo.analysis.intents.compare import compare
 
         return compare(current, baseline, alignment=alignment, session=self)
 
     def decompose(
         self,
-        frame: Any,
+        frame: DeltaFrame,
         *,
-        axis: Any,
-    ) -> Any:
+        axis: DimensionRef,
+    ) -> AttributionFrame:
         from marivo.analysis.intents.decompose import decompose
 
         return decompose(frame, axis=axis, session=self)
@@ -424,15 +492,15 @@ class Session:
 
     def correlate(
         self,
-        a: Any,
-        b: Any,
+        a: MetricFrame,
+        b: MetricFrame,
         *,
         measure_a: str | None = None,
         measure_b: str | None = None,
-        alignment: Any = None,
-        lag_policy: Any = None,
-        method: str = "pearson",
-    ) -> Any:
+        alignment: AlignmentPolicy | None = None,
+        lag_policy: LagPolicy | None = None,
+        method: Literal["pearson"] = "pearson",
+    ) -> AssociationResult:
         from marivo.analysis.intents.correlate import correlate
 
         return correlate(
@@ -442,55 +510,55 @@ class Session:
             measure_b=measure_b,
             alignment=alignment,
             lag_policy=lag_policy,
-            method=cast("Any", method),
+            method=method,
             session=self,
         )
 
     def forecast(
         self,
-        history: Any,
+        history: MetricFrame,
         *,
         horizon: int,
-        model: str = "seasonal_naive",
+        model: Literal["naive", "seasonal_naive", "drift"] = "seasonal_naive",
         seasonality_period: int | None = None,
         interval_level: float = 0.95,
         measure_column: str | None = None,
-    ) -> Any:
+    ) -> ForecastFrame:
         from marivo.analysis.intents.forecast import forecast
 
         return forecast(
             history,
             horizon=horizon,
-            model=cast("Any", model),
+            model=model,
             seasonality_period=seasonality_period,
             interval_level=interval_level,
             measure_column=measure_column,
             session=self,
         )
 
-    def assess_quality(self, frame: Any) -> Any:
+    def assess_quality(self, frame: BaseFrame) -> QualityReport:
         from marivo.analysis.intents.assess_quality import assess_quality
 
         return assess_quality(frame, session=self)
 
     def hypothesis_test(
         self,
-        a: Any,
-        b: Any,
+        a: MetricFrame,
+        b: MetricFrame,
         *,
-        hypothesis: str = "mean_changed",
+        hypothesis: Literal["mean_changed"] = "mean_changed",
         value_a: str | None = None,
         value_b: str | None = None,
-        alignment: Any = None,
-        sampling: Any = None,
+        alignment: AlignmentPolicy | None = None,
+        sampling: SamplingPolicy | None = None,
         alpha: float = 0.05,
-    ) -> Any:
+    ) -> HypothesisTestResult:
         from marivo.analysis.intents.test import hypothesis_test
 
         return hypothesis_test(
             a,
             b,
-            hypothesis=cast("Any", hypothesis),
+            hypothesis=hypothesis,
             value_a=value_a,
             value_b=value_b,
             alignment=alignment,
@@ -505,7 +573,7 @@ class Session:
         *,
         description: str | None = None,
         sources: list[Any] | None = None,
-    ) -> Any:
+    ) -> ExplorationResult:
         from marivo.analysis.escape_hatch import from_pandas
 
         return from_pandas(df, session=self, description=description, sources=sources)
@@ -517,7 +585,7 @@ class Session:
         datasource: str,
         description: str | None = None,
         sources: list[Any] | None = None,
-    ) -> Any:
+    ) -> ExplorationResult:
         from marivo.analysis.escape_hatch import explore_ibis
 
         return explore_ibis(
@@ -541,7 +609,7 @@ class Session:
         semantic_model: str | None = None,
         window: Any = None,
         where: dict[str, Any] | None = None,
-    ) -> Any:
+    ) -> MetricFrame:
         from marivo.analysis.escape_hatch import promote_metric_frame
 
         return promote_metric_frame(
@@ -572,7 +640,7 @@ class Session:
         current_column: str | None = None,
         baseline_column: str | None = None,
         alignment: Any = None,
-    ) -> Any:
+    ) -> DeltaFrame:
         from marivo.analysis.escape_hatch import promote_delta_frame
 
         return promote_delta_frame(
@@ -601,7 +669,7 @@ class Session:
         value_column: str | None = None,
         method: str = "promotion",
         method_params: dict[str, Any] | None = None,
-    ) -> Any:
+    ) -> AttributionFrame:
         from marivo.analysis.escape_hatch import promote_attribution_frame
 
         return promote_attribution_frame(
@@ -685,7 +753,7 @@ class SessionDiscoverNamespace:
         limit: int | None = None,
         search_space: list[Any] | None = None,
         peer_scope: list[Any] | None = None,
-    ) -> Any:
+    ) -> CandidateSet:
         from marivo.analysis.intents.discover import discover
 
         return discover(
@@ -707,7 +775,7 @@ class SessionDiscoverNamespace:
         *,
         value: str | None = None,
         threshold: float | None = None,
-    ) -> Any:
+    ) -> CandidateSet:
         from marivo.analysis.intents.discover import discover
 
         return discover.point_anomalies(
@@ -723,7 +791,7 @@ class SessionDiscoverNamespace:
         *,
         value: str | None = None,
         threshold: float | None = None,
-    ) -> Any:
+    ) -> CandidateSet:
         from marivo.analysis.intents.discover import discover
 
         return discover.period_shifts(
@@ -740,7 +808,7 @@ class SessionDiscoverNamespace:
         search_space: list[Any],
         value: str | None = None,
         limit: int | None = None,
-    ) -> Any:
+    ) -> CandidateSet:
         from marivo.analysis.intents.discover import discover
 
         return discover.driver_axes(
@@ -759,7 +827,7 @@ class SessionDiscoverNamespace:
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = None,
-    ) -> Any:
+    ) -> CandidateSet:
         from marivo.analysis.intents.discover import discover
 
         return discover.interesting_slices(
@@ -777,7 +845,7 @@ class SessionDiscoverNamespace:
         *,
         value: str | None = None,
         threshold: float | None = None,
-    ) -> Any:
+    ) -> CandidateSet:
         from marivo.analysis.intents.discover import discover
 
         return discover.interesting_windows(
@@ -794,7 +862,7 @@ class SessionDiscoverNamespace:
         peer_scope: list[Any] | None = None,
         value: str | None = None,
         threshold: float | None = None,
-    ) -> Any:
+    ) -> CandidateSet:
         from marivo.analysis.intents.discover import discover
 
         return discover.cross_sectional_outliers(
@@ -828,7 +896,7 @@ class SessionTransformNamespace:
         mode: str | None = None,
         baseline: Any = None,
         window: Any = None,
-    ) -> Any:
+    ) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform(
@@ -848,17 +916,17 @@ class SessionTransformNamespace:
             session=self._session,
         )
 
-    def filter(self, frame: object, *, predicate: Callable[[Any], Any]) -> Any:
+    def filter(self, frame: object, *, predicate: Callable[[Any], Any]) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.filter(frame, predicate=predicate, session=self._session)
 
-    def slice(self, frame: object, *, where: dict[Any, Any]) -> Any:
+    def slice(self, frame: object, *, where: dict[Any, Any]) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.slice(frame, where=where, session=self._session)
 
-    def rollup(self, frame: object, *, drop_axes: list[Any]) -> Any:
+    def rollup(self, frame: object, *, drop_axes: list[Any]) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.rollup(frame, drop_axes=drop_axes, session=self._session)
@@ -870,7 +938,7 @@ class SessionTransformNamespace:
         by: str,
         limit: int,
         order: str | None = None,
-    ) -> Any:
+    ) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.topk(
@@ -881,7 +949,7 @@ class SessionTransformNamespace:
             session=self._session,
         )
 
-    def bottomk(self, frame: object, *, by: str, limit: int) -> Any:
+    def bottomk(self, frame: object, *, by: str, limit: int) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.bottomk(frame, by=by, limit=limit, session=self._session)
@@ -893,7 +961,7 @@ class SessionTransformNamespace:
         by: str,
         method: str = "ordinal",
         rank_column: str = "rank",
-    ) -> Any:
+    ) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.rank(
@@ -910,7 +978,7 @@ class SessionTransformNamespace:
         *,
         mode: str,
         baseline: Any = None,
-    ) -> Any:
+    ) -> MetricFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.normalize(
@@ -920,7 +988,7 @@ class SessionTransformNamespace:
             session=self._session,
         )
 
-    def window(self, frame: object, *, window: Any) -> Any:
+    def window(self, frame: object, *, window: Any) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.window(frame, window=window, session=self._session)
@@ -932,7 +1000,8 @@ class EvidenceNamespace:
 
     _session: Session
 
-    def proposition(self, proposition_id: str) -> Any:
+    def proposition(self, proposition_id: str) -> Proposition:
+        """Return the proposition with the given id for this session."""
         from marivo.analysis.evidence.audit import get_proposition
 
         return get_proposition(
@@ -940,7 +1009,11 @@ class EvidenceNamespace:
             proposition_id=proposition_id,
         )
 
-    def latest_assessment(self, proposition_id: str) -> Any:
+    def latest_assessment(self, proposition_id: str) -> Assessment | None:
+        """Return the most recent assessment for a proposition, or None.
+
+        Returns ``None`` when the proposition has never been assessed.
+        """
         from marivo.analysis.evidence.audit import get_latest_assessment
 
         return get_latest_assessment(
@@ -948,7 +1021,12 @@ class EvidenceNamespace:
             proposition_id=proposition_id,
         )
 
-    def trace(self, proposition_id: str) -> Any:
+    def trace(self, proposition_id: str) -> EvidenceTrace:
+        """Return the full evidence trace for a proposition.
+
+        The trace links the proposition to its supporting findings and
+        assessments for audit and explanation.
+        """
         from marivo.analysis.evidence.audit import build_evidence_trace
 
         return build_evidence_trace(

@@ -413,13 +413,13 @@ agent 也可以直接按算子展开调用（`session.decompose(delta, axis=acti
 
 ```python
 session.findings(
-    artifact: ArtifactRef | None = None,
+    artifact_id: ArtifactRef | None = None,
     finding_type: FindingType | None = None,
     subject: Subject | None = None,
 ) -> Iterable[Finding]
 
 session.propositions(
-    type: PropositionType | None = None,
+    proposition_type: PropositionType | None = None,
     subject: Subject | None = None,
     status: AssessmentStatus | None = None,
 ) -> Iterable[Proposition]
@@ -954,7 +954,7 @@ for action in next_steps:
 ### 审计（Surface 3）
 
 ```python
-for prop in session.propositions(type="change"):
+for prop in session.propositions(proposition_type="change"):
     trace = session.evidence.trace(prop.id)
     print(trace.proposition.subject)
     print(trace.latest_assessment.status if trace.latest_assessment else None)

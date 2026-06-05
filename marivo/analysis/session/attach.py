@@ -523,6 +523,25 @@ def active_or_create(
     backend_factory: Callable[[str], Any] | None = None,
     use_datasources: bool = True,
 ) -> Session:
+    """Return the active session, or create one named ``name_hint`` if none.
+
+    When to use: convenience for scripts that want to reuse an already-active
+    session when present but fall back to creating a fresh one otherwise.
+    When a session is already active, ``name_hint`` and ``question`` are
+    ignored; passing ``default_calendar`` re-attaches the active session with
+    that calendar.
+
+    Args:
+        name_hint: Name used only when creating a new session.
+        question: Guiding question, used only when creating.
+        default_calendar: Default calendar name for time-based analysis.
+        backends: Explicit mapping of datasource name to zero-arg factory
+            callable returning an ibis backend.
+        backend_factory: Single callable taking a datasource name and returning
+            an ibis backend for dynamic resolution.
+        use_datasources: When True (default), auto-discovers datasource
+            definitions from ``.marivo/datasource/*.py``.
+    """
     try:
         sess = active()
     except NoActiveSessionError:
@@ -546,6 +565,19 @@ def active_or_create(
 
 
 def list_sessions(include_archived: bool = False) -> list[SessionSummary]:
+    """List sessions in the current project, ordered by creation time.
+
+    When to use: enumerate sessions for selection or reporting. Returns
+    lightweight :class:`SessionSummary` rows, not live ``Session`` objects.
+
+    Args:
+        include_archived: When True, also include archived sessions. Defaults
+            to active sessions only.
+
+    Example:
+        >>> for s in mv.session.list():
+        ...     print(s.name, s.state)
+    """
     project_root = resolve_project_root()
     where = "" if include_archived else "WHERE state = 'active'"
     with closing(_connect_index(project_root)) as conn:
@@ -566,6 +598,17 @@ def list_sessions(include_archived: bool = False) -> list[SessionSummary]:
 
 
 def archive(name: str) -> None:
+    """Mark a session as archived without deleting its data.
+
+    When to use: retire a session from the active list while keeping its
+    artifacts on disk. Archived sessions are hidden from ``list()`` unless
+    ``include_archived=True`` and cannot be made active via ``switch``. If the
+    named session is the in-process current session, its state is updated in
+    place. No-op semantics: silently does nothing when the name is unknown.
+
+    Args:
+        name: Name of the session to archive.
+    """
     project_root = resolve_project_root()
     updated_at = _now()
     with closing(_connect_index(project_root)) as conn:
@@ -587,6 +630,17 @@ def archive(name: str) -> None:
 
 
 def delete(name: str) -> None:
+    """Permanently delete a session and all of its on-disk data.
+
+    When to use: remove a session for good, including its persisted frames,
+    jobs, and evidence store. Removes the session directory and its index
+    entry, clears the active marker if it pointed here, and drops the
+    in-process current session if it matches. No-op semantics: silently does
+    nothing when the name is unknown. This is irreversible.
+
+    Args:
+        name: Name of the session to delete.
+    """
     project_root = resolve_project_root()
     row = _lookup_session_by_name(project_root, name)
     if row is None:

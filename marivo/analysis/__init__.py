@@ -69,6 +69,7 @@ from marivo.analysis.policies import (
     SamplingPolicy,
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
+from marivo.analysis.session._introspection import install_intent_docstrings
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.validation import ValidationIssue
 from marivo.analysis.windows import GrainUnit, ensure_grain_supported
@@ -178,3 +179,9 @@ __all__ = [
     "load_frame",
     "session",
 ]
+
+
+# Mirror intent docstrings onto Session.observe/compare/... so help() and IPython
+# `?` surface them. Real type annotations live in core.py source; only the
+# docstring text is copied here (authored once on the intent functions).
+install_intent_docstrings()
