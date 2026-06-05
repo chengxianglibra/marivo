@@ -40,6 +40,36 @@ def test_dataset_candidate_is_proposed_with_metadata_evidence():
     assert kinds == {"metadata", "comment"}
 
 
+def test_view_definition_attached_as_dataset_evidence():
+    md = TableMetadata(
+        datasource="warehouse",
+        table="v_orders",
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(ColumnMetadata("order_id", "BIGINT", False, None, None),),
+        partitions=(),
+        warnings=(),
+        is_view=True,
+        view_definition="SELECT order_id FROM orders",
+    )
+    cands = proposal.candidates_from_metadata(md, model="sales")
+    ds = next(c for c in cands if c.decision_kind == "dataset_identity")
+    by_type = {e.evidence_type: e for e in ds.evidence}
+    assert "view_definition" in by_type
+    assert by_type["view_definition"].excerpt == "SELECT order_id FROM orders"
+
+
+def test_base_table_has_no_view_definition_evidence():
+    md = _md([ColumnMetadata("id", "BIGINT", False, None, None)])
+    ds = next(
+        c
+        for c in proposal.candidates_from_metadata(md, model="sales")
+        if c.decision_kind == "dataset_identity"
+    )
+    assert "view_definition" not in {e.evidence_type for e in ds.evidence}
+
+
 def test_temporal_column_proposes_time_field_candidate():
     md = _md(
         [
