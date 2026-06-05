@@ -1243,25 +1243,42 @@ def _prefix_sql_for_session(sql: Any, *, session_id: str) -> str:
     return f"{_sql_execution_comment(session_id)}\n{sql}"
 
 
-def _fix_clickhouse_datetrunc_case(sql: str) -> str:
-    """Fix dateTrunc case sensitivity for ClickHouse 22.3 compatibility.
+_DATETRUNC_TO_NATIVE: dict[str, str] = {
+    "second": "toStartOfSecond",
+    "minute": "toStartOfMinute",
+    "hour": "toStartOfHour",
+    "day": "toStartOfDay",
+    "week": "toMonday",
+    "month": "toStartOfMonth",
+    "quarter": "toStartOfQuarter",
+    "year": "toStartOfYear",
+}
 
-    ClickHouse 22.3 requires lowercase time unit arguments in dateTrunc(),
-    but Ibis 12.0.0 generates uppercase (HOUR, MINUTE, DAY, etc.).
-    ClickHouse 23.x+ accepts both cases.
+
+def _fix_clickhouse_datetrunc(sql: str) -> str:
+    """Replace dateTrunc with native ClickHouse toStartOf* functions.
+
+    Ibis 12.0.0 generates dateTrunc('DAY', col) etc. for ClickHouse, but
+    dateTrunc is unsupported or unreliable in ClickHouse 22.3. Native
+    ClickHouse functions (toStartOfDay, toStartOfHour, toMonday, etc.)
+    work in all versions.
 
     This transforms:
-        dateTrunc('HOUR', col) → dateTrunc('hour', col)
-        dateTrunc('MINUTE', col) → dateTrunc('minute', col)
-        dateTrunc('DAY', col) → dateTrunc('day', col)
+        dateTrunc('DAY', col)   → toStartOfDay(col)
+        dateTrunc('HOUR', col)  → toStartOfHour(col)
+        dateTrunc('WEEK', col)  → toMonday(col)
         etc.
+    Any surrounding CAST wrapper is preserved.
     """
 
-    def lowercase_unit(match: re.Match[str]) -> str:
+    def _replace_unit(match: re.Match[str]) -> str:
         unit = match.group(1).lower()
-        return f"dateTrunc('{unit}'"
+        native = _DATETRUNC_TO_NATIVE.get(unit)
+        if native is None:
+            return match.group(0)
+        return f"{native}("
 
-    return re.sub(r"dateTrunc\('([A-Z]+)'", lowercase_unit, sql, flags=re.MULTILINE)
+    return re.sub(r"dateTrunc\('([A-Za-z]+)',\s*", _replace_unit, sql)
 
 
 def _backend_dialect(backend: Any) -> str:
@@ -1293,7 +1310,7 @@ def execute(
 
                 dialect = _backend_dialect(backend)
                 if dialect == "clickhouse":
-                    sql = _fix_clickhouse_datetrunc_case(sql)
+                    sql = _fix_clickhouse_datetrunc(sql)
 
                 prefixed = _prefix_sql_for_session(sql, session_id=session_id)
                 captured_sql = prefixed
@@ -1310,7 +1327,7 @@ def execute(
 
                 dialect = _backend_dialect(backend)
                 if dialect == "clickhouse":
-                    sql = _fix_clickhouse_datetrunc_case(sql)
+                    sql = _fix_clickhouse_datetrunc(sql)
 
                 captured_sql = sql
                 return sql
