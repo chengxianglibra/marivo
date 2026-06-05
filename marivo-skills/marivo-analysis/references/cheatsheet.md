@@ -148,7 +148,8 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 | Read recent jobs | `session.recent_jobs(limit=5)` |
 | Create or attach a session (idempotent) | `mv.session.get_or_create(name=...)` |
 | List sessions | `mv.session.list()` |
-| Attach live data | `mv.session.get_or_create(name=..., backend_factory=...)` |
+| Attach live project data | `mv.session.get_or_create(name=...)` |
+| Override backend resolution for tests/CI | `mv.session.get_or_create(name=..., backend_factory=..., use_datasources=False)` |
 | Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` |
 | Inspect calendar file shape | `mv.help("calendar")` |
 | Confirm metric ids | `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()` |
@@ -190,8 +191,16 @@ component and which comparability check failed:
 ## Backend Setup
 
 Analysis intents that execute against live semantic datasets need a session
-backend. Use `backends={...}` for a small static mapping or
-`backend_factory(datasource_name)` when the script must route by datasource.
+backend. In a real project, register `.marivo/datasource/*.py` definitions and
+use the default session entrypoint:
+
+```python
+session = mv.session.get_or_create(name="analysis")
+```
+
+Use `backends={...}` for a small static mapping or
+`backend_factory(datasource_name)` only when tests/CI or deterministic scripts
+must override project datasource lookup.
 
 ```python
 import os
@@ -211,7 +220,11 @@ def make_backend(datasource_name: str):
         client_tags=["standby", "routing_group=bsk_wide"],
     )
 
-mv.session.get_or_create(name="analysis", backend_factory=make_backend)
+mv.session.get_or_create(
+    name="analysis",
+    backend_factory=make_backend,
+    use_datasources=False,
+)
 ```
 
 For Trino, map prompt `catalog` to Ibis `database`, and map

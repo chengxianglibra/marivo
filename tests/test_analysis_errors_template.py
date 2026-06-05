@@ -317,7 +317,10 @@ def test_no_backend_factory_without_details_uses_session_backend_template() -> N
 
     err = NoBackendFactoryError(
         message="session has no backend_factory; data-materializing intents need one",
-        hint="Pass backends={...} or backend_factory=... when creating or attaching.",
+        hint=(
+            "Register a project datasource and call mv.session.get_or_create(name=...), "
+            "or pass backends={...}/backend_factory=... only for explicit overrides."
+        ),
     )
 
     rendered = str(err)
