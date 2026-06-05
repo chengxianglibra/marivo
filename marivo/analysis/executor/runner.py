@@ -1243,6 +1243,27 @@ def _prefix_sql_for_session(sql: Any, *, session_id: str) -> str:
     return f"{_sql_execution_comment(session_id)}\n{sql}"
 
 
+def _fix_clickhouse_datetrunc_case(sql: str) -> str:
+    """Fix dateTrunc case sensitivity for ClickHouse 22.3 compatibility.
+
+    ClickHouse 22.3 requires lowercase time unit arguments in dateTrunc(),
+    but Ibis 12.0.0 generates uppercase (HOUR, MINUTE, DAY, etc.).
+    ClickHouse 23.x+ accepts both cases.
+
+    This transforms:
+        dateTrunc('HOUR', col) → dateTrunc('hour', col)
+        dateTrunc('MINUTE', col) → dateTrunc('minute', col)
+        dateTrunc('DAY', col) → dateTrunc('day', col)
+        etc.
+    """
+
+    def lowercase_unit(match: re.Match[str]) -> str:
+        unit = match.group(1).lower()
+        return f"dateTrunc('{unit}'"
+
+    return re.sub(r"dateTrunc\('([A-Z]+)'", lowercase_unit, sql, flags=re.MULTILINE)
+
+
 def _backend_dialect(backend: Any) -> str:
     return getattr(backend, "name", "unknown")
 
@@ -1269,6 +1290,11 @@ def execute(
             ) -> str:
                 nonlocal captured_sql
                 sql = original_compile(expr, *args, **kwargs)
+
+                dialect = _backend_dialect(backend)
+                if dialect == "clickhouse":
+                    sql = _fix_clickhouse_datetrunc_case(sql)
+
                 prefixed = _prefix_sql_for_session(sql, session_id=session_id)
                 captured_sql = prefixed
                 return prefixed
@@ -1281,6 +1307,11 @@ def execute(
             ) -> str:
                 nonlocal captured_sql
                 sql: str = original_compile(expr, *args, **kwargs)
+
+                dialect = _backend_dialect(backend)
+                if dialect == "clickhouse":
+                    sql = _fix_clickhouse_datetrunc_case(sql)
+
                 captured_sql = sql
                 return sql
 
