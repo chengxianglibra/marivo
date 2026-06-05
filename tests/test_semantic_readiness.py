@@ -16,6 +16,7 @@ from marivo.semantic.readiness import (
     PreviewSummary,
     ReadinessIssue,
     ReadinessReport,
+    build_readiness_report,
 )
 
 
@@ -763,6 +764,201 @@ def test_readiness_require_comments_blocks_when_metadata_lacks_comments(
 
     assert report.status == "blocked"
     assert any(issue.kind == "missing_comments" for issue in report.blockers)
+
+
+def test_readiness_emits_derived_source_grain_unverified_for_view(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": textwrap.dedent("""\
+                import marivo.semantic as ms
+
+                ms.model(name="sales")
+
+                orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+            """)
+        }
+    )
+    ds = project.registry().datasets["sales.orders"]
+    view_md = TableMetadata(
+        datasource=ds.datasource,
+        table=ds.source.table,
+        database=ds.source.database,
+        backend_type="duckdb",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+        is_view=True,
+        view_definition="SELECT 1",
+    )
+
+    report = build_readiness_report(
+        project,
+        require_preview=False,
+        strict_provenance=False,
+        refs=["sales.orders"],
+        table_metadata=[view_md],
+    )
+    assert any(i.kind == "derived_source_grain_unverified" for i in report.warnings)
+
+    base_md = TableMetadata(
+        datasource=ds.datasource,
+        table=ds.source.table,
+        database=ds.source.database,
+        backend_type="duckdb",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+    )
+    base_report = build_readiness_report(
+        project,
+        require_preview=False,
+        strict_provenance=False,
+        refs=["sales.orders"],
+        table_metadata=[base_md],
+    )
+    assert not any(i.kind == "derived_source_grain_unverified" for i in base_report.warnings)
+
+
+def test_view_advisory_attaches_to_aliased_dataset(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": textwrap.dedent("""\
+                import marivo.semantic as ms
+
+                ms.model(name="sales")
+
+                orders = ms.dataset(
+                    name="orders",
+                    datasource="warehouse",
+                    source=ms.table("v_orders"),
+                )
+            """)
+        }
+    )
+    ds = project.registry().datasets["sales.orders"]
+    assert ds.source.table == "v_orders"
+    view_md = TableMetadata(
+        datasource=ds.datasource,
+        table="v_orders",
+        database=ds.source.database,
+        backend_type="duckdb",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+        is_view=True,
+        view_definition="SELECT 1",
+    )
+    report = build_readiness_report(
+        project,
+        require_preview=False,
+        strict_provenance=False,
+        refs=["sales.orders"],
+        table_metadata=[view_md],
+    )
+    assert any(i.kind == "derived_source_grain_unverified" for i in report.warnings)
+
+
+def test_view_advisory_matches_clickhouse_datasource_default_database(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "datasource/warehouse.py": textwrap.dedent("""\
+                import marivo.datasource as md
+
+                warehouse = md.DatasourceSpec(
+                    name="warehouse",
+                    backend_type="clickhouse",
+                    host="clickhouse.example",
+                    database="analytics",
+                )
+                md.datasource(warehouse)
+            """),
+            "sales/_model.py": textwrap.dedent("""\
+                import marivo.semantic as ms
+
+                ms.model(name="sales")
+
+                orders = ms.dataset(
+                    name="orders",
+                    datasource="warehouse",
+                    source=ms.table("v_orders"),
+                )
+            """),
+        }
+    )
+    ds = project.registry().datasets["sales.orders"]
+    assert ds.source.database is None
+    view_md = TableMetadata(
+        datasource=ds.datasource,
+        table="v_orders",
+        database="analytics",
+        backend_type="clickhouse",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+        is_view=True,
+        view_definition="CREATE VIEW analytics.v_orders AS SELECT 1",
+    )
+
+    report = build_readiness_report(
+        project,
+        require_preview=False,
+        strict_provenance=False,
+        refs=["sales.orders"],
+        table_metadata=[view_md],
+    )
+
+    assert any(i.kind == "derived_source_grain_unverified" for i in report.warnings)
+
+
+def test_readiness_does_not_attach_view_metadata_from_different_database(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": textwrap.dedent("""\
+                import marivo.semantic as ms
+
+                ms.model(name="sales")
+
+                orders = ms.dataset(
+                    name="orders",
+                    datasource="warehouse",
+                    source=ms.table("orders", database="base_schema"),
+                )
+            """)
+        }
+    )
+    ds = project.registry().datasets["sales.orders"]
+    view_md = TableMetadata(
+        datasource=ds.datasource,
+        table=ds.source.table,
+        database="view_schema",
+        backend_type="duckdb",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+        is_view=True,
+        view_definition="SELECT 1",
+    )
+
+    report = build_readiness_report(
+        project,
+        require_preview=False,
+        strict_provenance=False,
+        refs=["sales.orders"],
+        table_metadata=[view_md],
+    )
+
+    assert not any(i.kind == "derived_source_grain_unverified" for i in report.warnings)
 
 
 def test_unresolved_clarification_is_a_valid_issue_kind():

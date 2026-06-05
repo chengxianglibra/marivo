@@ -48,6 +48,7 @@ ReadinessIssueKind = Literal[
     "cross_datasource_unfederated",
     "requires_raw_sql",
     "primary_key_unsampled",
+    "derived_source_grain_unverified",
     "fragile_string_ref",
     "time_field_pushdown_advisory",
     "unresolved_clarification",
@@ -411,13 +412,40 @@ def _metadata_by_dataset_ref(
     reg = project.registry()
     if reg is None:
         return {}
-    by_key = {(metadata.datasource, metadata.table): metadata for metadata in table_metadata}
+    by_key = {
+        (metadata.datasource, metadata.table, metadata.database): metadata
+        for metadata in table_metadata
+    }
     out: dict[str, TableMetadata] = {}
     for dataset in reg.datasets.values():
-        metadata = by_key.get((dataset.datasource, dataset.name))
+        source = dataset.source
+        if not isinstance(source, TableSourceIR):
+            continue
+        metadata = by_key.get(
+            (
+                dataset.datasource,
+                source.table,
+                _dataset_source_database_for_metadata(reg, dataset.datasource, source),
+            )
+        )
         if metadata is not None:
             out[dataset.semantic_id] = metadata
     return out
+
+
+def _dataset_source_database_for_metadata(
+    registry: object,
+    datasource_name: str,
+    source: TableSourceIR,
+) -> str | tuple[str, ...] | None:
+    if source.database is not None:
+        return source.database
+    datasources = getattr(registry, "datasources", {})
+    datasource = datasources.get(datasource_name)
+    if getattr(datasource, "backend_type", None) != "clickhouse":
+        return None
+    database = getattr(datasource, "fields", {}).get("database")
+    return str(database) if database is not None else None
 
 
 def _metadata_has_comment_for_ref(
@@ -955,6 +983,22 @@ def build_readiness_report(
                         (dataset.semantic_id,),
                         f"Primary key uniqueness was not sampled for {dataset.semantic_id}.",
                         "Sample primary key uniqueness or note why uniqueness is trusted from upstream constraints.",
+                    )
+                )
+            metadata = metadata_by_dataset.get(dataset.semantic_id)
+            if dataset.semantic_id in checked_ref_set and metadata is not None and metadata.is_view:
+                warnings.append(
+                    _issue(
+                        "derived_source_grain_unverified",
+                        "warning",
+                        (dataset.semantic_id,),
+                        f"Dataset {dataset.semantic_id} is backed by a database view; "
+                        "its grain, primary key, and additivity are author-asserted and "
+                        "cannot be physically verified, and the view may prevent partition "
+                        "pruning on the time axis.",
+                        "Confirm the row grain and additivity, verify the time field still "
+                        "prunes (see time_field_pushdown_advisory), and set primary_key "
+                        "deliberately rather than inheriting base-table assumptions.",
                     )
                 )
 

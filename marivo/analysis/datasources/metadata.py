@@ -79,6 +79,8 @@ class TableMetadata:
     columns: tuple[ColumnMetadata, ...]
     partitions: tuple[PartitionMetadata, ...]
     warnings: tuple[MetadataWarning, ...]
+    is_view: bool = False
+    view_definition: str | None = None
 
     @property
     def ref(self) -> str:
@@ -100,6 +102,8 @@ class TableMetadata:
             "columns": [column.to_dict() for column in self.columns],
             "partitions": [partition.to_dict() for partition in self.partitions],
             "warnings": [warning.to_dict() for warning in self.warnings],
+            "is_view": self.is_view,
+            "view_definition": self.view_definition,
             "ref": self.ref,
         }
 
@@ -123,6 +127,32 @@ def _table_ref(table: str, database: str | tuple[str, ...] | None) -> str:
         return _quote_identifier(table)
     parts = database if isinstance(database, tuple) else (database,)
     return ".".join(_quote_identifier(part) for part in (*parts, table))
+
+
+def _duckdb_view_predicate(
+    table: str,
+    database: str | tuple[str, ...] | None,
+    *,
+    default_database: str | None = None,
+    default_schema: str = "main",
+) -> str:
+    predicates = [
+        f"view_name = {_quote_literal(table)}",
+        "internal = false",
+    ]
+    if isinstance(database, tuple):
+        if len(database) == 1:
+            predicates.append(f"schema_name = {_quote_literal(database[0])}")
+        elif len(database) >= 2:
+            predicates.append(f"database_name = {_quote_literal(database[0])}")
+            predicates.append(f"schema_name = {_quote_literal(database[1])}")
+    elif database is not None:
+        predicates.append(f"schema_name = {_quote_literal(database)}")
+    else:
+        if default_database is not None:
+            predicates.append(f"database_name = {_quote_literal(default_database)}")
+        predicates.append(f"schema_name = {_quote_literal(default_schema)}")
+    return " AND ".join(predicates)
 
 
 def _cursor_rows(cursor: Any) -> list[dict[str, object]]:
@@ -355,6 +385,8 @@ def _inspect_duckdb(
     warnings: list[MetadataWarning] = []
     table_comment: str | None = None
     catalog_columns: dict[str, ColumnMetadata] = {}
+    is_view = False
+    view_definition: str | None = None
 
     try:
         table_rows = _query_rows(
@@ -397,6 +429,35 @@ def _inspect_duckdb(
             )
         )
 
+    try:
+        default_database: str | None = None
+        default_schema = "main"
+        if database is None:
+            namespace_rows = _query_rows(
+                backend,
+                "SELECT current_database() AS database_name, current_schema() AS schema_name",
+            )
+            if namespace_rows:
+                default_database = _empty_to_none(namespace_rows[0].get("database_name"))
+                default_schema = _empty_to_none(namespace_rows[0].get("schema_name")) or "main"
+        view_rows = _query_rows(
+            backend,
+            "SELECT sql FROM duckdb_views() "
+            "WHERE "
+            f"{_duckdb_view_predicate(table, database, default_database=default_database, default_schema=default_schema)} "
+            "LIMIT 1",
+        )
+        if view_rows:
+            is_view = True
+            view_definition = _empty_to_none(view_rows[0].get("sql"))
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"duckdb view metadata query failed: {exc}",
+            )
+        )
+
     if include_partitions:
         warnings.append(
             MetadataWarning(
@@ -423,6 +484,8 @@ def _inspect_duckdb(
         columns=columns,
         partitions=(),
         warnings=tuple(warnings),
+        is_view=is_view,
+        view_definition=view_definition,
     )
 
 
@@ -434,9 +497,10 @@ def _inspect_mysql(
     database: str | tuple[str, ...] | None,
     table_expr: Any,
     include_partitions: bool,
+    default_database: str | None,
 ) -> TableMetadata:
     schema_columns = _schema_columns(table_expr)
-    schema_name = _database_label(database)
+    schema_name = _database_label(database) or default_database
     table_comment: str | None = None
     warnings: list[MetadataWarning] = []
 
@@ -487,6 +551,34 @@ def _inspect_mysql(
             )
         )
 
+    is_view = False
+    view_definition: str | None = None
+    type_sql = (
+        "SELECT TABLE_TYPE FROM information_schema.tables "
+        f"WHERE table_name = {_quote_literal(table)}"
+    )
+    if schema_name is not None:
+        type_sql += f" AND table_schema = {_quote_literal(schema_name)}"
+    try:
+        type_rows = _query_rows(backend, type_sql)
+        if type_rows and str(type_rows[0].get("TABLE_TYPE") or "").upper() == "VIEW":
+            is_view = True
+            def_rows = _query_rows(
+                backend,
+                "SELECT VIEW_DEFINITION FROM information_schema.views "
+                f"WHERE table_name = {_quote_literal(table)}"
+                + (f" AND table_schema = {_quote_literal(schema_name)}" if schema_name else ""),
+            )
+            if def_rows:
+                view_definition = _empty_to_none(def_rows[0].get("VIEW_DEFINITION"))
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"mysql view metadata query failed: {exc}",
+            )
+        )
+
     return TableMetadata(
         datasource=datasource,
         table=table,
@@ -496,6 +588,8 @@ def _inspect_mysql(
         columns=_merge_columns(schema_columns, catalog_columns),
         partitions=(),
         warnings=tuple(warnings),
+        is_view=is_view,
+        view_definition=view_definition,
     )
 
 
@@ -589,6 +683,29 @@ def _inspect_trino(
             )
         )
 
+    is_view = False
+    view_definition: str | None = None
+    try:
+        type_rows = _query_rows(
+            backend,
+            f"SELECT table_type FROM information_schema.tables WHERE {where_clause} LIMIT 1",
+        )
+        if type_rows and str(type_rows[0].get("table_type") or "").upper() == "VIEW":
+            is_view = True
+            def_rows = _query_rows(
+                backend,
+                f"SELECT view_definition FROM information_schema.views WHERE {where_clause} LIMIT 1",
+            )
+            if def_rows:
+                view_definition = _empty_to_none(def_rows[0].get("view_definition"))
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"trino view metadata query failed: {exc}",
+            )
+        )
+
     return TableMetadata(
         datasource=datasource,
         table=table,
@@ -598,6 +715,8 @@ def _inspect_trino(
         columns=_merge_columns(schema_columns, catalog_columns),
         partitions=(),
         warnings=tuple(warnings),
+        is_view=is_view,
+        view_definition=view_definition,
     )
 
 
@@ -721,6 +840,26 @@ def _inspect_clickhouse(
             )
         )
 
+    is_view = engine in ("View", "MaterializedView")
+    view_definition: str | None = None
+    if is_view:
+        try:
+            def_rows = _query_rows(
+                backend,
+                "SELECT create_table_query FROM system.tables "
+                f"WHERE name = {_quote_literal(table)} "
+                f"AND database = {_quote_literal(ch_database)} LIMIT 1",
+            )
+            if def_rows:
+                view_definition = _empty_to_none(def_rows[0].get("create_table_query"))
+        except Exception as exc:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"clickhouse view metadata query failed: {exc}",
+                )
+            )
+
     return TableMetadata(
         datasource=datasource,
         table=table,
@@ -730,6 +869,8 @@ def _inspect_clickhouse(
         columns=columns,
         partitions=partitions,
         warnings=tuple(warnings),
+        is_view=is_view,
+        view_definition=view_definition,
     )
 
 
@@ -781,6 +922,11 @@ def inspect_table(
                 database=database,
                 table_expr=table_expr,
                 include_partitions=include_partitions,
+                default_database=(
+                    str(datasource_ir.fields["database"])
+                    if datasource_ir.fields.get("database") is not None
+                    else None
+                ),
             )
         if datasource_ir.backend_type == "trino":
             return _inspect_trino(

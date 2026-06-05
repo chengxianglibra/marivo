@@ -42,6 +42,8 @@ def test_candidate_confidence_saturates_at_one():
     assert clf.candidate_confidence(["source_sql", "comment"]) == 1.0
     # single comment (2.0) / 4.0 = 0.5
     assert clf.candidate_confidence(["comment"]) == 0.5
+    assert clf.candidate_confidence(["view_definition"]) == 0.125
+    assert clf.candidate_confidence(["metadata", "view_definition"]) == 0.5
     assert clf.candidate_confidence([]) == 0.0
 
 
@@ -50,6 +52,7 @@ def test_qualifying_source_count_excludes_candidate_only_and_dedups_type():
     assert clf.qualifying_source_count(["comment", "comment", "structural"]) == 1
     assert clf.qualifying_source_count(["comment", "sample"]) == 2
     assert clf.qualifying_source_count(["structural"]) == 0
+    assert clf.qualifying_source_count(["metadata", "view_definition"]) == 1
 
 
 def test_effective_agreement_confidence_floor():
@@ -67,6 +70,9 @@ def test_evidence_ref_authority_is_derived():
     assert _evref("comment", "comment:orders.status").authority == "establishes"
     assert _evref("sample", "sample:orders.status").authority == "validates"
     assert _evref("structural", "fact_shape:orders").authority == "candidate_only"
+    assert _evref("view_definition", "view_definition:warehouse.v_orders").authority == (
+        "candidate_only"
+    )
 
 
 def test_candidate_confidence_property():

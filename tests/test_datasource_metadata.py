@@ -61,6 +61,40 @@ def test_table_metadata_to_dict_is_json_safe() -> None:
     assert json.loads(json.dumps(payload))["warnings"][0]["kind"] == "partitions_unavailable"
 
 
+def test_table_metadata_to_dict_includes_view_fields() -> None:
+    base = TableMetadata(
+        datasource="wh",
+        table="orders",
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+    )
+    assert base.is_view is False
+    assert base.view_definition is None
+    assert base.to_dict()["is_view"] is False
+    assert base.to_dict()["view_definition"] is None
+
+    view = TableMetadata(
+        datasource="wh",
+        table="v_orders",
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+        is_view=True,
+        view_definition="SELECT order_id FROM orders",
+    )
+    payload = view.to_dict()
+    assert payload["is_view"] is True
+    assert payload["view_definition"] == "SELECT order_id FROM orders"
+    assert json.loads(json.dumps(payload))["is_view"] is True
+
+
 @pytest.fixture
 def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
@@ -86,6 +120,30 @@ def _create_metadata_duckdb(path: Path) -> None:
     con.disconnect()
 
 
+def _create_duckdb_with_view(path: Path) -> None:
+    con = ibis.duckdb.connect(str(path))
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER NOT NULL, amount DOUBLE)")
+    con.raw_sql("CREATE VIEW v_orders AS SELECT order_id, amount FROM orders")
+    con.disconnect()
+
+
+def _create_duckdb_with_same_name_table_and_view(path: Path) -> None:
+    con = ibis.duckdb.connect(str(path))
+    con.raw_sql("CREATE SCHEMA base_schema")
+    con.raw_sql("CREATE SCHEMA view_schema")
+    con.raw_sql("CREATE TABLE base_schema.orders (order_id INTEGER NOT NULL, amount DOUBLE)")
+    con.raw_sql("CREATE VIEW view_schema.orders AS SELECT order_id, amount FROM base_schema.orders")
+    con.disconnect()
+
+
+def _create_duckdb_with_default_table_and_same_name_view(path: Path) -> None:
+    con = ibis.duckdb.connect(str(path))
+    con.raw_sql("CREATE SCHEMA view_schema")
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER NOT NULL, amount DOUBLE)")
+    con.raw_sql("CREATE VIEW view_schema.orders AS SELECT order_id, amount FROM main.orders")
+    con.disconnect()
+
+
 def test_inspect_table_duckdb_returns_comments_and_nullable(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_metadata_duckdb(db_path)
@@ -104,6 +162,72 @@ def test_inspect_table_duckdb_returns_comments_and_nullable(project_root: Path) 
     assert by_name["created_at"].comment == "Order creation timestamp"
     assert metadata.partitions == ()
     assert any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
+
+
+def test_inspect_source_duckdb_detects_view(project_root: Path) -> None:
+    db_path = project_root / "warehouse.duckdb"
+    _create_duckdb_with_view(db_path)
+    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+
+    view_md = mv.datasources.inspect_source("wh", source=ms.table("v_orders"))
+    assert view_md.is_view is True
+    assert view_md.view_definition is not None
+    assert "SELECT" in view_md.view_definition.upper()
+
+    base_md = mv.datasources.inspect_source("wh", source=ms.table("orders"))
+    assert base_md.is_view is False
+    assert base_md.view_definition is None
+
+
+def test_inspect_source_duckdb_uses_database_for_view_detection(
+    project_root: Path,
+) -> None:
+    db_path = project_root / "warehouse.duckdb"
+    _create_duckdb_with_same_name_table_and_view(db_path)
+    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+
+    table_md = mv.datasources.inspect_table(
+        "wh",
+        table="orders",
+        database="base_schema",
+    )
+    assert table_md.is_view is False
+    assert table_md.view_definition is None
+
+    source_table_md = mv.datasources.inspect_source(
+        "wh",
+        source=ms.table("orders", database="base_schema"),
+    )
+    assert source_table_md.is_view is False
+    assert source_table_md.view_definition is None
+
+    view_md = mv.datasources.inspect_source(
+        "wh",
+        source=ms.table("orders", database="view_schema"),
+    )
+    assert view_md.is_view is True
+    assert view_md.view_definition is not None
+    assert "BASE_SCHEMA.ORDERS" in view_md.view_definition.upper()
+
+
+def test_inspect_table_duckdb_unqualified_uses_default_schema_for_view_detection(
+    project_root: Path,
+) -> None:
+    db_path = project_root / "warehouse.duckdb"
+    _create_duckdb_with_default_table_and_same_name_view(db_path)
+    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+
+    table_md = mv.datasources.inspect_table("wh", table="orders")
+    assert table_md.is_view is False
+    assert table_md.view_definition is None
+
+    view_md = mv.datasources.inspect_source(
+        "wh",
+        source=ms.table("orders", database="view_schema"),
+    )
+    assert view_md.is_view is True
+    assert view_md.view_definition is not None
+    assert "MAIN.ORDERS" in view_md.view_definition.upper()
 
 
 def test_inspect_table_missing_datasource_raises(project_root: Path) -> None:
@@ -234,6 +358,56 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
     assert any("SHOW FULL COLUMNS" in query for query in backend.queries)
 
 
+def test_inspect_table_mysql_uses_datasource_database_for_view_detection(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MYSQL_USER", "reader")
+    mv.datasources.register(
+        _spec(
+            "mysql_wh",
+            backend_type="mysql",
+            host="localhost",
+            user_env="MYSQL_USER",
+            database="mart",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64"},
+        {},
+        sequential_results=[
+            _FakeCursor(["TABLE_COMMENT"], [("View of orders",)]),
+            _FakeCursor(
+                ["Field", "Type", "Null", "Comment"],
+                [("order_id", "bigint", "NO", "Unique order id")],
+            ),
+            _FakeCursor(["TABLE_TYPE"], [("VIEW",)]),
+            _FakeCursor(["VIEW_DEFINITION"], [("select order_id from mart.orders",)]),
+        ],
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("mysql_wh", table="v_orders")
+
+    assert metadata.backend_type == "mysql"
+    assert metadata.database is None
+    assert metadata.is_view is True
+    assert metadata.view_definition == "select order_id from mart.orders"
+    assert any(
+        "SELECT TABLE_TYPE FROM information_schema.tables" in query
+        and "table_schema = 'mart'" in query
+        for query in backend.queries
+    )
+    assert any(
+        "SELECT VIEW_DEFINITION FROM information_schema.views" in query
+        and "table_schema = 'mart'" in query
+        for query in backend.queries
+    )
+
+
 def test_inspect_source_file_derives_table_name_from_path(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -306,6 +480,54 @@ def test_inspect_table_trino_adapter_uses_information_schema(
     assert any("table_schema = 'analytics'" in query for query in backend.queries)
     assert any("table_name = 'orders'" in query for query in backend.queries)
     assert any("information_schema.columns" in query for query in backend.queries)
+
+
+def test_inspect_table_trino_detects_view_definition(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mv.datasources.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64"},
+        {},
+        sequential_results=[
+            _FakeCursor(["comment"], [("View of orders",)]),
+            _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                [("order_id", "bigint", "NO", "Unique order id", 1)],
+            ),
+            _FakeCursor(["table_type"], [("VIEW",)]),
+            _FakeCursor(["view_definition"], [("SELECT order_id FROM analytics.orders",)]),
+        ],
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("trino_wh", table="v_orders")
+
+    assert metadata.backend_type == "trino"
+    assert metadata.is_view is True
+    assert metadata.view_definition == "SELECT order_id FROM analytics.orders"
+    assert any(
+        "SELECT table_type FROM information_schema.tables" in query
+        and "table_schema = 'analytics'" in query
+        for query in backend.queries
+    )
+    assert any(
+        "SELECT view_definition FROM information_schema.views" in query
+        and "table_schema = 'analytics'" in query
+        for query in backend.queries
+    )
 
 
 def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
@@ -422,6 +644,48 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
     assert metadata.partitions[0].name == "created_at"
     assert metadata.partitions[0].transform == "toYYYYMM"
     assert metadata.partitions[0].type == "DateTime"
+
+
+@pytest.mark.parametrize("engine", ["View", "MaterializedView"])
+def test_inspect_table_clickhouse_detects_view_definition(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    engine: str,
+) -> None:
+    mv.datasources.register(
+        _spec("ch_view", backend_type="clickhouse", host="clickhouse.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64"},
+        {},
+        sequential_results=[
+            _FakeCursor(
+                ["comment", "partition_key", "engine", "engine_full"],
+                [("View of orders", "", engine, "")],
+            ),
+            _FakeCursor(
+                ["name", "type", "is_nullable", "comment", "position"],
+                [("order_id", "Int64", 0, "Unique order id", 1)],
+            ),
+            _FakeCursor(
+                ["create_table_query"],
+                [(f"CREATE {engine} analytics.v_orders AS SELECT order_id FROM orders",)],
+            ),
+        ],
+    )
+
+    import marivo.analysis.datasources.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = mv.datasources.inspect_table("ch_view", table="v_orders")
+
+    assert metadata.backend_type == "clickhouse"
+    assert metadata.is_view is True
+    assert metadata.view_definition == (
+        f"CREATE {engine} analytics.v_orders AS SELECT order_id FROM orders"
+    )
+    assert any("SELECT create_table_query FROM system.tables" in query for query in backend.queries)
 
 
 def test_inspect_table_clickhouse_infers_nullable_from_type(

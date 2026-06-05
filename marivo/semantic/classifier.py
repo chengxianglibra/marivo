@@ -27,6 +27,7 @@ EvidenceType = Literal[
     "metadata",
     "sample",
     "structural",
+    "view_definition",
 ]
 ObjectKind = Literal["dataset", "field", "time_field", "metric", "relationship"]
 DecisionKind = Literal[
@@ -92,6 +93,7 @@ _AUTHORITY_OF: dict[EvidenceType, AuthorityLevel] = {
     "metadata": "validates",
     "sample": "validates",
     "structural": "candidate_only",
+    "view_definition": "candidate_only",
 }
 
 _AUTHORITY_WEIGHT: dict[EvidenceType, float] = {
@@ -102,6 +104,7 @@ _AUTHORITY_WEIGHT: dict[EvidenceType, float] = {
     "metadata": 1.5,
     "sample": 1.5,
     "structural": 0.5,
+    "view_definition": 0.5,
 }
 
 _SATURATION = 4.0

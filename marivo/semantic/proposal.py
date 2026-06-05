@@ -49,6 +49,10 @@ class _TableMeta(Protocol):
     def comment(self) -> str | None: ...
     @property
     def columns(self) -> Sequence[_ColumnMeta]: ...
+    @property
+    def is_view(self) -> bool: ...
+    @property
+    def view_definition(self) -> str | None: ...
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,18 @@ def _qualify(model: str, name: str) -> str:
 def _comment_evidence(locator: str, comment: str | None) -> tuple[EvidenceRef, ...]:
     if comment:
         return (EvidenceRef(evidence_type="comment", locator=locator, excerpt=comment),)
+    return ()
+
+
+def _view_definition_evidence(ref: str, metadata: _TableMeta) -> tuple[EvidenceRef, ...]:
+    if getattr(metadata, "is_view", False) and metadata.view_definition:
+        return (
+            EvidenceRef(
+                evidence_type="view_definition",
+                locator=f"view_definition:{ref}",
+                excerpt=metadata.view_definition,
+            ),
+        )
     return ()
 
 
@@ -122,6 +138,7 @@ def candidates_from_metadata(
             evidence=(
                 EvidenceRef("metadata", f"metadata:{ref}"),
                 *_comment_evidence(f"comment:{table}", metadata.comment),
+                *_view_definition_evidence(ref, metadata),
             ),
             semantic_delta=f"declare dataset {model}.{table} over {ref}",
         )
