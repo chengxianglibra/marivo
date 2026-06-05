@@ -262,7 +262,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Component frames exist only for component-aware derived metric results.",
         "Base sum metrics and non-derived frames have no linked component_ref to load.",
         "Call frame.components() only when frame.meta.component_ref is present.",
-        docs_ref="docs/superpowers/specs/2026-05-28-component-aware-frame-contract-design.md",
     ),
 }
 
