@@ -333,7 +333,10 @@ def _validate_dimension_refs(dimensions: list[Any] | None) -> list[DimensionRef]
         return []
     if len(dimensions) == 0:
         raise SemanticKindMismatchError(
-            message="observe dimensions must be omitted or contain at least one DimensionRef",
+            message=(
+                "For time-series observations, omit dimensions or pass None; "
+                "segmented observations require at least one DimensionRef."
+            ),
             details={
                 "expected_kind": "list[DimensionRef] | None",
                 "got_kind": "list[]",
