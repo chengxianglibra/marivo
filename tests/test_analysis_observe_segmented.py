@@ -270,8 +270,10 @@ def test_observe_empty_dimensions_list_is_rejected(tmp_path):
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    with pytest.raises(SemanticKindMismatchError):
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(MetricRef("sales.revenue"), dimensions=[], session=s)
+
+    assert "For time-series observations, omit dimensions or pass None" in str(exc_info.value)
 
 
 def test_observe_duplicate_dimensions_are_rejected(tmp_path):

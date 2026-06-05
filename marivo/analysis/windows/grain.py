@@ -19,6 +19,16 @@ _UNIT_RANK: dict[str, int] = {
     "quarter": 6,
     "year": 7,
 }
+_SUPPORTED_GRANULARITIES = (
+    "year",
+    "quarter",
+    "month",
+    "week",
+    "day",
+    "hour",
+    "minute",
+    "second",
+)
 _SUBDAY_UNITS: frozenset[str] = frozenset({"second", "minute", "hour"})
 _UNIT_SECONDS: dict[str, int] = {"second": 1, "minute": 60, "hour": 3600}
 _TRUNCATE_CODE: dict[str, str] = {
@@ -135,7 +145,8 @@ def normalize_grain(value: GrainInput) -> Grain | None:
 def ensure_grain_supported(grain: Grain, base_granularity: str) -> None:
     base = base_granularity
     if base not in _UNIT_RANK:
-        raise ValueError(f"unknown base granularity {base!r}")
+        supported = ", ".join(_SUPPORTED_GRANULARITIES)
+        raise ValueError(f"unknown base granularity {base!r}; supported granularity: {supported}")
     if grain.is_subday:
         if base not in _SUBDAY_UNITS:
             raise GrainUnsupportedError(

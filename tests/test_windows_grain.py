@@ -73,3 +73,13 @@ def test_ensure_grain_supported_rules():
     # calendar request finer than calendar base
     with pytest.raises(GrainUnsupportedError):
         ensure_grain_supported(Grain(count=1, unit="day"), "month")
+
+
+def test_ensure_grain_supported_unknown_base_granularity_lists_supported_values():
+    with pytest.raises(ValueError) as exc_info:
+        ensure_grain_supported(Grain(count=5, unit="minute"), "5min")
+
+    assert "unknown base granularity '5min'" in str(exc_info.value)
+    assert "supported granularity: year, quarter, month, week, day, hour, minute, second" in str(
+        exc_info.value
+    )
