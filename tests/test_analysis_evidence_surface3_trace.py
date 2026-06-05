@@ -15,7 +15,7 @@ def _reset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def test_session_evidence_trace_assembly(tmp_path: Path) -> None:
     session = _session(tmp_path, name="trace")
     delta = _compare(session)
-    props = list(session.propositions(type="change"))
+    props = list(session.propositions(proposition_type="change"))
 
     trace = session.evidence.trace(props[0].proposition_id)
 

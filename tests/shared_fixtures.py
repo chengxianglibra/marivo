@@ -46,6 +46,10 @@ def sales_orders_template() -> Path:
     ) as tmp_file:
         tmp = Path(tmp_file.name)
     try:
+        # DuckDB 1.5+ refuses to open an existing 0-byte file, so remove the
+        # placeholder NamedTemporaryFile (used only to reserve a unique name)
+        # before connecting; duckdb.connect then creates a fresh database.
+        tmp.unlink()
         con = duckdb.connect(str(tmp))
         try:
             con.execute(
