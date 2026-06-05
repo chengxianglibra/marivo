@@ -20,7 +20,10 @@ class BackendCache:
         if self._factory is None:
             raise NoBackendFactoryError(
                 message="session has no backend_factory; data-materializing intents need one",
-                hint="Pass backends={...} or backend_factory=... when creating or attaching.",
+                hint=(
+                    "Register a project datasource and call mv.session.get_or_create(name=...), "
+                    "or pass backends={...}/backend_factory=... only for explicit overrides."
+                ),
             )
         if datasource_name not in self._cache:
             self._cache[datasource_name] = self._factory(datasource_name)

@@ -176,12 +176,15 @@ investigation, or when the existing session is polluted enough that restarting
 is the correct recovery. State that reason in the final output.
 
 ```python
-mv.session.get_or_create(name="my_analysis")          # idempotent entry point
-mv.session.get_or_create(name="x", backend_factory=f) # with live backend
-mv.session.current()                                   # None-safe probe; returns Session, not SessionSummary
-mv.session.list()                                      # list sessions
-session.recent_jobs(limit=5)                           # recent job history
+mv.session.get_or_create(name="my_analysis")  # idempotent entry point; auto-loads project datasources
+mv.session.current()                          # None-safe probe; returns Session, not SessionSummary
+mv.session.list()                             # list sessions
+session.recent_jobs(limit=5)                  # recent job history
 ```
+
+Do not construct `backend_factory` for normal project analysis. Use it only as
+an explicit test/CI or runtime override; its signature is
+`backend_factory(datasource_name: str) -> ibis backend`.
 
 ## Minimal templates
 
@@ -348,5 +351,5 @@ example to see the correct pattern.
 | `SemanticKindMismatch` (discover missing `search_space`) | `driver_axes` objective without a `search_space` | `references/examples/08_discover_driver_axes.py` |
 | `TransformOpUnsupported` / `TransformArgError` | Unknown op or missing op-specific kwargs | `references/examples/transform_slice.py`, `transform_rollup_panel.py` |
 | `WindowInvalid` | Malformed timescope/window dict | `references/examples/observe_timescope.py` |
-| `NoBackendFactory` | Session attached without a backend factory | `references/backend-setup.md` |
+| `NoBackendFactory` | No usable project datasource or explicit backend override | `references/backend-setup.md` |
 | `FrameMutation` | Tried to mutate a frame in place | `references/pitfalls.md` (Mutating a frame directly) |

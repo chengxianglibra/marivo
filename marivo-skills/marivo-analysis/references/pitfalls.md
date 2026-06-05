@@ -130,8 +130,16 @@ reason will be reported to the user.
 NoBackendFactoryError: session has no backend_factory; data-materializing intents need one
 ```
 
-**Action:** create or attach the session with a live backend before calling
-`observe`, `compare`, `decompose`, `discover`, or `correlate`.
+**Action:** in a real project, register or repair the project datasource, then
+create or attach the session without an explicit factory:
+
+```python
+session = mv.session.get_or_create(name="analysis")
+```
+
+Only tests, CI, or deterministic override scripts should pass explicit
+`backends={...}` or `backend_factory=...` before calling `observe`, `compare`,
+`decompose`, `discover`, or `correlate`.
 
 ```python
 import os
@@ -151,6 +159,7 @@ session = mv.session.get_or_create(
             client_tags=["standby", "routing_group=bsk_wide"],
         )
     },
+    use_datasources=False,
 )
 ```
 
