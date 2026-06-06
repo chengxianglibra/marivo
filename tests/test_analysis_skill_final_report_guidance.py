@@ -30,6 +30,12 @@ def test_final_report_guidance_contains_required_contract() -> None:
         "result.meta.confidence_scope",
         "result.meta.recommended_followups",
         "session.assess_quality",
+        "MarivoReportArtifact",
+        "grounding.json",
+        "value_refs",
+        "narrative layer",
+        "artifact-backed",
+        "adjacent to each important chart or table",
     ]
 
     missing = [term for term in required_terms if term not in text]

@@ -87,3 +87,13 @@ def test_analysis_exports_metadata_dtos() -> None:
     assert mv.ColumnMetadata is not None
     assert mv.PartitionMetadata is not None
     assert mv.MetadataWarning is not None
+
+
+def test_analysis_exports_report_artifact_surface() -> None:
+    import marivo.analysis as mv
+
+    assert mv.MarivoReportArtifact.__name__ == "MarivoReportArtifact"
+    assert mv.ReportManifest.__name__ == "ReportManifest"
+    assert callable(mv.validate_report_artifact)
+    assert callable(mv.load_report_artifact)
+    assert callable(mv.write_report_artifact)

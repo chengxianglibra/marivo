@@ -65,6 +65,31 @@ Use the shape below unless the user's requested format is more specific.
 - Use `frame.summary()`, `frame.preview(limit=...)`, or bounded `to_pandas()`
   output to inspect evidence, but turn that evidence into a report narrative.
 
+## Interactive report artifact close-out
+
+When the user asks for an interactive analysis report or a durable report
+package, assemble a `MarivoReportArtifact` instead of treating Markdown as the
+only output. The report remains narrative-first and artifact-backed:
+
+- The narrative layer owns the title, executive summary, finding takeaways,
+  caveats, and recommendations.
+- The evidence layer owns KPI strips, charts, compact tables, candidate reviews,
+  and driver views.
+- The audit layer owns `grounding.json`, flow steps, source provenance, semantic
+  refs, SQL or intent details, scripts, replay metadata, and evidence status.
+
+Keep readable interpretation adjacent to each important chart or table. Do not
+make the user infer the conclusion from raw rows or a chart alone.
+
+Every reader-facing number in a claim, KPI, chart label, or numeric callout
+should resolve through `value_refs` to a bounded dataset cell or to an
+artifact/evidence field. Do not restate the same number as a second source of
+truth in prose, adapter manifests, or HTML.
+
+Before rendering or publishing, validate that `grounding.json` resolves every
+executive-summary claim, partial evidence is visible, source provenance matches
+the step kind, and source/audit details do not crowd out the main reading path.
+
 ## Discovery and anomaly reports
 
 When reporting anomalies or discovered candidates, separate signal from noise.
