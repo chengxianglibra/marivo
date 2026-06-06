@@ -5,10 +5,11 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal, cast
 
+from marivo.introspection.constraints import Constraint
 from marivo.introspection.schema import Descriptor
 from marivo.introspection.surface import Surface, render
 
-from .constraints import iter_constraints
+from .constraints import constraints_for_symbol, iter_constraints
 
 _HELP_ONLY_ENTRIES: tuple[str, ...] = (
     "observe",
@@ -211,6 +212,170 @@ def _transform_text(content: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+_SESSION_METHODS: tuple[dict[str, str], ...] = (
+    {
+        "name": "observe",
+        "group": "intents",
+        "summary": "materialize a semantic metric as a MetricFrame",
+    },
+    {
+        "name": "compare",
+        "group": "intents",
+        "summary": "align two MetricFrames and produce a DeltaFrame",
+    },
+    {
+        "name": "decompose",
+        "group": "intents",
+        "summary": "attribute a DeltaFrame into component drivers",
+    },
+    {
+        "name": "correlate",
+        "group": "intents",
+        "summary": "correlate compatible analysis frames",
+    },
+    {
+        "name": "forecast",
+        "group": "intents",
+        "summary": "forecast a time_series or panel MetricFrame",
+    },
+    {
+        "name": "assess_quality",
+        "group": "intents",
+        "summary": "inspect MetricFrame quality and recommended follow-ups",
+    },
+    {
+        "name": "hypothesis_test",
+        "group": "intents",
+        "summary": "run a paired hypothesis test over compatible MetricFrames",
+    },
+    {
+        "name": "discover",
+        "group": "namespaces/evidence",
+        "summary": "objective helpers for candidate follow-up discovery",
+    },
+    {
+        "name": "transform",
+        "group": "namespaces/evidence",
+        "summary": "operation helpers for family-preserving frame transforms",
+    },
+    {
+        "name": "evidence",
+        "group": "namespaces/evidence",
+        "summary": "audit iterators for persisted findings, propositions, and assessments",
+    },
+    {
+        "name": "knowledge",
+        "group": "namespaces/evidence",
+        "summary": "project-local knowledge and evidence recall helpers",
+    },
+    {
+        "name": "from_pandas",
+        "group": "escape_hatch",
+        "summary": "promote local pandas results into persisted analysis frames",
+    },
+    {
+        "name": "explore_ibis",
+        "group": "escape_hatch",
+        "summary": "run bounded ad hoc ibis exploration through the session backend",
+    },
+    {
+        "name": "promote_metric_frame",
+        "group": "escape_hatch",
+        "summary": "persist a scratch dataframe as a MetricFrame",
+    },
+    {
+        "name": "promote_delta_frame",
+        "group": "escape_hatch",
+        "summary": "persist a scratch dataframe as a DeltaFrame",
+    },
+    {
+        "name": "promote_attribution_frame",
+        "group": "escape_hatch",
+        "summary": "persist a scratch dataframe as an AttributionFrame",
+    },
+    {
+        "name": "jobs",
+        "group": "lifecycle",
+        "summary": "list persisted jobs for the session",
+    },
+    {
+        "name": "recent_jobs",
+        "group": "lifecycle",
+        "summary": "list the most recent persisted jobs",
+    },
+    {
+        "name": "frames",
+        "group": "lifecycle",
+        "summary": "list persisted frames for the session",
+    },
+    {
+        "name": "job",
+        "group": "lifecycle",
+        "summary": "load one persisted job by id",
+    },
+    {
+        "name": "is_read_only",
+        "group": "lifecycle",
+        "summary": "report whether the session is attached read-only",
+    },
+    {
+        "name": "close",
+        "group": "lifecycle",
+        "summary": "close the session and release resources",
+    },
+)
+
+
+_SESSION_IDENTITY_FIELDS: tuple[dict[str, str], ...] = (
+    {"name": "id", "summary": "stable session id"},
+    {"name": "name", "summary": "human-readable session name"},
+    {"name": "question", "summary": "optional guiding analysis question"},
+    {"name": "state", "summary": "session lifecycle state"},
+    {"name": "created_at", "summary": "session creation timestamp"},
+    {"name": "updated_at", "summary": "last session metadata update timestamp"},
+    {"name": "default_calendar", "summary": "default calendar name for time-aware operators"},
+    {"name": "tz", "summary": "session timezone"},
+    {"name": "cwd", "summary": "working directory captured when the session was created"},
+    {"name": "project_root", "summary": "project root that owns the session state"},
+)
+
+
+def _session_content(constraints: tuple[Constraint, ...]) -> dict[str, object]:
+    lifecycle = [dict(method) for method in _SESSION_METHODS if method["group"] == "lifecycle"]
+    return {
+        "summary": "Session object methods and namespaces advertised for agents.",
+        "identity_fields": [dict(field) for field in _SESSION_IDENTITY_FIELDS],
+        "lifecycle": lifecycle,
+        "methods": [dict(method) for method in _SESSION_METHODS],
+        "constraints": [constraint.to_summary_dict() for constraint in constraints],
+        "example": (
+            "session = mv.session.get_or_create(name='analysis')\n"
+            "metric = session.observe(mv.MetricRef('orders.revenue'), "
+            "timescope={'start': '2026-01-01', 'end': '2026-01-31'})"
+        ),
+    }
+
+
+def _session_text(content: dict[str, object]) -> str:
+    identity_fields = cast("list[dict[str, str]]", content["identity_fields"])
+    lifecycle = cast("list[dict[str, str]]", content["lifecycle"])
+    methods = cast("list[dict[str, str]]", content["methods"])
+    lines = ["Identity fields:"]
+    for field in identity_fields:
+        lines.append(f"  {field['name']:<24}{field['summary']}")
+    lines.extend(("", "Lifecycle:"))
+    for method in lifecycle:
+        lines.append(f"  {method['name']:<24}{method['summary']}")
+    lines.extend(("", "Methods:"))
+    for group in ("intents", "namespaces/evidence", "escape_hatch"):
+        lines.append(f"  {group}:")
+        for method in methods:
+            if method["group"] == group:
+                lines.append(f"    {method['name']:<28}{method['summary']}")
+    lines.extend(("", "Example:", cast("str", content["example"])))
+    return "\n".join(lines)
+
+
 def _alignment_content() -> dict[str, object]:
     return {
         "summary": "mv.AlignmentPolicy variants and calendar-backed alignment columns.",
@@ -347,7 +512,13 @@ def _calendar_text(content: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _topic(symbol: str, content: dict[str, object], doc: str) -> Descriptor:
+def _topic(
+    symbol: str,
+    content: dict[str, object],
+    doc: str,
+    *,
+    constraints: tuple[Constraint, ...] = (),
+) -> Descriptor:
     return Descriptor(
         surface="marivo.analysis",
         kind="topic",
@@ -355,6 +526,7 @@ def _topic(symbol: str, content: dict[str, object], doc: str) -> Descriptor:
         summary=cast("str", content["summary"]),
         content=content,
         doc=doc,
+        constraints=constraints,
     )
 
 
@@ -421,6 +593,8 @@ def _surface() -> Surface:
     transform_content = _transform_content()
     alignment_content = _alignment_content()
     calendar_content = _calendar_content()
+    session_constraints = constraints_for_symbol("session")
+    session_content = _session_content(session_constraints)
     return Surface(
         name="marivo.analysis",
         all_names=all_names,
@@ -441,6 +615,12 @@ def _surface() -> Surface:
                 _alignment_text(alignment_content),
             ),
             "calendar": _topic("calendar", calendar_content, _calendar_text(calendar_content)),
+            "session": _topic(
+                "session",
+                session_content,
+                _session_text(session_content),
+                constraints=session_constraints,
+            ),
         },
         frame_symbols=_FRAME_SYMBOLS,
         constructed_by=_CONSTRUCTED_BY,

@@ -1,4 +1,4 @@
-"""Slice-1 end-to-end demo: observe -> compare -> knowledge -> run_followup."""
+"""Slice-1 end-to-end demo: observe -> compare -> knowledge -> next_steps."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
     assert fact.status == "validated"
     assert fact.confidence == 0.9
 
-    # next_steps + run_followup
+    # next_steps
     actions = knowledge.next_steps(top=5)
     assert any(a.operator == "assess_quality" for a in actions)
 

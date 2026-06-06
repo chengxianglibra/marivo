@@ -1,4 +1,4 @@
-"""mv.session.current() and mv.session.history()."""
+"""mv.session.current()."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session.attach as session_attach
-from marivo.analysis.session.persistence import write_job_record
 
 
 @pytest.fixture(autouse=True)
@@ -38,44 +37,3 @@ def test_current_session_has_datetime_timestamps() -> None:
 
     assert isinstance(current.created_at, datetime)
     assert isinstance(current.updated_at, datetime)
-
-
-def test_history_returns_empty_list_when_no_active_session() -> None:
-    assert mv.session.history() == []
-
-
-def test_history_returns_empty_list_when_no_jobs() -> None:
-    mv.session.get_or_create(name="s_test")
-    assert mv.session.history() == []
-
-
-def test_history_respects_limit() -> None:
-    session = mv.session.get_or_create(name="s_test")
-    for index in range(3):
-        write_job_record(
-            session.layout,
-            {
-                "id": f"job_{index}",
-                "session_id": session.id,
-                "intent": "observe",
-                "params": {},
-                "input_frame_refs": [],
-                "output_frame_ref": f"frame_{index}",
-                "started_at": f"2026-05-24T10:0{index}:00+00:00",
-                "finished_at": f"2026-05-24T10:0{index}:01+00:00",
-                "duration_ms": 1000,
-                "status": "succeeded",
-                "error": None,
-                "semantic_project_root": "/p",
-                "semantic_model": "sales",
-            },
-        )
-
-    history = mv.session.history(limit=2)
-
-    assert [job.id for job in history] == ["job_1", "job_2"]
-
-
-def test_history_limit_zero_returns_empty_list() -> None:
-    mv.session.get_or_create(name="s_test")
-    assert mv.session.history(limit=0) == []

@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, tzinfo
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 from marivo.analysis.session.persistence import (
     PersistenceLayout,
@@ -83,6 +83,28 @@ class Session:
     backend_cache: Any = None
     judgment_store: JudgmentStore | None = None
     judgment_store_unavailable: bool = False
+
+    _HIDDEN_FROM_DIR: ClassVar[frozenset[str]] = frozenset(
+        {
+            "_HIDDEN_FROM_DIR",
+            "layout",
+            "semantic_project",
+            "backend_factory",
+            "backend_cache",
+            "calendars",
+            "known_calendars",
+            "known_datasources",
+            "judgment_store",
+            "judgment_store_unavailable",
+            "evidence_store",
+            "findings",
+            "propositions",
+            "assessments",
+        }
+    )
+
+    def __dir__(self) -> list[str]:
+        return sorted(name for name in super().__dir__() if name not in self._HIDDEN_FROM_DIR)
 
     def __post_init__(self) -> None:
         if self.backend_cache is None:
@@ -210,146 +232,6 @@ class Session:
             )
         return build_session_knowledge(db_path=db_path, session_id=self.id)
 
-    def run_followup(self, action: Any) -> Any:
-        """Dispatch a FollowupAction to the appropriate operator.
-
-        Loads the source frame referenced by ``action`` and re-runs the named
-        operator (``assess_quality``, ``decompose``, ``discover``, ``forecast``,
-        ``transform``), recording the result as a followup execution. The return
-        type depends on the operator (e.g. a QualityReport, AttributionFrame,
-        CandidateSet, ForecastFrame, or transformed frame); ``adjust_policy``
-        no-ops and returns ``None``.
-
-        Raises:
-            TypeError: ``action`` is not a FollowupAction.
-            NotImplementedError: the operator is not dispatchable here (e.g.
-                ``compare`` / ``observe``, which require explicit operands).
-        """
-        from marivo.analysis.evidence.types import TriggeredByFollowup
-        from marivo.analysis.followups import FollowupAction
-        from marivo.analysis.session._load import load_frame
-
-        if not isinstance(action, FollowupAction):
-            raise TypeError(f"run_followup expected FollowupAction, got {type(action).__name__}")
-
-        source_ref = action.input_refs[0] if action.input_refs else ""
-        triggered_by = TriggeredByFollowup(
-            action_id=action.action_id,
-            source_artifact_id=source_ref,
-            via="run_followup",
-        )
-        op = action.operator
-        result: Any
-
-        if op == "assess_quality":
-            from marivo.analysis.intents.assess_quality import assess_quality
-
-            source_frame = load_frame(source_ref, session=self)
-            result = assess_quality(
-                source_frame,
-                session=self,
-                _triggered_by=triggered_by,
-            )
-            self._record_followup_result(action=action, result=result)
-            return result
-
-        if op == "decompose":
-            from marivo.analysis.intents.decompose import decompose
-            from marivo.analysis.refs import DimensionRef
-
-            source_frame = load_frame(source_ref, session=self)
-            axis_param = action.params["axis"]
-            axis = (
-                axis_param
-                if isinstance(axis_param, DimensionRef)
-                else DimensionRef(id=str(axis_param))
-            )
-            result = decompose(
-                cast("Any", source_frame),
-                axis=axis,
-                session=self,
-            )
-            self._record_followup_result(action=action, result=result)
-            return result
-
-        if op == "discover":
-            from marivo.analysis.intents._types import DiscoverSensitivity
-            from marivo.analysis.intents.discover import discover
-
-            source_frame = load_frame(source_ref, session=self)
-            result = discover(
-                cast("Any", source_frame),
-                objective=cast("Any", action.params["objective"]),
-                strategy=cast("Any", action.params.get("strategy")),
-                value=cast("Any", action.params.get("value")),
-                threshold=cast("Any", action.params.get("threshold")),
-                sensitivity=cast(
-                    "DiscoverSensitivity",
-                    str(action.params.get("sensitivity", "balanced")),
-                ),
-                limit=cast("Any", action.params.get("limit")),
-                search_space=cast("Any", action.params.get("search_space")),
-                peer_scope=cast("Any", action.params.get("peer_scope")),
-                session=self,
-                _triggered_by=triggered_by,
-            )
-            self._record_followup_result(action=action, result=result)
-            return result
-
-        if op == "forecast":
-            from marivo.analysis.intents.forecast import forecast
-
-            source_frame = load_frame(source_ref, session=self)
-            horizon_param = action.params.get("horizon")
-            horizon = (
-                horizon_param
-                if isinstance(horizon_param, int)
-                else 7
-                if horizon_param in (None, "default")
-                else int(str(horizon_param))
-            )
-            result = forecast(
-                cast("Any", source_frame),
-                horizon=horizon,
-                session=self,
-                _triggered_by=triggered_by,
-            )
-            self._record_followup_result(action=action, result=result)
-            return result
-
-        if op == "transform":
-            from marivo.analysis.intents.transform import transform
-
-            source_frame = load_frame(source_ref, session=self)
-            result = transform(
-                source_frame,
-                op=cast("Any", action.params["op"]),
-                session=self,
-                _triggered_by=triggered_by,
-                **{key: value for key, value in action.params.items() if key != "op"},
-            )
-            self._record_followup_result(action=action, result=result)
-            return result
-
-        if op is None and action.kind == "adjust_policy":
-            self._mark_followup_executed(
-                action_id=action.action_id,
-                executed_step_id="retry_no_op",
-            )
-            return None
-
-        if op == "compare":
-            raise NotImplementedError(
-                "run_followup(compare) requires both legs; agent must dispatch "
-                "with explicit current + baseline frames"
-            )
-        if op == "observe":
-            raise NotImplementedError(
-                "run_followup(observe) requires explicit MetricRef; agent must dispatch"
-            )
-
-        raise NotImplementedError(f"run_followup is not wired for operator={op!r}")
-
     def findings(
         self,
         *,
@@ -357,12 +239,12 @@ class Session:
         finding_type: str | None = None,
         subject: Any = None,
     ) -> Iterator[Finding]:
-        """Return Surface 3 findings for this session."""
-        from marivo.analysis.evidence.audit import query_findings
+        """Return Surface 3 findings for this session.
 
-        return query_findings(
-            db_path=self.layout.session_dir / "judgment.db",
-            session_id=self.id,
+        Prefer ``session.evidence.findings(...)``. This top-level alias is kept
+        for backward compatibility.
+        """
+        return self.evidence.findings(
             artifact_id=artifact_id,
             finding_type=finding_type,
             subject=subject,
@@ -375,12 +257,12 @@ class Session:
         subject: Any = None,
         status: str | None = None,
     ) -> Iterator[Proposition]:
-        """Return Surface 3 propositions for this session."""
-        from marivo.analysis.evidence.audit import query_propositions
+        """Return Surface 3 propositions for this session.
 
-        return query_propositions(
-            db_path=self.layout.session_dir / "judgment.db",
-            session_id=self.id,
+        Prefer ``session.evidence.propositions(...)``. This top-level alias is
+        kept for backward compatibility.
+        """
+        return self.evidence.propositions(
             proposition_type=proposition_type,
             subject=subject,
             status=status,
@@ -392,12 +274,12 @@ class Session:
         proposition_id: str | None = None,
         latest_only: bool = True,
     ) -> Iterator[Assessment]:
-        """Return Surface 3 assessments for this session."""
-        from marivo.analysis.evidence.audit import query_assessments
+        """Return Surface 3 assessments for this session.
 
-        return query_assessments(
-            db_path=self.layout.session_dir / "judgment.db",
-            session_id=self.id,
+        Prefer ``session.evidence.assessments(...)``. This top-level alias is
+        kept for backward compatibility.
+        """
+        return self.evidence.assessments(
             proposition_id=proposition_id,
             latest_only=latest_only,
         )
@@ -461,34 +343,6 @@ class Session:
         from marivo.analysis.intents.decompose import decompose
 
         return decompose(frame, axis=axis, session=self)
-
-    def validate(self, intent: str, *frames: Any, **params: Any) -> list[Any]:
-        """Run pre-submit shape/policy validators over concrete in-hand frames.
-
-        Returns a list of ValidationIssue (empty when compatible) without raising,
-        for the frame-consuming intents ``compare`` and ``decompose``. Assumes the
-        frames are the types the intent requires (MetricFrame / DeltaFrame).
-        """
-        from marivo.analysis.intents._validate import (
-            to_validation_issues,
-            validate_compare,
-            validate_decompose_columns,
-        )
-        from marivo.analysis.policies import AlignmentPolicy
-
-        if intent == "compare":
-            current, baseline = frames
-            alignment = params.get("alignment") or AlignmentPolicy(kind="window_bucket")
-            issues = validate_compare(current, baseline, alignment=alignment)
-            return to_validation_issues("compare", issues)
-        if intent == "decompose":
-            (frame,) = frames
-            axis = params["axis"]
-            issues = validate_decompose_columns(frame, axis, source_df=frame.to_pandas())
-            return to_validation_issues("decompose", issues)
-        raise ValueError(
-            f"session.validate does not support intent {intent!r}; supported: compare, decompose"
-        )
 
     def correlate(
         self,
@@ -683,45 +537,6 @@ class Session:
             method=method,
             method_params=method_params,
         )
-
-    def _mark_followup_executed(self, *, action_id: str, executed_step_id: str) -> None:
-        """Mark a followup action as executed in the judgment store."""
-        store = self.evidence_store()
-        if store is None:
-            return
-        with store.transaction() as tx:
-            tx.execute(
-                "UPDATE followups SET executed_step_id=? WHERE followup_id=?",
-                (executed_step_id, action_id),
-            )
-
-    def _record_followup_result(self, *, action: Any, result: Any) -> None:
-        artifact_id = getattr(getattr(result, "meta", None), "artifact_id", None)
-        executed_step_id = artifact_id if isinstance(artifact_id, str) else ""
-        self._mark_followup_executed(
-            action_id=action.action_id,
-            executed_step_id=executed_step_id,
-        )
-        if not executed_step_id:
-            return
-        store = self.evidence_store()
-        if store is None:
-            return
-        triggered_payload = json.dumps(
-            {
-                "action_id": action.action_id,
-                "source_artifact_id": action.input_refs[0] if action.input_refs else "",
-                "via": "run_followup",
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        with store.transaction() as tx:
-            tx.execute(
-                "UPDATE artifacts SET triggered_by_followup=? WHERE artifact_id=? "
-                "AND triggered_by_followup IS NULL",
-                (triggered_payload, executed_step_id),
-            )
 
 
 def ensure_session_writable(session: Session) -> None:
@@ -999,6 +814,58 @@ class EvidenceNamespace:
     """Session-scoped Surface 3 evidence object lookups."""
 
     _session: Session
+
+    def findings(
+        self,
+        *,
+        artifact_id: str | None = None,
+        finding_type: str | None = None,
+        subject: Any = None,
+    ) -> Iterator[Finding]:
+        """Return Surface 3 findings for this session."""
+        from marivo.analysis.evidence.audit import query_findings
+
+        return query_findings(
+            db_path=self._session.layout.session_dir / "judgment.db",
+            session_id=self._session.id,
+            artifact_id=artifact_id,
+            finding_type=finding_type,
+            subject=subject,
+        )
+
+    def propositions(
+        self,
+        *,
+        proposition_type: str | None = None,
+        subject: Any = None,
+        status: str | None = None,
+    ) -> Iterator[Proposition]:
+        """Return Surface 3 propositions for this session."""
+        from marivo.analysis.evidence.audit import query_propositions
+
+        return query_propositions(
+            db_path=self._session.layout.session_dir / "judgment.db",
+            session_id=self._session.id,
+            proposition_type=proposition_type,
+            subject=subject,
+            status=status,
+        )
+
+    def assessments(
+        self,
+        *,
+        proposition_id: str | None = None,
+        latest_only: bool = True,
+    ) -> Iterator[Assessment]:
+        """Return Surface 3 assessments for this session."""
+        from marivo.analysis.evidence.audit import query_assessments
+
+        return query_assessments(
+            db_path=self._session.layout.session_dir / "judgment.db",
+            session_id=self._session.id,
+            proposition_id=proposition_id,
+            latest_only=latest_only,
+        )
 
     def proposition(self, proposition_id: str) -> Proposition:
         """Return the proposition with the given id for this session."""

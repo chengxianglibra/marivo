@@ -29,12 +29,11 @@ def test_candidate_set_c1_only_assess_quality() -> None:
     assert operators == [("assess_quality", {})]
 
 
-def test_forecast_frame_c1_includes_evaluate_when_actual_signal() -> None:
-    # Without a known actual ref, evaluate_forecast must NOT appear (spec line 223).
+def test_forecast_frame_c1_only_assess_quality() -> None:
+    # Current public contract: ForecastFrame only gets assess_quality today.
     actions = generate_followups(_ctx("forecast_frame"))
     operators = [a.operator for a in actions if a.category == "dag_continuation"]
-    assert "assess_quality" in operators
-    assert "evaluate_forecast" not in operators
+    assert operators == ["assess_quality"]
 
 
 def test_quality_report_c1_is_empty() -> None:
