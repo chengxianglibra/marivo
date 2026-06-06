@@ -9,15 +9,10 @@ The public surface is intentionally narrow:
   when there is no active session. Safe probe: check and continue work.
 - ``mv.session.list()`` — list non-archived sessions in the project.
 
-The package itself is callable: ``mv.session("name")`` is shorthand for
-attaching to an existing session by name.
-
 Lifecycle helpers ``archive`` / ``delete`` remain on the package for
 maintenance scripts. The lower level ``create``, ``attach``, ``switch``,
-``active``, ``active_or_create``, and ``history`` functions are no longer
-part of the public surface; they continue to exist on
-``marivo.analysis.session.attach`` for the test suite and internal use,
-but new code should reach for ``get_or_create`` / ``current`` / ``list``.
+and ``active`` functions are not part of the public surface; new code
+should reach for ``get_or_create`` / ``current`` / ``list``.
 """
 
 from importlib import import_module
@@ -29,12 +24,10 @@ current = attach.current
 delete = attach.delete
 get_or_create = attach.get_or_create
 list = attach.list_sessions
-list_sessions = attach.list_sessions
 
 # Kept for internal/fixture use but not advertised in __all__:
 active = attach.active
 create = attach.create
-history = attach.history
 switch = attach.switch
 
 __all__ = [
@@ -44,5 +37,4 @@ __all__ = [
     "delete",
     "get_or_create",
     "list",
-    "list_sessions",
 ]

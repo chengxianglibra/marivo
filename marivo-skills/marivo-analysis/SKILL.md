@@ -125,9 +125,10 @@ knowledge.next_steps(top=5)
 knowledge.blocked_followups()
 ```
 
-Use Surface 3 audit calls only when you need raw evidence objects:
-`session.findings(...)`, `session.propositions(...)`,
-`session.assessments(...)`, and `session.evidence.trace(...)`.
+Use Surface 3 audit calls only when you need raw evidence objects, all under
+the evidence namespace: `session.evidence.findings(...)`,
+`session.evidence.propositions(...)`, `session.evidence.assessments(...)`, and
+`session.evidence.trace(...)`.
 
 `result.meta.quality` is a lightweight summary attached automatically.
 `session.assess_quality(result)` is an explicit auditable operator that creates a

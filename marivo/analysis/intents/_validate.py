@@ -2,8 +2,8 @@
 
 Each validator reads only frame metadata + policy and returns the first
 incompatibility as a one-element list of constructed AnalysisError instances
-(or [] when valid), mirroring the intents' fail-fast raise. Two adapters bridge
-the raising path (intents) and the non-raising path (session.validate).
+(or [] when valid), mirroring the intents' fail-fast raise. Adapters support
+both fail-fast raising and structured ValidationIssue conversion.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def raise_first(issues: list[AnalysisError]) -> None:
 
 
 def to_validation_issues(intent: str, issues: list[AnalysisError]) -> list[ValidationIssue]:
-    """Convert validator errors into ValidationIssues (used by session.validate)."""
+    """Convert validator errors into structured ValidationIssue records."""
     return [
         ValidationIssue(
             intent=intent,

@@ -1,11 +1,10 @@
-"""Phase 2 pre-submit validators, adapters, and session.validate."""
+"""Phase 2 pre-submit validators and adapters."""
 
 from __future__ import annotations
 
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import (
     AlignmentPolicyNotApplicableError,
     AxisNotInPanelDimensionsError,
@@ -270,50 +269,3 @@ def test_validate_decompose_panel_axis_not_a_dimension():
     assert isinstance(issues[0], AxisNotInPanelDimensionsError)
     assert issues[0].details["axis"] == "bucket_start"
     assert "region" in issues[0].details["available_dimensions"]
-
-
-# ---------------------------------------------------------------------------
-# session.validate tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def _session(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    session_attach._reset_process_state()
-    return session_attach.get_or_create(name="demo")
-
-
-def test_session_validate_compare_returns_issue_without_raising(_session):
-    issues = _session.validate(
-        "compare",
-        _mf(semantic_kind="scalar"),
-        _mf(semantic_kind="time_series"),
-    )
-    assert len(issues) == 1
-    assert isinstance(issues[0], ValidationIssue)
-    assert issues[0].intent == "compare"
-    assert issues[0].error_type == "SemanticKindMismatchError"
-
-
-def test_session_validate_compare_ok_returns_empty(_session):
-    assert _session.validate("compare", _mf(), _mf()) == []
-
-
-def test_session_validate_decompose_returns_issue(_session):
-    frame = _delta(df=pd.DataFrame({"region": ["n"], "delta": [1.0]}))
-    issues = _session.validate("decompose", frame, axis=DimensionRef("nonexistent"))
-    assert len(issues) == 1
-    assert issues[0].intent == "decompose"
-    assert issues[0].error_type == "SemanticKindMismatchError"
-    assert "axis column does not exist" in issues[0].message
-
-
-def test_session_validate_decompose_ok_returns_empty(_session):
-    frame = _delta(df=pd.DataFrame({"region": ["n", "s"], "delta": [1.0, 2.0]}))
-    assert _session.validate("decompose", frame, axis=DimensionRef("region")) == []
-
-
-def test_session_validate_rejects_unknown_intent(_session):
-    with pytest.raises(ValueError, match="does not support intent"):
-        _session.validate("forecast", _mf())

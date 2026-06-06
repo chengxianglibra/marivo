@@ -99,19 +99,6 @@ def test_active_raises_when_no_active(tmp_path):
         attach.active()
 
 
-def test_active_or_create_returns_existing(tmp_path):
-    a = attach.create(name="demo", backends=_backends())
-    attach._reset_process_state()
-    b = attach.active_or_create(name_hint="ignored_because_active_exists", backends=_backends())
-    assert b.id == a.id
-    assert b.name == "demo"
-
-
-def test_active_or_create_creates_when_missing(tmp_path):
-    s = attach.active_or_create(name_hint="fresh", backends=_backends())
-    assert s.name == "fresh"
-
-
 def test_switch_changes_active_pointer(tmp_path):
     attach.create(name="a", backends=_backends())
     attach.create(name="b", backends=_backends())

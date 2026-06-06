@@ -21,11 +21,11 @@ layers and one reconciliation, in this dependency order:
    deterministic function of its inputs;
 2. a **pre-submit validation layer**: internal validators the three intents call
    *before* any backend work (raising the existing structured exceptions
-   earlier), plus an optional thin `session.validate(intent, *frames, **params)`
-   that runs the same checks over concrete in-hand inputs and returns issues
-   without raising. **No backend execution.** A `StepRequest`-based multi-step
-   plan validator and cost-bearing `session.estimate` are both deferred (see
-   Deferred follow-ups);
+   earlier), plus structured `ValidationIssue` conversion for concrete validator
+   results. **No backend execution.** The former optional session-level wrapper
+   was superseded by the 2026-06-05 public API cleanup; a `StepRequest`-based
+   multi-step plan validator and cost-bearing `session.estimate` are both
+   deferred (see Deferred follow-ups);
 3. reconcile the **component-aware output** as a declared/predictable shape
    instead of implicit dispatch on a hidden `component_ref`.
 Then consolidate `observe`'s four copy-pasted persistence tails into one.
@@ -184,17 +184,18 @@ change. (Chosen: drop — ratified.)**
   test/wrapper migration; Phase 2 validators reference the `delta` column, never
   `measure_column`.
 
-**D4 — Internal validators now + a thin concrete-input `session.validate`; no
-StepRequest/plan API; cost `estimate` deferred. (Chosen: a, narrowed)**
+**D4 — Internal validators now + structured concrete-input validation issues; no
+StepRequest/plan API; cost `estimate` deferred. (Chosen: a, narrowed; session
+wrapper superseded 2026-06-05)**
 - Decision (answers the open question): this change set ships (1) **internal
   validators** the three intents call before any backend work, raising the
   *existing* structured exceptions earlier (so error types/messages are preserved
-  by construction); and (2) an optional thin, non-raising
-  `session.validate(intent, *frames, **params) -> ValidationIssue[]` that runs the
-  same validators over **concrete frames already in hand** (no plan/DAG). It does
-  **not** introduce a `StepRequest`, planned-upstream-step refs, or multi-step
-  pre-submit plan validation — that needs its own `StepRequest`/`ValidationResult`
-  spec and is deferred.
+  by construction); and (2) a dedicated `ValidationIssue` conversion adapter for
+  the same validators over **concrete frames already in hand** (no plan/DAG). The
+  earlier optional session-level wrapper was removed by the 2026-06-05 public API
+  cleanup. This plan does **not** introduce a `StepRequest`,
+  planned-upstream-step refs, or multi-step pre-submit plan validation — that
+  needs its own `StepRequest`/`ValidationResult` spec and is deferred.
 - Issue model: do **not** reuse evidence `BlockingIssue`
   ([followups.py:46](../../../marivo/analysis/followups.py)) — its `kind` enum is
   quality/evidence/comparability-oriented and has no shape-mismatch / unsupported-
@@ -205,8 +206,10 @@ StepRequest/plan API; cost `estimate` deferred. (Chosen: a, narrowed)**
   raising and non-raising paths from drifting and avoids polluting an evidence type.
 - Why: validators are the high-leverage, backend-free, contract-free ergonomics
   fix; the planning API and cost estimation are the parts that ballooned scope.
-- Rejected (b) helpers-only with no public surface: fine, but the thin
-  concrete-input `validate` is cheap and useful and needs no new contract.
+- Rejected (b) raw helpers-only with no structured issue adapter: keep the
+  internal validators plus `ValidationIssue` conversion so concrete validator
+  results can be reported without raising. The later session-level wrapper was
+  superseded by the 2026-06-05 public API cleanup.
 - Consequence: Phase 1 still precedes Phase 2 because validators reason in the
   shape vocabulary, but the strict "planned-step output-shape function" coupling
   is gone with the deferred plan API.
@@ -275,15 +278,14 @@ semantic IR and frame metadata but **no backend execution**.
   backend work; on failure they raise the **existing** structured exception types
   (just earlier), so messages/types are unchanged. (`observe` wiring deferred to
   Phase 4.)
-- [x] Add an optional thin `session.validate(intent, *frames, **params)` that runs
-  the same validators over concrete in-hand frames and returns a dedicated
-  `ValidationIssue[]` (exception class + existing `details`) without raising. **Do
-  not** reuse evidence `BlockingIssue`; **do not** introduce a `StepRequest` or
-  plan-level validator (deferred). Covers `compare` and `decompose` only;
-  `observe` extension deferred to Phase 4.
+- [x] Add structured `ValidationIssue[]` conversion (exception class + existing
+  `details`) for concrete validator results. **Do not** reuse evidence
+  `BlockingIssue`; **do not** introduce a `StepRequest` or plan-level validator
+  (deferred). The optional session-level wrapper from this plan was superseded by
+  the 2026-06-05 public API cleanup.
 - [x] Tests: each previously runtime incompatibility now fails before backend
-  execution with the same exception type; `session.validate(...)` over the same
-  concrete inputs returns the corresponding `ValidationIssue` and raises nothing.
+  execution with the same exception type; the concrete validator adapter maps the
+  corresponding errors to `ValidationIssue` records.
 
 ### Phase 3 — Reconcile component-aware output as a declared shape (D2, D3)
 
@@ -291,7 +293,7 @@ semantic IR and frame metadata but **no backend execution**.
   from the persisted `method`; predictor per D2) so the schema is predictable and
   assertable; `decompose` stays the single entry point.
 - [x] Make the branch observable up front: given an input `DeltaFrame`, the agent
-  and `session.validate` determine the resulting `AttributionFrame[...]` from
+  and shape/validation helpers determine the resulting `AttributionFrame[...]` from
   `DeltaFrameMeta.component_ref` + `decomposition["kind"]`
   (`ComponentFrameMeta.decomposition_kind` authoritative) before calling.
 - [x] Remove `measure_column` (D3, ratified) from the intent
@@ -362,7 +364,8 @@ semantic IR and frame metadata but **no backend execution**.
 
 - Every compatibility failure for the three intents is raised **before backend
   execution** by the internal validators with the existing exception types, and is
-  also reportable (non-raising) via `session.validate(...)` over concrete inputs.
+  also convertible to structured `ValidationIssue` records for concrete validator
+  results.
 - The returned frame's `semantic_shape` is declarable and readable without
   executing; the output-shape function matches executed `semantic_kind`; and
   `decompose`'s output schema is predictable from the input delta before the call.
@@ -392,8 +395,8 @@ semantic IR and frame metadata but **no backend execution**.
   flagged; it needs a committed contract before implementation.
 - Cost-bearing `session.estimate(...)` / `estimate_many(...)` (scanned rows,
   bytes, latency class, fanout risk, suggested limits) per operator design
-  §"Pre-submit estimate" — needs backend statistics; `validate` is built to be
-  wrappable by it.
+  §"Pre-submit estimate" — needs backend statistics; the internal validators and
+  shape helpers are the compatibility layer it can wrap.
 - **`SlicePredicate.value` static typing** ([_types.py:10-12]). The runtime
   validation (`_validate_slice_value_shape`, [runner.py:928-943]) already rejects
   malformed predicates exhaustively. The only residual is narrowing the `value: Any`
@@ -406,6 +409,6 @@ semantic IR and frame metadata but **no backend execution**.
   Replacing the dotted-id/ref/normalized resolution with a single catalog-resolved
   step is a behavior change that risks breaking tested resolutions. Low value,
   real risk. Deferred.
-- A non-raising `session.validate("observe", ...)` — observe has no input frames;
-  pre-validation happens inside `observe()`. A pre-check would need semantic-project
-  metric resolution and is a separate follow-up.
+- A non-raising concrete-input validation adapter for `observe` — observe has no
+  input frames; pre-validation happens inside `observe()`. A pre-check would need
+  semantic-project metric resolution and is a separate follow-up.

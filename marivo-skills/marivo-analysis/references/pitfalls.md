@@ -102,8 +102,8 @@ if session is None:
 # session now has .observe(), .compare(), etc.
 ```
 
-`mv.session.history()` returns an empty list when there is no active session, so
-it is safe for quick context checks.
+Once a session exists, use `session.recent_jobs(limit=5)` for quick context
+checks.
 
 ## Cross-session frame or missing state
 
