@@ -12,6 +12,11 @@ print(project.reload())
 
 ## Preview and parity
 
+`inspect_source_context(...)` folds source inspection and bounded preview. When
+it was called with a row-reading sample policy, `readiness(require_preview=True)`
+is already satisfied for that source. For targeted re-preview or closeout,
+`collect_source_preview` is still available:
+
 ```python
 backend_factory = lambda name: mv.datasources.build_backend(name)
 project.collect_source_preview(
@@ -27,15 +32,6 @@ project.parity_check("sales.revenue", backend_factory=backend_factory)
 `collect_source_preview()` persists metadata evidence for readiness. The raw
 sample rows are not persisted, and the readiness step may run in a later Python
 process.
-
-## Audit
-
-```python
-stale_questions = project.audit(inspect_source=mv.datasources.inspect_source)
-```
-
-If audit returns questions, re-enter the `open_questions` path. Do not silently
-keep using stale ledger decisions.
 
 ## Readiness gate
 

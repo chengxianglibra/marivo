@@ -1,6 +1,6 @@
 # Skill / Semantic Layer Authoring Overall Design
 
-Status: draft target design, v1 scoped.
+Status: v1 implemented (see docs/superpowers/plans/2026-06-06-semantic-authoring-evidence-apis.md).
 
 This document defines the joint target design for the Marivo semantic
 authoring skill and the `SemanticProject` APIs that support it. The design is

@@ -37,22 +37,32 @@ the project structure before authoring semantic objects.
   secret that the cache already holds.
 - Python files under `.marivo/semantic/<model>/` are the only semantic source of
   truth.
-- Names are candidate signals only. Business meaning must come from comments,
-  source SQL, knowledge, preview evidence, or user confirmation.
-- Before authoring new objects from datasource evidence, inspect metadata with
-  `mv.datasources.inspect_source(...)`, then call `project.propose_candidates(...)`
-  with `inspect_source=mv.datasources.inspect_source`.
-- `propose_candidates` returns structural signal only and is **not exhaustive**. Iterate
-  `result.residual_columns` and decide which are measures, primary keys, or dimensions
-  worth declaring. Do not treat the candidates list as the complete worklist.
-- Classify candidate uncertainty with `project.open_questions(...)`. This works
-  before `_model.py` exists; without a loaded registry, question `blast_radius`
-  falls back to `0`. `blast_radius` is a non-negative integer count of distinct
-  transitive dependents, not a ref tuple/list or candidate list.
+- Collect source evidence before authoring. For each physical source call
+  `project.inspect_source_context(datasource=..., source=ms_evidence.DatasetSource(...),
+  inspect_source=mv.datasources.inspect_source, backend_factory=mv.datasources.build_backend,
+  sample_policy=...)`. It folds metadata inspection and bounded preview into one call and
+  persists evidence metadata under `.marivo/semantic/.evidence/`.
+- Sample-derived values (`top_values`, `distinct_count`, `min_value`/`max_value`) are facts
+  about the bounded sample only (`sample_scope="bounded_sample"`, `approximate=True`). Never
+  treat them as full-column cardinality, complete enums, or global ranges.
+- Rank columns yourself from pack facts (type, comments, nullable, partition hints, sampled
+  values). The project returns no candidate worklist. Deep-dive a small set with
+  `project.inspect_column_context(...)`.
+- Record non-sample evidence (source SQL, BI definitions, knowledge, owner notes, user
+  confirmations) with `project.record_authoring_evidence(AuthoringEvidenceInput(...))` and cite
+  the returned `EvidenceRef.id` in checks.
+- Before writing an object, run `project.check_authoring_inputs(...)`. Branch on
+  `AssessmentResult.status` and `next_checks` (an enum — never string-parse messages). Ask the
+  user only for `AuthoringQuestion`s the check raises.
+- After authoring and `project.reload()`, run `project.inspect_authored_object(ref)` (cheap,
+  backend-free) before any runtime preview/parity.
+- `blast_radius` is a non-negative integer count of distinct transitive dependents,
+  not a ref tuple/list or candidate list.
 - Ask users only for unresolved blockers or business decisions evidence cannot
   settle.
 - Record user confirmations for real `OpenQuestion` objects with
   `project.answer(...)`; do not use it to answer readiness-only blockers.
+  The user-confirmation path is `record_authoring_evidence(kind="user_confirmation")`.
 - Reload after authoring `@ms.metric` or `@ms.time_field` declarations so Marivo
   can auto-record their object-level `metric_decomposition` and
   `time_field_identity` decisions.
@@ -63,24 +73,23 @@ the project structure before authoring semantic objects.
 - Run `project.richness(...)` at closeout and report richness gaps separately
   from readiness blockers.
 
-`table.schema()` returns types but not comments. Do not mention target preview
-surfaces as APIs until they are implemented.
+`table.schema()` returns types but not comments.
 
 ## Default Workflow
 
-Read `references/workflow.md` first for object construction. The short form is:
+Read `references/workflow.md` first. The short form is:
 
-1. Discover the project and existing refs.
-2. Inspect datasource metadata and bounded previews.
-3. Generate candidates with `project.propose_candidates(...)`. The result is a
-   **non-exhaustive structural starting set** — iterate `result.residual_columns`
-   for measures, primary keys, dimensions, and non-conventional foreign keys the
-   heuristics omit. Do not treat `result.candidates` as the complete worklist.
-4. Classify questions with `project.open_questions(...)`.
-5. Author a single `.marivo/semantic/<model>/_model.py` using ref variables.
-6. Record confirmations and complete decisions in the ledger.
-7. Reload successfully, preview, and run parity where source SQL exists.
-8. Run `project.audit(...)`, readiness, and richness.
+1. Discover the project and existing refs; search for reuse before authoring.
+2. For each source, `project.inspect_source_context(...)`. If evidence is insufficient, stop
+   and fix datasource access or request missing context.
+3. Deep-dive the few columns that matter with `project.inspect_column_context(...)`.
+4. Record source SQL / knowledge / confirmations with `project.record_authoring_evidence(...)`.
+5. `project.check_authoring_inputs(...)` for the object; resolve `needs_evidence`/`blocked`
+   before writing.
+6. Author one `.marivo/semantic/<model>/_model.py` using ref variables; `project.reload()`.
+7. `project.inspect_authored_object(ref)`; then run only the runtime checks the object needs
+   (`preview_*`, `parity_check` where source SQL exists).
+8. Closeout with `project.readiness(...)` and `project.richness(...)`.
 
 ## Authoring Defaults
 

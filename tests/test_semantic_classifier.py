@@ -202,8 +202,7 @@ def test_public_exports_available():
     import marivo.semantic as ms
 
     assert hasattr(ms, "OpenQuestion")
-    assert hasattr(ms, "Candidate")
-    assert hasattr(ms, "classify")
+    assert hasattr(ms, "DecisionKind")
 
 
 def test_enrichment_defaults_are_conservative():
@@ -213,10 +212,10 @@ def test_enrichment_defaults_are_conservative():
     assert e.chosen is None
 
 
-def test_enrichment_is_exported():
+def test_evidence_ref_is_exported():
     import marivo.semantic as ms
 
-    assert hasattr(ms, "Enrichment")
+    assert hasattr(ms, "EvidenceRef")
 
 
 def _cand(kind, subject, object_kind="metric", evidence=()):

@@ -12,6 +12,8 @@ import ibis
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.analysis.datasources.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.semantic.ir import TableSourceIR
 
 MODEL = """
 import marivo.datasource as md
@@ -74,6 +76,26 @@ def drifted_revenue(table):
     return table.amount.sum()
 """
 
+
+def fake_inspect_source(
+    datasource: str, *, source: TableSourceIR, include_partitions: bool = True
+) -> TableMetadata:
+    return TableMetadata(
+        datasource=datasource,
+        table=source.table,
+        database=source.database,
+        backend_type="duckdb",
+        comment="Orders fact table.",
+        columns=(
+            ColumnMetadata("order_id", "INTEGER", False, "Primary order id", 1),
+            ColumnMetadata("dt", "DATE", False, "Partition date", 2),
+            ColumnMetadata("amount", "DOUBLE", True, "Gross order amount", 3),
+        ),
+        partitions=(PartitionMetadata("dt", type="DATE"),),
+        warnings=(),
+    )
+
+
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
     db_path = root / "orders.duckdb"
@@ -98,14 +120,20 @@ with tempfile.TemporaryDirectory() as tmp:
         def backend_factory(name: str) -> Any:
             return mv.datasources.build_backend(name)
 
-        project.collect_source_preview(
+        # inspect_source_context folds source inspection and bounded preview
+        pack = project.inspect_source_context(
             datasource="warehouse",
-            table="orders",
+            source=ms.DatasetSource(kind="table", table="orders"),
+            inspect_source=fake_inspect_source,
             backend_factory=backend_factory,
+            sample_policy=ms.SamplePolicy(
+                mode="bounded_profile", limit=100, max_profiled_columns=50
+            ),
         )
+        print("source schema columns:", len(pack.schema))
+
         project.preview_dataset("sales.orders", backend_factory=backend_factory)
         project.parity_check("sales.drifted_revenue", backend_factory=backend_factory)
-        audit_questions = project.audit(inspect_source=mv.datasources.inspect_source)
         report = project.readiness(
             require_preview=True,
             strict_provenance=True,
@@ -119,9 +147,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 build_purpose="Revenue analysis",
             )
         )
-        print("audit questions:", len(audit_questions))
         print("readiness:", report.status)
-        print("source_preview_collected:", "warehouse.orders" in project.raw_preview_evidence())
         print(
             "unverified_metric:",
             "sales.unverified_revenue" in report.parity_summary.unverified_metrics,

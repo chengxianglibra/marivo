@@ -1,9 +1,9 @@
 # marivo-semantic workflow
 
-This is the default workflow for agents building reusable Marivo semantic
+This is the evidence-driven workflow for agents building reusable Marivo semantic
 objects. It is evidence-first, ledger-aware, and readiness-gated.
 
-## 1. Discover the project
+## Stage 1: Project Discovery
 
 ```bash
 <venv>/bin/python - <<'PY'
@@ -20,33 +20,46 @@ PY
 ```
 
 Reuse existing semantic refs when their definitions, guardrails, dependencies,
-and provenance match the requested intent.
+and provenance match the requested intent. Search before authoring.
 
-## 2. Inspect datasource metadata
+## Stage 2: Source Evidence
 
-Choose the datasource backend from the physical source first. Use a native
-Marivo datasource by default: Hive/Iceberg lakehouse tables through Trino,
-ClickHouse tables through ClickHouse, MySQL tables through MySQL, and DuckDB
-database files or supported local files through DuckDB. Do not route ClickHouse
-or MySQL tables through a Trino catalog unless the user explicitly says the
-project must use Trino federation.
+For each physical source, collect a `SourceEvidencePack`. Choose the datasource
+backend from the physical source first: use native backends by default (Trino for
+Hive/Iceberg lakehouse, ClickHouse for ClickHouse tables, MySQL for MySQL tables,
+DuckDB for local files). Do not route ClickHouse or MySQL tables through a Trino
+catalog unless the user explicitly requires Trino federation.
 
-```bash
-<venv>/bin/python - <<'PY'
+```python
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-print(mv.datasources.all())
-print(mv.datasources.describe("warehouse"))
-print(mv.datasources.test("warehouse"))
-metadata = mv.datasources.inspect_source("warehouse", source=ms.table("orders"))
-print(metadata.to_dict())
-PY
+project = ms.find_project()
+pack = project.inspect_source_context(
+    datasource="warehouse",
+    source=ms.DatasetSource(kind="table", table="orders", database="sales_mart"),
+    inspect_source=mv.datasources.inspect_source,
+    backend_factory=lambda name: mv.datasources.build_backend(name),
+    sample_policy=ms.SamplePolicy(mode="bounded_profile", limit=100, max_profiled_columns=50),
+)
 ```
 
-`table.schema()` returns types but not comments. Use
-`mv.datasources.inspect_source(...)` for table comments, column comments,
-nullable flags, partition hints, and metadata warnings.
+Stop on insufficient evidence — fix datasource access or request missing context
+before continuing. `inspect_source_context` folds metadata inspection and bounded
+preview into one call and persists evidence metadata under
+`.marivo/semantic/.evidence/`.
+
+For `metadata_only` policy (no row reads):
+
+```python
+pack = project.inspect_source_context(
+    datasource="warehouse",
+    source=ms.DatasetSource(kind="table", table="orders"),
+    inspect_source=mv.datasources.inspect_source,
+    backend_factory=lambda name: mv.datasources.build_backend(name),
+    sample_policy=ms.SamplePolicy(mode="metadata_only"),
+)
+```
 
 For Trino without a default schema, pass the schema as `database`:
 
@@ -57,115 +70,126 @@ metadata = mv.datasources.inspect_source(
 )
 ```
 
-For DuckDB external files, use a file source:
+## Stage 3: Column Deep Dives
+
+Deep-dive selected columns after source evidence:
 
 ```python
-metadata = mv.datasources.inspect_source(
-    "warehouse",
-    source=ms.file("/data/orders/*.parquet", format="parquet"),
-)
-```
-
-## 3. Generate candidates
-
-```python
-import marivo.analysis as mv
-import marivo.semantic as ms
-
-project = ms.find_project()
-assert project is not None
-
-result = project.propose_candidates(
+evidence = project.inspect_column_context(
     datasource="warehouse",
-    sources=[ms.table("orders", database="sales_mart")],
-    model="sales",
+    source=ms.DatasetSource(kind="table", table="orders"),
+    columns=("status", "amount"),
     inspect_source=mv.datasources.inspect_source,
+    backend_factory=lambda name: mv.datasources.build_backend(name),
+    sample_policy=ms.SamplePolicy(
+        mode="selected_columns_profile", limit=100, columns=("status", "amount")
+    ),
 )
-for candidate in result.candidates:
-    print(candidate.decision_kind, candidate.proposed_id, candidate.semantic_delta)
-for residual in result.residual_columns:
-    print("residual:", residual.dataset, residual.column, residual.data_type, residual.comment)
+for col in evidence:
+    print(col.column, col.profile.distinct_count, col.profile.top_values)
 ```
 
-The result is a **non-exhaustive structural starting set**. `result.candidates` contains
-dataset, time_field, field, and relationship proposals the heuristics matched.
-`result.residual_columns` lists every column the heuristics did not match — these include
-measures, primary keys, plain dimensions, and non-conventional foreign keys. Iterate
-residuals and decide which are worth declaring; do not treat `result.candidates` as the
-complete worklist.
+Use this for time/enum/amount/join-key columns. Sample-derived values are facts
+about the bounded sample only — never treat them as full-table truth.
 
-Candidates are not semantic objects. They are structural proposals with evidence.
-They do not infer metric decomposition from metric names, column names, comments,
-or other string matches. Metric decomposition must come from explicit formula or
-source SQL evidence, existing component metrics, ledger/user confirmation, or an
-open question during authoring. Once a metric is declared, reload the project so
-Marivo records the authored decomposition as an object-level decision; do not
-expect `propose_candidates(...)` to generate a metric-decomposition candidate for
-an already-authored metric.
+## Stage 4: Dataset Authoring
 
-## 4. Classify questions
+Check authoring inputs before writing:
 
 ```python
-questions = project.open_questions(candidates=result.candidates)
-for question in questions:
-    print(question.severity, question.decision_kind, question.subject_refs)
-```
-
-`open_questions` can run before `_model.py` exists. In that cold-start state it
-uses `blast_radius=0` because there is no loaded dependency graph yet. Reload
-successfully before closeout so audit, readiness, and richness use the authored
-registry. Treat `blast_radius` as a non-negative integer count of distinct
-transitive dependents; do not pass ref tuples/lists or candidate lists.
-
-Ask the user only for blocker questions or business decisions evidence cannot
-settle. Optional questions may be recorded as assumptions only when the default
-is explicit and low risk.
-
-## 5. Author semantic Python
-
-Default to a single `.marivo/semantic/<model>/_model.py`. Use ref variables
-between semantic objects. Before declaring an object kind for the first time in
-the authoring session, inspect its runtime help, for example
-`ms.help("metric", format="json")`. Metrics also require
-`ms.help("decomposition", format="json")`; for derived metrics, inspect
-`ms.help("derived_metric", format="json")` and the decomposition contract. See
-`authoring-patterns.md`.
-
-## 6. Record confirmations and decisions
-
-```python
-project.answer(question, "confirmed answer", evidence_fingerprint="sha256:...")
-```
-
-Use `project.answer(...)` only for real `OpenQuestion` objects, and never pass
-`None` as the answer. Confirmation log entries alone do not clear readiness;
-readiness consumes object-level `DecisionRecord` entries.
-
-Use `project.record_decision(semantic_id, record)` only when a complete
-`DecisionRecord` can be built from the real question, chosen value, evidence
-fingerprint, cited source, and qualifying sources. `semantic_id` is
-`question.subject_refs[0]`. Use `question.blast_radius` for the ledger record.
-Do not invent internal fields.
-
-## 7. Validate and close out
-
-```python
-import marivo.analysis as mv
-
-backend_factory = lambda name: mv.datasources.build_backend(name)
-
-print(project.reload())
-print(project.audit(inspect_source=mv.datasources.inspect_source))
-project.collect_source_preview(
+result = project.check_authoring_inputs(
+    object_kind="dataset",
+    subject_ref="sales.orders",
     datasource="warehouse",
-    table="orders",
-    backend_factory=backend_factory,
+    source=ms.DatasetSource(kind="table", table="orders"),
+)
+if result.status == "blocked":
+    # resolve blockers first
+    pass
+```
+
+Then author and reload:
+
+```python
+# write .marivo/semantic/sales/_model.py and datasets.py
+project.reload()
+project.inspect_authored_object("sales.orders")
+```
+
+## Stage 5: Time Field Authoring
+
+Author time fields only after temporal evidence. If partition vs event-time
+conflict, surface the `AuthoringQuestion`:
+
+```python
+result = project.check_authoring_inputs(
+    object_kind="time_field",
+    subject_ref="sales.orders.dt",
+    datasource="warehouse",
+    source=ms.DatasetSource(kind="table", table="orders"),
+    columns=("dt",),
+)
+```
+
+Reload so Marivo can auto-record `time_field_identity` decisions.
+
+## Stage 6: Field Authoring
+
+```python
+result = project.check_authoring_inputs(
+    object_kind="field",
+    subject_ref="sales.orders.amount",
+    datasource="warehouse",
+    source=ms.DatasetSource(kind="table", table="orders"),
+    columns=("amount",),
+)
+```
+
+## Stage 7: Metric Authoring
+
+Record source SQL first, cite it in the check:
+
+```python
+sql_ref = project.record_authoring_evidence(
+    ms.AuthoringEvidenceInput(
+        kind="source_sql",
+        subject_refs=("sales.revenue",),
+        content="select sum(amount) as revenue from orders where paid",
+        source_dialect="trino",
+    )
+)
+result = project.check_authoring_inputs(
+    object_kind="metric",
+    subject_ref="sales.revenue",
+    datasource="warehouse",
+    source=ms.DatasetSource(kind="table", table="orders"),
+    columns=("amount", "paid"),
+    evidence_refs=(sql_ref.id,),
+    ai_context=ms.AiContextInput(business_definition="Paid order revenue before refunds."),
+)
+```
+
+After authoring and reload, run `inspect_authored_object` then previews/parity.
+
+## Stage 8: Relationship Authoring
+
+Require relationship-intent evidence. Orphan/fanout/RI scans are optional
+diagnostics, not gates.
+
+## Stage 9: Incremental Review & Closeout
+
+```python
+project.reload()
+project.inspect_authored_object("sales.revenue")
+# bounded preview where needed
+project.collect_source_preview(
+    datasource="warehouse", table="orders",
+    backend_factory=lambda name: mv.datasources.build_backend(name),
 )
 report = project.readiness(
     require_preview=True,
     require_evidence_ledger=True,
-    strict_enrichment=True,
-    backend_factory=backend_factory,
+    backend_factory=lambda name: mv.datasources.build_backend(name),
 )
 print(report.to_dict())
 richness = project.richness()

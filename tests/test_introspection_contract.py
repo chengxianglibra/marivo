@@ -301,11 +301,15 @@ def test_semantic_project_descriptor_lists_agent_workflow_methods() -> None:
     assert {
         "load",
         "list_metrics",
-        "propose_candidates",
-        "open_questions",
+        "inspect_source_context",
+        "inspect_column_context",
+        "record_authoring_evidence",
+        "list_evidence",
+        "get_evidence_pack",
+        "check_authoring_inputs",
+        "inspect_authored_object",
         "answer",
         "record_decision",
-        "audit",
         "readiness",
         "richness",
     } <= methods

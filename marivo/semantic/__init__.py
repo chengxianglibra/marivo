@@ -34,15 +34,22 @@ from marivo.semantic.authoring import (
     weighted_average,
 )
 from marivo.semantic.classifier import (
-    Candidate,
-    DecisionInput,
     DecisionKind,
-    Enrichment,
-    EvidenceRef,
     OpenQuestion,
-    classify,
-    select_for_user,
-    to_decision_inputs,
+)
+from marivo.semantic.evidence import (
+    AiContextInput,
+    AssessmentIssue,
+    AssessmentResult,
+    AuthoringEvidenceInput,
+    AuthoringQuestion,
+    ColumnEvidence,
+    ColumnProfile,
+    DatasetSource,
+    EvidenceFact,
+    EvidenceRef,
+    SamplePolicy,
+    SourceEvidencePack,
 )
 from marivo.semantic.help import help
 from marivo.semantic.ledger import (
@@ -51,10 +58,6 @@ from marivo.semantic.ledger import (
     RejectedCandidate,
 )
 from marivo.semantic.loader import find_project
-from marivo.semantic.proposal import (
-    ProposalResult,
-    ResidualColumn,
-)
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import (
     EvidenceSummary,
@@ -72,27 +75,32 @@ from marivo.semantic.typing import AiContext
 
 __all__ = [
     "AiContext",
-    "Candidate",
+    "AiContextInput",
+    "AssessmentIssue",
+    "AssessmentResult",
+    "AuthoringEvidenceInput",
+    "AuthoringQuestion",
+    "ColumnEvidence",
+    "ColumnProfile",
     "ConfirmationRecord",
-    "DecisionInput",
+    "DatasetSource",
     "DecisionKind",
     "DecisionRecord",
     "DemandSignal",
-    "Enrichment",
+    "EvidenceFact",
     "EvidenceRef",
     "EvidenceSummary",
     "OpenQuestion",
     "ParitySummary",
     "PreviewSummary",
-    "ProposalResult",
     "ReadinessIssue",
     "ReadinessReport",
     "RejectedCandidate",
-    "ResidualColumn",
     "RichnessGap",
     "RichnessReport",
+    "SamplePolicy",
     "SemanticProject",
-    "classify",
+    "SourceEvidencePack",
     "dataset",
     "derived_metric",
     "errors",
@@ -105,12 +113,10 @@ __all__ = [
     "ratio",
     "ref",
     "relationship",
-    "select_for_user",
     "snapshot",
     "sum",
     "table",
     "time_field",
-    "to_decision_inputs",
     "typing",
     "validity",
     "weighted_average",
