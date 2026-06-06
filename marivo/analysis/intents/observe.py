@@ -371,6 +371,39 @@ def _validate_dimension_refs(dimensions: list[Any] | None) -> list[DimensionRef]
     return validated
 
 
+def _normalize_time_field_ref(time_field: DimensionRef | None) -> str | None:
+    if time_field is None:
+        return None
+    if not isinstance(time_field, DimensionRef):
+        raise SemanticKindMismatchError(
+            message="observe requires time_field=DimensionRef(...)",
+            details={
+                "expected_kind": "DimensionRef",
+                "got_kind": type(time_field).__name__,
+            },
+        )
+    return time_field.id
+
+
+def _normalize_where_refs(
+    where: dict[DimensionRef, SliceValue] | None,
+) -> dict[str, SliceValue] | None:
+    if where is None:
+        return None
+    normalized: dict[str, SliceValue] = {}
+    for key, value in where.items():
+        if not isinstance(key, DimensionRef):
+            raise SemanticKindMismatchError(
+                message="observe where keys must be DimensionRef(...)",
+                details={
+                    "expected_kind": "DimensionRef",
+                    "got_kind": type(key).__name__,
+                },
+            )
+        normalized[key.id] = value
+    return normalized
+
+
 def _field_fn(sp: Any, field_id: str) -> Callable[..., Any]:
     sidecar = sp.sidecar()
     fn = sidecar.get(field_id) if sidecar else None
@@ -785,8 +818,8 @@ def observe(
     timescope: TimeScopeInput = None,
     grain: GrainInput = None,
     dimensions: list[DimensionRef] | None = None,
-    where: dict[str, SliceValue] | None = None,
-    time_field: str | None = None,
+    where: dict[DimensionRef, SliceValue] | None = None,
+    time_field: DimensionRef | None = None,
     expect_shape: SemanticShape | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
@@ -806,9 +839,14 @@ def observe(
             series or panel depending on ``dimensions``.
         dimensions: Segment axes. In v1 all dimensions must resolve to the same
             dataset as ``metric``.
-        where: Pre-aggregation row filter. Values are either a scalar (``==``),
-            a list (``in``), or ``{"op": "<op>", "value": ...}`` where op is
-            one of ``==, !=, in, >, >=, <, <=, between``.
+        where: Pre-aggregation row filter. Keys are ``mv.DimensionRef(...)`` for
+            the filtered dimension; values are either a scalar (``==``), a list
+            (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
+            ``==, !=, in, >, >=, <, <=, between``.
+        time_field: Pick the dataset time axis as
+            ``mv.DimensionRef("<time_field>")`` when a dataset declares multiple
+            ``@ms.time_field`` columns. Omit when the dataset has a single (or
+            default) time field.
         expect_shape: Optional guard. If set, observe predicts the output shape
             from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
             before any backend work when the prediction differs.
@@ -816,7 +854,8 @@ def observe(
 
     Raises:
         MetricNotFoundError: The metric id is unknown or not ``<model>.<metric>``.
-        SemanticKindMismatchError: ``metric`` is not a ``MetricRef``.
+        SemanticKindMismatchError: ``metric`` is not a ``MetricRef``, ``time_field``
+            is not a ``DimensionRef``, or a ``where`` key is not a ``DimensionRef``.
         ObservePlanningError: Planning failed (e.g. cross-datasource plan, missing
             path, ambiguous dimension). Check ``details["code"]`` for the specific
             error code.
@@ -845,10 +884,12 @@ def observe(
     if "." not in metric_id:
         raise MetricNotFoundError(message=f"metric '{metric_id}' is not '<model>.<metric>'")
     model_name, metric_name = metric_id.split(".", 1)
+    time_field_id = _normalize_time_field_ref(time_field)
+    where_by_id = _normalize_where_refs(where)
     resolved_window, original_timescope = _resolve_timescope(
         timescope,
         grain=grain,
-        time_field=time_field,
+        time_field=time_field_id,
     )
     is_time_series = resolved_window is not None and resolved_window.grain is not None
 
@@ -884,7 +925,7 @@ def observe(
     session.backend_cache.begin_query_capture()
     dataset_irs: dict[str, _DatasetIRAdapter] = {}
     primary_datasource: str | None = None
-    stored_where = normalize_slice_for_storage(where)
+    stored_where = normalize_slice_for_storage(where_by_id)
     metric_datasets = tuple(metric_ir.datasets)
     dimension_refs = _validate_dimension_refs(dimensions)
     if expect_shape is not None:
@@ -921,9 +962,9 @@ def observe(
             dataset_irs=all_dataset_irs,
             dataset_fns=all_dataset_fns,
             dimensions=dimensions,
-            where=where,
+            where=where_by_id,
             resolved_window=resolved_window,
-            time_field=time_field,
+            time_field=time_field_id,
         )
         # plan_observe always returns DerivedObservePlan for derived metrics
         assert isinstance(derived_plan, DerivedObservePlan)
@@ -1058,7 +1099,7 @@ def observe(
             ds_ir = sp.get_dataset(field_ir.dataset)
             if ds_ir is not None:
                 dataset_irs[field_ir.dataset] = _build_dataset_adapter(sp, ds_ir)
-        for raw_key in where or {}:
+        for raw_key in where_by_id or {}:
             if raw_key == field_ir.semantic_id and field_ir.dataset not in dataset_irs:
                 ds_ir = sp.get_dataset(field_ir.dataset)
                 if ds_ir is not None:
@@ -1073,9 +1114,9 @@ def observe(
         dataset_irs=dataset_irs,
         dataset_fns=dataset_fns,
         dimensions=dimensions,
-        where=where,
+        where=where_by_id,
         resolved_window=resolved_window,
-        time_field=time_field,
+        time_field=time_field_id,
     )
     primary_datasource = plan.datasource_name
     session.known_datasources.add(primary_datasource)

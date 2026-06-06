@@ -74,7 +74,7 @@ print(attribution.summary())
 ```python
 series = session.observe(
     mv.MetricRef("sales.revenue"),
-    where={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    where={mv.DimensionRef("created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 candidates = session.discover.point_anomalies(series, threshold=1.0)
 print(candidates.meta.objective)  # "point_anomalies"
@@ -239,7 +239,7 @@ When a dataset has multiple time fields, choose one with top-level `time_field`:
 session.observe(
     mv.MetricRef("sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-07-31"},
-    time_field="create_date",
+    time_field=mv.DimensionRef("create_date"),
 )
 ```
 

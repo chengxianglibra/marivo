@@ -5,7 +5,7 @@ import pytest
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import SliceInvalidError
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.refs import MetricRef
+from marivo.analysis.refs import DimensionRef, MetricRef
 from marivo.analysis.session.persistence import read_session_meta
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
@@ -44,13 +44,16 @@ def _session_with_sales(tmp_path):
 )
 def test_observe_structured_slice_predicates(tmp_path, slice_spec, expected):
     session = _session_with_sales(tmp_path)
-    frame = observe(MetricRef("sales.revenue"), where=slice_spec, session=session)
+    where = {DimensionRef(key): value for key, value in slice_spec.items()}
+    frame = observe(MetricRef("sales.revenue"), where=where, session=session)
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(expected)
 
 
 def test_observe_equality_shorthand_still_works(tmp_path):
     session = _session_with_sales(tmp_path)
-    frame = observe(MetricRef("sales.revenue"), where={"region": "NORTH"}, session=session)
+    frame = observe(
+        MetricRef("sales.revenue"), where={DimensionRef("region"): "NORTH"}, session=session
+    )
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(70.0)
 
 
@@ -58,7 +61,7 @@ def test_in_predicate_with_set_is_json_safe_in_job_record(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
         MetricRef("sales.revenue"),
-        where={"region": {"op": "in", "value": {"NORTH"}}},
+        where={DimensionRef("region"): {"op": "in", "value": {"NORTH"}}},
         session=session,
     )
 
@@ -88,15 +91,16 @@ def test_in_predicate_with_set_is_json_safe_in_job_record(tmp_path):
 )
 def test_invalid_structured_predicates_raise(tmp_path, slice_spec):
     session = _session_with_sales(tmp_path)
+    where = {DimensionRef(key): value for key, value in slice_spec.items()}
     with pytest.raises(SliceInvalidError):
-        observe(MetricRef("sales.revenue"), where=slice_spec, session=session)
+        observe(MetricRef("sales.revenue"), where=where, session=session)
 
 
 def test_mixed_set_in_predicate_is_json_safe_and_normalized(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
         MetricRef("sales.revenue"),
-        where={"user_id": {"op": "in", "value": {100, "200"}}},
+        where={DimensionRef("user_id"): {"op": "in", "value": {100, "200"}}},
         session=session,
     )
 
@@ -112,7 +116,7 @@ def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
     with pytest.raises(SliceInvalidError):
         observe(
             MetricRef("sales.revenue"),
-            where={"region": {"op": "in", "value": [object()]}},
+            where={DimensionRef("region"): {"op": "in", "value": [object()]}},
             session=session,
         )
 

@@ -125,7 +125,7 @@ def test_cross_dataset_where_filters_after_left_join(tmp_path):
     _seed(con)
     frame = observe(
         MetricRef("sales.revenue_by_user"),
-        where={"sales.users.country": "US"},
+        where={DimensionRef("sales.users.country"): "US"},
         session=_session(con),
     )
 

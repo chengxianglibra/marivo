@@ -628,7 +628,7 @@ def test_component_filter_unreachable_raises(tmp_path):
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
             MetricRef("sales.gmv_per_session"),
-            where={"sales.country": "US"},
+            where={DimensionRef("sales.country"): "US"},
             session=_session(con),
         )
     details = exc_info.value.details

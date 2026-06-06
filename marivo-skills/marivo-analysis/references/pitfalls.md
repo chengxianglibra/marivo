@@ -215,7 +215,7 @@ session.observe(
 
 session.observe(
     mv.MetricRef("sales.revenue"),
-    where={"created_at": {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    where={mv.DimensionRef("created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 ```
 

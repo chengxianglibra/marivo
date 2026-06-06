@@ -7,7 +7,7 @@ import copy
 import hashlib
 import json
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from time import monotonic
@@ -234,6 +234,19 @@ def _transform_dispatch(
     )
 
 
+def _require_dimension_refs(values: Iterable[Any], *, argument: str) -> None:
+    for value in values:
+        if not isinstance(value, DimensionRef):
+            raise TransformArgError(
+                message=f"transform {argument} requires DimensionRef entries",
+                hint=f"Wrap axis ids with mv.DimensionRef(...) for {argument}.",
+                details={
+                    "expected_kind": "DimensionRef",
+                    "got_kind": type(value).__name__,
+                },
+            )
+
+
 class TransformAPI:
     """Callable namespace for family-preserving MetricFrame / DeltaFrame transforms."""
 
@@ -294,28 +307,30 @@ class TransformAPI:
         self,
         frame: object,
         *,
-        where: dict[DimensionRef | str, Any],
+        where: dict[DimensionRef, Any],
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
         """Filter rows by exact axis values.
 
-        ``where`` maps dimension names to the value(s) to keep.
+        ``where`` maps ``mv.DimensionRef(...)`` axes to the value(s) to keep.
         Unlike ``filter``, operates on raw axis values without a callable.
         """
+        _require_dimension_refs(where.keys(), argument="slice(where=...)")
         return _transform_dispatch(frame, op="slice", where=where, session=session)
 
     def rollup(
         self,
         frame: object,
         *,
-        drop_axes: list[DimensionRef | str],
+        drop_axes: list[DimensionRef],
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
         """Aggregate to coarser segments by dropping axes.
 
-        Removes the listed dimensions and re-aggregates measures over the
-        remaining axes.
+        Removes the listed ``mv.DimensionRef(...)`` dimensions and re-aggregates
+        measures over the remaining axes.
         """
+        _require_dimension_refs(drop_axes, argument="rollup(drop_axes=...)")
         return _transform_dispatch(frame, op="rollup", drop_axes=drop_axes, session=session)
 
     def topk(

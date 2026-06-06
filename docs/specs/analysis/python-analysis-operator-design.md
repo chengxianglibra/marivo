@@ -488,7 +488,7 @@ same family as input
 ```python
 mobile_dau = analysis.transform.slice(
     dau,
-    where={"platform": "mobile"},
+    where={DimensionRef("platform"): "mobile"},
 )
 
 top_declines = analysis.transform.topk(
