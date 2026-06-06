@@ -46,6 +46,14 @@ def test_final_report_guidance_contains_required_contract() -> None:
         "must not connect to live datasources",
         "recompute main claims",
         "replace `grounding.json` / `flow.json`",
+        "HTML adapter handoff",
+        "to_html_report_payload",
+        "render_report_html",
+        "materialize_html_adapter",
+        "standalone HTML",
+        "opens directly from `index.html`",
+        "must not connect to live datasources",
+        "must not recompute executive-summary claims",
     ]
 
     missing = [term for term in required_terms if term not in text]

@@ -111,6 +111,27 @@ Marivo report package. It must not connect to live datasources. It must not
 recompute main claims. It must not replace `grounding.json` / `flow.json` as the
 audit source of truth.
 
+## HTML adapter handoff
+
+When the selected delivery surface is a standalone HTML report, use the Marivo
+HTML adapter after the core report artifact validates:
+
+1. Build and validate the `MarivoReportArtifact`.
+2. Call `to_html_report_payload(artifact)` when the agent needs to inspect the
+   exact renderer payload before writing files.
+3. Call `render_report_html(artifact)` for an in-memory standalone HTML string.
+4. Call `materialize_html_adapter(artifact, package_root)` when the report
+   package should include `index.html`; use the returned artifact so
+   `manifest.entrypoints["html"]` records the file.
+
+The standalone HTML surface opens directly from `index.html` and uses frozen
+datasets, grounding, flow steps, evidence objects, and source provenance from
+the Marivo report package. It must not connect to live datasources.
+It must not recompute executive-summary claims. It should keep the main reading
+path answer-first, with source, SQL, script, dataset, and evidence details
+available through links or expandable panels instead of crowding out the
+narrative.
+
 ## Discovery and anomaly reports
 
 When reporting anomalies or discovered candidates, separate signal from noise.
