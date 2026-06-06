@@ -107,3 +107,11 @@ def test_analysis_exports_report_mcp_adapter_surface() -> None:
     assert mv.ReportMetric.__name__ == "ReportMetric"
     assert callable(mv.to_mcp_artifact_payload)
     assert callable(mv.materialize_mcp_adapter)
+
+
+def test_analysis_exports_report_html_adapter_surface() -> None:
+    import marivo.analysis as mv
+
+    assert callable(mv.to_html_report_payload)
+    assert callable(mv.render_report_html)
+    assert callable(mv.materialize_html_adapter)
