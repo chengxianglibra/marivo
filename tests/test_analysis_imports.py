@@ -97,3 +97,13 @@ def test_analysis_exports_report_artifact_surface() -> None:
     assert callable(mv.validate_report_artifact)
     assert callable(mv.load_report_artifact)
     assert callable(mv.write_report_artifact)
+
+
+def test_analysis_exports_report_mcp_adapter_surface() -> None:
+    import marivo.analysis as mv
+
+    assert mv.ReportChartSpec.__name__ == "ReportChartSpec"
+    assert mv.ReportColumn.__name__ == "ReportColumn"
+    assert mv.ReportMetric.__name__ == "ReportMetric"
+    assert callable(mv.to_mcp_artifact_payload)
+    assert callable(mv.materialize_mcp_adapter)
