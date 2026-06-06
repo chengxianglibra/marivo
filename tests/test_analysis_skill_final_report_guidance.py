@@ -36,6 +36,16 @@ def test_final_report_guidance_contains_required_contract() -> None:
         "narrative layer",
         "artifact-backed",
         "adjacent to each important chart or table",
+        "to_mcp_artifact_payload",
+        "materialize_mcp_adapter",
+        "validate_artifact",
+        "render_artifact",
+        "MCP adapter",
+        "Codex/Data Analytics environments",
+        "first visible `render_artifact` call",
+        "must not connect to live datasources",
+        "recompute main claims",
+        "replace `grounding.json` / `flow.json`",
     ]
 
     missing = [term for term in required_terms if term not in text]

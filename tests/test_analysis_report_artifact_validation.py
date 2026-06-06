@@ -12,7 +12,10 @@ from marivo.analysis.publish import (
     Grounding,
     MarivoReportArtifact,
     ReportBlock,
+    ReportChartSpec,
+    ReportColumn,
     ReportManifest,
+    ReportMetric,
     ReportSection,
     ReportSpec,
     SourceProvenance,
@@ -308,6 +311,133 @@ def test_validate_report_artifact_rejects_broken_contract(mutator, checks: tuple
     assert result.ok is False
     assert tuple(issue.check for issue in result.issues) == checks
     assert {issue.severity for issue in result.issues} == {"error"}
+
+
+def _artifact_with_visual_block(block: ReportBlock) -> MarivoReportArtifact:
+    artifact = _valid_artifact()
+    visual_section = ReportSection(
+        section_id="visual",
+        section_type="finding",
+        title="Visual Detail",
+        blocks=(block,),
+    )
+    return artifact.model_copy(
+        update={
+            "report_spec": artifact.report_spec.model_copy(
+                update={"sections": (*artifact.report_spec.sections, visual_section)}
+            )
+        }
+    )
+
+
+def test_validate_report_artifact_rejects_report_metric_value_ref() -> None:
+    from marivo.analysis.publish import validate_report_artifact
+
+    artifact = _valid_artifact()
+    exec_section = artifact.report_spec.sections[0]
+    metric_block = exec_section.blocks[1].model_copy(
+        update={
+            "metrics": (
+                ReportMetric(
+                    label="Missing metric",
+                    value_ref="headline_metrics[0].missing",
+                ),
+            )
+        }
+    )
+    exec_section = exec_section.model_copy(
+        update={"blocks": (exec_section.blocks[0], metric_block)}
+    )
+    artifact = artifact.model_copy(
+        update={
+            "report_spec": artifact.report_spec.model_copy(
+                update={"sections": (exec_section, artifact.report_spec.sections[1])}
+            )
+        }
+    )
+
+    result = validate_report_artifact(artifact)
+
+    assert result.ok is False
+    assert ("value_ref", "report_spec.sections[0].blocks[1].metrics[0].value_ref") in {
+        (issue.check, issue.location) for issue in result.issues
+    }
+
+
+def test_validate_report_artifact_rejects_missing_chart_spec() -> None:
+    from marivo.analysis.publish import validate_report_artifact
+
+    artifact = _artifact_with_visual_block(
+        ReportBlock(
+            block_id="trend_chart",
+            block_type="chart",
+            dataset_id="headline_metrics",
+            narrative_ref="exec_text",
+        )
+    )
+
+    result = validate_report_artifact(artifact)
+
+    assert result.ok is False
+    assert ("visual_spec", "report_spec.sections[2].blocks[0].chart") in {
+        (issue.check, issue.location) for issue in result.issues
+    }
+
+
+@pytest.mark.parametrize(
+    ("chart", "expected"),
+    [
+        (
+            ReportChartSpec(type="bar", fields={"x": "metric"}),
+            ("visual_spec", "report_spec.sections[2].blocks[0].chart.fields"),
+        ),
+        (
+            ReportChartSpec(type="bar", fields={"x": "metric", "y": "missing"}),
+            ("visual_ref", "report_spec.sections[2].blocks[0].chart.fields.y"),
+        ),
+    ],
+)
+def test_validate_report_artifact_rejects_invalid_chart_fields(
+    chart: ReportChartSpec,
+    expected: tuple[str, str],
+) -> None:
+    from marivo.analysis.publish import validate_report_artifact
+
+    artifact = _artifact_with_visual_block(
+        ReportBlock(
+            block_id="trend_chart",
+            block_type="chart",
+            dataset_id="headline_metrics",
+            narrative_ref="exec_text",
+            chart=chart,
+        )
+    )
+
+    result = validate_report_artifact(artifact)
+
+    assert result.ok is False
+    assert expected in {(issue.check, issue.location) for issue in result.issues}
+
+
+def test_validate_report_artifact_rejects_table_column_key_without_dataset_field() -> None:
+    from marivo.analysis.publish import validate_report_artifact
+
+    artifact = _artifact_with_visual_block(
+        ReportBlock(
+            block_id="detail_table",
+            block_type="table",
+            dataset_id="headline_metrics",
+            narrative_ref="exec_text",
+            columns=(ReportColumn(key="missing", label="Missing"),),
+        )
+    )
+
+    result = validate_report_artifact(artifact)
+
+    assert result.ok is False
+    assert ("visual_ref", "report_spec.sections[2].blocks[0].columns[0].key") in {
+        (issue.check, issue.location) for issue in result.issues
+    }
 
 
 @pytest.mark.parametrize(

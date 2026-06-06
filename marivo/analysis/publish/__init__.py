@@ -7,6 +7,10 @@ from marivo.analysis.publish.replay_check import (
     ReplayCheckResult,
     static_check_replay,
 )
+from marivo.analysis.publish.report_mcp_adapter import (
+    materialize_mcp_adapter,
+    to_mcp_artifact_payload,
+)
 from marivo.analysis.publish.report_models import (
     DataPolicy,
     Dataset,
@@ -17,7 +21,10 @@ from marivo.analysis.publish.report_models import (
     Grounding,
     MarivoReportArtifact,
     ReportBlock,
+    ReportChartSpec,
+    ReportColumn,
     ReportManifest,
+    ReportMetric,
     ReportPackageValidationIssue,
     ReportPackageValidationResult,
     ReportSection,
@@ -40,7 +47,10 @@ __all__ = [
     "ReplayCheckIssue",
     "ReplayCheckResult",
     "ReportBlock",
+    "ReportChartSpec",
+    "ReportColumn",
     "ReportManifest",
+    "ReportMetric",
     "ReportPackageValidationIssue",
     "ReportPackageValidationResult",
     "ReportSection",
@@ -48,7 +58,9 @@ __all__ = [
     "SourceProvenance",
     "export_report_json_schema",
     "load_report_artifact",
+    "materialize_mcp_adapter",
     "static_check_replay",
+    "to_mcp_artifact_payload",
     "validate_report_artifact",
     "write_report_artifact",
 ]

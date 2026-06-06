@@ -530,8 +530,8 @@ semantic refs。
 MCP adapter output 默认是按需生成的 in-memory payload，不是 core package 的
 必需文件。只有在需要发布、复查或离线复用 MCP payload 时，adapter 才把结果
 物化到 `adapters/mcp/manifest.json` 和 `adapters/mcp/snapshot.json`，并更新
-`manifest.adapters.mcp`。因此 core manifest 不再声明不存在的
-`entrypoints.mcp`。When materialized, `manifest.adapters.mcp.target_schema`
+`manifest.adapter_mcp`。因此 core manifest 不再声明不存在的
+`entrypoints.mcp`。When materialized, `manifest.adapter_mcp.target_schema`
 must record the target Data Analytics MCP artifact schema or plugin version used
 by the adapter tests.
 

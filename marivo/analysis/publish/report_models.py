@@ -41,6 +41,23 @@ FlowStepKind = Literal[
 GroundingType = Literal["evidence_backed", "derived_from_flow", "commentary"]
 SqlStatus = Literal["available", "not_applicable", "unavailable", "redacted"]
 DataInclusion = Literal["omitted", "included"]
+ReportValueFormat = Literal["number", "compact", "percent", "currency", "text"]
+ReportColumnType = Literal["text", "number", "percent", "currency", "date"]
+ReportChartType = Literal[
+    "line",
+    "area",
+    "stackedArea",
+    "bar",
+    "histogram",
+    "scatter",
+    "heatmap",
+    "pie",
+    "leaderboard",
+    "sparkline",
+    "funnel",
+    "waterfall",
+    "boxPlot",
+]
 
 JsonScalar = str | int | float | bool | None
 JsonRow = dict[str, JsonScalar]
@@ -119,9 +136,31 @@ class Dataset(_ReportModel):
         return self
 
 
+class ReportMetric(_ReportModel):
+    label: str
+    value_ref: str
+    format: ReportValueFormat = "compact"
+    signed: bool = False
+
+
+class ReportColumn(_ReportModel):
+    key: str
+    label: str | None = None
+    type: ReportColumnType = "text"
+    format: ReportValueFormat | None = None
+
+
+class ReportChartSpec(_ReportModel):
+    type: ReportChartType
+    fields: dict[str, str]
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 class ReportBlock(_ReportModel):
     block_id: str
     block_type: ReportBlockType
+    title: str | None = None
+    subtitle: str | None = None
     text: str | None = None
     dataset_id: str | None = None
     value_refs: tuple[str, ...] = ()
@@ -129,6 +168,9 @@ class ReportBlock(_ReportModel):
     step_refs: tuple[str, ...] = ()
     source_refs: tuple[str, ...] = ()
     narrative_ref: str | None = None
+    metrics: tuple[ReportMetric, ...] = ()
+    columns: tuple[ReportColumn, ...] = ()
+    chart: ReportChartSpec | None = None
     collapsed_by_default: bool = False
 
 

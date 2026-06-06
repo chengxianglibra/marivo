@@ -196,6 +196,48 @@ def test_dataset_accepts_json_scalar_row_values() -> None:
     assert dataset.rows[0]["visible"] is True
 
 
+def test_report_block_supports_renderer_agnostic_visual_hints() -> None:
+    from marivo.analysis.publish import (
+        ReportBlock,
+        ReportChartSpec,
+        ReportColumn,
+        ReportMetric,
+    )
+
+    block = ReportBlock(
+        block_id="trend",
+        block_type="chart",
+        title="Revenue Trend",
+        subtitle="Revenue increased over the reviewed window.",
+        dataset_id="trend_rows",
+        narrative_ref="trend_text",
+        chart=ReportChartSpec(
+            type="line",
+            fields={"x": "date", "y": "revenue"},
+            options={"showLegend": False},
+        ),
+        columns=(
+            ReportColumn(key="date", label="Date", type="date"),
+            ReportColumn(key="revenue", label="Revenue", type="number", format="currency"),
+        ),
+        metrics=(
+            ReportMetric(
+                label="Revenue",
+                value_ref="headline_metrics[0].value",
+                format="currency",
+                signed=False,
+            ),
+        ),
+    )
+
+    payload = block.model_dump(mode="json")
+
+    assert payload["title"] == "Revenue Trend"
+    assert payload["chart"]["type"] == "line"
+    assert payload["columns"][1]["format"] == "currency"
+    assert payload["metrics"][0]["value_ref"] == "headline_metrics[0].value"
+
+
 @pytest.mark.parametrize(
     "sql_status",
     ["not_applicable", "unavailable", "redacted"],

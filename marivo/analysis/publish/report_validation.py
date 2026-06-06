@@ -272,6 +272,100 @@ def _validate_report_refs(
             _validate_value_ref(artifact, value_ref, f"{location}.value_refs[{ref_index}]", issues)
 
 
+def _validate_dataset_field(
+    artifact: MarivoReportArtifact,
+    dataset_id: str | None,
+    field: str,
+    location: str,
+    issues: list[ReportPackageValidationIssue],
+) -> None:
+    if dataset_id is None:
+        issues.append(
+            _issue(
+                "dataset_ref",
+                "visual hint field references require block dataset_id",
+                location,
+            )
+        )
+        return
+    dataset = artifact.datasets.get(dataset_id)
+    if dataset is None:
+        return
+    if not dataset.rows:
+        issues.append(
+            _issue(
+                "visual_ref",
+                f"visual hint field {field!r} references empty dataset {dataset_id!r}",
+                location,
+            )
+        )
+        return
+    for row_index, row in enumerate(dataset.rows):
+        if field not in row:
+            issues.append(
+                _issue(
+                    "visual_ref",
+                    f"visual hint field {field!r} is missing from dataset {dataset_id!r} row {row_index}",
+                    location,
+                )
+            )
+
+
+def _validate_visual_hints(
+    artifact: MarivoReportArtifact,
+    issues: list[ReportPackageValidationIssue],
+) -> None:
+    for section_index, section in enumerate(artifact.report_spec.sections):
+        for block_index, block in enumerate(section.blocks):
+            location = f"report_spec.sections[{section_index}].blocks[{block_index}]"
+            for metric_index, metric in enumerate(block.metrics):
+                _validate_value_ref(
+                    artifact,
+                    metric.value_ref,
+                    f"{location}.metrics[{metric_index}].value_ref",
+                    issues,
+                )
+            if block.block_type == "chart":
+                if block.chart is None:
+                    issues.append(
+                        _issue(
+                            "visual_spec",
+                            f"chart block {block.block_id!r} requires chart spec",
+                            f"{location}.chart",
+                        )
+                    )
+                else:
+                    x_field = block.chart.fields.get("x", "").strip()
+                    y_field = block.chart.fields.get("y", "").strip()
+                    if not x_field or not y_field:
+                        issues.append(
+                            _issue(
+                                "visual_spec",
+                                f"chart block {block.block_id!r} requires non-empty x/y encodings",
+                                f"{location}.chart.fields",
+                            )
+                        )
+                    for channel, field in block.chart.fields.items():
+                        field = field.strip()
+                        if field:
+                            _validate_dataset_field(
+                                artifact,
+                                block.dataset_id,
+                                field,
+                                f"{location}.chart.fields.{channel}",
+                                issues,
+                            )
+            if block.block_type == "table":
+                for column_index, column in enumerate(block.columns):
+                    _validate_dataset_field(
+                        artifact,
+                        block.dataset_id,
+                        column.key,
+                        f"{location}.columns[{column_index}].key",
+                        issues,
+                    )
+
+
 def _validate_artifact_refs(
     artifact: MarivoReportArtifact,
     artifact_ids: set[str],
@@ -481,6 +575,7 @@ def validate_report_artifact(artifact: MarivoReportArtifact) -> ReportPackageVal
     _validate_required_sections(artifact, issues)
     _validate_report_ids(artifact, issues)
     _validate_report_refs(artifact, section_ids, block_ids, step_ids, issues)
+    _validate_visual_hints(artifact, issues)
     _validate_artifact_refs(artifact, artifact_ids, issues)
     _validate_data_policy(artifact, issues)
     _validate_source_provenance(artifact, issues)

@@ -90,6 +90,27 @@ Before rendering or publishing, validate that `grounding.json` resolves every
 executive-summary claim, partial evidence is visible, source provenance matches
 the step kind, and source/audit details do not crowd out the main reading path.
 
+## MCP adapter handoff
+
+When the selected delivery surface is a Data Analytics MCP report app, use the
+Marivo MCP adapter after the core report artifact validates:
+
+1. Build and validate the `MarivoReportArtifact`.
+2. Call `to_mcp_artifact_payload(artifact)` for an in-memory MCP manifest,
+   snapshot, sources, and package metadata.
+3. When the payload should be stored in the package, call
+   `materialize_mcp_adapter(artifact, package_root)` and use the returned
+   artifact so `manifest.adapter_mcp` records the adapter files.
+4. In Codex/Data Analytics environments, call MCP `validate_artifact` before the
+   first visible `render_artifact` call. Iterate on validator errors with the
+   validator, not by repeatedly rendering visible broken artifacts.
+
+The MCP adapter is a bounded report surface. It should expose the same frozen
+datasets, source provenance, visual blocks, caveats, and narrative path as the
+Marivo report package. It must not connect to live datasources. It must not
+recompute main claims. It must not replace `grounding.json` / `flow.json` as the
+audit source of truth.
+
 ## Discovery and anomaly reports
 
 When reporting anomalies or discovered candidates, separate signal from noise.
