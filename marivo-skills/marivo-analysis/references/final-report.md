@@ -132,6 +132,19 @@ path answer-first, with source, SQL, script, dataset, and evidence details
 available through links or expandable panels instead of crowding out the
 narrative.
 
+The standalone HTML surface renders evidence-bearing blocks inline so proof sits
+next to the conclusion it supports:
+
+- `claim_evidence` blocks render as expandable proof panels next to a finding.
+- `step_trace` blocks render the step -> artifact -> source chain with jump links.
+- `source_code` blocks render a SQL or script drawer.
+
+Set `collapsed_by_default` on these blocks to control whether the panel starts
+expanded or collapsed. The surface supports bounded interaction only: chart tooltips,
+table pagination, and local search over already-packaged content. These
+interactions never run live queries, never create new aggregations, and never
+recompute executive-summary claims.
+
 ## Discovery and anomaly reports
 
 When reporting anomalies or discovered candidates, separate signal from noise.

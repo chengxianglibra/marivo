@@ -26,6 +26,8 @@ _VALUE_REF_RE = re.compile(
     r"^(?P<dataset>[A-Za-z0-9_-]+)\[(?P<row>\d+)\]\.(?P<field>[A-Za-z0-9_]+)$"
 )
 
+_TABLE_PAGE_SIZE = 10
+
 
 class _ParsedValueRef(NamedTuple):
     dataset_id: str
@@ -624,6 +626,54 @@ table[data-sortable] th {
   cursor: pointer;
 }
 
+.table-pager {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  padding: 10px 0 0;
+}
+
+.table-pager button {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 4px 10px;
+}
+
+.table-pager-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.proof-panel,
+.step-trace,
+.source-code {
+  background: #fbfcfd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 10px 0;
+  padding: 12px 14px;
+}
+
+.proof-panel summary,
+.step-trace summary,
+.source-code summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.report-search {
+  margin: 0 0 18px;
+}
+
+.report-search input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  width: min(360px, 100%);
+}
+
 @media (max-width: 720px) {
   .layout {
     width: min(100% - 20px, 1120px);
@@ -638,6 +688,60 @@ table[data-sortable] th {
 
 _SCRIPT = """
 document.addEventListener("DOMContentLoaded", () => {
+  function bodyRows(table) {
+    const tbody = table.querySelector("tbody");
+    return tbody ? Array.from(tbody.querySelectorAll("tr")) : [];
+  }
+
+  function pagerFor(table) {
+    const card = table.closest(".table-card");
+    return card ? card.querySelector(".table-pager") : null;
+  }
+
+  function renderPage(table) {
+    const size = Number(table.dataset.pageSize || "0");
+    if (!size) {
+      return;
+    }
+    const rows = bodyRows(table);
+    const pageCount = Math.max(1, Math.ceil(rows.length / size));
+    let page = Number(table.dataset.page || "1");
+    page = Math.min(Math.max(page, 1), pageCount);
+    table.dataset.page = String(page);
+    const start = (page - 1) * size;
+    rows.forEach((row, index) => {
+      row.style.display = index >= start && index < start + size ? "" : "none";
+    });
+    const pager = pagerFor(table);
+    if (pager) {
+      const label = pager.querySelector(".table-pager-label");
+      if (label) {
+        label.textContent = "Page " + page + " / " + pageCount;
+      }
+    }
+  }
+
+  function step(table, delta) {
+    table.dataset.page = String(Number(table.dataset.page || "1") + delta);
+    renderPage(table);
+  }
+
+  document.querySelectorAll("table[data-page-size]").forEach((table) => {
+    table.dataset.page = "1";
+    const pager = pagerFor(table);
+    if (pager) {
+      const prev = pager.querySelector(".table-prev");
+      const next = pager.querySelector(".table-next");
+      if (prev) {
+        prev.addEventListener("click", () => step(table, -1));
+      }
+      if (next) {
+        next.addEventListener("click", () => step(table, 1));
+      }
+    }
+    renderPage(table);
+  });
+
   document.querySelectorAll("table[data-sortable] th").forEach((header) => {
     header.addEventListener("click", () => {
       const table = header.closest("table");
@@ -665,8 +769,24 @@ document.addEventListener("DOMContentLoaded", () => {
         return direction === "asc" ? result : -result;
       });
       rows.forEach((row) => tbody.appendChild(row));
+      if (table.dataset.pageSize) {
+        table.dataset.page = "1";
+        renderPage(table);
+      }
     });
   });
+
+  const search = document.getElementById("report-search");
+  if (search) {
+    const targets = Array.from(document.querySelectorAll("[data-searchable]"));
+    search.addEventListener("input", () => {
+      const term = search.value.trim().toLowerCase();
+      targets.forEach((node) => {
+        const matches = !term || (node.textContent || "").toLowerCase().includes(term);
+        node.style.display = matches ? "" : "none";
+      });
+    });
+  }
 });
 """.strip()
 
@@ -850,7 +970,8 @@ def _render_svg_chart(block: dict[str, Any], payload: dict[str, Any]) -> str:
             bar_height = abs(axis_y - y)
             parts.append(
                 f'<rect class="chart-bar" x="{x:.2f}" y="{bar_y:.2f}" '
-                f'width="{bar_width:.2f}" height="{bar_height:.2f}"></rect>'
+                f'width="{bar_width:.2f}" height="{bar_height:.2f}">'
+                f"<title>{_escape(row[x_field])}: {_escape(row[y_field])}</title></rect>"
             )
             parts.append(
                 f'<text class="chart-label" x="{x + bar_width / 2:.2f}" y="{height - 16}" '
@@ -874,7 +995,10 @@ def _render_svg_chart(block: dict[str, Any], payload: dict[str, Any]) -> str:
                 range_max=top,
             )
             points.append(f"{x:.2f},{y:.2f}")
-            parts.append(f'<circle class="chart-point" cx="{x:.2f}" cy="{y:.2f}" r="4"></circle>')
+            parts.append(
+                f'<circle class="chart-point" cx="{x:.2f}" cy="{y:.2f}" r="4">'
+                f"<title>{_escape(row[x_field])}: {_escape(row[y_field])}</title></circle>"
+            )
             parts.append(
                 f'<text class="chart-label" x="{x:.2f}" y="{height - 16}" '
                 f'text-anchor="middle">{_escape(row[x_field])}</text>'
@@ -925,16 +1049,147 @@ def _render_table(block: dict[str, Any], payload: dict[str, Any]) -> str:
                 f'<td data-sort-value="{_escape(raw_value)}">{_escape(_format_cell(raw_value, column))}</td>'
             )
         body_rows.append("<tr>" + "".join(cells) + "</tr>")
+    table_id = _escape(block.get("id", "block"))
+    paginated = len(body_rows) > _TABLE_PAGE_SIZE
+    page_attr = f' data-page-size="{_TABLE_PAGE_SIZE}"' if paginated else ""
+    pager = (
+        (
+            '<div class="table-pager">'
+            '<button type="button" class="table-prev">Prev</button>'
+            '<span class="table-pager-label"></span>'
+            '<button type="button" class="table-next">Next</button>'
+            "</div>"
+        )
+        if paginated
+        else ""
+    )
     return (
-        f'<div class="table-card" id="table-{_escape(block.get("id", "block"))}">'
+        f'<div class="table-card" id="table-{table_id}">'
         '<div class="table-scroll">'
-        '<table data-sortable="true">'
+        f'<table data-sortable="true"{page_attr}>'
         f"<thead><tr>{header}</tr></thead>"
         f"<tbody>{''.join(body_rows)}</tbody>"
         "</table>"
         "</div>"
+        f"{pager}"
         "</div>"
     )
+
+
+def _details_open_attr(block: dict[str, Any]) -> str:
+    return "" if block.get("collapsed_by_default") else " open"
+
+
+def _inline_links(items: list[str], prefix: str, empty: str) -> str:
+    if not items:
+        return _escape(empty)
+    return ", ".join(
+        f'<a href="#{_escape(prefix)}-{_escape(item)}">{_escape(item)}</a>' for item in items
+    )
+
+
+def _claims_by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {claim["id"]: claim for claim in payload.get("claims", [])}
+
+
+def _steps_by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {step["id"]: step for step in payload.get("flow_steps", [])}
+
+
+def _sources_by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {source["id"]: source for source in payload.get("sources", [])}
+
+
+def _render_source_code_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
+    sources = _sources_by_id(payload)
+    open_attr = _details_open_attr(block)
+    refs = list(block.get("source_refs", []))
+    if not refs and block.get("dataset_id"):
+        refs = [block["dataset_id"]]
+    panels: list[str] = []
+    for source_ref in refs:
+        source = sources.get(source_ref)
+        if source is None:
+            panels.append(
+                f'<p class="audit-meta">Unknown source <code>{_escape(source_ref)}</code>.</p>'
+            )
+            continue
+        query = source.get("query", {})
+        sql = query.get("sql")
+        code = f'<pre class="audit-code">{_escape(sql)}</pre>' if sql else ""
+        panels.append(
+            f'<details class="source-code" id="sourcecode-{_escape(source_ref)}"{open_attr}>'
+            f"<summary>{_escape(source.get('label') or source_ref)}</summary>"
+            f"{_render_labeled_value('Description', query.get('description'))}"
+            f"{_render_labeled_value('Language', query.get('language'))}"
+            f"{_render_labeled_value('SQL status', query.get('sql_status'))}"
+            f"{_render_labeled_value('SQL reason', query.get('sql_reason'))}"
+            f"{_render_labeled_value('Script ref', query.get('script_ref'))}"
+            f"{code}"
+            "</details>"
+        )
+    if not panels:
+        panels.append('<p class="audit-meta">No source references provided.</p>')
+    return "".join(panels)
+
+
+def _render_step_trace_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
+    steps = _steps_by_id(payload)
+    open_attr = _details_open_attr(block)
+    panels: list[str] = []
+    for step_ref in block.get("step_refs", []):
+        step = steps.get(step_ref)
+        if step is None:
+            panels.append(
+                f'<p class="audit-meta">Unknown step <code>{_escape(step_ref)}</code>.</p>'
+            )
+            continue
+        summary = f"{step.get('order', '')}. {step.get('description') or step_ref}"
+        panels.append(
+            f'<details class="step-trace" id="trace-{_escape(step_ref)}"{open_attr}>'
+            f"<summary>{_escape(summary)} "
+            f'(<a href="#step-{_escape(step_ref)}">{_escape(step_ref)}</a>)</summary>'
+            f"{_render_labeled_value('Kind', step.get('kind'))}"
+            f"{_render_labeled_value('Evidence status', step.get('evidence_status'))}"
+            f"{_render_labeled_value('Query summary', step.get('query_summary'))}"
+            '<p class="audit-meta"><strong>Inputs:</strong> '
+            f"{_inline_links(list(step.get('input_artifacts', [])), 'evidence', 'none')}</p>"
+            '<p class="audit-meta"><strong>Outputs:</strong> '
+            f"{_inline_links(list(step.get('output_artifacts', [])), 'evidence', 'none')}</p>"
+            "</details>"
+        )
+    if not panels:
+        panels.append('<p class="audit-meta">No step references provided.</p>')
+    return "".join(panels)
+
+
+def _render_claim_evidence_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
+    claims = _claims_by_id(payload)
+    open_attr = _details_open_attr(block)
+    panels: list[str] = []
+    for claim_ref in block.get("claim_refs", []):
+        claim = claims.get(claim_ref)
+        if claim is None:
+            panels.append(
+                f'<p class="audit-meta">Unknown claim <code>{_escape(claim_ref)}</code>.</p>'
+            )
+            continue
+        text = claim.get("text") or claim.get("text_template") or claim_ref
+        panels.append(
+            f'<details class="proof-panel" id="proof-{_escape(claim_ref)}"{open_attr}>'
+            f"<summary>{_escape(text)}</summary>"
+            f"{_render_labeled_value('Grounding', claim.get('grounding_type'))}"
+            f"{_render_labeled_value('Evidence status', claim.get('evidence_status'))}"
+            f"{_render_labeled_value('Scope', claim.get('confidence_scope'))}"
+            '<p class="audit-meta"><strong>Supporting steps:</strong> '
+            f"{_inline_links(list(claim.get('supporting_steps', [])), 'step', 'none')}</p>"
+            '<p class="audit-meta"><strong>Supporting datasets:</strong> '
+            f"{_inline_links(list(claim.get('supporting_datasets', [])), 'dataset', 'none')}</p>"
+            "</details>"
+        )
+    if not panels:
+        panels.append('<p class="audit-meta">No claim references provided.</p>')
+    return "".join(panels)
 
 
 def _render_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -942,7 +1197,10 @@ def _render_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
     block_type = str(block.get("type", "markdown"))
     title = block.get("title")
     subtitle = block.get("subtitle")
-    parts = [f'<article class="report-block report-block-{_escape(block_type)}" id="{block_id}">']
+    parts = [
+        f'<article class="report-block report-block-{_escape(block_type)}" '
+        f'id="{block_id}" data-searchable="true">'
+    ]
     if title:
         parts.append(f"<h3>{_escape(title)}</h3>")
     if subtitle:
@@ -955,6 +1213,12 @@ def _render_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
         parts.append(_render_svg_chart(block, payload))
     elif block_type == "table":
         parts.append(_render_table(block, payload))
+    elif block_type == "claim_evidence":
+        parts.append(_render_claim_evidence_block(block, payload))
+    elif block_type == "step_trace":
+        parts.append(_render_step_trace_block(block, payload))
+    elif block_type == "source_code":
+        parts.append(_render_source_code_block(block, payload))
     else:
         parts.append(_render_placeholder_block(block, block_type))
     parts.append("</article>")
@@ -1175,6 +1439,10 @@ def render_report_html(artifact: MarivoReportArtifact) -> str:
         f"<h1>{_escape(title)}</h1>\n"
         "</header>\n"
         f'<nav class="toc" aria-label="Report sections">{toc}</nav>\n'
+        '<div class="report-search">'
+        '<input id="report-search" type="search" '
+        'placeholder="Search this report" aria-label="Search this report">'
+        "</div>\n"
         f"{notice}\n"
         f"{rendered_sections}\n"
         f"{audit_trail}\n"
