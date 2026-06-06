@@ -306,8 +306,8 @@ class Session:
         timescope: TimeScopeInput = None,
         grain: GrainInput = None,
         dimensions: list[DimensionRef] | None = None,
-        where: dict[str, SliceValue] | None = None,
-        time_field: str | None = None,
+        where: dict[DimensionRef, SliceValue] | None = None,
+        time_field: DimensionRef | None = None,
         expect_shape: SemanticShape | None = None,
     ) -> MetricFrame:
         from marivo.analysis.intents.observe import observe
@@ -736,12 +736,12 @@ class SessionTransformNamespace:
 
         return transform.filter(frame, predicate=predicate, session=self._session)
 
-    def slice(self, frame: object, *, where: dict[Any, Any]) -> MetricFrame | DeltaFrame:
+    def slice(self, frame: object, *, where: dict[DimensionRef, Any]) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.slice(frame, where=where, session=self._session)
 
-    def rollup(self, frame: object, *, drop_axes: list[Any]) -> MetricFrame | DeltaFrame:
+    def rollup(self, frame: object, *, drop_axes: list[DimensionRef]) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.rollup(frame, drop_axes=drop_axes, session=self._session)

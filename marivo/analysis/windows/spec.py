@@ -57,7 +57,7 @@ class TimeScope(BaseModel):
     end: str
 
 
-TimeScopeInput = AbsoluteWindow | TimeScope | dict[str, Any] | None
+TimeScopeInput = TimeScope | dict[str, Any] | None
 
 
 def _raise_timescope_model_invalid(
@@ -65,8 +65,16 @@ def _raise_timescope_model_invalid(
     raw: dict[str, Any],
     error: ValidationError,
 ) -> None:
+    misplaced = [key for key in ("grain", "time_field") if key in raw]
+    hint = None
+    if misplaced:
+        hint = (
+            f"timescope holds only start/end; pass {', '.join(misplaced)} as "
+            "observe(..., grain=..., time_field=...) arguments, not inside timescope."
+        )
     raise WindowInvalidError(
         message="timescope form is invalid",
+        hint=hint,
         details={
             "kind": "TimeScopeModelInvalid",
             "timescope": dict(raw),
@@ -81,6 +89,10 @@ def normalize_timescope_input(raw: object) -> TimeScope | None:
     if isinstance(raw, TimeScope):
         return raw
     if isinstance(raw, AbsoluteWindow):
+        # Internal callers (e.g. discover window candidates fed to
+        # transform.window) still pass a resolved AbsoluteWindow; reduce it to
+        # its period. AbsoluteWindow is intentionally absent from the public
+        # TimeScopeInput type so observe callers use timescope + grain/time_field.
         return TimeScope(start=raw.start, end=raw.end)
     if isinstance(raw, dict):
         try:

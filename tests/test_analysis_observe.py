@@ -13,7 +13,7 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.refs import MetricRef
+from marivo.analysis.refs import DimensionRef, MetricRef
 from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
@@ -328,7 +328,7 @@ def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(t
     mf = observe(
         MetricRef("sales.revenue"),
         timescope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
-        time_field="log_hour",
+        time_field=DimensionRef("log_hour"),
         session=s,
     )
 
@@ -356,7 +356,7 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
     assert "multiple time_fields" in rendered
     assert "create_date" in rendered
     assert "create_time" in rendered
-    assert 'time_field="create_date"' in rendered
+    assert 'time_field=mv.DimensionRef("create_date")' in rendered
     assert "is_default=True" in rendered
 
 
@@ -369,7 +369,7 @@ def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
     mf = observe(
         MetricRef("sales.revenue"),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
-        time_field="create_date",
+        time_field=DimensionRef("create_date"),
         session=s,
     )
 
@@ -412,8 +412,26 @@ def test_observe_applies_slice(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
-    mf = observe(MetricRef("sales.revenue"), where={"region": "NORTH"}, session=s)
+    mf = observe(MetricRef("sales.revenue"), where={DimensionRef("region"): "NORTH"}, session=s)
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(70.0)
+
+
+def test_observe_rejects_bare_string_time_field(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        observe(MetricRef("sales.revenue"), time_field="created_at", session=s)
+    assert exc_info.value.details["expected_kind"] == "DimensionRef"
+
+
+def test_observe_rejects_bare_string_where_key(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        observe(MetricRef("sales.revenue"), where={"region": "NORTH"}, session=s)
+    assert exc_info.value.details["expected_kind"] == "DimensionRef"
 
 
 def test_observe_unknown_metric_raises(tmp_path):
@@ -765,7 +783,7 @@ def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypa
         MetricRef("sales.revenue"),
         timescope={"start": "2026-05-01", "end": "2026-05-01"},
         grain=(30, "minute"),
-        time_field="create_time",
+        time_field=DimensionRef("create_time"),
         session=s,
     )
 
