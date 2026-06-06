@@ -46,14 +46,14 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
     evidence = _read("marivo-skills/marivo-semantic/references/evidence-and-ledger.md")
 
-    assert "mv.datasources.inspect_source(...)" in skill
-    assert "project.propose_candidates(" in workflow
+    assert "mv.datasources.inspect_source" in skill
+    assert "project.inspect_source_context(" in workflow
     assert "inspect_source=mv.datasources.inspect_source" in workflow
-    assert "before `_model.py` exists" in workflow
-    assert "blast_radius=0" in workflow
+    assert "project.check_authoring_inputs(" in workflow
+    assert "sample_scope" in workflow or "sample_scope" in skill
     assert "non-negative integer count" in skill
-    assert "Do not pass `subject_refs`" in evidence
-    assert "Table metadata evidence" in evidence
+    assert "record_authoring_evidence" in evidence
+    assert "AuthoringQuestion" in evidence
     assert "table.schema()` returns types but not comments" in skill
     assert "target preview APIs until they exist" not in skill
 
@@ -70,7 +70,6 @@ def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
     assert "client_tags" in combined
     assert "user_env" in combined
     assert 'source=ms.table("orders", database="sales_mart")' in combined
-    assert 'sources=[ms.table("orders", database="sales_mart")]' in combined
     assert 'source=ms.file("/data/orders/*.parquet", format="parquet")' in combined
     assert 'database="sales_mart"' in combined
     assert "backend.list_databases(catalog=" in combined
@@ -116,15 +115,15 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     examples_dir = REPO_ROOT / "marivo-skills" / "marivo-semantic" / "references" / "examples"
     expected = {
         "01_single_model_file.py",
-        "02_candidate_to_questions.py",
+        "02_source_evidence_to_check.py",
         "03_closeout_readiness_richness.py",
     }
     names = {path.name for path in examples_dir.glob("*.py")}
     assert expected == names
 
     single = _read("marivo-skills/marivo-semantic/references/examples/01_single_model_file.py")
-    questions = _read(
-        "marivo-skills/marivo-semantic/references/examples/02_candidate_to_questions.py"
+    evidence = _read(
+        "marivo-skills/marivo-semantic/references/examples/02_source_evidence_to_check.py"
     )
     closeout = _read(
         "marivo-skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py"
@@ -137,14 +136,12 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "return table.dt.cast" not in single
     assert 'date_format="HH"' in single
     assert 'required_prefix="log_date"' in single
-    assert "project.propose_candidates(" in questions
-    assert "inspect_source=fake_inspect_source" in questions
-    assert "project.open_questions(" in questions
-    assert "ambiguous time axis" in questions
-    assert questions.index("project.open_questions(") < questions.index("_model.py")
-    assert "project.collect_source_preview(" in closeout
+    assert "project.inspect_source_context(" in evidence
+    assert "inspect_source=fake_inspect_source" in evidence
+    assert "project.record_authoring_evidence(" in evidence
+    assert "project.check_authoring_inputs(" in evidence
+    assert "project.inspect_source_context(" in closeout
     assert "project.collect_raw_preview(" not in closeout
-    assert "source_preview_collected" in closeout
     assert "unverified_metric" in closeout
     assert "parity_drifted" in closeout
     assert "project.richness(" in closeout

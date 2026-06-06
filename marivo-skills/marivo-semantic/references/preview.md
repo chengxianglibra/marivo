@@ -5,8 +5,12 @@ meaning by itself.
 
 ## Source preview evidence
 
-Use bounded raw previews before declaring or revising datasets, time-like
-columns, amount columns, enum/status columns, and join keys:
+`inspect_source_context(...)` folds source inspection and bounded preview;
+`readiness(require_preview=True)` is satisfied by it. Use bounded raw previews
+before declaring or revising datasets, time-like columns, amount columns,
+enum/status columns, and join keys.
+
+For closeout or targeted re-preview, `collect_source_preview` is still available:
 
 ```python
 import marivo.analysis as mv

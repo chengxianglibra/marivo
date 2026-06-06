@@ -1,6 +1,44 @@
 # marivo-semantic pitfalls
 
-Known failure modes for semantic authoring agents.
+Known failure modes for evidence-driven semantic authoring.
+
+## Treating sample facts as full-table truth
+
+Sample-derived values (`top_values`, `distinct_count`, `min_value`/`max_value`)
+are facts about the bounded sample only (`sample_scope="bounded_sample"`,
+`approximate=True`). Never treat them as full-column cardinality, complete
+enums, or global ranges. For exhaustive value sets, request user confirmation
+or inspect the full table outside the authoring workflow.
+
+## Expecting a candidate worklist
+
+The project does not return a candidate worklist. Rank columns yourself from
+pack facts (type, comments, nullable, partition hints, sampled values). Use
+`project.inspect_column_context(...)` to deep-dive a small set of columns, then
+author directly.
+
+## Skipping record_authoring_evidence before check_authoring_inputs
+
+`check_authoring_inputs` evaluates evidence refs. If you have source SQL,
+knowledge documents, or user confirmations, record them with
+`project.record_authoring_evidence(AuthoringEvidenceInput(...))` first and cite
+the returned `EvidenceRef.id` in the check. Skipping this step produces
+`needs_evidence` or `blocked` results that are trivially resolvable.
+
+## Forgetting to reload before inspect_authored_object
+
+After authoring `.marivo/semantic/<model>/*.py`, always call `project.reload()`
+before `project.inspect_authored_object(ref)`. Without reload, the registry is
+stale and the inspection reflects the pre-authoring state. This also ensures
+auto-recorded `metric_decomposition` and `time_field_identity` decisions are
+present in the ledger.
+
+## Using readiness/richness to compensate for missing authoring evidence
+
+Readiness and richness are closeout diagnostics, not evidence collection tools.
+If authoring evidence is incomplete (missing source SQL, no column deep-dives
+for ambiguous fields), fix the evidence gaps before running closeout. A
+readiness pass on thin evidence masks real semantic issues.
 
 ## Business meaning inferred from names
 
@@ -53,19 +91,19 @@ causes a TypeError at execution.
 The declared `data_type` must match the ibis dtype produced by the body
 function:
 
-- `.cast("date")` or a raw date column → `data_type="date"`
-- `.cast("timestamp")` or a raw timestamp column → `data_type="datetime"` or `data_type="timestamp"`
+- `.cast("date")` or a raw date column -> `data_type="date"`
+- `.cast("timestamp")` or a raw timestamp column -> `data_type="datetime"` or `data_type="timestamp"`
 
 When `data_type` does not match the body's ibis dtype, the executor dispatches
 to the wrong code path and raises TypeError (e.g., DateColumn + interval).
 
 ```python
-# WRONG — data_type="datetime" with .cast("date") body
+# WRONG - data_type="datetime" with .cast("date") body
 @ms.time_field(dataset=orders, data_type="datetime", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 
-# CORRECT — data_type="date" with .cast("date") body
+# CORRECT - data_type="date" with .cast("date") body
 @ms.time_field(dataset=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
@@ -102,27 +140,6 @@ Avoid spreading one model change across many small files when a focused dataset,
 field, metric, or relationship edit would do. Sprawl makes reload, review, and
 readiness harder because related definitions become difficult to inspect
 together.
-
-## Missing raw preview evidence
-
-If readiness reports `missing_raw_preview`, run
-`project.collect_source_preview(datasource="warehouse", table="orders", backend_factory=backend_factory)`
-before readiness. Metadata and comments do not replace raw samples for validating
-shape-sensitive columns.
-
-## Incomplete decision records
-
-Do not call `project.record_decision(semantic_id, record)` without the required
-`semantic_id` first argument (`question.subject_refs[0]`), or with invented
-internal fields. Use `project.answer(...)` for user confirmations, or build a
-`DecisionRecord` from a real `OpenQuestion`, evidence fingerprint, cited table,
-and qualifying sources.
-
-Do not use `project.answer(...)` for readiness-only blockers that have no
-`OpenQuestion`, and do not write `DecisionRecord(chosen=None, ...)`. If a
-declared metric or time field lacks a readiness decision, reload after the
-declaration so Marivo auto-records it, or record a complete object-level
-`DecisionRecord`.
 
 ## Analysis handoff before readiness
 

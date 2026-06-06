@@ -18,6 +18,7 @@ from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
+    PREVIEW_MAX_LIMIT,
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
@@ -33,22 +34,31 @@ from marivo.semantic.errors import (
     StructuredWarning,
     _raise,
 )
+from marivo.semantic.evidence import (
+    AssessmentResult,
+    AuthoringEvidenceInput,
+    ColumnEvidence,
+    DatasetSource,
+    SamplePolicy,
+    SourceEvidencePack,
+)
+from marivo.semantic.evidence import (
+    EvidenceRef as AuthoringEvidenceRef,
+)
+from marivo.semantic.evidence_store import EvidenceStore
 from marivo.semantic.ir import (
     DatasetIR,
     DatasetProvenance,
-    DatasetSourceIR,
     FieldIR,
     MetricIR,
     ParityStatus,
     RelationshipIR,
     SourceLocation,
     SymbolKind,
-    source_from_dict,
 )
 from marivo.semantic.loader import LoadResult, load_project
 from marivo.semantic.materializer import DatasetRuntimeMetadata, Materializer
 from marivo.semantic.parity import ParityResult, parity_check, propagated_parity_status
-from marivo.semantic.proposal import ProposalResult, ResidualColumn
 from marivo.semantic.readiness import (
     EvidenceSummary,
     ParitySummary,
@@ -65,10 +75,8 @@ from marivo.semantic.richness import (
 from marivo.semantic.validator import Registry, Sidecar
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from marivo.analysis.datasources.metadata import TableMetadata
-    from marivo.semantic.classifier import Candidate, DecisionKind, Enrichment, OpenQuestion
+    from marivo.semantic.classifier import OpenQuestion
     from marivo.semantic.ledger import DecisionRecord, RejectedCandidate
 
 __all__ = [
@@ -1285,168 +1293,6 @@ class SemanticProject:
             seen |= self._flatten_dependent_ids(node)
         return len(seen - set(refs))
 
-    def _open_question_blast_radius_of(self, refs: tuple[str, ...]) -> int:
-        """Best-effort blast radius for author-time question classification.
-
-        ``open_questions`` must work before a model has been authored. Without a
-        loaded registry there is no dependency graph, so author-time impact
-        ranking falls back to zero while strict reader APIs continue to fail
-        closed through ``_require_registry``.
-        """
-        if self._registry is None:
-            return 0
-        return self.blast_radius_of(refs)
-
-    def open_questions(
-        self,
-        *,
-        candidates: Sequence[Candidate],
-        enrichments: Sequence[Enrichment] = (),
-        conflicts: Mapping[tuple[DecisionKind, str], bool] | None = None,
-        round_index: int = 0,
-    ) -> tuple[OpenQuestion, ...]:
-        """Classify agent candidates + enrichments into ranked OpenQuestions, then
-        drop any question already confirmed in the ledger (cross-session dedup).
-
-        Dedup uses two mechanisms:
-        1. question_id from ConfirmationRecords (covers answer()-produced confirmations)
-        2. (decision_kind, semantic_id) from DecisionRecords (covers auto-record decisions)
-
-        Registry-optional and backend-free: when the project is already loaded,
-        blast radius comes from the in-memory dependency graph; before authoring
-        or after a failed load, blast radius falls back to zero. Candidate
-        generation (which needs a backend) is ``propose_candidates``.
-        """
-        from marivo.semantic.classifier import classify, to_decision_inputs
-
-        inputs = to_decision_inputs(candidates, enrichments, conflicts=conflicts)
-        questions = classify(
-            inputs, blast_radius_of=self._open_question_blast_radius_of, round_index=round_index
-        )
-        confirmed = self._confirmed_question_ids(candidates)
-        resolved = self._resolved_decision_keys()
-        return tuple(
-            q
-            for q in questions
-            if q.id not in confirmed
-            and not any((q.decision_kind, ref) in resolved for ref in q.subject_refs)
-        )
-
-    def audit(
-        self,
-        *,
-        inspect_source: Callable[..., TableMetadata],
-    ) -> tuple[OpenQuestion, ...]:
-        """Re-validate recorded decisions against current metadata. Decisions whose
-        structural fingerprint changed are re-surfaced as OpenQuestions through the
-        classifier (stale -> low verdict, so dangerous kinds become blockers).
-
-        ``inspect_source`` is a callable with the same signature as
-        ``mv.datasources.inspect_source``; the caller injects it so that
-        ``marivo.semantic`` does not import ``marivo.analysis``.
-
-        Data-side drift over unchanged schema/comments is not detected (accepted
-        residual risk)."""
-        from typing import cast
-
-        from marivo.semantic.classifier import DecisionInput, Materiality, classify
-        from marivo.semantic.ledger import LedgerStore, is_decision_stale
-
-        store = LedgerStore(self._root)
-        stale_inputs: list[DecisionInput] = []
-        for obj in store.iter_object_records():
-            for decision in obj.decisions:
-                if decision.cited_source is None:
-                    continue
-                datasource_data = decision.cited_source.get("datasource")
-                source_data = decision.cited_source.get("source")
-                if datasource_data is None:
-                    continue
-                if not isinstance(source_data, Mapping):
-                    continue
-                metadata = inspect_source(
-                    str(datasource_data),
-                    source=source_from_dict(source_data),
-                )
-                if is_decision_stale(decision, metadata):
-                    stale_inputs.append(
-                        DecisionInput(
-                            decision_kind=cast("DecisionKind", decision.decision_kind),
-                            subject_refs=(obj.semantic_id,),
-                            candidates=(),
-                            agent_materiality=cast("Materiality", decision.materiality),
-                            agent_verdict="low",
-                            conflict=False,
-                        )
-                    )
-        return classify(tuple(stale_inputs), blast_radius_of=self.blast_radius_of)
-
-    def _confirmed_question_ids(self, candidates: Sequence[Candidate]) -> set[str]:
-        from marivo.semantic.ledger import LedgerStore
-
-        store = LedgerStore(self._root)
-        models = {c.proposed_id.split(".", 1)[0] for c in candidates if "." in c.proposed_id}
-        ids: set[str] = set()
-        for model in models:
-            for record in store.read_confirmations(model):
-                ids.add(record.question_id)
-        return ids
-
-    def _resolved_decision_keys(self) -> set[tuple[str, str]]:
-        """Return (decision_kind, semantic_id) pairs that already have a
-        DecisionRecord in the object ledger. Used by open_questions() to
-        dedup questions whose decision_kind is already resolved for a
-        given semantic_id, covering auto-record decisions that have no
-        corresponding ConfirmationRecord."""
-        from marivo.semantic.ledger import LedgerStore
-
-        store = LedgerStore(self._root)
-        resolved: set[tuple[str, str]] = set()
-        for obj in store.iter_object_records():
-            for decision in obj.decisions:
-                resolved.add((decision.decision_kind, obj.semantic_id))
-        return resolved
-
-    def propose_candidates(
-        self,
-        *,
-        datasource: str,
-        sources: Sequence[DatasetSourceIR],
-        model: str,
-        inspect_source: Callable[..., TableMetadata],
-    ) -> ProposalResult:
-        """Deterministic structural candidates for the named sources, plus
-        residual columns the heuristics did not match.
-
-        The result is a **non-exhaustive structural starting set**.  Callers
-        must review ``residual_columns`` for measures, primary keys, dimensions,
-        and non-conventional foreign keys that the heuristics omit.
-
-        ``inspect_source`` is a callable with the same signature as
-        ``mv.datasources.inspect_source``; the caller injects it so that
-        ``marivo.semantic`` does not import ``marivo.analysis``.
-        """
-        from marivo.semantic.proposal import (
-            candidates_from_metadata,
-            relationship_candidates,
-            residual_columns,
-        )
-
-        inspected = [(source, inspect_source(datasource, source=source)) for source in sources]
-        cand_out: list[Candidate] = []
-        res_out: list[ResidualColumn] = []
-        for source, metadata in inspected:
-            cands = candidates_from_metadata(metadata, model=model, source=source)
-            cand_out.extend(cands)
-            res_out.extend(residual_columns(metadata, cands, model=model, source=source))
-        metadatas = [metadata for _source, metadata in inspected]
-        rel_cands = relationship_candidates(metadatas, model=model)
-        cand_out.extend(rel_cands)
-        return ProposalResult(
-            candidates=tuple(cand_out),
-            residual_columns=tuple(res_out),
-        )
-
     # -- describe -----------------------------------------------------------
 
     def describe(
@@ -1965,6 +1811,133 @@ class SemanticProject:
         run-history refs, and the build purpose.
         """
         return build_richness_report(self, demand=demand)
+
+    # -- authoring evidence -------------------------------------------------
+
+    def _evidence_store(self) -> EvidenceStore:
+        return EvidenceStore(self._root)
+
+    def inspect_source_context(
+        self,
+        *,
+        datasource: str,
+        source: DatasetSource,
+        inspect_source: Callable[..., Any],
+        backend_factory: Callable[[str], Any],
+        sample_policy: SamplePolicy,
+    ) -> SourceEvidencePack:
+        """Collect and persist a SourceEvidencePack for one physical source.
+
+        Folds the old inspect_source + collect_source_preview authoring steps
+        into one call. When ``sample_policy`` reads rows, a bounded raw-preview
+        evidence ref is also recorded so ``readiness(require_preview=True)``
+        passes without a separate collect_source_preview call.
+        """
+        from marivo.semantic.inspect import collect_source_evidence
+
+        pack = collect_source_evidence(
+            datasource=datasource,
+            source=source,
+            inspect_source=inspect_source,
+            backend_factory=backend_factory,
+            sample_policy=sample_policy,
+            store=self._evidence_store(),
+        )
+        if sample_policy.reads_rows() and source.kind == "table" and source.table is not None:
+            self.collect_source_preview(
+                datasource=datasource,
+                table=source.table,
+                database=source.database,
+                backend_factory=backend_factory,
+                limit=min(sample_policy.limit or PREVIEW_DEFAULT_LIMIT, PREVIEW_MAX_LIMIT),
+                redact=sample_policy.redact,
+            )
+        return pack
+
+    def inspect_column_context(
+        self,
+        *,
+        datasource: str,
+        source: DatasetSource,
+        columns: Sequence[str],
+        inspect_source: Callable[..., Any],
+        backend_factory: Callable[[str], Any],
+        sample_policy: SamplePolicy,
+    ) -> tuple[ColumnEvidence, ...]:
+        """Deep-dive selected columns after inspect_source_context."""
+        from marivo.semantic.inspect import collect_column_evidence
+
+        return collect_column_evidence(
+            datasource=datasource,
+            source=source,
+            columns=columns,
+            inspect_source=inspect_source,
+            backend_factory=backend_factory,
+            sample_policy=sample_policy,
+            store=self._evidence_store(),
+        )
+
+    def list_evidence(
+        self,
+        *,
+        datasource: str | None = None,
+        source: DatasetSource | None = None,
+        subject_refs: Iterable[str] | None = None,
+    ) -> tuple[AuthoringEvidenceRef, ...]:
+        """Retrieve evidence refs by source identity or by subject refs."""
+        return self._evidence_store().list_evidence(
+            datasource=datasource,
+            source=source,
+            subject_refs=tuple(subject_refs) if subject_refs is not None else None,
+        )
+
+    def get_evidence_pack(self, evidence_id: str) -> SourceEvidencePack | ColumnEvidence | None:
+        """Return a persisted source/column evidence pack by id."""
+        return self._evidence_store().read_pack(evidence_id)
+
+    def record_authoring_evidence(self, evidence: AuthoringEvidenceInput) -> AuthoringEvidenceRef:
+        """Record non-sample evidence (source SQL, knowledge docs, owner notes,
+        user confirmations) and return its EvidenceRef."""
+        return self._evidence_store().write_authoring_evidence(evidence)
+
+    def check_authoring_inputs(
+        self,
+        *,
+        object_kind: str,
+        subject_ref: str,
+        datasource: str,
+        source: DatasetSource,
+        columns: Sequence[str] = (),
+        semantic_refs: Sequence[str] = (),
+        evidence_refs: Sequence[str] = (),
+        ai_context: Any | None = None,
+    ) -> AssessmentResult:
+        """Cheap pre-authoring guardrail for refs, columns, and evidence."""
+        from marivo.semantic.authoring_check import check_authoring_inputs as _check
+
+        return _check(
+            store=self._evidence_store(),
+            object_kind=object_kind,  # type: ignore[arg-type]
+            subject_ref=subject_ref,
+            datasource=datasource,
+            source=source,
+            columns=columns,
+            semantic_refs=semantic_refs,
+            evidence_refs=evidence_refs,
+            ai_context=ai_context,
+        )
+
+    def inspect_authored_object(self, ref: str) -> AssessmentResult:
+        """Cheap post-reload inspection of a loaded authored object.
+
+        Backend-free: inspects the registry and evidence ledger only. It never
+        materializes tables, previews, runs parity, or scans relationships.
+        """
+        from marivo.semantic.authoring_check import inspect_authored_object as _inspect
+        from marivo.semantic.ledger import LedgerStore
+
+        reg = _require_registry(self._registry, project=self)
+        return _inspect(registry=reg, ledger_store=LedgerStore(self._root), ref=ref)
 
     # -- internal helpers ---------------------------------------------------
 
