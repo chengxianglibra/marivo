@@ -54,6 +54,13 @@ def test_final_report_guidance_contains_required_contract() -> None:
         "opens directly from `index.html`",
         "must not connect to live datasources",
         "must not recompute executive-summary claims",
+        "claim_evidence",
+        "step_trace",
+        "source_code",
+        "collapsed_by_default",
+        "chart tooltips",
+        "table pagination",
+        "local search",
     ]
 
     missing = [term for term in required_terms if term not in text]

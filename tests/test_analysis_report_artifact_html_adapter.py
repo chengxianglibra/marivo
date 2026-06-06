@@ -385,7 +385,7 @@ def test_render_report_html_renders_mixed_sign_bar_chart_around_zero_baseline() 
     rects = [
         (float(y), float(height))
         for y, height in re.findall(
-            r'<rect class="chart-bar" x="[^"]+" y="([^"]+)" width="[^"]+" height="([^"]+)"></rect>',
+            r'<rect class="chart-bar" x="[^"]+" y="([^"]+)" width="[^"]+" height="([^"]+)"[^>]*>.*?</rect>',
             rendered,
         )
     ]
@@ -477,6 +477,90 @@ def test_materialize_html_adapter_preserves_existing_non_html_entrypoints(tmp_pa
     }
 
 
+def _artifact_with_inline_evidence_blocks(*, collapsed: bool = False):
+    from marivo.analysis.publish import ReportBlock, ReportSection
+
+    artifact = _html_artifact()
+    evidence_section = ReportSection(
+        section_id="evidence_detail",
+        section_type="analysis_step",
+        title="Evidence Detail",
+        blocks=(
+            ReportBlock(
+                block_id="proof_revenue",
+                block_type="claim_evidence",
+                title="Why revenue is up",
+                claim_refs=("claim_revenue_up",),
+                collapsed_by_default=collapsed,
+            ),
+            ReportBlock(
+                block_id="trace_observe",
+                block_type="step_trace",
+                title="Observation trace",
+                step_refs=("step_observe",),
+                collapsed_by_default=collapsed,
+            ),
+            ReportBlock(
+                block_id="sql_trend",
+                block_type="source_code",
+                title="Trend SQL",
+                dataset_id="trend_rows",
+                source_refs=("trend_rows",),
+                collapsed_by_default=collapsed,
+            ),
+        ),
+    )
+    return artifact.model_copy(
+        update={
+            "report_spec": artifact.report_spec.model_copy(
+                update={"sections": (*artifact.report_spec.sections, evidence_section)}
+            )
+        }
+    )
+
+
+def test_render_report_html_renders_inline_claim_evidence_panel() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_artifact_with_inline_evidence_blocks())
+
+    assert 'id="proof-claim_revenue_up"' in rendered
+    assert "<summary>Revenue is {value}.</summary>" in rendered
+    assert 'href="#step-step_observe">step_observe</a>' in rendered
+    assert 'href="#dataset-headline_metrics">headline_metrics</a>' in rendered
+
+
+def test_render_report_html_honors_collapsed_by_default_for_inline_blocks() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    expanded = render_report_html(_artifact_with_inline_evidence_blocks(collapsed=False))
+    collapsed = render_report_html(_artifact_with_inline_evidence_blocks(collapsed=True))
+
+    assert '<details class="proof-panel" id="proof-claim_revenue_up" open>' in expanded
+    assert '<details class="proof-panel" id="proof-claim_revenue_up">' in collapsed
+    assert '<details class="proof-panel" id="proof-claim_revenue_up" open>' not in collapsed
+
+
+def test_render_report_html_renders_inline_step_trace() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_artifact_with_inline_evidence_blocks())
+
+    assert 'id="trace-step_observe"' in rendered
+    assert 'href="#step-step_observe">step_observe</a>' in rendered
+    assert 'href="#evidence-artifact_observe_1">artifact_observe_1</a>' in rendered
+
+
+def test_render_report_html_renders_inline_source_code() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_artifact_with_inline_evidence_blocks())
+
+    assert 'id="sourcecode-trend_rows"' in rendered
+    assert '<details class="source-code" id="sourcecode-trend_rows" open>' in rendered
+    assert "select date, revenue, orders from trend_rows" in rendered
+
+
 def test_materialize_html_adapter_does_not_write_manifest_if_index_write_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -495,3 +579,89 @@ def test_materialize_html_adapter_does_not_write_manifest_if_index_write_fails(
         materialize_html_adapter(_html_artifact(), tmp_path)
 
     assert not (tmp_path / "manifest.json").exists()
+
+
+def test_render_report_html_adds_line_chart_tooltips() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_html_artifact())
+
+    assert "<title>2026-06-01: 100.0</title>" in rendered
+    assert "<title>2026-06-02: 125.0</title>" in rendered
+
+
+def test_render_report_html_adds_bar_chart_tooltips() -> None:
+    from marivo.analysis.publish import ReportChartSpec, render_report_html
+
+    artifact = _html_artifact()
+    trend_section = artifact.report_spec.sections[1]
+    bar_chart = trend_section.blocks[1].model_copy(
+        update={"chart": ReportChartSpec(type="bar", fields={"x": "date", "y": "revenue"})}
+    )
+    trend_section = trend_section.model_copy(
+        update={"blocks": (trend_section.blocks[0], bar_chart, trend_section.blocks[2])}
+    )
+    artifact = artifact.model_copy(
+        update={
+            "report_spec": artifact.report_spec.model_copy(
+                update={
+                    "sections": (
+                        artifact.report_spec.sections[0],
+                        trend_section,
+                        artifact.report_spec.sections[2],
+                    )
+                }
+            )
+        }
+    )
+
+    rendered = render_report_html(artifact)
+
+    assert '<rect class="chart-bar"' in rendered
+    assert "<title>2026-06-02: 125.0</title>" in rendered
+
+
+def _artifact_with_long_table():
+    artifact = _html_artifact()
+    trend = artifact.datasets["trend_rows"]
+    rows = tuple(
+        {"date": f"2026-06-{day:02d}", "revenue": 100.0 + day, "orders": day}
+        for day in range(1, 13)
+    )
+    long_trend = trend.model_copy(
+        update={
+            "metadata": trend.metadata.model_copy(update={"row_count": len(rows)}),
+            "rows": rows,
+        }
+    )
+    return artifact.model_copy(update={"datasets": {**artifact.datasets, "trend_rows": long_trend}})
+
+
+def test_render_report_html_paginates_long_tables() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_artifact_with_long_table())
+
+    assert 'data-page-size="10"' in rendered
+    assert 'class="table-pager"' in rendered
+    assert 'class="table-next"' in rendered
+    assert 'class="table-prev"' in rendered
+
+
+def test_render_report_html_does_not_paginate_short_tables() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_html_artifact())
+
+    assert 'data-page-size="10"' not in rendered
+    assert 'class="table-pager"' not in rendered
+
+
+def test_render_report_html_includes_local_search() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_html_artifact())
+
+    assert '<input id="report-search"' in rendered
+    assert 'data-searchable="true"' in rendered
+    assert 'getElementById("report-search")' in rendered
