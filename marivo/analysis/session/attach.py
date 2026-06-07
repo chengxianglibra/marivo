@@ -177,6 +177,9 @@ def _session_from_row(
         read_session_meta(layout),
         default_calendar=default_calendar,
     )
+    semantic_project = _build_semantic_project(project_root)
+    if factory is not None:
+        semantic_project.bind_backend_factory(factory)
     return Session(
         id=row["id"],
         name=row["name"],
@@ -188,7 +191,7 @@ def _session_from_row(
         updated_at=datetime.fromisoformat(row["updated_at"]),
         backend_factory=factory,
         layout=layout,
-        semantic_project=_build_semantic_project(project_root),
+        semantic_project=semantic_project,
         tz=resolve_system_timezone().tz,
         default_calendar=meta.get("default_calendar"),
         known_calendars=set(meta.get("known_calendars", [])),

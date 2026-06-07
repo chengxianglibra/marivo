@@ -71,6 +71,7 @@ class ConstraintId(StrEnum):
     PARITY_VALUE_MATCH = "parity_value_match"
     PARITY_SCALAR_RESULT = "parity_scalar_result"
     AMBIGUOUS_REFERENCE = "ambiguous_reference"
+    BACKEND_FACTORY_AVAILABLE = "backend_factory_available"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -554,6 +555,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Cross-kind name matches make registry lookups ambiguous.",
         "Pass kind= to describe() or search(kind=...) to disambiguate.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+    ),
+    ConstraintId.BACKEND_FACTORY_AVAILABLE: _constraint(
+        ConstraintId.BACKEND_FACTORY_AVAILABLE,
+        "backend_factory_required",
+        "runtime",
+        ("SemanticProject",),
+        "Materialization and preview methods require a backend_factory.",
+        "A backend_factory maps datasource names to ibis backends for data access.",
+        "Call project.bind_backend_factory(...) after load() or pass backend_factory=... explicitly.",
     ),
 }
 

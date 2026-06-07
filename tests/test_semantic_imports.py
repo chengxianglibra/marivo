@@ -466,6 +466,7 @@ _EXPECTED_RUNTIME_KINDS = {
     "compile_error",
     "ambiguous_reference",
     "cross_datasource_not_supported",
+    "backend_factory_required",
 }
 
 _EXPECTED_PARITY_KINDS = {
