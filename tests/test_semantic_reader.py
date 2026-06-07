@@ -980,7 +980,7 @@ def test_describe_to_text(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    desc = project.describe("sales.total_revenue", format="text")
+    desc = project.describe("sales.total_revenue")
     assert isinstance(desc, Description)
     text = desc.to_text()
     assert isinstance(text, str)
@@ -1009,7 +1009,6 @@ def test_describe_with_compile_sql(semantic_project_factory, backend_factory) ->
     )
     desc = project.describe(
         "sales.total_revenue",
-        format="text",
         compile_sql=True,
         backend_factory=backend_factory,
     )
@@ -1218,7 +1217,7 @@ def test_describe_relationship_to_text(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    desc = project.describe("sales.orders_to_items", format="text")
+    desc = project.describe("sales.orders_to_items")
     text = desc.to_text()
     assert "[relationship]" in text
     assert "from_dataset" in text

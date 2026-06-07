@@ -1363,7 +1363,6 @@ class SemanticProject:
         *,
         kind: SymbolKind | None = None,
         compile_sql: bool = False,
-        format: Literal["object", "text"] = "object",
         backend_factory: Callable[..., Any] | None = None,
     ) -> Description:
         """Describe a semantic object by name.
@@ -1371,9 +1370,6 @@ class SemanticProject:
         Returns a ``Description`` frozen dataclass.  When ``compile_sql``
         is True and the object is a metric, the ``compiled_sql`` field is
         populated.  Requires ``backend_factory`` when ``compile_sql=True``.
-
-        When ``format="text"``, returns ``Description`` whose
-        ``to_text()`` method can be called for a human-readable string.
 
         When ``kind`` is given, the search is narrowed to the matching
         collection (e.g., ``kind=SymbolKind.METRIC``).  This resolves
