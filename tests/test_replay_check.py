@@ -64,8 +64,8 @@ GOOD_SCRIPT = (
 )
 
 
-def _semantic_root(tmp_path: Path) -> Path:
-    return tmp_path / ".marivo" / "semantic"
+def _workspace_dir(tmp_path: Path) -> Path:
+    return tmp_path
 
 
 def _write(tmp_path: Path, source: str) -> Path:
@@ -77,7 +77,7 @@ def _write(tmp_path: Path, source: str) -> Path:
 def test_good_script_passes_parse_and_load(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     result = static_check_replay(
-        _write(tmp_path, GOOD_SCRIPT), semantic_root=_semantic_root(tmp_path)
+        _write(tmp_path, GOOD_SCRIPT), workspace_dir=_workspace_dir(tmp_path)
     )
     assert isinstance(result, ReplayCheckResult)
     assert result.ok is True
@@ -88,7 +88,7 @@ def test_good_script_passes_parse_and_load(tmp_path, semantic_project_factory):
 def test_syntax_error_fails_with_parse_issue(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     result = static_check_replay(
-        _write(tmp_path, "def (:\n"), semantic_root=_semantic_root(tmp_path)
+        _write(tmp_path, "def (:\n"), workspace_dir=_workspace_dir(tmp_path)
     )
     assert result.ok is False
     assert result.validation == "failed"
@@ -103,7 +103,7 @@ def test_disallowed_import_is_flagged(tmp_path, semantic_project_factory):
         "import marivo.analysis as mv\n",
         "import marivo.analysis as mv\nimport requests\n",
     )
-    result = static_check_replay(_write(tmp_path, bad), semantic_root=_semantic_root(tmp_path))
+    result = static_check_replay(_write(tmp_path, bad), workspace_dir=_workspace_dir(tmp_path))
     assert result.ok is False
     assert any(i.check == "imports" and "requests" in i.message for i in result.issues)
 
@@ -111,7 +111,7 @@ def test_disallowed_import_is_flagged(tmp_path, semantic_project_factory):
 def test_unknown_session_intent_is_flagged(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     bad = GOOD_SCRIPT.replace("session.observe(", "session.observ(")
-    result = static_check_replay(_write(tmp_path, bad), semantic_root=_semantic_root(tmp_path))
+    result = static_check_replay(_write(tmp_path, bad), workspace_dir=_workspace_dir(tmp_path))
     assert result.ok is False
     assert any(i.check == "intent" and "observ" in i.message for i in result.issues)
 
@@ -119,14 +119,14 @@ def test_unknown_session_intent_is_flagged(tmp_path, semantic_project_factory):
 def test_namespace_intents_are_allowed(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     ok_src = GOOD_SCRIPT + "anoms = session.discover.point_anomalies(cur, threshold=1.0)\n"
-    result = static_check_replay(_write(tmp_path, ok_src), semantic_root=_semantic_root(tmp_path))
+    result = static_check_replay(_write(tmp_path, ok_src), workspace_dir=_workspace_dir(tmp_path))
     assert not any(i.check == "intent" for i in result.issues)
 
 
 def test_unresolved_metric_ref_is_flagged(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     bad = GOOD_SCRIPT.replace('"sales.revenue"', '"sales.unknown"')
-    result = static_check_replay(_write(tmp_path, bad), semantic_root=_semantic_root(tmp_path))
+    result = static_check_replay(_write(tmp_path, bad), workspace_dir=_workspace_dir(tmp_path))
     assert result.ok is False
     assert any(i.check == "metric_ref" and "sales.unknown" in i.message for i in result.issues)
 
@@ -134,7 +134,7 @@ def test_unresolved_metric_ref_is_flagged(tmp_path, semantic_project_factory):
 def test_resolved_metric_ref_passes(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     result = static_check_replay(
-        _write(tmp_path, GOOD_SCRIPT), semantic_root=_semantic_root(tmp_path)
+        _write(tmp_path, GOOD_SCRIPT), workspace_dir=_workspace_dir(tmp_path)
     )
     assert not any(i.check == "metric_ref" for i in result.issues)
 
@@ -142,7 +142,7 @@ def test_resolved_metric_ref_passes(tmp_path, semantic_project_factory):
 def test_undefined_frame_variable_is_flagged(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     bad = GOOD_SCRIPT + "delta = session.compare(ghost, cur)\n"
-    result = static_check_replay(_write(tmp_path, bad), semantic_root=_semantic_root(tmp_path))
+    result = static_check_replay(_write(tmp_path, bad), workspace_dir=_workspace_dir(tmp_path))
     assert result.ok is False
     assert any(i.check == "frame_var" and "ghost" in i.message for i in result.issues)
 
@@ -156,7 +156,7 @@ def test_defined_frame_variable_passes(tmp_path, semantic_project_factory):
         ")\n"
         "delta = session.compare(cur, base)\n"
     )
-    result = static_check_replay(_write(tmp_path, ok_src), semantic_root=_semantic_root(tmp_path))
+    result = static_check_replay(_write(tmp_path, ok_src), workspace_dir=_workspace_dir(tmp_path))
     assert not any(i.check == "frame_var" for i in result.issues)
 
 
@@ -166,7 +166,7 @@ def test_relative_timescope_string_is_flagged(tmp_path, semantic_project_factory
         '    timescope={"start": "2026-05-01", "end": "2026-05-08"},\n',
         '    timescope="last_month",\n',
     )
-    result = static_check_replay(_write(tmp_path, bad), semantic_root=_semantic_root(tmp_path))
+    result = static_check_replay(_write(tmp_path, bad), workspace_dir=_workspace_dir(tmp_path))
     assert result.ok is False
     assert any(i.check == "timescope" for i in result.issues)
 
@@ -177,14 +177,14 @@ def test_timescope_missing_start_end_is_flagged(tmp_path, semantic_project_facto
         '    timescope={"start": "2026-05-01", "end": "2026-05-08"},\n',
         '    timescope={"grain": "day"},\n',
     )
-    result = static_check_replay(_write(tmp_path, bad), semantic_root=_semantic_root(tmp_path))
+    result = static_check_replay(_write(tmp_path, bad), workspace_dir=_workspace_dir(tmp_path))
     assert any(i.check == "timescope" for i in result.issues)
 
 
 def test_hardcoded_secret_is_flagged(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     bad = GOOD_SCRIPT + 'aws_secret_access_key = "wJalrXUtnFEMI0K7MDENGbPxRfiCYEXAMPLEKEY"\n'
-    result = static_check_replay(_write(tmp_path, bad), semantic_root=_semantic_root(tmp_path))
+    result = static_check_replay(_write(tmp_path, bad), workspace_dir=_workspace_dir(tmp_path))
     assert result.ok is False
     assert any(i.check == "secret" for i in result.issues)
 
@@ -193,7 +193,7 @@ def test_env_lookup_is_not_a_secret(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     # GOOD_SCRIPT reads creds from os.environ and never embeds a value.
     result = static_check_replay(
-        _write(tmp_path, GOOD_SCRIPT), semantic_root=_semantic_root(tmp_path)
+        _write(tmp_path, GOOD_SCRIPT), workspace_dir=_workspace_dir(tmp_path)
     )
     assert not any(i.check == "secret" for i in result.issues)
 
@@ -211,7 +211,7 @@ def test_multiple_issues_are_reported_together(tmp_path, semantic_project_factor
         ")\n"
         "delta = session.compare(ghost, cur)\n"  # undefined frame var
     )
-    result = static_check_replay(_write(tmp_path, bad), semantic_root=_semantic_root(tmp_path))
+    result = static_check_replay(_write(tmp_path, bad), workspace_dir=_workspace_dir(tmp_path))
     assert result.ok is False
     assert result.validation == "failed"
     checks = {i.check for i in result.issues}

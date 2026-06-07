@@ -116,7 +116,7 @@ def _compile_backend_factory(
 def _build_semantic_project(project_root: Path) -> Any:
     from marivo.semantic import SemanticProject
 
-    project = SemanticProject(root=str(project_root / ".marivo" / "semantic"))
+    project = SemanticProject(workspace_dir=project_root)
     project.load()
     # Return the project even if not ready; callers should check is_ready()
     # and handle errors as needed.

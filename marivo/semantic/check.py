@@ -85,12 +85,12 @@ def _warning_to_dict(warning: Any) -> dict[str, object]:
 
 def run_check(
     *,
-    root: str | Path | None = None,
+    workspace_dir: str | Path | None = None,
     readiness: bool = False,
     format: Literal["json", "text"] = "text",
     backend_factory: Callable[[str], Any] | None = None,
 ) -> dict[str, object]:
-    if root is None:
+    if workspace_dir is None:
         project = find_project()
         if project is None:
             return {
@@ -98,16 +98,16 @@ def run_check(
                 "errors": [
                     {
                         "kind": "invalid_project",
-                        "message": "Could not find .marivo/semantic project root.",
+                        "message": "Could not find .marivo project root.",
                         "refs": [],
                         "location": None,
-                        "hint": "Pass --root with the semantic project path.",
+                        "hint": "Pass --workspace-dir with the project path, or set MARIVO_PROJECT_ROOT.",
                     }
                 ],
                 "warnings": [],
             }
     else:
-        project = SemanticProject(root=root)
+        project = SemanticProject(workspace_dir=workspace_dir)
 
     result = project.load()
     payload: dict[str, object] = {
@@ -135,7 +135,9 @@ def run_check(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check a Marivo semantic project.")
-    parser.add_argument("--root", default=None, help="Path to .marivo/semantic")
+    parser.add_argument(
+        "--workspace-dir", default=None, help="Path to project workspace (containing .marivo/)"
+    )
     parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument("--readiness", action="store_true")
     return parser
@@ -171,7 +173,7 @@ def _print_text(payload: dict[str, object]) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     payload = run_check(
-        root=args.root,
+        workspace_dir=args.workspace_dir,
         readiness=args.readiness,
         format=args.format,
     )

@@ -544,7 +544,7 @@ def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instanc
         backend_factory=backend_factory,
     )
 
-    reloaded = SemanticProject(root=project.root)
+    reloaded = SemanticProject(workspace_dir=project.workspace_dir)
     reloaded.load()
     reloaded.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
@@ -616,7 +616,7 @@ def test_semantic_check_run_check_returns_json_ready_report(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_MODEL_PY)
-    root = project.root
+    root = project.semantic_root
 
     # Record evidence via the project API so auto-collect can discover it.
     project.collect_source_preview(
@@ -627,7 +627,7 @@ def test_semantic_check_run_check_returns_json_ready_report(
     from marivo.semantic.check import run_check
 
     payload = run_check(
-        root=root,
+        workspace_dir=project.workspace_dir,
         readiness=True,
         format="json",
         backend_factory=backend_factory,
@@ -960,7 +960,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
     # the underlying readiness check for "no decision" state.
     from marivo.semantic.ledger import LedgerStore
 
-    LedgerStore(project.root)._object_path("sales.revenue").unlink(missing_ok=True)
+    LedgerStore(project.semantic_root)._object_path("sales.revenue").unlink(missing_ok=True)
 
     issues = _evidence_ledger_blockers(project)
     refs = {ref for issue in issues for ref in issue.refs}
@@ -985,7 +985,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
         }
     )
     # Write DecisionRecord directly to LedgerStore (same pattern as auto_record)
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.semantic_root)
     store.write_object(
         lg.ObjectEvidence(
             semantic_id="sales.revenue",
@@ -1031,7 +1031,7 @@ def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_proj
     # Remove the auto-recorded decision to test the "no decision" edge case.
     from marivo.semantic.ledger import LedgerStore
 
-    LedgerStore(project.root)._object_path("sales.revenue").unlink(missing_ok=True)
+    LedgerStore(project.semantic_root)._object_path("sales.revenue").unlink(missing_ok=True)
 
     strict_report = project.readiness()
     kinds = {b.kind for b in strict_report.blockers}
@@ -1067,7 +1067,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
         question_id="q-metric-decomposition",
         decided_at="2026-06-01T00:00:00+00:00",
     )
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.semantic_root)
     store.write_object(
         lg.ObjectEvidence(
             semantic_id="sales.revenue",
@@ -1077,7 +1077,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
         )
     )
 
-    reloaded = ms.SemanticProject(root=project.root)
+    reloaded = ms.SemanticProject(workspace_dir=project.workspace_dir)
     reloaded.load()
 
     report = reloaded.readiness()
@@ -1236,8 +1236,8 @@ def test_semantic_check_main_prints_json(
 
     exit_code = semantic_check.main(
         [
-            "--root",
-            str(project.root),
+            "--workspace-dir",
+            str(project.workspace_dir),
             "--format",
             "json",
             "--readiness",
@@ -1327,7 +1327,7 @@ def test_record_failed_preview_persists_to_ledger(
 
     from marivo.semantic.ledger import LedgerStore
 
-    store = LedgerStore(project.root)
+    store = LedgerStore(project.semantic_root)
     records = store.read_raw_previews()
     assert len(records) == 1
     assert records[0].ref == "warehouse.orders"
@@ -1350,7 +1350,7 @@ def test_primary_key_sample_persistence(
         }
     )
 
-    store = LedgerStore(project.root)
+    store = LedgerStore(project.semantic_root)
     store.write_primary_key_sample("sales.orders")
     assert store.read_primary_key_samples() == ("sales.orders",)
 
@@ -1374,7 +1374,7 @@ def test_evidence_store_list_authoring_by_kind(
         }
     )
 
-    store = EvidenceStore(project.root)
+    store = EvidenceStore(project.semantic_root)
     store.write_authoring_evidence(
         AuthoringEvidenceInput(
             kind="knowledge_document",

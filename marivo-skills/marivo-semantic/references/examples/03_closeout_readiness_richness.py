@@ -114,7 +114,7 @@ with tempfile.TemporaryDirectory() as tmp:
         mv.datasources.register(
             md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path))
         )
-        project = ms.SemanticProject(root=root / ".marivo" / "semantic")
+        project = ms.SemanticProject(workspace_dir=root)
         project.load()
 
         def backend_factory(name: str) -> Any:

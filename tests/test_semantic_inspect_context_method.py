@@ -33,7 +33,7 @@ def _backend_factory(_name):
 def test_inspect_source_context_returns_pack_and_persists(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(root=root)
+    project = SemanticProject(workspace_dir=tmp_path)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )
@@ -51,7 +51,7 @@ def test_inspect_source_context_returns_pack_and_persists(tmp_path):
 def test_inspect_source_context_records_raw_preview_for_readiness(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(root=root)
+    project = SemanticProject(workspace_dir=tmp_path)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )
@@ -67,7 +67,7 @@ def test_inspect_source_context_records_raw_preview_for_readiness(tmp_path):
 def test_metadata_only_does_not_record_raw_preview(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(root=root)
+    project = SemanticProject(workspace_dir=tmp_path)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )

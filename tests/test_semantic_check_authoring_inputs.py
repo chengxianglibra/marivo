@@ -38,7 +38,7 @@ def _backend_factory(_name):
 def _project_with_source(tmp_path) -> SemanticProject:
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(root=root)
+    project = SemanticProject(workspace_dir=tmp_path)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )
@@ -102,7 +102,7 @@ def test_missing_column_is_a_blocker(tmp_path):
 def test_unknown_source_returns_needs_evidence_with_next_check(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(root=root)
+    project = SemanticProject(workspace_dir=tmp_path)
     result = project.check_authoring_inputs(
         object_kind="dataset",
         subject_ref="sales.orders",

@@ -30,7 +30,7 @@ def _backend_factory(_name):
 def test_evidence_survives_a_fresh_project_instance(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(root=root)
+    project = SemanticProject(workspace_dir=tmp_path)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )
@@ -39,8 +39,8 @@ def test_evidence_survives_a_fresh_project_instance(tmp_path):
         source=TableSource(table="orders"),
         sample_policy=MetadataOnlyPolicy(),
     )
-    # new process / new instance, same root
-    reloaded = SemanticProject(root=root)
+    # new process / new instance, same workspace
+    reloaded = SemanticProject(workspace_dir=tmp_path)
     refs = reloaded.list_evidence(datasource="warehouse", source=TableSource(table="orders"))
     assert len(refs) == 1
     pack = reloaded.get_evidence_pack(refs[0].id)
@@ -51,7 +51,7 @@ def test_evidence_survives_a_fresh_project_instance(tmp_path):
 def test_list_evidence_by_subject_refs(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(root=root)
+    project = SemanticProject(workspace_dir=tmp_path)
     project.record_authoring_evidence(
         AuthoringEvidenceInput(
             kind="knowledge_document",

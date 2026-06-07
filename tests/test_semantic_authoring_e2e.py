@@ -47,7 +47,7 @@ def test_collect_check_author_reload_inspect(tmp_path):
         "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
         "md.datasource(warehouse)\n"
     )
-    project = SemanticProject(root=root)
+    project = SemanticProject(workspace_dir=tmp_path)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )

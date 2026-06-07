@@ -380,7 +380,7 @@ def test_semantic_project_unloaded() -> None:
     from pathlib import Path
 
     with tempfile.TemporaryDirectory() as tmp:
-        project = SemanticProject(root=Path(tmp) / ".marivo" / "semantic")
+        project = SemanticProject(workspace_dir=Path(tmp))
         assert not project.is_ready()
         assert project.errors() == ()
 
@@ -388,7 +388,7 @@ def test_semantic_project_unloaded() -> None:
 def test_semantic_project_nonexistent_root() -> None:
     from pathlib import Path
 
-    project = SemanticProject(root=Path("/nonexistent/path"))
+    project = SemanticProject(workspace_dir=Path("/nonexistent/path"))
     result = project.load()
     # Should handle gracefully — either ready (empty) or errored
     assert result.status in ("ready", "errored")
@@ -506,7 +506,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
         'query_log = ms.dataset(name="query_log"',
     ).replace('ms.table("query_info")', 'ms.table("query_log")')
 
-    root = project.root
+    root = project.semantic_root
     (root / "sales" / "dataset.py").write_text(dataset_v2)
 
     result = project.reload()
@@ -904,7 +904,7 @@ def test_find_project_in_current_dir(tmp_path) -> None:
     sem_dir.mkdir(parents=True)
     project = find_project(start_dir=tmp_path)
     assert project is not None
-    assert project._root == sem_dir
+    assert project.semantic_root == sem_dir
 
 
 def test_find_project_in_parent_dir(tmp_path) -> None:
@@ -917,7 +917,7 @@ def test_find_project_in_parent_dir(tmp_path) -> None:
     child_dir.mkdir(parents=True)
     project = find_project(start_dir=child_dir)
     assert project is not None
-    assert project._root == sem_dir
+    assert project.semantic_root == sem_dir
 
 
 def test_find_project_returns_none_when_not_found(tmp_path) -> None:
@@ -928,18 +928,81 @@ def test_find_project_returns_none_when_not_found(tmp_path) -> None:
     assert project is None
 
 
-def test_find_project_raises_when_semantic_is_a_file(tmp_path) -> None:
-    """find_project should raise InvalidProjectError when .marivo/semantic is a file."""
-    from marivo.semantic.errors import SemanticLoadError
+def test_find_project_finds_marivo_dir_without_semantic(tmp_path) -> None:
+    """find_project should succeed when .marivo/ exists but .marivo/semantic/ does not."""
     from marivo.semantic.loader import find_project
+
+    marivo_dir = tmp_path / ".marivo"
+    marivo_dir.mkdir()
+    (marivo_dir / "datasource").mkdir()
+    project = find_project(start_dir=tmp_path)
+    assert project is not None
+    assert project.workspace_dir == tmp_path.resolve()
+    assert not project.semantic_root.exists()
+
+
+def test_load_raises_when_semantic_is_a_file(tmp_path) -> None:
+    """SemanticProject.load() should raise when .marivo/semantic is a file."""
+    from marivo.semantic.errors import SemanticLoadError
 
     marivo_dir = tmp_path / ".marivo"
     marivo_dir.mkdir()
     # Create 'semantic' as a file, not a directory
     (marivo_dir / "semantic").write_text("not a directory")
+    project = SemanticProject(workspace_dir=tmp_path)
     with pytest.raises(SemanticLoadError) as exc_info:
-        find_project(start_dir=tmp_path)
+        project.load()
     assert exc_info.value.kind == ErrorKind.INVALID_PROJECT
+
+
+# ---------------------------------------------------------------------------
+# workspace_dir and MARIVO_PROJECT_ROOT
+# ---------------------------------------------------------------------------
+
+
+def test_semantic_project_default_workspace_dir_is_cwd(monkeypatch, tmp_path) -> None:
+    """SemanticProject() with no args uses cwd as workspace_dir."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
+    project = SemanticProject()
+    assert project.workspace_dir == tmp_path.resolve()
+    assert project.semantic_root == tmp_path.resolve() / ".marivo" / "semantic"
+
+
+def test_semantic_project_env_var_overrides_cwd(monkeypatch, tmp_path) -> None:
+    """MARIVO_PROJECT_ROOT takes precedence over cwd."""
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(other_dir))
+    project = SemanticProject()
+    assert project.workspace_dir == other_dir.resolve()
+
+
+def test_semantic_project_explicit_workspace_dir_overrides_env(monkeypatch, tmp_path) -> None:
+    """Explicit workspace_dir= takes precedence over MARIVO_PROJECT_ROOT."""
+    env_dir = tmp_path / "env_dir"
+    env_dir.mkdir()
+    explicit_dir = tmp_path / "explicit_dir"
+    explicit_dir.mkdir()
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(env_dir))
+    project = SemanticProject(workspace_dir=explicit_dir)
+    assert project.workspace_dir == explicit_dir.resolve()
+
+
+def test_semantic_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) -> None:
+    """SemanticProject(workspace_dir='.') in a project root with scripts/ etc.
+    does NOT misidentify those dirs as model directories."""
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "deploy.sh").write_text("#!/bin/bash\necho deploy")
+    semantic_dir = tmp_path / ".marivo" / "semantic"
+    semantic_dir.mkdir(parents=True)
+    project = SemanticProject(workspace_dir=tmp_path)
+    result = project.load()
+    # scripts/ should NOT appear as a model dir — only .marivo/semantic/ is scanned
+    assert result.status == "ready"
+    assert len(project.list_models(display=False)) == 0
 
 
 # ---------------------------------------------------------------------------

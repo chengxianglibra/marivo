@@ -6,6 +6,7 @@ All read-only access to the loaded semantic model goes through
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +31,7 @@ from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
+    SemanticLoadError,
     SemanticRuntimeError,
     StructuredWarning,
     _raise,
@@ -456,14 +458,20 @@ class SemanticProject:
 
     Usage::
 
-        project = SemanticProject(root="/path/to/.marivo/semantic")
+        project = SemanticProject()  # uses cwd or MARIVO_PROJECT_ROOT
+        # or:
+        project = SemanticProject(workspace_dir="/path/to/project")
         result = project.load()
         if project.is_ready():
             models = project.list_models(display=False)
     """
 
-    def __init__(self, root: str | Path) -> None:
-        self._root = Path(root)
+    def __init__(self, workspace_dir: str | Path | None = None) -> None:
+        if workspace_dir is None:
+            env = os.environ.get("MARIVO_PROJECT_ROOT")
+            workspace_dir = env if env else "."
+        self._workspace_dir = Path(workspace_dir).resolve()
+        self._semantic_root = self._workspace_dir / ".marivo" / "semantic"
         self._status: str = "unloaded"  # unloaded | ready | errored
         self._errors: tuple[SemanticError, ...] = ()
         self._warnings: tuple[StructuredWarning, ...] = ()
@@ -478,9 +486,14 @@ class SemanticProject:
         self._bound_backend_factory: Callable[[str], Any] | None = None
 
     @property
-    def root(self) -> Path:
-        """Return the project root path."""
-        return self._root
+    def semantic_root(self) -> Path:
+        """Return the semantic root path (.marivo/semantic/)."""
+        return self._semantic_root
+
+    @property
+    def workspace_dir(self) -> Path:
+        """Return the workspace directory path."""
+        return self._workspace_dir
 
     def _record_raw_preview_evidence(self, *refs: str) -> None:
         self._raw_preview_evidence = tuple(dict.fromkeys((*self._raw_preview_evidence, *refs)))
@@ -488,7 +501,7 @@ class SemanticProject:
     def _persisted_raw_preview_evidence(self) -> tuple[str, ...]:
         from marivo.semantic.ledger import LedgerStore
 
-        store = LedgerStore(self._root)
+        store = LedgerStore(self._semantic_root)
         return tuple(record.ref for record in store.read_raw_previews())
 
     # -- lifecycle -----------------------------------------------------------
@@ -500,12 +513,19 @@ class SemanticProject:
         Cross-model references to filtered-out models produce warnings instead
         of errors, so the registry remains usable.
         """
+        if self._semantic_root.exists() and not self._semantic_root.is_dir():
+            _raise(
+                ErrorKind.INVALID_PROJECT,
+                f"{self._semantic_root} exists but is not a directory.",
+                cls=SemanticLoadError,
+                refs=(str(self._semantic_root),),
+            )
         if models is not None and len(models) > 0:
             self._filtered_models = tuple(models)
         else:
             self._filtered_models = ()
         result = load_project(
-            self._root, models=self._filtered_models if self._filtered_models else None
+            self._semantic_root, models=self._filtered_models if self._filtered_models else None
         )
         self._load_result = result
         self._status = result.status
@@ -521,11 +541,11 @@ class SemanticProject:
 
             auto_record_authoring_decisions(
                 self._registry,
-                self._root,
+                self._semantic_root,
                 blast_radius_of=self.blast_radius_of,
             )
             backfill_blast_radii(
-                self._root,
+                self._semantic_root,
                 blast_radius_of=self.blast_radius_of,
             )
         return result
@@ -1552,7 +1572,7 @@ class SemanticProject:
             "order_by": list(preview.sample_policy.order_by),
             "filters": [dict(filter_) for filter_ in preview.sample_policy.filters],
         }
-        LedgerStore(self._root).write_raw_preview(
+        LedgerStore(self._semantic_root).write_raw_preview(
             RawPreviewEvidence(
                 ref=preview.ref,
                 datasource=datasource,
@@ -1583,7 +1603,7 @@ class SemanticProject:
         from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
 
         ref = _raw_preview_ref(datasource, table, database)
-        LedgerStore(self._root).write_raw_preview(
+        LedgerStore(self._semantic_root).write_raw_preview(
             RawPreviewEvidence(
                 ref=ref,
                 datasource=datasource,
@@ -1603,7 +1623,7 @@ class SemanticProject:
         """Record that primary key uniqueness was sampled for a dataset."""
         from marivo.semantic.ledger import LedgerStore
 
-        LedgerStore(self._root).write_primary_key_sample(dataset)
+        LedgerStore(self._semantic_root).write_primary_key_sample(dataset)
 
     def preview_dataset(
         self,
@@ -1773,8 +1793,8 @@ class SemanticProject:
             _semantic_preview_refs,
         )
 
-        store = LedgerStore(self._root)
-        evidence_store = EvidenceStore(self._root)
+        store = LedgerStore(self._semantic_root)
+        evidence_store = EvidenceStore(self._semantic_root)
 
         # Raw previews: success vs failed
         raw_preview_records = store.read_raw_previews()
@@ -1913,7 +1933,7 @@ class SemanticProject:
     # -- authoring evidence -------------------------------------------------
 
     def _evidence_store(self) -> EvidenceStore:
-        return EvidenceStore(self._root)
+        return EvidenceStore(self._semantic_root)
 
     def inspect_source_context(
         self,
@@ -2044,7 +2064,7 @@ class SemanticProject:
         from marivo.semantic.ledger import LedgerStore
 
         reg = _require_registry(self._registry, project=self)
-        return _inspect(registry=reg, ledger_store=LedgerStore(self._root), ref=ref)
+        return _inspect(registry=reg, ledger_store=LedgerStore(self._semantic_root), ref=ref)
 
     # -- internal helpers ---------------------------------------------------
 

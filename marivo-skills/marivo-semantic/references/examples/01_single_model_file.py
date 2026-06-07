@@ -108,7 +108,7 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     (semantic_dir / "_model.py").write_text(MODEL)
 
-    project = ms.SemanticProject(root=root / ".marivo" / "semantic")
+    project = ms.SemanticProject(workspace_dir=root)
     project.load()
     print("partition time field:", project.describe("sales.orders.log_date").semantic_id)
     print("hour partition time field:", project.describe("sales.orders.log_hour").semantic_id)

@@ -480,10 +480,10 @@ def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResu
 def find_project(start_dir: str | Path = ".") -> Any:
     """Discover a semantic project by walking up from *start_dir*.
 
-    Looks for a ``.marivo/semantic/`` directory.  Returns a
+    Looks for a ``.marivo/`` directory.  Returns a
     ``SemanticProject`` on success, or ``None`` if no project is found.
 
-    If ``.marivo/semantic`` exists but is a non-directory file,
+    If ``.marivo`` exists but is a non-directory file,
     raises ``SemanticLoadError`` with ``INVALID_PROJECT``.
     """
     from marivo.semantic.reader import SemanticProject
@@ -491,16 +491,16 @@ def find_project(start_dir: str | Path = ".") -> Any:
     current = Path(start_dir).resolve()
 
     while True:
-        candidate = current / ".marivo" / "semantic"
-        if candidate.exists():
-            if not candidate.is_dir():
+        marivo_dir = current / ".marivo"
+        if marivo_dir.exists():
+            if not marivo_dir.is_dir():
                 _raise(
                     ErrorKind.INVALID_PROJECT,
-                    f"{candidate} exists but is not a directory.",
+                    f"{marivo_dir} exists but is not a directory.",
                     cls=SemanticLoadError,
-                    refs=(str(candidate),),
+                    refs=(str(marivo_dir),),
                 )
-            return SemanticProject(root=candidate)
+            return SemanticProject(workspace_dir=current)
 
         parent = current.parent
         if parent == current:
