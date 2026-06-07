@@ -58,7 +58,7 @@ def test_record_decision_appends_to_object_ledger(semantic_project_factory):
     )
     project.record_decision("sales.revenue", rec)
 
-    store = lg.LedgerStore(project.root_path)
+    store = lg.LedgerStore(project.root)
     obj = store.read_object("sales.revenue")
     assert obj is not None
     assert obj.decisions == (rec,)
@@ -90,7 +90,7 @@ def test_record_decision_accumulates(semantic_project_factory):
     )
     project.record_decision("sales.revenue", rec1)
     project.record_decision("sales.revenue", rec2)
-    obj = lg.LedgerStore(project.root_path).read_object("sales.revenue")
+    obj = lg.LedgerStore(project.root).read_object("sales.revenue")
     assert obj is not None
     assert obj.decisions == (rec1, rec2)
 
@@ -112,7 +112,7 @@ def test_answer_appends_confirmation(semantic_project_factory):
     )
     project.answer(question, "cents", evidence_fingerprint="sha256:a")
 
-    confirmations = lg.LedgerStore(project.root_path).read_confirmations("sales")
+    confirmations = lg.LedgerStore(project.root).read_confirmations("sales")
     assert len(confirmations) == 1
     assert confirmations[0].question_id == "q-amount-unit"
     assert confirmations[0].answer == "cents"
@@ -139,7 +139,7 @@ def test_answer_rejects_none_answer(semantic_project_factory):
     with pytest.raises(ValueError, match=r"answer must not be None"):
         project.answer(question, None, evidence_fingerprint="sha256:a")
 
-    store = lg.LedgerStore(project.root_path)
+    store = lg.LedgerStore(project.root)
     assert store.read_confirmations("sales") == ()
     assert store.read_object("sales.revenue") is None
 
@@ -162,7 +162,7 @@ def test_answer_records_user_confirmation_decision(semantic_project_factory):
 
     project.answer(question, "sum", evidence_fingerprint="sha256:answer")
 
-    store = lg.LedgerStore(project.root_path)
+    store = lg.LedgerStore(project.root)
     [confirmation] = store.read_confirmations("sales")
     obj = store.read_object("sales.revenue")
     assert obj is not None
@@ -215,6 +215,6 @@ def test_record_decision_replaces_answer_decision_for_same_question(semantic_pro
 
     project.record_decision("sales.revenue", richer)
 
-    obj = lg.LedgerStore(project.root_path).read_object("sales.revenue")
+    obj = lg.LedgerStore(project.root).read_object("sales.revenue")
     assert obj is not None
     assert obj.decisions == (richer,)
