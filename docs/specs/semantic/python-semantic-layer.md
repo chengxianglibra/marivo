@@ -102,13 +102,16 @@ def revenue(order_rows):
 ```text
 semantic/
   sales/
-    _model.py          # 可作为 single-file quick path
-    revenue_metrics.py # 推荐按业务主题拆分
-    retention.py
+    _model.py          # agent authoring pipeline keeps all declarations here
   marketing/
     _model.py
     _exports.py
 ```
+
+`docs/specs/semantic/authoring-pipeline-design.md` 定义的 agent authoring
+pipeline 只使用每个 model 的 `_model.py` 单文件。Loader 仍可以执行同目录
+sibling `.py` 文件，但那是底层 loader 能力，不是当前标准 authoring pipeline
+的组织建议。
 
 目标态 loader 规则是：
 
@@ -123,7 +126,11 @@ semantic/
 - Python 文件是受信任本地代码，不做 sandbox。
 - 成功加载后 registry 进入 `ready`；失败时清空部分模型，进入 `errored`，并记录结构化 `load_errors`。
 
-文件组织应优先服务 agent 的增量修改。按类型拆成 `datasets.py` / `fields.py` / `metrics.py` 是可接受的组织方式，但不是前置要求；更推荐把一组相关业务对象放在同一个 feature-oriented 文件里，例如 `revenue_metrics.py` 同时包含 revenue 相关 dataset、field 和 metric。
+文件组织应优先服务 agent 的增量修改。当前标准 authoring pipeline 选择把一个
+model 的声明集中在 `_model.py`，按依赖顺序维护 dataset、field、time field、
+metric、relationship 和 derived metric。底层 loader 支持 sibling files，但
+多文件 authoring 需要单独说明 import order、default model scope 和 review
+边界，不能作为默认 agent 工作流。
 
 ## Reader / Introspection
 
@@ -225,16 +232,10 @@ project = SemanticProject(root="/path/to/.marivo/semantic")
 
 model 是业务域边界，例如 `sales`、`marketing`、`subscription`。model 名称参与下游 semantic id，例如 `sales.revenue`。agent 不应用自然语言近似匹配替代 model id；如果不确定，应先 `project.list_models()` / `project.describe(...)`。
 
-每个 model 目录可维护 `_exports.py`，统一 re-export 该 model 允许其他 model 引用的 decorated objects。`_exports.py` 不声明新对象，只做 re-export。它是推荐 convention，不是强制 contract。
-
-```python
-# .marivo/semantic/marketing/_exports.py
-from .datasets import sessions_daily, users
-from .fields import user_id
-from .metrics import sessions, signups
-```
-
-跨 model 引用时，如果被引用 model 有 `_exports.py`，应优先从 `_exports.py` import；如果没有，可直接从对应 sibling file import decorated ref，或使用字符串 `ms.ref(...)`。check 应把跨 model 直接 import 标为 hint 级提示，建议被引用方补 `_exports.py`。
+当前标准 authoring pipeline 不要求 `_exports.py`。跨 model 或前向引用无法自然使用
+decorated Python ref 时，使用当前实现格式的字符串 ref，例如
+`ms.ref("marketing.sessions")` 或 `ms.ref("sales.orders.user_id")`。已有项目若维护
+`_exports.py`，它属于多文件 loader 工作流的边界文件，不是本管线的默认组织要求。
 
 ### Datasource
 
@@ -491,22 +492,23 @@ def gmv_with_items(orders, order_items):
 relationship 描述 dataset 之间的连接路径：
 
 ```python
-# .marivo/semantic/sales/relationships.py
+# .marivo/semantic/sales/_model.py
 import marivo.semantic as ms
-from .datasets import orders
-from .fields import order_user_id
-from marketing._exports import users, user_id
 
+ms.model(name="sales")
+
+# orders, customers, order_customer_id, and customer_id are declared earlier
+# in this _model.py.
 ms.relationship(
-    name="orders_to_users",
+    name="orders_to_customers",
     from_dataset=orders,
-    to_dataset=users,
-    from_fields=[order_user_id],
-    to_fields=[user_id],
+    to_dataset=customers,
+    from_fields=[order_customer_id],
+    to_fields=[customer_id],
 )
 ```
 
-目标态 relationship 是纯 metadata 顶级调用。连接键必须使用 `field` / `time_field` 的 ref 引用，不能使用裸字符串物理列名。`from_columns` / `to_columns` 不应作为 alias 继续保留；目标态只接受 `from_fields` / `to_fields`，值为 decorated field refs 或 `ms.ref("field.<model>.<dataset>.<field>")`。
+目标态 relationship 是纯 metadata 顶级调用。连接键必须使用 `field` / `time_field` 的 ref 引用，不能使用裸字符串物理列名。`from_columns` / `to_columns` 不应作为 alias 继续保留；目标态只接受 `from_fields` / `to_fields`，值为 decorated field refs 或当前实现格式的 semantic id，例如 `ms.ref("sales.orders.order_user_id")`。
 
 ### Decomposition
 
@@ -645,25 +647,23 @@ print(frame.summary())
 
 ### 什么时候使用 ref
 
-目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。跨 model 引用也应优先通过被引用 model 的边界文件 re-export 成 Python 符号，再在引用方导入 decorated ref。字符串 `ms.ref(...)` 只用于无法自然 import 的前向引用或工具生成场景。
+目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。字符串 `ms.ref(...)` 只用于无法自然 import 的前向引用、跨 model 引用或工具生成场景。
 
 ```python
-from marketing._exports import sessions
-
 sessions_per_user = ms.derived_metric(
     name="sessions_per_user",
     decomposition=ms.ratio(
-        numerator=sessions,
+        numerator=ms.ref("marketing.sessions"),
         denominator=total_users,
     ),
 )
 ```
 
-`ms.ref(...)` 的唯一位置参数格式固定为 `"<kind>.<fully-qualified-id>"`。`kind` 取值：`datasource`、`dataset`、`field`、`time_field`、`metric`、`relationship`。例：
+`ms.ref(...)` 的唯一位置参数使用当前实现的 semantic id 格式。例：
 
-- `ms.ref("metric.marketing.sessions")`
-- `ms.ref("field.sales.orders.user_id")`
-- `ms.ref("dataset.marketing.sessions_daily")`
+- `ms.ref("marketing.sessions")`
+- `ms.ref("sales.orders.user_id")`
+- `ms.ref("marketing.sessions_daily")`
 
 跨 model refs 允许，但必须在 resolve 阶段做存在性、cycle 和 contract 检查；不能退回到 SQL provenance 里复制另一个 model 的定义。
 
@@ -723,7 +723,7 @@ loader 执行项目文件后，assembly validation 检查跨对象关系：
 - `ms.model(...)` 出现在非 `<root>/<model>/_model.py` 文件，或一个 `_model.py` 声明多个 model。
 - dataset 引用不存在的 datasource。
 - metric 引用不存在的 dataset 或 decomposition component。
-- cross-model `ms.ref(...)` 不存在、kind 不匹配或形成循环依赖。
+- cross-model `ms.ref(...)` 不存在、对象类型不匹配或形成循环依赖。
 - `datasets=[...]` 注入顺序与 metric 函数参数数量不一致。
 - hour time field 缺少 required prefix。
 - relationship endpoint、join field refs、field dataset membership 或 arity 不合法。
@@ -817,7 +817,9 @@ typed frames + session persistence + lineage
 
 - 所有语义对象使用显式 `model=` 或显式 default model；文件位置只做 discovery 和组织校验。
 - `ms.model(...)` 只能出现在 `<root>/<model>/_model.py`，且 `name` 必须等于目录名；`default` 缺省为 `True`，允许同目录对象省略重复 `model=`。
-- `_model.py` 可作为 single-file quick path；对象变多后推荐拆为 feature-oriented sibling files。
+- 标准 agent authoring pipeline 使用 `_model.py` 单文件；对象变多时仍按依赖顺序在
+  `_model.py` 内维护。feature-oriented sibling files 只能作为另行设计的多文件
+  authoring 模式。
 - Metric 显式 `datasets=[...]`；函数参数名只做局部 alias。
 - Base metric 使用 `@ms.metric(..., verification_mode="python_native",)`；derived metric 使用 body-free `ms.derived_metric(...)`，依赖来自 decomposition components。
 - Decomposition component roles come from `ms.ratio(...)` and `ms.weighted_average(...)` builders.
