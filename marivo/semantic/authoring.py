@@ -33,6 +33,7 @@ from marivo.semantic.ir import (
     MetricIR,
     MetricRef,
     ModelIR,
+    ModelRef,
     ProvenanceIR,
     RelationshipIR,
     RelationshipRef,
@@ -48,6 +49,7 @@ from marivo.semantic.validator import validate_metric_body_ast
 
 __all__ = [
     "DecompositionBuilder",
+    "ModelRef",
     "dataset",
     "derived_metric",
     "field",
@@ -96,8 +98,10 @@ def _require_ctx() -> LoaderContext:
     return ctx
 
 
-def _resolve_model_name(explicit: str | None, ctx: LoaderContext) -> str:
-    """Resolve the model name: explicit > default_model > error."""
+def _resolve_model(explicit: ModelRef | None, ctx: LoaderContext) -> str:
+    """Resolve the model name: explicit ref > default_model > error."""
+    if isinstance(explicit, ModelRef):
+        return explicit.semantic_id
     if explicit is not None:
         return explicit
     if ctx.default_model is not None:
@@ -254,7 +258,7 @@ def model(
     default: bool = True,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
-) -> None:
+) -> ModelRef:
     """Declare a semantic model namespace inside a project file.
 
     A model groups datasets, fields, metrics, and relationships under a single
@@ -270,8 +274,8 @@ def model(
             agent-facing hints.
 
     Returns:
-        None. This is a namespace declaration, not a value-producing call.
-        Subsequent decorators in this file resolve to this model.
+        A ``ModelRef`` that can be passed as the ``model=`` kwarg to other
+        decorators to override the default model context.
 
     Raises:
         OutsideLoaderContextError: Called outside a semantic loader pass.
@@ -279,7 +283,7 @@ def model(
 
     Example:
         >>> import marivo.semantic as ms
-        >>> ms.model(name="sales", default=True)
+        >>> sales = ms.model(name="sales", default=True)
     """
     ctx = _require_ctx()
     ai_ctx = _build_ai_context(ai_context)
@@ -296,6 +300,8 @@ def model(
 
     if default:
         ctx.default_model = name
+
+    return ModelRef(semantic_id=name)
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +339,7 @@ def dataset(
     source: DatasetSourceIR,
     primary_key: list[str] | None = None,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
-    model_name: str | None = None,
+    model: ModelRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> DatasetRef:
@@ -346,8 +352,8 @@ def dataset(
         source: Structured physical source, usually ``ms.table(...)`` or
             ``ms.file(...)``.
         primary_key: Optional list of column names forming the primary key.
-        model_name: Override the active model namespace. Defaults to the file's
-            default model.
+        model: Override the active model namespace with a ``ModelRef`` returned
+            by ``ms.model(...)``. Defaults to the file's default model.
         description: Free-text description; surfaced in agent/help output.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
@@ -366,8 +372,8 @@ def dataset(
         ... )
     """
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model_name, ctx)
-    semantic_id = f"{model_name}.{name}"
+    resolved_model = _resolve_model(model, ctx)
+    semantic_id = f"{resolved_model}.{name}"
     _check_duplicate(ctx, semantic_id, DatasetIR)
     if not isinstance(source, (TableSourceIR, FileSourceIR)):
         _raise(
@@ -385,7 +391,7 @@ def dataset(
 
     ir = DatasetIR(
         semantic_id=semantic_id,
-        model=model_name,
+        model=resolved_model,
         name=name,
         datasource=ds_ref,
         source=source,
@@ -405,7 +411,7 @@ def field(
     *,
     name: str | None = None,
     dataset: DatasetRef | str,
-    model_name: str | None = None,
+    model: ModelRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], FieldRef]:
@@ -419,7 +425,8 @@ def field(
         name: Field name. Defaults to the function name.
         dataset: Owning dataset, either a ``DatasetRef`` or a qualified
             ``"<model>.<dataset>"`` string.
-        model_name: Override the active model namespace.
+        model: Override the active model namespace with a ``ModelRef`` returned
+            by ``ms.model(...)``. Defaults to the file's default model.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
@@ -436,18 +443,18 @@ def field(
         ...     return orders.amount * 100
     """
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model_name, ctx)
+    resolved_model = _resolve_model(model, ctx)
 
     def decorator(fn: Callable[..., Any]) -> FieldRef:
         obj_name = name or fn.__name__
         ds_ref = _resolve_ref_string(dataset)
         semantic_id = f"{ds_ref}.{obj_name}"
         ds_model = ds_ref.split(".", 1)[0]
-        if ds_model != model_name:
+        if ds_model != resolved_model:
             _raise(
                 ErrorKind.INVALID_REF,
                 f"Field {semantic_id!r} belongs to dataset in model {ds_model!r}, "
-                f"but the active model is {model_name!r}.",
+                f"but the active model is {resolved_model!r}.",
                 cls=SemanticDecoratorError,
                 refs=(semantic_id,),
                 constraint_id=ConstraintId.REF_SHAPE,
@@ -460,7 +467,7 @@ def field(
 
         ir = FieldIR(
             semantic_id=semantic_id,
-            model=model_name,
+            model=resolved_model,
             dataset=ds_ref,
             name=obj_name,
             description=description,
@@ -491,7 +498,7 @@ def time_field(
     required_prefix: str | None = None,
     timezone: str | None = None,
     is_default: bool = False,
-    model_name: str | None = None,
+    model: ModelRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], TimeFieldRef]:
@@ -526,7 +533,8 @@ def time_field(
             exist on the dataset. At most one time field per dataset may carry
             is_default=True. When observe() is called without time_field=, the default
             field is used automatically.
-        model_name: Override the active model namespace.
+        model: Override the active model namespace with a ``ModelRef`` returned
+            by ``ms.model(...)``. Defaults to the file's default model.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
@@ -544,18 +552,18 @@ def time_field(
         ...     return orders.created_at
     """
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model_name, ctx)
+    resolved_model = _resolve_model(model, ctx)
 
     def decorator(fn: Callable[..., Any]) -> TimeFieldRef:
         obj_name = name or fn.__name__
         ds_ref = _resolve_ref_string(dataset)
         semantic_id = f"{ds_ref}.{obj_name}"
         ds_model = ds_ref.split(".", 1)[0]
-        if ds_model != model_name:
+        if ds_model != resolved_model:
             _raise(
                 ErrorKind.INVALID_REF,
                 f"Time field {semantic_id!r} belongs to dataset in model {ds_model!r}, "
-                f"but the active model is {model_name!r}.",
+                f"but the active model is {resolved_model!r}.",
                 cls=SemanticDecoratorError,
                 refs=(semantic_id,),
                 constraint_id=ConstraintId.REF_SHAPE,
@@ -579,7 +587,7 @@ def time_field(
 
         ir = FieldIR(
             semantic_id=semantic_id,
-            model=model_name,
+            model=resolved_model,
             dataset=ds_ref,
             name=obj_name,
             description=description,
@@ -616,7 +624,7 @@ def metric(
     source_document: str | None = None,
     source_notes: str | None = None,
     verification_mode: Literal["sql_parity", "python_native"] | None = None,
-    model_name: str | None = None,
+    model: ModelRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], MetricRef]:
@@ -637,7 +645,8 @@ def metric(
         verification_mode: ``"sql_parity"`` or ``"python_native"``. Required
             for loaded base metrics; ``"sql_parity"`` requires ``source_sql`` and
             ``source_dialect``.
-        model_name: Override the active model namespace.
+        model: Override the active model namespace with a ``ModelRef`` returned
+            by ``ms.model(...)``. Defaults to the file's default model.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
@@ -654,11 +663,11 @@ def metric(
         ...     return orders.amount.sum()
     """
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model_name, ctx)
+    resolved_model = _resolve_model(model, ctx)
 
     def decorator(fn: Callable[..., Any]) -> MetricRef:
         obj_name = name or fn.__name__
-        semantic_id = f"{model_name}.{obj_name}"
+        semantic_id = f"{resolved_model}.{obj_name}"
         _check_duplicate(ctx, semantic_id, MetricIR)
 
         ds_refs = _resolve_dataset_refs(datasets)
@@ -694,7 +703,7 @@ def metric(
 
         ir = MetricIR(
             semantic_id=semantic_id,
-            model=model_name,
+            model=resolved_model,
             name=obj_name,
             datasets=ds_refs,
             is_derived=False,
@@ -727,14 +736,14 @@ def derived_metric(
     source_document: str | None = None,
     source_notes: str | None = None,
     verification_mode: Literal["sql_parity", "python_native"] | None = None,
-    model_name: str | None = None,
+    model: ModelRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> MetricRef:
     """Declare a body-free derived metric from canonical decomposition structure."""
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model_name, ctx)
-    semantic_id = f"{model_name}.{name}"
+    resolved_model = _resolve_model(model, ctx)
+    semantic_id = f"{resolved_model}.{name}"
     _check_duplicate(ctx, semantic_id, MetricIR)
 
     if decomposition.kind not in ("ratio", "weighted_average") or not decomposition.components:
@@ -770,7 +779,7 @@ def derived_metric(
 
     ir = MetricIR(
         semantic_id=semantic_id,
-        model=model_name,
+        model=resolved_model,
         name=name,
         datasets=(),
         is_derived=True,
@@ -797,7 +806,7 @@ def relationship(
     to_dataset: DatasetRef | str,
     from_fields: list[FieldRef | str],
     to_fields: list[FieldRef | str],
-    model_name: str | None = None,
+    model: ModelRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> RelationshipRef:
@@ -812,7 +821,8 @@ def relationship(
         to_dataset: Target dataset (``DatasetRef`` or qualified string).
         from_fields: Columns on ``from_dataset`` (``FieldRef`` / qualified strings).
         to_fields: Columns on ``to_dataset`` — must align positionally with ``from_fields``.
-        model_name: Override the active model namespace.
+        model: Override the active model namespace with a ``ModelRef`` returned
+            by ``ms.model(...)``. Defaults to the file's default model.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
@@ -831,7 +841,7 @@ def relationship(
         ... )
     """
     ctx = _require_ctx()
-    model_name = _resolve_model_name(model_name, ctx)
+    resolved_model = _resolve_model(model, ctx)
 
     if name is None:
         _raise(
@@ -840,7 +850,7 @@ def relationship(
             cls=SemanticDecoratorError,
         )
 
-    semantic_id = f"{model_name}.{name}"
+    semantic_id = f"{resolved_model}.{name}"
     _check_duplicate(ctx, semantic_id, RelationshipIR)
 
     from_ds = _resolve_ref_string(from_dataset)
@@ -852,7 +862,7 @@ def relationship(
 
     ir = RelationshipIR(
         semantic_id=semantic_id,
-        model=model_name,
+        model=resolved_model,
         name=name,
         from_dataset=from_ds,
         to_dataset=to_ds,

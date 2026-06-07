@@ -37,6 +37,7 @@ __all__ = [
     "MetricIR",
     "MetricRef",
     "ModelIR",
+    "ModelRef",
     "ParityStatus",
     "ProvenanceIR",
     "RelationshipIR",
@@ -427,3 +428,10 @@ class RelationshipRef(_BaseRef):
 
     def __init__(self, semantic_id: str) -> None:
         super().__init__(semantic_id, SymbolKind.RELATIONSHIP)
+
+
+class ModelRef(_BaseRef):
+    """Ref returned by ms.model().  Not callable."""
+
+    def __init__(self, semantic_id: str) -> None:
+        super().__init__(semantic_id, SymbolKind.MODEL)

@@ -87,6 +87,7 @@ def test_all_list_matches_expected() -> None:
         "SemanticProject",
         "SourceEvidencePack",
         "find_project",
+        "ModelRef",
         "model",
         "dataset",
         "file",

@@ -168,7 +168,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("dataset", "field", "time_field", "metric", "derived_metric", "relationship"),
         "Declarations need a model namespace.",
         "Every semantic object is stored as <model>.<name>.",
-        "Call ms.model(name=...) in _model.py or pass model_name=... explicitly.",
+        "Call ms.model(name=...) in _model.py or pass model=... explicitly.",
         example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
     ),
     ConstraintId.UNIQUE_SEMANTIC_NAME: _constraint(
