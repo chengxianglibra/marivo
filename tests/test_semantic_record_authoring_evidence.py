@@ -8,7 +8,7 @@ from marivo.semantic.reader import SemanticProject
 def _project(tmp_path) -> SemanticProject:
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    return SemanticProject(root=root)
+    return SemanticProject(workspace_dir=tmp_path)
 
 
 def test_record_source_sql_returns_ref_with_content_fingerprint(tmp_path):

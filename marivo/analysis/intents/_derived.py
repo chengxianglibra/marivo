@@ -176,7 +176,7 @@ def persist_attribution_frame(
             "duration_ms": int((monotonic() - started_monotonic) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session.semantic_project.root),
+            "semantic_project_root": str(session.semantic_project.semantic_root),
             "semantic_model": semantic_model,
             "queries": [qe.to_dict() for qe in _captured_queries],
         },

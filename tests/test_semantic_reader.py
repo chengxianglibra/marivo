@@ -1482,7 +1482,7 @@ def test_collect_source_preview_persists_metadata_without_rows(
         limit=2,
     )
 
-    path = project.root / ".evidence" / "raw_previews.json"
+    path = project.semantic_root / ".evidence" / "raw_previews.json"
     payload = json.loads(path.read_text())
 
     assert len(payload["raw_previews"]) == 1
@@ -1531,7 +1531,7 @@ def test_collect_source_preview_replaces_persisted_record_for_same_ref(
         limit=2,
     )
 
-    path = project.root / ".evidence" / "raw_previews.json"
+    path = project.semantic_root / ".evidence" / "raw_previews.json"
     payload = json.loads(path.read_text())
 
     assert len(payload["raw_previews"]) == 1

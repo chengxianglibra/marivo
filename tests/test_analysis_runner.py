@@ -69,7 +69,7 @@ def _bootstrap_project(
         f"{time_field_block}"
     )
 
-    project = SemanticProject(root=tmp_path / ".marivo" / "semantic")
+    project = SemanticProject(workspace_dir=tmp_path)
     project.load()
     return project
 

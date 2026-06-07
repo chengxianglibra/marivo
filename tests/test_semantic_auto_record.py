@@ -66,7 +66,7 @@ def _project_with_metric_and_time_field(semantic_project_factory):
 
 def test_auto_record_creates_metric_decomposition_decision(semantic_project_factory):
     project = _project_with_metric(semantic_project_factory)
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.semantic_root)
     obj = store.read_object("sales.revenue")
     assert obj is not None
     decisions = [d for d in obj.decisions if d.decision_kind == "metric_decomposition"]
@@ -85,7 +85,7 @@ def test_auto_record_creates_metric_decomposition_decision(semantic_project_fact
 
 def test_auto_record_creates_time_field_identity_decision(semantic_project_factory):
     project = _project_with_metric_and_time_field(semantic_project_factory)
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.semantic_root)
     obj = store.read_object("sales.orders.order_date")
     assert obj is not None
     decisions = [d for d in obj.decisions if d.decision_kind == "time_field_identity"]
@@ -105,7 +105,7 @@ def test_auto_record_creates_time_field_identity_decision(semantic_project_facto
 
 def test_auto_record_idempotent_on_reload(semantic_project_factory):
     project = _project_with_metric(semantic_project_factory)
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.semantic_root)
     obj_before = store.read_object("sales.revenue")
     assert obj_before is not None
     n_before = len([d for d in obj_before.decisions if d.decision_kind == "metric_decomposition"])
@@ -120,7 +120,7 @@ def test_auto_record_idempotent_on_reload(semantic_project_factory):
 
 def test_auto_record_preserves_richer_answer_decision(semantic_project_factory):
     project = _project_with_metric(semantic_project_factory)
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.semantic_root)
     n_authoring_before = len(
         [
             d
@@ -158,7 +158,7 @@ def test_auto_record_preserves_richer_answer_decision(semantic_project_factory):
 
     project.reload()
 
-    obj = lg.LedgerStore(project.root).read_object("sales.revenue")
+    obj = lg.LedgerStore(project.semantic_root).read_object("sales.revenue")
     assert obj is not None
     md_decisions = [d for d in obj.decisions if d.decision_kind == "metric_decomposition"]
     # The richer decision should be preserved
@@ -172,7 +172,7 @@ def test_auto_record_preserves_richer_answer_decision(semantic_project_factory):
 
 def test_auto_record_replaces_old_authoring_on_definition_change(semantic_project_factory):
     project = _project_with_metric(semantic_project_factory)
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.semantic_root)
     obj_first = store.read_object("sales.revenue")
     assert obj_first is not None
     fp_first = next(
@@ -194,7 +194,7 @@ orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders
 def revenue(orders):
     return orders.amount.sum()
 """
-    model_dir = project.root / "sales"
+    model_dir = project.semantic_root / "sales"
     (model_dir / "datasets.py").write_text(datasets_py_changed)
 
     project.reload()
@@ -240,7 +240,7 @@ def test_auto_record_only_records_missing_decisions(semantic_project_factory):
         question_id="q-tf",
         decided_at="2026-06-01T00:00:00+00:00",
     )
-    store_before = lg.LedgerStore(project.root)
+    store_before = lg.LedgerStore(project.semantic_root)
     n_authoring_tf_before = len(
         [
             d
@@ -272,7 +272,7 @@ def test_auto_record_only_records_missing_decisions(semantic_project_factory):
 
     project.reload()
 
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.semantic_root)
     # Time field: user_confirmation decision preserved; no new authoring auto-record added
     tf_obj = store.read_object("sales.orders.order_date")
     assert tf_obj is not None
@@ -300,7 +300,7 @@ def test_auto_record_writes_alongside_user_confirmation_when_no_prior_authoring(
     a non-authoring decision of the same decision_kind already exists and
     no prior authoring decision is present."""
     project = _project_with_metric(semantic_project_factory)
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.semantic_root)
 
     # Strip the authoring auto-record, leaving only a user_confirmation decision
     obj = store.read_object("sales.revenue")

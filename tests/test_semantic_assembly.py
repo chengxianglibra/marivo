@@ -736,7 +736,7 @@ def semantic_project_factory(tmp_path):
             full = root / rel
             full.parent.mkdir(parents=True, exist_ok=True)
             full.write_text(src)
-        project = SemanticProject(root=root)
+        project = SemanticProject(workspace_dir=tmp_path)
         if load:
             project.load()
         return project

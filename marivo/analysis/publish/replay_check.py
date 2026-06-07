@@ -57,9 +57,9 @@ class ReplayCheckResult:
     issues: tuple[ReplayCheckIssue, ...]
 
 
-def _load_metric_ids(semantic_root: Path) -> frozenset[str]:
+def _load_metric_ids(workspace_dir: Path) -> frozenset[str]:
     """Load the embedded semantic model and return its metric semantic ids."""
-    project = SemanticProject(root=semantic_root)
+    project = SemanticProject(workspace_dir=workspace_dir)
     project.load()
     return frozenset(m.semantic_id for m in project.list_metrics(display=False))
 
@@ -251,7 +251,7 @@ def _check_secrets(source: str) -> list[ReplayCheckIssue]:
     return issues
 
 
-def static_check_replay(script_path: Path, *, semantic_root: Path) -> ReplayCheckResult:
+def static_check_replay(script_path: Path, *, workspace_dir: Path) -> ReplayCheckResult:
     """Statically validate ``script_path`` against the embedded semantic model.
 
     Returns a :class:`ReplayCheckResult`; it never raises on a failed check.
@@ -267,7 +267,7 @@ def static_check_replay(script_path: Path, *, semantic_root: Path) -> ReplayChec
 
     # Loaded now so the embedded-semantic dependency is exercised from the
     # start; consumed by the metric-ref check.
-    metric_ids = _load_metric_ids(semantic_root)
+    metric_ids = _load_metric_ids(workspace_dir)
 
     issues: list[ReplayCheckIssue] = []
     issues.extend(_check_imports(tree))

@@ -4,7 +4,7 @@ Public surface::
 
     import marivo.semantic as ms
 
-    project = ms.find_project()        # or ms.SemanticProject(root)
+    project = ms.find_project()        # or ms.SemanticProject(workspace_dir)
     project.load()
 
     ms.model(name="sales", default=True)

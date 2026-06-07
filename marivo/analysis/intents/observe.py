@@ -1071,7 +1071,7 @@ def observe(
                 "duration_ms": int((monotonic() - started) * 1000),
                 "status": "succeeded",
                 "error": None,
-                "semantic_project_root": str(session.semantic_project.root),
+                "semantic_project_root": str(session.semantic_project.semantic_root),
                 "semantic_model": model_name,
                 "queries": [
                     {**qe.to_dict(), "output_ref": _output_ref} for qe in _captured_queries
@@ -1220,7 +1220,7 @@ def observe(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session.semantic_project.root),
+            "semantic_project_root": str(session.semantic_project.semantic_root),
             "semantic_model": model_name,
             "queries": [{**qe.to_dict(), "output_ref": _output_ref} for qe in _captured_queries],
         },

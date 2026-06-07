@@ -119,7 +119,7 @@ def test_all_list_matches_expected() -> None:
 
 def test_semantic_project_class() -> None:
     assert ms.SemanticProject is not None
-    project = ms.SemanticProject(root="/tmp/test")
+    project = ms.SemanticProject(workspace_dir="/tmp/test")
     assert not project.is_ready()
 
 
@@ -812,7 +812,7 @@ def test_propagated_parity_status_callable() -> None:
 
 
 def test_semantic_project_init() -> None:
-    project = ms.SemanticProject(root="/tmp/test")
+    project = ms.SemanticProject(workspace_dir="/tmp/test")
     assert not project.is_ready()
     assert project.errors() == ()
 
@@ -825,7 +825,7 @@ def test_semantic_project_load_works() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         semantic_root = Path(tmp) / ".marivo" / "semantic"
         semantic_root.mkdir(parents=True)
-        project = ms.SemanticProject(root=semantic_root)
+        project = ms.SemanticProject(workspace_dir=Path(tmp))
         result = project.load()
         assert result.status == "ready"
 
@@ -838,6 +838,6 @@ def test_semantic_project_reload_works() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         semantic_root = Path(tmp) / ".marivo" / "semantic"
         semantic_root.mkdir(parents=True)
-        project = ms.SemanticProject(root=semantic_root)
+        project = ms.SemanticProject(workspace_dir=Path(tmp))
         result = project.reload()
         assert result.status == "ready"

@@ -48,7 +48,7 @@ def semantic_project_factory(tmp_path):
                 f"md.datasource({datasource_name})\n"
             )
 
-        project = SemanticProject(root=root)
+        project = SemanticProject(workspace_dir=tmp_path)
         if load:
             project.load(models=models)
         return project
