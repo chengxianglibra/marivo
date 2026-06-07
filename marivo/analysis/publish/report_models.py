@@ -239,6 +239,9 @@ class ReportManifest(_ReportModel):
     title: str
     created_at: str
     marivo_version: str
+    exported_by: str | None = None
+    exported_at: str | None = None
+    content_hash: str | None = None
     entrypoints: dict[str, str] = Field(default_factory=lambda: {"html": "index.html"})
     adapter_mcp: McpAdapterMetadata = Field(default_factory=McpAdapterMetadata)
     artifact_count: int

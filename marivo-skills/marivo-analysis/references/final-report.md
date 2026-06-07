@@ -145,6 +145,31 @@ table pagination, and local search over already-packaged content. These
 interactions never run live queries, never create new aggregations, and never
 recompute executive-summary claims.
 
+## Publishing handoff
+
+When the report package should be shared outside the local workspace, publish the
+staged package with the deterministic library helper after the artifact validates
+and an adapter has materialized at least one entrypoint (for example
+`index.html`):
+
+1. Build and validate the `MarivoReportArtifact`, then materialize the package
+   directory with `materialize_html_adapter` (and `materialize_mcp_adapter` if an
+   MCP payload should be stored).
+2. Call `publish_report_package(package_dir, exported_by=..., target=...)`.
+3. The helper loads and re-validates the package, scans packaged text files for
+   secrets, computes a deterministic content hash (excluding `manifest.json`),
+   and stamps `exported_by`, `exported_at`, and `content_hash` into the published
+   manifest.
+4. Content files upload first and `manifest.json` is written last, so a partial
+   upload is never mistaken for a completed publish.
+
+The publish destination is user-scoped: the resolved path must include the
+`exported_by` segment, and existing targets are immutable by default (pass
+`overwrite=True` to replace one). The library never publishes secrets,
+credentials, or row-level frames that the manifest data policy omits. Publishing
+is deterministic and library-owned; it does not author narrative, HTML, or
+replay scripts.
+
 ## Discovery and anomaly reports
 
 When reporting anomalies or discovered candidates, separate signal from noise.
