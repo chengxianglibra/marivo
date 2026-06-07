@@ -63,6 +63,8 @@ def test_all_list_matches_expected() -> None:
         "AiContextInput",
         "AssessmentIssue",
         "AssessmentResult",
+        "AuthoringAssessment",
+        "AuthoringSourceInput",
         "AuthoringEvidenceInput",
         "AuthoringQuestion",
         "BoundedProfilePolicy",
@@ -74,18 +76,19 @@ def test_all_list_matches_expected() -> None:
         "DemandSignal",
         "EvidenceFact",
         "EvidenceRef",
-        "EvidenceSummary",
         "FieldSummary",
         "FileSource",
         "MetadataOnlyPolicy",
         "ParitySummary",
         "PreviewSummary",
+        "ReadinessInputSummary",
         "ReadinessIssue",
         "ReadinessReport",
         "RejectedCandidate",
         "RelationshipSummary",
         "RichnessGap",
         "RichnessReport",
+        "RichnessSummary",
         "SamplePolicy",
         "SelectedColumnsPolicy",
         "SemanticProject",
@@ -126,7 +129,7 @@ def test_semantic_project_class() -> None:
 def test_readiness_public_dtos() -> None:
     assert ms.ReadinessReport is not None
     assert ms.ReadinessIssue is not None
-    assert ms.EvidenceSummary is not None
+    assert ms.ReadinessInputSummary is not None
     assert ms.ParitySummary is not None
     assert ms.PreviewSummary is not None
 

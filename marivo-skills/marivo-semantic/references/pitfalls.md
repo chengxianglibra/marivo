@@ -17,13 +17,13 @@ pack facts (type, comments, nullable, partition hints, sampled values). Use
 `project.inspect_column_context(...)` to deep-dive a small set of columns, then
 author directly.
 
-## Skipping record_authoring_evidence before check_authoring_inputs
+## Skipping record_authoring_evidence before assess_authoring
 
-`check_authoring_inputs` evaluates evidence refs. If you have source SQL,
+`assess_authoring` evaluates evidence refs. If you have source SQL,
 knowledge documents, or user confirmations, record them with
 `project.record_authoring_evidence(AuthoringEvidenceInput(...))` first and cite
-the returned `EvidenceRef.id` in the check. Skipping this step produces
-`needs_evidence` or `blocked` results that are trivially resolvable.
+the returned `EvidenceRef.id` in the assessment. Skipping this step produces
+`needs_input` or `blocked` results that are trivially resolvable.
 
 ## Forgetting to reload before inspect_authored_object
 

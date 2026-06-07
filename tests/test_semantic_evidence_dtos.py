@@ -5,7 +5,9 @@ import pytest
 from marivo.semantic.evidence import (
     AssessmentIssue,
     AssessmentResult,
+    AuthoringAssessment,
     AuthoringQuestion,
+    AuthoringSourceInput,
     BoundedProfilePolicy,
     ColumnProfile,
     FileSource,
@@ -227,7 +229,7 @@ def test_derive_status_blocked_on_blocking_question():
     assert derive_status((), (q,)) == "blocked"
 
 
-def test_derive_status_needs_evidence_then_supported():
+def test_derive_status_needs_input_then_supported():
     needs = AssessmentIssue(
         kind="missing_evidence",
         severity="warning",
@@ -236,7 +238,7 @@ def test_derive_status_needs_evidence_then_supported():
         rule_id="r1",
         evidence_refs=(),
     )
-    assert derive_status((needs,), ()) == "needs_evidence"
+    assert derive_status((needs,), ()) == "needs_input"
     assert derive_status((), ()) == "supported"
 
 
@@ -244,3 +246,49 @@ def test_assessment_result_is_frozen():
     result = AssessmentResult(status="supported", facts=(), issues=(), questions=())
     with pytest.raises(AttributeError):
         result.status = "blocked"  # type: ignore[misc]
+
+
+def test_authoring_source_input_to_dict_is_json_safe():
+    src = AuthoringSourceInput(
+        role="from",
+        datasource="warehouse",
+        source=TableSource(table="orders", database="sales_mart"),
+        columns=("customer_id",),
+    )
+
+    assert src.to_dict() == {
+        "role": "from",
+        "datasource": "warehouse",
+        "source": {
+            "kind": "table",
+            "table": "orders",
+            "database": "sales_mart",
+        },
+        "columns": ["customer_id"],
+    }
+
+
+def test_authoring_assessment_status_uses_needs_input():
+    issue = AssessmentIssue(
+        kind="missing_source",
+        severity="warning",
+        refs=("sales.revenue",),
+        message="source context is missing",
+        rule_id="source_context_present",
+        evidence_refs=(),
+    )
+
+    assessment = AuthoringAssessment(
+        status=derive_status((issue,), ()),
+        facts=(),
+        issues=(issue,),
+        questions=(),
+    )
+
+    assert assessment.status == "needs_input"
+
+
+def test_assessment_result_has_no_next_checks_field():
+    result = AssessmentResult(status="supported", facts=(), issues=(), questions=())
+
+    assert not hasattr(result, "next_checks")

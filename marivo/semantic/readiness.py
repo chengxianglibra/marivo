@@ -20,6 +20,7 @@ from marivo.preview import (
 from marivo.semantic.ir import ParityStatus, TableSourceIR
 from marivo.semantic.materializer import Materializer
 from marivo.semantic.parity import propagated_parity_status
+from marivo.semantic.richness import RichnessSummary
 
 if TYPE_CHECKING:
     from marivo.analysis.datasources.metadata import TableMetadata
@@ -76,26 +77,6 @@ class ReadinessIssue:
 
 
 @dataclass(frozen=True)
-class EvidenceSummary:
-    datasources_checked: tuple[str, ...]
-    tables_inspected: tuple[str, ...]
-    raw_previews: tuple[str, ...]
-    knowledge_documents: tuple[str, ...]
-    user_confirmations: tuple[str, ...]
-    semantic_objects_changed: tuple[str, ...]
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "datasources_checked": list(self.datasources_checked),
-            "tables_inspected": list(self.tables_inspected),
-            "raw_previews": list(self.raw_previews),
-            "knowledge_documents": list(self.knowledge_documents),
-            "user_confirmations": list(self.user_confirmations),
-            "semantic_objects_changed": list(self.semantic_objects_changed),
-        }
-
-
-@dataclass(frozen=True)
 class PreviewSummary:
     required_previews: tuple[str, ...]
     completed_previews: tuple[str, ...]
@@ -123,6 +104,7 @@ class ParitySummary:
     verified_metrics: tuple[str, ...]
     unverified_metrics: tuple[str, ...]
     drifted_metrics: tuple[str, ...]
+    unsupported_metrics: tuple[str, ...]
     skipped_metrics: tuple[str, ...]
 
     def to_dict(self) -> dict[str, object]:
@@ -130,7 +112,24 @@ class ParitySummary:
             "verified_metrics": list(self.verified_metrics),
             "unverified_metrics": list(self.unverified_metrics),
             "drifted_metrics": list(self.drifted_metrics),
+            "unsupported_metrics": list(self.unsupported_metrics),
             "skipped_metrics": list(self.skipped_metrics),
+        }
+
+
+@dataclass(frozen=True)
+class ReadinessInputSummary:
+    datasources: tuple[str, ...]
+    refs: tuple[str, ...]
+    tables: tuple[str, ...]
+    decision_records: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "datasources": list(self.datasources),
+            "refs": list(self.refs),
+            "tables": list(self.tables),
+            "decision_records": list(self.decision_records),
         }
 
 
@@ -155,9 +154,10 @@ class ReadinessReport:
     analysis_ready_refs: tuple[str, ...]
     blockers: tuple[ReadinessIssue, ...]
     warnings: tuple[ReadinessIssue, ...]
-    evidence_summary: EvidenceSummary
+    input_summary: ReadinessInputSummary
     preview_summary: PreviewSummary
     parity_summary: ParitySummary
+    richness_summary: RichnessSummary
     checked_at: str
 
     def to_dict(self) -> dict[str, object]:
@@ -166,9 +166,10 @@ class ReadinessReport:
             "analysis_ready_refs": list(self.analysis_ready_refs),
             "blockers": [issue.to_dict() for issue in self.blockers],
             "warnings": [issue.to_dict() for issue in self.warnings],
-            "evidence_summary": self.evidence_summary.to_dict(),
+            "input_summary": self.input_summary.to_dict(),
             "preview_summary": self.preview_summary.to_dict(),
             "parity_summary": self.parity_summary.to_dict(),
+            "richness_summary": self.richness_summary.to_dict(),
             "checked_at": self.checked_at,
         }
 
@@ -201,6 +202,20 @@ def _dedupe(values: Iterable[str]) -> tuple[str, ...]:
             seen.add(value)
             out.append(value)
     return tuple(out)
+
+
+def _decision_record_summary(project: SemanticProject, refs: Iterable[str]) -> tuple[str, ...]:
+    from marivo.semantic.ledger import LedgerStore
+
+    store = LedgerStore(project.root)
+    records: list[str] = []
+    for ref in refs:
+        record = store.read_object(ref)
+        if record is None:
+            continue
+        for decision in record.decisions:
+            records.append(f"{ref}:{decision.decision_kind}")
+    return _dedupe(records)
 
 
 def _issue(
@@ -802,14 +817,17 @@ def build_readiness_report(
     *,
     backend_factory: Callable[[str], Any] | None = None,
     refs: Iterable[str] | None = None,
+    demand: object | None = None,
+    preview_limit: int = 20,
+    parity_rel_tol: float | None = None,
+    parity_abs_tol: float | None = None,
+    redact: bool = True,
 ) -> ReadinessReport:
     # Unpack evidence into local variables used throughout the function body.
     raw_previews = evidence.raw_previews
     failed_raw_previews = evidence.failed_raw_previews
     required_raw_previews = evidence.required_raw_previews or None
     required_semantic_previews = evidence.required_semantic_previews or None
-    knowledge_documents = evidence.knowledge_documents
-    user_confirmations = evidence.user_confirmations
     confirmed_relationships = evidence.confirmed_relationships
     primary_keys_sampled = evidence.primary_keys_sampled
     raw_sql_required_refs = evidence.raw_sql_required_refs
@@ -817,7 +835,6 @@ def build_readiness_report(
     supports_federation = evidence.supports_federation
 
     # Policy flags: strict defaults now that evidence auto-loads.
-    strict_provenance = True
     require_preview = True
     require_comments = False
     require_evidence_ledger = True
@@ -845,13 +862,11 @@ def build_readiness_report(
             analysis_ready_refs=(),
             blockers=tuple(blockers),
             warnings=(),
-            evidence_summary=EvidenceSummary(
-                datasources_checked=(),
-                tables_inspected=(),
-                raw_previews=_dedupe(raw_previews),
-                knowledge_documents=_dedupe(knowledge_documents),
-                user_confirmations=_dedupe(user_confirmations),
-                semantic_objects_changed=(),
+            input_summary=ReadinessInputSummary(
+                datasources=(),
+                refs=(),
+                tables=(),
+                decision_records=(),
             ),
             preview_summary=PreviewSummary(
                 required_previews=(),
@@ -863,8 +878,10 @@ def build_readiness_report(
                 verified_metrics=(),
                 unverified_metrics=(),
                 drifted_metrics=(),
+                unsupported_metrics=(),
                 skipped_metrics=(),
             ),
+            richness_summary=RichnessSummary(gaps=()),
             checked_at=_checked_at(),
         )
 
@@ -924,8 +941,8 @@ def build_readiness_report(
                 "datasource_unreachable",
                 "blocker",
                 semantic_required,
-                "Semantic preview requires backend_factory but none was provided.",
-                "Call project.bind_datasource_access(...) or pass backend_factory=... explicitly.",
+                "Readiness requires project-bound backend access for semantic previews.",
+                "Call project.bind_datasource_access(...) to bind a backend factory.",
             )
         )
         failed_previews.extend(semantic_required)
@@ -959,12 +976,10 @@ def build_readiness_report(
             verified_metrics.append(metric.semantic_id)
         elif parity_status == ParityStatus.UNVERIFIED:
             unverified_metrics.append(metric.semantic_id)
-            severity: ReadinessSeverity = "blocker" if strict_provenance else "warning"
-            issue_target = blockers if strict_provenance else warnings
-            issue_target.append(
+            warnings.append(
                 _issue(
                     "unverified_metric",
-                    severity,
+                    "warning",
                     (metric.semantic_id,),
                     f"Metric {metric.semantic_id} is unverified.",
                     "Run project.parity_check(...) or set verification_mode='python_native' when no SQL oracle exists.",
@@ -972,10 +987,10 @@ def build_readiness_report(
             )
         elif parity_status == ParityStatus.DRIFTED:
             drifted_metrics.append(metric.semantic_id)
-            blockers.append(
+            warnings.append(
                 _issue(
                     "parity_drifted",
-                    "blocker",
+                    "warning",
                     (metric.semantic_id,),
                     f"Metric {metric.semantic_id} has drifted from source SQL parity.",
                     "Compare the metric body with source_sql and fix the semantic definition or provenance.",
@@ -1140,6 +1155,7 @@ def build_readiness_report(
         verified_metrics=_dedupe(verified_metrics),
         unverified_metrics=_dedupe(unverified_metrics),
         drifted_metrics=_dedupe(drifted_metrics),
+        unsupported_metrics=(),
         skipped_metrics=_dedupe(skipped_metrics),
     )
     datasources_checked: tuple[str, ...] = ()
@@ -1150,22 +1166,41 @@ def build_readiness_report(
             if backend_factory is not None
         )
 
+    # Fold richness gaps into warnings.
+    from marivo.semantic.richness import DemandSignal, build_richness_report
+
+    richness = build_richness_report(
+        project, demand=demand if isinstance(demand, DemandSignal) else None
+    )
+    richness_gap_ids = tuple(f"{gap.subkind}:{','.join(gap.refs)}" for gap in richness.gaps)
+    for gap in richness.gaps:
+        warnings.append(
+            _issue(
+                "missing_business_definition"
+                if gap.subkind == "missing_business_definition"
+                else "missing_guardrails"
+                if gap.subkind == "missing_guardrails"
+                else "unresolved_clarification",
+                "warning",
+                gap.refs,
+                f"Richness gap {gap.subkind} for {', '.join(gap.refs)}.",
+                gap.suggested_action,
+            )
+        )
+
     return ReadinessReport(
         status=_status(blockers, warnings),
         analysis_ready_refs=analysis_ready_refs,
         blockers=tuple(blockers),
         warnings=tuple(warnings),
-        evidence_summary=EvidenceSummary(
-            datasources_checked=datasources_checked,
-            tables_inspected=_dedupe(
-                tuple(metadata_by_dataset.keys()) + _dataset_refs(checked_refs, kinds)
-            ),
-            raw_previews=_dedupe(raw_previews),
-            knowledge_documents=_dedupe(knowledge_documents),
-            user_confirmations=_dedupe(user_confirmations),
-            semantic_objects_changed=checked_refs,
+        input_summary=ReadinessInputSummary(
+            datasources=datasources_checked,
+            refs=checked_refs,
+            tables=_dedupe(tuple(metadata_by_dataset.keys()) + _dataset_refs(checked_refs, kinds)),
+            decision_records=_decision_record_summary(project, checked_refs),
         ),
         preview_summary=preview_summary,
         parity_summary=parity_summary,
+        richness_summary=RichnessSummary(gaps=richness_gap_ids),
         checked_at=_checked_at(),
     )

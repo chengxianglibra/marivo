@@ -195,7 +195,6 @@ def test_write_then_get_column_evidence_preserves_issues(tmp_path):
         message="Need metric provenance",
         rule_id="semantic.metric.provenance",
         evidence_refs=(ref.id,),
-        next_checks=("parity_check",),
     )
     evidence = ColumnEvidence(
         datasource="warehouse",

@@ -4,8 +4,7 @@ import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
 from marivo.semantic.evidence import (
-    AiContextInput,
-    AuthoringEvidenceInput,
+    AuthoringSourceInput,
     MetadataOnlyPolicy,
     TableSource,
 )
@@ -50,38 +49,19 @@ def _project_with_source(tmp_path) -> SemanticProject:
     return project
 
 
-def test_metric_without_evidence_needs_evidence(tmp_path):
+def test_metric_with_source_columns_supported(tmp_path):
     project = _project_with_source(tmp_path)
     result = project.check_authoring_inputs(
         object_kind="metric",
         subject_ref="sales.revenue",
-        datasource="warehouse",
-        source=TableSource(table="orders"),
-        columns=("amount", "paid"),
-        ai_context=AiContextInput(business_definition="Paid order revenue."),
-    )
-    assert result.status == "needs_evidence"
-    assert any(i.kind == "missing_evidence" for i in result.issues)
-    assert "inspect_source_context" not in set(result.next_checks)  # source known
-
-
-def test_metric_with_source_sql_is_supported(tmp_path):
-    project = _project_with_source(tmp_path)
-    ref = project.record_authoring_evidence(
-        AuthoringEvidenceInput(
-            kind="source_sql",
-            subject_refs=("sales.revenue",),
-            content="select sum(amount) from orders where paid",
-        )
-    )
-    result = project.check_authoring_inputs(
-        object_kind="metric",
-        subject_ref="sales.revenue",
-        datasource="warehouse",
-        source=TableSource(table="orders"),
-        columns=("amount", "paid"),
-        evidence_refs=(ref.id,),
-        ai_context=AiContextInput(business_definition="Paid order revenue."),
+        sources=(
+            AuthoringSourceInput(
+                role="primary",
+                datasource="warehouse",
+                source=TableSource(table="orders"),
+                columns=("amount", "paid"),
+            ),
+        ),
     )
     assert result.status == "supported"
 
@@ -91,23 +71,45 @@ def test_missing_column_is_a_blocker(tmp_path):
     result = project.check_authoring_inputs(
         object_kind="field",
         subject_ref="sales.orders.nope",
-        datasource="warehouse",
-        source=TableSource(table="orders"),
-        columns=("nope",),
+        sources=(
+            AuthoringSourceInput(
+                role="primary",
+                datasource="warehouse",
+                source=TableSource(table="orders"),
+                columns=("nope",),
+            ),
+        ),
     )
     assert result.status == "blocked"
     assert any(i.kind == "missing_column" and i.severity == "blocker" for i in result.issues)
 
 
-def test_unknown_source_returns_needs_evidence_with_next_check(tmp_path):
+def test_unknown_source_returns_needs_input(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(workspace_dir=tmp_path)
     result = project.check_authoring_inputs(
         object_kind="dataset",
         subject_ref="sales.orders",
-        datasource="warehouse",
-        source=TableSource(table="orders"),
+        sources=(
+            AuthoringSourceInput(
+                role="primary",
+                datasource="warehouse",
+                source=TableSource(table="orders"),
+            ),
+        ),
     )
-    assert result.status == "needs_evidence"
-    assert "inspect_source_context" in result.next_checks
+    assert result.status == "needs_input"
+
+
+def test_metric_without_sources_requires_at_least_one(tmp_path):
+    root = tmp_path / ".marivo" / "semantic"
+    root.mkdir(parents=True)
+    project = SemanticProject(root=root)
+    result = project.check_authoring_inputs(
+        object_kind="metric",
+        subject_ref="sales.revenue",
+        sources=(),
+    )
+    assert result.status == "needs_input"
+    assert any(i.kind == "missing_source" for i in result.issues)

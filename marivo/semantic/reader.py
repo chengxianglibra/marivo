@@ -37,8 +37,11 @@ from marivo.semantic.errors import (
     _raise,
 )
 from marivo.semantic.evidence import (
+    AssessmentIssue,
     AssessmentResult,
+    AuthoringAssessment,
     AuthoringEvidenceInput,
+    AuthoringSourceInput,
     BoundedProfilePolicy,
     ColumnEvidence,
     DatasetSource,
@@ -65,9 +68,9 @@ from marivo.semantic.loader import LoadResult, load_project
 from marivo.semantic.materializer import DatasetRuntimeMetadata, Materializer
 from marivo.semantic.parity import ParityResult, parity_check, propagated_parity_status
 from marivo.semantic.readiness import (
-    EvidenceSummary,
     ParitySummary,
     PreviewSummary,
+    ReadinessInputSummary,
     ReadinessIssue,
     ReadinessReport,
     _ReadinessEvidence,
@@ -76,6 +79,7 @@ from marivo.semantic.readiness import (
 from marivo.semantic.richness import (
     DemandSignal,
     RichnessReport,
+    RichnessSummary,
     build_richness_report,
 )
 from marivo.semantic.validator import Registry, Sidecar
@@ -85,13 +89,14 @@ __all__ = [
     "DatasourceSummary",
     "DependencyNode",
     "Description",
-    "EvidenceSummary",
     "MetricSummary",
     "ModelSummary",
     "ParitySummary",
     "PreviewSummary",
+    "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",
+    "RichnessSummary",
     "SearchHit",
     "SemanticProject",
 ]
@@ -1896,23 +1901,30 @@ class SemanticProject:
         self,
         *,
         refs: Iterable[str] | None = None,
+        demand: DemandSignal | None = None,
+        preview_limit: int = 20,
+        parity_rel_tol: float | None = None,
+        parity_abs_tol: float | None = None,
+        redact: bool = True,
     ) -> ReadinessReport:
-        """Return a structured semantic readiness report.
+        """Return the semantic closeout report used before analysis handoff.
 
-        Evidence is auto-loaded from the project's ledger and evidence store.
-        Use ``refs`` to scope which semantic objects to check; by default all
-        loaded objects are checked.
+        The project must already have datasource access bound with
+        bind_datasource_access(...). Readiness reloads project state, runs required
+        backend previews, runs eligible parity checks, folds richness gaps into
+        warnings, and reports blockers that prevent analysis handoff.
         """
         evidence = self._auto_collect_evidence()
-        # Intentionally not using _resolve_backend_factory: readiness can
-        # produce a useful (if degraded) report without a backend — semantic
-        # previews are skipped but other checks still run.
-        factory = self._backend_factory
         return build_readiness_report(
             self,
             evidence,
-            backend_factory=factory,
+            backend_factory=self._backend_factory,
             refs=refs,
+            demand=demand,
+            preview_limit=preview_limit,
+            parity_rel_tol=parity_rel_tol,
+            parity_abs_tol=parity_abs_tol,
+            redact=redact,
         )
 
     # -- richness -----------------------------------------------------------
@@ -2027,31 +2039,111 @@ class SemanticProject:
         user confirmations) and return its EvidenceRef."""
         return self._evidence_store().write_authoring_evidence(evidence)
 
+    def assess_authoring(
+        self,
+        *,
+        object_kind: str,
+        subject_ref: str,
+        sources: Sequence[AuthoringSourceInput] = (),
+        semantic_refs: Sequence[str] = (),
+    ) -> AuthoringAssessment:
+        """Inspect current source context and return a composed authoring assessment.
+
+        Parameters:
+            object_kind: Semantic object kind: dataset, field, time_field, metric,
+                derived_metric, or relationship.
+            subject_ref: Target semantic id such as "sales.revenue".
+            sources: Physical source roles that ground the object. Derived metrics may
+                pass an empty tuple when all grounding is semantic-ref based.
+            semantic_refs: Existing semantic refs the target depends on.
+
+        Returns:
+            AuthoringAssessment with facts, issues, questions, and status.
+
+        Example:
+            project.assess_authoring(
+                object_kind="metric",
+                subject_ref="sales.revenue",
+                sources=(ms.AuthoringSourceInput(
+                    role="primary",
+                    datasource="warehouse",
+                    source=ms.TableSource(table="orders"),
+                    columns=("amount",),
+                ),),
+                semantic_refs=("sales.orders",),
+            )
+
+        Constraints:
+            Does not accept drafted object content, source_sql, ai_context, or
+            evidence_refs. Bind datasource access before assessing source-backed objects.
+        """
+        if sources and (self._bound_inspect_source is None or self._backend_factory is None):
+            issue = AssessmentIssue(
+                kind="missing_source",
+                severity="blocker",
+                refs=(subject_ref,),
+                message=(
+                    "assess_authoring requires bound datasource access. "
+                    "Call project.bind_datasource_access(inspect_source=..., backend_factory=...) first."
+                ),
+                rule_id="datasource_access_bound",
+                evidence_refs=(),
+            )
+            return AuthoringAssessment(
+                status="blocked",
+                facts=(),
+                issues=(issue,),
+                questions=(),
+            )
+
+        for source_input in sources:
+            self.inspect_source_context(
+                datasource=source_input.datasource,
+                source=source_input.source,
+                sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=50),
+            )
+            if source_input.columns:
+                self.inspect_column_context(
+                    datasource=source_input.datasource,
+                    source=source_input.source,
+                    columns=source_input.columns,
+                    sample_policy=SelectedColumnsPolicy(
+                        limit=100,
+                        columns=source_input.columns,
+                        max_profiled_columns=len(source_input.columns),
+                    ),
+                )
+
+        result = self.check_authoring_inputs(
+            object_kind=object_kind,
+            subject_ref=subject_ref,
+            sources=sources,
+            semantic_refs=semantic_refs,
+        )
+        return AuthoringAssessment(
+            status=result.status,
+            facts=result.facts,
+            issues=result.issues,
+            questions=result.questions,
+        )
+
     def check_authoring_inputs(
         self,
         *,
         object_kind: str,
         subject_ref: str,
-        datasource: str,
-        source: DatasetSource,
-        columns: Sequence[str] = (),
+        sources: Sequence[AuthoringSourceInput] = (),
         semantic_refs: Sequence[str] = (),
-        evidence_refs: Sequence[str] = (),
-        ai_context: Any | None = None,
     ) -> AssessmentResult:
-        """Cheap pre-authoring guardrail for refs, columns, and evidence."""
+        """Internal multi-source authoring guardrail used by assess_authoring."""
         from marivo.semantic.authoring_check import check_authoring_inputs as _check
 
         return _check(
             store=self._evidence_store(),
             object_kind=object_kind,  # type: ignore[arg-type]
             subject_ref=subject_ref,
-            datasource=datasource,
-            source=source,
-            columns=columns,
+            sources=sources,
             semantic_refs=semantic_refs,
-            evidence_refs=evidence_refs,
-            ai_context=ai_context,
         )
 
     def inspect_authored_object(self, ref: str) -> AssessmentResult:

@@ -49,7 +49,7 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     assert "mv.datasources.inspect_source" in skill
     assert "project.inspect_source_context(" in workflow
     assert "bind_datasource_access" in workflow
-    assert "project.check_authoring_inputs(" in workflow
+    assert "project.assess_authoring(" in workflow
     assert "sample_scope" in workflow or "sample_scope" in skill
     assert "non-negative integer count" in skill
     assert "record_authoring_evidence" in evidence
@@ -139,13 +139,14 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "project.inspect_source_context(" in evidence
     assert "bind_datasource_access" in evidence
     assert "project.record_authoring_evidence(" in evidence
-    assert "project.check_authoring_inputs(" in evidence
+    assert "project.assess_authoring(" in evidence
     assert "project.inspect_source_context(" in closeout
     assert "bind_datasource_access" in closeout
     assert "project.collect_raw_preview(" not in closeout
     assert "unverified_metric" in closeout
     assert "parity_drifted" in closeout
-    assert "project.richness(" in closeout
+    assert "project.readiness(" in closeout
+    assert "DemandSignal" in closeout
 
 
 def test_semantic_docs_and_skills_use_verification_mode() -> None:
@@ -219,3 +220,34 @@ def test_semantic_skill_md_caps_respected() -> None:
     ]
     failures = [f for f in failures if f is not None]
     assert not failures, [f"{f.reason}: {f.detail}" for f in failures]
+
+
+def test_semantic_skill_uses_assess_authoring_not_next_checks() -> None:
+    root = Path(__file__).resolve().parents[1]
+    files = [
+        root / "marivo-skills/marivo-semantic/SKILL.md",
+        root / "marivo-skills/marivo-semantic/references/workflow.md",
+        root / "marivo-skills/marivo-semantic/references/evidence-and-ledger.md",
+        root / "marivo-skills/marivo-semantic/references/closeout.md",
+    ]
+
+    combined = "\n".join(path.read_text() for path in files)
+
+    assert "project.assess_authoring(" in combined
+    assert "next_checks" not in combined
+    assert "needs_evidence" not in combined
+    assert "project.check_authoring_inputs(" not in combined
+
+
+def test_superseded_specs_point_to_authoring_pipeline_design() -> None:
+    root = Path(__file__).resolve().parents[1]
+    files = [
+        root / "docs/specs/semantic/skill-semantic-layer-authoring-design.md",
+        root / "docs/specs/semantic/agent-semantic-layer-authoring-design.md",
+        root / "docs/specs/semantic/python-semantic-layer.md",
+    ]
+
+    combined = "\n".join(path.read_text() for path in files)
+
+    assert "authoring-pipeline-design.md" in combined
+    assert "NextCheck" not in combined

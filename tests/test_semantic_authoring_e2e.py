@@ -9,7 +9,7 @@ from __future__ import annotations
 import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
-from marivo.semantic.evidence import AiContextInput, BoundedProfilePolicy, TableSource
+from marivo.semantic.evidence import AuthoringSourceInput, BoundedProfilePolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 
 
@@ -63,9 +63,13 @@ def test_collect_check_author_reload_inspect(tmp_path):
     dataset_check = project.check_authoring_inputs(
         object_kind="dataset",
         subject_ref="sales.orders",
-        datasource="warehouse",
-        source=TableSource(table="orders"),
-        ai_context=AiContextInput(business_definition="Order fact rows."),
+        sources=(
+            AuthoringSourceInput(
+                role="primary",
+                datasource="warehouse",
+                source=TableSource(table="orders"),
+            ),
+        ),
     )
     assert dataset_check.status == "supported"
 

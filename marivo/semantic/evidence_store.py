@@ -22,7 +22,6 @@ from marivo.semantic.evidence import (
     FileSource,
     IssueKind,
     MetadataOnlyPolicy,
-    NextCheck,
     SamplePolicy,
     SelectedColumnsPolicy,
     Severity,
@@ -548,7 +547,6 @@ def _assessment_issue_to_dict(issue: AssessmentIssue) -> JsonRecord:
         "message": issue.message,
         "rule_id": issue.rule_id,
         "evidence_refs": list(issue.evidence_refs),
-        "next_checks": list(issue.next_checks),
     }
 
 
@@ -560,10 +558,6 @@ def _assessment_issue_from_dict(data: Mapping[str, object]) -> AssessmentIssue:
         message=_str(data["message"], "message"),
         rule_id=_str(data["rule_id"], "rule_id"),
         evidence_refs=_str_tuple(data["evidence_refs"], "evidence_refs"),
-        next_checks=tuple(
-            cast("NextCheck", item)
-            for item in _str_tuple(data.get("next_checks", ()), "next_checks")
-        ),
     )
 
 

@@ -1,7 +1,7 @@
-"""Source evidence collection to a static authoring-input check.
+"""Source evidence collection to authoring assessment.
 
-Shows: collect a SourceEvidencePack with bounded profiles, record source SQL as
-evidence, then run check_authoring_inputs for a metric and branch on status.
+Shows: collect a SourceEvidencePack with bounded profiles, record source SQL
+evidence, then run assess_authoring for a metric and branch on status.
 """
 
 from __future__ import annotations
@@ -72,15 +72,19 @@ with tempfile.TemporaryDirectory() as tmp:
             source_dialect="duckdb",
         )
     )
+    print("sql evidence ref:", sql_ref.id)
 
-    result = project.check_authoring_inputs(
+    assessment = project.assess_authoring(
         object_kind="metric",
         subject_ref="sales.revenue",
-        datasource="warehouse",
-        source=ms.TableSource(table="orders"),
-        columns=("amount", "paid"),
-        evidence_refs=(sql_ref.id,),
-        ai_context=ms.AiContextInput(business_definition="Paid order revenue before refunds."),
+        sources=(
+            ms.AuthoringSourceInput(
+                role="primary",
+                datasource="warehouse",
+                source=ms.TableSource(table="orders"),
+                columns=("amount", "paid"),
+            ),
+        ),
     )
-    print("check status:", result.status)
-    print("next checks:", list(result.next_checks))
+    print("assessment status:", assessment.status)
+    print("issues:", [issue.kind for issue in assessment.issues])

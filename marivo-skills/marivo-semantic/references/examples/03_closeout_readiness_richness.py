@@ -1,4 +1,8 @@
-"""Closeout: preview, parity, readiness, and richness are separate signals."""
+"""Closeout: readiness as the single closeout gate.
+
+Shows: readiness with demand, preview_limit, and parity_rel_tol. Richness
+gaps are folded into readiness warnings; a separate richness call is optional.
+"""
 
 from __future__ import annotations
 
@@ -44,7 +48,7 @@ orders = ms.dataset(
     },
 )
 def order_date(table):
-    return table.dt.cast("date")
+    return table.dt
 
 @ms.metric(
     datasets=[orders],
@@ -133,15 +137,13 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         print("source schema columns:", len(pack.schema))
 
-        project.preview_dataset("sales.orders")
-        project.parity_check("sales.drifted_revenue", backend_factory=backend_factory)
-        report = project.readiness()
-        richness = project.richness(
+        report = project.readiness(
             demand=ms.DemandSignal(
                 example_questions=("What was revenue by day?",),
-                intents=("revenue trend",),
                 build_purpose="Revenue analysis",
-            )
+            ),
+            preview_limit=20,
+            parity_rel_tol=1e-6,
         )
         print("readiness:", report.status)
         print(
@@ -149,6 +151,5 @@ with tempfile.TemporaryDirectory() as tmp:
             "sales.unverified_revenue" in report.parity_summary.unverified_metrics,
         )
         print("parity_drifted:", "sales.drifted_revenue" in report.parity_summary.drifted_metrics)
-        print("richness gaps:", len(richness.gaps))
     finally:
         os.chdir(previous)
