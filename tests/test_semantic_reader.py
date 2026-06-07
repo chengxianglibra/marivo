@@ -1620,17 +1620,17 @@ def test_readiness_uses_bound_factory(semantic_project_factory, backend_factory)
         }
     )
     project.bind_backend_factory(backend_factory)
-    report = project.readiness(require_preview=True)
+    report = project.readiness()
     assert report.status in ("ready", "warning", "blocked")
 
 
-def test_readiness_explicit_none_skips_preview(semantic_project_factory, backend_factory) -> None:
+def test_readiness_without_bound_factory(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    project.bind_backend_factory(backend_factory)
-    report = project.readiness(backend_factory=None, require_preview=True)
+    # readiness() produces a degraded report even without a bound factory
+    report = project.readiness()
     assert report is not None

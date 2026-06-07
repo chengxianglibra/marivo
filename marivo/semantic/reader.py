@@ -65,6 +65,7 @@ from marivo.semantic.readiness import (
     PreviewSummary,
     ReadinessIssue,
     ReadinessReport,
+    _ReadinessEvidence,
     build_readiness_report,
 )
 from marivo.semantic.richness import (
@@ -75,7 +76,6 @@ from marivo.semantic.richness import (
 from marivo.semantic.validator import Registry, Sidecar
 
 if TYPE_CHECKING:
-    from marivo.analysis.datasources.metadata import TableMetadata
     from marivo.semantic.classifier import OpenQuestion
     from marivo.semantic.ledger import DecisionRecord, RejectedCandidate
 
@@ -443,34 +443,12 @@ class SemanticProject:
         self._runtime_metadata: dict[str, DatasetRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
         self._raw_preview_evidence: tuple[str, ...] = ()
-        self._backend_factory: Callable[[str], Any] | None = None
+        self._bound_backend_factory: Callable[[str], Any] | None = None
 
     @property
     def root(self) -> Path:
         """Return the project root path."""
         return self._root
-
-    def bind_backend_factory(self, factory: Callable[[str], Any]) -> None:
-        """Bind a backend factory for use by materialize/preview/compile methods.
-
-        Once bound, methods that require ``backend_factory`` can be called
-        without passing it explicitly.  An explicit keyword argument still
-        takes precedence.
-        """
-        self._backend_factory = factory
-
-    def _resolve_backend_factory(
-        self, backend_factory: Callable[[str], Any] | None
-    ) -> Callable[[str], Any]:
-        factory = backend_factory if backend_factory is not None else self._backend_factory
-        if factory is None:
-            _raise(
-                ErrorKind.BACKEND_FACTORY_REQUIRED,
-                "No backend_factory available. Call project.bind_backend_factory(...) "
-                "or pass backend_factory=... explicitly.",
-                cls=SemanticRuntimeError,
-            )
-        return factory
 
     def _record_raw_preview_evidence(self, *refs: str) -> None:
         self._raw_preview_evidence = tuple(dict.fromkeys((*self._raw_preview_evidence, *refs)))
@@ -1507,8 +1485,7 @@ class SemanticProject:
 
         Each call creates a fresh Materializer instance.
         """
-        factory = self._resolve_backend_factory(backend_factory)
-        mat = Materializer(self, factory)
+        mat = Materializer(self, self._resolve_backend_factory(backend_factory))
         return mat.dataset(name)
 
     def materialize_field(
@@ -1521,8 +1498,7 @@ class SemanticProject:
 
         Each call creates a fresh Materializer instance.
         """
-        factory = self._resolve_backend_factory(backend_factory)
-        mat = Materializer(self, factory)
+        mat = Materializer(self, self._resolve_backend_factory(backend_factory))
         return mat.field(name)
 
     def materialize_metric(
@@ -1535,8 +1511,7 @@ class SemanticProject:
 
         Each call creates a fresh Materializer instance.
         """
-        factory = self._resolve_backend_factory(backend_factory)
-        mat = Materializer(self, factory)
+        mat = Materializer(self, self._resolve_backend_factory(backend_factory))
         return mat.metric(name)
 
     # -- preview ---------------------------------------------------------------
@@ -1564,6 +1539,9 @@ class SemanticProject:
         The returned preview is the datasource-table preview. A successful call
         records the physical preview ref as raw preview evidence for subsequent
         readiness checks on this project instance.
+
+        If *backend_factory* is not provided, the bound factory (set via
+        :meth:`bind_backend_factory`) is used.
         """
         factory = self._resolve_backend_factory(backend_factory)
         validate_preview_limit(limit)
@@ -1610,10 +1588,46 @@ class SemanticProject:
                 returned_row_count=preview.returned_row_count,
                 sample_policy=sample_policy,
                 collected_at=datetime.now(UTC).isoformat(),
+                status="success",
             )
         )
         self._record_raw_preview_evidence(preview.ref)
         return preview
+
+    def record_failed_preview(
+        self,
+        *,
+        datasource: str,
+        table: str,
+        database: str | tuple[str, ...] | None = None,
+    ) -> None:
+        """Record that a raw preview attempt failed for this datasource.table."""
+        from datetime import UTC, datetime
+
+        from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
+
+        ref = _raw_preview_ref(datasource, table, database)
+        LedgerStore(self._root).write_raw_preview(
+            RawPreviewEvidence(
+                ref=ref,
+                datasource=datasource,
+                table=table,
+                database=database,
+                columns=(),
+                types={},
+                requested_limit=0,
+                returned_row_count=0,
+                sample_policy={},
+                collected_at=datetime.now(UTC).isoformat(),
+                status="failed",
+            )
+        )
+
+    def record_primary_key_sample(self, dataset: str) -> None:
+        """Record that primary key uniqueness was sampled for a dataset."""
+        from marivo.semantic.ledger import LedgerStore
+
+        LedgerStore(self._root).write_primary_key_sample(dataset)
 
     def preview_dataset(
         self,
@@ -1772,60 +1786,125 @@ class SemanticProject:
 
     # -- readiness ----------------------------------------------------------
 
-    def readiness(
-        self,
-        *,
-        strict_provenance: bool = True,
-        require_preview: bool = True,
-        require_comments: bool = False,
-        require_evidence_ledger: bool = False,
-        strict_enrichment: bool = False,
-        backend_factory: Callable[[str], Any] | None = None,
-        refs: Iterable[str] | None = None,
-        required_raw_previews: Iterable[str] | None = None,
-        raw_previews: Iterable[str] = (),
-        failed_raw_previews: Iterable[str] = (),
-        required_semantic_previews: Iterable[str] | None = None,
-        knowledge_documents: Iterable[str] = (),
-        user_confirmations: Iterable[str] = (),
-        confirmed_relationships: Iterable[str] = (),
-        primary_keys_sampled: Iterable[str] = (),
-        raw_sql_required_refs: Iterable[str] = (),
-        supports_federation: bool = False,
-        table_metadata: Iterable[TableMetadata] = (),
-    ) -> ReadinessReport:
-        """Return a structured semantic readiness report.
+    def _auto_collect_evidence(self) -> _ReadinessEvidence:
+        from marivo.semantic.evidence_store import EvidenceStore
+        from marivo.semantic.ledger import LedgerStore
+        from marivo.semantic.readiness import (
+            _dataset_raw_preview_refs,
+            _default_checked_refs,
+            _derive_raw_sql_required_refs,
+            _object_maps,
+            _semantic_preview_refs,
+        )
 
-        ``backend_factory`` is a callable from datasource semantic id to an
-        Ibis backend, for example ``lambda name: mv.datasources.build_backend(name)``.
-        """
-        factory = backend_factory if backend_factory is not None else self._backend_factory
-        persisted_raw_previews = self._persisted_raw_preview_evidence()
-        collected_raw_previews = tuple(
+        store = LedgerStore(self._root)
+        evidence_store = EvidenceStore(self._root)
+
+        # Raw previews: success vs failed
+        raw_preview_records = store.read_raw_previews()
+        raw_previews = tuple(r.ref for r in raw_preview_records if r.status == "success")
+        failed_raw_previews = tuple(r.ref for r in raw_preview_records if r.status == "failed")
+
+        # Merge with in-memory evidence
+        raw_previews = tuple(dict.fromkeys((*raw_previews, *self._raw_preview_evidence)))
+
+        # Required previews: derived from IR
+        if self.is_ready():
+            kinds, objects = _object_maps(self)
+            checked_refs = _default_checked_refs(kinds)
+            required_raw_previews = _dataset_raw_preview_refs(checked_refs, objects, kinds)
+            required_semantic_previews = _semantic_preview_refs(checked_refs, kinds)
+            raw_sql_required_refs = _derive_raw_sql_required_refs(kinds, objects)
+        else:
+            required_raw_previews = ()
+            required_semantic_previews = ()
+            raw_sql_required_refs = ()
+
+        # Knowledge documents from evidence store
+        kd_refs = evidence_store.list_authoring_by_kind("knowledge_document")
+        knowledge_documents = tuple(r.id for r in kd_refs)
+
+        # User confirmations from ledger
+        all_confirmations = store.read_all_confirmations()
+        user_confirmations = tuple(
             dict.fromkeys(
-                (*tuple(raw_previews), *persisted_raw_previews, *self._raw_preview_evidence)
+                r.subject_refs[0]
+                for r in all_confirmations
+                if r.decision_kind in ("user_confirmation", "confirmation") and r.subject_refs
             )
         )
-        return build_readiness_report(
-            self,
-            strict_provenance=strict_provenance,
-            require_preview=require_preview,
-            require_comments=require_comments,
-            require_evidence_ledger=require_evidence_ledger,
-            strict_enrichment=strict_enrichment,
-            backend_factory=factory,
-            refs=refs,
-            required_raw_previews=required_raw_previews,
-            raw_previews=collected_raw_previews,
+
+        # Confirmed relationships from ledger
+        confirmed_relationships = tuple(
+            dict.fromkeys(
+                r.subject_refs[0]
+                for r in all_confirmations
+                if r.decision_kind == "relationship_confirmation" and r.subject_refs
+            )
+        )
+
+        # Primary keys sampled
+        primary_keys_sampled = store.read_primary_key_samples()
+
+        return _ReadinessEvidence(
+            raw_previews=raw_previews,
             failed_raw_previews=failed_raw_previews,
+            required_raw_previews=required_raw_previews,
             required_semantic_previews=required_semantic_previews,
             knowledge_documents=knowledge_documents,
             user_confirmations=user_confirmations,
             confirmed_relationships=confirmed_relationships,
             primary_keys_sampled=primary_keys_sampled,
             raw_sql_required_refs=raw_sql_required_refs,
-            supports_federation=supports_federation,
-            table_metadata=table_metadata,
+            table_metadata=(),
+            supports_federation=False,
+        )
+
+    @property
+    def _backend_factory(self) -> Callable[[str], Any] | None:
+        """Return the bound backend factory, if any."""
+        return self._bound_backend_factory
+
+    def bind_backend_factory(self, factory: Callable[[str], Any]) -> None:
+        """Bind a backend factory for use by readiness and parity checks."""
+        self._bound_backend_factory = factory
+
+    def _resolve_backend_factory(
+        self,
+        backend_factory: Callable[[str], Any] | None,
+    ) -> Callable[[str], Any]:
+        """Return *backend_factory* or the bound factory, raising if neither is set."""
+        factory = backend_factory or self._backend_factory
+        if factory is None:
+            _raise(
+                ErrorKind.BACKEND_FACTORY_REQUIRED,
+                "No backend_factory available. Call project.bind_backend_factory(...) "
+                "or pass backend_factory=... explicitly.",
+                cls=SemanticRuntimeError,
+            )
+        return factory
+
+    def readiness(
+        self,
+        *,
+        refs: Iterable[str] | None = None,
+    ) -> ReadinessReport:
+        """Return a structured semantic readiness report.
+
+        Evidence is auto-loaded from the project's ledger and evidence store.
+        Use ``refs`` to scope which semantic objects to check; by default all
+        loaded objects are checked.
+        """
+        evidence = self._auto_collect_evidence()
+        # Intentionally not using _resolve_backend_factory: readiness can
+        # produce a useful (if degraded) report without a backend — semantic
+        # previews are skipped but other checks still run.
+        factory = self._backend_factory
+        return build_readiness_report(
+            self,
+            evidence,
+            backend_factory=factory,
+            refs=refs,
         )
 
     # -- richness -----------------------------------------------------------
@@ -1861,8 +1940,11 @@ class SemanticProject:
 
         Folds the old inspect_source + collect_source_preview authoring steps
         into one call. When ``sample_policy`` reads rows, a bounded raw-preview
-        evidence ref is also recorded so ``readiness(require_preview=True)``
-        passes without a separate collect_source_preview call.
+        evidence ref is also recorded so ``readiness()`` passes without a
+        separate collect_source_preview call.
+
+        If *backend_factory* is not provided, the bound factory (set via
+        :meth:`bind_backend_factory`) is used.
         """
         factory = self._resolve_backend_factory(backend_factory)
         from marivo.semantic.inspect import collect_source_evidence

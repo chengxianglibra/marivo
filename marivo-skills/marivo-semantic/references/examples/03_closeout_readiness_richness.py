@@ -120,26 +120,22 @@ with tempfile.TemporaryDirectory() as tmp:
         def backend_factory(name: str) -> Any:
             return mv.datasources.build_backend(name)
 
+        project.bind_backend_factory(backend_factory)
+
         # inspect_source_context folds source inspection and bounded preview
         pack = project.inspect_source_context(
             datasource="warehouse",
             source=ms.DatasetSource(kind="table", table="orders"),
             inspect_source=fake_inspect_source,
-            backend_factory=backend_factory,
             sample_policy=ms.SamplePolicy(
                 mode="bounded_profile", limit=100, max_profiled_columns=50
             ),
         )
         print("source schema columns:", len(pack.schema))
 
-        project.preview_dataset("sales.orders", backend_factory=backend_factory)
+        project.preview_dataset("sales.orders")
         project.parity_check("sales.drifted_revenue", backend_factory=backend_factory)
-        report = project.readiness(
-            require_preview=True,
-            strict_provenance=True,
-            strict_enrichment=True,
-            backend_factory=backend_factory,
-        )
+        report = project.readiness()
         richness = project.richness(
             demand=ms.DemandSignal(
                 example_questions=("What was revenue by day?",),

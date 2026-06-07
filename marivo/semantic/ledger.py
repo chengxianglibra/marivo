@@ -12,7 +12,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
     from marivo.analysis.datasources.metadata import TableMetadata
@@ -154,6 +154,7 @@ class RawPreviewEvidence:
     returned_row_count: int
     sample_policy: dict[str, object]
     collected_at: str
+    status: Literal["success", "failed"] = "success"
 
     def to_dict(self) -> dict[str, object]:
         database: object = (
@@ -170,6 +171,7 @@ class RawPreviewEvidence:
             "returned_row_count": self.returned_row_count,
             "sample_policy": self.sample_policy,
             "collected_at": self.collected_at,
+            "status": self.status,
         }
 
     @classmethod
@@ -203,6 +205,7 @@ class RawPreviewEvidence:
             returned_row_count=returned_row_count_raw,
             sample_policy=dict(sample_policy_raw) if isinstance(sample_policy_raw, Mapping) else {},
             collected_at=str(data["collected_at"]),
+            status=cast("Literal['success', 'failed']", str(data.get("status", "success"))),
         )
 
 
@@ -329,6 +332,13 @@ class LedgerStore:
                 records.append(ConfirmationRecord.from_dict(json.loads(line)))
         return tuple(records)
 
+    def read_all_confirmations(self) -> tuple[ConfirmationRecord, ...]:
+        records: list[ConfirmationRecord] = []
+        for confirmations_dir in sorted(self._root.glob("*/_evidence")):
+            model = confirmations_dir.parent.name
+            records.extend(self.read_confirmations(model))
+        return tuple(records)
+
     def iter_object_records(self) -> tuple[ObjectEvidence, ...]:
         records: list[ObjectEvidence] = []
         for objects_dir in sorted(self._root.glob("*/_evidence/objects")):
@@ -350,6 +360,24 @@ class LedgerStore:
         if not path.exists():
             return ()
         return _read_raw_preview_evidence(path)
+
+    def _primary_key_samples_path(self) -> Path:
+        return self._root / ".evidence" / "primary_key_samples.json"
+
+    def write_primary_key_sample(self, semantic_id: str) -> None:
+        existing = list(self.read_primary_key_samples())
+        if semantic_id not in existing:
+            existing.append(semantic_id)
+        path = self._primary_key_samples_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"primary_keys_sampled": sorted(existing)}, indent=2) + "\n")
+
+    def read_primary_key_samples(self) -> tuple[str, ...]:
+        path = self._primary_key_samples_path()
+        if not path.exists():
+            return ()
+        data = json.loads(path.read_text())
+        return tuple(data.get("primary_keys_sampled", ()))
 
 
 def is_decision_stale(record: DecisionRecord, metadata: TableMetadata) -> bool:
