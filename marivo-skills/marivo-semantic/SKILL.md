@@ -37,9 +37,10 @@ the project structure before authoring semantic objects.
   secret that the cache already holds.
 - Python files under `.marivo/semantic/<model>/` are the only semantic source of
   truth.
-- Collect source evidence before authoring. For each physical source call
+- Collect source evidence before authoring. Bind datasource access once with
+  `project.bind_datasource_access(inspect_source=mv.datasources.inspect_source,
+  backend_factory=mv.datasources.build_backend)`, then call
   `project.inspect_source_context(datasource=..., source=ms_evidence.DatasetSource(...),
-  inspect_source=mv.datasources.inspect_source, backend_factory=mv.datasources.build_backend,
   sample_policy=...)`. It folds metadata inspection and bounded preview into one call and
   persists evidence metadata under `.marivo/semantic/.evidence/`.
 - Sample-derived values (`top_values`, `distinct_count`, `min_value`/`max_value`) are facts

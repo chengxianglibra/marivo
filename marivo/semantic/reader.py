@@ -471,6 +471,7 @@ class SemanticProject:
         self._runtime_metadata: dict[str, DatasetRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
         self._raw_preview_evidence: tuple[str, ...] = ()
+        self._bound_inspect_source: Callable[..., Any] | None = None
         self._bound_backend_factory: Callable[[str], Any] | None = None
 
     @property
@@ -1513,7 +1514,7 @@ class SemanticProject:
         readiness checks on this project instance.
 
         If *backend_factory* is not provided, the bound factory (set via
-        :meth:`bind_backend_factory`) is used.
+        :meth:`bind_datasource_access`) is used.
         """
         factory = self._resolve_backend_factory(backend_factory)
         validate_preview_limit(limit)
@@ -1828,9 +1829,15 @@ class SemanticProject:
         """Return the bound backend factory, if any."""
         return self._bound_backend_factory
 
-    def bind_backend_factory(self, factory: Callable[[str], Any]) -> None:
-        """Bind a backend factory for use by readiness and parity checks."""
-        self._bound_backend_factory = factory
+    def bind_datasource_access(
+        self,
+        *,
+        inspect_source: Callable[..., Any],
+        backend_factory: Callable[[str], Any],
+    ) -> None:
+        """Bind datasource access callables for evidence collection and materialization."""
+        self._bound_inspect_source = inspect_source
+        self._bound_backend_factory = backend_factory
 
     def _resolve_backend_factory(
         self,
@@ -1841,11 +1848,26 @@ class SemanticProject:
         if factory is None:
             _raise(
                 ErrorKind.BACKEND_FACTORY_REQUIRED,
-                "No backend_factory available. Call project.bind_backend_factory(...) "
+                "No backend_factory available. Call project.bind_datasource_access(...) "
                 "or pass backend_factory=... explicitly.",
                 cls=SemanticRuntimeError,
             )
         return factory
+
+    def _resolve_inspect_source(
+        self,
+        inspect_source: Callable[..., Any] | None,
+    ) -> Callable[..., Any]:
+        """Return *inspect_source* or the bound callable, raising if neither is set."""
+        fn = inspect_source or self._bound_inspect_source
+        if fn is None:
+            _raise(
+                ErrorKind.INSPECT_SOURCE_REQUIRED,
+                "No inspect_source available. Call project.bind_datasource_access(...) "
+                "or pass inspect_source=... explicitly.",
+                cls=SemanticRuntimeError,
+            )
+        return fn
 
     def readiness(
         self,
@@ -1895,7 +1917,7 @@ class SemanticProject:
         *,
         datasource: str,
         source: DatasetSource,
-        inspect_source: Callable[..., Any],
+        inspect_source: Callable[..., Any] | None = None,
         backend_factory: Callable[[str], Any] | None = None,
         sample_policy: SamplePolicy,
     ) -> SourceEvidencePack:
@@ -1906,16 +1928,17 @@ class SemanticProject:
         evidence ref is also recorded so ``readiness()`` passes without a
         separate collect_source_preview call.
 
-        If *backend_factory* is not provided, the bound factory (set via
-        :meth:`bind_backend_factory`) is used.
+        If *inspect_source* or *backend_factory* is not provided, the bound
+        callable (set via :meth:`bind_datasource_access`) is used.
         """
+        fn = self._resolve_inspect_source(inspect_source)
         factory = self._resolve_backend_factory(backend_factory)
         from marivo.semantic.inspect import collect_source_evidence
 
         pack = collect_source_evidence(
             datasource=datasource,
             source=source,
-            inspect_source=inspect_source,
+            inspect_source=fn,
             backend_factory=factory,
             sample_policy=sample_policy,
             store=self._evidence_store(),
@@ -1937,11 +1960,12 @@ class SemanticProject:
         datasource: str,
         source: DatasetSource,
         columns: Sequence[str],
-        inspect_source: Callable[..., Any],
+        inspect_source: Callable[..., Any] | None = None,
         backend_factory: Callable[[str], Any] | None = None,
         sample_policy: SamplePolicy,
     ) -> tuple[ColumnEvidence, ...]:
         """Deep-dive selected columns after inspect_source_context."""
+        fn = self._resolve_inspect_source(inspect_source)
         factory = self._resolve_backend_factory(backend_factory)
         from marivo.semantic.inspect import collect_column_evidence
 
@@ -1949,7 +1973,7 @@ class SemanticProject:
             datasource=datasource,
             source=source,
             columns=columns,
-            inspect_source=inspect_source,
+            inspect_source=fn,
             backend_factory=factory,
             sample_policy=sample_policy,
             store=self._evidence_store(),

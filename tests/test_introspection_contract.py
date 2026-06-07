@@ -301,6 +301,7 @@ def test_semantic_project_descriptor_lists_agent_workflow_methods() -> None:
     assert {
         "load",
         "list_metrics",
+        "bind_datasource_access",
         "inspect_source_context",
         "inspect_column_context",
         "record_authoring_evidence",

@@ -30,12 +30,16 @@
 ## Collecting Evidence
 
 ```python
+# Bind datasource access once after loading the project
+project.bind_datasource_access(
+    inspect_source=mv.datasources.inspect_source,
+    backend_factory=mv.datasources.build_backend,
+)
+
 # Source evidence
 pack = project.inspect_source_context(
     datasource="warehouse",
     source=ms.DatasetSource(kind="table", table="orders"),
-    inspect_source=mv.datasources.inspect_source,
-    backend_factory=lambda name: mv.datasources.build_backend(name),
     sample_policy=ms.SamplePolicy(mode="bounded_profile", limit=100),
 )
 
@@ -44,8 +48,6 @@ evidence = project.inspect_column_context(
     datasource="warehouse",
     source=ms.DatasetSource(kind="table", table="orders"),
     columns=("status", "amount"),
-    inspect_source=mv.datasources.inspect_source,
-    backend_factory=lambda name: mv.datasources.build_backend(name),
     sample_policy=ms.SamplePolicy(
         mode="selected_columns_profile", limit=100, columns=("status", "amount")
     ),

@@ -146,6 +146,21 @@ def backend_factory(duckdb_backend):
     return _factory
 
 
+def _fake_inspect_source(datasource, *, source, include_partitions=True):
+    from marivo.analysis.datasources.metadata import TableMetadata
+
+    return TableMetadata(
+        datasource=datasource,
+        table=getattr(source, "table", "fake_table"),
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # list_models
 # ---------------------------------------------------------------------------
@@ -1547,35 +1562,39 @@ def test_collect_source_preview_rejects_invalid_limit(
 
 
 # ---------------------------------------------------------------------------
-# bind_backend_factory
+# bind_datasource_access
 # ---------------------------------------------------------------------------
 
 
-def test_bind_backend_factory_materialize(semantic_project_factory, backend_factory) -> None:
+def test_bind_datasource_access_materialize(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     table = project.materialize_dataset("sales.orders")
     assert hasattr(table, "columns")
 
 
-def test_bind_backend_factory_preview(semantic_project_factory, backend_factory) -> None:
+def test_bind_datasource_access_preview(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     result = project.preview_metric("sales.total_revenue", limit=2)
     assert isinstance(result, PreviewResult)
 
 
-def test_bind_backend_factory_missing_raises(semantic_project_factory) -> None:
+def test_bind_datasource_access_missing_raises(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MODEL_PY,
@@ -1587,19 +1606,7 @@ def test_bind_backend_factory_missing_raises(semantic_project_factory) -> None:
     assert exc_info.value.kind == ErrorKind.BACKEND_FACTORY_REQUIRED
 
 
-def test_bind_backend_factory_explicit_override(semantic_project_factory, backend_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
-        }
-    )
-    project.bind_backend_factory(backend_factory)
-    sql = project.compile_sql("sales.total_revenue", backend_factory=backend_factory)
-    assert isinstance(sql, str) and len(sql) > 0
-
-
-def test_bind_backend_factory_preserved_across_reload(
+def test_bind_datasource_access_explicit_override(
     semantic_project_factory, backend_factory
 ) -> None:
     project = semantic_project_factory(
@@ -1608,7 +1615,25 @@ def test_bind_backend_factory_preserved_across_reload(
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
+    sql = project.compile_sql("sales.total_revenue", backend_factory=backend_factory)
+    assert isinstance(sql, str) and len(sql) > 0
+
+
+def test_bind_datasource_access_preserved_across_reload(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     project.reload()
     table = project.materialize_dataset("sales.orders")
     assert hasattr(table, "columns")
@@ -1621,7 +1646,9 @@ def test_readiness_uses_bound_factory(semantic_project_factory, backend_factory)
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     report = project.readiness()
     assert report.status in ("ready", "warning", "blocked")
 

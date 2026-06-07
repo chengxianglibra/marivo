@@ -51,12 +51,13 @@ with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp) / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = ms.SemanticProject(root=root)
+    project.bind_datasource_access(
+        inspect_source=fake_inspect_source, backend_factory=backend_factory
+    )
 
     pack = project.inspect_source_context(
         datasource="warehouse",
         source=ms.DatasetSource(kind="table", table="orders"),
-        inspect_source=fake_inspect_source,
-        backend_factory=backend_factory,
         sample_policy=ms.SamplePolicy(mode="bounded_profile", limit=100, max_profiled_columns=50),
     )
     print("partition hints:", list(pack.partition_hints))

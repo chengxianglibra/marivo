@@ -24,8 +24,9 @@ and provenance match the requested intent. Search before authoring.
 
 ## Stage 2: Source Evidence
 
-For each physical source, collect a `SourceEvidencePack`. Choose the datasource
-backend from the physical source first: use native backends by default (Trino for
+Bind datasource access once after loading the project, then collect a
+`SourceEvidencePack` for each physical source. Choose the datasource backend
+from the physical source first: use native backends by default (Trino for
 Hive/Iceberg lakehouse, ClickHouse for ClickHouse tables, MySQL for MySQL tables,
 DuckDB for local files). Do not route ClickHouse or MySQL tables through a Trino
 catalog unless the user explicitly requires Trino federation.
@@ -35,11 +36,13 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 
 project = ms.find_project()
+project.bind_datasource_access(
+    inspect_source=mv.datasources.inspect_source,
+    backend_factory=mv.datasources.build_backend,
+)
 pack = project.inspect_source_context(
     datasource="warehouse",
     source=ms.DatasetSource(kind="table", table="orders", database="sales_mart"),
-    inspect_source=mv.datasources.inspect_source,
-    backend_factory=lambda name: mv.datasources.build_backend(name),
     sample_policy=ms.SamplePolicy(mode="bounded_profile", limit=100, max_profiled_columns=50),
 )
 ```
@@ -55,8 +58,6 @@ For `metadata_only` policy (no row reads):
 pack = project.inspect_source_context(
     datasource="warehouse",
     source=ms.DatasetSource(kind="table", table="orders"),
-    inspect_source=mv.datasources.inspect_source,
-    backend_factory=lambda name: mv.datasources.build_backend(name),
     sample_policy=ms.SamplePolicy(mode="metadata_only"),
 )
 ```
@@ -79,8 +80,6 @@ evidence = project.inspect_column_context(
     datasource="warehouse",
     source=ms.DatasetSource(kind="table", table="orders"),
     columns=("status", "amount"),
-    inspect_source=mv.datasources.inspect_source,
-    backend_factory=lambda name: mv.datasources.build_backend(name),
     sample_policy=ms.SamplePolicy(
         mode="selected_columns_profile", limit=100, columns=("status", "amount")
     ),
@@ -184,13 +183,8 @@ project.inspect_authored_object("sales.revenue")
 # bounded preview where needed
 project.collect_source_preview(
     datasource="warehouse", table="orders",
-    backend_factory=lambda name: mv.datasources.build_backend(name),
 )
-report = project.readiness(
-    require_preview=True,
-    require_evidence_ledger=True,
-    backend_factory=lambda name: mv.datasources.build_backend(name),
-)
+report = project.readiness()
 print(report.to_dict())
 richness = project.richness()
 print(richness.to_dict())
