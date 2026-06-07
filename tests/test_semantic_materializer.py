@@ -451,7 +451,7 @@ def test_dataset_not_found(semantic_project_factory, backend_factory) -> None:
     with pytest.raises(SemanticRuntimeError) as exc_info:
         project.materialize_dataset("sales.nonexistent", backend_factory=backend_factory)
 
-    assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
+    assert exc_info.value.kind == ErrorKind.DATASET_NOT_FOUND
 
 
 def test_field_not_found(semantic_project_factory, backend_factory) -> None:
@@ -466,7 +466,7 @@ def test_field_not_found(semantic_project_factory, backend_factory) -> None:
     with pytest.raises(SemanticRuntimeError) as exc_info:
         project.materialize_field("sales.nonexistent", backend_factory=backend_factory)
 
-    assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
+    assert exc_info.value.kind == ErrorKind.FIELD_NOT_FOUND
 
 
 # ---------------------------------------------------------------------------

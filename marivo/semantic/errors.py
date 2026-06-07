@@ -82,6 +82,9 @@ class ErrorKind(StrEnum):
     DUPLICATE_DEFAULT_TIME_FIELD = "duplicate_default_time_field"
 
     # runtime
+    NOT_FOUND = "not_found"
+    DATASET_NOT_FOUND = "dataset_not_found"
+    FIELD_NOT_FOUND = "field_not_found"
     METRIC_NOT_FOUND = "metric_not_found"
     MATERIALIZE_FAILED = "materialize_failed"
     BACKEND_MISMATCH = "backend_mismatch"

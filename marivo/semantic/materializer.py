@@ -104,7 +104,7 @@ class Materializer:
         ds_ir = registry.datasets.get(semantic_id)
         if ds_ir is None:
             _raise(
-                ErrorKind.METRIC_NOT_FOUND,
+                ErrorKind.DATASET_NOT_FOUND,
                 f"Dataset {semantic_id!r} not found in registry.",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
@@ -203,7 +203,7 @@ class Materializer:
         field_ir = registry.fields.get(semantic_id)
         if field_ir is None:
             _raise(
-                ErrorKind.METRIC_NOT_FOUND,
+                ErrorKind.FIELD_NOT_FOUND,
                 f"Field {semantic_id!r} not found in registry.",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
