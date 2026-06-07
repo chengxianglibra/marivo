@@ -644,7 +644,7 @@ def test_readiness_emits_derived_source_grain_unverified_for_view(
             """)
         }
     )
-    ds = project.registry().datasets["sales.orders"]
+    ds = project._registry.datasets["sales.orders"]
     view_md = TableMetadata(
         datasource=ds.datasource,
         table=ds.source.table,
@@ -727,7 +727,7 @@ def test_view_advisory_attaches_to_aliased_dataset(semantic_project_factory) -> 
             """)
         }
     )
-    ds = project.registry().datasets["sales.orders"]
+    ds = project._registry.datasets["sales.orders"]
     assert ds.source.table == "v_orders"
     view_md = TableMetadata(
         datasource=ds.datasource,
@@ -794,7 +794,7 @@ def test_view_advisory_matches_clickhouse_datasource_default_database(
             """),
         }
     )
-    ds = project.registry().datasets["sales.orders"]
+    ds = project._registry.datasets["sales.orders"]
     assert ds.source.database is None
     view_md = TableMetadata(
         datasource=ds.datasource,
@@ -852,7 +852,7 @@ def test_readiness_does_not_attach_view_metadata_from_different_database(
             """)
         }
     )
-    ds = project.registry().datasets["sales.orders"]
+    ds = project._registry.datasets["sales.orders"]
     view_md = TableMetadata(
         datasource=ds.datasource,
         table=ds.source.table,

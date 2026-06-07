@@ -248,7 +248,7 @@ def _derive_raw_sql_required_refs(
 
 
 def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], dict[str, object]]:
-    reg = project.registry()
+    reg = project._registry
     if reg is None:
         return {}, {}
 
@@ -452,7 +452,7 @@ def _metadata_by_dataset_ref(
     project: SemanticProject,
     table_metadata: Iterable[TableMetadata],
 ) -> dict[str, TableMetadata]:
-    reg = project.registry()
+    reg = project._registry
     if reg is None:
         return {}
     by_key = {
@@ -948,7 +948,7 @@ def build_readiness_report(
     drifted_metrics: list[str] = []
     skipped_metrics: list[str] = []
 
-    reg = project.registry()
+    reg = project._registry
     metrics = () if reg is None else tuple(reg.metrics.values())
     for metric in metrics:
         if metric.semantic_id not in checked_ref_set:

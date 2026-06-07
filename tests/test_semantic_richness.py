@@ -62,7 +62,7 @@ def test_detect_depth_flags_empty_ai_context_slots(semantic_project_factory):
 
     project = semantic_project_factory(_model(_DEPTH_BARE))
     by_ref: dict[str, set[str]] = {}
-    for subkind, refs in _detect_depth(project.registry()):
+    for subkind, refs in _detect_depth(project._registry):
         by_ref.setdefault(refs[0], set()).add(subkind)
 
     assert by_ref["sales.orders.amount"] == {
@@ -77,7 +77,7 @@ def test_detect_depth_skips_enriched_objects(semantic_project_factory):
     from marivo.semantic.richness import _detect_depth
 
     project = semantic_project_factory(_model(_DEPTH_ENRICHED))
-    flagged_refs = {refs[0] for _subkind, refs in _detect_depth(project.registry())}
+    flagged_refs = {refs[0] for _subkind, refs in _detect_depth(project._registry)}
     assert "sales.orders.amount" not in flagged_refs
     assert "sales.orders" not in flagged_refs
 
@@ -127,14 +127,14 @@ _SHARED_KEYS_WITH_REL = (
 def _coverage_subkinds(project):
     from marivo.semantic.richness import _detect_coverage
 
-    return {subkind for subkind, _refs in _detect_coverage(project.registry())}
+    return {subkind for subkind, _refs in _detect_coverage(project._registry)}
 
 
 def test_detect_coverage_flags_fact_table_without_metric(semantic_project_factory):
     from marivo.semantic.richness import _detect_coverage
 
     project = semantic_project_factory(_model(_FACT_NO_METRIC))
-    gaps = _detect_coverage(project.registry())
+    gaps = _detect_coverage(project._registry)
     assert ("fact_table_no_metric", ("sales.orders",)) in gaps
 
 
@@ -147,7 +147,7 @@ def test_detect_coverage_flags_shared_keys_without_relationship(semantic_project
     from marivo.semantic.richness import _detect_coverage
 
     project = semantic_project_factory(_model(_SHARED_KEYS_NO_REL))
-    gaps = _detect_coverage(project.registry())
+    gaps = _detect_coverage(project._registry)
     assert (
         "dataset_shares_keys_no_relationship",
         ("sales.customers", "sales.orders"),

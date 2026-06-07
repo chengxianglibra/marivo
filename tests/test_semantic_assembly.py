@@ -772,7 +772,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
         }
     )
     assert project.is_ready()
-    reg = project.registry()
+    reg = project._registry
     assert reg is not None
     assert "sales.orders" in reg.datasets
     assert "sales.revenue" in reg.metrics
@@ -843,12 +843,12 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
         }
     )
     assert project.is_ready()
-    reg = project.registry()
+    reg = project._registry
     assert reg is not None
     assert "sales" in reg.models
     assert "wh" in reg.datasources
     assert "sales.orders" in reg.datasets
-    side = project.sidecar()
+    side = project._sidecar
     assert side is not None
     assert "sales.orders" not in side
 

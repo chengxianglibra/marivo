@@ -197,7 +197,7 @@ def build_richness_report(
     *,
     demand: DemandSignal | None = None,
 ) -> RichnessReport:
-    reg = project.registry()
+    reg = project._registry
     if reg is None:
         return RichnessReport(gaps=(), checked_at=_checked_at())
 
