@@ -61,6 +61,11 @@ def test_final_report_guidance_contains_required_contract() -> None:
         "chart tooltips",
         "table pagination",
         "local search",
+        "Publishing handoff",
+        "publish_report_package",
+        "exported_by",
+        "content hash",
+        "immutable by default",
     ]
 
     missing = [term for term in required_terms if term not in text]

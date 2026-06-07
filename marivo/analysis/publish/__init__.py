@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from marivo.analysis.publish.publish_config import (
+    PublishConfig,
+    resolve_publish_config,
+    resolve_publish_prefix,
+)
+from marivo.analysis.publish.publish_hash import compute_package_hash
+from marivo.analysis.publish.publish_secrets import SecretScanIssue, scan_package_for_secrets
+from marivo.analysis.publish.publish_targets import LocalFilesystemTarget, PublishTarget
 from marivo.analysis.publish.replay_check import (
     ReplayCheckIssue,
     ReplayCheckResult,
@@ -38,6 +46,7 @@ from marivo.analysis.publish.report_models import (
     export_report_json_schema,
 )
 from marivo.analysis.publish.report_package import load_report_artifact, write_report_artifact
+from marivo.analysis.publish.report_publish import PublishReportResult, publish_report_package
 from marivo.analysis.publish.report_validation import validate_report_artifact
 
 __all__ = [
@@ -48,7 +57,11 @@ __all__ = [
     "FlowStep",
     "GroundedClaim",
     "Grounding",
+    "LocalFilesystemTarget",
     "MarivoReportArtifact",
+    "PublishConfig",
+    "PublishReportResult",
+    "PublishTarget",
     "ReplayCheckIssue",
     "ReplayCheckResult",
     "ReportBlock",
@@ -60,12 +73,18 @@ __all__ = [
     "ReportPackageValidationResult",
     "ReportSection",
     "ReportSpec",
+    "SecretScanIssue",
     "SourceProvenance",
+    "compute_package_hash",
     "export_report_json_schema",
     "load_report_artifact",
     "materialize_html_adapter",
     "materialize_mcp_adapter",
+    "publish_report_package",
     "render_report_html",
+    "resolve_publish_config",
+    "resolve_publish_prefix",
+    "scan_package_for_secrets",
     "static_check_replay",
     "to_html_report_payload",
     "to_mcp_artifact_payload",
