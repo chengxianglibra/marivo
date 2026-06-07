@@ -6,9 +6,12 @@ import pytest
 from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.executor.runner import (
     UTC_ZONE,
+    StrptimeToJodaError,
     _classify_strptime_format,
     _encode_window_bound,
+    _fix_trino_date_parse,
     _resolve_strptime_format,
+    _strptime_to_joda,
     _window_bound_predicates,
     apply_time_series_bucket,
     apply_window_to_dataset,
@@ -576,3 +579,126 @@ def test_timescope_rejects_expr_field():
 
     assert exc_info.value.details["kind"] == "TimeScopeModelInvalid"
     assert any(error["loc"] == ("tz",) for error in exc_info.value.details["validation_errors"])
+
+
+# ---------------------------------------------------------------------------
+# _strptime_to_joda conversion
+# ---------------------------------------------------------------------------
+
+
+def test_strptime_to_joda_day_format():
+    assert _strptime_to_joda("%Y-%m-%d") == "yyyy-MM-dd"
+
+
+def test_strptime_to_joda_compact_day_format():
+    assert _strptime_to_joda("%Y%m%d") == "yyyyMMdd"
+
+
+def test_strptime_to_joda_datetime_with_seconds():
+    assert _strptime_to_joda("%Y-%m-%d %H:%M:%S") == "yyyy-MM-dd HH:mm:ss"
+
+
+def test_strptime_to_joda_datetime_with_minutes():
+    assert _strptime_to_joda("%Y/%m/%d %H:%M") == "yyyy/MM/dd HH:mm"
+
+
+def test_strptime_to_joda_12h_format():
+    assert _strptime_to_joda("%I:%M %p") == "hh:mm a"
+
+
+def test_strptime_to_joda_lowercase_ampm():
+    assert _strptime_to_joda("%I:%M %P") == "hh:mm a"
+
+
+def test_strptime_to_joda_microseconds():
+    assert _strptime_to_joda("%Y-%m-%d %H:%M:%S.%f") == "yyyy-MM-dd HH:mm:ss.SSSSSS"
+
+
+def test_strptime_to_joda_day_of_year():
+    assert _strptime_to_joda("%Y-%j") == "yyyy-DD"
+
+
+def test_strptime_to_joda_space_padded_hour_24():
+    assert _strptime_to_joda("%k") == "H"
+
+
+def test_strptime_to_joda_space_padded_hour_12():
+    assert _strptime_to_joda("%l") == "h"
+
+
+def test_strptime_to_joda_space_padded_day():
+    assert _strptime_to_joda("%e") == "d"
+
+
+def test_strptime_to_joda_two_digit_year():
+    assert _strptime_to_joda("%y-%m-%d") == "yy-MM-dd"
+
+
+def test_strptime_to_joda_week_number_sunday_raises():
+    with pytest.raises(StrptimeToJodaError, match="%U"):
+        _strptime_to_joda("%Y-%U")
+
+
+def test_strptime_to_joda_week_number_monday_raises():
+    with pytest.raises(StrptimeToJodaError, match="%W"):
+        _strptime_to_joda("%Y-%W")
+
+
+def test_strptime_to_joda_literal_separators_pass_through():
+    assert _strptime_to_joda("%Y/%m/%dT%H:%M") == "yyyy/MM/ddTHH:mm"
+
+
+def test_fix_trino_date_parse_simple_column():
+    sql = "SELECT date_parse(t0.col, '%Y-%m-%d %H:%M:%S') AS parsed"
+    result = _fix_trino_date_parse(sql)
+    assert "yyyy-MM-dd HH:mm:ss" in result
+    assert "%Y-%m-%d" not in result
+
+
+def test_fix_trino_date_parse_cast_column():
+    sql = "SELECT date_parse(CAST(t0.col AS VARCHAR), '%Y%m%d') AS parsed"
+    result = _fix_trino_date_parse(sql)
+    assert "yyyyMMdd" in result
+    assert "%Y%m%d" not in result
+
+
+def test_fix_trino_date_parse_already_joda_unchanged():
+    sql = "SELECT date_parse(t0.col, 'yyyy-MM-dd') AS parsed"
+    result = _fix_trino_date_parse(sql)
+    assert result == sql
+
+
+def test_fix_trino_date_parse_multiple_calls():
+    sql = "SELECT date_parse(a, '%Y-%m-%d') AS d1, date_parse(b, '%Y%m%d%H') AS d2"
+    result = _fix_trino_date_parse(sql)
+    assert "yyyy-MM-dd" in result
+    assert "yyyyMMddHH" in result
+    assert "%Y" not in result
+
+
+def test_fix_trino_date_parse_case_insensitive():
+    sql = "SELECT DATE_PARSE(t0.col, '%Y-%m-%d') AS parsed"
+    result = _fix_trino_date_parse(sql)
+    assert "yyyy-MM-dd" in result
+
+
+def test_fix_trino_date_parse_no_date_parse_unchanged():
+    sql = "SELECT t0.col FROM t0"
+    assert _fix_trino_date_parse(sql) == sql
+
+
+def test_fix_trino_date_parse_two_calls_independent():
+    sql = "SELECT date_parse(a, '%Y-%m-%d'), date_parse(b, '%Y%m%d%H')"
+    result = _fix_trino_date_parse(sql)
+    assert "date_parse(a, 'yyyy-MM-dd')" in result
+    assert "date_parse(b, 'yyyyMMddHH')" in result
+
+
+def test_fix_trino_date_parse_like_pattern_unaffected():
+    sql = "SELECT t0.col FROM t0 WHERE t0.name LIKE '%test%'"
+    assert _fix_trino_date_parse(sql) == sql
+
+
+def test_fix_trino_date_parse_no_strptime_directive_passthrough():
+    sql = "SELECT date_parse(t0.col, 'yyyyMMdd') AS parsed"
+    assert _fix_trino_date_parse(sql) == sql

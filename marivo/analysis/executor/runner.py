@@ -72,6 +72,55 @@ _SECOND_DIRECTIVES = frozenset({"%S"})
 _SUBSECOND_DIRECTIVES = frozenset({"%f"})
 _AMPM_DIRECTIVES = frozenset({"%p", "%P"})
 
+_STRPTIME_TO_JODA: list[tuple[re.Pattern[str], str]] = [
+    # Each strptime directive is exactly 2 chars (%X), so order is
+    # currently irrelevant. Listed alphabetically by directive.
+    (re.compile(r"%d"), "dd"),
+    (re.compile(r"%e"), "d"),
+    (re.compile(r"%f"), "SSSSSS"),
+    (re.compile(r"%H"), "HH"),
+    (re.compile(r"%I"), "hh"),
+    (re.compile(r"%j"), "DD"),
+    (re.compile(r"%k"), "H"),
+    (re.compile(r"%l"), "h"),
+    (re.compile(r"%M"), "mm"),
+    (re.compile(r"%m"), "MM"),
+    (re.compile(r"%P"), "a"),
+    (re.compile(r"%p"), "a"),
+    (re.compile(r"%S"), "ss"),
+    (re.compile(r"%Y"), "yyyy"),
+    (re.compile(r"%y"), "yy"),
+]
+
+_NO_JODA_EQUIVALENT = frozenset({"%U", "%W"})
+
+
+class StrptimeToJodaError(BackendError):
+    """Raised when a strptime directive has no safe Joda equivalent."""
+
+
+def _strptime_to_joda(fmt: str) -> str:
+    """Convert a Python strptime format string to a Joda Time format string.
+
+    Raises ``StrptimeToJodaError`` for directives with no safe Joda equivalent
+    (currently ``%U`` and ``%W``).
+    """
+    for directive in _NO_JODA_EQUIVALENT:
+        if directive in fmt:
+            raise StrptimeToJodaError(
+                message=f"strptime directive {directive} has no safe Joda Time equivalent "
+                f"and cannot be used with Trino date_parse()",
+                details={
+                    "kind": "StrptimeToJodaNoEquivalent",
+                    "directive": directive,
+                    "format": fmt,
+                },
+            )
+    result = fmt
+    for pattern, replacement in _STRPTIME_TO_JODA:
+        result = pattern.sub(replacement, result)
+    return result
+
 
 def _classify_strptime_format(fmt: str) -> str:
     """Classify a strptime format string by its temporal granularity."""
@@ -1372,6 +1421,35 @@ def _fix_clickhouse_datetrunc(sql: str) -> str:
     return re.sub(r"dateTrunc\('([A-Za-z]+)',\s*", _replace_unit, sql)
 
 
+_DATE_PARSE_FMT_RE = re.compile(
+    r"(date_parse\(\s*.*?,\s*')([^']*%[a-zA-Z][^']*)('\s*\))",
+    re.IGNORECASE,
+)
+
+
+def _fix_trino_date_parse(sql: str) -> str:
+    """Convert strptime format strings in date_parse() calls to Joda format.
+
+    Ibis compiles ``StringToTimestamp`` (``.as_timestamp()``) to
+    ``date_parse(col, '%Y-%m-%d %H:%M:%S')`` using an anonymous function node,
+    bypassing sqlglot's strptime-to-Joda format conversion.  Trino's
+    ``date_parse()`` expects Joda Time format strings, so the raw strptime
+    format causes ``INVALID_FUNCTION_ARGUMENT``.
+
+    This post-compilation fix detects ``date_parse()`` calls whose format
+    argument contains ``%`` (indicating strptime) and converts the format
+    string to Joda Time notation.
+    """
+
+    def _replace_fmt(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        strptime_fmt = match.group(2)
+        suffix = match.group(3)
+        return f"{prefix}{_strptime_to_joda(strptime_fmt)}{suffix}"
+
+    return _DATE_PARSE_FMT_RE.sub(_replace_fmt, sql)
+
+
 def _backend_dialect(backend: Any) -> str:
     return getattr(backend, "name", "unknown")
 
@@ -1402,6 +1480,8 @@ def execute(
                 dialect = _backend_dialect(backend)
                 if dialect == "clickhouse":
                     sql = _fix_clickhouse_datetrunc(sql)
+                if dialect == "trino":
+                    sql = _fix_trino_date_parse(sql)
 
                 prefixed = _prefix_sql_for_session(sql, session_id=session_id)
                 captured_sql = prefixed
@@ -1419,6 +1499,8 @@ def execute(
                 dialect = _backend_dialect(backend)
                 if dialect == "clickhouse":
                     sql = _fix_clickhouse_datetrunc(sql)
+                if dialect == "trino":
+                    sql = _fix_trino_date_parse(sql)
 
                 captured_sql = sql
                 return sql
