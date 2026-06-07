@@ -58,8 +58,11 @@ Rules for this surface:
 - Persistent analysis and semantic state lives project-locally under
   `<project_root>/.marivo/`.
 - Cross-session frame ownership is mandatory for helpers that consume frames.
-- Public symbol, signature, exception, or Frame representation changes must
-  update matching examples under `marivo-skills/marivo-*/references/examples/`.
+- Public API functions must have a docstring that covers: function purpose,
+  parameter descriptions, return value, a usage example, and brief constraints.
+  The `describe` function must support each public API symbol.
+- Public API functions must not accept or return `Any` or other ambiguous types;
+  every parameter and return annotation must be a concrete, specific type.
 
 ## Tests
 
