@@ -78,7 +78,7 @@ def backfill_blast_radii(
     """Replace ``blast_radius=0`` in stored DecisionRecords with the real
     transitive-dependent count computed from the loaded registry.
 
-    Cold-start ``answer()`` calls write ``blast_radius=0`` because no
+    Cold-start decisions may write ``blast_radius=0`` because no
     dependency graph exists yet. After load, this function corrects those
     stale provenance entries. A legitimate ``0`` (isolated object with no
     dependents) is preserved — backfill only acts when the computed value
@@ -121,7 +121,7 @@ def auto_record_authoring_decisions(
 
     For each MetricIR, record a metric_decomposition decision. For each
     time_field FieldIR, record a time_field_identity decision. Idempotent:
-    existing decisions (from answer() or prior auto-record) are preserved.
+    existing decisions (from prior auto-record or manual write) are preserved.
     When a definition changes, the old authoring auto-record is replaced.
     """
     store = LedgerStore(Path(semantic_root))

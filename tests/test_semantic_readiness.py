@@ -951,19 +951,27 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
             ),
         }
     )
-    project.record_decision(
-        "sales.revenue",
-        lg.DecisionRecord(
-            decision_kind="metric_decomposition",
-            chosen="sum",
-            agreement_confidence="high",
-            qualifying_sources=("source_sql",),
-            materiality="high",
-            blast_radius=0,
-            evidence_fingerprint="sha256:a",
-            question_id=None,
-            decided_at="t",
-        ),
+    # Write DecisionRecord directly to LedgerStore (same pattern as auto_record)
+    store = lg.LedgerStore(project.root)
+    store.write_object(
+        lg.ObjectEvidence(
+            semantic_id="sales.revenue",
+            authored_at="t",
+            decisions=(
+                lg.DecisionRecord(
+                    decision_kind="metric_decomposition",
+                    chosen="sum",
+                    agreement_confidence="high",
+                    qualifying_sources=("source_sql",),
+                    materiality="high",
+                    blast_radius=0,
+                    evidence_fingerprint="sha256:a",
+                    question_id=None,
+                    decided_at="t",
+                ),
+            ),
+            rejected_candidates=(),
+        )
     )
     refs = {ref for issue in _evidence_ledger_blockers(project) for ref in issue.refs}
     assert "sales.revenue" not in refs
@@ -1012,21 +1020,30 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
             ),
         }
     )
-    question = ms.OpenQuestion(
-        id="q-metric-decomposition",
-        subject_refs=("sales.revenue",),
+    # Record a user-confirmed decision directly in the ledger
+    from marivo.semantic import ledger as lg
+
+    user_decision = lg.DecisionRecord(
         decision_kind="metric_decomposition",
-        gated_by=None,
-        candidates=(),
+        chosen="sum",
+        agreement_confidence="high",
+        qualifying_sources=("user_confirmation",),
         materiality="high",
         blast_radius=0,
-        agreement_confidence="low",
-        default_if_unanswered=None,
-        severity="blocker",
-        blocker_reason="high_materiality_low_confidence",
+        evidence_fingerprint="sha256:answer",
+        question_id="q-metric-decomposition",
+        decided_at="2026-06-01T00:00:00+00:00",
+    )
+    store = lg.LedgerStore(project.root)
+    store.write_object(
+        lg.ObjectEvidence(
+            semantic_id="sales.revenue",
+            authored_at="2026-06-01T00:00:00+00:00",
+            decisions=(user_decision,),
+            rejected_candidates=(),
+        )
     )
 
-    project.answer(question, "sum", evidence_fingerprint="sha256:answer")
     reloaded = ms.SemanticProject(root=project.root)
     reloaded.load()
 
@@ -1040,13 +1057,10 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
     assert "sales.revenue" not in refs
 
 
-def test_readiness_evidence_ledger_blocks_confirmation_only(
+def test_readiness_evidence_ledger_collects_user_confirmation_from_evidence_store(
     semantic_project_factory,
 ) -> None:
-    from datetime import UTC, datetime
-
     import marivo.semantic as ms
-    from marivo.semantic import ledger as lg
 
     project = semantic_project_factory(
         {
@@ -1059,34 +1073,17 @@ def test_readiness_evidence_ledger_blocks_confirmation_only(
             ),
         }
     )
-    store = lg.LedgerStore(project.root)
-    store.append_confirmation(
-        lg.ConfirmationRecord(
-            ts=datetime.now(UTC).isoformat(),
-            question_id="q-metric-decomposition",
-            decision_kind="metric_decomposition",
+    # Record user confirmation evidence via the evidence store
+    project.record_authoring_evidence(
+        ms.AuthoringEvidenceInput(
+            kind="user_confirmation",
             subject_refs=("sales.revenue",),
-            answer="sum",
-            evidence_fingerprint="sha256:legacy",
+            content="Revenue is the sum of paid order amounts.",
         )
     )
-    reloaded = ms.SemanticProject(root=project.root)
-    reloaded.load()
 
-    # Simulate the new-contract "confirmation-only" state: confirmations are
-    # append-only user logs, but readiness requires object-level decisions.
-    store._object_path("sales.revenue").unlink(missing_ok=True)
-
-    report = reloaded.readiness()
-    refs = {
-        ref
-        for issue in report.blockers
-        if issue.kind == "unresolved_clarification"
-        for ref in issue.refs
-    }
-    assert "sales.revenue" in refs
-    assert report.status == "blocked"
-    assert store.read_object("sales.revenue") is None
+    report = project.readiness()
+    assert "sales.revenue" in report.evidence_summary.user_confirmations
 
 
 def test_missing_business_definition_predicate():
@@ -1326,38 +1323,6 @@ def test_primary_key_sample_persistence(
 
     store.write_primary_key_sample("sales.orders")
     assert store.read_primary_key_samples() == ("sales.orders",)
-
-
-def test_ledger_read_all_confirmations(
-    semantic_project_factory,
-) -> None:
-    from marivo.semantic.ledger import ConfirmationRecord, LedgerStore
-
-    project = semantic_project_factory(
-        {
-            "sales/_model.py": textwrap.dedent("""\
-                import marivo.semantic as ms
-                ms.model(name="sales")
-                ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
-            """),
-        }
-    )
-
-    store = LedgerStore(project.root)
-    store.append_confirmation(
-        ConfirmationRecord(
-            ts="2026-06-07T00:00:00Z",
-            question_id="q1",
-            decision_kind="relationship_confirmation",
-            subject_refs=("sales.orders->sales.items",),
-            answer=True,
-            evidence_fingerprint="abc",
-        )
-    )
-
-    all_conf = store.read_all_confirmations()
-    assert len(all_conf) == 1
-    assert all_conf[0].decision_kind == "relationship_confirmation"
 
 
 def test_evidence_store_list_authoring_by_kind(

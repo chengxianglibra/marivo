@@ -105,18 +105,6 @@ def test_ledger_store_read_object_reports_invalid_blast_radius_path(tmp_path) ->
     assert "list" in message
 
 
-def test_confirmation_record_round_trips_through_dict() -> None:
-    rec = lg.ConfirmationRecord(
-        ts="2026-05-31T10:00:00+00:00",
-        question_id="deadbeefdeadbeef",
-        decision_kind="amount_unit",
-        subject_refs=("sales.revenue",),
-        answer="cents",
-        evidence_fingerprint="sha256:xyz",
-    )
-    assert lg.ConfirmationRecord.from_dict(rec.to_dict()) == rec
-
-
 def test_rejected_candidate_round_trips_through_dict() -> None:
     rec = lg.RejectedCandidate(
         decision_kind="time_field_identity",
@@ -193,42 +181,11 @@ def test_ledger_store_read_missing_object_is_none(tmp_path):
     assert lg.LedgerStore(tmp_path).read_object("sales.nope") is None
 
 
-def test_confirmation_log_appends_and_reads_in_order(tmp_path):
-    store = lg.LedgerStore(tmp_path)
-    first = lg.ConfirmationRecord(
-        ts="2026-05-31T10:00:00+00:00",
-        question_id="q1",
-        decision_kind="amount_unit",
-        subject_refs=("sales.revenue",),
-        answer="cents",
-        evidence_fingerprint="sha256:a",
-    )
-    second = lg.ConfirmationRecord(
-        ts="2026-05-31T11:00:00+00:00",
-        question_id="q2",
-        decision_kind="time_field_identity",
-        subject_refs=("sales.orders.order_date",),
-        answer="paid_at",
-        evidence_fingerprint="sha256:b",
-    )
-    store.append_confirmation(first)
-    store.append_confirmation(second)
-
-    path = tmp_path / "sales" / "_evidence" / "confirmations.jsonl"
-    assert path.exists()
-    assert store.read_confirmations("sales") == (first, second)
-
-
 def test_ledger_types_exported():
     import marivo.semantic as ms
 
     assert hasattr(ms, "DecisionRecord")
-    assert hasattr(ms, "ConfirmationRecord")
     assert hasattr(ms, "RejectedCandidate")
-
-
-def test_read_confirmations_missing_model_is_empty(tmp_path):
-    assert lg.LedgerStore(tmp_path).read_confirmations("sales") == ()
 
 
 def test_decision_record_persists_fingerprint_inputs():

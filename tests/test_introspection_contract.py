@@ -308,8 +308,6 @@ def test_semantic_project_descriptor_lists_agent_workflow_methods() -> None:
         "get_evidence_pack",
         "check_authoring_inputs",
         "inspect_authored_object",
-        "answer",
-        "record_decision",
         "readiness",
         "richness",
     } <= methods
