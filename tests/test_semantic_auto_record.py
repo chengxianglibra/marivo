@@ -204,7 +204,7 @@ def revenue(orders):
 
 def test_readiness_passes_after_auto_record(semantic_project_factory):
     project = _project_with_metric_and_time_field(semantic_project_factory)
-    report = project.readiness(require_evidence_ledger=True)
+    report = project.readiness()
     blockers = [
         i
         for i in report.blockers

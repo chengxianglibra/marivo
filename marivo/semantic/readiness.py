@@ -135,6 +135,21 @@ class ParitySummary:
 
 
 @dataclass(frozen=True)
+class _ReadinessEvidence:
+    raw_previews: tuple[str, ...]
+    failed_raw_previews: tuple[str, ...]
+    required_raw_previews: tuple[str, ...]
+    required_semantic_previews: tuple[str, ...]
+    knowledge_documents: tuple[str, ...]
+    user_confirmations: tuple[str, ...]
+    confirmed_relationships: tuple[str, ...]
+    primary_keys_sampled: tuple[str, ...]
+    raw_sql_required_refs: tuple[str, ...]
+    table_metadata: tuple[Any, ...]
+    supports_federation: bool
+
+
+@dataclass(frozen=True)
 class ReadinessReport:
     status: ReadinessStatus
     analysis_ready_refs: tuple[str, ...]
@@ -202,6 +217,34 @@ def _issue(
         message=message,
         suggested_action=suggested_action,
     )
+
+
+def _derive_raw_sql_required_refs(
+    kinds: Mapping[str, _SemanticKind],
+    objects: Mapping[str, object],
+) -> tuple[str, ...]:
+    """Metrics/datasets whose logic lives in source_sql, not the semantic API.
+
+    These objects are flagged as blockers because their business logic cannot
+    be expressed or drilled into through the semantic layer. Previously this
+    blocker was inert (raw_sql_required_refs defaulted to empty and nobody
+    passed it); auto-derivation makes it active.
+    """
+    refs: list[str] = []
+    for semantic_id, kind in kinds.items():
+        if kind not in {_SemanticKind.METRIC, _SemanticKind.DATASET}:
+            continue
+        obj = objects.get(semantic_id)
+        if obj is None:
+            continue
+        provenance = getattr(obj, "provenance", None)
+        if (
+            provenance is not None
+            and getattr(provenance, "source_sql", None) is not None
+            and getattr(provenance, "verification_mode", None) != "python_native"
+        ):
+            refs.append(semantic_id)
+    return tuple(refs)
 
 
 def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], dict[str, object]]:
@@ -755,26 +798,31 @@ def _sensitive_preview_warnings(
 
 def build_readiness_report(
     project: SemanticProject,
+    evidence: _ReadinessEvidence,
     *,
-    strict_provenance: bool = True,
-    require_preview: bool = True,
-    require_comments: bool = False,
-    require_evidence_ledger: bool = False,
-    strict_enrichment: bool = False,
     backend_factory: Callable[[str], Any] | None = None,
     refs: Iterable[str] | None = None,
-    required_raw_previews: Iterable[str] | None = None,
-    raw_previews: Iterable[str] = (),
-    failed_raw_previews: Iterable[str] = (),
-    required_semantic_previews: Iterable[str] | None = None,
-    knowledge_documents: Iterable[str] = (),
-    user_confirmations: Iterable[str] = (),
-    confirmed_relationships: Iterable[str] = (),
-    primary_keys_sampled: Iterable[str] = (),
-    raw_sql_required_refs: Iterable[str] = (),
-    supports_federation: bool = False,
-    table_metadata: Iterable[TableMetadata] = (),
 ) -> ReadinessReport:
+    # Unpack evidence into local variables used throughout the function body.
+    raw_previews = evidence.raw_previews
+    failed_raw_previews = evidence.failed_raw_previews
+    required_raw_previews = evidence.required_raw_previews or None
+    required_semantic_previews = evidence.required_semantic_previews or None
+    knowledge_documents = evidence.knowledge_documents
+    user_confirmations = evidence.user_confirmations
+    confirmed_relationships = evidence.confirmed_relationships
+    primary_keys_sampled = evidence.primary_keys_sampled
+    raw_sql_required_refs = evidence.raw_sql_required_refs
+    table_metadata = evidence.table_metadata
+    supports_federation = evidence.supports_federation
+
+    # Policy flags: strict defaults now that evidence auto-loads.
+    strict_provenance = True
+    require_preview = True
+    require_comments = False
+    require_evidence_ledger = True
+    strict_enrichment = True
+
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
     preview_warnings: list[PreviewWarning] = []

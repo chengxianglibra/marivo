@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -80,18 +80,6 @@ def run_check(
     root: str | Path | None = None,
     readiness: bool = False,
     format: Literal["json", "text"] = "text",
-    strict_provenance: bool = True,
-    require_preview: bool = True,
-    require_comments: bool = False,
-    raw_previews: Iterable[str] = (),
-    failed_raw_previews: Iterable[str] = (),
-    knowledge_documents: Iterable[str] = (),
-    user_confirmations: Iterable[str] = (),
-    confirmed_relationships: Iterable[str] = (),
-    primary_keys_sampled: Iterable[str] = (),
-    raw_sql_required_refs: Iterable[str] = (),
-    supports_federation: bool = False,
-    table_metadata_refs: Iterable[str] = (),
     backend_factory: Callable[[str], Any] | None = None,
 ) -> dict[str, object]:
     if root is None:
@@ -122,31 +110,14 @@ def run_check(
 
     if readiness:
         factory = backend_factory
-        if require_preview and factory is None:
+        if factory is None:
             factory = _default_backend_factory()
         if factory is not None:
             project.bind_backend_factory(factory)
-        # Run parity checks for base metrics with source_sql so readiness
-        # can evaluate provenance status accurately.
         _run_parity_checks(project)
-        report = project.readiness(
-            strict_provenance=strict_provenance,
-            require_preview=require_preview,
-            require_comments=require_comments,
-            raw_previews=raw_previews,
-            failed_raw_previews=failed_raw_previews,
-            knowledge_documents=knowledge_documents,
-            user_confirmations=user_confirmations,
-            confirmed_relationships=confirmed_relationships,
-            primary_keys_sampled=primary_keys_sampled,
-            raw_sql_required_refs=raw_sql_required_refs,
-            supports_federation=supports_federation,
-            table_metadata=(),
-        )
+        report = project.readiness()
         payload["readiness"] = report.to_dict()
         payload["status"] = report.status
-    if table_metadata_refs:
-        payload["metadata_tables"] = list(table_metadata_refs)
 
     return payload
 
@@ -156,24 +127,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", default=None, help="Path to .marivo/semantic")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument("--readiness", action="store_true")
-    parser.add_argument(
-        "--strict-provenance", dest="strict_provenance", action="store_true", default=True
-    )
-    parser.add_argument("--no-strict-provenance", dest="strict_provenance", action="store_false")
-    parser.add_argument(
-        "--require-preview", dest="require_preview", action="store_true", default=True
-    )
-    parser.add_argument("--no-require-preview", dest="require_preview", action="store_false")
-    parser.add_argument("--require-comments", action="store_true")
-    parser.add_argument("--raw-preview", action="append", default=None)
-    parser.add_argument("--failed-raw-preview", action="append", default=None)
-    parser.add_argument("--knowledge-document", action="append", default=None)
-    parser.add_argument("--user-confirmation", action="append", default=None)
-    parser.add_argument("--confirmed-relationship", action="append", default=None)
-    parser.add_argument("--primary-key-sampled", action="append", default=None)
-    parser.add_argument("--raw-sql-required-ref", action="append", default=None)
-    parser.add_argument("--metadata-table", action="append", default=None)
-    parser.add_argument("--supports-federation", action="store_true")
     return parser
 
 
@@ -210,18 +163,6 @@ def main(argv: list[str] | None = None) -> int:
         root=args.root,
         readiness=args.readiness,
         format=args.format,
-        strict_provenance=args.strict_provenance,
-        require_preview=args.require_preview,
-        require_comments=args.require_comments,
-        raw_previews=args.raw_preview or (),
-        failed_raw_previews=args.failed_raw_preview or (),
-        knowledge_documents=args.knowledge_document or (),
-        user_confirmations=args.user_confirmation or (),
-        confirmed_relationships=args.confirmed_relationship or (),
-        primary_keys_sampled=args.primary_key_sampled or (),
-        raw_sql_required_refs=args.raw_sql_required_ref or (),
-        supports_federation=args.supports_federation,
-        table_metadata_refs=args.metadata_table or (),
     )
     if args.format == "json":
         print(json.dumps(payload, indent=2, sort_keys=True))
