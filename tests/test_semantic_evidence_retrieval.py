@@ -3,7 +3,7 @@ from __future__ import annotations
 import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
-from marivo.semantic.evidence import AuthoringEvidenceInput, DatasetSource, SamplePolicy
+from marivo.semantic.evidence import AuthoringEvidenceInput, MetadataOnlyPolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 
 
@@ -36,14 +36,12 @@ def test_evidence_survives_a_fresh_project_instance(tmp_path):
     )
     project.inspect_source_context(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
-        sample_policy=SamplePolicy(mode="metadata_only"),
+        source=TableSource(table="orders"),
+        sample_policy=MetadataOnlyPolicy(),
     )
     # new process / new instance, same root
     reloaded = SemanticProject(root=root)
-    refs = reloaded.list_evidence(
-        datasource="warehouse", source=DatasetSource(kind="table", table="orders")
-    )
+    refs = reloaded.list_evidence(datasource="warehouse", source=TableSource(table="orders"))
     assert len(refs) == 1
     pack = reloaded.get_evidence_pack(refs[0].id)
     assert pack is not None

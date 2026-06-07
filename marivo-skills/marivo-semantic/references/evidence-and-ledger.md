@@ -14,8 +14,13 @@
 
 | DTO | Purpose |
 | --- | ------- |
-| `DatasetSource` | Physical table or file source identity |
-| `SamplePolicy` | Controls profiling mode and limits |
+| `TableSource` | Physical table source (table name, optional database) |
+| `FileSource` | Physical file source (path + format: parquet/csv/json) |
+| `DatasetSource` | Type alias: `TableSource \| FileSource` |
+| `MetadataOnlyPolicy` | No row reading, metadata-only profiling |
+| `BoundedProfilePolicy` | Reads rows with a limit |
+| `SelectedColumnsPolicy` | Reads selected columns with a limit |
+| `SamplePolicy` | Type alias: `MetadataOnlyPolicy \| BoundedProfilePolicy \| SelectedColumnsPolicy` |
 | `EvidenceRef` | Reference to collected authoring evidence |
 | `EvidenceFact` | Single observed fact with evidence refs |
 | `ColumnProfile` | Bounded-sample profile for one column |
@@ -39,18 +44,16 @@ project.bind_datasource_access(
 # Source evidence
 pack = project.inspect_source_context(
     datasource="warehouse",
-    source=ms.DatasetSource(kind="table", table="orders"),
-    sample_policy=ms.SamplePolicy(mode="bounded_profile", limit=100),
+    source=ms.TableSource(table="orders"),
+    sample_policy=ms.BoundedProfilePolicy(limit=100),
 )
 
 # Column deep-dive
 evidence = project.inspect_column_context(
     datasource="warehouse",
-    source=ms.DatasetSource(kind="table", table="orders"),
+    source=ms.TableSource(table="orders"),
     columns=("status", "amount"),
-    sample_policy=ms.SamplePolicy(
-        mode="selected_columns_profile", limit=100, columns=("status", "amount")
-    ),
+    sample_policy=ms.SelectedColumnsPolicy(limit=100, columns=("status", "amount")),
 )
 
 # Non-sample evidence
@@ -69,7 +72,7 @@ sql_ref = project.record_authoring_evidence(
 # Source-keyed lookup
 refs = project.list_evidence(
     datasource="warehouse",
-    source=ms.DatasetSource(kind="table", table="orders"),
+    source=ms.TableSource(table="orders"),
 )
 pack = project.get_evidence_pack(refs[0].id)
 

@@ -6,8 +6,8 @@ from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
 from marivo.semantic.evidence import (
     AiContextInput,
     AuthoringEvidenceInput,
-    DatasetSource,
-    SamplePolicy,
+    MetadataOnlyPolicy,
+    TableSource,
 )
 from marivo.semantic.reader import SemanticProject
 
@@ -44,8 +44,8 @@ def _project_with_source(tmp_path) -> SemanticProject:
     )
     project.inspect_source_context(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
-        sample_policy=SamplePolicy(mode="metadata_only"),
+        source=TableSource(table="orders"),
+        sample_policy=MetadataOnlyPolicy(),
     )
     return project
 
@@ -56,7 +56,7 @@ def test_metric_without_evidence_needs_evidence(tmp_path):
         object_kind="metric",
         subject_ref="sales.revenue",
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         columns=("amount", "paid"),
         ai_context=AiContextInput(business_definition="Paid order revenue."),
     )
@@ -78,7 +78,7 @@ def test_metric_with_source_sql_is_supported(tmp_path):
         object_kind="metric",
         subject_ref="sales.revenue",
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         columns=("amount", "paid"),
         evidence_refs=(ref.id,),
         ai_context=AiContextInput(business_definition="Paid order revenue."),
@@ -92,7 +92,7 @@ def test_missing_column_is_a_blocker(tmp_path):
         object_kind="field",
         subject_ref="sales.orders.nope",
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         columns=("nope",),
     )
     assert result.status == "blocked"
@@ -107,7 +107,7 @@ def test_unknown_source_returns_needs_evidence_with_next_check(tmp_path):
         object_kind="dataset",
         subject_ref="sales.orders",
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
     )
     assert result.status == "needs_evidence"
     assert "inspect_source_context" in result.next_checks

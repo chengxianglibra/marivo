@@ -9,7 +9,12 @@ from marivo.analysis.datasources.metadata import (
     PartitionMetadata,
     TableMetadata,
 )
-from marivo.semantic.evidence import DatasetSource, SamplePolicy
+from marivo.semantic.evidence import (
+    BoundedProfilePolicy,
+    MetadataOnlyPolicy,
+    SelectedColumnsPolicy,
+    TableSource,
+)
 from marivo.semantic.evidence_store import EvidenceStore
 from marivo.semantic.inspect import collect_column_evidence, collect_source_evidence
 
@@ -42,17 +47,17 @@ def test_metadata_only_collects_facts_without_profiles(tmp_path):
     store = EvidenceStore(tmp_path)
     pack = collect_source_evidence(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         inspect_source=_fake_inspect_source,
         backend_factory=_backend_factory,
-        sample_policy=SamplePolicy(mode="metadata_only"),
+        sample_policy=MetadataOnlyPolicy(),
         store=store,
     )
     assert dict(pack.schema)["amount"] == "DOUBLE"
     assert pack.table_comment == "orders fact"
     assert pack.partition_hints == ("dt",)
     assert pack.column_profiles == ()
-    assert pack.sample_policy.mode == "metadata_only"
+    assert isinstance(pack.sample_policy, MetadataOnlyPolicy)
     assert pack.metadata_warnings  # carries the nullable_unavailable warning
     # persisted and retrievable
     assert store.read_pack(pack.evidence_refs[0].id) is not None
@@ -61,10 +66,10 @@ def test_metadata_only_collects_facts_without_profiles(tmp_path):
 def test_bounded_profile_collects_sample_scoped_profiles(tmp_path):
     pack = collect_source_evidence(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         inspect_source=_fake_inspect_source,
         backend_factory=_backend_factory,
-        sample_policy=SamplePolicy(mode="bounded_profile", limit=100),
+        sample_policy=BoundedProfilePolicy(limit=100),
         store=EvidenceStore(tmp_path),
     )
     by_col = {p.column: p for p in pack.column_profiles}
@@ -78,10 +83,10 @@ def test_bounded_profile_collects_sample_scoped_profiles(tmp_path):
 def test_max_profiled_columns_skips_extra_columns_with_warning(tmp_path):
     pack = collect_source_evidence(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         inspect_source=_fake_inspect_source,
         backend_factory=_backend_factory,
-        sample_policy=SamplePolicy(mode="bounded_profile", limit=100, max_profiled_columns=1),
+        sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=1),
         store=EvidenceStore(tmp_path),
     )
     assert len(pack.column_profiles) == 1
@@ -108,10 +113,10 @@ def test_source_max_profiled_columns_selects_only_profiled_columns(tmp_path):
 
     pack = collect_source_evidence(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         inspect_source=_fake_inspect_source,
         backend_factory=lambda _name: FakeBackend(),
-        sample_policy=SamplePolicy(mode="bounded_profile", limit=2, max_profiled_columns=1),
+        sample_policy=BoundedProfilePolicy(limit=2, max_profiled_columns=1),
         store=EvidenceStore(tmp_path),
     )
 
@@ -128,10 +133,10 @@ def test_source_timeout_budget_skips_backend_and_persists_partial_pack(tmp_path)
     store = EvidenceStore(tmp_path)
     pack = collect_source_evidence(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         inspect_source=_fake_inspect_source,
         backend_factory=backend_factory,
-        sample_policy=SamplePolicy(mode="bounded_profile", limit=100, timeout_seconds=0),
+        sample_policy=BoundedProfilePolicy(limit=100, timeout_seconds=0),
         store=store,
     )
 
@@ -160,12 +165,11 @@ def test_column_max_profiled_columns_skips_later_columns_without_reading_them(tm
 
     evidence = collect_column_evidence(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         columns=("order_id", "status", "amount"),
         inspect_source=_fake_inspect_source,
         backend_factory=lambda _name: FakeBackend(),
-        sample_policy=SamplePolicy(
-            mode="selected_columns_profile",
+        sample_policy=SelectedColumnsPolicy(
             limit=100,
             columns=("order_id", "status", "amount"),
             max_profiled_columns=1,

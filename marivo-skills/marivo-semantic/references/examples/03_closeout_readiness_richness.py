@@ -128,10 +128,8 @@ with tempfile.TemporaryDirectory() as tmp:
         # inspect_source_context folds source inspection and bounded preview
         pack = project.inspect_source_context(
             datasource="warehouse",
-            source=ms.DatasetSource(kind="table", table="orders"),
-            sample_policy=ms.SamplePolicy(
-                mode="bounded_profile", limit=100, max_profiled_columns=50
-            ),
+            source=ms.TableSource(table="orders"),
+            sample_policy=ms.BoundedProfilePolicy(limit=100, max_profiled_columns=50),
         )
         print("source schema columns:", len(pack.schema))
 

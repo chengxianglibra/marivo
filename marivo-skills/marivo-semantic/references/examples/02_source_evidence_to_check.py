@@ -57,8 +57,8 @@ with tempfile.TemporaryDirectory() as tmp:
 
     pack = project.inspect_source_context(
         datasource="warehouse",
-        source=ms.DatasetSource(kind="table", table="orders"),
-        sample_policy=ms.SamplePolicy(mode="bounded_profile", limit=100, max_profiled_columns=50),
+        source=ms.TableSource(table="orders"),
+        sample_policy=ms.BoundedProfilePolicy(limit=100, max_profiled_columns=50),
     )
     print("partition hints:", list(pack.partition_hints))
     amount = next(p for p in pack.column_profiles if p.column == "amount")
@@ -77,7 +77,7 @@ with tempfile.TemporaryDirectory() as tmp:
         object_kind="metric",
         subject_ref="sales.revenue",
         datasource="warehouse",
-        source=ms.DatasetSource(kind="table", table="orders"),
+        source=ms.TableSource(table="orders"),
         columns=("amount", "paid"),
         evidence_refs=(sql_ref.id,),
         ai_context=ms.AiContextInput(business_definition="Paid order revenue before refunds."),
