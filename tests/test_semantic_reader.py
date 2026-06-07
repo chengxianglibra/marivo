@@ -696,10 +696,6 @@ def test_dependencies_metric(semantic_project_factory) -> None:
     # Should include dataset dependency
     child_ids = [c.semantic_id for c in root.children]
     assert "sales.orders" in child_ids
-    # Dataset should have field children
-    orders_node = next(c for c in root.children if c.semantic_id == "sales.orders")
-    field_ids = [fc.semantic_id for fc in orders_node.children]
-    assert "sales.orders.amount" in field_ids
 
 
 def test_dependencies_dataset(semantic_project_factory) -> None:
@@ -712,11 +708,9 @@ def test_dependencies_dataset(semantic_project_factory) -> None:
     root = project.dependencies("sales.orders")
     assert root.semantic_id == "sales.orders"
     assert root.kind == SymbolKind.DATASET
-    # Should include fields belonging to this dataset
+    # Dataset depends on its datasource
     child_ids = [c.semantic_id for c in root.children]
-    assert "sales.orders.amount" in child_ids
-    assert "sales.orders.region" in child_ids
-    assert "sales.orders.created_at" in child_ids
+    assert "warehouse" in child_ids
 
 
 def test_dependencies_field(semantic_project_factory) -> None:
@@ -729,7 +723,9 @@ def test_dependencies_field(semantic_project_factory) -> None:
     root = project.dependencies("sales.orders.amount")
     assert root.semantic_id == "sales.orders.amount"
     assert root.kind == SymbolKind.FIELD
-    assert root.children == ()
+    # Field depends on its parent dataset
+    child_ids = [c.semantic_id for c in root.children]
+    assert "sales.orders" in child_ids
 
 
 def test_dependencies_time_field(semantic_project_factory) -> None:
@@ -824,9 +820,8 @@ def test_dependents_field(semantic_project_factory) -> None:
     root = project.dependents("sales.orders.amount")
     assert root.semantic_id == "sales.orders.amount"
     assert root.kind == SymbolKind.FIELD
-    child_ids = [c.semantic_id for c in root.children]
-    # Field's parent dataset
-    assert "sales.orders" in child_ids
+    # Fields have no dependents
+    assert root.children == ()
 
 
 def test_dependents_not_found(semantic_project_factory) -> None:
@@ -839,6 +834,84 @@ def test_dependents_not_found(semantic_project_factory) -> None:
     with pytest.raises(SemanticRuntimeError) as exc_info:
         project.dependents("nonexistent")
     assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
+
+
+def test_dependencies_relationship(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    root = project.dependencies("sales.orders_to_items")
+    assert root.semantic_id == "sales.orders_to_items"
+    assert root.kind == SymbolKind.RELATIONSHIP
+    child_ids = [c.semantic_id for c in root.children]
+    assert "sales.orders" in child_ids
+
+
+def test_dependents_relationship(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    root = project.dependents("sales.orders_to_items")
+    assert root.semantic_id == "sales.orders_to_items"
+    assert root.kind == SymbolKind.RELATIONSHIP
+    assert root.children == ()
+
+
+def test_describe_dataset_deps_consistent(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    desc = project.describe("sales.orders")
+    tree_ids = project._flatten_ids(project.dependencies("sales.orders"))
+    assert set(desc.dependencies) == tree_ids
+
+
+def test_describe_field_deps_consistent(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    desc = project.describe("sales.orders.amount")
+    tree_dep_ids = project._flatten_ids(project.dependencies("sales.orders.amount"))
+    tree_dep_of_ids = project._flatten_ids(project.dependents("sales.orders.amount"))
+    assert set(desc.dependencies) == tree_dep_ids
+    assert set(desc.dependents) == tree_dep_of_ids
+
+
+def test_blast_radius_dataset(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    br = project.blast_radius_of(("sales.orders",))
+    # Dependents of sales.orders: metrics + fields
+    expected = len(project._flatten_ids(project.dependents("sales.orders")))
+    assert br == expected
+
+
+def test_blast_radius_field(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    br = project.blast_radius_of(("sales.orders.amount",))
+    # Fields have no dependents
+    assert br == 0
 
 
 # ---------------------------------------------------------------------------

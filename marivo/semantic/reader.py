@@ -1099,9 +1099,10 @@ class SemanticProject:
         """Return the dependency tree for a named object.
 
         For metrics: walks dataset refs, component metric refs, and
-        the fields that belong to each referenced dataset.
-        For datasets: includes all fields and time fields.
-        For fields: just the field itself.
+        their transitive dependencies (datasources).
+        For datasets: includes the datasource.
+        For fields: includes the parent dataset.
+        For relationships: includes from_dataset and to_dataset.
         """
         reg = _require_registry(self._registry, project=self)
 
@@ -1119,7 +1120,21 @@ class SemanticProject:
         field_ir = reg.fields.get(name)
         if field_ir is not None:
             kind = SymbolKind.TIME_FIELD if field_ir.is_time_field else SymbolKind.FIELD
-            return DependencyNode(semantic_id=name, kind=kind, children=())
+            ds_child: tuple[DependencyNode, ...] = ()
+            if reg.datasets.get(field_ir.dataset) is not None:
+                ds_child = (
+                    DependencyNode(
+                        semantic_id=field_ir.dataset,
+                        kind=SymbolKind.DATASET,
+                        children=(),
+                    ),
+                )
+            return DependencyNode(semantic_id=name, kind=kind, children=ds_child)
+
+        # Check if it is a relationship
+        rel_ir = reg.relationships.get(name)
+        if rel_ir is not None:
+            return self._deps_relationship(name, rel_ir, reg)
 
         # Not found
         _raise(
@@ -1174,16 +1189,39 @@ class SemanticProject:
         visited.add(name)
 
         children: list[DependencyNode] = []
-        # Fields belonging to this dataset
-        for f_id, f_ir in reg.fields.items():
-            if f_ir.dataset == name and f_id not in visited:
-                kind = SymbolKind.TIME_FIELD if f_ir.is_time_field else SymbolKind.FIELD
-                children.append(DependencyNode(semantic_id=f_id, kind=kind, children=()))
-                visited.add(f_id)
+        ds_ir = reg.datasources.get(dataset_ir.datasource)
+        if ds_ir is not None and dataset_ir.datasource not in visited:
+            children.append(
+                DependencyNode(
+                    semantic_id=dataset_ir.datasource,
+                    kind=SymbolKind.DATASOURCE,
+                    children=(),
+                )
+            )
+            visited.add(dataset_ir.datasource)
 
         return DependencyNode(
             semantic_id=name,
             kind=SymbolKind.DATASET,
+            children=tuple(children),
+        )
+
+    def _deps_relationship(
+        self,
+        name: str,
+        rel_ir: RelationshipIR,
+        reg: Registry,
+    ) -> DependencyNode:
+        """Build dependency tree for a relationship."""
+        children: list[DependencyNode] = []
+        for ds_ref in (rel_ir.from_dataset, rel_ir.to_dataset):
+            if reg.datasets.get(ds_ref) is not None:
+                children.append(
+                    DependencyNode(semantic_id=ds_ref, kind=SymbolKind.DATASET, children=())
+                )
+        return DependencyNode(
+            semantic_id=name,
+            kind=SymbolKind.RELATIONSHIP,
             children=tuple(children),
         )
 
@@ -1205,6 +1243,10 @@ class SemanticProject:
         # For a metric: find derived metrics that reference it as a component
         if name in reg.metrics:
             return self._dependents_metric(name, reg)
+
+        # For a relationship: nothing depends on a relationship
+        if name in reg.relationships:
+            return DependencyNode(semantic_id=name, kind=SymbolKind.RELATIONSHIP, children=())
 
         # Not found
         _raise(
@@ -1245,22 +1287,8 @@ class SemanticProject:
     def _dependents_field(self, name: str, reg: Registry) -> DependencyNode:
         """Build dependents tree for a field/time_field."""
         f_ir = reg.fields[name]
-        ds_id = f_ir.dataset
         kind = SymbolKind.TIME_FIELD if f_ir.is_time_field else SymbolKind.FIELD
-        field_children: list[DependencyNode] = []
-        if ds_id in reg.datasets:
-            field_children.append(
-                DependencyNode(
-                    semantic_id=ds_id,
-                    kind=SymbolKind.DATASET,
-                    children=(),
-                )
-            )
-        return DependencyNode(
-            semantic_id=name,
-            kind=kind,
-            children=tuple(field_children),
-        )
+        return DependencyNode(semantic_id=name, kind=kind, children=())
 
     def _dependents_metric(self, name: str, reg: Registry) -> DependencyNode:
         """Build dependents tree for a metric."""
@@ -1283,11 +1311,11 @@ class SemanticProject:
             children=tuple(metric_children),
         )
 
-    def _flatten_dependent_ids(self, node: DependencyNode) -> set[str]:
+    def _flatten_ids(self, node: DependencyNode) -> set[str]:
         ids: set[str] = set()
         for child in node.children:
             ids.add(child.semantic_id)
-            ids |= self._flatten_dependent_ids(child)
+            ids |= self._flatten_ids(child)
         return ids
 
     def blast_radius_of(self, refs: tuple[str, ...]) -> int:
@@ -1302,7 +1330,7 @@ class SemanticProject:
                 node = self.dependents(ref)
             except SemanticRuntimeError:
                 continue
-            seen |= self._flatten_dependent_ids(node)
+            seen |= self._flatten_ids(node)
         return len(seen - set(refs))
 
     # -- describe -----------------------------------------------------------
@@ -1353,9 +1381,9 @@ class SemanticProject:
                     "refs": list(exc.semantic_refs),
                 }
 
-        # Compute dependencies and dependents
-        dep_names = self._compute_dependency_ids(name, obj, reg)
-        dep_of_names = self._compute_dependent_ids(name, obj, reg)
+        # Compute dependencies and dependents from tree API
+        dep_names = sorted(self._flatten_ids(self.dependencies(name)))
+        dep_of_names = sorted(self._flatten_ids(self.dependents(name)))
 
         # Dataset provenance
         ds_provenance: DatasetProvenance | None = None
@@ -1401,58 +1429,6 @@ class SemanticProject:
         )
 
         return desc
-
-    def _compute_dependency_ids(
-        self,
-        name: str,
-        obj: DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR,
-        reg: Registry,
-    ) -> list[str]:
-        """Compute flat list of dependency semantic_ids."""
-        deps: list[str] = []
-        if isinstance(obj, MetricIR):
-            for ds_ref in obj.datasets:
-                deps.append(ds_ref)
-            for comp_ref in obj.decomposition.components.values():
-                deps.append(comp_ref)
-        elif isinstance(obj, DatasetIR):
-            for f_id, f_ir in reg.fields.items():
-                if f_ir.dataset == name:
-                    deps.append(f_id)
-        elif isinstance(obj, FieldIR):
-            deps.append(obj.dataset)
-        elif isinstance(obj, RelationshipIR):
-            deps.append(obj.from_dataset)
-            deps.append(obj.to_dataset)
-        return deps
-
-    def _compute_dependent_ids(
-        self,
-        name: str,
-        obj: DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR,
-        reg: Registry,
-    ) -> list[str]:
-        """Compute flat list of dependent semantic_ids."""
-        dep_of: list[str] = []
-        if isinstance(obj, DatasetIR):
-            for m_id, m_ir in reg.metrics.items():
-                if name in m_ir.datasets:
-                    dep_of.append(m_id)
-            for f_id, f_ir in reg.fields.items():
-                if f_ir.dataset == name:
-                    dep_of.append(f_id)
-        elif isinstance(obj, FieldIR):
-            dep_of.append(obj.dataset)
-        elif isinstance(obj, MetricIR):
-            for m_id, m_ir in reg.metrics.items():
-                if m_id == name:
-                    continue
-                for comp_ref in m_ir.decomposition.components.values():
-                    if comp_ref == name:
-                        dep_of.append(m_id)
-        elif isinstance(obj, RelationshipIR):
-            pass
-        return dep_of
 
     # -- compile_sql --------------------------------------------------------
 
