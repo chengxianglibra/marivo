@@ -111,6 +111,32 @@ class Grain(BaseModel):
     def to_token(self) -> str:
         return self.unit if self.count == 1 else f"{self.count}{self.unit}"
 
+    def __lt__(self, other: object) -> bool:
+        """True if this grain represents a finer (shorter) duration than *other*."""
+        if not isinstance(other, Grain):
+            return NotImplemented
+        if self.is_subday and other.is_subday:
+            return self.width_seconds() < other.width_seconds()
+        return _UNIT_RANK[self.unit] < _UNIT_RANK[other.unit]
+
+    def __gt__(self, other: object) -> bool:
+        """True if this grain represents a coarser (longer) duration than *other*."""
+        if not isinstance(other, Grain):
+            return NotImplemented
+        if self.is_subday and other.is_subday:
+            return self.width_seconds() > other.width_seconds()
+        return _UNIT_RANK[self.unit] > _UNIT_RANK[other.unit]
+
+    def __le__(self, other: object) -> bool:
+        if not isinstance(other, Grain):
+            return NotImplemented
+        return not self.__gt__(other)
+
+    def __ge__(self, other: object) -> bool:
+        if not isinstance(other, Grain):
+            return NotImplemented
+        return not self.__lt__(other)
+
 
 GrainInput = Grain | tuple[int, str] | str | None
 

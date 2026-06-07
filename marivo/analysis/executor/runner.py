@@ -209,9 +209,18 @@ def _is_hour_precision_partition_meta(time_meta: Any) -> bool:
 
 
 def _is_hour_only_partition_meta(time_meta: Any) -> bool:
+    """True for string/integer time fields whose format encodes only the hour (no date)."""
     data_type = time_meta.data_type
+    if data_type not in {"string", "integer"}:
+        return False
     fmt = _normalize_time_format(time_meta.format)
-    return data_type in {"string", "integer"} and fmt in _HOUR_ONLY_FORMATS
+    if fmt in _HOUR_ONLY_FORMATS:
+        return True
+    strptime_fmt = _resolve_strptime_format(time_meta.format)
+    if strptime_fmt is not None and strptime_fmt.startswith("%"):
+        classification = _classify_strptime_format(strptime_fmt)
+        return classification in {"hour_only", "hour_only_minute"}
+    return False
 
 
 def _parse_hour_precision_literal(value: str, fmt: str | None) -> datetime | None:
@@ -1000,7 +1009,10 @@ def _local_bucket_expr(
         ts_expr = raw
         column_tz = zoneinfo_from_name(declared) if declared is not None else session_tz
     else:
-        return bucket_start_expr(raw, grain)
+        raise WindowInvalidError(
+            message=f"_local_bucket_expr only supports datetime/timestamp/epoch_seconds, "
+            f"got data_type={data_type!r}",
+        )
 
     local_expr = _timestamp_expr_in_session_timezone(
         ts_expr,
@@ -1011,12 +1023,85 @@ def _local_bucket_expr(
     return bucket_start_expr(local_expr, grain)
 
 
+def _prefix_date_expr(table: ibis.Table, prefix_field_ir: Any) -> Any:
+    """Compute a date ibis expression from a day-level required_prefix field."""
+    time_meta = prefix_field_ir.time_meta
+    raw = prefix_field_ir.fn(table)
+    if time_meta.data_type == "date":
+        return raw
+    if time_meta.data_type in {"string", "integer"}:
+        return _parse_string_column(raw, time_meta)
+    if time_meta.data_type in {"datetime", "timestamp"}:
+        return raw.cast("date")
+    raise WindowInvalidError(
+        message=f"required_prefix field '{prefix_field_ir.name}' has unsupported "
+        f"data_type {time_meta.data_type!r} for day-level bucketing",
+    )
+
+
+def _apply_hour_only_bucket(
+    table: ibis.Table,
+    *,
+    raw: Any,
+    field_ir: Any,
+    window: AbsoluteWindow,
+    session_tz: ZoneInfo,
+    dataset_ir: Any,
+) -> ibis.Table:
+    """Bucket for hour-only string/integer time fields that use required_prefix."""
+    time_meta = field_ir.time_meta
+    grain = window.grain
+    assert grain is not None
+    field_grain = Grain(count=1, unit=time_meta.granularity)
+
+    prefix_field_ir = _resolve_required_prefix_time_field(dataset_ir, field_ir)
+    if prefix_field_ir is None or prefix_field_ir.time_meta is None:
+        raise WindowInvalidError(
+            message=f"hour-only time field '{field_ir.name}' requires a day-level "
+            f"required_prefix for bucket computation",
+        )
+
+    if grain < field_grain:
+        raise WindowInvalidError(
+            message=f"requested grain {grain.to_token()!r} is finer than time field "
+            f"'{field_ir.name}' granularity '{time_meta.granularity}'",
+        )
+
+    prefix_raw = prefix_field_ir.fn(table)
+
+    # Grain coarser than field: use prefix value directly (no parse, no truncate)
+    if grain > field_grain:
+        if _is_day_partition_meta(prefix_field_ir.time_meta) and grain.is_day:
+            return table.mutate(bucket_start=prefix_raw.name("bucket_start"))
+        prefix_date = _prefix_date_expr(table, prefix_field_ir)
+        return table.mutate(bucket_start=bucket_start_expr(prefix_date, grain))
+
+    # Grain matches field: concatenate prefix + hour into sortable string
+    # No parse, no truncate — raw values already represent the bucket.
+    hour_str = raw if time_meta.data_type == "string" else raw.cast("string")
+    if _normalize_time_format(time_meta.format) in {"h", "int"}:
+        hour_str = hour_str.lpad(2, "0")
+    prefix_fmt = _normalize_time_format(prefix_field_ir.time_meta.format)
+    if prefix_fmt == "yyyy-mm-dd":
+        bucket = (prefix_raw + ibis.literal("-") + hour_str).name("bucket_start")
+    elif prefix_fmt == "yyyymmdd":
+        bucket = (prefix_raw + hour_str).name("bucket_start")
+    else:
+        # Fallback for unusual prefix formats
+        prefix_date = _prefix_date_expr(table, prefix_field_ir)
+        hour_int = raw.cast("int") if time_meta.data_type == "string" else raw
+        date_ts = prefix_date.cast("timestamp")
+        bucket = (date_ts + (hour_int * 3600).as_interval("s")).name("bucket_start")
+    return table.mutate(bucket_start=bucket)
+
+
 def apply_time_series_bucket(
     table: ibis.Table,
     *,
     field_ir: Any,
     window: AbsoluteWindow,
     session_tz: ZoneInfo,
+    dataset_ir: Any | None = None,
 ) -> ibis.Table:
     if field_ir.time_meta is None:
         raise WindowInvalidError(message=f"field '{field_ir.name}' has no time metadata")
@@ -1031,14 +1116,26 @@ def apply_time_series_bucket(
         return table
 
     # Strptime format: parse the column into a temporal type
+    # (excludes hour-only formats like "hh", "%H" — those need required_prefix)
     if (
         data_type in {"string", "integer"}
         and strptime_fmt is not None
-        and strptime_fmt not in _HOUR_ONLY_FORMATS
+        and not _is_hour_only_partition_meta(time_meta)
     ):
         parsed = _parse_string_column(raw, time_meta)
         classification = _classify_strptime_format(strptime_fmt)
-        if window.grain.is_day and classification == "day":
+        grain_matches_classification = (
+            (window.grain.is_day and classification == "day")
+            or (
+                window.grain.unit == "hour" and window.grain.count == 1 and classification == "hour"
+            )
+            or (
+                window.grain.unit == "minute"
+                and window.grain.count == 1
+                and classification == "minute"
+            )
+        )
+        if grain_matches_classification:
             bucket = parsed.name("bucket_start")
         else:
             column_tz = _column_timezone(time_meta, session_tz)
@@ -1064,9 +1161,27 @@ def apply_time_series_bucket(
         )
         return table.mutate(bucket_start=bucket)
 
-    # Date and remaining types: simple truncate or cast
-    bucket = bucket_start_expr(raw, window.grain)
-    return table.mutate(bucket_start=bucket)
+    # Hour-only string/integer with required_prefix
+    if data_type in {"string", "integer"} and _is_hour_only_partition_meta(time_meta):
+        return _apply_hour_only_bucket(
+            table,
+            raw=raw,
+            field_ir=field_ir,
+            window=window,
+            session_tz=session_tz,
+            dataset_ir=dataset_ir,
+        )
+
+    # Date type: simple truncate or cast
+    if data_type == "date":
+        bucket = bucket_start_expr(raw, window.grain)
+        return table.mutate(bucket_start=bucket)
+
+    # Unhandled type/format combination
+    raise WindowInvalidError(
+        message=f"cannot compute bucket for time field '{field_ir.name}' with "
+        f"data_type={data_type!r}, format={fmt!r}",
+    )
 
 
 def _resolve_slice_field(dataset_ir: Any, field_name: str, table: ibis.Table) -> Any:

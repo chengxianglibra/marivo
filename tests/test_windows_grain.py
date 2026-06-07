@@ -83,3 +83,44 @@ def test_ensure_grain_supported_unknown_base_granularity_lists_supported_values(
     assert "supported granularity: year, quarter, month, week, day, hour, minute, second" in str(
         exc_info.value
     )
+
+
+# -- Grain ordering -----------------------------------------------------------
+
+
+class TestGrainOrdering:
+    """Grain supports __lt__/__gt__/__le__/__ge__ for granularity comparison."""
+
+    def test_subday_same_unit(self):
+        assert Grain(count=5, unit="minute") < Grain(count=15, unit="minute")
+        assert Grain(count=15, unit="minute") > Grain(count=5, unit="minute")
+
+    def test_subday_different_unit(self):
+        assert Grain(count=1, unit="minute") < Grain(count=1, unit="hour")
+        assert Grain(count=1, unit="hour") > Grain(count=1, unit="minute")
+
+    def test_subday_vs_calendar(self):
+        assert Grain(count=1, unit="hour") < Grain(count=1, unit="day")
+        assert Grain(count=1, unit="day") > Grain(count=1, unit="hour")
+
+    def test_calendar_ordering(self):
+        assert Grain(count=1, unit="day") < Grain(count=1, unit="week")
+        assert Grain(count=1, unit="week") < Grain(count=1, unit="month")
+        assert Grain(count=1, unit="month") < Grain(count=1, unit="year")
+
+    def test_le_ge(self):
+        g5 = Grain(count=5, unit="minute")
+        g15 = Grain(count=15, unit="minute")
+        assert g5 <= g15
+        assert g15 >= g5
+        assert g5 <= Grain(count=5, unit="minute")
+
+    def test_same_grain_not_lt_not_gt(self):
+        g = Grain(count=1, unit="hour")
+        assert not (g < g)
+        assert not (g > g)
+
+    def test_comparison_with_non_grain_returns_not_implemented(self):
+        g = Grain(count=1, unit="hour")
+        assert g.__lt__("hour") is NotImplemented
+        assert g.__gt__("hour") is NotImplemented
