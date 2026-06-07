@@ -121,7 +121,7 @@ def resolve_metric_root(metric_ir: Any) -> str:
 
 
 def _all_fields(project: Any) -> list[Any]:
-    return [*project.list_dimensions(display=False), *project.list_time_fields(display=False)]
+    return [*project.list_fields(display=False), *project.list_time_fields(display=False)]
 
 
 def _fields_for_datasets(project: Any, dataset_ids: set[str]) -> list[Any]:

@@ -66,7 +66,7 @@ registry and validation pieces:
 - `ms.find_project()`
 - `project.load()` / `project.reload()`
 - `project.list_models()` / `list_datasources()` / `list_datasets()` /
-  `list_dimensions()` / `list_time_fields()` / `list_metrics()` /
+  `list_fields()` / `list_time_fields()` / `list_metrics()` /
   `list_relationships()`
 - `project.search(...)`
 - `project.describe(...)`

@@ -153,7 +153,7 @@ def _build_dataset_adapter(
 
     # Build field adapters for this dataset
     field_adapters: dict[str, _FieldIRAdapter] = {}
-    for field_ir in sp.list_dimensions(dataset=dataset_ir.semantic_id, display=False):
+    for field_ir in sp.list_fields(dataset=dataset_ir.semantic_id, display=False):
         field_fn = sidecar.get(field_ir.semantic_id) if sidecar else None
         _captured_field_sid = field_ir.semantic_id
 
@@ -1092,7 +1092,7 @@ def observe(
         dataset_irs[dataset_name] = _build_dataset_adapter(sp, dataset_ir)
 
     # Add datasets required by explicit dimensions/where
-    for field_ir in [*sp.list_dimensions(display=False), *sp.list_time_fields(display=False)]:
+    for field_ir in [*sp.list_fields(display=False), *sp.list_time_fields(display=False)]:
         if (
             dimensions
             and any(dim.id == field_ir.semantic_id for dim in dimension_refs)
