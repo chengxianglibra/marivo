@@ -151,22 +151,22 @@ def test_timescope_without_grain_stays_scalar(tmp_path):
 
     frame = observe(
         MetricRef("sales.revenue"),
-        timescope={"start": "2026-05-01", "end": "2026-05-24"},
+        timescope={"start": "2026-05-01", "end": "2026-05-25"},
         session=s,
     )
 
     assert frame.meta.semantic_kind == "scalar"
     assert frame.meta.window is not None
     assert frame.meta.window["start"] == "2026-05-01"
-    assert frame.meta.window["end"] == "2026-05-24"
+    assert frame.meta.window["end"] == "2026-05-25"
 
     jobs = s.jobs()
     assert len(jobs) == 1
     job = s.job(jobs[0].id)
     window_params = job["params"]["timescope"]
-    assert window_params["original"] == {"start": "2026-05-01", "end": "2026-05-24"}
+    assert window_params["original"] == {"start": "2026-05-01", "end": "2026-05-25"}
     assert window_params["resolved"]["start"] == "2026-05-01"
-    assert window_params["resolved"]["end"] == "2026-05-24"
+    assert window_params["resolved"]["end"] == "2026-05-25"
     assert window_params["session_tz"] == "Asia/Shanghai"
 
 
@@ -181,7 +181,7 @@ def test_timescope_with_grain_returns_time_series(tmp_path):
 
     frame = observe(
         MetricRef("sales.revenue"),
-        timescope={"start": "2026-05-01", "end": "2026-05-24"},
+        timescope={"start": "2026-05-01", "end": "2026-05-25"},
         grain="day",
         session=s,
     )
@@ -233,19 +233,19 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
 
     frame = observe(
         MetricRef("sales.revenue"),
-        timescope={"start": "2026-05-01", "end": "2026-05-24"},
+        timescope={"start": "2026-05-01", "end": "2026-05-25"},
         grain="day",
         session=s,
     )
 
     job = s.job(s.jobs()[0].id)
     window_params = job["params"]["timescope"]
-    assert window_params["original"] == {"start": "2026-05-01", "end": "2026-05-24"}
+    assert window_params["original"] == {"start": "2026-05-01", "end": "2026-05-25"}
     assert window_params["session_tz"] == "Asia/Shanghai"
     assert window_params["resolved"] == {
         "kind": "absolute",
         "start": "2026-05-01",
-        "end": "2026-05-24",
+        "end": "2026-05-25",
         "grain": "day",
         "time_field": None,
     }
@@ -263,7 +263,7 @@ def test_date_time_series_day_bucket_respects_session_tz(tmp_path):
 
     frame = observe(
         MetricRef("sales.revenue"),
-        timescope={"start": "2026-05-01", "end": "2026-05-01"},
+        timescope={"start": "2026-05-01", "end": "2026-05-02"},
         grain="day",
         session=s,
     )

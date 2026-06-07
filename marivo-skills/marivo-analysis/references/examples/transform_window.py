@@ -16,12 +16,12 @@ import marivo.analysis as mv  # noqa: E402
 session = mv.session.active()
 time_series_frame = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    timescope={"start": "2026-07-01", "end": "2026-07-04"},
+    timescope={"start": "2026-07-01", "end": "2026-07-05"},
     grain="day",
 )
 clipped = session.transform.window(
     time_series_frame,
-    window={"start": "2026-07-02", "end": "2026-07-03"},
+    window={"start": "2026-07-02", "end": "2026-07-04"},
 )
 print(clipped.summary())
 

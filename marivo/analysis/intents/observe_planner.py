@@ -6,7 +6,7 @@ import hashlib
 import json
 import operator
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from functools import reduce
 from typing import Any, Literal
@@ -23,6 +23,7 @@ from marivo.analysis.intents.observe_errors import (
     raise_observe_planning_error,
 )
 from marivo.analysis.refs import DimensionRef
+from marivo.analysis.windows.spec import is_date_only
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
 
 
@@ -377,7 +378,11 @@ def _anchor_date(resolved_window: Any | None, timezone: str | None) -> date:
             return end.astimezone(ZoneInfo(timezone or "UTC")).date()
         if isinstance(end, date):
             return end
-        return datetime.fromisoformat(str(end)).date()
+        end_str = str(end)
+        anchor = datetime.fromisoformat(end_str).date()
+        if is_date_only(end_str):
+            anchor -= timedelta(days=1)
+        return anchor
     return datetime.now(ZoneInfo(timezone or "UTC")).date()
 
 
@@ -414,7 +419,10 @@ def _derive_version_mode(
         elif isinstance(end, date):
             anchor = end
         else:
-            anchor = datetime.fromisoformat(str(end)).date()
+            end_str = str(end)
+            anchor = datetime.fromisoformat(end_str).date()
+            if is_date_only(end_str):
+                anchor -= timedelta(days=1)
         return ("latest", "timescope_end", anchor)
     return ("latest", "as_of_current_time", _utc_now().astimezone(target_tz).date())
 

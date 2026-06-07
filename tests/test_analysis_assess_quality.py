@@ -55,7 +55,7 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
     warning = _metric(
         session,
         rows,
-        window={"start": "2026-01-01", "end": "2026-01-10", "grain": "day", "time_field": "time"},
+        window={"start": "2026-01-01", "end": "2026-01-11", "grain": "day", "time_field": "time"},
     )
     warning_report = session.assess_quality(warning)
     assert warning_report.meta.overall_status == "warning"
@@ -63,7 +63,7 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
     blocking = _metric(
         session,
         rows[:6],
-        window={"start": "2026-01-01", "end": "2026-01-10", "grain": "day", "time_field": "time"},
+        window={"start": "2026-01-01", "end": "2026-01-11", "grain": "day", "time_field": "time"},
     )
     blocking_report = session.assess_quality(blocking)
     assert blocking_report.meta.overall_status == "blocking"

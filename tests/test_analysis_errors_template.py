@@ -119,11 +119,11 @@ def test_semantic_kind_mismatch_has_compare_fix_template():
     assert "Fix:" in rendered
     assert (
         'cur  = session.observe(mv.MetricRef("sales.revenue"), '
-        'timescope={"start": "2026-07-01", "end": "2026-09-30"})'
+        'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert (
         'base = session.observe(mv.MetricRef("sales.revenue"), '
-        'timescope={"start": "2025-07-01", "end": "2025-09-30"})'
+        'timescope={"start": "2025-07-01", "end": "2025-10-01"})'
     ) in rendered
     assert (
         '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
@@ -173,7 +173,7 @@ def test_window_invalid_has_window_fix_template():
     assert "Fix:" in rendered
     assert (
         '  session.observe(mv.MetricRef("sales.revenue"), '
-        'timescope={"start": "2026-07-01", "end": "2026-09-30"})'
+        'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert 'session.observe("revenue", window=' not in rendered
 
@@ -191,7 +191,7 @@ def test_metric_not_found_has_list_metrics_fix_template():
     assert "  project.list_metrics()  # confirm the exact id" in rendered
     assert (
         'session.observe(mv.MetricRef("<registered_metric_id>"), '
-        'timescope={"start": "2026-07-01", "end": "2026-09-30"})'
+        'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert 'session.observe("<registered_metric_id>", window=' not in rendered
 

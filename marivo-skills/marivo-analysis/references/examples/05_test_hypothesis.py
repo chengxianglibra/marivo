@@ -11,12 +11,12 @@ import marivo.analysis as mv  # noqa: E402
 session = mv.session.active()
 cur = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="month",
 )
 base = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="month",
 )
 result = session.hypothesis_test(cur, base)

@@ -17,7 +17,7 @@ import marivo.analysis as mv  # noqa: E402
 session = mv.session.active()
 by_region = session.observe(
     mv.MetricRef(id=DERIVED_RATIO_METRIC_ID),
-    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
     dimensions=[mv.DimensionRef(id="region")],
 )
 print(by_region.summary())

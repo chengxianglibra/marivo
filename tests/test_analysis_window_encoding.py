@@ -97,30 +97,30 @@ def _compile_window_filter(
     return ibis.duckdb.connect(":memory:").compile(table.filter(lower, upper))
 
 
-def test_string_yyyymmdd_partition_predicate_uses_next_day_exclusive_upper():
+def test_string_yyyymmdd_partition_predicate_uses_exclusive_end_date():
     sql = _compile_window_filter("string", "yyyymmdd")
     assert "\"log_date\" >= '20241011'" in sql
-    assert "\"log_date\" < '20250801'" in sql
+    assert "\"log_date\" < '20250731'" in sql
     assert "CAST" not in sql.upper()
 
 
 def test_string_yyyymmdd_partition_predicate_accepts_compact_window_bounds():
     sql = _compile_window_filter("string", "yyyymmdd", start="20241011", end="20250731")
     assert "\"log_date\" >= '20241011'" in sql
-    assert "\"log_date\" < '20250801'" in sql
+    assert "\"log_date\" < '20250731'" in sql
 
 
-def test_string_dashed_partition_predicate_uses_next_day_exclusive_upper():
+def test_string_dashed_partition_predicate_uses_exclusive_end_date():
     sql = _compile_window_filter("string", "yyyy-mm-dd")
     assert "\"log_date\" >= '2024-10-11'" in sql
-    assert "\"log_date\" < '2025-08-01'" in sql
+    assert "\"log_date\" < '2025-07-31'" in sql
     assert "CAST" not in sql.upper()
 
 
-def test_integer_yyyymmdd_partition_predicate_uses_unquoted_next_day_upper():
+def test_integer_yyyymmdd_partition_predicate_uses_unquoted_exclusive_end():
     sql = _compile_window_filter("integer", "yyyymmdd", ibis_type="int64")
     assert '"log_date" >= 20241011' in sql
-    assert '"log_date" < 20250801' in sql
+    assert '"log_date" < 20250731' in sql
     assert "'20241011'" not in sql
 
 

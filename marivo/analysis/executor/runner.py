@@ -36,7 +36,7 @@ from marivo.analysis.executor.query_record import (
 )
 from marivo.analysis.timezone import zoneinfo_from_name
 from marivo.analysis.windows.grain import _TRUNCATE_CODE, Grain
-from marivo.analysis.windows.spec import AbsoluteWindow
+from marivo.analysis.windows.spec import AbsoluteWindow, is_date_only
 
 _SUPPORTED_FORMATS = {
     ("date", None),
@@ -214,19 +214,6 @@ def _is_hour_only_partition_meta(time_meta: Any) -> bool:
     return data_type in {"string", "integer"} and fmt in _HOUR_ONLY_FORMATS
 
 
-def _next_day_bound(value: str, *, bound_name: str) -> str:
-    try:
-        base_day = date.fromisoformat(value[:10])
-    except (TypeError, ValueError) as exc:
-        _raise_window_bound_invalid(
-            bound_name=bound_name,
-            value=value,
-            tz=UTC_ZONE,
-            error=exc,
-        )
-    return (base_day + timedelta(days=1)).isoformat()
-
-
 def _parse_hour_precision_literal(value: str, fmt: str | None) -> datetime | None:
     if fmt == "yyyymmddhh" and len(value) == 10 and value.isdigit():
         return datetime(
@@ -302,10 +289,17 @@ def _partition_start_datetime(
 def _partition_exclusive_end_datetime(
     value: str, *, fmt: str | None, tz: ZoneInfo, bound_name: str
 ) -> datetime:
+    """Partition-level exclusive end bound for hour-precision partitions.
+
+    For date-only ends the exclusive bound is midnight of the stated date
+    (the date itself is excluded under [start, end)).  For non-date-only
+    ends the bound advances to the next whole hour so the hour partition
+    containing the end timestamp is included in the scan; row-level
+    filtering then applies the precise ``< end_instant`` cutoff.
+    """
     parsed, is_date_bound = _parse_partition_datetime(value, fmt=fmt, tz=tz, bound_name=bound_name)
     if is_date_bound:
-        next_day = parsed.date() + timedelta(days=1)
-        return datetime.combine(next_day, time.min, tzinfo=tz)
+        return datetime.combine(parsed.date(), time.min, tzinfo=tz)
     return parsed.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
@@ -368,16 +362,6 @@ def _parse_string_column(field_expr: Any, time_meta: Any) -> Any:
     return string_expr.as_timestamp(strptime_fmt)
 
 
-def _is_date_only(value: str) -> bool:
-    if len(value) != 10 or "T" in value:
-        return False
-    try:
-        date.fromisoformat(value)
-    except ValueError:
-        return False
-    return True
-
-
 def _raise_window_bound_invalid(
     *, bound_name: str, value: str, tz: ZoneInfo, error: Exception
 ) -> None:
@@ -393,7 +377,7 @@ def _raise_window_bound_invalid(
 
 
 def _coerce_bound_datetime(value: str, *, tz: ZoneInfo, bound_name: str) -> datetime:
-    if _is_date_only(value):
+    if is_date_only(value):
         local_dt = datetime.combine(date.fromisoformat(value), time.min, tzinfo=tz)
         return local_dt.astimezone(UTC)
     normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
@@ -405,22 +389,14 @@ def _coerce_bound_datetime(value: str, *, tz: ZoneInfo, bound_name: str) -> date
     return dt.astimezone(UTC)
 
 
-def _next_local_midnight(value: str, *, tz: ZoneInfo, bound_name: str) -> datetime:
-    if _is_date_only(value):
-        try:
-            base_day = date.fromisoformat(value)
-        except ValueError as exc:
-            _raise_window_bound_invalid(bound_name=bound_name, value=value, tz=tz, error=exc)
-    else:
-        normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
-        try:
-            dt = datetime.fromisoformat(normalized)
-        except (TypeError, ValueError) as exc:
-            _raise_window_bound_invalid(bound_name=bound_name, value=value, tz=tz, error=exc)
-        dt = dt.replace(tzinfo=tz) if dt.tzinfo is None else dt.astimezone(tz)
-        base_day = dt.date()
-    next_midnight = datetime.combine(base_day + timedelta(days=1), time.min, tzinfo=tz)
-    return next_midnight.astimezone(UTC)
+def _local_midnight_of(value: str, *, tz: ZoneInfo, bound_name: str) -> datetime:
+    """Resolve a date-only end bound to midnight of that date in session_tz.
+
+    For [start, end) semantics the exclusive upper bound is midnight of the
+    stated end date itself (no +1 day).  Delegates to ``_coerce_bound_datetime``
+    which already resolves date-only strings to midnight of the stated date.
+    """
+    return _coerce_bound_datetime(value, tz=tz, bound_name=bound_name)
 
 
 def _declared_timezone(time_meta: Any) -> str | None:
@@ -545,7 +521,7 @@ def _exclusive_end_for_column(
     session_tz: ZoneInfo,
     column_tz: ZoneInfo,
 ) -> datetime:
-    upper_utc = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+    upper_utc = _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
     return upper_utc.astimezone(column_tz).replace(tzinfo=None)
 
 
@@ -614,8 +590,8 @@ def _window_bound_predicates(
                 bound_name="start",
                 value=window.start,
             )
-            if _is_date_only(window.end):
-                upper_utc = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+            if is_date_only(window.end):
+                upper_utc = _local_midnight_of(window.end, tz=session_tz, bound_name="end")
                 upper_dt = upper_utc.astimezone(column_tz).replace(tzinfo=None)
             else:
                 upper_dt = _timestamp_bounds_for_column(
@@ -631,8 +607,8 @@ def _window_bound_predicates(
             )
         # Tz-aware timestamp column: compare as UTC instants
         lower_dt = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
-        if _is_date_only(window.end):
-            upper_dt = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+        if is_date_only(window.end):
+            upper_dt = _local_midnight_of(window.end, tz=session_tz, bound_name="end")
         else:
             upper_dt = _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
         return (
@@ -643,9 +619,9 @@ def _window_bound_predicates(
         lower_epoch = int(
             _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start").timestamp()
         )
-        if _is_date_only(window.end):
+        if is_date_only(window.end):
             upper_epoch = int(
-                _next_local_midnight(window.end, tz=session_tz, bound_name="end").timestamp()
+                _local_midnight_of(window.end, tz=session_tz, bound_name="end").timestamp()
             )
             return (field_expr >= lower_epoch, field_expr < upper_epoch)
         upper_epoch = int(
@@ -675,7 +651,7 @@ def _window_bound_predicates(
             lower_dt = _partition_start_datetime(
                 lower_bound.isoformat(), fmt=fmt, tz=bound_tz, bound_name="start"
             )
-            if _is_date_only(window.end):
+            if is_date_only(window.end):
                 upper_dt = _exclusive_end_for_column(
                     window, session_tz=session_tz, column_tz=bound_tz
                 ).replace(minute=0, second=0, microsecond=0)
@@ -697,7 +673,7 @@ def _window_bound_predicates(
     # Shorthand day-precision formats: raw string/integer comparison
     if _is_day_partition_meta(time_meta):
         lower = _encode_window_bound(window.start, time_meta)
-        upper = _encode_window_bound(_next_day_bound(window.end, bound_name="end"), time_meta)
+        upper = _encode_window_bound(window.end, time_meta)
         return (field_expr >= lower, field_expr < upper)
 
     # Strptime formats: parse column into temporal type and compare
@@ -728,8 +704,8 @@ def _window_bound_predicates(
             )
 
         if classification == "day":
-            if _is_date_only(window.end):
-                upper_dt = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+            if is_date_only(window.end):
+                upper_dt = _local_midnight_of(window.end, tz=session_tz, bound_name="end")
                 return (
                     parsed_expr >= ibis.date(lower_dt.date().isoformat()),
                     parsed_expr < ibis.date(upper_dt.date().isoformat()),
@@ -746,12 +722,12 @@ def _window_bound_predicates(
                 )
             return (
                 parsed_expr >= ibis.date(lower_dt.date().isoformat()),
-                parsed_expr <= ibis.date(upper_dt.date().isoformat()),
+                parsed_expr < ibis.date(upper_dt.date().isoformat()),
             )
         else:
-            if _is_date_only(window.end):
+            if is_date_only(window.end):
                 if declared is None:
-                    upper_dt = _next_local_midnight(window.end, tz=session_tz, bound_name="end")
+                    upper_dt = _local_midnight_of(window.end, tz=session_tz, bound_name="end")
                 else:
                     upper_dt = _exclusive_end_for_column(
                         window, session_tz=session_tz, column_tz=column_tz
@@ -773,13 +749,13 @@ def _window_bound_predicates(
             )
             return (
                 parsed_expr >= ibis.timestamp(lower_dt.isoformat()),
-                parsed_expr <= ibis.timestamp(upper_dt.isoformat()),
+                parsed_expr < ibis.timestamp(upper_dt.isoformat()),
             )
 
     # Fallback: raw value comparison
     lower = _encode_window_bound(window.start, time_meta)
     upper = _encode_window_bound(window.end, time_meta)
-    return (field_expr >= lower, field_expr <= upper)
+    return (field_expr >= lower, field_expr < upper)
 
 
 def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
@@ -809,7 +785,7 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
                 "candidates": candidates,
                 "fix_snippet": (
                     'session.observe(mv.MetricRef("sales.revenue"), '
-                    'timescope={"start": "2026-07-01", "end": "2026-07-31"}, '
+                    'timescope={"start": "2026-07-01", "end": "2026-08-01"}, '
                     f'time_field=mv.DimensionRef("{first_candidate}"))'
                 ),
             },
@@ -831,7 +807,7 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
             "candidates": candidates,
             "fix_snippet": (
                 'session.observe(mv.MetricRef("sales.revenue"), '
-                'timescope={"start": "2026-07-01", "end": "2026-07-31"}, '
+                'timescope={"start": "2026-07-01", "end": "2026-08-01"}, '
                 f'time_field=mv.DimensionRef("{first_candidate}"))'
             ),
         },

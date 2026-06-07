@@ -53,7 +53,7 @@ import marivo.analysis as mv
 
 mv.session.get_or_create(name="investigation")
 
-session.observe(mv.MetricRef("model.metric"), timescope={"start": "...", "end": "..."})  # -> MetricFrame
+session.observe(mv.MetricRef("model.metric"), timescope={"start": "...", "end": "..."})  # -> MetricFrame  (end is exclusive: [start, end))
 session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))      # -> DeltaFrame
 session.decompose(delta, axis=mv.DimensionRef("bucket_start"))                        # -> AttributionFrame
 session.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
@@ -194,8 +194,8 @@ an explicit test/CI or runtime override; its signature is
 ```python
 import marivo.analysis as mv
 
-cur = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-09-30"}, grain="month")
-base = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-09-30"}, grain="month")
+cur = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
+base = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 print(attribution.summary())
@@ -204,7 +204,7 @@ print(attribution.summary())
 ### Discover + select
 
 ```python
-series = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-09-30"}, grain="day")
+series = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="day")
 candidates = session.discover.point_anomalies(series, threshold=1.0)
 window = candidates.select(rank=1, attribute="window")
 ```
@@ -304,12 +304,12 @@ session = ap.session.get_or_create(name="sales_weekly_revenue")
 
 current = session.observe(
     metric=ap.MetricRef("sales.revenue"),
-    timescope={"start": "2026-05-01", "end": "2026-05-07"}, grain="day",
+    timescope={"start": "2026-05-01", "end": "2026-05-08"}, grain="day",
     dimensions=[ap.DimensionRef("region")],
 )
 baseline = session.observe(
     metric=ap.MetricRef("sales.revenue"),
-    timescope={"start": "2026-04-24", "end": "2026-04-30"}, grain="day",
+    timescope={"start": "2026-04-24", "end": "2026-05-01"}, grain="day",
     dimensions=[ap.DimensionRef("region")],
 )
 delta = session.compare(current, baseline, alignment=ap.AlignmentPolicy(kind="window_bucket"))

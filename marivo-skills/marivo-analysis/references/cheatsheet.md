@@ -20,7 +20,7 @@ mv.help('MetricFrame.components', format='json')  # method signature and doc
 
 | Intent | Inputs | Output | Agent rule |
 | --- | --- | --- | --- |
-| `session.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` or structured `where={field: {"op": ..., "value": ...}}`. |
+| `session.observe` | `mv.MetricRef("model.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` (end is exclusive: `[start, end)`) or structured `where={field: {"op": ..., "value": ...}}`. |
 | `session.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
 | `session.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; `model.field` refs resolve to the persisted delta column `field`. |
 | `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape`. |
@@ -60,11 +60,11 @@ import marivo.analysis as mv
 
 cur = session.observe(
     mv.MetricRef("sales.revenue"),
-    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 base = session.observe(
     mv.MetricRef("sales.revenue"),
-    timescope={"start": "2025-07-01", "end": "2025-09-30"},
+    timescope={"start": "2025-07-01", "end": "2025-10-01"},
 )
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
@@ -238,7 +238,7 @@ When a dataset has multiple time fields, choose one with top-level `time_field`:
 ```python
 session.observe(
     mv.MetricRef("sales.revenue"),
-    timescope={"start": "2026-07-01", "end": "2026-07-31"},
+    timescope={"start": "2026-07-01", "end": "2026-08-01"},
     time_field=mv.DimensionRef("create_date"),
 )
 ```
