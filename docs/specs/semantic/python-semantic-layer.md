@@ -114,11 +114,11 @@ semantic/
 
 - 每个 model 必须在 `<root>/<model>/_model.py` 中调用一次 `ms.model(name="<model>", ...)`。
 - `_model.py` 是该 model 的 entrypoint，可以只声明 model metadata，也可以承载 single-file 快速路径中的 datasource、dataset、field、metric 和 relationship；但不能声明多个 model，也不能用与目录名不同的 `name`。
-- `ms.model(default=...)` 缺省为 `True`。默认场景下，同目录 sibling files 里的对象可以省略重复 `model=`；如果项目希望 review 时强制每个对象显式写 `model=`，可在 `_model.py` 里传 `default=False`。
+- `ms.model(default=...)` 缺省为 `True`。默认场景下，同目录 sibling files 里的对象可以省略重复 `model=`（`ModelRef`）；如果项目希望 review 时强制每个对象显式写 `model=`，可在 `_model.py` 里传 `default=False`。
 - default model 作用域仅限当前 model 目录的顶层 sibling files，不向子目录传播。`sales/subdomain/*.py` 不继承 `sales/_model.py` 的 default；子目录若要被加载，应作为独立 model 域或由项目明确扩展 loader 规则。
 - default model 是 loader 在加载该 model 目录时的上下文，不随 `from x import *` 或普通 Python import 跨 module boundary 传播。decorator 在 loader context 外执行仍然 fail closed。
-- 显式 `model="other"` 永远覆盖 default，并触发组织校验；对象不会因为文件移动而静默改名。
-- 文件系统路径只用于发现候选 Python 文件和做组织校验；对象身份只来自显式 `model=` 或显式 default model。
+- 显式 `model=other_ref` 永远覆盖 default，并触发组织校验；对象不会因为文件移动而静默改名。
+- 文件系统路径只用于发现候选 Python 文件和做组织校验；对象身份只来自显式 `model=`（`ModelRef`）或显式 default model。
 - loader 采用 two-pass 语义：第一阶段 collect 所有声明，第二阶段 resolve refs 和校验依赖。文件名和 sibling sort order 不应影响合法模型是否能加载。
 - Python 文件是受信任本地代码，不做 sandbox。
 - 成功加载后 registry 进入 `ready`；失败时清空部分模型，进入 `errored`，并记录结构化 `load_errors`。
@@ -270,8 +270,10 @@ md.datasource(warehouse)
 dataset 是业务实体或事实表的逻辑视图：
 
 ```python
+sales_ref = ms.model(name="sales", description="Sales analytics")
+
 orders = ms.dataset(
-    model="sales",
+    model=sales_ref,
     name="orders",
     datasource=warehouse,
     source=ms.table("orders"),
@@ -350,7 +352,7 @@ table is collapsed to one row per `(key, anchor)`.
 field 是 row-level 属性，供过滤、分组、relationship 或 metric 表达式复用：
 
 ```python
-@ms.field(model="sales", dataset=orders, description="Normalized region.")
+@ms.field(model=sales_ref, dataset=orders, description="Normalized region.")
 def region(orders):
     return orders.region.upper()
 ```
@@ -359,7 +361,7 @@ time field 是特殊 field，显式承载时间轴元数据：
 
 ```python
 @ms.time_field(
-    model="sales",
+    model=sales_ref,
     dataset=orders,
     data_type="date",
     granularity="day",
@@ -394,7 +396,7 @@ non-empty `datasets=[...]` and a single-return Ibis reduction body.
 
 ```python
 @ms.metric(
-    model="sales",
+    model=sales_ref,
     datasets=[orders],
     additivity="additive",
     decomposition=ms.sum(),
@@ -704,7 +706,7 @@ decorator 执行时检查局部声明是否自洽：
 | Error kind | Agent action |
 | --- | --- |
 | `duplicate_name` | 检查同一 model 内是否重复声明；删除旧声明或改 `name=`，再运行 check |
-| `missing_model` | 在 `<root>/<model>/_model.py` 增加 `ms.model(name=...)`，或在对象声明上补 `model=` |
+| `missing_model` | 在 `<root>/<model>/_model.py` 增加 `ms.model(name=...)`，或在对象声明上补 `model=ms.model(name=...)` 的返回值 |
 | `missing_dataset_ref` | 确认 dataset 已声明；若跨文件前向引用，改用 decorated ref 或 `ms.ref(...)` |
 | `cross_model_reference` | 优先通过 `_exports.py` 导入；没有 `_exports.py` 时可直接 import sibling file 或使用显式 `ms.ref(...)` |
 | `invalid_decomposition` | 检查 `ms.ratio(...)` / `ms.weighted_average(...)` 的 components 是否都指向已注册 metric |

@@ -170,6 +170,35 @@ def test_model_requires_keyword_args() -> None:
         _exit_ctx()
 
 
+def test_model_returns_model_ref() -> None:
+    _enter_ctx()
+    try:
+        ref = ms.model(name="sales", default=True)
+        assert isinstance(ref, ms.ModelRef)
+        assert ref.semantic_id == "sales"
+    finally:
+        _exit_ctx()
+
+
+def test_field_accepts_model_ref() -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+        sales_ref = ms.model(name="sales", default=True)
+        ds = ms.dataset(
+            name="orders",
+            datasource="warehouse",
+            source=ms.table("orders"),
+        )
+
+        @ms.field(dataset=ds, model=sales_ref)
+        def region(table):
+            return table.region
+
+        assert region.semantic_id == "sales.orders.region"
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # ms.dataset() decorator
@@ -1294,7 +1323,7 @@ def test_two_datasets_same_column_name_distinct_ids() -> None:
 
 
 def test_field_model_mismatch_with_dataset_raises() -> None:
-    """A field whose model_name disagrees with the dataset's model must raise."""
+    """A field whose model disagrees with the dataset's model must raise."""
     ctx = _enter_ctx(default_model="sales")
     try:
         ds = ms.dataset(
@@ -1303,9 +1332,10 @@ def test_field_model_mismatch_with_dataset_raises() -> None:
             source=ms.table("orders"),
         )
 
+        inventory_ref = ms.ModelRef(semantic_id="inventory")
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.field(dataset=ds, name="region", model_name="inventory")
+            @ms.field(dataset=ds, name="region", model=inventory_ref)
             def region(table):
                 return table.region
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
+    ModelRef,
     dataset,
     derived_metric,
     field,
@@ -92,6 +93,7 @@ __all__ = [
     "EvidenceRef",
     "EvidenceSummary",
     "FieldSummary",
+    "ModelRef",
     "ParitySummary",
     "PreviewSummary",
     "ReadinessIssue",

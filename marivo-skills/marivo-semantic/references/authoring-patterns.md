@@ -89,6 +89,29 @@ def revenue(table):
 - Use string `ms.ref(...)` only for forward references, cross-model boundaries,
   or generated tooling cases.
 
+## Model ref override
+
+`ms.model(name=...)` returns a `ModelRef`. Pass it as `model=` on any
+decorator to override the default model context — typically for objects
+declared in a sibling file that belongs to a different model:
+
+```python
+# sales/_model.py
+sales_ref = ms.model(name="sales", description="Sales analytics")
+```
+
+```python
+# sales/shared_fields.py
+import marivo.semantic as ms
+
+@ms.field(model=sales_ref, dataset=orders, name="region")
+def region(table):
+    return table.region
+```
+
+When all objects in a file share the default model, omit `model=` — the
+loader resolves the model from the `_model.py` context automatically.
+
 ## Time field priority
 
 Prefer datasource partition fields such as `dt`, `log_date`, or `event_date` for
