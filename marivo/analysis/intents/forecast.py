@@ -82,7 +82,7 @@ def forecast(
     Example:
         >>> history = session.observe(
         ...     mv.MetricRef("sales.revenue"),
-        ...     timescope={"start": "2026-01-01", "end": "2026-03-31"}, grain="day",
+        ...     timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
         ... )
         >>> forecast = session.forecast(history, horizon=30)
         >>> forecast.summary()
@@ -192,7 +192,7 @@ def forecast(
         history_window=history.meta.window or {},
         forecast_window={
             "start": future_times[0].isoformat(),
-            "end": future_times[-1].isoformat(),
+            "end": (future_times[-1] + pd.tseries.frequencies.to_offset(_FREQ[grain])).isoformat(),
             "grain": grain,
             "time_field": time_col,
         },

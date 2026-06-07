@@ -52,7 +52,7 @@ def _dataset_ir_for(*, field_name: str, column: str, time_meta: FakeMeta) -> Fak
     return FakeDataset(name="events", fields={field_name: field})
 
 
-def test_window_bound_predicates_timestamp_date_only_end_uses_exclusive_next_midnight():
+def test_window_bound_predicates_timestamp_date_only_end_uses_exclusive_end_date():
     table = ibis.table([("event_ts", "timestamp")], name="events")
     window = AbsoluteWindow(start="2026-05-01", end="2026-05-31", grain="day")
     lower, upper = _window_bound_predicates(
@@ -65,10 +65,10 @@ def test_window_bound_predicates_timestamp_date_only_end_uses_exclusive_next_mid
     assert type(lower.op()).__name__ == "GreaterEqual"
     assert type(upper.op()).__name__ == "Less"
     assert lower.op().right.value == datetime(2026, 5, 1, 0, 0)
-    assert upper.op().right.value == datetime(2026, 6, 1, 0, 0)
+    assert upper.op().right.value == datetime(2026, 5, 31, 0, 0)
 
 
-def test_window_bound_predicates_epoch_seconds_date_only_end_uses_exclusive_next_midnight():
+def test_window_bound_predicates_epoch_seconds_date_only_end_uses_exclusive_end_date():
     table = ibis.table([("event_ts", "int64")], name="events")
     window = AbsoluteWindow(start="2026-05-01", end="2026-05-31", grain="day")
     lower, upper = _window_bound_predicates(
@@ -81,7 +81,7 @@ def test_window_bound_predicates_epoch_seconds_date_only_end_uses_exclusive_next
     assert type(lower.op()).__name__ == "GreaterEqual"
     assert type(upper.op()).__name__ == "Less"
     assert lower.op().right.value == int(datetime(2026, 4, 30, 16, 0, tzinfo=UTC).timestamp())
-    assert upper.op().right.value == int(datetime(2026, 5, 31, 16, 0, tzinfo=UTC).timestamp())
+    assert upper.op().right.value == int(datetime(2026, 5, 30, 16, 0, tzinfo=UTC).timestamp())
 
 
 def test_apply_window_to_dataset_timestamp_date_only_uses_session_tz():
@@ -103,7 +103,7 @@ def test_apply_window_to_dataset_timestamp_date_only_uses_session_tz():
         con.table("events"),
         AbsoluteWindow(
             start="2026-05-01",
-            end="2026-05-01",
+            end="2026-05-02",
             grain="day",
             time_field="event_ts",
         ),
@@ -127,7 +127,7 @@ def test_apply_window_to_dataset_epoch_seconds_date_only_uses_session_tz():
         con.table("events"),
         AbsoluteWindow(
             start="2026-05-01",
-            end="2026-05-01",
+            end="2026-05-02",
             grain="day",
             time_field="event_ts",
         ),
@@ -237,7 +237,7 @@ def test_time_bearing_string_timezone_compares_as_declared_instant():
         con.table("events"),
         AbsoluteWindow(
             start="2026-05-01",
-            end="2026-05-01",
+            end="2026-05-02",
             grain="day",
             time_field="event_ts",
         ),
@@ -269,7 +269,7 @@ def test_naive_timestamp_defaults_to_system_timezone_window():
         con.table("events"),
         AbsoluteWindow(
             start="2026-05-01",
-            end="2026-05-01",
+            end="2026-05-02",
             grain="day",
             time_field="event_ts",
         ),
@@ -301,7 +301,7 @@ def test_naive_timestamp_declared_utc_compares_as_instant():
         con.table("events"),
         AbsoluteWindow(
             start="2026-05-01",
-            end="2026-05-01",
+            end="2026-05-02",
             grain="day",
             time_field="event_ts",
         ),
@@ -342,7 +342,7 @@ def test_day_bucket_for_declared_utc_naive_timestamp_uses_session_local_day():
     bucketed = apply_time_series_bucket(
         table,
         field_ir=field,
-        window=AbsoluteWindow(start="2026-05-01", end="2026-05-01", grain="day"),
+        window=AbsoluteWindow(start="2026-05-01", end="2026-05-02", grain="day"),
         session_tz=ZoneInfo("Asia/Shanghai"),
     )
 
@@ -364,7 +364,7 @@ def test_month_bucket_for_declared_utc_naive_timestamp_uses_session_local_month(
     bucketed = apply_time_series_bucket(
         table,
         field_ir=field,
-        window=AbsoluteWindow(start="2026-04-01", end="2026-05-31", grain="month"),
+        window=AbsoluteWindow(start="2026-04-01", end="2026-06-01", grain="month"),
         session_tz=ZoneInfo("Asia/Shanghai"),
     )
 
@@ -388,7 +388,7 @@ def test_subday_bucket_for_declared_utc_string_uses_session_local_time():
         field_ir=field,
         window=AbsoluteWindow(
             start="2026-05-01",
-            end="2026-05-01",
+            end="2026-05-02",
             grain=(30, "minute"),
             time_field="event_ts",
         ),
@@ -418,7 +418,7 @@ def test_subday_bucket_for_same_timezone_string_does_not_shift():
         field_ir=field,
         window=AbsoluteWindow(
             start="2026-04-30",
-            end="2026-05-01",
+            end="2026-05-02",
             grain=(30, "minute"),
             time_field="event_ts",
         ),

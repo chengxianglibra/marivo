@@ -44,7 +44,7 @@ def test_advance_bucket_datetime_steps_width():
 
 def test_window_bucket_values_subday_sequence():
     values = _window_bucket_values_for(
-        start="2026-06-03 00:00:00", end="2026-06-03 00:20:00", grain="5minute"
+        start="2026-06-03 00:00:00", end="2026-06-03 00:25:00", grain="5minute"
     )
     assert [str(v) for v in values] == [
         "2026-06-03 00:00:00",

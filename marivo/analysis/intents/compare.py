@@ -45,6 +45,7 @@ from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.session.persistence import write_frame_to_disk, write_job_record
 from marivo.analysis.windows.grain import Grain as _Grain
 from marivo.analysis.windows.grain import normalize_grain as _normalize_grain
+from marivo.analysis.windows.spec import is_date_only
 
 EXPECTED_METRIC_FRAME_KIND = "metric_frame"
 PRESENCE_STATUS_COLUMN = "presence_status"
@@ -443,8 +444,8 @@ def compare(
         CrossSessionFrameError: A frame belongs to a different session.
 
     Example:
-        >>> cur  = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
-        >>> base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-09-30"})
+        >>> cur  = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+        >>> base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
         >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
     """
     if session is None:
@@ -754,23 +755,13 @@ def _panel_grains(a: MetricFrame, b: MetricFrame) -> tuple[str | None, str | Non
     return _panel_grain(a), _panel_grain(b)
 
 
-def _is_date_only(value: object) -> bool:
-    if not isinstance(value, str):
-        return False
-    try:
-        date.fromisoformat(value)
-    except ValueError:
-        return False
-    return len(value) == 10
-
-
 def _parse_window_datetime(value: object, *, field: str) -> datetime:
     if not isinstance(value, str) or not value:
         raise AlignmentFailedError(
             message=f"window_bucket alignment requires window.{field}",
             details={"kind": "WindowBucketWindowMissing", "field": field},
         )
-    if _is_date_only(value):
+    if is_date_only(value):
         return datetime.combine(date.fromisoformat(value), time.min)
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
@@ -891,13 +882,12 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
         current_dt = _truncate_bucket_datetime(
             _parse_window_datetime(start_raw, field="start"), grain=normalized
         )
-        date_only_end = _is_date_only(end_raw)
-        if date_only_end:
-            stop = datetime.combine(date.fromisoformat(end_raw), time.min) + timedelta(days=1)
+        if is_date_only(end_raw):
+            stop = datetime.combine(date.fromisoformat(end_raw), time.min)
         else:
             stop = _parse_window_datetime(end_raw, field="end")
         buckets: list[object] = []
-        while current_dt <= stop if not date_only_end else current_dt < stop:
+        while current_dt < stop:
             if len(buckets) >= _WINDOW_BUCKET_CAP:
                 raise AlignmentFailedError(
                     message=(
@@ -917,10 +907,8 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
         current = _parse_window_datetime(start_raw, field="start").replace(
             minute=0, second=0, microsecond=0
         )
-        if _is_date_only(end_raw):
-            stop_exclusive = datetime.combine(date.fromisoformat(end_raw), time.min) + timedelta(
-                days=1
-            )
+        if is_date_only(end_raw):
+            stop_exclusive = datetime.combine(date.fromisoformat(end_raw), time.min)
             values: list[object] = []
             while current < stop_exclusive:
                 values.append(pd.Timestamp(current))
@@ -930,7 +918,7 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
             minute=0, second=0, microsecond=0
         )
         values = []
-        while current <= stop:
+        while current < stop:
             values.append(pd.Timestamp(current))
             current += timedelta(hours=1)
         return values
@@ -942,7 +930,7 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
         _parse_window_datetime(end_raw, field="end").date(), grain=grain
     )
     values = []
-    while current_date <= stop_date:
+    while current_date < stop_date:
         values.append(current_date)
         current_date = _advance_bucket_date(current_date, grain=grain)
     return values

@@ -834,7 +834,9 @@ def observe(
     Args:
         metric: Wrap the registered metric id with ``mv.MetricRef("<model>.<metric>")``.
             Bare strings are rejected.
-        timescope: Absolute time range as ``{"start": ..., "end": ...}``.
+        timescope: Half-open time range ``{"start": ..., "end": ...}`` — start is
+            inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
+            means data from August 1 is **not** included.
         grain: Optional time bucket grain. When present, observe returns a time
             series or panel depending on ``dimensions``.
         dimensions: Segment axes. In v1 all dimensions must resolve to the same
@@ -863,7 +865,7 @@ def observe(
     Example:
         >>> frame = session.observe(
         ...     mv.MetricRef("sales.revenue"),
-        ...     timescope={"start": "2026-07-01", "end": "2026-09-30"},
+        ...     timescope={"start": "2026-07-01", "end": "2026-10-01"},
         ...     grain="day",
         ...     dimensions=[mv.DimensionRef("country")],
         ... )

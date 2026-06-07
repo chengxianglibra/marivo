@@ -11,7 +11,7 @@ import marivo.analysis as mv  # noqa: E402
 session = mv.session.active()
 frame = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    timescope={"start": "2026-07-01", "end": "2026-07-14"},
+    timescope={"start": "2026-07-01", "end": "2026-07-15"},
     grain="day",
 )
 report = session.assess_quality(frame)

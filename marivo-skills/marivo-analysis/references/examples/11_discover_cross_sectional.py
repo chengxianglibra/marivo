@@ -18,7 +18,7 @@ import marivo.analysis as mv  # noqa: E402
 session = mv.session.active()
 metric = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
     dimensions=[mv.DimensionRef(id="region")],
 )
 outliers = session.discover.cross_sectional_outliers(

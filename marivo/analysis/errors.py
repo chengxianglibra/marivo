@@ -109,7 +109,7 @@ class MetricNotFoundError(AnalysisError):
                 "project.load()\n"
                 "project.list_metrics()  # confirm the exact id\n"
                 'session.observe(mv.MetricRef("<registered_metric_id>"), '
-                'timescope={"start": "2026-07-01", "end": "2026-09-30"})'
+                'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
             ),
             "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
         }
@@ -124,7 +124,7 @@ class WindowInvalidError(AnalysisError):
             "cause": f"timescope={window_ref} could not be parsed.",
             "fix_snippet": (
                 'session.observe(mv.MetricRef("sales.revenue"), '
-                'timescope={"start": "2026-07-01", "end": "2026-09-30"})'
+                'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
             ),
             "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
         }
@@ -347,7 +347,7 @@ class SemanticKindMismatchError(AnalysisError):
                 ),
                 "fix_snippet": (
                     'session.observe(mv.MetricRef("sales.revenue"), '
-                    'timescope={"start": "2026-07-01", "end": "2026-09-30"})'
+                    'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
                 ),
                 "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
             }
@@ -367,9 +367,9 @@ class SemanticKindMismatchError(AnalysisError):
             ),
             "fix_snippet": (
                 'cur  = session.observe(mv.MetricRef("sales.revenue"), '
-                'timescope={"start": "2026-07-01", "end": "2026-09-30"})\n'
+                'timescope={"start": "2026-07-01", "end": "2026-10-01"})\n'
                 'base = session.observe(mv.MetricRef("sales.revenue"), '
-                'timescope={"start": "2025-07-01", "end": "2025-09-30"})\n'
+                'timescope={"start": "2025-07-01", "end": "2025-10-01"})\n'
                 'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
             ),
             "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
@@ -512,8 +512,8 @@ class TestShapeNotTestableError(AnalysisError):
             "location": "session.hypothesis_test call",
             "cause": "mean_changed needs paired observations; scalar frames or too-small paired samples cannot be tested in v1.",
             "fix_snippet": (
-                'cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-07-31"}, grain="day")\n'
-                'base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-07-31"}, grain="day")\n'
+                'cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-08-01"}, grain="day")\n'
+                'base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-08-01"}, grain="day")\n'
                 "session.hypothesis_test(cur, base)"
             ),
             "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
@@ -545,7 +545,7 @@ class ForecastShapeUnsupportedError(AnalysisError):
         return {
             "location": "session.forecast input frame",
             "cause": "forecast v1 accepts only MetricFrame time_series or panel shapes.",
-            "fix_snippet": 'history = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-01-01", "end": "2026-03-31"}, grain="day")\nsession.forecast(history, horizon=30)',
+            "fix_snippet": 'history = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")\nsession.forecast(history, horizon=30)',
             "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
         }
 
@@ -565,7 +565,7 @@ class ForecastInsufficientHistoryError(AnalysisError):
         return {
             "location": "session.forecast history",
             "cause": "the time_series input has fewer training points than the selected model requires.",
-            "fix_snippet": 'history = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-01-01", "end": "2026-03-31"}, grain="day")',
+            "fix_snippet": 'history = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")',
             "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
         }
 

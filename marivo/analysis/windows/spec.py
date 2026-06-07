@@ -24,6 +24,7 @@ __all__ = [
     "TimeScopeInput",
     "dump_window",
     "ensure_grain_supported",
+    "is_date_only",
     "make_absolute_window",
     "normalize_absolute_window_input",
     "normalize_grain",
@@ -31,7 +32,27 @@ __all__ = [
 ]
 
 
+def is_date_only(value: str) -> bool:
+    """Return True if *value* is a bare date string like ``"2026-07-01"``."""
+    if len(value) != 10 or "T" in value:
+        return False
+    try:
+        from datetime import date as _date
+
+        _date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
 class AbsoluteWindow(BaseModel):
+    """Half-open time interval [start, end) — start is inclusive, end is exclusive.
+
+    For date-only strings like ``"2026-07-31"``, the exclusive end means data
+    from that date is **not** included.  To include all of July, use
+    ``end="2026-08-01"``.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["absolute"] = "absolute"
@@ -51,6 +72,8 @@ class AbsoluteWindow(BaseModel):
 
 
 class TimeScope(BaseModel):
+    """Half-open time interval [start, end) — start is inclusive, end is exclusive."""
+
     model_config = ConfigDict(extra="forbid")
 
     start: str
@@ -141,7 +164,7 @@ def make_absolute_window(
             return None
         raise WindowInvalidError(
             message="timescope is required when grain or time_field is provided",
-            hint='Pass timescope={"start": "2026-07-01", "end": "2026-07-31"}.',
+            hint='Pass timescope={"start": "2026-07-01", "end": "2026-08-01"}.',
             details={"kind": "TimeScopeRequired"},
         )
     resolved_grain = normalize_grain(grain)

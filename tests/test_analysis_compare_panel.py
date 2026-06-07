@@ -96,8 +96,8 @@ def _panel(session, *, start: str, end: str, grain: str = "day"):
 
 def test_window_bucket_aligns_equal_length_panel_by_ordinal_bucket(tmp_path):
     s = _session(tmp_path)
-    cur = _panel(s, start="2026-07-01", end="2026-07-02")
-    prev = _panel(s, start="2026-06-24", end="2026-06-25")
+    cur = _panel(s, start="2026-07-01", end="2026-07-03")
+    prev = _panel(s, start="2026-06-24", end="2026-06-26")
 
     delta = compare(cur, prev, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
@@ -112,8 +112,8 @@ def test_window_bucket_aligns_equal_length_panel_by_ordinal_bucket(tmp_path):
 
 def test_window_bucket_panel_different_expected_counts_uses_outer_ordinal_union(tmp_path):
     s = _session(tmp_path)
-    cur = _panel(s, start="2026-07-01", end="2026-07-02")
-    prev = _panel(s, start="2026-06-24", end="2026-06-24")
+    cur = _panel(s, start="2026-07-01", end="2026-07-03")
+    prev = _panel(s, start="2026-06-24", end="2026-06-25")
 
     delta = compare(cur, prev, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
@@ -266,13 +266,13 @@ def test_window_bucket_panel_sparse_segment_uses_window_spine():
         s,
         current_rows,
         axes=axes,
-        window={"start": "2026-05-12", "end": "2026-05-12", "grain": "hour"},
+        window={"start": "2026-05-12", "end": "2026-05-13", "grain": "hour"},
     )
     baseline = _panel_metric(
         s,
         baseline_rows,
         axes=axes,
-        window={"start": "2026-05-05", "end": "2026-05-05", "grain": "hour"},
+        window={"start": "2026-05-05", "end": "2026-05-06", "grain": "hour"},
     )
 
     out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
@@ -307,13 +307,13 @@ def test_window_bucket_panel_both_missing_spine_row_is_not_new_or_churned():
         s,
         [{"bucket_start": "2026-07-01", "region": "NORTH", "value": 10.0}],
         axes=axes,
-        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
     )
     baseline = _panel_metric(
         s,
         [{"bucket_start": "2026-06-24", "region": "NORTH", "value": 5.0}],
         axes=axes,
-        window={"start": "2026-06-24", "end": "2026-06-25", "grain": "day"},
+        window={"start": "2026-06-24", "end": "2026-06-26", "grain": "day"},
     )
 
     out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
@@ -345,8 +345,8 @@ def _write_calendar(tmp_path):
 
 def test_compare_panel_window_bucket(tmp_path):
     s = _session(tmp_path)
-    current = _panel(s, start="2026-07-01", end="2026-07-03")
-    baseline = _panel(s, start="2026-07-01", end="2026-07-03")
+    current = _panel(s, start="2026-07-01", end="2026-07-04")
+    baseline = _panel(s, start="2026-07-01", end="2026-07-04")
 
     out = compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 

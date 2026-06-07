@@ -241,13 +241,13 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     current = session.observe(
         MetricRef("sales.revenue"),
-        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        timescope={"start": "2026-07-01", "end": "2026-07-04"},
         grain="day",
         dimensions=[DimensionRef("country")],
     )
     baseline = session.observe(
         MetricRef("sales.revenue"),
-        timescope={"start": "2025-07-01", "end": "2025-07-03"},
+        timescope={"start": "2025-07-01", "end": "2025-07-04"},
         grain="day",
         dimensions=[DimensionRef("country")],
     )

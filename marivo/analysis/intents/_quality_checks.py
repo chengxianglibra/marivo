@@ -116,7 +116,9 @@ def _time_coverage_check(df: pd.DataFrame, frame: MetricFrame) -> dict[str, str]
                 "missing_examples": [],
             },
         )
-    expected = pd.date_range(pd.Timestamp(start), pd.Timestamp(end), freq=_FREQ[grain])
+    expected = pd.date_range(
+        pd.Timestamp(start), pd.Timestamp(end), freq=_FREQ[grain], inclusive="left"
+    )
     observed = (
         list(pd.to_datetime(df[time_col]).dropna().dt.normalize().unique())
         if time_col in df and len(df)

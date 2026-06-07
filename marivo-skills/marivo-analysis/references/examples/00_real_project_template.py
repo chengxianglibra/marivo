@@ -14,7 +14,7 @@ import marivo.semantic as ms
 session_name = "revenue-investigation"
 metric_id = "sales.revenue"
 default_calendar = "cn_holidays"
-timescope = {"start": "2026-05-01", "end": "2026-05-31"}
+timescope = {"start": "2026-05-01", "end": "2026-06-01"}
 grain = "day"
 
 project = ms.find_project()

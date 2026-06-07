@@ -443,7 +443,7 @@ def test_compare_time_series_ratio_window_bucket_persists_component_delta():
         ref="frame_current_ts",
         semantic_kind="time_series",
         axes=axes,
-        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
         rows=[
             {"bucket_start": "2026-07-01", "failure_rate": 0.25},
             {"bucket_start": "2026-07-02", "failure_rate": 0.50},
@@ -468,7 +468,7 @@ def test_compare_time_series_ratio_window_bucket_persists_component_delta():
         ref="frame_baseline_ts",
         semantic_kind="time_series",
         axes=axes,
-        window={"start": "2026-06-24", "end": "2026-06-25", "grain": "day"},
+        window={"start": "2026-06-24", "end": "2026-06-26", "grain": "day"},
         rows=[
             {"bucket_start": "2026-06-24", "failure_rate": 0.10},
             {"bucket_start": "2026-06-25", "failure_rate": 0.40},
@@ -608,7 +608,7 @@ def test_decompose_component_aware_time_series_ratio_delta_by_bucket():
         ref="frame_current_ts_decomp",
         semantic_kind="time_series",
         axes=axes,
-        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
         rows=[
             {"bucket_start": "2026-07-01", "failure_rate": 0.25},
             {"bucket_start": "2026-07-02", "failure_rate": 0.50},
@@ -633,7 +633,7 @@ def test_decompose_component_aware_time_series_ratio_delta_by_bucket():
         ref="frame_baseline_ts_decomp",
         semantic_kind="time_series",
         axes=axes,
-        window={"start": "2026-06-24", "end": "2026-06-25", "grain": "day"},
+        window={"start": "2026-06-24", "end": "2026-06-26", "grain": "day"},
         rows=[
             {"bucket_start": "2026-06-24", "failure_rate": 0.10},
             {"bucket_start": "2026-06-25", "failure_rate": 0.40},
@@ -682,7 +682,7 @@ def test_decompose_component_aware_panel_ratio_delta_per_bucket():
         ref="frame_current_panel_decomp",
         semantic_kind="panel",
         axes=axes,
-        window={"start": "2026-07-01", "end": "2026-07-01", "grain": "day"},
+        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
         rows=[
             {"bucket_start": "2026-07-01", "region": "NORTH", "failure_rate": 0.25},
             {"bucket_start": "2026-07-01", "region": "SOUTH", "failure_rate": 0.50},
@@ -709,7 +709,7 @@ def test_decompose_component_aware_panel_ratio_delta_per_bucket():
         ref="frame_baseline_panel_decomp",
         semantic_kind="panel",
         axes=axes,
-        window={"start": "2026-06-24", "end": "2026-06-24", "grain": "day"},
+        window={"start": "2026-06-24", "end": "2026-06-25", "grain": "day"},
         rows=[
             {"bucket_start": "2026-06-24", "region": "NORTH", "failure_rate": 0.10},
             {"bucket_start": "2026-06-24", "region": "SOUTH", "failure_rate": 0.40},

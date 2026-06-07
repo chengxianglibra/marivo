@@ -18,11 +18,11 @@ import marivo.analysis as mv  # noqa: E402
 session = mv.session.active()
 cur = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 base = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    timescope={"start": "2025-07-01", "end": "2025-09-30"},
+    timescope={"start": "2025-07-01", "end": "2025-10-01"},
 )
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 summary = delta.summary()

@@ -35,8 +35,8 @@ Location: session.compare call
 Cause: got kind delta_frame, expected metric_frame; this usually means passing a compare result where an observe result is required.
 
 Fix:
-  cur  = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
-  base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-09-30"})
+  cur  = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+  base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
   delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 
 Docs: marivo-skills/marivo-analysis/references/pitfalls.md
@@ -46,8 +46,8 @@ Docs: marivo-skills/marivo-analysis/references/pitfalls.md
 `DeltaFrame` to `session.decompose`.
 
 ```python
-cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
-base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-09-30"})
+cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
 ```
@@ -190,10 +190,27 @@ project = ms.find_project()
 assert project is not None
 project.load()
 project.list_metrics()
-cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
+cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
 ```
 
 Metric ids are case-sensitive strings in `<model>.<metric>` form.
+
+## Timescope end is exclusive
+
+**Symptom:** `timescope={"start": "2026-07-01", "end": "2026-07-31"}` returns data
+only through July 30; July 31 rows are missing.
+
+**Cause:** timescope uses half-open `[start, end)` semantics — `end` is exclusive.
+`"end": "2026-07-31"` means "up to but not including July 31".
+
+**Action:** advance the end by one day to include the final day:
+
+```python
+session.observe(
+    mv.MetricRef("sales.revenue"),
+    timescope={"start": "2026-07-01", "end": "2026-08-01"},  # includes all of July
+)
+```
 
 ## Window and slice shape drift
 
@@ -210,7 +227,7 @@ or a slice validation error while applying filters.
 ```python
 session.observe(
     mv.MetricRef("sales.revenue"),
-    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 
 session.observe(

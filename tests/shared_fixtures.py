@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 from contextlib import suppress
+from datetime import timedelta
 from pathlib import Path
 
 import duckdb
@@ -218,7 +219,7 @@ def seeded_time_series_metric_frame(
         semantic_model="sales",
         window={
             "start": str(times[0].date()),
-            "end": str(times[-1].date()),
+            "end": str(times[-1].date() + timedelta(days=1)),
             "grain": grain,
             "time_field": "time",
         },

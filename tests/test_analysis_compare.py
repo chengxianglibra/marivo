@@ -179,13 +179,13 @@ def test_window_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_pat
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         MetricRef("sales.revenue"),
-        timescope={"start": "2026-07-01", "end": "2026-07-02"},
+        timescope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         session=s,
     )
     base = observe(
         MetricRef("sales.revenue"),
-        timescope={"start": "2026-04-01", "end": "2026-04-02"},
+        timescope={"start": "2026-04-01", "end": "2026-04-03"},
         grain="day",
         session=s,
     )
@@ -240,13 +240,13 @@ def test_window_bucket_no_overlap_different_expected_counts_uses_outer_ordinal_u
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         MetricRef("sales.revenue"),
-        timescope={"start": "2026-07-01", "end": "2026-07-02"},
+        timescope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         session=s,
     )
     base = observe(
         MetricRef("sales.revenue"),
-        timescope={"start": "2026-04-01", "end": "2026-04-01"},
+        timescope={"start": "2026-04-01", "end": "2026-04-02"},
         grain="day",
         session=s,
     )
@@ -309,7 +309,7 @@ def test_window_bucket_overlapping_windows_use_ordinal_mode_by_default(tmp_path)
         measure={"name": "revenue"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
         session=s,
     )
     base = MetricFrame.from_dataframe(
@@ -319,7 +319,7 @@ def test_window_bucket_overlapping_windows_use_ordinal_mode_by_default(tmp_path)
         measure={"name": "revenue"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2026-07-02", "end": "2026-07-03", "grain": "day"},
+        window={"start": "2026-07-02", "end": "2026-07-04", "grain": "day"},
         session=s,
     )
 
@@ -391,7 +391,7 @@ def test_window_bucket_february_to_march_daily_uses_outer_ordinal_union(tmp_path
         measure={"name": "revenue"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2026-02-01", "end": "2026-02-28", "grain": "day"},
+        window={"start": "2026-02-01", "end": "2026-03-01", "grain": "day"},
         session=s,
     )
     base = MetricFrame.from_dataframe(
@@ -406,7 +406,7 @@ def test_window_bucket_february_to_march_daily_uses_outer_ordinal_union(tmp_path
         measure={"name": "revenue"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2026-03-01", "end": "2026-03-31", "grain": "day"},
+        window={"start": "2026-03-01", "end": "2026-04-01", "grain": "day"},
         session=s,
     )
 
@@ -440,7 +440,7 @@ def test_window_bucket_leap_year_february_returns_rows_by_default(tmp_path):
         measure={"name": "revenue"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2024-02-01", "end": "2024-02-29", "grain": "day"},
+        window={"start": "2024-02-01", "end": "2024-03-01", "grain": "day"},
         session=s,
     )
     base = MetricFrame.from_dataframe(
@@ -455,11 +455,11 @@ def test_window_bucket_leap_year_february_returns_rows_by_default(tmp_path):
         measure={"name": "revenue"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2024-02-01", "end": "2024-02-29", "grain": "day"},
+        window={"start": "2024-02-01", "end": "2024-03-01", "grain": "day"},
         session=s,
     )
     base.meta = base.meta.model_copy(
-        update={"window": {"start": "2025-02-01", "end": "2025-02-28", "grain": "day"}}
+        update={"window": {"start": "2025-02-01", "end": "2025-03-01", "grain": "day"}}
     )
 
     delta = compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
@@ -517,7 +517,7 @@ def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_p
         measure={"name": "revenue"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2026-07-01", "end": "2026-07-02", "grain": "day"},
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
         session=s,
     )
     base = MetricFrame.from_dataframe(
@@ -527,7 +527,7 @@ def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_p
         measure={"name": "revenue"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2026-04-01", "end": "2026-04-02", "grain": "day"},
+        window={"start": "2026-04-01", "end": "2026-04-03", "grain": "day"},
         session=s,
     )
 
@@ -637,7 +637,7 @@ def test_window_bucket_no_overlap_supports_quarter_grain(tmp_path):
         measure={"name": "revenue"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2026-04-01", "end": "2026-09-30", "grain": "quarter"},
+        window={"start": "2026-04-01", "end": "2026-10-01", "grain": "quarter"},
         session=s,
     )
     base = MetricFrame.from_dataframe(
@@ -652,7 +652,7 @@ def test_window_bucket_no_overlap_supports_quarter_grain(tmp_path):
         measure={"name": "revenue"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2025-04-01", "end": "2025-09-30", "grain": "quarter"},
+        window={"start": "2025-04-01", "end": "2025-10-01", "grain": "quarter"},
         session=s,
     )
 

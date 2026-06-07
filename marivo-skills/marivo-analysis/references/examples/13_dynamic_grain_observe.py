@@ -32,7 +32,7 @@ session = mv.session.active()
 # This works with the tiny fixture's day-granularity time field.
 series_day = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="day",
 )
 
@@ -42,7 +42,7 @@ print(f"day_series_kind={series_day.meta.semantic_kind!r}")
 # The same day grain expressed as a typed Grain object.
 series_day_obj = session.observe(
     mv.MetricRef(id=METRIC_ID),
-    timescope={"start": "2026-07-01", "end": "2026-09-30"},
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain=Grain(count=1, unit="day"),
 )
 

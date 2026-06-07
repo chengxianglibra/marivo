@@ -201,7 +201,7 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
 
     frame = observe(
         MetricRef("sales.failure_rate"),
-        timescope={"start": "2026-07-01", "end": "2026-07-02"},
+        timescope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         dimensions=[DimensionRef("region")],
         session=session,
@@ -237,7 +237,7 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
 
     frame = observe(
         MetricRef("sales.weighted_failure_rate"),
-        timescope={"start": "2026-07-01", "end": "2026-07-02"},
+        timescope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         dimensions=[DimensionRef("region")],
         session=session,

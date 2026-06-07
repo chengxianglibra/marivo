@@ -953,14 +953,14 @@ def _resolve_transform_window(raw_window: Any, *, session: Session) -> AbsoluteW
     if timescope is None:
         raise TransformArgError(
             message="transform(op='window') requires window",
-            hint='Pass window={"start": "2026-07-01", "end": "2026-07-31"}.',
+            hint='Pass window={"start": "2026-07-01", "end": "2026-08-01"}.',
             details={"op": "window", "argument": "window"},
         )
     window = make_absolute_window(timescope)
     if window is None:
         raise TransformArgError(
             message="transform(op='window') requires window",
-            hint='Pass window={"start": "2026-07-01", "end": "2026-07-31"}.',
+            hint='Pass window={"start": "2026-07-01", "end": "2026-08-01"}.',
             details={"op": "window", "argument": "window"},
         )
     return window
@@ -1093,7 +1093,7 @@ def _op_window(frame: TransformFrame, params: _TransformParams) -> _TransformHan
     if new_window_dump is None:
         raise TransformArgError(
             message="transform(op='window') requires window",
-            hint='Pass window={"start": "2026-07-01", "end": "2026-07-31"}.',
+            hint='Pass window={"start": "2026-07-01", "end": "2026-08-01"}.',
             details={"op": "window", "argument": "window"},
         )
 
