@@ -9,22 +9,18 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from marivo.semantic.evidence import (
-    AiContextInput,
     AssessmentIssue,
     AssessmentResult,
     AuthoringObjectKind,
+    AuthoringSourceInput,
     DatasetSource,
     EvidenceFact,
-    NextCheck,
     SourceEvidencePack,
     derive_status,
 )
 from marivo.semantic.evidence_store import EvidenceStore
 from marivo.semantic.ir import DatasetIR, FieldIR, MetricIR, RelationshipIR, source_label
 from marivo.semantic.ledger import LedgerStore
-
-# evidence kinds that establish business meaning for a metric
-_ESTABLISHING_KINDS = ("source_sql", "knowledge_document", "user_confirmation")
 
 # decision kinds that are auto-recorded for dangerous authored objects
 _DANGEROUS_DECISION_BY_KIND = {
@@ -43,118 +39,119 @@ def _source_pack(
     return None
 
 
+def _source_id(datasource: str, source: DatasetSource) -> str:
+    return f"{datasource}.{source_label(source.to_ir())}"
+
+
+def _issue_refs(subject_ref: str, source_input: AuthoringSourceInput) -> tuple[str, ...]:
+    return (
+        subject_ref,
+        f"role:{source_input.role}",
+        _source_id(source_input.datasource, source_input.source),
+    )
+
+
+def _sources_required(object_kind: AuthoringObjectKind) -> bool:
+    return object_kind in {"dataset", "field", "time_field", "metric", "relationship"}
+
+
 def check_authoring_inputs(
     *,
     store: EvidenceStore,
     object_kind: AuthoringObjectKind,
     subject_ref: str,
-    datasource: str,
-    source: DatasetSource,
-    columns: Sequence[str] = (),
+    sources: Sequence[AuthoringSourceInput] = (),
     semantic_refs: Sequence[str] = (),
-    evidence_refs: Sequence[str] = (),
-    ai_context: AiContextInput | None = None,
 ) -> AssessmentResult:
     facts: list[EvidenceFact] = []
     issues: list[AssessmentIssue] = []
-    next_checks: list[NextCheck] = []
 
-    pack = _source_pack(store, datasource, source)
-    if pack is None:
+    if _sources_required(object_kind) and not sources:
         issues.append(
             AssessmentIssue(
                 kind="missing_source",
                 severity="warning",
                 refs=(subject_ref,),
-                message=(
-                    f"No source evidence for {datasource} / {source_label(source.to_ir())}. "
-                    "Collect it before authoring."
-                ),
-                rule_id="source_evidence_present",
+                message=f"{object_kind} assessment requires at least one physical source.",
+                rule_id="source_context_present",
                 evidence_refs=(),
-                next_checks=("inspect_source_context",),
             )
         )
-        next_checks.append("inspect_source_context")
         return AssessmentResult(
             status=derive_status(tuple(issues), ()),
-            facts=tuple(facts),
+            facts=(),
             issues=tuple(issues),
             questions=(),
-            next_checks=tuple(dict.fromkeys(next_checks)),
         )
 
-    facts.append(
-        EvidenceFact(
-            id=f"source:{subject_ref}",
-            label="source_evidence",
-            value=source.to_dict(),
-            evidence_refs=tuple(ref.id for ref in pack.evidence_refs),
-        )
-    )
-
-    # referenced physical columns must exist in the source schema
-    schema_columns = {name for name, _type in pack.schema}
-    missing = [c for c in columns if c not in schema_columns]
-    for column in missing:
-        issues.append(
-            AssessmentIssue(
-                kind="missing_column",
-                severity="blocker",
-                refs=(subject_ref,),
-                message=f"Column {column!r} is not in the source schema.",
-                rule_id="referenced_column_exists",
-                evidence_refs=tuple(ref.id for ref in pack.evidence_refs),
-                next_checks=("inspect_source_context",),
-            )
-        )
-    present = [c for c in columns if c in schema_columns]
-    if present:
-        facts.append(
-            EvidenceFact(
-                id=f"columns:{subject_ref}",
-                label="referenced_columns",
-                value=present,
-                evidence_refs=tuple(ref.id for ref in pack.evidence_refs),
-            )
-        )
-
-    # metric & relationship require establishing evidence for business meaning
-    if object_kind in ("metric", "relationship"):
-        cited = set(evidence_refs)
-        establishing = [
-            ref
-            for ref in store.list_evidence(subject_refs=(subject_ref,))
-            if ref.kind in _ESTABLISHING_KINDS and ref.id in cited
-        ]
-        if not establishing:
-            kind_word = "formula" if object_kind == "metric" else "relationship intent"
+    for source_input in sources:
+        pack = _source_pack(store, source_input.datasource, source_input.source)
+        if pack is None:
             issues.append(
                 AssessmentIssue(
-                    kind="missing_evidence",
+                    kind="missing_source",
                     severity="warning",
-                    refs=(subject_ref,),
+                    refs=_issue_refs(subject_ref, source_input),
                     message=(
-                        f"No cited source SQL, BI definition, or user confirmation for the "
-                        f"{kind_word}. Record it with record_authoring_evidence(...) and cite it."
+                        f"No source context for role {source_input.role!r}: "
+                        f"{_source_id(source_input.datasource, source_input.source)}."
                     ),
-                    rule_id="establishing_evidence_cited",
+                    rule_id="source_context_present",
                     evidence_refs=(),
-                    next_checks=("ask_user",),
+                )
+            )
+            continue
+
+        evidence_ids = tuple(ref.id for ref in pack.evidence_refs)
+        facts.append(
+            EvidenceFact(
+                id=f"source:{subject_ref}:{source_input.role}:{_source_id(source_input.datasource, source_input.source)}",
+                label="source_context",
+                value={
+                    "role": source_input.role,
+                    "datasource": source_input.datasource,
+                    "source": source_input.source.to_dict(),
+                },
+                evidence_refs=evidence_ids,
+            )
+        )
+
+        schema_columns = {name for name, _type in pack.schema}
+        missing_columns = tuple(c for c in source_input.columns if c not in schema_columns)
+        present_columns = tuple(c for c in source_input.columns if c in schema_columns)
+        for column in missing_columns:
+            issues.append(
+                AssessmentIssue(
+                    kind="missing_column",
+                    severity="blocker",
+                    refs=_issue_refs(subject_ref, source_input),
+                    message=(
+                        f"Column {column!r} is not in role {source_input.role!r} source "
+                        f"{_source_id(source_input.datasource, source_input.source)}."
+                    ),
+                    rule_id="referenced_column_exists",
+                    evidence_refs=evidence_ids,
+                )
+            )
+        if present_columns:
+            facts.append(
+                EvidenceFact(
+                    id=f"columns:{subject_ref}:{source_input.role}:{_source_id(source_input.datasource, source_input.source)}",
+                    label="referenced_columns",
+                    value={
+                        "role": source_input.role,
+                        "columns": list(present_columns),
+                    },
+                    evidence_refs=evidence_ids,
                 )
             )
 
-    # handoff objects should carry a business_definition
-    if object_kind in ("metric", "field", "time_field") and (
-        ai_context is None or not ai_context.business_definition
-    ):
-        issues.append(
-            AssessmentIssue(
-                kind="missing_evidence",
-                severity="info",
-                refs=(subject_ref,),
-                message="ai_context.business_definition is empty for a handoff object.",
-                rule_id="business_definition_present",
+    if semantic_refs:
+        facts.append(
+            EvidenceFact(
+                id=f"semantic_refs:{subject_ref}",
+                label="semantic_dependencies",
+                value=list(semantic_refs),
                 evidence_refs=(),
             )
         )
@@ -164,7 +161,6 @@ def check_authoring_inputs(
         facts=tuple(facts),
         issues=tuple(issues),
         questions=(),
-        next_checks=tuple(dict.fromkeys(next_checks)),
     )
 
 
@@ -184,14 +180,12 @@ def inspect_authored_object(
             message=f"{ref!r} is not in the loaded registry. Reload the project after authoring.",
             rule_id="authored_object_loaded",
             evidence_refs=(),
-            next_checks=("reload_project",),
         )
         return AssessmentResult(
             status=derive_status((issue,), ()),
             facts=(),
             issues=(issue,),
             questions=(),
-            next_checks=("reload_project",),
         )
 
     facts: list[EvidenceFact] = [
@@ -233,7 +227,6 @@ def inspect_authored_object(
                     ),
                     rule_id="dangerous_decision_recorded",
                     evidence_refs=(),
-                    next_checks=("reload_project",),
                 )
             )
 
@@ -242,7 +235,6 @@ def inspect_authored_object(
         facts=tuple(facts),
         issues=tuple(issues),
         questions=(),
-        next_checks=(),
     )
 
 

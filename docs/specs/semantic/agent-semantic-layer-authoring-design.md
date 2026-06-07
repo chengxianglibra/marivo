@@ -1,5 +1,7 @@
 # Agent Semantic Layer Authoring Design
 
+> Superseded workflow note: Phase 0 and choreography-driven authoring loops are superseded by `authoring-pipeline-design.md`. The target authoring flow is discovery, `assess_authoring(...)`, single-file authoring, and `readiness(...)` closeout.
+
 Status: draft design.
 
 This document defines the end-to-end contract for Claude Code, Codex, and other
@@ -835,7 +837,7 @@ class ReadinessReport:
     analysis_ready_refs: tuple[str, ...]
     blockers: tuple["ReadinessIssue", ...]
     warnings: tuple["ReadinessIssue", ...]
-    evidence_summary: "EvidenceSummary"
+    input_summary: "ReadinessInputSummary"
     preview_summary: "PreviewSummary"
     parity_summary: "ParitySummary"
     checked_at: str
@@ -875,17 +877,15 @@ class ReadinessIssue:
     suggested_action: str
 ```
 
-### EvidenceSummary
+### ReadinessInputSummary
 
 ```python
 @dataclass(frozen=True)
-class EvidenceSummary:
-    datasources_checked: tuple[str, ...]
-    tables_inspected: tuple[str, ...]
-    raw_previews: tuple[str, ...]
-    knowledge_documents: tuple[str, ...]
-    user_confirmations: tuple[str, ...]
-    semantic_objects_changed: tuple[str, ...]
+class ReadinessInputSummary:
+    datasources: tuple[str, ...]
+    refs: tuple[str, ...]
+    tables: tuple[str, ...]
+    decision_records: tuple[str, ...]
 ```
 
 ### PreviewSummary
@@ -1012,7 +1012,7 @@ Implemented:
 - `project.readiness(...)`
 - `ReadinessReport`
 - `ReadinessIssue`
-- `EvidenceSummary`
+- `ReadinessInputSummary`
 - `PreviewSummary`
 - `ParitySummary`
 - JSON output for CLI or check helper

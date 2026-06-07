@@ -40,7 +40,7 @@ IssueKind = Literal[
 
 ReviewStatus = Literal[
     "supported",
-    "needs_evidence",
+    "needs_input",
     "blocked",
 ]
 
@@ -49,24 +49,11 @@ AuthoringObjectKind = Literal[
     "field",
     "time_field",
     "metric",
+    "derived_metric",
     "relationship",
 ]
 
-NextCheck = Literal[
-    "inspect_source_context",
-    "inspect_column_context",
-    "check_authoring_inputs",
-    "write_semantic_python",
-    "reload_project",
-    "inspect_authored_object",
-    "preview_dataset",
-    "preview_field",
-    "preview_metric",
-    "parity_check",
-    "readiness",
-    "richness",
-    "ask_user",
-]
+AuthoringSourceRole = Literal["primary", "from", "to", "component"]
 
 RedactionStatus = Literal["redacted", "not_redacted"]
 ReadinessEffect = Literal["blocks", "warns", "advisory"]
@@ -102,6 +89,22 @@ class FileSource:
 
 
 DatasetSource = TableSource | FileSource
+
+
+@dataclass(frozen=True)
+class AuthoringSourceInput:
+    role: AuthoringSourceRole
+    datasource: str
+    source: DatasetSource
+    columns: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "role": self.role,
+            "datasource": self.datasource,
+            "source": self.source.to_dict(),
+            "columns": list(self.columns),
+        }
 
 
 def _dataset_source_from_ir(source: DatasetSourceIR) -> DatasetSource:
@@ -317,7 +320,6 @@ class AssessmentIssue:
     message: str
     rule_id: str
     evidence_refs: tuple[str, ...]
-    next_checks: tuple[NextCheck, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -349,7 +351,14 @@ class AssessmentResult:
     facts: tuple[EvidenceFact, ...]
     issues: tuple[AssessmentIssue, ...]
     questions: tuple[AuthoringQuestion, ...]
-    next_checks: tuple[NextCheck, ...] = ()
+
+
+@dataclass(frozen=True)
+class AuthoringAssessment:
+    status: ReviewStatus
+    facts: tuple[EvidenceFact, ...]
+    issues: tuple[AssessmentIssue, ...]
+    questions: tuple[AuthoringQuestion, ...]
 
 
 @dataclass(frozen=True)
@@ -376,7 +385,7 @@ def derive_status(
         issue.kind in {"missing_evidence", "missing_source"} and issue.severity != "info"
         for issue in issues
     ):
-        return "needs_evidence"
+        return "needs_input"
     if any(question.readiness_effect == "warns" for question in questions):
-        return "needs_evidence"
+        return "needs_input"
     return "supported"

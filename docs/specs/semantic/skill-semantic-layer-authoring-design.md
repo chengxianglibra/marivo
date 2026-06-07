@@ -1,5 +1,7 @@
 # Skill / Semantic Layer Authoring Overall Design
 
+> Superseded workflow note: the choreography enum and standalone authoring-input check workflow in this document are superseded by `authoring-pipeline-design.md`. Keep this document only for non-conflicting background and historical rationale.
+
 Status: v1 implemented (see docs/superpowers/plans/2026-06-06-semantic-authoring-evidence-apis.md).
 
 This document defines the joint target design for the Marivo semantic
@@ -190,7 +192,7 @@ IssueKind = Literal[
 
 ReviewStatus = Literal[
     "supported",
-    "needs_evidence",
+    "needs_input",
     "blocked",
 ]
 
@@ -202,22 +204,6 @@ AuthoringObjectKind = Literal[
     "time_field",
     "metric",
     "relationship",
-]
-
-NextCheck = Literal[
-    "inspect_source_context",
-    "inspect_column_context",
-    "check_authoring_inputs",
-    "write_semantic_python",
-    "reload_project",
-    "inspect_authored_object",
-    "preview_dataset",
-    "preview_field",
-    "preview_metric",
-    "parity_check",
-    "readiness",
-    "richness",
-    "ask_user",
 ]
 
 @dataclass(frozen=True)
@@ -314,7 +300,6 @@ class AssessmentIssue:
     message: str
     rule_id: str
     evidence_refs: tuple[str, ...]
-    next_checks: tuple[NextCheck, ...] = ()
 
 @dataclass(frozen=True)
 class AuthoringQuestion:
@@ -334,7 +319,6 @@ class AssessmentResult:
     facts: tuple[EvidenceFact, ...]
     issues: tuple[AssessmentIssue, ...]
     questions: tuple[AuthoringQuestion, ...]
-    next_checks: tuple[NextCheck, ...] = ()
 
 @dataclass(frozen=True)
 class AuthoringEvidenceInput:
@@ -346,14 +330,11 @@ class AuthoringEvidenceInput:
     content_fingerprint: str | None = None
 ```
 
-`next_checks` is an enum, not free text. Agents should branch on it without
-string parsing.
-
 `AssessmentResult.status` is derived from issues and questions:
 
 - `blocked` when any issue has `severity="blocker"` or any unanswered question
   has `readiness_effect="blocks"`;
-- `needs_evidence` when required evidence is missing but no blocker has been
+- `needs_input` when required evidence is missing but no blocker has been
   reached yet;
 - `supported` when required evidence is present and no blocking issue or
   blocking question remains.
@@ -400,7 +381,7 @@ project.get_evidence_pack(evidence_id: str) -> SourceEvidencePack | ColumnEviden
 and subject-ref lookup for source SQL, knowledge documents, owner notes, and
 user confirmations. V1 should not hide evidence lookup behind implicit
 auto-resolution. If an assessment lacks required evidence, it should return
-`needs_evidence` with `next_checks`, not silently guess which persisted pack the
+`needs_input` with actionable issues and questions, not silently guess which persisted pack the
 caller meant.
 
 ## Static vs Runtime Checks

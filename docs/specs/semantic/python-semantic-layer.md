@@ -132,6 +132,15 @@ metric、relationship 和 derived metric。底层 loader 支持 sibling files，
 多文件 authoring 需要单独说明 import order、default model scope 和 review
 边界，不能作为默认 agent 工作流。
 
+For agent-authored models, the normal authoring contract is one file:
+
+```text
+.marivo/semantic/<model>/
+  _model.py
+```
+
+The loader may still execute sibling Python files as a lower-level capability, but the authoring pipeline in `authoring-pipeline-design.md` uses `_model.py` as the single normal authoring file.
+
 ## Reader / Introspection
 
 Reader 层让 agent 和 `analysis` 读取明确的 `SemanticProject`，而不是重新解析文件或依赖进程全局状态：

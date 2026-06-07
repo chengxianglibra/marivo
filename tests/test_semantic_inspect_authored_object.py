@@ -21,7 +21,7 @@ def test_inspect_authored_metric_reports_supported(semantic_project_factory):
     project = semantic_project_factory(_FILES)
     result = project.inspect_authored_object("sales.revenue")
     # metric_decomposition is auto-recorded on reload, so the dangerous-decision rule is satisfied
-    assert result.status in ("supported", "needs_evidence")
+    assert result.status in ("supported", "needs_input")
     assert not any(i.severity == "blocker" for i in result.issues)
 
 

@@ -53,6 +53,14 @@ class RichnessReport:
         }
 
 
+@dataclass(frozen=True)
+class RichnessSummary:
+    gaps: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {"gaps": list(self.gaps)}
+
+
 def _checked_at() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
