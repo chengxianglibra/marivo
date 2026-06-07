@@ -88,6 +88,7 @@ class ErrorKind(StrEnum):
     COMPILE_ERROR = "compile_error"
     AMBIGUOUS_REFERENCE = "ambiguous_reference"
     CROSS_DATASOURCE_NOT_SUPPORTED = "cross_datasource_not_supported"
+    BACKEND_FACTORY_REQUIRED = "backend_factory_required"
 
     # parity
     SOURCE_SQL_MISSING = "source_sql_missing"

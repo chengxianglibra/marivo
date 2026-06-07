@@ -443,11 +443,34 @@ class SemanticProject:
         self._runtime_metadata: dict[str, DatasetRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
         self._raw_preview_evidence: tuple[str, ...] = ()
+        self._backend_factory: Callable[[str], Any] | None = None
 
     @property
     def root(self) -> Path:
         """Return the project root path."""
         return self._root
+
+    def bind_backend_factory(self, factory: Callable[[str], Any]) -> None:
+        """Bind a backend factory for use by materialize/preview/compile methods.
+
+        Once bound, methods that require ``backend_factory`` can be called
+        without passing it explicitly.  An explicit keyword argument still
+        takes precedence.
+        """
+        self._backend_factory = factory
+
+    def _resolve_backend_factory(
+        self, backend_factory: Callable[[str], Any] | None
+    ) -> Callable[[str], Any]:
+        factory = backend_factory if backend_factory is not None else self._backend_factory
+        if factory is None:
+            _raise(
+                ErrorKind.BACKEND_FACTORY_REQUIRED,
+                "No backend_factory available. Call project.bind_backend_factory(...) "
+                "or pass backend_factory=... explicitly.",
+                cls=SemanticRuntimeError,
+            )
+        return factory
 
     def _record_raw_preview_evidence(self, *refs: str) -> None:
         self._raw_preview_evidence = tuple(dict.fromkeys((*self._raw_preview_evidence, *refs)))
@@ -1371,9 +1394,10 @@ class SemanticProject:
         compiled_sql: str | None = None
         compile_error: dict[str, Any] | None = None
 
-        if compile_sql and isinstance(obj, MetricIR) and backend_factory is not None:
+        factory = backend_factory if backend_factory is not None else self._backend_factory
+        if compile_sql and isinstance(obj, MetricIR) and factory is not None:
             try:
-                compiled_sql = self.compile_sql(obj.semantic_id, backend_factory=backend_factory)
+                compiled_sql = self.compile_sql(obj.semantic_id, backend_factory=factory)
             except SemanticRuntimeError as exc:
                 compile_error = {
                     "kind": exc.kind,
@@ -1436,7 +1460,7 @@ class SemanticProject:
         self,
         metric: str,
         *,
-        backend_factory: Callable[[str], Any],
+        backend_factory: Callable[[str], Any] | None = None,
     ) -> str:
         """Compile a metric expression to SQL.
 
@@ -1446,6 +1470,7 @@ class SemanticProject:
         Raises SemanticRuntimeError (COMPILE_ERROR) if the metric
         is not found or if ibis compilation fails.
         """
+        factory = self._resolve_backend_factory(backend_factory)
         reg = _require_registry(self._registry, project=self)
         metric_ir = reg.metrics.get(metric)
         if metric_ir is None:
@@ -1457,7 +1482,7 @@ class SemanticProject:
             )
 
         try:
-            mat = Materializer(self, backend_factory)
+            mat = Materializer(self, factory)
             expr = mat.metric(metric)
             return str(ibis.to_sql(expr))
         except SemanticRuntimeError:
@@ -1476,39 +1501,42 @@ class SemanticProject:
         self,
         name: str,
         *,
-        backend_factory: Callable[[str], Any],
+        backend_factory: Callable[[str], Any] | None = None,
     ) -> ibis.Table:
         """Materialize a dataset by semantic_id using the given backend_factory.
 
         Each call creates a fresh Materializer instance.
         """
-        mat = Materializer(self, backend_factory)
+        factory = self._resolve_backend_factory(backend_factory)
+        mat = Materializer(self, factory)
         return mat.dataset(name)
 
     def materialize_field(
         self,
         name: str,
         *,
-        backend_factory: Callable[[str], Any],
+        backend_factory: Callable[[str], Any] | None = None,
     ) -> ir.Value:
         """Materialize a field by semantic_id using the given backend_factory.
 
         Each call creates a fresh Materializer instance.
         """
-        mat = Materializer(self, backend_factory)
+        factory = self._resolve_backend_factory(backend_factory)
+        mat = Materializer(self, factory)
         return mat.field(name)
 
     def materialize_metric(
         self,
         name: str,
         *,
-        backend_factory: Callable[[str], Any],
+        backend_factory: Callable[[str], Any] | None = None,
     ) -> ir.Value:
         """Materialize a metric by semantic_id using the given backend_factory.
 
         Each call creates a fresh Materializer instance.
         """
-        mat = Materializer(self, backend_factory)
+        factory = self._resolve_backend_factory(backend_factory)
+        mat = Materializer(self, factory)
         return mat.metric(name)
 
     # -- preview ---------------------------------------------------------------
@@ -1525,7 +1553,7 @@ class SemanticProject:
         datasource: str,
         table: str,
         database: str | tuple[str, ...] | None = None,
-        backend_factory: Callable[[str], Any],
+        backend_factory: Callable[[str], Any] | None = None,
         columns: Iterable[str] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
@@ -1537,8 +1565,9 @@ class SemanticProject:
         records the physical preview ref as raw preview evidence for subsequent
         readiness checks on this project instance.
         """
+        factory = self._resolve_backend_factory(backend_factory)
         validate_preview_limit(limit)
-        backend = backend_factory(datasource)
+        backend = factory(datasource)
         source_table = table
         preview_table = (
             backend.table(source_table)
@@ -1590,14 +1619,15 @@ class SemanticProject:
         self,
         name: str,
         *,
-        backend_factory: Callable[[str], Any],
+        backend_factory: Callable[[str], Any] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
         redact: bool = True,
     ) -> PreviewResult:
         """Return a bounded preview of a semantic dataset."""
+        factory = self._resolve_backend_factory(backend_factory)
         limit = validate_preview_limit(limit)
-        table = self.materialize_dataset(name, backend_factory=backend_factory)
+        table = self.materialize_dataset(name, backend_factory=factory)
         return preview_ibis_table(
             table,
             kind="semantic_dataset",
@@ -1612,13 +1642,14 @@ class SemanticProject:
         self,
         name: str,
         *,
-        backend_factory: Callable[[str], Any],
+        backend_factory: Callable[[str], Any] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         context_columns: Iterable[str] | None = None,
         include_types: bool = True,
         redact: bool = True,
     ) -> PreviewResult:
         """Return a bounded preview of a semantic field with parent dataset context."""
+        factory = self._resolve_backend_factory(backend_factory)
         limit = validate_preview_limit(limit)
         reg = _require_registry(self._registry, project=self)
         field_ir = reg.fields.get(name)
@@ -1630,7 +1661,7 @@ class SemanticProject:
                 refs=(name,),
             )
 
-        mat = Materializer(self, backend_factory)
+        mat = Materializer(self, factory)
         parent_table = mat.dataset(field_ir.dataset)
         field_value = mat.field(name)
         field_column_name = _semantic_leaf_name(name)
@@ -1670,7 +1701,7 @@ class SemanticProject:
         self,
         name: str,
         *,
-        backend_factory: Callable[[str], Any],
+        backend_factory: Callable[[str], Any] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
         redact: bool = True,
@@ -1682,8 +1713,9 @@ class SemanticProject:
         metric callable runs, so aggregation never scans the full table.
         The result is approximate.
         """
+        factory = self._resolve_backend_factory(backend_factory)
         limit = validate_preview_limit(limit)
-        mat = Materializer(self, backend_factory, sample_size=METRIC_PREVIEW_SAMPLE_SIZE)
+        mat = Materializer(self, factory, sample_size=METRIC_PREVIEW_SAMPLE_SIZE)
         metric_value = mat.metric(name)
         result = preview_ibis_value(
             metric_value,
@@ -1721,7 +1753,7 @@ class SemanticProject:
         self,
         name: str,
         *,
-        backend_factory: Callable[..., Any],
+        backend_factory: Callable[..., Any] | None = None,
         rel_tol: float | None = None,
         abs_tol: float | None = None,
     ) -> ParityResult:
@@ -1729,10 +1761,11 @@ class SemanticProject:
 
         See :func:`marivo.semantic.parity.parity_check` for details.
         """
+        factory = self._resolve_backend_factory(backend_factory)
         return parity_check(
             self,
             name,
-            backend_factory=backend_factory,
+            backend_factory=factory,
             rel_tol=rel_tol,
             abs_tol=abs_tol,
         )
@@ -1766,6 +1799,7 @@ class SemanticProject:
         ``backend_factory`` is a callable from datasource semantic id to an
         Ibis backend, for example ``lambda name: mv.datasources.build_backend(name)``.
         """
+        factory = backend_factory if backend_factory is not None else self._backend_factory
         persisted_raw_previews = self._persisted_raw_preview_evidence()
         collected_raw_previews = tuple(
             dict.fromkeys(
@@ -1779,7 +1813,7 @@ class SemanticProject:
             require_comments=require_comments,
             require_evidence_ledger=require_evidence_ledger,
             strict_enrichment=strict_enrichment,
-            backend_factory=backend_factory,
+            backend_factory=factory,
             refs=refs,
             required_raw_previews=required_raw_previews,
             raw_previews=collected_raw_previews,
@@ -1820,7 +1854,7 @@ class SemanticProject:
         datasource: str,
         source: DatasetSource,
         inspect_source: Callable[..., Any],
-        backend_factory: Callable[[str], Any],
+        backend_factory: Callable[[str], Any] | None = None,
         sample_policy: SamplePolicy,
     ) -> SourceEvidencePack:
         """Collect and persist a SourceEvidencePack for one physical source.
@@ -1830,13 +1864,14 @@ class SemanticProject:
         evidence ref is also recorded so ``readiness(require_preview=True)``
         passes without a separate collect_source_preview call.
         """
+        factory = self._resolve_backend_factory(backend_factory)
         from marivo.semantic.inspect import collect_source_evidence
 
         pack = collect_source_evidence(
             datasource=datasource,
             source=source,
             inspect_source=inspect_source,
-            backend_factory=backend_factory,
+            backend_factory=factory,
             sample_policy=sample_policy,
             store=self._evidence_store(),
         )
@@ -1845,7 +1880,7 @@ class SemanticProject:
                 datasource=datasource,
                 table=source.table,
                 database=source.database,
-                backend_factory=backend_factory,
+                backend_factory=factory,
                 limit=min(sample_policy.limit or PREVIEW_DEFAULT_LIMIT, PREVIEW_MAX_LIMIT),
                 redact=sample_policy.redact,
             )
@@ -1858,10 +1893,11 @@ class SemanticProject:
         source: DatasetSource,
         columns: Sequence[str],
         inspect_source: Callable[..., Any],
-        backend_factory: Callable[[str], Any],
+        backend_factory: Callable[[str], Any] | None = None,
         sample_policy: SamplePolicy,
     ) -> tuple[ColumnEvidence, ...]:
         """Deep-dive selected columns after inspect_source_context."""
+        factory = self._resolve_backend_factory(backend_factory)
         from marivo.semantic.inspect import collect_column_evidence
 
         return collect_column_evidence(
@@ -1869,7 +1905,7 @@ class SemanticProject:
             source=source,
             columns=columns,
             inspect_source=inspect_source,
-            backend_factory=backend_factory,
+            backend_factory=factory,
             sample_policy=sample_policy,
             store=self._evidence_store(),
         )

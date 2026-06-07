@@ -1546,3 +1546,95 @@ def test_collect_source_preview_rejects_invalid_limit(
             backend_factory=backend_factory,
             limit=0,
         )
+
+
+# ---------------------------------------------------------------------------
+# bind_backend_factory
+# ---------------------------------------------------------------------------
+
+
+def test_bind_backend_factory_materialize(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    project.bind_backend_factory(backend_factory)
+    table = project.materialize_dataset("sales.orders")
+    assert hasattr(table, "columns")
+
+
+def test_bind_backend_factory_preview(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    project.bind_backend_factory(backend_factory)
+    result = project.preview_metric("sales.total_revenue", limit=2)
+    assert isinstance(result, PreviewResult)
+
+
+def test_bind_backend_factory_missing_raises(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        project.compile_sql("sales.total_revenue")
+    assert exc_info.value.kind == ErrorKind.BACKEND_FACTORY_REQUIRED
+
+
+def test_bind_backend_factory_explicit_override(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    project.bind_backend_factory(backend_factory)
+    sql = project.compile_sql("sales.total_revenue", backend_factory=backend_factory)
+    assert isinstance(sql, str) and len(sql) > 0
+
+
+def test_bind_backend_factory_preserved_across_reload(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    project.bind_backend_factory(backend_factory)
+    project.reload()
+    table = project.materialize_dataset("sales.orders")
+    assert hasattr(table, "columns")
+
+
+def test_readiness_uses_bound_factory(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    project.bind_backend_factory(backend_factory)
+    report = project.readiness(require_preview=True)
+    assert report.status in ("ready", "warning", "blocked")
+
+
+def test_readiness_explicit_none_skips_preview(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    project.bind_backend_factory(backend_factory)
+    report = project.readiness(backend_factory=None, require_preview=True)
+    assert report is not None

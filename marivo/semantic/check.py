@@ -27,10 +27,10 @@ def _default_backend_factory() -> Callable[[str], Any]:
 
 
 def _run_parity_checks(
-    project: SemanticProject, backend_factory: Callable[[str], Any] | None
+    project: SemanticProject,
 ) -> None:
     """Run parity checks for base metrics declared as sql_parity."""
-    if backend_factory is None or not project.is_ready():
+    if not project.is_ready():
         return
     reg = project.registry()
     if reg is None:
@@ -41,7 +41,7 @@ def _run_parity_checks(
         if metric.provenance.verification_mode != "sql_parity":
             continue
         with contextlib.suppress(Exception):
-            project.parity_check(metric.semantic_id, backend_factory=backend_factory)
+            project.parity_check(metric.semantic_id)
 
 
 def _error_to_dict(error: Any) -> dict[str, object]:
@@ -124,14 +124,15 @@ def run_check(
         factory = backend_factory
         if require_preview and factory is None:
             factory = _default_backend_factory()
+        if factory is not None:
+            project.bind_backend_factory(factory)
         # Run parity checks for base metrics with source_sql so readiness
         # can evaluate provenance status accurately.
-        _run_parity_checks(project, factory)
+        _run_parity_checks(project)
         report = project.readiness(
             strict_provenance=strict_provenance,
             require_preview=require_preview,
             require_comments=require_comments,
-            backend_factory=factory,
             raw_previews=raw_previews,
             failed_raw_previews=failed_raw_previews,
             knowledge_documents=knowledge_documents,
