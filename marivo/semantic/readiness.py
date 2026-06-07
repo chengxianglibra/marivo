@@ -925,7 +925,7 @@ def build_readiness_report(
                 "blocker",
                 semantic_required,
                 "Semantic preview requires backend_factory but none was provided.",
-                "Pass backend_factory=lambda name: mv.datasources.build_backend(name).",
+                "Call project.bind_datasource_access(...) or pass backend_factory=... explicitly.",
             )
         )
         failed_previews.extend(semantic_required)

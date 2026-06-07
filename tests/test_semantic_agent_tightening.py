@@ -48,7 +48,7 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
 
     assert "mv.datasources.inspect_source" in skill
     assert "project.inspect_source_context(" in workflow
-    assert "inspect_source=mv.datasources.inspect_source" in workflow
+    assert "bind_datasource_access" in workflow
     assert "project.check_authoring_inputs(" in workflow
     assert "sample_scope" in workflow or "sample_scope" in skill
     assert "non-negative integer count" in skill
@@ -137,10 +137,11 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert 'date_format="HH"' in single
     assert 'required_prefix="log_date"' in single
     assert "project.inspect_source_context(" in evidence
-    assert "inspect_source=fake_inspect_source" in evidence
+    assert "bind_datasource_access" in evidence
     assert "project.record_authoring_evidence(" in evidence
     assert "project.check_authoring_inputs(" in evidence
     assert "project.inspect_source_context(" in closeout
+    assert "bind_datasource_access" in closeout
     assert "project.collect_raw_preview(" not in closeout
     assert "unverified_metric" in closeout
     assert "parity_drifted" in closeout

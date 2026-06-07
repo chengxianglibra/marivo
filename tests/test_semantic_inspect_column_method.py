@@ -34,12 +34,13 @@ def test_inspect_column_context_profiles_selected_columns(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(root=root)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     evidence = project.inspect_column_context(
         datasource="warehouse",
         source=DatasetSource(kind="table", table="orders"),
         columns=("status", "amount"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=SamplePolicy(
             mode="selected_columns_profile", limit=100, columns=("status", "amount")
         ),

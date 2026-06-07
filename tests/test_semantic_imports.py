@@ -470,6 +470,7 @@ _EXPECTED_RUNTIME_KINDS = {
     "ambiguous_reference",
     "cross_datasource_not_supported",
     "backend_factory_required",
+    "inspect_source_required",
 }
 
 _EXPECTED_PARITY_KINDS = {

@@ -26,6 +26,14 @@ def _default_backend_factory() -> Callable[[str], Any]:
     return lambda name: analysis.datasources.build_backend(name)
 
 
+def _default_inspect_source() -> Callable[..., Any]:
+    """Return an inspect_source callable from marivo.analysis."""
+    import importlib
+
+    analysis = importlib.import_module("marivo.analysis")
+    return analysis.datasources.inspect_source  # type: ignore[no-any-return]
+
+
 def _run_parity_checks(
     project: SemanticProject,
 ) -> None:
@@ -113,7 +121,10 @@ def run_check(
         if factory is None:
             factory = _default_backend_factory()
         if factory is not None:
-            project.bind_backend_factory(factory)
+            project.bind_datasource_access(
+                inspect_source=_default_inspect_source(),
+                backend_factory=factory,
+            )
         _run_parity_checks(project)
         report = project.readiness()
         payload["readiness"] = report.to_dict()

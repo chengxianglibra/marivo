@@ -40,6 +40,21 @@ def backend_factory(duckdb_backend):
     return _factory
 
 
+def _fake_inspect_source(datasource, *, source, include_partitions=True):
+    from marivo.analysis.datasources.metadata import TableMetadata
+
+    return TableMetadata(
+        datasource=datasource,
+        table=getattr(source, "table", "fake_table"),
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+    )
+
+
 _MODEL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     ms.model(name="sales", default=True)
@@ -264,7 +279,9 @@ def test_readiness_ready_after_required_preview_and_parity(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_MODEL_PY)
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     project.collect_source_preview(
         datasource="warehouse", table="orders", backend_factory=backend_factory
     )
@@ -308,7 +325,9 @@ def test_readiness_folds_dataset_field_and_time_field_previews(
     from ibis.expr.types.relations import Table
 
     project = _project(semantic_project_factory, _READY_MODEL_PY)
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     project.collect_source_preview(
         datasource="warehouse", table="orders", backend_factory=backend_factory
     )
@@ -375,7 +394,9 @@ def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
         }
     )
 
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     project.collect_source_preview(
         datasource="warehouse", table="orders", backend_factory=backend_factory
     )
@@ -396,7 +417,9 @@ def test_readiness_blocks_when_required_raw_preview_missing(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_MODEL_PY)
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     project.record_primary_key_sample("sales.orders")
     project.parity_check("sales.total_amount", backend_factory=backend_factory)
     # Do NOT call collect_source_preview -- raw preview will be missing.
@@ -413,7 +436,9 @@ def test_readiness_uses_collected_source_preview_evidence(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_MODEL_PY)
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     project.record_primary_key_sample("sales.orders")
     project.parity_check("sales.total_amount", backend_factory=backend_factory)
 
@@ -438,7 +463,9 @@ def test_readiness_uses_collected_physical_raw_preview_ref(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_MODEL_PY)
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     project.record_primary_key_sample("sales.orders")
     project.parity_check("sales.total_amount", backend_factory=backend_factory)
     project.collect_source_preview(
@@ -459,7 +486,9 @@ def test_readiness_failed_raw_preview_overrides_collected_evidence(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_MODEL_PY)
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     project.record_primary_key_sample("sales.orders")
     project.parity_check("sales.total_amount", backend_factory=backend_factory)
     project.collect_source_preview(
@@ -504,7 +533,9 @@ def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instanc
     from marivo.semantic.reader import SemanticProject
 
     project = _project(semantic_project_factory, _READY_MODEL_PY)
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     project.record_primary_key_sample("sales.orders")
     project.parity_check("sales.total_amount", backend_factory=backend_factory)
     project.collect_source_preview(
@@ -515,7 +546,9 @@ def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instanc
 
     reloaded = SemanticProject(root=project.root)
     reloaded.load()
-    reloaded.bind_backend_factory(backend_factory)
+    reloaded.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
     reloaded.parity_check("sales.total_amount", backend_factory=backend_factory)
     report = reloaded.readiness()
 
@@ -1392,7 +1425,9 @@ def test_readiness_auto_evidence_end_to_end(
             """),
         }
     )
-    project.bind_backend_factory(backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
 
     # Agent workflow: collect preview, record pk sample
     project.collect_source_preview(datasource="warehouse", table="orders")

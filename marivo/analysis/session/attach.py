@@ -179,7 +179,12 @@ def _session_from_row(
     )
     semantic_project = _build_semantic_project(project_root)
     if factory is not None:
-        semantic_project.bind_backend_factory(factory)
+        from marivo.analysis import datasources as _datasources
+
+        semantic_project.bind_datasource_access(
+            inspect_source=_datasources.inspect_source,
+            backend_factory=factory,
+        )
     return Session(
         id=row["id"],
         name=row["name"],

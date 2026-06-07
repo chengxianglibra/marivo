@@ -39,11 +39,12 @@ def _project_with_source(tmp_path) -> SemanticProject:
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(root=root)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     project.inspect_source_context(
         datasource="warehouse",
         source=DatasetSource(kind="table", table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=SamplePolicy(mode="metadata_only"),
     )
     return project

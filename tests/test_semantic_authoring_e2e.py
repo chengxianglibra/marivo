@@ -48,13 +48,14 @@ def test_collect_check_author_reload_inspect(tmp_path):
         "md.datasource(warehouse)\n"
     )
     project = SemanticProject(root=root)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
 
     # 1. collect source evidence
     project.inspect_source_context(
         datasource="warehouse",
         source=DatasetSource(kind="table", table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=SamplePolicy(mode="bounded_profile", limit=50),
     )
 

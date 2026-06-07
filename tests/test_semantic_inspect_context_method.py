@@ -34,11 +34,12 @@ def test_inspect_source_context_returns_pack_and_persists(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(root=root)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     pack = project.inspect_source_context(
         datasource="warehouse",
         source=DatasetSource(kind="table", table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=SamplePolicy(mode="bounded_profile", limit=50),
     )
     assert pack.datasource == "warehouse"
@@ -53,11 +54,12 @@ def test_inspect_source_context_records_raw_preview_for_readiness(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(root=root)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     project.inspect_source_context(
         datasource="warehouse",
         source=DatasetSource(kind="table", table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=SamplePolicy(mode="bounded_profile", limit=50),
     )
     # the dataset-level raw preview ref is now visible to readiness plumbing
@@ -68,11 +70,12 @@ def test_metadata_only_does_not_record_raw_preview(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(root=root)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     project.inspect_source_context(
         datasource="warehouse",
         source=DatasetSource(kind="table", table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=SamplePolicy(mode="metadata_only"),
     )
     assert project.raw_preview_evidence() == ()
