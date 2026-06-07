@@ -9,7 +9,7 @@ from __future__ import annotations
 import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
-from marivo.semantic.evidence import AiContextInput, DatasetSource, SamplePolicy
+from marivo.semantic.evidence import AiContextInput, BoundedProfilePolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 
 
@@ -55,8 +55,8 @@ def test_collect_check_author_reload_inspect(tmp_path):
     # 1. collect source evidence
     project.inspect_source_context(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
-        sample_policy=SamplePolicy(mode="bounded_profile", limit=50),
+        source=TableSource(table="orders"),
+        sample_policy=BoundedProfilePolicy(limit=50),
     )
 
     # 2. check dataset inputs
@@ -64,7 +64,7 @@ def test_collect_check_author_reload_inspect(tmp_path):
         object_kind="dataset",
         subject_ref="sales.orders",
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         ai_context=AiContextInput(business_definition="Order fact rows."),
     )
     assert dataset_check.status == "supported"

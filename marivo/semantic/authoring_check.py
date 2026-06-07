@@ -20,7 +20,7 @@ from marivo.semantic.evidence import (
     derive_status,
 )
 from marivo.semantic.evidence_store import EvidenceStore
-from marivo.semantic.ir import DatasetIR, FieldIR, MetricIR, RelationshipIR
+from marivo.semantic.ir import DatasetIR, FieldIR, MetricIR, RelationshipIR, source_label
 from marivo.semantic.ledger import LedgerStore
 
 # evidence kinds that establish business meaning for a metric
@@ -67,7 +67,7 @@ def check_authoring_inputs(
                 severity="warning",
                 refs=(subject_ref,),
                 message=(
-                    f"No source evidence for {datasource} / {source.table or source.path}. "
+                    f"No source evidence for {datasource} / {source_label(source.to_ir())}. "
                     "Collect it before authoring."
                 ),
                 rule_id="source_evidence_present",

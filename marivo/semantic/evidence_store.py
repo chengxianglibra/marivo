@@ -13,16 +13,21 @@ from typing import Literal, cast
 from marivo.semantic.evidence import (
     AssessmentIssue,
     AuthoringEvidenceInput,
+    BoundedProfilePolicy,
     ColumnEvidence,
     ColumnProfile,
     DatasetSource,
     EvidenceKind,
     EvidenceRef,
+    FileSource,
     IssueKind,
+    MetadataOnlyPolicy,
     NextCheck,
     SamplePolicy,
+    SelectedColumnsPolicy,
     Severity,
     SourceEvidencePack,
+    TableSource,
 )
 from marivo.semantic.ir import source_label
 
@@ -402,51 +407,62 @@ def _column_evidence_from_record(record: Mapping[str, object]) -> ColumnEvidence
 
 
 def _sample_policy_to_dict(policy: SamplePolicy) -> JsonRecord:
-    return {
-        "mode": policy.mode,
-        "limit": policy.limit,
-        "columns": list(policy.columns),
-        "timeout_seconds": policy.timeout_seconds,
-        "max_profiled_columns": policy.max_profiled_columns,
-        "redact": policy.redact,
-    }
+    return policy.to_dict()
 
 
 def _sample_policy_from_dict(data: Mapping[str, object]) -> SamplePolicy:
-    return SamplePolicy(
-        mode=cast(
-            'Literal["metadata_only", "bounded_profile", "selected_columns_profile"]',
-            _str(data["mode"], "mode"),
-        ),
-        limit=_optional_int(data.get("limit"), "limit"),
-        columns=_str_tuple(data.get("columns", ()), "columns"),
-        timeout_seconds=_optional_int(data.get("timeout_seconds"), "timeout_seconds"),
-        max_profiled_columns=_optional_int(
-            data.get("max_profiled_columns"), "max_profiled_columns"
-        ),
-        redact=_bool(data.get("redact", True), "redact"),
-    )
+    mode = _str(data["mode"], "mode")
+    if mode == "metadata_only":
+        return MetadataOnlyPolicy(
+            timeout_seconds=_optional_int(data.get("timeout_seconds"), "timeout_seconds"),
+            redact=_bool(data.get("redact", True), "redact"),
+        )
+    if mode == "bounded_profile":
+        return BoundedProfilePolicy(
+            limit=_required_int(data["limit"], "limit"),
+            timeout_seconds=_optional_int(data.get("timeout_seconds"), "timeout_seconds"),
+            max_profiled_columns=_optional_int(
+                data.get("max_profiled_columns"), "max_profiled_columns"
+            ),
+            redact=_bool(data.get("redact", True), "redact"),
+        )
+    if mode == "selected_columns_profile":
+        return SelectedColumnsPolicy(
+            limit=_required_int(data["limit"], "limit"),
+            columns=_str_tuple(data.get("columns", ()), "columns"),
+            timeout_seconds=_optional_int(data.get("timeout_seconds"), "timeout_seconds"),
+            max_profiled_columns=_optional_int(
+                data.get("max_profiled_columns"), "max_profiled_columns"
+            ),
+            redact=_bool(data.get("redact", True), "redact"),
+        )
+    raise ValueError(f"unsupported sample policy mode: {mode!r}")
 
 
 def _dataset_source_from_dict(data: Mapping[str, object]) -> DatasetSource:
-    database_value = data.get("database")
-    database: str | tuple[str, ...] | None
-    if database_value is None:
-        database = None
-    elif isinstance(database_value, str):
-        database = database_value
-    else:
-        database = _str_tuple(database_value, "database")
-
-    return DatasetSource(
-        kind=cast('Literal["table", "file"]', _str(data["kind"], "kind")),
-        table=_optional_str(data.get("table"), "table"),
-        database=database,
-        path=_optional_str(data.get("path"), "path"),
-        format=cast(
-            'Literal["parquet", "csv"] | None', _optional_str(data.get("format"), "format")
-        ),
-    )
+    kind = _str(data["kind"], "kind")
+    if kind == "table":
+        database_value = data.get("database")
+        database: str | tuple[str, ...] | None
+        if database_value is None:
+            database = None
+        elif isinstance(database_value, str):
+            database = database_value
+        else:
+            database = _str_tuple(database_value, "database")
+        return TableSource(
+            table=_required_str(data["table"], "table"),
+            database=database,
+        )
+    if kind == "file":
+        return FileSource(
+            path=_required_str(data["path"], "path"),
+            format=cast(
+                'Literal["parquet", "csv", "json"]',
+                _str(data["format"], "format"),
+            ),
+        )
+    raise ValueError(f"unsupported dataset source kind: {kind!r}")
 
 
 def _evidence_ref_from_dict(data: Mapping[str, object]) -> EvidenceRef:
@@ -604,6 +620,16 @@ def _optional_int(value: object, field: str) -> int | None:
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"{field} must be an integer")
     return value
+
+
+def _required_int(value: object, field: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{field} must be an integer")
+    return value
+
+
+def _required_str(value: object, field: str) -> str:
+    return _str(value, field)
 
 
 def _str_tuple(value: object, field: str) -> tuple[str, ...]:

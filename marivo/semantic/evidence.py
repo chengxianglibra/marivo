@@ -5,7 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from marivo.semantic.ir import DatasetSourceIR, FileSourceIR, TableSourceIR
+from marivo.semantic.ir import (
+    BoundedProfilePolicyIR,
+    DatasetSourceIR,
+    FileSourceIR,
+    MetadataOnlyPolicyIR,
+    SamplePolicyIR,
+    SelectedColumnsPolicyIR,
+    TableSourceIR,
+)
 
 EvidenceKind = Literal[
     "catalog_metadata",
@@ -36,8 +44,6 @@ ReviewStatus = Literal[
     "blocked",
 ]
 
-SourceKind = Literal["table", "file"]
-
 AuthoringObjectKind = Literal[
     "dataset",
     "field",
@@ -62,96 +68,141 @@ NextCheck = Literal[
     "ask_user",
 ]
 
-SampleMode = Literal["metadata_only", "bounded_profile", "selected_columns_profile"]
 RedactionStatus = Literal["redacted", "not_redacted"]
 ReadinessEffect = Literal["blocks", "warns", "advisory"]
 SampleScope = Literal["none", "bounded_sample"]
-FileFormat = Literal["parquet", "csv"]
+FileFormat = Literal["parquet", "csv", "json"]
 
 
 @dataclass(frozen=True)
-class DatasetSource:
-    kind: SourceKind
-    table: str | None = None
+class TableSource:
+    table: str
     database: str | tuple[str, ...] | None = None
-    path: str | None = None
-    format: FileFormat | None = None
-
-    def __post_init__(self) -> None:
-        if self.kind == "table":
-            if self.table is None:
-                raise ValueError("table source requires table")
-            if self.path is not None or self.format is not None:
-                raise ValueError("table source does not accept file fields")
-            return
-
-        if self.kind != "file":
-            raise ValueError(f"unsupported dataset source kind: {self.kind!r}")
-
-        if self.table is not None or self.database is not None:
-            raise ValueError("file source does not accept table fields")
-        if self.path is None:
-            raise ValueError("file source requires path")
-        if self.format is None:
-            raise ValueError("file source requires format")
-        if self.format not in {"parquet", "csv"}:
-            raise ValueError(f"unsupported file source format: {self.format!r}")
 
     def to_dict(self) -> dict[str, object]:
         database: str | list[str] | None = (
             list(self.database) if isinstance(self.database, tuple) else self.database
         )
-        return {
-            "kind": self.kind,
-            "table": self.table,
-            "database": database,
-            "path": self.path,
-            "format": self.format,
-        }
+        return {"kind": "table", "table": self.table, "database": database}
 
-    def to_ir(self) -> DatasetSourceIR:
-        if self.kind == "table":
-            if self.table is None:
-                raise ValueError("table source requires table")
-            return TableSourceIR(table=self.table, database=self.database)
-
-        if self.kind == "file":
-            if self.path is None:
-                raise ValueError("file source requires path")
-            if self.format not in {"parquet", "csv"}:
-                raise ValueError(f"unsupported file source format: {self.format!r}")
-            return FileSourceIR(path=self.path, format=self.format)
-
-        raise ValueError(f"unsupported dataset source kind: {self.kind!r}")
-
-    @classmethod
-    def from_ir(cls, source: DatasetSourceIR) -> DatasetSource:
-        if isinstance(source, TableSourceIR):
-            return cls(kind="table", table=source.table, database=source.database)
-        if isinstance(source, FileSourceIR):
-            return cls(kind="file", path=source.path, format=source.format)
-        raise TypeError(f"unsupported dataset source IR: {type(source).__name__}")
+    def to_ir(self) -> TableSourceIR:
+        return TableSourceIR(table=self.table, database=self.database)
 
 
 @dataclass(frozen=True)
-class SamplePolicy:
-    mode: SampleMode
-    limit: int | None = None
-    columns: tuple[str, ...] = ()
+class FileSource:
+    path: str
+    format: FileFormat
+
+    def to_dict(self) -> dict[str, object]:
+        return {"kind": "file", "path": self.path, "format": self.format}
+
+    def to_ir(self) -> FileSourceIR:
+        return FileSourceIR(path=self.path, format=self.format)
+
+
+DatasetSource = TableSource | FileSource
+
+
+def _dataset_source_from_ir(source: DatasetSourceIR) -> DatasetSource:
+    if isinstance(source, TableSourceIR):
+        return TableSource(table=source.table, database=source.database)
+    if isinstance(source, FileSourceIR):
+        return FileSource(path=source.path, format=source.format)
+    raise TypeError(f"unsupported dataset source IR: {type(source).__name__}")
+
+
+@dataclass(frozen=True)
+class MetadataOnlyPolicy:
+    timeout_seconds: int | None = None
+    redact: bool = True
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "mode": "metadata_only",
+            "timeout_seconds": self.timeout_seconds,
+            "redact": self.redact,
+        }
+
+    def to_ir(self) -> MetadataOnlyPolicyIR:
+        return MetadataOnlyPolicyIR(timeout_seconds=self.timeout_seconds, redact=self.redact)
+
+
+@dataclass(frozen=True)
+class BoundedProfilePolicy:
+    limit: int
     timeout_seconds: int | None = None
     max_profiled_columns: int | None = None
     redact: bool = True
 
-    def reads_rows(self) -> bool:
-        return self.mode in {"bounded_profile", "selected_columns_profile"}
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "mode": "bounded_profile",
+            "limit": self.limit,
+            "timeout_seconds": self.timeout_seconds,
+            "max_profiled_columns": self.max_profiled_columns,
+            "redact": self.redact,
+        }
 
-    def validate(self) -> None:
-        if self.reads_rows() and self.limit is None:
-            raise ValueError("limit is required for sample policies that read rows")
-        if self.mode == "selected_columns_profile" and not self.columns:
-            raise ValueError("columns are required for selected_columns_profile")
-        if self.mode in {"metadata_only", "bounded_profile"} and self.columns:
-            raise ValueError(f"columns are not supported for {self.mode}")
+    def to_ir(self) -> BoundedProfilePolicyIR:
+        return BoundedProfilePolicyIR(
+            limit=self.limit,
+            timeout_seconds=self.timeout_seconds,
+            max_profiled_columns=self.max_profiled_columns,
+            redact=self.redact,
+        )
+
+
+@dataclass(frozen=True)
+class SelectedColumnsPolicy:
+    limit: int
+    columns: tuple[str, ...]
+    timeout_seconds: int | None = None
+    max_profiled_columns: int | None = None
+    redact: bool = True
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "mode": "selected_columns_profile",
+            "limit": self.limit,
+            "columns": list(self.columns),
+            "timeout_seconds": self.timeout_seconds,
+            "max_profiled_columns": self.max_profiled_columns,
+            "redact": self.redact,
+        }
+
+    def to_ir(self) -> SelectedColumnsPolicyIR:
+        return SelectedColumnsPolicyIR(
+            limit=self.limit,
+            columns=self.columns,
+            timeout_seconds=self.timeout_seconds,
+            max_profiled_columns=self.max_profiled_columns,
+            redact=self.redact,
+        )
+
+
+SamplePolicy = MetadataOnlyPolicy | BoundedProfilePolicy | SelectedColumnsPolicy
+
+
+def _sample_policy_from_ir(policy: SamplePolicyIR) -> SamplePolicy:
+    if isinstance(policy, MetadataOnlyPolicyIR):
+        return MetadataOnlyPolicy(timeout_seconds=policy.timeout_seconds, redact=policy.redact)
+    if isinstance(policy, BoundedProfilePolicyIR):
+        return BoundedProfilePolicy(
+            limit=policy.limit,
+            timeout_seconds=policy.timeout_seconds,
+            max_profiled_columns=policy.max_profiled_columns,
+            redact=policy.redact,
+        )
+    if isinstance(policy, SelectedColumnsPolicyIR):
+        return SelectedColumnsPolicy(
+            limit=policy.limit,
+            columns=policy.columns,
+            timeout_seconds=policy.timeout_seconds,
+            max_profiled_columns=policy.max_profiled_columns,
+            redact=policy.redact,
+        )
+    raise TypeError(f"unsupported sample policy IR: {type(policy).__name__}")
 
 
 @dataclass(frozen=True)

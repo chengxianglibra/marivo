@@ -3,7 +3,7 @@ from __future__ import annotations
 import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
-from marivo.semantic.evidence import DatasetSource, SamplePolicy
+from marivo.semantic.evidence import SelectedColumnsPolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 
 
@@ -39,11 +39,9 @@ def test_inspect_column_context_profiles_selected_columns(tmp_path):
     )
     evidence = project.inspect_column_context(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         columns=("status", "amount"),
-        sample_policy=SamplePolicy(
-            mode="selected_columns_profile", limit=100, columns=("status", "amount")
-        ),
+        sample_policy=SelectedColumnsPolicy(limit=100, columns=("status", "amount")),
     )
     by_col = {e.column: e for e in evidence}
     assert by_col["status"].profile.distinct_count == 2

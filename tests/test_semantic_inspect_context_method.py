@@ -3,7 +3,7 @@ from __future__ import annotations
 import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
-from marivo.semantic.evidence import DatasetSource, SamplePolicy
+from marivo.semantic.evidence import BoundedProfilePolicy, MetadataOnlyPolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 
 
@@ -39,14 +39,12 @@ def test_inspect_source_context_returns_pack_and_persists(tmp_path):
     )
     pack = project.inspect_source_context(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
-        sample_policy=SamplePolicy(mode="bounded_profile", limit=50),
+        source=TableSource(table="orders"),
+        sample_policy=BoundedProfilePolicy(limit=50),
     )
     assert pack.datasource == "warehouse"
     assert {c.column for c in pack.column_profiles} == {"order_id", "amount"}
-    refs = project.list_evidence(
-        datasource="warehouse", source=DatasetSource(kind="table", table="orders")
-    )
+    refs = project.list_evidence(datasource="warehouse", source=TableSource(table="orders"))
     assert len(refs) == 1
 
 
@@ -59,8 +57,8 @@ def test_inspect_source_context_records_raw_preview_for_readiness(tmp_path):
     )
     project.inspect_source_context(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
-        sample_policy=SamplePolicy(mode="bounded_profile", limit=50),
+        source=TableSource(table="orders"),
+        sample_policy=BoundedProfilePolicy(limit=50),
     )
     # the dataset-level raw preview ref is now visible to readiness plumbing
     assert any("orders" in ref for ref in project.raw_preview_evidence())
@@ -75,7 +73,7 @@ def test_metadata_only_does_not_record_raw_preview(tmp_path):
     )
     project.inspect_source_context(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders"),
-        sample_policy=SamplePolicy(mode="metadata_only"),
+        source=TableSource(table="orders"),
+        sample_policy=MetadataOnlyPolicy(),
     )
     assert project.raw_preview_evidence() == ()

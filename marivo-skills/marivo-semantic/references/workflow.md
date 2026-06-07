@@ -42,8 +42,8 @@ project.bind_datasource_access(
 )
 pack = project.inspect_source_context(
     datasource="warehouse",
-    source=ms.DatasetSource(kind="table", table="orders", database="sales_mart"),
-    sample_policy=ms.SamplePolicy(mode="bounded_profile", limit=100, max_profiled_columns=50),
+    source=ms.TableSource(table="orders", database="sales_mart"),
+    sample_policy=ms.BoundedProfilePolicy(limit=100, max_profiled_columns=50),
 )
 ```
 
@@ -57,8 +57,8 @@ For `metadata_only` policy (no row reads):
 ```python
 pack = project.inspect_source_context(
     datasource="warehouse",
-    source=ms.DatasetSource(kind="table", table="orders"),
-    sample_policy=ms.SamplePolicy(mode="metadata_only"),
+    source=ms.TableSource(table="orders"),
+    sample_policy=ms.MetadataOnlyPolicy(),
 )
 ```
 
@@ -78,10 +78,10 @@ Deep-dive selected columns after source evidence:
 ```python
 evidence = project.inspect_column_context(
     datasource="warehouse",
-    source=ms.DatasetSource(kind="table", table="orders"),
+    source=ms.TableSource(table="orders"),
     columns=("status", "amount"),
-    sample_policy=ms.SamplePolicy(
-        mode="selected_columns_profile", limit=100, columns=("status", "amount")
+    sample_policy=ms.SelectedColumnsPolicy(
+        limit=100, columns=("status", "amount")
     ),
 )
 for col in evidence:
@@ -100,7 +100,7 @@ result = project.check_authoring_inputs(
     object_kind="dataset",
     subject_ref="sales.orders",
     datasource="warehouse",
-    source=ms.DatasetSource(kind="table", table="orders"),
+    source=ms.TableSource(table="orders"),
 )
 if result.status == "blocked":
     # resolve blockers first
@@ -125,7 +125,7 @@ result = project.check_authoring_inputs(
     object_kind="time_field",
     subject_ref="sales.orders.dt",
     datasource="warehouse",
-    source=ms.DatasetSource(kind="table", table="orders"),
+    source=ms.TableSource(table="orders"),
     columns=("dt",),
 )
 ```
@@ -139,7 +139,7 @@ result = project.check_authoring_inputs(
     object_kind="field",
     subject_ref="sales.orders.amount",
     datasource="warehouse",
-    source=ms.DatasetSource(kind="table", table="orders"),
+    source=ms.TableSource(table="orders"),
     columns=("amount",),
 )
 ```
@@ -161,7 +161,7 @@ result = project.check_authoring_inputs(
     object_kind="metric",
     subject_ref="sales.revenue",
     datasource="warehouse",
-    source=ms.DatasetSource(kind="table", table="orders"),
+    source=ms.TableSource(table="orders"),
     columns=("amount", "paid"),
     evidence_refs=(sql_ref.id,),
     ai_context=ms.AiContextInput(business_definition="Paid order revenue before refunds."),

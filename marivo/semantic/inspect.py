@@ -9,11 +9,15 @@ from typing import TYPE_CHECKING, Any
 
 from marivo.preview import normalize_preview_cell
 from marivo.semantic.evidence import (
+    BoundedProfilePolicy,
     ColumnEvidence,
     ColumnProfile,
     DatasetSource,
+    FileSource,
     SamplePolicy,
+    SelectedColumnsPolicy,
     SourceEvidencePack,
+    TableSource,
 )
 from marivo.semantic.evidence_store import EvidenceStore, structural_fingerprint
 
@@ -49,23 +53,21 @@ def _now() -> str:
 
 
 def _source_table_expr(backend: Any, source: DatasetSource) -> Any:
-    if source.kind == "table":
-        if source.table is None:
-            raise ValueError("table source requires table")
+    if isinstance(source, TableSource):
         if source.database is None:
             return backend.table(source.table)
         return backend.table(source.table, database=source.database)
 
-    if source.kind == "file":
-        if source.path is None:
-            raise ValueError("file source requires path")
+    if isinstance(source, FileSource):
         if source.format == "parquet":
             return backend.read_parquet(source.path)
         if source.format == "csv":
             return backend.read_csv(source.path)
+        if source.format == "json":
+            return backend.read_json(source.path)
         raise ValueError(f"unsupported file source format: {source.format!r}")
 
-    raise ValueError(f"unsupported dataset source kind: {source.kind!r}")
+    raise ValueError(f"unsupported dataset source: {type(source).__name__}")
 
 
 def _is_numeric(data_type: str) -> bool:
@@ -147,7 +149,6 @@ def collect_source_evidence(
     sample_policy: SamplePolicy,
     store: EvidenceStore,
 ) -> SourceEvidencePack:
-    sample_policy.validate()
     metadata = inspect_source(datasource, source=source.to_ir())
 
     specs = _column_specs(metadata)
@@ -159,10 +160,10 @@ def collect_source_evidence(
 
     column_profiles: tuple[ColumnProfile, ...] = ()
     truncated = False
-    if sample_policy.reads_rows():
+    if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)):
         limit = _validated_row_limit(sample_policy)
         profile_specs = specs
-        if sample_policy.mode == "selected_columns_profile":
+        if isinstance(sample_policy, SelectedColumnsPolicy):
             selected = set(sample_policy.columns)
             profile_specs = [spec for spec in specs if spec[0] in selected]
 
@@ -234,10 +235,9 @@ def collect_column_evidence(
     columns: Sequence[str],
     inspect_source: Callable[..., Any],
     backend_factory: Callable[[str], Any],
-    sample_policy: SamplePolicy,
+    sample_policy: BoundedProfilePolicy | SelectedColumnsPolicy,
     store: EvidenceStore,
 ) -> tuple[ColumnEvidence, ...]:
-    sample_policy.validate()
     limit = _validated_row_limit(sample_policy)
     metadata = inspect_source(datasource, source=source.to_ir())
     specs = _column_specs(metadata)
@@ -341,9 +341,7 @@ def collect_column_evidence(
     return tuple(evidence)
 
 
-def _validated_row_limit(sample_policy: SamplePolicy) -> int:
-    if sample_policy.limit is None:
-        raise ValueError("limit is required for sample policies that read rows")
+def _validated_row_limit(sample_policy: BoundedProfilePolicy | SelectedColumnsPolicy) -> int:
     if sample_policy.limit < 0:
         raise ValueError("limit must be non-negative")
     return sample_policy.limit

@@ -9,9 +9,9 @@ from marivo.semantic.evidence import (
     AuthoringEvidenceInput,
     ColumnEvidence,
     ColumnProfile,
-    DatasetSource,
-    SamplePolicy,
+    MetadataOnlyPolicy,
     SourceEvidencePack,
+    TableSource,
 )
 from marivo.semantic.evidence_store import (
     EvidenceStore,
@@ -21,7 +21,7 @@ from marivo.semantic.evidence_store import (
 
 
 def _pack(tmp_path, *, table="orders") -> SourceEvidencePack:
-    source = DatasetSource(kind="table", table=table, database="sales_mart")
+    source = TableSource(table=table, database="sales_mart")
     fp = structural_fingerprint(
         datasource="warehouse",
         source=source,
@@ -49,7 +49,7 @@ def _pack(tmp_path, *, table="orders") -> SourceEvidencePack:
         ),
         metadata_warnings=(),
         evidence_refs=(ev,),
-        sample_policy=SamplePolicy(mode="metadata_only"),
+        sample_policy=MetadataOnlyPolicy(),
         redaction_status="redacted",
         truncated=False,
     )
@@ -61,7 +61,7 @@ def _column_evidence_for_store(
     table: str = "orders",
     collected_at: str = "2026-06-06T00:00:00+00:00",
 ) -> tuple[ColumnEvidence, str]:
-    source = DatasetSource(kind="table", table=table, database="sales_mart")
+    source = TableSource(table=table, database="sales_mart")
     fp = structural_fingerprint(
         datasource="warehouse",
         source=source,
@@ -98,14 +98,14 @@ def _column_evidence_for_store(
 def test_structural_fingerprint_is_stable_and_order_independent():
     a = structural_fingerprint(
         datasource="w",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         schema=(("a", "INT"), ("b", "INT")),
         table_comment="c",
         column_comments=(("a", "x"), ("b", "y")),
     )
     b = structural_fingerprint(
         datasource="w",
-        source=DatasetSource(kind="table", table="orders"),
+        source=TableSource(table="orders"),
         schema=(("b", "INT"), ("a", "INT")),
         table_comment="c",
         column_comments=(("b", "y"), ("a", "x")),
@@ -147,7 +147,7 @@ def test_write_source_pack_rejects_mismatched_secondary_ref(tmp_path):
 
 def test_write_source_pack_rejects_stale_ref_for_previous_payload(tmp_path):
     store = EvidenceStore(tmp_path)
-    source = DatasetSource(kind="table", table="orders", database="sales_mart")
+    source = TableSource(table="orders", database="sales_mart")
     stale_fp = structural_fingerprint(
         datasource="warehouse",
         source=source,
@@ -173,7 +173,7 @@ def test_write_source_pack_rejects_stale_ref_for_previous_payload(tmp_path):
 
 def test_write_then_get_column_evidence_preserves_issues(tmp_path):
     store = EvidenceStore(tmp_path)
-    source = DatasetSource(kind="table", table="orders", database="sales_mart")
+    source = TableSource(table="orders", database="sales_mart")
     fp = structural_fingerprint(
         datasource="warehouse",
         source=source,
@@ -227,7 +227,7 @@ def test_list_by_source_returns_only_matching_source(tmp_path):
     store.write_source_pack(_pack(tmp_path, table="users"))
     refs = store.list_evidence(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders", database="sales_mart"),
+        source=TableSource(table="orders", database="sales_mart"),
     )
     assert len(refs) == 1
     assert refs[0].source is not None and refs[0].source.table == "orders"
@@ -241,7 +241,7 @@ def test_list_by_source_includes_matching_column_evidence_ref(tmp_path):
     store.write_column_evidence(other_column_evidence)
     refs = store.list_evidence(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders", database="sales_mart"),
+        source=TableSource(table="orders", database="sales_mart"),
     )
     assert [ref.id for ref in refs] == [column_evidence.evidence_refs[0]]
     assert refs[0].kind == "schema"
@@ -258,7 +258,7 @@ def test_list_by_source_preserves_column_ref_metadata(tmp_path):
 
     refs = store.list_evidence(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders", database="sales_mart"),
+        source=TableSource(table="orders", database="sales_mart"),
     )
 
     assert len(refs) == 1
@@ -269,7 +269,7 @@ def test_list_by_source_preserves_column_ref_metadata(tmp_path):
 
 def test_write_column_evidence_rejects_unknown_ref_id(tmp_path):
     store = EvidenceStore(tmp_path)
-    source = DatasetSource(kind="table", table="orders", database="sales_mart")
+    source = TableSource(table="orders", database="sales_mart")
     evidence = ColumnEvidence(
         datasource="warehouse",
         source=source,
@@ -285,8 +285,8 @@ def test_write_column_evidence_rejects_unknown_ref_id(tmp_path):
 
 def test_write_column_evidence_rejects_mismatched_cached_ref(tmp_path):
     store = EvidenceStore(tmp_path)
-    source = DatasetSource(kind="table", table="orders", database="sales_mart")
-    other_source = DatasetSource(kind="table", table="users", database="sales_mart")
+    source = TableSource(table="orders", database="sales_mart")
+    other_source = TableSource(table="users", database="sales_mart")
     fp = structural_fingerprint(
         datasource="warehouse",
         source=other_source,
@@ -321,7 +321,7 @@ def test_write_column_evidence_rejects_mismatched_cached_ref(tmp_path):
 
 def test_write_column_evidence_rejects_profile_column_mismatch(tmp_path):
     store = EvidenceStore(tmp_path)
-    source = DatasetSource(kind="table", table="orders", database="sales_mart")
+    source = TableSource(table="orders", database="sales_mart")
     fp = structural_fingerprint(
         datasource="warehouse",
         source=source,
@@ -366,7 +366,7 @@ def test_fresh_store_lists_source_keyed_refs_with_column_metadata(tmp_path):
 
     refs = EvidenceStore(tmp_path).list_evidence(
         datasource="warehouse",
-        source=DatasetSource(kind="table", table="orders", database="sales_mart"),
+        source=TableSource(table="orders", database="sales_mart"),
     )
 
     refs_by_id = {ref.id: ref for ref in refs}

@@ -21,6 +21,7 @@ from marivo.datasource.ir import (
 
 __all__ = [
     "AiContextIR",
+    "BoundedProfilePolicyIR",
     "DatasetIR",
     "DatasetProvenance",
     "DatasetRef",
@@ -33,6 +34,7 @@ __all__ = [
     "FieldIR",
     "FieldRef",
     "FileSourceIR",
+    "MetadataOnlyPolicyIR",
     "MetricAdditivity",
     "MetricIR",
     "MetricRef",
@@ -42,6 +44,8 @@ __all__ = [
     "ProvenanceIR",
     "RelationshipIR",
     "RelationshipRef",
+    "SamplePolicyIR",
+    "SelectedColumnsPolicyIR",
     "SnapshotVersioningIR",
     "SourceLocation",
     "SymbolKind",
@@ -159,12 +163,41 @@ class FileSourceIR:
     """Physical file source for a dataset."""
 
     path: str
-    format: Literal["parquet", "csv"]
+    format: Literal["parquet", "csv", "json"]
     options: dict[str, Any] = field(default_factory=dict)
     kind: Literal["file"] = "file"
 
 
 DatasetSourceIR = TableSourceIR | FileSourceIR
+
+
+@dataclass(frozen=True)
+class MetadataOnlyPolicyIR:
+    timeout_seconds: int | None = None
+    redact: bool = True
+    kind: Literal["metadata_only"] = "metadata_only"
+
+
+@dataclass(frozen=True)
+class BoundedProfilePolicyIR:
+    limit: int
+    timeout_seconds: int | None = None
+    max_profiled_columns: int | None = None
+    redact: bool = True
+    kind: Literal["bounded_profile"] = "bounded_profile"
+
+
+@dataclass(frozen=True)
+class SelectedColumnsPolicyIR:
+    limit: int
+    columns: tuple[str, ...]
+    timeout_seconds: int | None = None
+    max_profiled_columns: int | None = None
+    redact: bool = True
+    kind: Literal["selected_columns_profile"] = "selected_columns_profile"
+
+
+SamplePolicyIR = MetadataOnlyPolicyIR | BoundedProfilePolicyIR | SelectedColumnsPolicyIR
 
 _GLOB_CHARS = re.compile(r"[*?\\[]")
 _SOURCE_NAME_CHARS = re.compile(r"[^0-9A-Za-z_]+")

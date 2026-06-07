@@ -37,10 +37,13 @@ from marivo.semantic.errors import (
 from marivo.semantic.evidence import (
     AssessmentResult,
     AuthoringEvidenceInput,
+    BoundedProfilePolicy,
     ColumnEvidence,
     DatasetSource,
     SamplePolicy,
+    SelectedColumnsPolicy,
     SourceEvidencePack,
+    TableSource,
 )
 from marivo.semantic.evidence import (
     EvidenceRef as AuthoringEvidenceRef,
@@ -1943,13 +1946,15 @@ class SemanticProject:
             sample_policy=sample_policy,
             store=self._evidence_store(),
         )
-        if sample_policy.reads_rows() and source.kind == "table" and source.table is not None:
+        if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)) and isinstance(
+            source, TableSource
+        ):
             self.collect_source_preview(
                 datasource=datasource,
                 table=source.table,
                 database=source.database,
                 backend_factory=factory,
-                limit=min(sample_policy.limit or PREVIEW_DEFAULT_LIMIT, PREVIEW_MAX_LIMIT),
+                limit=min(sample_policy.limit, PREVIEW_MAX_LIMIT),
                 redact=sample_policy.redact,
             )
         return pack
@@ -1962,7 +1967,7 @@ class SemanticProject:
         columns: Sequence[str],
         inspect_source: Callable[..., Any] | None = None,
         backend_factory: Callable[[str], Any] | None = None,
-        sample_policy: SamplePolicy,
+        sample_policy: BoundedProfilePolicy | SelectedColumnsPolicy,
     ) -> tuple[ColumnEvidence, ...]:
         """Deep-dive selected columns after inspect_source_context."""
         fn = self._resolve_inspect_source(inspect_source)

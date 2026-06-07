@@ -6,65 +6,164 @@ from marivo.semantic.evidence import (
     AssessmentIssue,
     AssessmentResult,
     AuthoringQuestion,
+    BoundedProfilePolicy,
     ColumnProfile,
-    DatasetSource,
-    SamplePolicy,
+    FileSource,
+    MetadataOnlyPolicy,
+    SelectedColumnsPolicy,
+    TableSource,
+    _dataset_source_from_ir,
+    _sample_policy_from_ir,
     derive_status,
 )
-from marivo.semantic.ir import FileSourceIR, TableSourceIR
+from marivo.semantic.ir import (
+    BoundedProfilePolicyIR,
+    FileSourceIR,
+    MetadataOnlyPolicyIR,
+    SelectedColumnsPolicyIR,
+    TableSourceIR,
+)
 
 
-def test_dataset_source_round_trips_table_through_ir():
-    src = DatasetSource(kind="table", table="orders", database="sales_mart")
+def test_table_source_round_trips_through_ir():
+    src = TableSource(table="orders", database="sales_mart")
     ir = src.to_ir()
     assert isinstance(ir, TableSourceIR)
     assert ir.table == "orders"
     assert ir.database == "sales_mart"
-    assert DatasetSource.from_ir(ir) == src
+    assert _dataset_source_from_ir(ir) == src
 
 
-def test_dataset_source_round_trips_file_through_ir():
-    src = DatasetSource(kind="file", path="/data/orders.parquet", format="parquet")
+def test_file_source_round_trips_through_ir():
+    src = FileSource(path="/data/orders.parquet", format="parquet")
     ir = src.to_ir()
     assert isinstance(ir, FileSourceIR)
     assert ir.path == "/data/orders.parquet"
-    assert DatasetSource.from_ir(ir) == src
+    assert _dataset_source_from_ir(ir) == src
 
 
-def test_dataset_source_rejects_unknown_kind_at_construction():
-    with pytest.raises(ValueError, match="unsupported dataset source kind"):
-        DatasetSource(  # type: ignore[arg-type]
-            kind="iceberg", path="/data/orders.parquet", format="parquet"
-        )
-    with pytest.raises(ValueError, match="unsupported dataset source kind"):
-        DatasetSource(kind="iceberg")  # type: ignore[arg-type]
+def test_file_source_supports_json():
+    src = FileSource(path="/data/orders.json", format="json")
+    ir = src.to_ir()
+    assert isinstance(ir, FileSourceIR)
+    assert ir.format == "json"
 
 
-def test_dataset_source_rejects_mixed_table_and_file_fields():
-    with pytest.raises(ValueError, match="table source does not accept file fields"):
-        DatasetSource(kind="table", table="orders", path="/data/orders.parquet")
-    with pytest.raises(ValueError, match="table source does not accept file fields"):
-        DatasetSource(kind="table", table="orders", format="parquet")
-    with pytest.raises(ValueError, match="file source does not accept table fields"):
-        DatasetSource(kind="file", path="/data/orders.parquet", format="parquet", table="orders")
-    with pytest.raises(ValueError, match="file source does not accept table fields"):
-        DatasetSource(
-            kind="file",
-            path="/data/orders.parquet",
-            format="parquet",
-            database="sales_mart",
-        )
+def test_dataset_source_cannot_mix_table_and_file_fields():
+    with pytest.raises(TypeError):
+        TableSource(table="orders", path="/data/orders.parquet")  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        TableSource(table="orders", format="parquet")  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        FileSource(path="/data/orders.parquet", format="parquet", table="orders")  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        FileSource(path="/data/orders.parquet", format="parquet", database="sales_mart")  # type: ignore[call-arg]
 
 
-def test_dataset_source_to_dict_is_json_safe():
-    src = DatasetSource(kind="table", table="orders", database=("a", "b"))
+def test_table_source_to_dict_is_json_safe():
+    src = TableSource(table="orders", database=("a", "b"))
     assert src.to_dict() == {
         "kind": "table",
         "table": "orders",
         "database": ["a", "b"],
+    }
+
+
+def test_file_source_to_dict_is_json_safe():
+    src = FileSource(path="/data/orders.parquet", format="parquet")
+    assert src.to_dict() == {
+        "kind": "file",
+        "path": "/data/orders.parquet",
+        "format": "parquet",
+    }
+
+
+def test_table_source_to_dict_round_trips_through_from_dict():
+    from marivo.semantic.evidence_store import _dataset_source_from_dict
+
+    src = TableSource(table="orders", database="sales_mart")
+    restored = _dataset_source_from_dict(src.to_dict())
+    assert restored == src
+
+
+def test_file_source_to_dict_round_trips_through_from_dict():
+    from marivo.semantic.evidence_store import _dataset_source_from_dict
+
+    src = FileSource(path="/data/orders.csv", format="csv")
+    restored = _dataset_source_from_dict(src.to_dict())
+    assert restored == src
+
+
+def test_dataset_source_from_dict_reads_old_format_with_null_fields():
+    """Old DatasetSource.to_dict() included null keys for the other variant."""
+    from marivo.semantic.evidence_store import _dataset_source_from_dict
+
+    old_table_dict = {
+        "kind": "table",
+        "table": "orders",
+        "database": None,
         "path": None,
         "format": None,
     }
+    assert _dataset_source_from_dict(old_table_dict) == TableSource(table="orders")
+
+    old_file_dict = {
+        "kind": "file",
+        "table": None,
+        "database": None,
+        "path": "/data/orders.parquet",
+        "format": "parquet",
+    }
+    assert _dataset_source_from_dict(old_file_dict) == FileSource(
+        path="/data/orders.parquet", format="parquet"
+    )
+
+
+def test_sample_policy_to_dict_round_trips_through_from_dict():
+    from marivo.semantic.evidence_store import _sample_policy_from_dict
+
+    for policy in (
+        MetadataOnlyPolicy(timeout_seconds=30, redact=False),
+        BoundedProfilePolicy(limit=100, max_profiled_columns=10),
+        SelectedColumnsPolicy(limit=50, columns=("a", "b")),
+    ):
+        assert _sample_policy_from_dict(policy.to_dict()) == policy
+
+
+def test_metadata_only_policy_round_trips_through_ir():
+    policy = MetadataOnlyPolicy(timeout_seconds=30, redact=False)
+    ir = policy.to_ir()
+    assert isinstance(ir, MetadataOnlyPolicyIR)
+    assert ir.timeout_seconds == 30
+    assert ir.redact is False
+    assert _sample_policy_from_ir(ir) == policy
+
+
+def test_bounded_profile_policy_round_trips_through_ir():
+    policy = BoundedProfilePolicy(limit=100, max_profiled_columns=10)
+    ir = policy.to_ir()
+    assert isinstance(ir, BoundedProfilePolicyIR)
+    assert ir.limit == 100
+    assert ir.max_profiled_columns == 10
+    assert _sample_policy_from_ir(ir) == policy
+
+
+def test_selected_columns_policy_round_trips_through_ir():
+    policy = SelectedColumnsPolicy(limit=100, columns=("a", "b"))
+    ir = policy.to_ir()
+    assert isinstance(ir, SelectedColumnsPolicyIR)
+    assert ir.columns == ("a", "b")
+    assert _sample_policy_from_ir(ir) == policy
+
+
+def test_selected_columns_policy_requires_columns():
+    with pytest.raises(TypeError):
+        SelectedColumnsPolicy(limit=10)  # type: ignore[call-arg]
+
+
+def test_bounded_profile_policy_requires_limit():
+    with pytest.raises(TypeError):
+        BoundedProfilePolicy()  # type: ignore[call-arg]
 
 
 def test_column_profile_to_dict_is_json_safe():
@@ -101,16 +200,6 @@ def test_column_profile_to_dict_is_json_safe():
         "sample_scope": "bounded_sample",
         "approximate": True,
     }
-
-
-def test_sample_policy_validates_columns_for_selected_mode():
-    with pytest.raises(ValueError):
-        SamplePolicy(mode="selected_columns_profile", limit=10).validate()
-    with pytest.raises(ValueError):
-        SamplePolicy(mode="bounded_profile", limit=10, columns=("a",)).validate()
-    with pytest.raises(ValueError):
-        SamplePolicy(mode="bounded_profile").validate()  # limit required for row modes
-    SamplePolicy(mode="metadata_only").validate()  # no raise
 
 
 def test_derive_status_blocked_on_blocker_issue():
