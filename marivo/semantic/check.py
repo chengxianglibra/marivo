@@ -32,7 +32,7 @@ def _run_parity_checks(
     """Run parity checks for base metrics declared as sql_parity."""
     if not project.is_ready():
         return
-    reg = project.registry()
+    reg = project._registry
     if reg is None:
         return
     for metric in reg.metrics.values():

@@ -559,18 +559,6 @@ class SemanticProject:
         """Return warnings from the last load attempt."""
         return self._warnings
 
-    def registry(self) -> Registry | None:
-        """Return the Registry from the last successful load, or None."""
-        return self._registry
-
-    def sidecar(self) -> Sidecar | None:
-        """Return the Sidecar from the last successful load, or None."""
-        return self._sidecar
-
-    def runtime_metadata(self, dataset_semantic_id: str) -> DatasetRuntimeMetadata | None:
-        """Return runtime metadata for a dataset, or None if not materialized yet."""
-        return self._runtime_metadata.get(dataset_semantic_id)
-
     # -- listings -----------------------------------------------------------
 
     def list_models(self, display: bool = True) -> list[ModelSummary]:

@@ -72,7 +72,7 @@ def _extract_scalar(
 
 def _get_metric_or_raise(project: SemanticProject, metric_id: str) -> MetricIR:
     """Look up a metric by ID or raise METRIC_NOT_FOUND."""
-    reg = project.registry()
+    reg = project._registry
     if reg is None:
         _raise(
             ErrorKind.METRIC_NOT_FOUND,
@@ -157,7 +157,7 @@ def parity_check(
         )
 
     # Validate single datasource
-    reg = project.registry()
+    reg = project._registry
     assert reg is not None  # Already validated above
 
     datasource_ids: set[str] = set()

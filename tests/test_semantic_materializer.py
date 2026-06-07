@@ -378,7 +378,7 @@ def test_ibis_table_detection(semantic_project_factory, duckdb_backend) -> None:
     )
     project.materialize_dataset("sales.orders", backend_factory=factory)
 
-    meta = project.runtime_metadata("sales.orders")
+    meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
     assert meta.dataset_provenance == DatasetProvenance.IBIS_TABLE
     assert meta.raw_sql_snippet is None
@@ -535,7 +535,7 @@ def test_derived_metric_has_no_materializer_sidecar_entry(
         }
     )
 
-    sidecar = project.sidecar()
+    sidecar = project._sidecar
     assert sidecar is not None
     assert "sales.revenue" in sidecar
     assert "sales.revenue_ratio" not in sidecar
@@ -677,11 +677,11 @@ def test_runtime_metadata_stored_on_project(semantic_project_factory, duckdb_bac
     )
 
     # Before materialization, no metadata
-    assert project.runtime_metadata("sales.orders") is None
+    assert project._runtime_metadata.get("sales.orders") is None
 
     # After materialization
     project.materialize_dataset("sales.orders", backend_factory=factory)
-    meta = project.runtime_metadata("sales.orders")
+    meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
     assert isinstance(meta, DatasetRuntimeMetadata)
     assert meta.dataset_provenance == DatasetProvenance.IBIS_TABLE
@@ -702,10 +702,10 @@ def test_runtime_metadata_cleared_on_reload(semantic_project_factory, duckdb_bac
     )
 
     project.materialize_dataset("sales.orders", backend_factory=factory)
-    assert project.runtime_metadata("sales.orders") is not None
+    assert project._runtime_metadata.get("sales.orders") is not None
 
     project.reload()
-    assert project.runtime_metadata("sales.orders") is None
+    assert project._runtime_metadata.get("sales.orders") is None
 
 
 # ---------------------------------------------------------------------------

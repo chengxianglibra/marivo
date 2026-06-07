@@ -81,8 +81,8 @@ class Materializer:
                 "Cannot materialize: project is not loaded.",
                 cls=SemanticRuntimeError,
             )
-        registry = self._project.registry()
-        sidecar = self._project.sidecar()
+        registry = self._project._registry
+        sidecar = self._project._sidecar
 
         if registry is None or sidecar is None:
             _raise(

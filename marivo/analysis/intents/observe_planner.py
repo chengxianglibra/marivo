@@ -341,7 +341,7 @@ def _effective_key_semantic_ids(project: Any, dataset_id: str) -> frozenset[str]
     if len(by_name) == len(col_names):
         return by_name
     # Strategy 2: expression match via sidecar
-    sidecar = project.sidecar()
+    sidecar = project._sidecar
     if sidecar is None:
         return frozenset()
     # Build a dummy ibis table with the primary key columns so we can call
@@ -603,7 +603,7 @@ def resolved_edge_safety(project: Any, relationship: Any, *, from_dataset: str) 
 
 
 def _field_fn(project: Any, field_id: str) -> Any:
-    sidecar = project.sidecar()
+    sidecar = project._sidecar
     fn = sidecar.get(field_id) if sidecar else None
     if fn is None:
         raise_observe_planning_error(

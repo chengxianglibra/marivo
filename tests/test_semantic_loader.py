@@ -442,7 +442,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
         }
     )
     assert project.is_ready()
-    reg = project.registry()
+    reg = project._registry
     assert reg is not None
     assert "sales.orders" in reg.datasets
     assert "sales.revenue" in reg.metrics
@@ -471,7 +471,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
         }
     )
     assert project.is_ready()
-    reg = project.registry()
+    reg = project._registry
     assert reg is not None
     assert "sales.query_info" in reg.datasets
     assert "sales.total_query_count" in reg.metrics
@@ -634,7 +634,7 @@ def test_registry_accessible_after_load(semantic_project_factory) -> None:
             "sales/datasets.py": _MINIMAL_DATASET_PY,
         }
     )
-    reg = project.registry()
+    reg = project._registry
     assert reg is not None
     assert "sales" in reg.models
     assert "warehouse" in reg.datasources
@@ -650,7 +650,7 @@ def test_sidecar_accessible_after_load(semantic_project_factory) -> None:
             "sales/datasets.py": _MINIMAL_DATASET_PY,
         }
     )
-    side = project.sidecar()
+    side = project._sidecar
     assert side is not None
     assert "sales.orders" not in side
     assert "sales.revenue" in side
@@ -669,8 +669,8 @@ def test_registry_none_on_errored_load(semantic_project_factory) -> None:
         }
     )
     assert not project.is_ready()
-    assert project.registry() is None
-    assert project.sidecar() is None
+    assert project._registry is None
+    assert project._sidecar is None
 
 
 def test_warnings_accessible_after_load(semantic_project_factory) -> None:
@@ -717,7 +717,7 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
         }
     )
     assert project.is_ready()
-    reg = project.registry()
+    reg = project._registry
     assert reg is not None
     assert "sales.revenue" in reg.metrics
     assert "sales.orders" in reg.datasets
@@ -768,7 +768,7 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
         }
     )
     assert project.is_ready()
-    reg = project.registry()
+    reg = project._registry
     assert reg is not None
     assert "sales.orders_to_items" in reg.relationships
     rel = reg.relationships["sales.orders_to_items"]
@@ -843,7 +843,7 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
         }
     )
     assert project.is_ready()
-    sidecar = project.sidecar()
+    sidecar = project._sidecar
     assert sidecar is not None
     assert "sales.orders.amount" in sidecar
 
@@ -1057,9 +1057,9 @@ def test_load_models_parameter_loads_only_specified(semantic_project_factory) ->
     )
     result = project.load(models=["sales"])
     assert project.is_ready()
-    assert project.registry() is not None
-    assert "sales" in project.registry().models
-    assert "finance" not in project.registry().models
+    assert project._registry is not None
+    assert "sales" in project._registry.models
+    assert "finance" not in project._registry.models
     assert result.filtered_models == ("sales",)
 
 
@@ -1073,8 +1073,8 @@ def test_load_models_none_loads_all(semantic_project_factory) -> None:
     )
     result = project.load()
     assert project.is_ready()
-    assert "sales" in project.registry().models
-    assert "finance" in project.registry().models
+    assert "sales" in project._registry.models
+    assert "finance" in project._registry.models
     assert result.filtered_models == ()
 
 
@@ -1087,7 +1087,7 @@ def test_load_models_with_nonexistent_name(semantic_project_factory) -> None:
     )
     result = project.load(models=["sales", "nonexistent"])
     assert project.is_ready()
-    assert "sales" in project.registry().models
+    assert "sales" in project._registry.models
     filtered_warnings = [w for w in result.warnings if w.kind == "filtered_model_ref"]
     assert any("nonexistent" in w.message for w in filtered_warnings)
 
@@ -1106,8 +1106,8 @@ def test_load_models_skips_bad_model(semantic_project_factory) -> None:
     )
     result = project.load(models=["sales"])
     assert project.is_ready()
-    assert project.registry() is not None
-    assert "sales" in project.registry().models
+    assert project._registry is not None
+    assert "sales" in project._registry.models
 
 
 def test_load_models_intra_model_error_still_blocks(semantic_project_factory) -> None:
@@ -1122,7 +1122,7 @@ def test_load_models_intra_model_error_still_blocks(semantic_project_factory) ->
     )
     result = project.load(models=["sales"])
     assert not project.is_ready()
-    assert project.registry() is None
+    assert project._registry is None
 
 
 def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) -> None:
@@ -1154,7 +1154,7 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
     )
     result = project.load(models=["sales"])
     assert project.is_ready()
-    assert project.registry() is not None
+    assert project._registry is not None
     filtered_warnings = [w for w in result.warnings if w.kind == "filtered_model_ref"]
     assert any("finance" in w.message for w in filtered_warnings)
 
@@ -1168,11 +1168,11 @@ def test_reload_reapplies_stored_filter(semantic_project_factory) -> None:
         load=False,
     )
     project.load(models=["sales"])
-    assert "sales" in project.registry().models
-    assert "finance" not in project.registry().models
+    assert "sales" in project._registry.models
+    assert "finance" not in project._registry.models
     project.reload()
-    assert "sales" in project.registry().models
-    assert "finance" not in project.registry().models
+    assert "sales" in project._registry.models
+    assert "finance" not in project._registry.models
 
 
 def test_reload_can_change_filter(semantic_project_factory) -> None:
@@ -1184,7 +1184,7 @@ def test_reload_can_change_filter(semantic_project_factory) -> None:
         load=False,
     )
     project.load(models=["sales"])
-    assert "finance" not in project.registry().models
+    assert "finance" not in project._registry.models
     project.reload(models=["sales", "finance"])
-    assert "sales" in project.registry().models
-    assert "finance" in project.registry().models
+    assert "sales" in project._registry.models
+    assert "finance" in project._registry.models

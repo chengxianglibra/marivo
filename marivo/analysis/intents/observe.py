@@ -132,7 +132,7 @@ def _build_dataset_adapter(
     dataset_ir: Any,
 ) -> _DatasetIRAdapter:
     """Build a _DatasetIRAdapter from a v1.1 DatasetIR + sidecar."""
-    sidecar = sp.sidecar()
+    sidecar = sp._sidecar
 
     def _source_fn(backend: Any) -> Any:
         source = dataset_ir.source
@@ -405,7 +405,7 @@ def _normalize_where_refs(
 
 
 def _field_fn(sp: Any, field_id: str) -> Callable[..., Any]:
-    sidecar = sp.sidecar()
+    sidecar = sp._sidecar
     fn = sidecar.get(field_id) if sidecar else None
     if fn is None:
         raise MetricNotFoundError(
@@ -485,7 +485,7 @@ def _execute_base(
     resolved_window: AbsoluteWindow | None,
 ) -> tuple[Any, dict[str, Any], Literal["scalar", "time_series", "segmented", "panel"]]:
     """Execute a BaseObservePlan and return (result, axes, semantic_kind)."""
-    sidecar = sp.sidecar()
+    sidecar = sp._sidecar
     metric_fn = sidecar.get(metric_ir.semantic_id) if sidecar else None
     if metric_fn is None:
         raise MetricNotFoundError(
@@ -660,7 +660,7 @@ def _execute_derived(
 ) -> tuple[Any, Any | None, dict[str, Any], Literal["scalar", "time_series", "segmented", "panel"]]:
     """Execute a DerivedObservePlan and return (result, component_df, axes, semantic_kind)."""
     pandas = __import__("pandas")
-    sidecar = sp.sidecar()
+    sidecar = sp._sidecar
     metric_name = metric_ir.name
     component_frames: list[Any] = []
     dim_columns = list(
@@ -914,7 +914,7 @@ def observe(
         )
 
     # Get the metric callable from the sidecar
-    sidecar = sp.sidecar()
+    sidecar = sp._sidecar
     metric_fn = sidecar.get(metric_semantic_id) if sidecar else None
     if metric_fn is None and not metric_ir.is_derived:
         raise MetricNotFoundError(
