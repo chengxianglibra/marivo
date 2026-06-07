@@ -35,8 +35,10 @@ from marivo.semantic.reader import (
     DatasourceSummary,
     DependencyNode,
     Description,
+    FieldSummary,
     MetricSummary,
     ModelSummary,
+    RelationshipSummary,
     SearchHit,
     SemanticProject,
 )
@@ -296,7 +298,7 @@ def test_list_fields(semantic_project_factory) -> None:
     field_names = [f.name for f in fields]
     assert "amount" in field_names
     assert "region" in field_names
-    assert all(isinstance(f, FieldIR) for f in fields)
+    assert all(isinstance(f, FieldSummary) for f in fields)
     assert all(not f.is_time_field for f in fields)
 
 
@@ -407,7 +409,7 @@ def test_list_relationships(semantic_project_factory) -> None:
     rels = project.list_relationships(display=False)
     assert len(rels) >= 1
     assert any(r.name == "orders_to_items" for r in rels)
-    assert all(isinstance(r, RelationshipIR) for r in rels)
+    assert all(isinstance(r, RelationshipSummary) for r in rels)
 
 
 def test_list_relationships_filter_by_model(semantic_project_factory) -> None:

@@ -150,6 +150,38 @@ class MetricSummary:
     python_symbol: str
 
 
+@dataclass(frozen=True)
+class FieldSummary:
+    """Summary of a field returned by ``project.list_fields()`` / ``project.list_time_fields()``."""
+
+    semantic_id: str
+    model: str
+    dataset: str
+    name: str
+    description: str | None
+    is_time_field: bool
+    data_type: str | None
+    granularity: str | None
+    is_default: bool
+    format: str | None = None
+    timezone: str | None = None
+    required_prefix: str | None = None
+
+
+@dataclass(frozen=True)
+class RelationshipSummary:
+    """Summary of a relationship returned by ``project.list_relationships()``."""
+
+    semantic_id: str
+    model: str
+    name: str
+    from_dataset: str
+    to_dataset: str
+    from_fields: tuple[str, ...]
+    to_fields: tuple[str, ...]
+    description: str | None
+
+
 # ---------------------------------------------------------------------------
 # SearchHit
 # ---------------------------------------------------------------------------
@@ -767,16 +799,35 @@ class SemanticProject:
             )
         return results
 
-    def list_fields(self, *, dataset: str | None = None, display: bool = True) -> list[FieldIR]:
-        """Return non-time field IR objects, optionally filtered by dataset.
+    def list_fields(
+        self, *, dataset: str | None = None, display: bool = True
+    ) -> list[FieldSummary]:
+        """Return field summaries, optionally filtered by dataset.
 
         Fields are all @ms.field declarations that are not time fields.
         For time fields, use list_time_fields().
         """
         reg = _require_registry(self._registry, project=self)
-        fields = [f for f in reg.fields.values() if not f.is_time_field]
+        irs = [f for f in reg.fields.values() if not f.is_time_field]
         if dataset is not None:
-            fields = [f for f in fields if f.dataset == dataset]
+            irs = [f for f in irs if f.dataset == dataset]
+        results = [
+            FieldSummary(
+                semantic_id=f.semantic_id,
+                model=f.model,
+                dataset=f.dataset,
+                name=f.name,
+                description=f.description,
+                is_time_field=f.is_time_field,
+                data_type=f.data_type,
+                granularity=f.granularity,
+                is_default=f.is_default,
+                format=f.format,
+                timezone=f.timezone,
+                required_prefix=f.required_prefix,
+            )
+            for f in irs
+        ]
         if display:
             _print_table(
                 [
@@ -786,21 +837,38 @@ class SemanticProject:
                         "name": item.name,
                         "description": item.description,
                     }
-                    for item in fields
+                    for item in results
                 ],
                 columns=("semantic_id", "dataset", "name", "description"),
                 empty_message="No fields found.",
             )
-        return fields
+        return results
 
     def list_time_fields(
         self, *, dataset: str | None = None, display: bool = True
-    ) -> list[FieldIR]:
-        """Return time field IR objects, optionally filtered by dataset."""
+    ) -> list[FieldSummary]:
+        """Return time field summaries, optionally filtered by dataset."""
         reg = _require_registry(self._registry, project=self)
-        fields = [f for f in reg.fields.values() if f.is_time_field]
+        irs = [f for f in reg.fields.values() if f.is_time_field]
         if dataset is not None:
-            fields = [f for f in fields if f.dataset == dataset]
+            irs = [f for f in irs if f.dataset == dataset]
+        results = [
+            FieldSummary(
+                semantic_id=f.semantic_id,
+                model=f.model,
+                dataset=f.dataset,
+                name=f.name,
+                description=f.description,
+                is_time_field=f.is_time_field,
+                data_type=f.data_type,
+                granularity=f.granularity,
+                is_default=f.is_default,
+                format=f.format,
+                timezone=f.timezone,
+                required_prefix=f.required_prefix,
+            )
+            for f in irs
+        ]
         if display:
             _print_table(
                 [
@@ -812,7 +880,7 @@ class SemanticProject:
                         "granularity": item.granularity,
                         "description": item.description,
                     }
-                    for item in fields
+                    for item in results
                 ],
                 columns=(
                     "semantic_id",
@@ -824,7 +892,7 @@ class SemanticProject:
                 ),
                 empty_message="No time fields found.",
             )
-        return fields
+        return results
 
     def list_metrics(
         self,
@@ -889,12 +957,25 @@ class SemanticProject:
 
     def list_relationships(
         self, *, model: str | None = None, display: bool = True
-    ) -> list[RelationshipIR]:
-        """Return relationship IR objects, optionally filtered by model."""
+    ) -> list[RelationshipSummary]:
+        """Return relationship summaries, optionally filtered by model."""
         reg = _require_registry(self._registry, project=self)
-        rels = list(reg.relationships.values())
+        rel_irs = list(reg.relationships.values())
         if model is not None:
-            rels = [r for r in rels if r.model == model]
+            rel_irs = [r for r in rel_irs if r.model == model]
+        results = [
+            RelationshipSummary(
+                semantic_id=r.semantic_id,
+                model=r.model,
+                name=r.name,
+                from_dataset=r.from_dataset,
+                to_dataset=r.to_dataset,
+                from_fields=r.from_fields,
+                to_fields=r.to_fields,
+                description=r.description,
+            )
+            for r in rel_irs
+        ]
         if display:
             _print_table(
                 [
@@ -905,12 +986,12 @@ class SemanticProject:
                         "to_dataset": item.to_dataset,
                         "description": item.description,
                     }
-                    for item in rels
+                    for item in results
                 ],
                 columns=("semantic_id", "model", "from_dataset", "to_dataset", "description"),
                 empty_message="No relationships found.",
             )
-        return rels
+        return results
 
     # -- single-object accessors -------------------------------------------
 
