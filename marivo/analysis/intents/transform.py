@@ -1985,7 +1985,7 @@ def _persist_transform_frame(
             "duration_ms": int((monotonic() - started_monotonic) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": session.semantic_project.root,
+            "semantic_project_root": str(session.semantic_project.root),
             "semantic_model": parent.meta.semantic_model,
         },
     )

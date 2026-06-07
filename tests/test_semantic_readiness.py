@@ -526,7 +526,7 @@ def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instanc
         backend_factory=backend_factory,
     )
 
-    reloaded = SemanticProject(root=project.root_path)
+    reloaded = SemanticProject(root=project.root)
     reloaded.load()
     reloaded.parity_check("sales.total_amount", backend_factory=backend_factory)
     report = reloaded.readiness(
@@ -998,7 +998,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
     # the underlying readiness check for "no decision" state.
     from marivo.semantic.ledger import LedgerStore
 
-    LedgerStore(project.root_path)._object_path("sales.revenue").unlink(missing_ok=True)
+    LedgerStore(project.root)._object_path("sales.revenue").unlink(missing_ok=True)
 
     issues = _evidence_ledger_blockers(project)
     refs = {ref for issue in issues for ref in issue.refs}
@@ -1065,7 +1065,7 @@ def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_proj
     # Remove the auto-recorded decision to test the "no decision" edge case.
     from marivo.semantic.ledger import LedgerStore
 
-    LedgerStore(project.root_path)._object_path("sales.revenue").unlink(missing_ok=True)
+    LedgerStore(project.root)._object_path("sales.revenue").unlink(missing_ok=True)
 
     strict_report = project.readiness(require_preview=False, require_evidence_ledger=True)
     kinds = {b.kind for b in strict_report.blockers}
@@ -1102,7 +1102,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
     )
 
     project.answer(question, "sum", evidence_fingerprint="sha256:answer")
-    reloaded = ms.SemanticProject(root=project.root_path)
+    reloaded = ms.SemanticProject(root=project.root)
     reloaded.load()
 
     report = reloaded.readiness(require_preview=False, require_evidence_ledger=True)
@@ -1134,7 +1134,7 @@ def test_readiness_evidence_ledger_blocks_confirmation_only(
             ),
         }
     )
-    store = lg.LedgerStore(project.root_path)
+    store = lg.LedgerStore(project.root)
     store.append_confirmation(
         lg.ConfirmationRecord(
             ts=datetime.now(UTC).isoformat(),
@@ -1145,7 +1145,7 @@ def test_readiness_evidence_ledger_blocks_confirmation_only(
             evidence_fingerprint="sha256:legacy",
         )
     )
-    reloaded = ms.SemanticProject(root=project.root_path)
+    reloaded = ms.SemanticProject(root=project.root)
     reloaded.load()
 
     # Simulate the new-contract "confirmation-only" state: confirmations are
@@ -1282,7 +1282,7 @@ def test_semantic_check_main_prints_json(
     exit_code = semantic_check.main(
         [
             "--root",
-            project.root,
+            str(project.root),
             "--format",
             "json",
             "--readiness",

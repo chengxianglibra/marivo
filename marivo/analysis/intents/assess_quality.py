@@ -154,7 +154,7 @@ def assess_quality(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": session.semantic_project.root,
+            "semantic_project_root": str(session.semantic_project.root),
             "semantic_model": frame.meta.semantic_model,
         },
     )

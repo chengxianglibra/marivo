@@ -240,7 +240,7 @@ def _evidence_ledger_blockers(project: SemanticProject) -> list[ReadinessIssue]:
     Mapping: time_field -> time_field_identity, metric -> metric_decomposition."""
     from marivo.semantic.ledger import LedgerStore
 
-    store = LedgerStore(project.root_path)
+    store = LedgerStore(project.root)
     kinds, _objects = _object_maps(project)
     issues: list[ReadinessIssue] = []
     for semantic_id, kind in kinds.items():

@@ -505,9 +505,8 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
         'query_info = ms.dataset(name="query_info"',
         'query_log = ms.dataset(name="query_log"',
     ).replace('ms.table("query_info")', 'ms.table("query_log")')
-    from pathlib import Path
 
-    root = Path(project.root)
+    root = project.root
     (root / "sales" / "dataset.py").write_text(dataset_v2)
 
     result = project.reload()

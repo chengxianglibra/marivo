@@ -445,13 +445,8 @@ class SemanticProject:
         self._raw_preview_evidence: tuple[str, ...] = ()
 
     @property
-    def root(self) -> str:
-        """Return the project root path as a string."""
-        return str(self._root)
-
-    @property
-    def root_path(self) -> Path:
-        """Return the project root path as a Path object."""
+    def root(self) -> Path:
+        """Return the project root path."""
         return self._root
 
     def _record_raw_preview_evidence(self, *refs: str) -> None:
