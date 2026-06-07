@@ -518,6 +518,7 @@ def _execute_base(
             field_ir=time_field_ir,
             window=resolved_window,
             session_tz=cast("ZoneInfo", session.tz),
+            dataset_ir=root_adapter,
         )
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
         dimension_exprs = {
@@ -580,6 +581,7 @@ def _execute_base(
             field_ir=time_field_ir,
             window=resolved_window,
             session_tz=cast("ZoneInfo", session.tz),
+            dataset_ir=root_adapter,
         )
         dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
         metric_expr = _call_metric(
@@ -696,6 +698,7 @@ def _execute_derived(
                 field_ir=time_field_ir,
                 window=resolved_window,
                 session_tz=cast("ZoneInfo", session.tz),
+                dataset_ir=root_adapter,
             )
             group_names = ["bucket_start", *dim_columns]
         else:

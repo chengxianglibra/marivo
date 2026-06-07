@@ -305,6 +305,50 @@ def test_complete_hour_string_time_field_without_required_prefix() -> None:
     assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
 
 
+def test_strptime_hour_only_without_required_prefix() -> None:
+    """format='%H' is an hour-only format and requires required_prefix."""
+    registry = _make_registry()
+    registry.fields["sales.orders.order_hour"] = FieldIR(
+        semantic_id="sales.orders.order_hour",
+        model="sales",
+        dataset="sales.orders",
+        name="order_hour",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="string",
+        granularity="hour",
+        required_prefix=None,
+        python_symbol="order_hour",
+        location=_LOC,
+        format="%H",
+    )
+    errors, _warnings = assembly_validate(registry)
+    assert any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+
+
+def test_strptime_hour_with_date_without_required_prefix() -> None:
+    """format='%Y-%m-%d %H' includes date and does NOT require required_prefix."""
+    registry = _make_registry()
+    registry.fields["sales.orders.order_hour"] = FieldIR(
+        semantic_id="sales.orders.order_hour",
+        model="sales",
+        dataset="sales.orders",
+        name="order_hour",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=True,
+        data_type="string",
+        granularity="hour",
+        required_prefix=None,
+        python_symbol="order_hour",
+        location=_LOC,
+        format="%Y-%m-%d %H",
+    )
+    errors, _warnings = assembly_validate(registry)
+    assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+
+
 def test_hour_time_field_with_required_prefix_ok() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = FieldIR(

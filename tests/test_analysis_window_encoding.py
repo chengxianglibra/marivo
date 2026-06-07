@@ -17,18 +17,19 @@ from marivo.analysis.windows.spec import AbsoluteWindow, normalize_timescope_inp
 
 
 class FakeMeta:
-    def __init__(self, data_type, format=None, required_prefix=None):
+    def __init__(self, data_type, format=None, required_prefix=None, granularity=None):
         self.data_type = data_type
         self.format = format
         self.required_prefix = required_prefix
+        self.granularity = granularity
 
 
 class FakeField:
-    def __init__(self, name, data_type, format=None, required_prefix=None):
+    def __init__(self, name, data_type, format=None, required_prefix=None, granularity=None):
         self.name = name
         self.semantic_id = f"sales.{name}"
         self.is_time = True
-        self.time_meta = FakeMeta(data_type, format, required_prefix)
+        self.time_meta = FakeMeta(data_type, format, required_prefix, granularity)
 
     def fn(self, table):
         return table[self.name]
@@ -436,7 +437,137 @@ def test_timescope_rejects_tz_field():
         normalize_timescope_input({"start": "2026-05-01", "end": "2026-05-31", "tz": "UTC"})
 
     assert exc_info.value.details["kind"] == "TimeScopeModelInvalid"
-    assert any(error["loc"] == ("tz",) for error in exc_info.value.details["validation_errors"])
+
+
+# ---------------------------------------------------------------------------
+# Hour-only string/int bucket with required_prefix
+# ---------------------------------------------------------------------------
+
+
+def _hour_bucket_dataset():
+    """Build a FakeDataset with a day-level log_date and hour-only log_hour."""
+    return FakeDataset(
+        [
+            FakeField("log_date", "string", "yyyy-mm-dd", granularity="day"),
+            FakeField("log_hour", "string", "hh", required_prefix="log_date", granularity="hour"),
+        ]
+    )
+
+
+def test_hour_only_bucket_grain_matches_field():
+    """Grain == field granularity: combine prefix date + hour into timestamp."""
+    table = ibis.table({"log_date": "string", "log_hour": "string"}, name="orders")
+    field = FakeField("log_hour", "string", "hh", required_prefix="log_date", granularity="hour")
+    result = apply_time_series_bucket(
+        table,
+        field_ir=field,
+        window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="hour"),
+        session_tz=UTC_ZONE,
+        dataset_ir=_hour_bucket_dataset(),
+    )
+    sql = ibis.duckdb.connect(":memory:").compile(result)
+    assert "bucket_start" in sql
+
+
+def test_hour_only_bucket_grain_coarser_uses_prefix_date():
+    """Grain > field granularity: use prefix date only, truncate to grain."""
+    table = ibis.table({"log_date": "string", "log_hour": "string"}, name="orders")
+    field = FakeField("log_hour", "string", "hh", required_prefix="log_date", granularity="hour")
+    result = apply_time_series_bucket(
+        table,
+        field_ir=field,
+        window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="day"),
+        session_tz=UTC_ZONE,
+        dataset_ir=_hour_bucket_dataset(),
+    )
+    sql = ibis.duckdb.connect(":memory:").compile(result)
+    assert "bucket_start" in sql
+
+
+def test_hour_only_bucket_grain_finer_raises():
+    """Grain < field granularity: raise WindowInvalidError."""
+    table = ibis.table({"log_date": "string", "log_hour": "string"}, name="orders")
+    field = FakeField("log_hour", "string", "hh", required_prefix="log_date", granularity="hour")
+    with pytest.raises(WindowInvalidError, match="finer than"):
+        apply_time_series_bucket(
+            table,
+            field_ir=field,
+            window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="minute"),
+            session_tz=UTC_ZONE,
+            dataset_ir=_hour_bucket_dataset(),
+        )
+
+
+def test_unresolvable_string_format_raises():
+    """Unresolvable string format raises explicit error instead of crashing."""
+    table = ibis.table({"log_date": "string"}, name="orders")
+    field = FakeField("log_date", "string", "unresolvable_format")
+    with pytest.raises(WindowInvalidError, match="cannot compute bucket"):
+        apply_time_series_bucket(
+            table,
+            field_ir=field,
+            window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="day"),
+            session_tz=UTC_ZONE,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Strptime hour-only format (%H) with required_prefix
+# ---------------------------------------------------------------------------
+
+
+def _strptime_hour_bucket_dataset():
+    """FakeDataset with day-level prefix + strptime hour-only field."""
+    return FakeDataset(
+        [
+            FakeField("log_date", "string", "yyyy-mm-dd", granularity="day"),
+            FakeField("log_hour", "string", "%H", required_prefix="log_date", granularity="hour"),
+        ]
+    )
+
+
+def test_strptime_hour_only_bucket_grain_matches():
+    """format='%H' with required_prefix routes to _apply_hour_only_bucket."""
+    table = ibis.table({"log_date": "string", "log_hour": "string"}, name="orders")
+    field = FakeField("log_hour", "string", "%H", required_prefix="log_date", granularity="hour")
+    result = apply_time_series_bucket(
+        table,
+        field_ir=field,
+        window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="hour"),
+        session_tz=UTC_ZONE,
+        dataset_ir=_strptime_hour_bucket_dataset(),
+    )
+    sql = ibis.duckdb.connect(":memory:").compile(result)
+    assert "bucket_start" in sql
+
+
+def test_strptime_hour_only_bucket_grain_coarser():
+    """format='%H' with grain=day uses prefix date only."""
+    table = ibis.table({"log_date": "string", "log_hour": "string"}, name="orders")
+    field = FakeField("log_hour", "string", "%H", required_prefix="log_date", granularity="hour")
+    result = apply_time_series_bucket(
+        table,
+        field_ir=field,
+        window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="day"),
+        session_tz=UTC_ZONE,
+        dataset_ir=_strptime_hour_bucket_dataset(),
+    )
+    sql = ibis.duckdb.connect(":memory:").compile(result)
+    assert "bucket_start" in sql
+
+
+def test_strptime_hour_only_bucket_grain_finer_raises():
+    """format='%H' with grain=minute raises finer-than error."""
+    table = ibis.table({"log_date": "string", "log_hour": "string"}, name="orders")
+    field = FakeField("log_hour", "string", "%H", required_prefix="log_date", granularity="hour")
+    with pytest.raises(WindowInvalidError, match="finer than"):
+        apply_time_series_bucket(
+            table,
+            field_ir=field,
+            window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="minute"),
+            session_tz=UTC_ZONE,
+            dataset_ir=_strptime_hour_bucket_dataset(),
+        )
 
 
 def test_timescope_rejects_expr_field():

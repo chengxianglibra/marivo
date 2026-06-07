@@ -110,7 +110,20 @@ def _requires_required_prefix(field_ir: FieldIR) -> bool:
         return False
     if field_ir.data_type not in {"string", "integer"}:
         return False
-    return _normalized_time_format(field_ir.format) in {"h", "hh", "int"}
+    fmt = _normalized_time_format(field_ir.format)
+    if fmt in {"h", "hh", "int"}:
+        return True
+    if fmt is not None and fmt.startswith("%"):
+        import re as _re
+
+        tokens = set(_re.findall(r"%[a-zA-Z]", fmt))
+        date_directives = {"%Y", "%y", "%m", "%d", "%j", "%U", "%W"}
+        hour_directives = {"%H", "%I", "%k", "%l", "%p", "%P"}
+        has_date = bool(tokens & date_directives)
+        has_hour = bool(tokens & hour_directives)
+        if has_hour and not has_date:
+            return True
+    return False
 
 
 def _resolve_required_prefix_field(
