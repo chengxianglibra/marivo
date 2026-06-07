@@ -513,6 +513,29 @@ def test_get_metric_not_found(semantic_project_factory) -> None:
     assert project.get_metric("nonexistent") is None
 
 
+def test_get_relationship(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    rel = project.get_relationship("sales.orders_to_items")
+    assert rel is not None
+    assert rel.name == "orders_to_items"
+    assert isinstance(rel, RelationshipIR)
+
+
+def test_get_relationship_not_found(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    assert project.get_relationship("nonexistent") is None
+
+
 # ---------------------------------------------------------------------------
 # search
 # ---------------------------------------------------------------------------
@@ -1098,6 +1121,38 @@ def test_describe_with_kind_param(semantic_project_factory) -> None:
     with pytest.raises(SemanticRuntimeError) as exc_info:
         project.describe("sales.total_revenue", kind=SymbolKind.DATASET)
     assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
+
+
+def test_describe_relationship(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    desc = project.describe("sales.orders_to_items")
+    assert isinstance(desc, Description)
+    assert desc.kind == SymbolKind.RELATIONSHIP
+    assert desc.name == "orders_to_items"
+    assert desc.from_dataset == "sales.orders"
+    assert desc.to_dataset == "sales.orders"
+    assert desc.from_fields == ("sales.orders.amount",)
+    assert desc.to_fields == ("sales.orders.amount",)
+    assert "sales.orders" in desc.dependencies
+
+
+def test_describe_relationship_to_text(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    desc = project.describe("sales.orders_to_items", format="text")
+    text = desc.to_text()
+    assert "[relationship]" in text
+    assert "from_dataset" in text
+    assert "to_dataset" in text
 
 
 # ---------------------------------------------------------------------------

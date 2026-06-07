@@ -242,6 +242,10 @@ class Description:
     granularity: str | None
     required_prefix: str | None
     format: str | None
+    from_dataset: str | None = None
+    to_dataset: str | None = None
+    from_fields: tuple[str, ...] | None = None
+    to_fields: tuple[str, ...] | None = None
 
     def to_text(self) -> str:
         """Render this description as human-readable text."""
@@ -285,6 +289,14 @@ class Description:
             lines.append(f"  format: {self.format!r}")
         if self.required_prefix is not None:
             lines.append(f"  required_prefix: {self.required_prefix!r}")
+        if self.from_dataset is not None:
+            lines.append(f"  from_dataset: {self.from_dataset!r}")
+        if self.to_dataset is not None:
+            lines.append(f"  to_dataset: {self.to_dataset!r}")
+        if self.from_fields is not None:
+            lines.append(f"  from_fields: {self.from_fields!r}")
+        if self.to_fields is not None:
+            lines.append(f"  to_fields: {self.to_fields!r}")
 
         lines.append(f"  source_location: {self.source_location.file}:{self.source_location.line}")
         return "\n".join(lines)
@@ -927,6 +939,11 @@ class SemanticProject:
         reg = _require_registry(self._registry, project=self)
         return reg.metrics.get(name)
 
+    def get_relationship(self, name: str) -> RelationshipIR | None:
+        """Return a relationship IR by semantic_id, or None if not found."""
+        reg = _require_registry(self._registry, project=self)
+        return reg.relationships.get(name)
+
     # -- discovery ---------------------------------------------------------
 
     def search(
@@ -1382,6 +1399,10 @@ class SemanticProject:
             granularity=obj.granularity if isinstance(obj, FieldIR) else None,
             required_prefix=obj.required_prefix if isinstance(obj, FieldIR) else None,
             format=obj.format if isinstance(obj, FieldIR) else None,
+            from_dataset=obj.from_dataset if isinstance(obj, RelationshipIR) else None,
+            to_dataset=obj.to_dataset if isinstance(obj, RelationshipIR) else None,
+            from_fields=obj.from_fields if isinstance(obj, RelationshipIR) else None,
+            to_fields=obj.to_fields if isinstance(obj, RelationshipIR) else None,
         )
 
         return desc
@@ -1405,6 +1426,9 @@ class SemanticProject:
                     deps.append(f_id)
         elif isinstance(obj, FieldIR):
             deps.append(obj.dataset)
+        elif isinstance(obj, RelationshipIR):
+            deps.append(obj.from_dataset)
+            deps.append(obj.to_dataset)
         return deps
 
     def _compute_dependent_ids(
@@ -1431,6 +1455,8 @@ class SemanticProject:
                 for comp_ref in m_ir.decomposition.components.values():
                     if comp_ref == name:
                         dep_of.append(m_id)
+        elif isinstance(obj, RelationshipIR):
+            pass
         return dep_of
 
     # -- compile_sql --------------------------------------------------------
