@@ -766,7 +766,7 @@ def test_dependencies_not_found(semantic_project_factory) -> None:
     )
     with pytest.raises(SemanticRuntimeError) as exc_info:
         project.dependencies("nonexistent")
-    assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
+    assert exc_info.value.kind == ErrorKind.NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
@@ -830,7 +830,7 @@ def test_dependents_not_found(semantic_project_factory) -> None:
     )
     with pytest.raises(SemanticRuntimeError) as exc_info:
         project.dependents("nonexistent")
-    assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
+    assert exc_info.value.kind == ErrorKind.NOT_FOUND
 
 
 def test_dependencies_relationship(semantic_project_factory) -> None:
@@ -997,7 +997,7 @@ def test_describe_not_found(semantic_project_factory) -> None:
     )
     with pytest.raises(SemanticRuntimeError) as exc_info:
         project.describe("nonexistent")
-    assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
+    assert exc_info.value.kind == ErrorKind.NOT_FOUND
 
 
 def test_describe_with_compile_sql(semantic_project_factory, backend_factory) -> None:
@@ -1186,10 +1186,10 @@ def test_describe_with_kind_param(semantic_project_factory) -> None:
     desc = project.describe("sales.orders", kind=SymbolKind.DATASET)
     assert desc.kind == SymbolKind.DATASET
 
-    # describe with kind that doesn't match should raise METRIC_NOT_FOUND
+    # describe with kind that doesn't match should raise DATASET_NOT_FOUND
     with pytest.raises(SemanticRuntimeError) as exc_info:
         project.describe("sales.total_revenue", kind=SymbolKind.DATASET)
-    assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
+    assert exc_info.value.kind == ErrorKind.DATASET_NOT_FOUND
 
 
 def test_describe_relationship(semantic_project_factory) -> None:

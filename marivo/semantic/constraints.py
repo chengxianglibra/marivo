@@ -54,6 +54,9 @@ class ConstraintId(StrEnum):
     PROJECT_ORGANIZATION = "project_organization"
     PROJECT_ROOT_VALID = "project_root_valid"
     METRIC_EXISTS = "metric_exists"
+    DATASET_EXISTS = "dataset_exists"
+    FIELD_EXISTS = "field_exists"
+    SYMBOL_EXISTS = "symbol_exists"
     METRIC_ADDITIVITY_REQUIRED = "metric_additivity_required"
     METRIC_ROOT_DATASET_REQUIRED = "metric_root_dataset_required"
     METRIC_ROOT_DATASET_VALID = "metric_root_dataset_valid"
@@ -473,6 +476,33 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Requested metrics must exist in the loaded project.",
         "Runtime operations compile registered metric ids.",
         "Check project.list_metrics() and use the metric semantic_id.",
+    ),
+    ConstraintId.DATASET_EXISTS: _constraint(
+        ConstraintId.DATASET_EXISTS,
+        "dataset_not_found",
+        "runtime",
+        ("dataset", "SemanticProject"),
+        "Requested datasets must exist in the loaded project.",
+        "Runtime operations look up registered dataset ids.",
+        "Check project.list_datasets() and use the dataset semantic_id.",
+    ),
+    ConstraintId.FIELD_EXISTS: _constraint(
+        ConstraintId.FIELD_EXISTS,
+        "field_not_found",
+        "runtime",
+        ("field", "SemanticProject"),
+        "Requested fields must exist in the loaded project.",
+        "Runtime operations look up registered field ids.",
+        "Check project.list_fields() and use the field semantic_id.",
+    ),
+    ConstraintId.SYMBOL_EXISTS: _constraint(
+        ConstraintId.SYMBOL_EXISTS,
+        "not_found",
+        "runtime",
+        ("SemanticProject",),
+        "Requested semantic objects must exist in the loaded project.",
+        "Lookup methods search across all registered symbol kinds.",
+        "Check project.list_metrics(), list_datasets(), list_fields() for available names.",
     ),
     ConstraintId.MATERIALIZE_EXECUTION: _constraint(
         ConstraintId.MATERIALIZE_EXECUTION,

@@ -460,6 +460,9 @@ _EXPECTED_ASSEMBLY_KINDS = {
 }
 
 _EXPECTED_RUNTIME_KINDS = {
+    "not_found",
+    "dataset_not_found",
+    "field_not_found",
     "metric_not_found",
     "materialize_failed",
     "backend_mismatch",

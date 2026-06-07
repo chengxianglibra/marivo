@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 import ibis
 import ibis.expr.types as ir
@@ -320,7 +320,7 @@ def _require_registry(
     raise SemanticLoadFailed(
         [
             SemanticRuntimeError(
-                kind=ErrorKind.METRIC_NOT_FOUND,
+                kind=ErrorKind.NOT_FOUND,
                 message="Project is not loaded. Call project.load() first.",
             )
         ]
@@ -1160,7 +1160,7 @@ class SemanticProject:
 
         # Not found
         _raise(
-            ErrorKind.METRIC_NOT_FOUND,
+            ErrorKind.NOT_FOUND,
             f"Object {name!r} not found in registry.",
             cls=SemanticRuntimeError,
             refs=(name,),
@@ -1272,7 +1272,7 @@ class SemanticProject:
 
         # Not found
         _raise(
-            ErrorKind.METRIC_NOT_FOUND,
+            ErrorKind.NOT_FOUND,
             f"Object {name!r} not found in registry.",
             cls=SemanticRuntimeError,
             refs=(name,),
@@ -1378,8 +1378,13 @@ class SemanticProject:
         reg = _require_registry(self._registry, project=self)
         obj = self._find_ir(name, reg, kind=kind)
         if obj is None:
+            not_found_kind = (
+                self._KIND_TO_NOT_FOUND.get(kind, ErrorKind.NOT_FOUND)
+                if kind is not None
+                else ErrorKind.NOT_FOUND
+            )
             _raise(
-                ErrorKind.METRIC_NOT_FOUND,
+                not_found_kind,
                 f"Object {name!r} not found.",
                 cls=SemanticRuntimeError,
                 refs=(name,),
@@ -1650,7 +1655,7 @@ class SemanticProject:
         field_ir = reg.fields.get(name)
         if field_ir is None:
             _raise(
-                ErrorKind.METRIC_NOT_FOUND,
+                ErrorKind.FIELD_NOT_FOUND,
                 f"Field {name!r} not found in registry.",
                 cls=SemanticRuntimeError,
                 refs=(name,),
@@ -2046,3 +2051,13 @@ class SemanticProject:
         if isinstance(obj, RelationshipIR):
             return SymbolKind.RELATIONSHIP
         return SymbolKind.MODEL  # fallback, should not happen
+
+    _KIND_TO_NOT_FOUND: ClassVar[dict[SymbolKind, ErrorKind]] = {
+        SymbolKind.DATASOURCE: ErrorKind.NOT_FOUND,
+        SymbolKind.DATASET: ErrorKind.DATASET_NOT_FOUND,
+        SymbolKind.FIELD: ErrorKind.FIELD_NOT_FOUND,
+        SymbolKind.TIME_FIELD: ErrorKind.FIELD_NOT_FOUND,
+        SymbolKind.METRIC: ErrorKind.METRIC_NOT_FOUND,
+        SymbolKind.RELATIONSHIP: ErrorKind.NOT_FOUND,
+        SymbolKind.MODEL: ErrorKind.NOT_FOUND,
+    }
