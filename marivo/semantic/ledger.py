@@ -112,37 +112,6 @@ class RejectedCandidate:
 
 
 @dataclass(frozen=True)
-class ConfirmationRecord:
-    ts: str
-    question_id: str
-    decision_kind: str
-    subject_refs: tuple[str, ...]
-    answer: object
-    evidence_fingerprint: str
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "ts": self.ts,
-            "question_id": self.question_id,
-            "decision_kind": self.decision_kind,
-            "subject_refs": list(self.subject_refs),
-            "answer": self.answer,
-            "evidence_fingerprint": self.evidence_fingerprint,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, object]) -> ConfirmationRecord:
-        return cls(
-            ts=str(data["ts"]),
-            question_id=str(data["question_id"]),
-            decision_kind=str(data["decision_kind"]),
-            subject_refs=tuple(str(s) for s in data["subject_refs"]),  # type: ignore[attr-defined]
-            answer=data["answer"],
-            evidence_fingerprint=str(data["evidence_fingerprint"]),
-        )
-
-
-@dataclass(frozen=True)
 class RawPreviewEvidence:
     ref: str
     datasource: str
@@ -310,34 +279,6 @@ class LedgerStore:
         if not path.exists():
             return None
         return _read_object_evidence(path)
-
-    def _confirmations_path(self, model: str) -> Path:
-        return self._evidence_dir(model) / "confirmations.jsonl"
-
-    def append_confirmation(self, record: ConfirmationRecord) -> None:
-        model = _model_of(record.subject_refs[0]) if record.subject_refs else "_global"
-        path = self._confirmations_path(model)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as handle:
-            handle.write(json.dumps(record.to_dict(), sort_keys=True) + "\n")
-
-    def read_confirmations(self, model: str) -> tuple[ConfirmationRecord, ...]:
-        path = self._confirmations_path(model)
-        if not path.exists():
-            return ()
-        records = []
-        for line in path.read_text().splitlines():
-            line = line.strip()
-            if line:
-                records.append(ConfirmationRecord.from_dict(json.loads(line)))
-        return tuple(records)
-
-    def read_all_confirmations(self) -> tuple[ConfirmationRecord, ...]:
-        records: list[ConfirmationRecord] = []
-        for confirmations_dir in sorted(self._root.glob("*/_evidence")):
-            model = confirmations_dir.parent.name
-            records.extend(self.read_confirmations(model))
-        return tuple(records)
 
     def iter_object_records(self) -> tuple[ObjectEvidence, ...]:
         records: list[ObjectEvidence] = []

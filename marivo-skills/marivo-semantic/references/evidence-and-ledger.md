@@ -78,12 +78,13 @@ refs = project.list_evidence(subject_refs=("sales.revenue",))
 ## Auto-Recorded Decisions
 
 On reload, Marivo auto-records `metric_decomposition` and `time_field_identity`
-decisions for authored metrics and time fields. These satisfy the
+decisions for authored metrics and time fields. These are the sole mechanism
+for writing `DecisionRecord` entries and satisfy the
 `dangerous_decision_recorded` rule in `inspect_authored_object`.
 
 ## User Confirmations
 
-The user-confirmation path is:
+Record user confirmations with:
 
 ```python
 project.record_authoring_evidence(
@@ -95,6 +96,16 @@ project.record_authoring_evidence(
 )
 ```
 
-Use `project.answer(...)` only for real `OpenQuestion` objects from the
-candidate workflow (legacy). The evidence-based path is
-`record_authoring_evidence(kind="user_confirmation")`.
+## Relationship Confirmations
+
+Confirm relationships to satisfy the `relationship_unconfirmed` readiness gate:
+
+```python
+project.record_authoring_evidence(
+    ms.AuthoringEvidenceInput(
+        kind="relationship_confirmation",
+        subject_refs=("sales.orders_to_items",),
+        content="Confirmed join on order_id between orders and items.",
+    )
+)
+```

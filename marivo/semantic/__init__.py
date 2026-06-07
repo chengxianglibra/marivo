@@ -35,7 +35,6 @@ from marivo.semantic.authoring import (
 )
 from marivo.semantic.classifier import (
     DecisionKind,
-    OpenQuestion,
 )
 from marivo.semantic.evidence import (
     AiContextInput,
@@ -53,7 +52,6 @@ from marivo.semantic.evidence import (
 )
 from marivo.semantic.help import help
 from marivo.semantic.ledger import (
-    ConfirmationRecord,
     DecisionRecord,
     RejectedCandidate,
 )
@@ -86,7 +84,6 @@ __all__ = [
     "AuthoringQuestion",
     "ColumnEvidence",
     "ColumnProfile",
-    "ConfirmationRecord",
     "DatasetSource",
     "DecisionKind",
     "DecisionRecord",
@@ -95,7 +92,6 @@ __all__ = [
     "EvidenceRef",
     "EvidenceSummary",
     "FieldSummary",
-    "OpenQuestion",
     "ParitySummary",
     "PreviewSummary",
     "ReadinessIssue",

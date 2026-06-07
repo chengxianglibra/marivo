@@ -201,7 +201,6 @@ def test_select_for_user_splits_blockers_optionals_assumptions():
 def test_public_exports_available():
     import marivo.semantic as ms
 
-    assert hasattr(ms, "OpenQuestion")
     assert hasattr(ms, "DecisionKind")
 
 

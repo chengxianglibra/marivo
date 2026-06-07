@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import marivo.semantic as ms
 from marivo.semantic import ledger as lg
 from marivo.semantic.auto_record import _AUTHORING_QUALIFYING_SOURCE
 
@@ -145,7 +144,17 @@ def test_auto_record_preserves_richer_answer_decision(semantic_project_factory):
         cited_source={"datasource": "warehouse"},
         cited_columns=("amount",),
     )
-    project.record_decision("sales.revenue", richer)
+    # Write directly to LedgerStore (same pattern as auto_record internals)
+    existing = store.read_object("sales.revenue")
+    existing_decisions = existing.decisions if existing else ()
+    store.write_object(
+        lg.ObjectEvidence(
+            semantic_id="sales.revenue",
+            authored_at=existing.authored_at if existing else "2026-06-01T00:00:00+00:00",
+            decisions=(*existing_decisions, richer),
+            rejected_candidates=existing.rejected_candidates if existing else (),
+        )
+    )
 
     project.reload()
 
@@ -219,19 +228,17 @@ def test_readiness_passes_after_auto_record(semantic_project_factory):
 def test_auto_record_only_records_missing_decisions(semantic_project_factory):
     project = _project_with_metric_and_time_field(semantic_project_factory)
 
-    # Record a user-confirmed time_field_identity decision
-    question = ms.OpenQuestion(
-        id="q-tf",
-        subject_refs=("sales.orders.order_date",),
+    # Record a user-confirmed time_field_identity decision directly in ledger
+    user_tf_decision = lg.DecisionRecord(
         decision_kind="time_field_identity",
-        gated_by=None,
-        candidates=(),
+        chosen="date",
+        agreement_confidence="high",
+        qualifying_sources=("user_confirmation",),
         materiality="high",
         blast_radius=0,
-        agreement_confidence="low",
-        default_if_unanswered=None,
-        severity="blocker",
-        blocker_reason="high_materiality_low_confidence",
+        evidence_fingerprint="sha256:user-tf",
+        question_id="q-tf",
+        decided_at="2026-06-01T00:00:00+00:00",
     )
     store_before = lg.LedgerStore(project.root)
     n_authoring_tf_before = len(
@@ -251,7 +258,17 @@ def test_auto_record_only_records_missing_decisions(semantic_project_factory):
         ]
     )
 
-    project.answer(question, "date", evidence_fingerprint="sha256:user-tf")
+    # Write user confirmation decision directly to LedgerStore
+    tf_existing = store_before.read_object("sales.orders.order_date")
+    tf_existing_decisions = tf_existing.decisions if tf_existing else ()
+    store_before.write_object(
+        lg.ObjectEvidence(
+            semantic_id="sales.orders.order_date",
+            authored_at=tf_existing.authored_at if tf_existing else "2026-06-01T00:00:00+00:00",
+            decisions=(*tf_existing_decisions, user_tf_decision),
+            rejected_candidates=tf_existing.rejected_candidates if tf_existing else (),
+        )
+    )
 
     project.reload()
 

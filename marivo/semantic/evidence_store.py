@@ -239,6 +239,14 @@ class EvidenceStore:
             refs.append(_evidence_ref_from_dict(ref_data))
         return tuple(refs)
 
+    def list_authoring_subject_refs_by_kind(self, kind: str) -> tuple[tuple[str, ...], ...]:
+        result: list[tuple[str, ...]] = []
+        for record in self._sorted_json(self._authoring_dir()):
+            if record.get("kind") != kind:
+                continue
+            result.append(tuple(_str_tuple(record.get("subject_refs", ()), "subject_refs")))
+        return tuple(result)
+
     def _sorted_json(self, directory: Path) -> tuple[JsonRecord, ...]:
         if not directory.exists():
             return ()

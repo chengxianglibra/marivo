@@ -59,16 +59,13 @@ the project structure before authoring semantic objects.
 - `blast_radius` is a non-negative integer count of distinct transitive dependents,
   not a ref tuple/list or candidate list.
 - Ask users only for unresolved blockers or business decisions evidence cannot
-  settle.
-- Record user confirmations for real `OpenQuestion` objects with
-  `project.answer(...)`; do not use it to answer readiness-only blockers.
-  The user-confirmation path is `record_authoring_evidence(kind="user_confirmation")`.
+  settle. Record user confirmations with
+  `project.record_authoring_evidence(ms.AuthoringEvidenceInput(kind="user_confirmation", ...))`.
+- Confirm relationships with
+  `project.record_authoring_evidence(ms.AuthoringEvidenceInput(kind="relationship_confirmation", subject_refs=(relationship_semantic_id,), content=...))`.
 - Reload after authoring `@ms.metric` or `@ms.time_field` declarations so Marivo
   can auto-record their object-level `metric_decomposition` and
   `time_field_identity` decisions.
-- Use `project.record_decision(semantic_id, record)` only when a complete evidence-backed
-  `DecisionRecord` can be built from the question, chosen value, evidence
-  fingerprint, and cited source.
 - Do not hand off to `marivo-analysis` while readiness is blocked.
 - Run `project.richness(...)` at closeout and report richness gaps separately
   from readiness blockers.

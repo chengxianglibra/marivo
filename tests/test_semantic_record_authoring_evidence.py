@@ -40,3 +40,17 @@ def test_recorded_user_confirmation_is_retrievable_by_subject(tmp_path):
     )
     refs = project.list_evidence(subject_refs=("sales.order_date",))
     assert [r.id for r in refs] == [ref.id]
+
+
+def test_recorded_relationship_confirmation_is_retrievable_by_subject(tmp_path):
+    project = _project(tmp_path)
+    ref = project.record_authoring_evidence(
+        AuthoringEvidenceInput(
+            kind="relationship_confirmation",
+            subject_refs=("sales.orders_to_items",),
+            content="Confirmed join on order_id between orders and items.",
+        )
+    )
+    assert ref.kind == "relationship_confirmation"
+    refs = project.list_evidence(subject_refs=("sales.orders_to_items",))
+    assert [r.id for r in refs] == [ref.id]

@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
+from typing import Any, ClassVar, Literal, cast
 
 import ibis
 import ibis.expr.types as ir
@@ -74,10 +74,6 @@ from marivo.semantic.richness import (
     build_richness_report,
 )
 from marivo.semantic.validator import Registry, Sidecar
-
-if TYPE_CHECKING:
-    from marivo.semantic.classifier import OpenQuestion
-    from marivo.semantic.ledger import DecisionRecord, RejectedCandidate
 
 __all__ = [
     "DatasetSummary",
@@ -490,99 +486,6 @@ class SemanticProject:
 
         store = LedgerStore(self._root)
         return tuple(record.ref for record in store.read_raw_previews())
-
-    def answer(
-        self,
-        question: OpenQuestion,
-        answer: object,
-        *,
-        evidence_fingerprint: str = "",
-        rationale: str | None = None,
-    ) -> None:
-        """Record the user's answer to an OpenQuestion in the evidence ledger.
-
-        The append-only confirmation log preserves the user's answer. Each affected
-        object also receives a minimal DecisionRecord so readiness can re-derive the
-        answered state after reload. rationale is accepted for caller ergonomics;
-        it is not persisted in this phase.
-        """
-        from datetime import UTC, datetime
-
-        from marivo.semantic.ledger import ConfirmationRecord, DecisionRecord, LedgerStore
-
-        if answer is None:
-            raise ValueError("answer must not be None")
-
-        decided_at = datetime.now(UTC).isoformat()
-        store = LedgerStore(self._root)
-        store.append_confirmation(
-            ConfirmationRecord(
-                ts=decided_at,
-                question_id=question.id,
-                decision_kind=question.decision_kind,
-                subject_refs=question.subject_refs,
-                answer=answer,
-                evidence_fingerprint=evidence_fingerprint,
-            )
-        )
-        for semantic_id in question.subject_refs:
-            self.record_decision(
-                semantic_id,
-                DecisionRecord(
-                    decision_kind=question.decision_kind,
-                    chosen=answer,
-                    agreement_confidence="high",
-                    qualifying_sources=("user_confirmation",),
-                    materiality=question.materiality,
-                    blast_radius=question.blast_radius,
-                    evidence_fingerprint=evidence_fingerprint,
-                    question_id=question.id,
-                    decided_at=decided_at,
-                ),
-            )
-
-    def record_decision(
-        self,
-        semantic_id: str,
-        record: DecisionRecord,
-        *,
-        authored_at: str | None = None,
-        rejected: tuple[RejectedCandidate, ...] = (),
-    ) -> None:
-        """Append a decision (and optional rejected candidates) to the object's
-        ledger entry, preserving prior decisions."""
-        from datetime import UTC, datetime
-
-        from marivo.semantic.ledger import LedgerStore, ObjectEvidence
-
-        store = LedgerStore(self._root)
-        existing = store.read_object(semantic_id)
-        existing_decisions = existing.decisions if existing else ()
-        if record.question_id is None:
-            decisions = (*existing_decisions, record)
-        else:
-            replacement_key = (record.question_id, record.decision_kind)
-            decisions = (
-                *(
-                    decision
-                    for decision in existing_decisions
-                    if (decision.question_id, decision.decision_kind) != replacement_key
-                ),
-                record,
-            )
-        rejected_all = (existing.rejected_candidates if existing else ()) + tuple(rejected)
-        store.write_object(
-            ObjectEvidence(
-                semantic_id=semantic_id,
-                authored_at=(
-                    existing.authored_at
-                    if existing
-                    else (authored_at or datetime.now(UTC).isoformat())
-                ),
-                decisions=decisions,
-                rejected_candidates=rejected_all,
-            )
-        )
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -1905,24 +1808,15 @@ class SemanticProject:
         kd_refs = evidence_store.list_authoring_by_kind("knowledge_document")
         knowledge_documents = tuple(r.id for r in kd_refs)
 
-        # User confirmations from ledger
-        all_confirmations = store.read_all_confirmations()
-        user_confirmations = tuple(
-            dict.fromkeys(
-                r.subject_refs[0]
-                for r in all_confirmations
-                if r.decision_kind in ("user_confirmation", "confirmation") and r.subject_refs
-            )
-        )
+        # User confirmations from evidence store
+        uc_subject_refs = evidence_store.list_authoring_subject_refs_by_kind("user_confirmation")
+        user_confirmations = tuple(dict.fromkeys(s[0] for s in uc_subject_refs if s))
 
-        # Confirmed relationships from ledger
-        confirmed_relationships = tuple(
-            dict.fromkeys(
-                r.subject_refs[0]
-                for r in all_confirmations
-                if r.decision_kind == "relationship_confirmation" and r.subject_refs
-            )
+        # Confirmed relationships from evidence store
+        rc_subject_refs = evidence_store.list_authoring_subject_refs_by_kind(
+            "relationship_confirmation"
         )
+        confirmed_relationships = tuple(dict.fromkeys(s[0] for s in rc_subject_refs if s))
 
         # Primary keys sampled
         primary_keys_sampled = store.read_primary_key_samples()

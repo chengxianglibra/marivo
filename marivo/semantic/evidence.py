@@ -16,6 +16,7 @@ EvidenceKind = Literal[
     "source_sql",
     "knowledge_document",
     "user_confirmation",
+    "relationship_confirmation",
 ]
 
 Severity = Literal["blocker", "warning", "info"]
@@ -302,7 +303,9 @@ class AssessmentResult:
 
 @dataclass(frozen=True)
 class AuthoringEvidenceInput:
-    kind: Literal["source_sql", "knowledge_document", "user_confirmation"]
+    kind: Literal[
+        "source_sql", "knowledge_document", "user_confirmation", "relationship_confirmation"
+    ]
     subject_refs: tuple[str, ...]
     content: str
     source_document: str | None = None
