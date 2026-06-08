@@ -1144,6 +1144,73 @@ def _apply_hour_only_bucket(
     return table.mutate(bucket_start=bucket)
 
 
+def ensure_bucket_start_timestamp(
+    series: pd.Series,
+    *,
+    time_meta: Any,
+    dataset_ir: Any,
+    grain: Grain | None,
+) -> pd.Series:
+    """Convert string bucket_start values to ``pd.Timestamp``.
+
+    ``apply_time_series_bucket`` may produce string-typed ``bucket_start``
+    values (e.g. hour-only fields via ``_apply_hour_only_bucket``) for
+    efficient ibis-level sorting and grouping.  This function converts them
+    to proper timestamps after execution so downstream consumers (compare,
+    discover) can use ``pd.Timestamp()`` on them.
+    """
+    if grain is None:
+        return series
+    if not pd.api.types.is_string_dtype(series):
+        return series
+
+    if time_meta is None or not _is_hour_only_partition_meta(time_meta):
+        return series
+
+    required_prefix = getattr(time_meta, "required_prefix", None)
+    if not required_prefix:
+        return series
+
+    # Look up the prefix field directly by name/semantic_id.
+    prefix_field_ir = None
+    for field in dataset_ir.fields.values():
+        if getattr(field, "is_time", False) and (
+            field.name == required_prefix or field.semantic_id == required_prefix
+        ):
+            prefix_field_ir = field
+            break
+    if prefix_field_ir is None or prefix_field_ir.time_meta is None:
+        return series
+
+    prefix_fmt = _normalize_time_format(prefix_field_ir.time_meta.format)
+
+    # Map (prefix_fmt, grain) → strptime format for the concatenated bucket_start.
+    # _apply_hour_only_bucket only produces string bucket_start for count=1
+    # hour grain or day grain; multi-hour grains skip string concatenation
+    # and use the timestamp fallback path instead.
+    if grain.unit == "hour" and grain.count == 1:
+        fmt_map = {
+            "yyyy-mm-dd": "%Y-%m-%d-%H",
+            "yyyymmdd": "%Y%m%d%H",
+        }
+    elif grain.is_day:
+        fmt_map = {
+            "yyyy-mm-dd": "%Y-%m-%d",
+            "yyyymmdd": "%Y%m%d",
+        }
+    else:
+        return series
+
+    if prefix_fmt is None:
+        return series
+
+    strptime_fmt = fmt_map.get(prefix_fmt)
+    if strptime_fmt is None:
+        return series
+
+    return pd.to_datetime(series, format=strptime_fmt, errors="coerce")
+
+
 def apply_time_series_bucket(
     table: ibis.Table,
     *,

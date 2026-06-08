@@ -1,6 +1,7 @@
 """_encode_window_bound: ISO string -> physical value per time field format."""
 
 import ibis
+import pandas as pd
 import pytest
 
 from marivo.analysis.errors import WindowInvalidError
@@ -15,7 +16,9 @@ from marivo.analysis.executor.runner import (
     _window_bound_predicates,
     apply_time_series_bucket,
     apply_window_to_dataset,
+    ensure_bucket_start_timestamp,
 )
+from marivo.analysis.windows.grain import Grain
 from marivo.analysis.windows.spec import AbsoluteWindow, normalize_timescope_input
 
 
@@ -571,6 +574,106 @@ def test_strptime_hour_only_bucket_grain_finer_raises():
             session_tz=UTC_ZONE,
             dataset_ir=_strptime_hour_bucket_dataset(),
         )
+
+
+# ---------------------------------------------------------------------------
+# ensure_bucket_start_timestamp — post-execution string → timestamp
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_bucket_start_timestamp_yyyymmdd_hour_grain():
+    """yyyymmdd prefix + hour grain: "2026060100" → pd.Timestamp("2026-06-01 00:00")."""
+    dataset = FakeDataset(
+        [
+            FakeField("log_date", "string", "yyyymmdd", granularity="day"),
+            FakeField("log_hour", "string", "hh", required_prefix="log_date", granularity="hour"),
+        ]
+    )
+    series = pd.Series(["2026060100", "2026060101", "2026060123"])
+    time_meta = FakeMeta("string", "hh", required_prefix="log_date", granularity="hour")
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=dataset,
+        grain=Grain(count=1, unit="hour"),
+    )
+    assert pd.api.types.is_datetime64_any_dtype(result)
+    assert result.iloc[0] == pd.Timestamp("2026-06-01 00:00")
+    assert result.iloc[2] == pd.Timestamp("2026-06-01 23:00")
+
+
+def test_ensure_bucket_start_timestamp_yyyymmdd_day_grain():
+    """yyyymmdd prefix + day grain: "20260601" → pd.Timestamp("2026-06-01")."""
+    dataset = FakeDataset(
+        [
+            FakeField("log_date", "string", "yyyymmdd", granularity="day"),
+            FakeField("log_hour", "string", "hh", required_prefix="log_date", granularity="hour"),
+        ]
+    )
+    series = pd.Series(["20260601", "20260602"])
+    time_meta = FakeMeta("string", "hh", required_prefix="log_date", granularity="hour")
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=dataset,
+        grain=Grain(count=1, unit="day"),
+    )
+    assert pd.api.types.is_datetime64_any_dtype(result)
+    assert result.iloc[0] == pd.Timestamp("2026-06-01")
+
+
+def test_ensure_bucket_start_timestamp_yyyy_mm_dd_hour_grain():
+    """yyyy-mm-dd prefix + hour grain: "2026-06-01-08" → pd.Timestamp("2026-06-01 08:00")."""
+    series = pd.Series(["2026-06-01-08", "2026-06-01-23"])
+    time_meta = FakeMeta("string", "hh", required_prefix="log_date", granularity="hour")
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=_hour_bucket_dataset(),
+        grain=Grain(count=1, unit="hour"),
+    )
+    assert pd.api.types.is_datetime64_any_dtype(result)
+    assert result.iloc[0] == pd.Timestamp("2026-06-01 08:00")
+    assert result.iloc[1] == pd.Timestamp("2026-06-01 23:00")
+
+
+def test_ensure_bucket_start_timestamp_skips_non_string():
+    """Non-string bucket_start is returned unchanged."""
+    series = pd.Series([pd.Timestamp("2026-06-01"), pd.Timestamp("2026-06-02")])
+    time_meta = FakeMeta("string", "hh", required_prefix="log_date", granularity="hour")
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=_hour_bucket_dataset(),
+        grain=Grain(count=1, unit="hour"),
+    )
+    assert result is series
+
+
+def test_ensure_bucket_start_timestamp_skips_non_hour_only():
+    """Non-hour-only fields are not converted."""
+    series = pd.Series(["20260601"])
+    time_meta = FakeMeta("string", "yyyymmdd", granularity="day")
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=_hour_bucket_dataset(),
+        grain=Grain(count=1, unit="day"),
+    )
+    assert result is series
+
+
+def test_ensure_bucket_start_timestamp_skips_none_grain():
+    """grain=None returns series unchanged."""
+    series = pd.Series(["2026060100"])
+    time_meta = FakeMeta("string", "hh", required_prefix="log_date", granularity="hour")
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=_hour_bucket_dataset(),
+        grain=None,
+    )
+    assert result is series
 
 
 def test_timescope_rejects_expr_field():

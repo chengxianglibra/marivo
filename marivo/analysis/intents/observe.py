@@ -26,6 +26,7 @@ from marivo.analysis.evidence.pipeline import (
 from marivo.analysis.evidence.types import Subject
 from marivo.analysis.executor.runner import (
     apply_time_series_bucket,
+    ensure_bucket_start_timestamp,
     execute,
     normalize_slice_for_storage,
     resolve_window_time_field,
@@ -545,6 +546,13 @@ def _execute_base(
             cache=session.backend_cache,
             session_id=session.id,
         )
+        if "bucket_start" in result.df:
+            result.df["bucket_start"] = ensure_bucket_start_timestamp(
+                result.df["bucket_start"],
+                time_meta=time_field_ir.time_meta,
+                dataset_ir=root_adapter,
+                grain=resolved_window.grain,
+            )
         if (
             resolved_window.grain is not None
             and resolved_window.grain.is_day
@@ -601,6 +609,13 @@ def _execute_base(
             cache=session.backend_cache,
             session_id=session.id,
         )
+        if "bucket_start" in result.df:
+            result.df["bucket_start"] = ensure_bucket_start_timestamp(
+                result.df["bucket_start"],
+                time_meta=time_field_ir.time_meta,
+                dataset_ir=root_adapter,
+                grain=resolved_window.grain,
+            )
         axes = {
             "time": {
                 "role": "time",
@@ -728,6 +743,13 @@ def _execute_derived(
             session_id=session.id,
         ).df
         session.known_datasources.add(cp.base_plan.datasource_name)
+        if has_time and "bucket_start" in df:
+            df["bucket_start"] = ensure_bucket_start_timestamp(
+                df["bucket_start"],
+                time_meta=time_field_ir.time_meta,
+                dataset_ir=root_adapter,
+                grain=resolved_window.grain if resolved_window else None,
+            )
         if (
             has_time
             and resolved_window
