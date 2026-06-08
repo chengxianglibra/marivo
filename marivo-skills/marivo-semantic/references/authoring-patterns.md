@@ -27,7 +27,7 @@ orders = ms.dataset(
     name="log_date",
     data_type="string",
     granularity="day",
-    date_format="yyyymmdd",
+    date_format="%Y%m%d",
     ai_context={
         "business_definition": "Partition date used for default order reporting windows.",
         "guardrails": ["Use event time instead only when source SQL defines that axis."],
@@ -41,7 +41,6 @@ def log_date(table):
     name="log_hour",
     data_type="string",
     granularity="hour",
-    date_format="HH",
     required_prefix="log_date",
     ai_context={
         "business_definition": "Hour partition used with log_date for hourly reporting windows.",
@@ -122,11 +121,11 @@ confirmation establishes that business axis.
 For day/hour partition fields, preserve the raw sortable partition value and
 declare its physical encoding with `date_format`. This lets observe windows
 compile to simple partition comparisons for predicate pushdown. Do not add
-`timezone` to day partition encodings such as `yyyymmdd`; those values are
+`timezone` to day partition encodings such as `%Y%m%d`; those values are
 filtered as physical partition keys, not interpreted instants.
 
 ```python
-@ms.time_field(dataset=orders, name="log_date", data_type="string", granularity="day", date_format="yyyymmdd")
+@ms.time_field(dataset=orders, name="log_date", data_type="string", granularity="day", date_format="%Y%m%d")
 def log_date(table):
     return table.dt
 
@@ -135,7 +134,6 @@ def log_date(table):
     name="log_hour",
     data_type="string",
     granularity="hour",
-    date_format="HH",
     required_prefix="log_date",
 )
 def log_hour(table):

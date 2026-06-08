@@ -257,7 +257,7 @@ def test_hour_only_string_time_field_without_required_prefix() -> None:
         required_prefix=None,
         python_symbol="order_hour",
         location=_LOC,
-        format="hh",
+        format=None,
     )
     errors, _warnings = assembly_validate(registry)
     assert any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
@@ -278,7 +278,7 @@ def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
         required_prefix=None,
         python_symbol="order_hour",
         location=_LOC,
-        format="int",
+        format=None,
     )
     errors, _warnings = assembly_validate(registry)
     assert any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
@@ -299,7 +299,7 @@ def test_complete_hour_string_time_field_without_required_prefix() -> None:
         required_prefix=None,
         python_symbol="order_hour",
         location=_LOC,
-        format="yyyymmddhh",
+        format="%Y%m%d%H",
     )
     errors, _warnings = assembly_validate(registry)
     assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
@@ -384,7 +384,7 @@ def test_hour_time_field_with_required_prefix_name_ok() -> None:
         required_prefix="order_date",
         python_symbol="order_hour",
         location=_LOC,
-        format="hh",
+        format=None,
     )
     errors, _warnings = assembly_validate(registry)
     assert not any(e.kind == ErrorKind.MISSING_FIELD_REF for e in errors)
@@ -428,7 +428,7 @@ def test_hour_time_field_prefix_must_reference_time_field() -> None:
         required_prefix="amount",
         python_symbol="order_hour",
         location=_LOC,
-        format="hh",
+        format=None,
     )
     errors, _warnings = assembly_validate(registry)
     assert any(
@@ -493,7 +493,7 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
         required_prefix=None,
         python_symbol="order_date",
         location=_LOC,
-        format="yyyymmdd",
+        format="%Y%m%d",
     )
 
     errors, warnings = assembly_validate(
@@ -925,7 +925,14 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
 
 
 def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> None:
-    """Hour-only string time field without required_prefix should fail via loader."""
+    """Hour-only string time field with bare %H format fails at decoration time.
+
+    A bare ``%H`` cannot parse a complete datetime, so normalize_strptime
+    rejects it and the decorator surfaces an INVALID_REF. The
+    HOUR_TIME_FIELD_PREFIX_MISSING assembly guard is no longer reachable for
+    string/integer fields because the decorator now requires either a complete
+    strptime date_format or a required_prefix up front.
+    """
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
@@ -933,7 +940,7 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
             dataset="sales.orders",
             data_type="string",
             granularity="hour",
-            date_format="hh",
+            date_format="%H",
         )
         def order_hour(table):
             return table.order_hour
@@ -951,7 +958,7 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
     )
     assert not project.is_ready()
     errors = project.errors()
-    assert any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+    assert any(e.kind == ErrorKind.INVALID_REF for e in errors)
 
 
 def test_invalid_relationship_via_loader(semantic_project_factory) -> None:

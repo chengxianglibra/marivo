@@ -94,8 +94,8 @@ Read `references/workflow.md` first. The short form is:
 - Prefer a partition time field such as `dt`, `log_date`, or `event_date` as
   the dataset `@ms.time_field`.
 - For sortable day/hour partition columns, keep the raw string/integer column
-  body and declare `date_format`; use `required_prefix` for hour-only fields
-  such as `HH`.
+  body and declare `date_format` as a Python strptime string (e.g. `"%Y%m%d"`);
+  use `required_prefix` (no `date_format`) for hour-only fields.
 - Use a non-partition business event time only when evidence establishes that
   axis; record the reason in `description`, `ai_context`, and the ledger when
   material.

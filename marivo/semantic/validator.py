@@ -65,20 +65,8 @@ class Registry:
 Sidecar = dict[str, Callable[..., Any]]
 
 
-def _normalized_time_format(value: str | None) -> str | None:
-    """Normalize time format labels for validation comparisons."""
-    if value is None:
-        return None
-    stripped = value.strip()
-    if stripped.startswith("%"):
-        return stripped
-    return stripped.lower().replace("_", "").replace("-", "").replace(" ", "")
-
-
 _SUBDAY_GRANULARITIES: frozenset[str] = frozenset({"hour", "minute", "second"})
 _TIME_BEARING_FORMAT_HINTS: tuple[str, ...] = (
-    "h",
-    "%h",
     "%H",
     "%I",
     "%k",
@@ -87,7 +75,6 @@ _TIME_BEARING_FORMAT_HINTS: tuple[str, ...] = (
     "%S",
     "%T",
     "%p",
-    "epoch",
 )
 
 
@@ -98,32 +85,42 @@ def _subday_granularity_needs_time(field_ir: FieldIR) -> bool:
     if field_ir.data_type in {"datetime", "timestamp"}:
         return False
     if field_ir.data_type in {"string", "integer"}:
-        fmt = (field_ir.format or "").lower()
-        return not any(hint.lower() in fmt for hint in _TIME_BEARING_FORMAT_HINTS)
+        # Hour-only fields with a required_prefix carry time via the prefix.
+        if field_ir.granularity == "hour" and field_ir.required_prefix:
+            return False
+        fmt = field_ir.format or ""
+        return not any(hint in fmt for hint in _TIME_BEARING_FORMAT_HINTS)
     # data_type == "date" or unset -> cannot carry sub-day time
     return True
 
 
 def _requires_required_prefix(field_ir: FieldIR) -> bool:
-    """Return True for hour-only string/integer time fields."""
+    """Return True for hour-only string/integer time fields missing a prefix.
+
+    Hour-only fields are those with granularity "hour" and string/integer
+    data_type that carry no date component in their own value (either no
+    format or an hour-only format like %H). Such fields require a separate
+    day-level required_prefix to supply date context.
+    """
     if not field_ir.is_time_field or field_ir.granularity != "hour":
         return False
     if field_ir.data_type not in {"string", "integer"}:
         return False
-    fmt = _normalized_time_format(field_ir.format)
-    if fmt in {"h", "hh", "int"}:
+    if field_ir.required_prefix is not None:
+        return False
+    fmt = field_ir.format
+    if fmt is None or not fmt.startswith("%"):
         return True
-    if fmt is not None and fmt.startswith("%"):
-        import re as _re
+    # Inspect strptime directives: hour-only if there are hour directives
+    # but no date directives.
+    import re
 
-        tokens = set(_re.findall(r"%[a-zA-Z]", fmt))
-        date_directives = {"%Y", "%y", "%m", "%d", "%j", "%U", "%W"}
-        hour_directives = {"%H", "%I", "%k", "%l", "%p", "%P"}
-        has_date = bool(tokens & date_directives)
-        has_hour = bool(tokens & hour_directives)
-        if has_hour and not has_date:
-            return True
-    return False
+    tokens = set(re.findall(r"%[a-zA-Z]", fmt))
+    date_directives = {"%Y", "%y", "%m", "%d", "%j", "%U", "%W"}
+    hour_directives = {"%H", "%I", "%k", "%l", "%p", "%P"}
+    has_date = bool(tokens & date_directives)
+    has_hour = bool(tokens & hour_directives)
+    return has_hour and not has_date
 
 
 def _resolve_required_prefix_field(

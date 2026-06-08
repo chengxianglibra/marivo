@@ -552,6 +552,193 @@ def test_time_field_rejects_invalid_timezone() -> None:
         _exit_ctx()
 
 
+def test_time_field_rejects_yyyymmdd_shorthand() -> None:
+    """Shorthand aliases like 'yyyymmdd' are no longer accepted."""
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_field(
+                dataset="sales.orders",
+                data_type="string",
+                granularity="day",
+                date_format="yyyymmdd",
+            )
+            def order_date(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "sales.orders.order_date" in exc_info.value.semantic_refs
+    finally:
+        _exit_ctx()
+
+
+def test_time_field_rejects_hh_shorthand() -> None:
+    """Shorthand 'hh' is no longer accepted."""
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_field(
+                dataset="sales.orders",
+                data_type="string",
+                granularity="hour",
+                date_format="hh",
+            )
+            def order_hour(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+    finally:
+        _exit_ctx()
+
+
+def test_time_field_rejects_date_format_on_temporal_type() -> None:
+    """data_type='date'/'datetime'/'timestamp' must not carry date_format."""
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_field(
+                dataset="sales.orders",
+                data_type="datetime",
+                granularity="day",
+                date_format="%Y-%m-%d",
+            )
+            def created_at(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "date_format" in exc_info.value.message
+        assert "already temporal" in exc_info.value.message
+    finally:
+        _exit_ctx()
+
+
+def test_time_field_rejects_date_format_on_date_type() -> None:
+    """data_type='date' must not carry date_format either."""
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_field(
+                dataset="sales.orders",
+                data_type="date",
+                granularity="day",
+                date_format="%Y-%m-%d",
+            )
+            def order_date(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "already temporal" in exc_info.value.message
+    finally:
+        _exit_ctx()
+
+
+def test_time_field_rejects_date_format_on_hour_only_field() -> None:
+    """Fields with required_prefix must not carry date_format."""
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_field(
+                dataset="sales.orders",
+                data_type="string",
+                granularity="hour",
+                required_prefix="order_date",
+                date_format="%H",
+            )
+            def order_hour(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "hour-only" in exc_info.value.message
+    finally:
+        _exit_ctx()
+
+
+def test_time_field_rejects_missing_date_format_on_string() -> None:
+    """string/integer data_type without date_format or required_prefix is rejected."""
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_field(
+                dataset="sales.orders",
+                data_type="string",
+                granularity="day",
+            )
+            def order_date(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "requires" in exc_info.value.message
+        assert "date_format" in exc_info.value.message
+    finally:
+        _exit_ctx()
+
+
+def test_time_field_accepts_canonical_strptime() -> None:
+    """Sanity: a valid %Y%m%d format goes through cleanly."""
+    ctx = _enter_ctx(default_model="sales")
+    try:
+
+        @ms.time_field(
+            dataset="sales.orders",
+            data_type="string",
+            granularity="day",
+            date_format="%Y%m%d",
+        )
+        def order_date(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ir, _ = ctx.pending_objects[-1]
+        assert ir.format == "%Y%m%d"
+    finally:
+        _exit_ctx()
+
+
+def test_time_field_strips_whitespace_from_strptime() -> None:
+    """normalize_strptime strips whitespace before validation."""
+    ctx = _enter_ctx(default_model="sales")
+    try:
+
+        @ms.time_field(
+            dataset="sales.orders",
+            data_type="string",
+            granularity="day",
+            date_format="  %Y-%m-%d  ",
+        )
+        def order_date(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ir, _ = ctx.pending_objects[-1]
+        assert ir.format == "%Y-%m-%d"
+    finally:
+        _exit_ctx()
+
+
+def test_time_field_rejects_invalid_strptime_directive() -> None:
+    """Unknown strptime directives like %Q are rejected."""
+    _enter_ctx(default_model="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_field(
+                dataset="sales.orders",
+                data_type="string",
+                granularity="day",
+                date_format="%Q%m%d",
+            )
+            def order_date(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # ms.metric() decorator
 # ---------------------------------------------------------------------------

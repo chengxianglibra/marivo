@@ -1087,7 +1087,7 @@ def test_describe_time_field_has_format(semantic_project_factory) -> None:
                     dataset=orders,
                     data_type="string",
                     granularity="day",
-                    date_format="yyyymmdd",
+                    date_format="%Y%m%d",
                 )
                 def log_date(table):
                     return table.log_date
@@ -1097,7 +1097,7 @@ def test_describe_time_field_has_format(semantic_project_factory) -> None:
     desc = project.describe("sales.orders.log_date")
     assert isinstance(desc, Description)
     assert desc.kind == SymbolKind.TIME_FIELD
-    assert desc.format == "yyyymmdd"
+    assert desc.format == "%Y%m%d"
 
 
 def _make_ambiguous_registry() -> Registry:
