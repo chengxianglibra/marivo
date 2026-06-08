@@ -48,6 +48,7 @@ import hashlib
 import os
 import sys
 from pathlib import Path
+from typing import Protocol
 
 from marivo.analysis.datasources import secrets
 from marivo.analysis.errors import DatasourceEnvVarMissingError
@@ -60,6 +61,22 @@ _CONTENT_TYPES = {
 }
 _DEFAULT_CONTENT_TYPE = "application/octet-stream"
 _MISSING_HEAD_CODES = {"404", "NoSuchKey"}
+
+
+class _S3LikeClient(Protocol):
+    """Structural type for the boto3 S3 client methods used here. Decouples
+    typing from the untyped boto3/botocore runtime."""
+
+    def head_object(self, *, Bucket: str, Key: str) -> dict[str, object]: ...
+
+    def put_object(
+        self,
+        *,
+        Bucket: str,
+        Key: str,
+        Body: bytes,
+        ContentType: str,
+    ) -> dict[str, object]: ...
 
 
 def content_type_for(path: Path) -> str:
@@ -124,7 +141,7 @@ def format_public_url(bucket: str, key: str, endpoint_url: str | None) -> str:
     return f"s3://{bucket}/{key}"
 
 
-def build_s3_client(endpoint_url: str | None) -> object:
+def build_s3_client(endpoint_url: str | None) -> _S3LikeClient:
     """Construct the boto3 S3 client. boto3 is imported lazily so --help and
     --dry-run work without it installed."""
     try:
@@ -150,13 +167,14 @@ def build_s3_client(endpoint_url: str | None) -> object:
             "request_checksum_calculation": "when_required",
             "response_checksum_validation": "when_required",
         }
-    return boto3.client(
+    client: _S3LikeClient = boto3.client(
         "s3",
         endpoint_url=endpoint_url,
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
         config=Config(**config_kwargs),
     )
+    return client
 
 
 def s3_key_for(s3_prefix: str, path: Path, root: Path) -> str:
@@ -164,7 +182,7 @@ def s3_key_for(s3_prefix: str, path: Path, root: Path) -> str:
     return f"{s3_prefix}/{relative}" if s3_prefix else relative
 
 
-def upload_is_unchanged(client: object, bucket: str, key: str, body: bytes) -> bool:
+def upload_is_unchanged(client: _S3LikeClient, bucket: str, key: str, body: bytes) -> bool:
     from botocore.exceptions import ClientError
 
     try:
@@ -184,7 +202,7 @@ def plan_uploads(report_dir: Path) -> list[Path]:
 
 
 def run_upload(
-    client: object,
+    client: _S3LikeClient,
     files: list[Path],
     report_dir: Path,
     bucket: str,
@@ -244,7 +262,7 @@ def print_dry_run(
 
 
 def verify_index(
-    client: object,
+    client: _S3LikeClient,
     bucket: str,
     s3_prefix: str,
     endpoint_url: str | None,

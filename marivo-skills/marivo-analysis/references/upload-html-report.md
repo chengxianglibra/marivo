@@ -1,26 +1,31 @@
 # Upload HTML report to S3
 
 Use this reference when a materialized HTML report package needs to be shared
-outside the local workspace via S3. The script supersedes ad-hoc per-session
-upload scripts and works against both AWS S3 and S3-compatible endpoints
-(Bilibili BOSS, MinIO, etc.).
+outside the local workspace via S3. The `marivo-upload-report` command
+supersedes ad-hoc per-session upload scripts and works against both AWS S3
+and S3-compatible endpoints (Bilibili BOSS, MinIO, etc.).
 
 For the `publish_report_package` library helper (manifest stamping, content
 hash, secret scanning), see the **Publishing handoff** section of
-`final-report.md`. This script is the lighter-weight variant: it uploads
+`final-report.md`. This command is the lighter-weight variant: it uploads
 whatever directory it is given, with no manifest contract.
 
-## Script location
+## Command
 
-`scripts/upload_html_report.py` at the repository root.
+`marivo-upload-report` — installed alongside the `marivo` package via
+`pip install marivo`. Also invocable as
+`python -m marivo.analysis.scripts.upload_html_report`.
+
+Implementation lives at
+`marivo/analysis/scripts/upload_html_report.py` inside the installed package.
 
 ## Prerequisites
 
 - `boto3` available in the venv. Marivo does not declare boto3 as a core
-  dependency, so install it explicitly when first using this script:
+  dependency, so install it explicitly when first using this command:
 
   ```bash
-  .venv/bin/pip install boto3
+  pip install boto3
   ```
 
   `--help` and `--dry-run` work without boto3 installed; only real uploads
@@ -61,7 +66,7 @@ Example `~/.marivo/secrets.toml`:
 2. `S3_BUCKET_PATH` environment variable (same `s3://` URI format).
 3. Flat top-level `S3_BUCKET_PATH` key in `~/.marivo/secrets.toml`.
 
-If all three are empty the script exits with code 2 and prints the list of
+If all three are empty the command exits with code 2 and prints the list of
 accepted sources. Trailing slashes are optional; an empty key-prefix uploads
 to the bucket root.
 
@@ -83,10 +88,8 @@ The `upload-id` is resolved in this order:
 Pass `--upload-id ""` to disable the segment and upload directly under
 `<key-prefix>` (rare; only when you intentionally want to overwrite).
 
-The script prints `upload id: <value>` at the start of every run so the
+The command prints `upload id: <value>` at the start of every run so the
 chosen value is visible in logs and agent transcripts.
-
-## S3-compatible endpoints
 
 ## S3-compatible endpoints
 
@@ -106,7 +109,7 @@ Or in `~/.marivo/secrets.toml`:
 "AWS_ENDPOINT_URL_S3" = "https://jssz-inner-boss.bilibili.co"
 ```
 
-When resolved, the script applies path-style addressing and the checksum
+When resolved, the command applies path-style addressing and the checksum
 configuration those services require. When unset, boto3's AWS S3 defaults are
 used.
 
@@ -116,14 +119,13 @@ Minimal invocation, assuming `S3_BUCKET_PATH` and AWS credentials are already
 in the environment or `~/.marivo/secrets.toml`:
 
 ```bash
-.venv/bin/python scripts/upload_html_report.py \
-  .marivo/analysis/sessions/<session>/reports/<report-package>
+marivo-upload-report .marivo/analysis/sessions/<session>/reports/<report-package>
 ```
 
 Explicit bucket path on the command line:
 
 ```bash
-.venv/bin/python scripts/upload_html_report.py \
+marivo-upload-report \
   .marivo/analysis/sessions/<session>/reports/<report-package> \
   --bucket-path s3://my-bucket/reports/my-report/
 ```
@@ -132,20 +134,26 @@ Preview planned uploads without making any S3 calls (also works without
 boto3 installed):
 
 ```bash
-.venv/bin/python scripts/upload_html_report.py <report_dir> --dry-run
+marivo-upload-report <report_dir> --dry-run
 ```
 
 Pin a specific upload-id (for traceability, e.g. tying the upload to a
 session or report version):
 
 ```bash
-.venv/bin/python scripts/upload_html_report.py <report_dir> \
-  --upload-id sess-7d8bbe31-2026w23
+marivo-upload-report <report_dir> --upload-id sess-7d8bbe31-2026w23
+```
+
+If `marivo-upload-report` is not on PATH (e.g. running from a source
+checkout without `pip install`), use the module form:
+
+```bash
+python -m marivo.analysis.scripts.upload_html_report <report_dir> [--dry-run]
 ```
 
 ## Output
 
-The script prints, in order:
+The command prints, in order:
 
 1. `upload id: <value>` — the random or explicit upload-id segment.
 2. `uploading N files from <dir> -> s3://<bucket>/<key-prefix>/<upload-id>/`
@@ -161,7 +169,7 @@ The script prints, in order:
 6. `file urls:` block — one shareable URL per file (PUT or SKIP), sorted by
    key. For S3-compatible endpoints the URL is
    `<endpoint>/<bucket>/<key-prefix>/<upload-id>/<relative-path>`; for AWS S3
-   the script prints the `s3://` URI (region is not always known without an
+   the command prints the `s3://` URI (region is not always known without an
    extra call).
 
 Agents should read the `file urls:` block to obtain the canonical paths of
@@ -169,7 +177,7 @@ every uploaded file.
 
 ## Idempotency
 
-Re-running the script is safe. Each file's MD5 is compared against the
+Re-running the command is safe. Each file's MD5 is compared against the
 existing object's ETag (for single-part `put_object`, ETag is the object
 MD5). Files whose ETag and ContentLength both match are skipped, so partial
 edits to a report package re-upload only what changed.
