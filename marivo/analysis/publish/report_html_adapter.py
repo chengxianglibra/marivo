@@ -8,6 +8,7 @@ from html import escape as _html_escape
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from marivo.analysis.publish.report_i18n import labels_for
 from marivo.analysis.publish.report_models import (
     Dataset,
     FlowStep,
@@ -100,7 +101,9 @@ def _format_metric_value(value: Any, value_format: str) -> str:
     if value_format == "currency":
         return f"${_format_number(numeric)}"
     if value_format == "percent":
-        return f"{_format_number(numeric * 100)}%"
+        # ``percent`` values are already expressed in percentage points
+        # (e.g. ``89.8`` renders as ``89.8%``); do not multiply by 100.
+        return f"{_format_number(numeric)}%"
     if value_format == "number":
         return _format_number(numeric)
     if value_format == "compact":
@@ -138,8 +141,7 @@ def _source_payload(dataset: Dataset) -> dict[str, Any]:
         query["sql"] = source.sql
     else:
         query["language"] = source.generated_from
-    if source.script_ref is not None:
-        query["script_ref"] = source.script_ref
+    query["script_refs"] = list(source.script_refs)
     if source.promotion_ref is not None:
         query["promotion_ref"] = source.promotion_ref
     return {
@@ -253,7 +255,7 @@ def _flow_step_payload(step: FlowStep) -> dict[str, Any]:
         "output_artifacts": list(step.output_artifacts),
         "semantic_refs": list(step.semantic_refs),
         "source_queries": list(step.source_queries),
-        "script_ref": step.script_ref,
+        "script_refs": list(step.script_refs),
         "evidence_status": step.evidence_status,
         "query_summary": step.query_summary,
         "links": dict(step.links),
@@ -278,6 +280,7 @@ def to_html_report_payload(artifact: MarivoReportArtifact) -> dict[str, Any]:
         "report_id": artifact.manifest.report_id,
         "export_id": artifact.manifest.export_id,
         "title": artifact.manifest.title,
+        "language": artifact.manifest.language,
         "created_at": artifact.manifest.created_at,
         "marivo_version": artifact.manifest.marivo_version,
         "evidence_status": artifact.manifest.evidence_status,
@@ -477,6 +480,18 @@ h3 {
 .markdown ol {
   margin: 0 0 12px 1.2rem;
   padding: 0;
+}
+
+.markdown table {
+  margin: 0 0 12px;
+}
+
+.markdown code {
+  background: #f3f5f8;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 1px 5px;
 }
 
 .placeholder {
@@ -716,7 +731,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (pager) {
       const label = pager.querySelector(".table-pager-label");
       if (label) {
-        label.textContent = "Page " + page + " / " + pageCount;
+        const template = label.dataset.template || "Page {page} / {pages}";
+        label.textContent = template.replace("{page}", page).replace("{pages}", pageCount);
       }
     }
   }
@@ -795,46 +811,127 @@ def _json_for_script(payload: dict[str, Any]) -> str:
     return json.dumps(payload, allow_nan=False, sort_keys=True).replace("</", "<\\/")
 
 
+_INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_INLINE_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_ORDERED_ITEM_RE = re.compile(r"^\d+\.\s+(.*)$")
+_TABLE_SEPARATOR_RE = re.compile(r"^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$")
+
+
+def _render_emphasis(escaped: str) -> str:
+    return _INLINE_BOLD_RE.sub(lambda match: f"<strong>{match.group(1)}</strong>", escaped)
+
+
+def _render_inline(text: str) -> str:
+    """Escape text, then apply inline ``code`` and ``**bold**`` markdown."""
+    parts: list[str] = []
+    last = 0
+    for match in _INLINE_CODE_RE.finditer(text):
+        parts.append(_render_emphasis(_escape(text[last : match.start()])))
+        parts.append(f"<code>{_escape(match.group(1))}</code>")
+        last = match.end()
+    parts.append(_render_emphasis(_escape(text[last:])))
+    return "".join(parts)
+
+
+def _is_table_separator(line: str) -> bool:
+    stripped = line.strip()
+    return "-" in stripped and bool(_TABLE_SEPARATOR_RE.match(stripped))
+
+
+def _split_table_row(line: str) -> list[str]:
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    return [cell.strip() for cell in stripped.split("|")]
+
+
+def _render_markdown_table(header: str, body: list[str]) -> str:
+    head = "".join(f"<th>{_render_inline(cell)}</th>" for cell in _split_table_row(header))
+    rows = []
+    for row in body:
+        cells = "".join(f"<td>{_render_inline(cell)}</td>" for cell in _split_table_row(row))
+        rows.append(f"<tr>{cells}</tr>")
+    return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+
+
 def _render_markdown_block(text: str | None) -> str:
     if text is None or not text.strip():
         return ""
     lines = text.strip().splitlines()
     chunks: list[str] = []
     list_items: list[str] = []
+    list_tag = ""
 
     def flush_list() -> None:
+        nonlocal list_tag
         if not list_items:
             return
-        chunks.append("<ul>" + "".join(f"<li>{item}</li>" for item in list_items) + "</ul>")
+        items = "".join(f"<li>{item}</li>" for item in list_items)
+        chunks.append(f"<{list_tag}>{items}</{list_tag}>")
         list_items.clear()
+        list_tag = ""
 
-    for line in lines:
-        stripped = line.strip()
+    index = 0
+    total = len(lines)
+    while index < total:
+        stripped = lines[index].strip()
         if not stripped:
             flush_list()
+            index += 1
             continue
+        if stripped.startswith("|") and index + 1 < total and _is_table_separator(lines[index + 1]):
+            flush_list()
+            header = stripped
+            index += 2
+            body: list[str] = []
+            while index < total and lines[index].strip().startswith("|"):
+                body.append(lines[index].strip())
+                index += 1
+            chunks.append(_render_markdown_table(header, body))
+            continue
+        ordered = _ORDERED_ITEM_RE.match(stripped)
         if stripped.startswith("- "):
-            list_items.append(_escape(stripped[2:]))
+            if list_tag and list_tag != "ul":
+                flush_list()
+            list_tag = "ul"
+            list_items.append(_render_inline(stripped[2:]))
+            index += 1
+            continue
+        if ordered is not None:
+            if list_tag and list_tag != "ol":
+                flush_list()
+            list_tag = "ol"
+            list_items.append(_render_inline(ordered.group(1)))
+            index += 1
             continue
         flush_list()
         if stripped.startswith("### "):
-            chunks.append(f"<h4>{_escape(stripped[4:])}</h4>")
+            chunks.append(f"<h4>{_render_inline(stripped[4:])}</h4>")
         elif stripped.startswith("## "):
-            chunks.append(f"<h3>{_escape(stripped[3:])}</h3>")
+            chunks.append(f"<h3>{_render_inline(stripped[3:])}</h3>")
         elif stripped.startswith("# "):
-            chunks.append(f"<h2>{_escape(stripped[2:])}</h2>")
+            chunks.append(f"<h2>{_render_inline(stripped[2:])}</h2>")
         else:
-            chunks.append(f"<p>{_escape(stripped)}</p>")
+            chunks.append(f"<p>{_render_inline(stripped)}</p>")
+        index += 1
     flush_list()
     return '<div class="markdown">' + "".join(chunks) + "</div>"
 
 
-def _render_placeholder_block(block: dict[str, Any], block_type: str) -> str:
+def _render_placeholder_block(
+    block: dict[str, Any], block_type: str, labels: dict[str, str]
+) -> str:
     parts = [_render_markdown_block(block.get("text"))]
     dataset_id = block.get("dataset_id")
-    dataset_detail = f" Dataset: <code>{_escape(dataset_id)}</code>." if dataset_id else ""
+    dataset_detail = (
+        f" {_escape(labels['dataset_label'])}: <code>{_escape(dataset_id)}</code>."
+        if dataset_id
+        else ""
+    )
     parts.append(
-        f'<div class="placeholder">{_escape(block_type)} block retained for offline rendering.'
+        f'<div class="placeholder">{_escape(block_type)} {_escape(labels["block_retained"])}'
         f"{dataset_detail}</div>"
     )
     return "".join(parts)
@@ -904,7 +1001,158 @@ def _scale(
     return range_min + ratio * (range_max - range_min)
 
 
-def _render_svg_chart(block: dict[str, Any], payload: dict[str, Any]) -> str:
+_LABEL_MAX_CHARS = 14
+_SERIES_PALETTE = (
+    "#0f766e",
+    "#b45309",
+    "#1d4ed8",
+    "#9333ea",
+    "#be123c",
+    "#0891b2",
+)
+
+
+def _truncate_label(text: str) -> str:
+    if len(text) <= _LABEL_MAX_CHARS:
+        return text
+    return text[: _LABEL_MAX_CHARS - 1] + "…"
+
+
+def _label_stride(count: int, available: float, *, per_label: float = 70.0) -> int:
+    """Render every ``stride``-th x label so long labels do not collide."""
+    if count <= 1:
+        return 1
+    capacity = max(1, int(available // per_label))
+    return max(1, -(-count // capacity))
+
+
+def _axis_label(x_center: float, baseline_y: float, value: Any) -> str:
+    full = str(value)
+    shown = _truncate_label(full)
+    title = f"<title>{_escape(full)}</title>" if shown != full else ""
+    return (
+        f'<text class="chart-label" x="{x_center:.2f}" y="{baseline_y:.0f}" '
+        f'text-anchor="middle">{_escape(shown)}{title}</text>'
+    )
+
+
+def _distinct(values: list[str]) -> list[str]:
+    seen: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.append(value)
+    return seen
+
+
+def _render_grouped_bar_chart(
+    block: dict[str, Any],
+    payload: dict[str, Any],
+    labels: dict[str, str],
+    *,
+    x_field: str,
+    y_field: str,
+    series_field: str,
+) -> str:
+    dataset = _dataset_for_block(block, payload)
+    rows = dataset.get("rows", [])
+    _require_dataset_fields(block, dataset, [x_field, y_field, series_field])
+    cells: dict[tuple[str, str], float] = {}
+    raw_x: list[str] = []
+    raw_series: list[str] = []
+    for index, row in enumerate(rows):
+        x_value = str(row[x_field])
+        series_value = str(row[series_field])
+        key = (x_value, series_value)
+        if key in cells:
+            raise ValueError(
+                f"chart block {block.get('id')!r} has duplicate rows for "
+                f"x={x_value!r} series={series_value!r}; the dataset mixes dimensions"
+            )
+        cells[key] = _numeric(row[y_field], block=block, field=y_field, row_index=index)
+        raw_x.append(x_value)
+        raw_series.append(series_value)
+    x_values = _distinct(raw_x)
+    series_values = _distinct(raw_series)
+    width = 640
+    height = 280
+    left = 44
+    right = 18
+    top = 28
+    bottom = 42
+    plot_width = width - left - right
+    numbers = list(cells.values())
+    y_domain_min = min(0.0, *numbers) if numbers else 0.0
+    y_domain_max = max(0.0, *numbers) if numbers else 0.0
+    axis_y = _scale(
+        0.0,
+        domain_min=y_domain_min,
+        domain_max=y_domain_max,
+        range_min=height - bottom,
+        range_max=top,
+    )
+    group_gap = 14
+    group_count = max(1, len(x_values))
+    group_width = max(
+        len(series_values) * 6.0,
+        (plot_width - group_gap * (group_count - 1)) / group_count,
+    )
+    bar_width = max(4.0, group_width / max(1, len(series_values)))
+    parts = [
+        f'<div class="chart-card" id="chart-{_escape(block.get("id", "block"))}">',
+        '<div class="chart-frame">',
+        f'<svg viewBox="0 0 {width} {height}" role="img" '
+        f'aria-label="{_escape(block.get("title") or labels["chart"])}">',
+        f'<line class="chart-axis" x1="{left}" y1="{axis_y:.2f}" '
+        f'x2="{width - right}" y2="{axis_y:.2f}"></line>',
+        f'<line class="chart-axis" x1="{left}" y1="{top}" '
+        f'x2="{left}" y2="{height - bottom}"></line>',
+    ]
+    legend_x = left
+    for series_index, series_value in enumerate(series_values):
+        color = _SERIES_PALETTE[series_index % len(_SERIES_PALETTE)]
+        parts.append(
+            f'<rect x="{legend_x:.2f}" y="6" width="10" height="10" fill="{color}"></rect>'
+        )
+        label = _truncate_label(series_value)
+        parts.append(
+            f'<text class="chart-label" x="{legend_x + 14:.2f}" y="15" '
+            f'text-anchor="start">{_escape(label)}</text>'
+        )
+        legend_x += 14 + len(label) * 7 + 14
+    stride = _label_stride(group_count, plot_width)
+    for group_index, x_value in enumerate(x_values):
+        group_x = left + group_index * (group_width + group_gap)
+        for series_index, series_value in enumerate(series_values):
+            value = cells.get((x_value, series_value))
+            if value is None:
+                continue
+            color = _SERIES_PALETTE[series_index % len(_SERIES_PALETTE)]
+            x = group_x + series_index * bar_width
+            y = _scale(
+                value,
+                domain_min=y_domain_min,
+                domain_max=y_domain_max,
+                range_min=height - bottom,
+                range_max=top,
+            )
+            bar_y = min(y, axis_y)
+            bar_height = abs(axis_y - y)
+            parts.append(
+                f'<rect class="chart-bar" x="{x:.2f}" y="{bar_y:.2f}" '
+                f'width="{bar_width:.2f}" height="{bar_height:.2f}" fill="{color}">'
+                f"<title>{_escape(x_value)} / {_escape(series_value)}: {_escape(value)}</title>"
+                "</rect>"
+            )
+        if group_index % stride == 0:
+            center = group_x + group_width / 2
+            parts.append(_axis_label(center, height - 16, x_value))
+    parts.extend(["</svg>", "</div>", "</div>"])
+    return "".join(parts)
+
+
+def _render_svg_chart(
+    block: dict[str, Any], payload: dict[str, Any], labels: dict[str, str]
+) -> str:
     chart = block.get("chart") or {}
     fields = chart.get("fields") or {}
     x_field = fields.get("x")
@@ -916,9 +1164,24 @@ def _render_svg_chart(block: dict[str, Any], payload: dict[str, Any]) -> str:
         raise ValueError(
             f"chart block {block.get('id')!r} does not support chart type {chart_type!r}"
         )
+    series_field = (fields.get("series") or "").strip()
+    if series_field:
+        if chart_type != "bar":
+            raise ValueError(
+                f"chart block {block.get('id')!r} series channel is only supported for bar charts"
+            )
+        return _render_grouped_bar_chart(
+            block, payload, labels, x_field=x_field, y_field=y_field, series_field=series_field
+        )
     dataset = _dataset_for_block(block, payload)
     rows = dataset.get("rows", [])
     _require_dataset_fields(block, dataset, [x_field, y_field])
+    x_labels = [str(row[x_field]) for row in rows]
+    if len(set(x_labels)) < len(x_labels):
+        raise ValueError(
+            f"chart block {block.get('id')!r} has duplicate x values for field {x_field!r}; "
+            "provide a 'series' channel or chart a single-series dataset"
+        )
     values = [
         _numeric(row[y_field], block=block, field=y_field, row_index=index)
         for index, row in enumerate(rows)
@@ -930,6 +1193,7 @@ def _render_svg_chart(block: dict[str, Any], payload: dict[str, Any]) -> str:
     top = 18
     bottom = 42
     plot_width = width - left - right
+    stride = _label_stride(len(rows), plot_width)
     min_value = min(values) if values else 0.0
     max_value = max(values) if values else 0.0
     if chart_type == "bar":
@@ -949,7 +1213,7 @@ def _render_svg_chart(block: dict[str, Any], payload: dict[str, Any]) -> str:
     parts = [
         f'<div class="chart-card" id="chart-{_escape(block.get("id", "block"))}">',
         '<div class="chart-frame">',
-        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{_escape(block.get("title") or "Chart")}">',
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{_escape(block.get("title") or labels["chart"])}">',
         f'<line class="chart-axis" x1="{left}" y1="{axis_y:.2f}" x2="{width - right}" y2="{axis_y:.2f}"></line>',
         f'<line class="chart-axis" x1="{left}" y1="{top}" x2="{left}" y2="{height - bottom}"></line>',
     ]
@@ -973,10 +1237,8 @@ def _render_svg_chart(block: dict[str, Any], payload: dict[str, Any]) -> str:
                 f'width="{bar_width:.2f}" height="{bar_height:.2f}">'
                 f"<title>{_escape(row[x_field])}: {_escape(row[y_field])}</title></rect>"
             )
-            parts.append(
-                f'<text class="chart-label" x="{x + bar_width / 2:.2f}" y="{height - 16}" '
-                f'text-anchor="middle">{_escape(row[x_field])}</text>'
-            )
+            if index % stride == 0:
+                parts.append(_axis_label(x + bar_width / 2, height - 16, row[x_field]))
     else:
         points = []
         for index, row in enumerate(rows):
@@ -999,10 +1261,8 @@ def _render_svg_chart(block: dict[str, Any], payload: dict[str, Any]) -> str:
                 f'<circle class="chart-point" cx="{x:.2f}" cy="{y:.2f}" r="4">'
                 f"<title>{_escape(row[x_field])}: {_escape(row[y_field])}</title></circle>"
             )
-            parts.append(
-                f'<text class="chart-label" x="{x:.2f}" y="{height - 16}" '
-                f'text-anchor="middle">{_escape(row[x_field])}</text>'
-            )
+            if index % stride == 0:
+                parts.append(_axis_label(x, height - 16, row[x_field]))
         parts.append(f'<polyline class="chart-line" points="{" ".join(points)}"></polyline>')
     parts.extend(["</svg>", "</div>", "</div>"])
     return "".join(parts)
@@ -1031,7 +1291,7 @@ def _table_columns(block: dict[str, Any], dataset: dict[str, Any]) -> list[dict[
     return [{"key": key, "label": key, "type": "text", "format": None} for key in rows[0]]
 
 
-def _render_table(block: dict[str, Any], payload: dict[str, Any]) -> str:
+def _render_table(block: dict[str, Any], payload: dict[str, Any], labels: dict[str, str]) -> str:
     dataset = _dataset_for_block(block, payload)
     columns = _table_columns(block, dataset)
     fields = [str(column["key"]) for column in columns]
@@ -1055,9 +1315,10 @@ def _render_table(block: dict[str, Any], payload: dict[str, Any]) -> str:
     pager = (
         (
             '<div class="table-pager">'
-            '<button type="button" class="table-prev">Prev</button>'
-            '<span class="table-pager-label"></span>'
-            '<button type="button" class="table-next">Next</button>'
+            f'<button type="button" class="table-prev">{_escape(labels["prev"])}</button>'
+            '<span class="table-pager-label" '
+            f'data-template="{_escape(labels["page_label_template"])}"></span>'
+            f'<button type="button" class="table-next">{_escape(labels["next"])}</button>'
             "</div>"
         )
         if paginated
@@ -1100,7 +1361,9 @@ def _sources_by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {source["id"]: source for source in payload.get("sources", [])}
 
 
-def _render_source_code_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
+def _render_source_code_block(
+    block: dict[str, Any], payload: dict[str, Any], labels: dict[str, str]
+) -> str:
     sources = _sources_by_id(payload)
     open_attr = _details_open_attr(block)
     refs = list(block.get("source_refs", []))
@@ -1111,7 +1374,8 @@ def _render_source_code_block(block: dict[str, Any], payload: dict[str, Any]) ->
         source = sources.get(source_ref)
         if source is None:
             panels.append(
-                f'<p class="audit-meta">Unknown source <code>{_escape(source_ref)}</code>.</p>'
+                f'<p class="audit-meta">{_escape(labels["unknown_source"])} '
+                f"<code>{_escape(source_ref)}</code>.</p>"
             )
             continue
         query = source.get("query", {})
@@ -1120,20 +1384,22 @@ def _render_source_code_block(block: dict[str, Any], payload: dict[str, Any]) ->
         panels.append(
             f'<details class="source-code" id="sourcecode-{_escape(source_ref)}"{open_attr}>'
             f"<summary>{_escape(source.get('label') or source_ref)}</summary>"
-            f"{_render_labeled_value('Description', query.get('description'))}"
-            f"{_render_labeled_value('Language', query.get('language'))}"
-            f"{_render_labeled_value('SQL status', query.get('sql_status'))}"
-            f"{_render_labeled_value('SQL reason', query.get('sql_reason'))}"
-            f"{_render_labeled_value('Script ref', query.get('script_ref'))}"
+            f"{_render_labeled_value(labels['description'], query.get('description'))}"
+            f"{_render_labeled_value(labels['language_label'], query.get('language'))}"
+            f"{_render_labeled_value(labels['sql_status'], query.get('sql_status'))}"
+            f"{_render_labeled_value(labels['sql_reason'], query.get('sql_reason'))}"
+            f"{_render_labeled_links(labels['script_refs'], list(query.get('script_refs', [])))}"
             f"{code}"
             "</details>"
         )
     if not panels:
-        panels.append('<p class="audit-meta">No source references provided.</p>')
+        panels.append(f'<p class="audit-meta">{_escape(labels["no_source_refs"])}</p>')
     return "".join(panels)
 
 
-def _render_step_trace_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
+def _render_step_trace_block(
+    block: dict[str, Any], payload: dict[str, Any], labels: dict[str, str]
+) -> str:
     steps = _steps_by_id(payload)
     open_attr = _details_open_attr(block)
     panels: list[str] = []
@@ -1141,7 +1407,8 @@ def _render_step_trace_block(block: dict[str, Any], payload: dict[str, Any]) -> 
         step = steps.get(step_ref)
         if step is None:
             panels.append(
-                f'<p class="audit-meta">Unknown step <code>{_escape(step_ref)}</code>.</p>'
+                f'<p class="audit-meta">{_escape(labels["unknown_step"])} '
+                f"<code>{_escape(step_ref)}</code>.</p>"
             )
             continue
         summary = f"{step.get('order', '')}. {step.get('description') or step_ref}"
@@ -1149,21 +1416,23 @@ def _render_step_trace_block(block: dict[str, Any], payload: dict[str, Any]) -> 
             f'<details class="step-trace" id="trace-{_escape(step_ref)}"{open_attr}>'
             f"<summary>{_escape(summary)} "
             f'(<a href="#step-{_escape(step_ref)}">{_escape(step_ref)}</a>)</summary>'
-            f"{_render_labeled_value('Kind', step.get('kind'))}"
-            f"{_render_labeled_value('Evidence status', step.get('evidence_status'))}"
-            f"{_render_labeled_value('Query summary', step.get('query_summary'))}"
-            '<p class="audit-meta"><strong>Inputs:</strong> '
-            f"{_inline_links(list(step.get('input_artifacts', [])), 'evidence', 'none')}</p>"
-            '<p class="audit-meta"><strong>Outputs:</strong> '
-            f"{_inline_links(list(step.get('output_artifacts', [])), 'evidence', 'none')}</p>"
+            f"{_render_labeled_value(labels['kind'], step.get('kind'))}"
+            f"{_render_labeled_value(labels['evidence_status'], step.get('evidence_status'))}"
+            f"{_render_labeled_value(labels['query_summary'], step.get('query_summary'))}"
+            f'<p class="audit-meta"><strong>{_escape(labels["inputs"])}:</strong> '
+            f"{_inline_links(list(step.get('input_artifacts', [])), 'evidence', labels['none'])}</p>"
+            f'<p class="audit-meta"><strong>{_escape(labels["outputs"])}:</strong> '
+            f"{_inline_links(list(step.get('output_artifacts', [])), 'evidence', labels['none'])}</p>"
             "</details>"
         )
     if not panels:
-        panels.append('<p class="audit-meta">No step references provided.</p>')
+        panels.append(f'<p class="audit-meta">{_escape(labels["no_step_refs"])}</p>')
     return "".join(panels)
 
 
-def _render_claim_evidence_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
+def _render_claim_evidence_block(
+    block: dict[str, Any], payload: dict[str, Any], labels: dict[str, str]
+) -> str:
     claims = _claims_by_id(payload)
     open_attr = _details_open_attr(block)
     panels: list[str] = []
@@ -1171,28 +1440,29 @@ def _render_claim_evidence_block(block: dict[str, Any], payload: dict[str, Any])
         claim = claims.get(claim_ref)
         if claim is None:
             panels.append(
-                f'<p class="audit-meta">Unknown claim <code>{_escape(claim_ref)}</code>.</p>'
+                f'<p class="audit-meta">{_escape(labels["unknown_claim"])} '
+                f"<code>{_escape(claim_ref)}</code>.</p>"
             )
             continue
         text = claim.get("text_template") or claim_ref
         panels.append(
             f'<details class="proof-panel" id="proof-{_escape(claim_ref)}"{open_attr}>'
             f"<summary>{_escape(text)}</summary>"
-            f"{_render_labeled_value('Grounding', claim.get('grounding_type'))}"
-            f"{_render_labeled_value('Evidence status', claim.get('evidence_status'))}"
-            f"{_render_labeled_value('Scope', claim.get('confidence_scope'))}"
-            '<p class="audit-meta"><strong>Supporting steps:</strong> '
-            f"{_inline_links(list(claim.get('supporting_steps', [])), 'step', 'none')}</p>"
-            '<p class="audit-meta"><strong>Supporting datasets:</strong> '
-            f"{_inline_links(list(claim.get('supporting_datasets', [])), 'dataset', 'none')}</p>"
+            f"{_render_labeled_value(labels['grounding'], claim.get('grounding_type'))}"
+            f"{_render_labeled_value(labels['evidence_status'], claim.get('evidence_status'))}"
+            f"{_render_labeled_value(labels['scope'], claim.get('confidence_scope'))}"
+            f'<p class="audit-meta"><strong>{_escape(labels["supporting_steps"])}:</strong> '
+            f"{_inline_links(list(claim.get('supporting_steps', [])), 'step', labels['none'])}</p>"
+            f'<p class="audit-meta"><strong>{_escape(labels["supporting_datasets"])}:</strong> '
+            f"{_inline_links(list(claim.get('supporting_datasets', [])), 'dataset', labels['none'])}</p>"
             "</details>"
         )
     if not panels:
-        panels.append('<p class="audit-meta">No claim references provided.</p>')
+        panels.append(f'<p class="audit-meta">{_escape(labels["no_claim_refs"])}</p>')
     return "".join(panels)
 
 
-def _render_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
+def _render_block(block: dict[str, Any], payload: dict[str, Any], labels: dict[str, str]) -> str:
     block_id = _escape(block.get("id", "block"))
     block_type = str(block.get("type", "markdown"))
     title = block.get("title")
@@ -1210,27 +1480,29 @@ def _render_block(block: dict[str, Any], payload: dict[str, Any]) -> str:
     elif block_type == "metric_strip":
         parts.append(_render_metric_strip(block))
     elif block_type == "chart":
-        parts.append(_render_svg_chart(block, payload))
+        parts.append(_render_svg_chart(block, payload, labels))
     elif block_type == "table":
-        parts.append(_render_table(block, payload))
+        parts.append(_render_table(block, payload, labels))
     elif block_type == "claim_evidence":
-        parts.append(_render_claim_evidence_block(block, payload))
+        parts.append(_render_claim_evidence_block(block, payload, labels))
     elif block_type == "step_trace":
-        parts.append(_render_step_trace_block(block, payload))
+        parts.append(_render_step_trace_block(block, payload, labels))
     elif block_type == "source_code":
-        parts.append(_render_source_code_block(block, payload))
+        parts.append(_render_source_code_block(block, payload, labels))
     else:
-        parts.append(_render_placeholder_block(block, block_type))
+        parts.append(_render_placeholder_block(block, block_type, labels))
     parts.append("</article>")
     return "".join(parts)
 
 
-def _render_section(section: dict[str, Any], payload: dict[str, Any]) -> str:
+def _render_section(
+    section: dict[str, Any], payload: dict[str, Any], labels: dict[str, str]
+) -> str:
     section_id = _escape(section.get("id", "section"))
     parts = [f'<section class="report-section" id="section-{section_id}">']
-    parts.append(f"<h2>{_escape(section.get('title', 'Untitled Section'))}</h2>")
+    parts.append(f"<h2>{_escape(section.get('title') or labels['untitled_section'])}</h2>")
     for block in section.get("blocks", []):
-        parts.append(_render_block(block, payload))
+        parts.append(_render_block(block, payload, labels))
     parts.append("</section>")
     return "".join(parts)
 
@@ -1253,124 +1525,143 @@ def _render_labeled_value(label: str, value: Any) -> str:
     return f'<p class="audit-meta"><strong>{_escape(label)}:</strong> {_escape(value)}</p>'
 
 
-def _render_claims(payload: dict[str, Any]) -> str:
+def _render_labeled_links(label: str, paths: list[str]) -> str:
+    if not paths:
+        return ""
+    links = ", ".join(f'<a href="{_escape(path)}">{_escape(path)}</a>' for path in paths)
+    return f'<p class="audit-meta"><strong>{_escape(label)}:</strong> {links}</p>'
+
+
+def _render_claims(payload: dict[str, Any], labels: dict[str, str]) -> str:
     claims = payload.get("claims", [])
     if not claims:
-        return '<p class="audit-meta">No claim evidence recorded.</p>'
+        return f'<p class="audit-meta">{_escape(labels["no_claim_evidence"])}</p>'
     parts = []
     for claim in claims:
         claim_id = _escape(claim.get("id", "claim"))
         claim_text = claim.get("text_template") or claim.get("id", "")
         parts.append(f'<article class="audit-panel" id="claim-{claim_id}">')
         parts.append(f"<h4>{_escape(claim_text)}</h4>")
-        parts.append(_render_labeled_value("Grounding", claim.get("grounding_type")))
-        parts.append(_render_labeled_value("Evidence status", claim.get("evidence_status")))
-        parts.append(_render_labeled_value("Scope", claim.get("confidence_scope")))
-        parts.append(_render_labeled_value("Value refs", claim.get("value_refs")))
-        parts.append("<h5>Supporting steps</h5>")
+        parts.append(_render_labeled_value(labels["grounding"], claim.get("grounding_type")))
+        parts.append(_render_labeled_value(labels["evidence_status"], claim.get("evidence_status")))
+        parts.append(_render_labeled_value(labels["scope"], claim.get("confidence_scope")))
+        parts.append(_render_labeled_value(labels["value_refs"], claim.get("value_refs")))
+        parts.append(f"<h5>{_escape(labels['supporting_steps'])}</h5>")
         parts.append(
-            _link_list(list(claim.get("supporting_steps", [])), "step", "No supporting steps.")
+            _link_list(
+                list(claim.get("supporting_steps", [])), "step", labels["no_supporting_steps"]
+            )
         )
-        parts.append("<h5>Supporting datasets</h5>")
+        parts.append(f"<h5>{_escape(labels['supporting_datasets'])}</h5>")
         parts.append(
             _link_list(
                 list(claim.get("supporting_datasets", [])),
                 "dataset",
-                "No supporting datasets.",
+                labels["no_supporting_datasets"],
             )
         )
-        parts.append("<h5>Evidence objects</h5>")
+        parts.append(f"<h5>{_escape(labels['evidence_objects_label'])}</h5>")
         parts.append(
             _link_list(
                 list(claim.get("supporting_artifacts", [])),
                 "evidence",
-                "No supporting evidence objects.",
+                labels["no_supporting_evidence"],
             )
         )
-        parts.append(_render_labeled_value("Source refs", claim.get("source_refs")))
-        parts.append(_render_labeled_value("Risk refs", claim.get("risk_refs")))
+        parts.append(_render_labeled_value(labels["source_refs"], claim.get("source_refs")))
+        parts.append(_render_labeled_value(labels["risk_refs"], claim.get("risk_refs")))
         parts.append("</article>")
     return "".join(parts)
 
 
-def _render_flow_steps(payload: dict[str, Any]) -> str:
+def _render_flow_steps(payload: dict[str, Any], labels: dict[str, str]) -> str:
     steps = payload.get("flow_steps", [])
     if not steps:
-        return '<p class="audit-meta">No analysis steps recorded.</p>'
+        return f'<p class="audit-meta">{_escape(labels["no_analysis_steps"])}</p>'
     parts = []
     for step in steps:
         step_id = _escape(step.get("id", "step"))
         summary = f"{step.get('order', '')}. {step.get('description', step.get('id', ''))}"
         parts.append(f'<details class="audit-detail" id="step-{step_id}" open>')
         parts.append(f"<summary>{_escape(summary)}</summary>")
-        parts.append(_render_labeled_value("Kind", step.get("kind")))
-        parts.append(_render_labeled_value("Evidence status", step.get("evidence_status")))
-        parts.append(_render_labeled_value("Query summary", step.get("query_summary")))
-        parts.append(_render_labeled_value("Input artifacts", step.get("input_artifacts")))
-        parts.append(_render_labeled_value("Output artifacts", step.get("output_artifacts")))
-        parts.append(_render_labeled_value("Semantic refs", step.get("semantic_refs")))
-        parts.append(_render_labeled_value("Source queries", step.get("source_queries")))
-        parts.append(_render_labeled_value("Script ref", step.get("script_ref")))
+        parts.append(_render_labeled_value(labels["kind"], step.get("kind")))
+        parts.append(_render_labeled_value(labels["evidence_status"], step.get("evidence_status")))
+        parts.append(_render_labeled_value(labels["query_summary"], step.get("query_summary")))
+        parts.append(_render_labeled_value(labels["input_artifacts"], step.get("input_artifacts")))
+        parts.append(
+            _render_labeled_value(labels["output_artifacts"], step.get("output_artifacts"))
+        )
+        parts.append(_render_labeled_value(labels["semantic_refs"], step.get("semantic_refs")))
+        parts.append(_render_labeled_value(labels["source_queries"], step.get("source_queries")))
+        parts.append(
+            _render_labeled_links(labels["script_refs"], list(step.get("script_refs", [])))
+        )
         if step.get("links"):
-            parts.append(_render_labeled_value("Links", step.get("links")))
+            parts.append(_render_labeled_value(labels["links"], step.get("links")))
         parts.append("</details>")
     return "".join(parts)
 
 
-def _render_dataset_panels(payload: dict[str, Any]) -> str:
+def _render_dataset_panels(payload: dict[str, Any], labels: dict[str, str]) -> str:
     datasets = payload.get("datasets", {})
     if not datasets:
-        return '<p class="audit-meta">No datasets recorded.</p>'
+        return f'<p class="audit-meta">{_escape(labels["no_datasets"])}</p>'
     parts = []
     for dataset_id, dataset in datasets.items():
         metadata = dataset.get("metadata", {})
         parts.append(f'<article class="audit-panel" id="dataset-{_escape(dataset_id)}">')
         parts.append(f"<h4>{_escape(dataset_id)}</h4>")
-        parts.append(_render_labeled_value("Grain", metadata.get("grain")))
-        parts.append(_render_labeled_value("Row count", metadata.get("row_count")))
-        parts.append(_render_labeled_value("Truncated", metadata.get("truncated")))
-        parts.append(_render_labeled_value("Columns", metadata.get("columns")))
-        parts.append(_render_labeled_value("Source artifacts", metadata.get("source_artifacts")))
+        parts.append(_render_labeled_value(labels["grain"], metadata.get("grain")))
+        parts.append(_render_labeled_value(labels["row_count"], metadata.get("row_count")))
+        parts.append(_render_labeled_value(labels["truncated"], metadata.get("truncated")))
+        parts.append(_render_labeled_value(labels["columns"], metadata.get("columns")))
         parts.append(
-            _render_labeled_value("Metric definitions", metadata.get("metric_definitions"))
+            _render_labeled_value(labels["source_artifacts"], metadata.get("source_artifacts"))
         )
-        parts.append(_render_labeled_value("Filters", metadata.get("filters")))
+        parts.append(
+            _render_labeled_value(labels["metric_definitions"], metadata.get("metric_definitions"))
+        )
+        parts.append(_render_labeled_value(labels["filters"], metadata.get("filters")))
         parts.append("</article>")
     return "".join(parts)
 
 
-def _render_sources(payload: dict[str, Any]) -> str:
+def _render_sources(payload: dict[str, Any], labels: dict[str, str]) -> str:
     sources = payload.get("sources", [])
     if not sources:
-        return '<p class="audit-meta">No sources recorded.</p>'
+        return f'<p class="audit-meta">{_escape(labels["no_sources"])}</p>'
     parts = []
     for source in sources:
         source_id = source.get("id", "source")
         query = source.get("query", {})
         parts.append(f'<article class="audit-panel" id="source-{_escape(source_id)}">')
         parts.append(f"<h4>{_escape(source.get('label') or source_id)}</h4>")
-        parts.append(_render_labeled_value("Description", query.get("description")))
-        parts.append(_render_labeled_value("Language", query.get("language")))
-        parts.append(_render_labeled_value("Generated from", query.get("generated_from")))
-        parts.append(_render_labeled_value("Tables", query.get("tables_used")))
-        parts.append(_render_labeled_value("Datasource refs", query.get("datasource_refs")))
-        parts.append(_render_labeled_value("Semantic refs", query.get("semantic_refs")))
-        parts.append(_render_labeled_value("Metric definitions", query.get("metric_definitions")))
-        parts.append(_render_labeled_value("Filters", query.get("filters")))
-        parts.append(_render_labeled_value("SQL status", query.get("sql_status")))
-        parts.append(_render_labeled_value("SQL reason", query.get("sql_reason")))
-        parts.append(_render_labeled_value("Script ref", query.get("script_ref")))
-        parts.append(_render_labeled_value("Promotion ref", query.get("promotion_ref")))
+        parts.append(_render_labeled_value(labels["description"], query.get("description")))
+        parts.append(_render_labeled_value(labels["language_label"], query.get("language")))
+        parts.append(_render_labeled_value(labels["generated_from"], query.get("generated_from")))
+        parts.append(_render_labeled_value(labels["tables"], query.get("tables_used")))
+        parts.append(_render_labeled_value(labels["datasource_refs"], query.get("datasource_refs")))
+        parts.append(_render_labeled_value(labels["semantic_refs"], query.get("semantic_refs")))
+        parts.append(
+            _render_labeled_value(labels["metric_definitions"], query.get("metric_definitions"))
+        )
+        parts.append(_render_labeled_value(labels["filters"], query.get("filters")))
+        parts.append(_render_labeled_value(labels["sql_status"], query.get("sql_status")))
+        parts.append(_render_labeled_value(labels["sql_reason"], query.get("sql_reason")))
+        parts.append(
+            _render_labeled_links(labels["script_refs"], list(query.get("script_refs", [])))
+        )
+        parts.append(_render_labeled_value(labels["promotion_ref"], query.get("promotion_ref")))
         if query.get("sql"):
             parts.append(f'<pre class="audit-code">{_escape(query["sql"])}</pre>')
         parts.append("</article>")
     return "".join(parts)
 
 
-def _render_evidence(payload: dict[str, Any]) -> str:
+def _render_evidence(payload: dict[str, Any], labels: dict[str, str]) -> str:
     evidence = payload.get("evidence", {})
     if not evidence:
-        return '<p class="audit-meta">No evidence objects recorded.</p>'
+        return f'<p class="audit-meta">{_escape(labels["no_evidence"])}</p>'
     parts = []
     for evidence_id, evidence_payload in evidence.items():
         pretty = json.dumps(evidence_payload, allow_nan=False, indent=2, sort_keys=True)
@@ -1381,52 +1672,64 @@ def _render_evidence(payload: dict[str, Any]) -> str:
     return "".join(parts)
 
 
-def _render_audit_trail(payload: dict[str, Any]) -> str:
+def _render_audit_trail(payload: dict[str, Any], labels: dict[str, str]) -> str:
     return (
         '<section class="report-section" id="audit-trail">'
-        "<h2>Audit Trail</h2>"
-        '<div class="audit-group"><h3>Claim Evidence</h3>'
-        f"{_render_claims(payload)}</div>"
-        '<div class="audit-group"><h3>Analysis Steps</h3>'
-        f"{_render_flow_steps(payload)}</div>"
-        '<div class="audit-group"><h3>Datasets</h3>'
-        f"{_render_dataset_panels(payload)}</div>"
-        '<div class="audit-group"><h3>Sources</h3>'
-        f"{_render_sources(payload)}</div>"
-        '<div class="audit-group"><h3>Evidence Objects</h3>'
-        f"{_render_evidence(payload)}</div>"
+        f"<h2>{_escape(labels['audit_trail'])}</h2>"
+        f'<div class="audit-group"><h3>{_escape(labels["claim_evidence"])}</h3>'
+        f"{_render_claims(payload, labels)}</div>"
+        f'<div class="audit-group"><h3>{_escape(labels["analysis_steps"])}</h3>'
+        f"{_render_flow_steps(payload, labels)}</div>"
+        f'<div class="audit-group"><h3>{_escape(labels["datasets"])}</h3>'
+        f"{_render_dataset_panels(payload, labels)}</div>"
+        f'<div class="audit-group"><h3>{_escape(labels["sources"])}</h3>'
+        f"{_render_sources(payload, labels)}</div>"
+        f'<div class="audit-group"><h3>{_escape(labels["evidence_objects"])}</h3>'
+        f"{_render_evidence(payload, labels)}</div>"
         "</section>"
     )
 
 
-def render_report_html(artifact: MarivoReportArtifact) -> str:
-    """Render a validated Marivo report artifact as a standalone HTML document."""
+def render_report_html(
+    artifact: MarivoReportArtifact,
+    *,
+    language: str | None = None,
+) -> str:
+    """Render a validated Marivo report artifact as a standalone HTML document.
+
+    If *language* is provided it overrides ``manifest.language`` for i18n label
+    selection and the ``<html lang>`` attribute without mutating the artifact.
+    """
     _raise_visual_block_field_errors(artifact)
     payload = to_html_report_payload(artifact)
+    if language is not None:
+        payload["language"] = language
     title = payload["title"]
+    resolved_language = str(payload.get("language") or "en")
+    labels = labels_for(resolved_language)
     sections = payload["sections"]
     toc = (
         "".join(
             f'<a href="#section-{_escape(section["id"])}">{_escape(section["title"])}</a>'
             for section in sections
         )
-        + '<a href="#audit-trail">Audit Trail</a>'
+        + f'<a href="#audit-trail">{_escape(labels["audit_trail"])}</a>'
     )
     notice = ""
     evidence_status = payload["evidence_status"]
     if evidence_status != "complete":
         notice = (
             '<aside class="notice">'
-            f"<strong>Evidence status: {_escape(evidence_status)}</strong>"
-            "Review caveats and source details before acting on the recommendations."
+            f"<strong>{_escape(labels['evidence_status'])}: {_escape(evidence_status)}</strong>"
+            f"{_escape(labels['evidence_notice_body'])}"
             "</aside>"
         )
-    rendered_sections = "".join(_render_section(section, payload) for section in sections)
-    audit_trail = _render_audit_trail(payload)
+    rendered_sections = "".join(_render_section(section, payload, labels) for section in sections)
+    audit_trail = _render_audit_trail(payload, labels)
     data = _json_for_script(payload)
     return (
         "<!doctype html>\n"
-        '<html lang="en">\n'
+        f'<html lang="{_escape(resolved_language)}">\n'
         "<head>\n"
         '<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
@@ -1436,13 +1739,14 @@ def render_report_html(artifact: MarivoReportArtifact) -> str:
         "<body>\n"
         '<main id="report" class="layout">\n'
         '<header class="report-header">\n'
-        '<p class="eyebrow">Marivo Analysis Report</p>\n'
+        f'<p class="eyebrow">{_escape(labels["report_eyebrow"])}</p>\n'
         f"<h1>{_escape(title)}</h1>\n"
         "</header>\n"
-        f'<nav class="toc" aria-label="Report sections">{toc}</nav>\n'
+        f'<nav class="toc" aria-label="{_escape(labels["toc_aria"])}">{toc}</nav>\n'
         '<div class="report-search">'
         '<input id="report-search" type="search" '
-        'placeholder="Search this report" aria-label="Search this report">'
+        f'placeholder="{_escape(labels["search_placeholder"])}" '
+        f'aria-label="{_escape(labels["search_placeholder"])}">'
         "</div>\n"
         f"{notice}\n"
         f"{rendered_sections}\n"
@@ -1458,13 +1762,22 @@ def render_report_html(artifact: MarivoReportArtifact) -> str:
 def materialize_html_adapter(
     artifact: MarivoReportArtifact,
     root: str | Path,
+    *,
+    language: str | None = None,
 ) -> MarivoReportArtifact:
-    """Write canonical report package files plus standalone ``index.html``."""
+    """Write canonical report package files plus standalone ``index.html``.
+
+    If *language* is provided, it is stamped onto the manifest before rendering
+    so the written ``manifest.json`` and ``index.html`` both reflect it.
+    """
     package_root = Path(root)
-    entrypoints = dict(artifact.manifest.entrypoints)
-    entrypoints["html"] = "index.html"
+    manifest_update: dict[str, Any] = {
+        "entrypoints": {**artifact.manifest.entrypoints, "html": "index.html"},
+    }
+    if language is not None:
+        manifest_update["language"] = language
     updated = artifact.model_copy(
-        update={"manifest": artifact.manifest.model_copy(update={"entrypoints": entrypoints})}
+        update={"manifest": artifact.manifest.model_copy(update=manifest_update)}
     )
     html_text = render_report_html(updated)
     package_root.mkdir(parents=True, exist_ok=True)

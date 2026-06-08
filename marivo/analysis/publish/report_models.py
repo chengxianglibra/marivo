@@ -41,6 +41,8 @@ FlowStepKind = Literal[
 GroundingType = Literal["evidence_backed", "derived_from_flow", "commentary"]
 SqlStatus = Literal["available", "not_applicable", "unavailable", "redacted"]
 DataInclusion = Literal["omitted", "included"]
+# ``percent`` values are expressed in percentage points (e.g. ``89.8`` renders
+# as ``89.8%``); they are not multiplied by 100 at render time.
 ReportValueFormat = Literal["number", "compact", "percent", "currency", "text"]
 ReportColumnType = Literal["text", "number", "percent", "currency", "date"]
 ReportChartType = Literal[
@@ -103,7 +105,7 @@ class SourceProvenance(_ReportModel):
         default=None,
         description="Reason sql is unavailable. Auto-populated if omitted for non-available sql_status.",
     )
-    script_ref: str | None = None
+    script_refs: tuple[str, ...] = ()
     promotion_ref: str | None = None
 
     @model_validator(mode="before")
@@ -260,7 +262,7 @@ class FlowStep(_ReportModel):
     output_artifacts: tuple[str, ...] = ()
     semantic_refs: tuple[str, ...] = ()
     source_queries: tuple[str, ...] = ()
-    script_ref: str | None = None
+    script_refs: tuple[str, ...] = ()
     evidence_status: EvidenceStatus
     query_summary: str | None = None
     links: dict[str, str] = Field(default_factory=dict)
@@ -302,6 +304,7 @@ class ReportManifest(_ReportModel):
     report_id: str
     export_id: str
     title: str
+    language: str = "en"
     created_at: str
     marivo_version: str
     exported_by: str | None = None

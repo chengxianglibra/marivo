@@ -86,6 +86,38 @@ should resolve through `value_refs` to a bounded dataset cell or to an
 artifact/evidence field. Do not restate the same number as a second source of
 truth in prose, adapter manifests, or HTML.
 
+Value formats: the `percent` format expects values already expressed in
+percentage points (store `89.8` for `89.8%`, not `0.898`). Use `number` or
+`compact` for raw counts and `currency` for monetary values.
+
+Charts must be single-series: a chart block's dataset needs one value per x
+position, or it must declare a `series` channel
+(`fields={"x": ..., "y": ..., "series": ...}`) so a bar chart can group bars by
+series. Never feed a decomposition dataset that mixes dimensions (for example
+`query_type` and `source` rows sharing one timestamp) into a single x/y chart;
+filter to one dimension or split into separate charts. The HTML renderer rejects
+a chart whose x values repeat without a `series` channel.
+
+Report language: pass `language="zh-Hans"` (or matching BCP 47 locale code)
+to `render_report_html`, `materialize_html_adapter`, or
+`materialize_mcp_adapter` to localize the report's chrome and the Audit Trail
+headings/labels from built-in catalogs
+(`marivo/analysis/publish/locales/`, English fallback) and to emit
+`<html lang>` accordingly. Use script-based tags (`zh-Hans`, `zh-Hant`) rather
+than bare `zh` or region-only forms — the catalog lookup applies progressive
+prefix fallback so `zh-Hans-CN` resolves to the `zh-Hans` catalog, but a bare
+`zh` will not auto-pick a script variant. The renderer stamps the value onto
+`manifest.language` for the written package; authored titles and narrative
+text are not translated. You can also set `manifest.language` directly when
+constructing the artifact — the keyword argument overrides it for the render.
+To add a language, add a `<lang>.json` catalog — never hardcode non-English
+labels in Python.
+
+Script references: `FlowStep.script_refs` and `SourceProvenance.script_refs` are
+lists; pass every script path (e.g. `("scripts/step4.py", "scripts/step5.py")`)
+rather than collapsing a range into one filename. The Audit Trail renders each
+as a link.
+
 Before rendering or publishing, validate that `grounding.json` resolves every
 executive-summary claim, partial evidence is visible, source provenance matches
 the step kind, and source/audit details do not crowd out the main reading path.
