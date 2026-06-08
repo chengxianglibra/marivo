@@ -105,7 +105,7 @@ def test_unknown_source_returns_needs_input(tmp_path):
 def test_metric_without_sources_requires_at_least_one(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(root=root)
+    project = SemanticProject(workspace_dir=root)
     result = project.check_authoring_inputs(
         object_kind="metric",
         subject_ref="sales.revenue",
