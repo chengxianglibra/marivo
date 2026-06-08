@@ -329,7 +329,7 @@ for followup in delta.meta.recommended_followups:
 - `references/cheatsheet.md` — intent/frame/discover/transform matrices
 - `references/pitfalls.md` — error recovery and common mistakes
 - `references/backend-setup.md` — datasource and backend wiring
-- `references/upload-html-report.md` — `scripts/upload_html_report.py` usage for S3 publishing
+- `references/upload-html-report.md` — `marivo-upload-report` command for S3 publishing
 - `../marivo-semantic/references/datasource.md` — datasource definition
 
 ## Error → example reference
