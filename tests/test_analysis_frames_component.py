@@ -262,3 +262,67 @@ def test_component_frame_meta_accepts_panel_semantic_kind():
     )
 
     assert meta.semantic_kind == "panel"
+
+
+def test_metric_frame_components_fallback_to_deterministic_ref():
+    """When component_ref points to a missing frame, fallback to deterministic ref."""
+    from marivo.analysis.evidence.identity import make_component_artifact_id
+
+    session = session_attach.get_or_create(name="demo")
+
+    # Create a parent MetricFrame with an artifact_id
+    parent_artifact_id = "art_abcd1234efgh"
+    parent = MetricFrame(
+        _df=pd.DataFrame({"revenue": [100.0]}),
+        meta=MetricFrameMeta(
+            ref=parent_artifact_id,
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_observe",
+            created_at=_now(),
+            row_count=1,
+            byte_size=0,
+            lineage=Lineage(),
+            metric_id="sales.failure_rate",
+            axes={},
+            measure={"name": "failure_rate"},
+            window=None,
+            where={},
+            semantic_kind="scalar",
+            semantic_model="sales",
+            artifact_id=parent_artifact_id,
+            component_ref="frame_deadbeef",  # stale ref pointing to nothing
+            decomposition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
+        ),
+    )
+    parent.meta = write_frame_to_disk(session.layout, parent)
+
+    # Create the ComponentFrame at the deterministic ref
+    det_ref = make_component_artifact_id(parent_artifact_id)
+    component = ComponentFrame(
+        _df=pd.DataFrame({"numerator": [1.0], "denominator": [2.0], "failure_rate": [0.5]}),
+        meta=ComponentFrameMeta(
+            ref=det_ref,
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job="job_observe",
+            created_at=_now(),
+            row_count=1,
+            byte_size=0,
+            lineage=Lineage(),
+            parent_ref=parent_artifact_id,
+            parent_kind="metric_frame",
+            metric_id="sales.failure_rate",
+            decomposition_kind="ratio",
+            components={"numerator": "a", "denominator": "b"},
+            axes={},
+            semantic_kind="scalar",
+            semantic_model="sales",
+        ),
+    )
+    component.meta = write_frame_to_disk(session.layout, component)
+
+    # components() should fall back to the deterministic ref
+    loaded = parent.components()
+    assert isinstance(loaded, ComponentFrame)
+    assert loaded.ref == det_ref

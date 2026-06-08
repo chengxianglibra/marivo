@@ -135,12 +135,18 @@ def to_microseconds_utc(dt: Any) -> int:
     return int(dt.astimezone(UTC).timestamp() * 1_000_000)
 
 
+def make_component_artifact_id(parent_ref: str) -> str:
+    """Deterministic component frame ref derived from the parent's ref or artifact_id."""
+    return _hash("comp_", parent_ref)
+
+
 __all__ = [
     "canonical_json",
     "canonical_subject_key",
     "make_action_id",
     "make_artifact_id",
     "make_assessment_id",
+    "make_component_artifact_id",
     "make_finding_id",
     "make_issue_id",
     "make_proposition_id",
