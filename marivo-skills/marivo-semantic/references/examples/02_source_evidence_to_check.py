@@ -1,7 +1,7 @@
 """Source evidence collection to authoring assessment.
 
-Shows: collect a SourceEvidencePack with bounded profiles, record source SQL
-evidence, then run assess_authoring for a metric and branch on status.
+Shows: collect a SourceEvidencePack with bounded profiles, then run
+assess_authoring for a metric and branch on status.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def backend_factory(_name: str) -> ibis.backends.duckdb.Backend:
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp) / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = ms.SemanticProject(workspace_dir=Path(tmp))
+    project = ms.SemanticProject(root=root)
     project.bind_datasource_access(
         inspect_source=fake_inspect_source, backend_factory=backend_factory
     )
@@ -64,16 +64,6 @@ with tempfile.TemporaryDirectory() as tmp:
     amount = next(p for p in pack.column_profiles if p.column == "amount")
     print("amount sample scope:", amount.sample_scope, "approximate:", amount.approximate)
 
-    sql_ref = project.record_authoring_evidence(
-        ms.AuthoringEvidenceInput(
-            kind="source_sql",
-            subject_refs=("sales.revenue",),
-            content="select sum(amount) as revenue from orders where paid",
-            source_dialect="duckdb",
-        )
-    )
-    print("sql evidence ref:", sql_ref.id)
-
     assessment = project.assess_authoring(
         object_kind="metric",
         subject_ref="sales.revenue",
@@ -85,6 +75,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 columns=("amount", "paid"),
             ),
         ),
+        semantic_refs=("sales.orders",),
     )
     print("assessment status:", assessment.status)
-    print("issues:", [issue.kind for issue in assessment.issues])
+    print("issue kinds:", [issue.kind for issue in assessment.issues])

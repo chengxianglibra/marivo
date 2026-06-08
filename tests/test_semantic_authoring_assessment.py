@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import inspect
+
 import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
 from marivo.semantic.authoring_check import check_authoring_inputs
 from marivo.semantic.evidence import (
     AuthoringSourceInput,
-    BoundedProfilePolicy,
     ColumnProfile,
+    MetadataOnlyPolicy,
     SourceEvidencePack,
     TableSource,
 )
@@ -18,66 +20,64 @@ from marivo.semantic.reader import SemanticProject
 def _write_source_pack(
     store: EvidenceStore,
     *,
-    datasource: str,
+    datasource: str = "warehouse",
     table: str,
     columns: tuple[tuple[str, str], ...],
 ) -> None:
     source = TableSource(table=table)
-    table_comment = f"{table} table"
-    column_comments = tuple((name, f"{name} column") for name, _type in columns)
-    fp = structural_fingerprint(
+    structural_fp = structural_fingerprint(
         datasource=datasource,
         source=source,
         schema=columns,
-        table_comment=table_comment,
-        column_comments=column_comments,
+        table_comment=f"{table} source",
+        column_comments=(),
     )
     ref = store.make_source_ref(
         datasource=datasource,
         source=source,
-        structural_fp=fp,
-        collected_at="2026-06-07T00:00:00Z",
+        structural_fp=structural_fp,
+        collected_at="2026-06-06T00:00:00+00:00",
     )
-    pack = SourceEvidencePack(
-        datasource=datasource,
-        source=source,
-        schema=columns,
-        table_comment=table_comment,
-        column_comments=column_comments,
-        nullable=tuple((name, None) for name, _type in columns),
-        partition_hints=(),
-        key_hints=(),
-        column_profiles=tuple(
-            ColumnProfile(
-                column=name,
-                data_type=type_name,
-                nullable=None,
-                comment=f"{name} column",
-            )
-            for name, type_name in columns
-        ),
-        metadata_warnings=(),
-        evidence_refs=(ref,),
-        sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=50),
-        redaction_status="not_redacted",
-        truncated=False,
+    store.write_source_pack(
+        SourceEvidencePack(
+            datasource=datasource,
+            source=source,
+            schema=columns,
+            table_comment=f"{table} source",
+            column_comments=(),
+            nullable=tuple((column, True) for column, _type in columns),
+            partition_hints=(),
+            key_hints=(),
+            column_profiles=(
+                ColumnProfile(
+                    column=column,
+                    data_type=data_type,
+                    nullable=True,
+                    comment=None,
+                    sample_scope="none",
+                )
+                for column, data_type in columns
+            ),
+            metadata_warnings=(),
+            evidence_refs=(ref,),
+            sample_policy=MetadataOnlyPolicy(),
+            redaction_status="redacted",
+            truncated=False,
+        )
     )
-    store.write_source_pack(pack)
 
 
 def test_check_authoring_inputs_checks_each_source_role_schema(tmp_path):
     store = EvidenceStore(tmp_path)
     _write_source_pack(
         store,
-        datasource="warehouse",
         table="orders",
-        columns=(("order_id", "int64"), ("customer_id", "int64")),
+        columns=(("order_id", "BIGINT"), ("customer_id", "BIGINT")),
     )
     _write_source_pack(
         store,
-        datasource="warehouse",
         table="customers",
-        columns=(("customer_id", "int64"), ("segment", "string")),
+        columns=(("customer_id", "BIGINT"), ("name", "VARCHAR")),
     )
 
     result = check_authoring_inputs(
@@ -98,20 +98,49 @@ def test_check_authoring_inputs_checks_each_source_role_schema(tmp_path):
                 columns=("missing_customer_id",),
             ),
         ),
-        semantic_refs=("sales.orders", "sales.customers"),
     )
 
     assert result.status == "blocked"
     assert result.issues[0].kind == "missing_column"
-    assert result.issues[0].refs == ("sales.orders_to_customers", "role:to", "warehouse.customers")
+    assert result.issues[0].refs == (
+        "sales.orders_to_customers",
+        "role:to",
+        "warehouse.customers",
+    )
     assert "missing_customer_id" in result.issues[0].message
 
 
-def test_check_authoring_inputs_marks_missing_source_as_needs_input(tmp_path):
+def test_check_authoring_inputs_requires_relationship_from_and_to_sources(tmp_path):
     store = EvidenceStore(tmp_path)
+    _write_source_pack(
+        store,
+        table="orders",
+        columns=(("order_id", "BIGINT"), ("customer_id", "BIGINT")),
+    )
 
     result = check_authoring_inputs(
         store=store,
+        object_kind="relationship",
+        subject_ref="sales.orders_to_customers",
+        sources=(
+            AuthoringSourceInput(
+                role="from",
+                datasource="warehouse",
+                source=TableSource(table="orders"),
+                columns=("customer_id",),
+            ),
+        ),
+    )
+
+    assert result.status == "needs_input"
+    assert result.issues[0].kind == "missing_source"
+    assert result.issues[0].refs == ("sales.orders_to_customers", "role:to")
+    assert "requires a 'to' source" in result.issues[0].message
+
+
+def test_check_authoring_inputs_marks_missing_source_as_needs_input(tmp_path):
+    result = check_authoring_inputs(
+        store=EvidenceStore(tmp_path),
         object_kind="metric",
         subject_ref="sales.revenue",
         sources=(
@@ -122,7 +151,6 @@ def test_check_authoring_inputs_marks_missing_source_as_needs_input(tmp_path):
                 columns=("amount",),
             ),
         ),
-        semantic_refs=("sales.orders",),
     )
 
     assert result.status == "needs_input"
@@ -131,83 +159,73 @@ def test_check_authoring_inputs_marks_missing_source_as_needs_input(tmp_path):
 
 
 def test_derived_metric_allows_empty_sources(tmp_path):
-    store = EvidenceStore(tmp_path)
-
     result = check_authoring_inputs(
-        store=store,
+        store=EvidenceStore(tmp_path),
         object_kind="derived_metric",
-        subject_ref="sales.aov",
-        sources=(),
+        subject_ref="sales.average_order_value",
         semantic_refs=("sales.revenue", "sales.order_count"),
     )
 
     assert result.status == "supported"
     assert result.issues == ()
-
-
-# ---------------------------------------------------------------------------
-# SemanticProject.assess_authoring integration tests
-# ---------------------------------------------------------------------------
-
-
-def _inspect_source(datasource, *, source, include_partitions=True):
-    return TableMetadata(
-        datasource=datasource,
-        table=source.table,
-        database=source.database,
-        backend_type="duckdb",
-        comment="orders fact",
-        columns=(
-            ColumnMetadata("order_id", "INTEGER", False, "Primary id", 1),
-            ColumnMetadata("amount", "DOUBLE", True, "Gross amount", 2),
-        ),
-        partitions=(),
-        warnings=(),
-    )
-
-
-def _backend_factory(_name):
-    con = ibis.duckdb.connect(":memory:")
-    con.con.execute("CREATE TABLE orders (order_id INT, amount DOUBLE)")
-    con.con.execute("INSERT INTO orders VALUES (1, 10.0), (2, 20.0)")
-    return con
+    assert result.facts[0].label == "semantic_dependencies"
+    assert result.facts[0].value == ["sales.revenue", "sales.order_count"]
 
 
 def test_assess_authoring_collects_current_source_context_then_checks(tmp_path):
+    def inspect_orders(datasource, *, source, include_partitions=True):
+        return TableMetadata(
+            datasource=datasource,
+            table=source.table,
+            database=source.database,
+            backend_type="duckdb",
+            comment="orders fact",
+            columns=(
+                ColumnMetadata("order_id", "INTEGER", False, "pk", 1),
+                ColumnMetadata("amount", "DOUBLE", True, "gross amount", 2),
+            ),
+            partitions=(),
+            warnings=(),
+        )
+
+    def backend_factory(_name):
+        con = ibis.duckdb.connect(":memory:")
+        con.con.execute("CREATE TABLE orders (order_id INT, amount DOUBLE)")
+        con.con.execute("INSERT INTO orders VALUES (1, 10.0), (2, 20.0)")
+        return con
+
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(workspace_dir=root)
-    project.bind_datasource_access(
-        inspect_source=_inspect_source,
-        backend_factory=_backend_factory,
-    )
+    project = SemanticProject(root=root)
+    project.bind_datasource_access(inspect_source=inspect_orders, backend_factory=backend_factory)
+    source = TableSource(table="orders")
 
-    assessment = project.assess_authoring(
+    result = project.assess_authoring(
         object_kind="metric",
         subject_ref="sales.revenue",
         sources=(
             AuthoringSourceInput(
                 role="primary",
                 datasource="warehouse",
-                source=TableSource(table="orders"),
+                source=source,
                 columns=("amount",),
             ),
         ),
         semantic_refs=("sales.orders",),
     )
 
-    assert assessment.status == "supported"
-    assert any(fact.label == "source_context" for fact in assessment.facts)
-    assert any(fact.label == "referenced_columns" for fact in assessment.facts)
-    assert project.list_evidence(datasource="warehouse", source=TableSource(table="orders"))
+    assert result.status == "supported"
+    assert any(fact.label == "source_context" for fact in result.facts)
+    assert any(fact.label == "referenced_columns" for fact in result.facts)
+    assert project.list_evidence(datasource="warehouse", source=source) == ()
 
 
 def test_assess_authoring_rejects_unbound_datasource_access(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(workspace_dir=root)
+    project = SemanticProject(root=root)
 
-    assessment = project.assess_authoring(
+    result = project.assess_authoring(
         object_kind="metric",
         subject_ref="sales.revenue",
         sources=(
@@ -218,9 +236,40 @@ def test_assess_authoring_rejects_unbound_datasource_access(tmp_path):
                 columns=("amount",),
             ),
         ),
-        semantic_refs=("sales.orders",),
     )
 
-    assert assessment.status == "blocked"
-    assert assessment.issues[0].kind == "missing_source"
-    assert "bind_datasource_access" in assessment.issues[0].message
+    assert result.status == "blocked"
+    assert result.issues[0].kind == "missing_source"
+    assert result.issues[0].message
+    assert "bind_datasource_access" in result.issues[0].message
+
+
+def test_assess_authoring_allows_derived_metric_without_sources_or_bound_access(tmp_path):
+    root = tmp_path / ".marivo" / "semantic"
+    root.mkdir(parents=True)
+    project = SemanticProject(root=root)
+
+    result = project.assess_authoring(
+        object_kind="derived_metric",
+        subject_ref="sales.average_order_value",
+        sources=(),
+        semantic_refs=("sales.revenue", "sales.order_count"),
+    )
+
+    assert result.status == "supported"
+    assert any(
+        fact.label == "semantic_dependencies"
+        and fact.value == ["sales.revenue", "sales.order_count"]
+        for fact in result.facts
+    )
+
+
+def test_assess_authoring_signature_omits_draft_and_datasource_overrides():
+    signature = inspect.signature(SemanticProject.assess_authoring)
+    assert not {
+        "ai_context",
+        "source_sql",
+        "evidence_refs",
+        "inspect_source",
+        "backend_factory",
+    }.intersection(signature.parameters)

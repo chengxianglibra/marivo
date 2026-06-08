@@ -1660,6 +1660,9 @@ def test_readiness_without_bound_factory(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_MODEL_PY,
         }
     )
-    # readiness() produces a degraded report even without a bound factory
     report = project.readiness()
-    assert report is not None
+    assert report.status == "blocked"
+    blockers = [issue for issue in report.blockers if issue.kind == "datasource_unreachable"]
+    assert blockers
+    assert "project-bound backend access" in blockers[0].message
+    assert "bind_datasource_access" in blockers[0].message

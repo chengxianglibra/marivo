@@ -98,6 +98,7 @@ def parity_check(
     backend_factory: Callable[[str], IbisBackend],
     rel_tol: float | None = None,
     abs_tol: float | None = None,
+    force: bool = False,
 ) -> ParityResult:
     """Run parity check for a base metric against its source SQL.
 
@@ -112,7 +113,7 @@ def parity_check(
     """
     # Check cache first
     cached = project._parity_results.get(metric_id)
-    if cached is not None:
+    if cached is not None and not force:
         return cached
 
     metric_ir = _get_metric_or_raise(project, metric_id)

@@ -28,6 +28,15 @@ _DANGEROUS_DECISION_BY_KIND = {
     "time_field": "time_field_identity",
 }
 
+_SOURCE_REQUIRED_KINDS = frozenset(("dataset", "field", "time_field", "metric", "relationship"))
+_REQUIRED_SOURCE_ROLES_BY_KIND = {
+    "dataset": ("primary",),
+    "field": ("primary",),
+    "time_field": ("primary",),
+    "metric": ("primary",),
+    "relationship": ("from", "to"),
+}
+
 
 def _source_pack(
     store: EvidenceStore, datasource: str, source: DatasetSource
@@ -39,20 +48,8 @@ def _source_pack(
     return None
 
 
-def _source_id(datasource: str, source: DatasetSource) -> str:
-    return f"{datasource}.{source_label(source.to_ir())}"
-
-
-def _issue_refs(subject_ref: str, source_input: AuthoringSourceInput) -> tuple[str, ...]:
-    return (
-        subject_ref,
-        f"role:{source_input.role}",
-        _source_id(source_input.datasource, source_input.source),
-    )
-
-
-def _sources_required(object_kind: AuthoringObjectKind) -> bool:
-    return object_kind in {"dataset", "field", "time_field", "metric", "relationship"}
+def _source_ref(source_input: AuthoringSourceInput) -> str:
+    return f"{source_input.datasource}.{source_label(source_input.source.to_ir())}"
 
 
 def check_authoring_inputs(
@@ -66,90 +63,104 @@ def check_authoring_inputs(
     facts: list[EvidenceFact] = []
     issues: list[AssessmentIssue] = []
 
-    if _sources_required(object_kind) and not sources:
+    if object_kind in _SOURCE_REQUIRED_KINDS and not sources:
         issues.append(
             AssessmentIssue(
                 kind="missing_source",
                 severity="warning",
                 refs=(subject_ref,),
-                message=f"{object_kind} assessment requires at least one physical source.",
-                rule_id="source_context_present",
+                message=f"{object_kind} authoring requires at least one source input.",
+                rule_id="source_evidence_present",
                 evidence_refs=(),
             )
         )
         return AssessmentResult(
             status=derive_status(tuple(issues), ()),
-            facts=(),
+            facts=tuple(facts),
             issues=tuple(issues),
             questions=(),
         )
 
+    present_roles = {source.role for source in sources}
+    for required_role in _REQUIRED_SOURCE_ROLES_BY_KIND.get(object_kind, ()):
+        if required_role not in present_roles:
+            issues.append(
+                AssessmentIssue(
+                    kind="missing_source",
+                    severity="warning",
+                    refs=(subject_ref, f"role:{required_role}"),
+                    message=f"{object_kind} authoring requires a {required_role!r} source.",
+                    rule_id="source_role_present",
+                    evidence_refs=(),
+                )
+            )
+
     for source_input in sources:
+        source_ref = _source_ref(source_input)
+        refs = (subject_ref, f"role:{source_input.role}", source_ref)
         pack = _source_pack(store, source_input.datasource, source_input.source)
         if pack is None:
             issues.append(
                 AssessmentIssue(
                     kind="missing_source",
                     severity="warning",
-                    refs=_issue_refs(subject_ref, source_input),
+                    refs=refs,
                     message=(
-                        f"No source context for role {source_input.role!r}: "
-                        f"{_source_id(source_input.datasource, source_input.source)}."
+                        f"No source evidence for role {source_input.role!r} source "
+                        f"{source_ref}. Collect it before authoring."
                     ),
-                    rule_id="source_context_present",
+                    rule_id="source_evidence_present",
                     evidence_refs=(),
                 )
             )
             continue
 
-        evidence_ids = tuple(ref.id for ref in pack.evidence_refs)
+        pack_evidence_refs = tuple(ref.id for ref in pack.evidence_refs)
         facts.append(
             EvidenceFact(
-                id=f"source:{subject_ref}:{source_input.role}:{_source_id(source_input.datasource, source_input.source)}",
+                id=f"source:{subject_ref}:{source_input.role}:{source_ref}",
                 label="source_context",
                 value={
                     "role": source_input.role,
                     "datasource": source_input.datasource,
                     "source": source_input.source.to_dict(),
                 },
-                evidence_refs=evidence_ids,
+                evidence_refs=pack_evidence_refs,
             )
         )
 
+        # referenced physical columns must exist in this role's source schema
         schema_columns = {name for name, _type in pack.schema}
-        missing_columns = tuple(c for c in source_input.columns if c not in schema_columns)
-        present_columns = tuple(c for c in source_input.columns if c in schema_columns)
-        for column in missing_columns:
+        missing = [column for column in source_input.columns if column not in schema_columns]
+        for column in missing:
             issues.append(
                 AssessmentIssue(
                     kind="missing_column",
                     severity="blocker",
-                    refs=_issue_refs(subject_ref, source_input),
+                    refs=refs,
                     message=(
-                        f"Column {column!r} is not in role {source_input.role!r} source "
-                        f"{_source_id(source_input.datasource, source_input.source)}."
+                        f"Column {column!r} for role {source_input.role!r} source "
+                        f"{source_ref} is not in the source schema."
                     ),
                     rule_id="referenced_column_exists",
-                    evidence_refs=evidence_ids,
+                    evidence_refs=pack_evidence_refs,
                 )
             )
-        if present_columns:
+        present = [column for column in source_input.columns if column in schema_columns]
+        if present:
             facts.append(
                 EvidenceFact(
-                    id=f"columns:{subject_ref}:{source_input.role}:{_source_id(source_input.datasource, source_input.source)}",
+                    id=f"columns:{subject_ref}:{source_input.role}:{source_ref}",
                     label="referenced_columns",
-                    value={
-                        "role": source_input.role,
-                        "columns": list(present_columns),
-                    },
-                    evidence_refs=evidence_ids,
+                    value={"role": source_input.role, "columns": present},
+                    evidence_refs=pack_evidence_refs,
                 )
             )
 
     if semantic_refs:
         facts.append(
             EvidenceFact(
-                id=f"semantic_refs:{subject_ref}",
+                id=f"semantic:{subject_ref}",
                 label="semantic_dependencies",
                 value=list(semantic_refs),
                 evidence_refs=(),

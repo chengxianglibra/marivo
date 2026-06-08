@@ -10,17 +10,17 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
-    PREVIEW_DEFAULT_LIMIT,
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
     preview_ibis_table,
     preview_ibis_value,
+    validate_preview_limit,
 )
 from marivo.semantic.ir import ParityStatus, TableSourceIR
 from marivo.semantic.materializer import Materializer
 from marivo.semantic.parity import propagated_parity_status
-from marivo.semantic.richness import RichnessSummary
+from marivo.semantic.richness import DemandSignal, RichnessGap, build_richness_report
 
 if TYPE_CHECKING:
     from marivo.analysis.datasources.metadata import TableMetadata
@@ -31,6 +31,7 @@ ReadinessSeverity = Literal["blocker", "warning"]
 ReadinessIssueKind = Literal[
     "load_error",
     "datasource_unreachable",
+    "unknown_ref",
     "missing_schema",
     "missing_comments",
     "missing_raw_preview",
@@ -77,6 +78,22 @@ class ReadinessIssue:
 
 
 @dataclass(frozen=True)
+class ReadinessInputSummary:
+    datasources: tuple[str, ...]
+    refs: tuple[str, ...]
+    tables: tuple[str, ...]
+    decision_records: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "datasources": list(self.datasources),
+            "refs": list(self.refs),
+            "tables": list(self.tables),
+            "decision_records": list(self.decision_records),
+        }
+
+
+@dataclass(frozen=True)
 class PreviewSummary:
     required_previews: tuple[str, ...]
     completed_previews: tuple[str, ...]
@@ -118,18 +135,12 @@ class ParitySummary:
 
 
 @dataclass(frozen=True)
-class ReadinessInputSummary:
-    datasources: tuple[str, ...]
-    refs: tuple[str, ...]
-    tables: tuple[str, ...]
-    decision_records: tuple[str, ...]
+class RichnessSummary:
+    gaps: tuple[str, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "datasources": list(self.datasources),
-            "refs": list(self.refs),
-            "tables": list(self.tables),
-            "decision_records": list(self.decision_records),
+            "gaps": list(self.gaps),
         }
 
 
@@ -207,7 +218,7 @@ def _dedupe(values: Iterable[str]) -> tuple[str, ...]:
 def _decision_record_summary(project: SemanticProject, refs: Iterable[str]) -> tuple[str, ...]:
     from marivo.semantic.ledger import LedgerStore
 
-    store = LedgerStore(project.workspace_dir)
+    store = LedgerStore(project.semantic_root)
     records: list[str] = []
     for ref in refs:
         record = store.read_object(ref)
@@ -298,7 +309,7 @@ def _evidence_ledger_blockers(project: SemanticProject) -> list[ReadinessIssue]:
     Mapping: time_field -> time_field_identity, metric -> metric_decomposition."""
     from marivo.semantic.ledger import LedgerStore
 
-    store = LedgerStore(project.semantic_root)
+    store = LedgerStore(project.root)
     kinds, _objects = _object_maps(project)
     issues: list[ReadinessIssue] = []
     for semantic_id, kind in kinds.items():
@@ -417,9 +428,61 @@ def _dataset_raw_preview_refs(
         datasource = getattr(dataset, "datasource", None)
         if isinstance(source, TableSourceIR) and isinstance(datasource, str):
             raw_refs.append(_raw_preview_ref(datasource, source.table, source.database))
-        else:
-            raw_refs.append(ref)
     return tuple(raw_refs)
+
+
+def _dependencies_for_ref(
+    ref: str,
+    objects: Mapping[str, object],
+    kinds: Mapping[str, _SemanticKind],
+) -> tuple[str, ...]:
+    kind = kinds.get(ref)
+    obj = objects.get(ref)
+    if obj is None:
+        return ()
+    if kind in {_SemanticKind.FIELD, _SemanticKind.TIME_FIELD}:
+        dataset = getattr(obj, "dataset", None)
+        return (dataset,) if isinstance(dataset, str) else ()
+    if kind == _SemanticKind.METRIC:
+        deps: list[str] = []
+        deps.extend(getattr(obj, "datasets", ()))
+        decomposition = getattr(obj, "decomposition", None)
+        components = getattr(decomposition, "components", {})
+        if isinstance(components, Mapping):
+            deps.extend(str(value) for value in components.values())
+        return tuple(deps)
+    if kind == _SemanticKind.RELATIONSHIP:
+        relationship_deps = (
+            getattr(obj, "from_dataset", None),
+            getattr(obj, "to_dataset", None),
+            *getattr(obj, "from_fields", ()),
+            *getattr(obj, "to_fields", ()),
+        )
+        return tuple(dep for dep in relationship_deps if isinstance(dep, str))
+    return ()
+
+
+def _expand_checked_refs(
+    refs: Iterable[str] | None,
+    kinds: Mapping[str, _SemanticKind],
+    objects: Mapping[str, object],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    seeds = _dedupe(refs if refs is not None else _default_checked_refs(kinds))
+    checked: list[str] = []
+    unknown: list[str] = []
+    queue = list(seeds)
+    while queue:
+        ref = queue.pop(0)
+        if ref in checked:
+            continue
+        checked.append(ref)
+        if ref not in kinds:
+            unknown.append(ref)
+            continue
+        for dep in _dependencies_for_ref(ref, objects, kinds):
+            if dep not in checked and dep not in queue:
+                queue.append(dep)
+    return tuple(checked), tuple(unknown)
 
 
 def _raw_preview_datasets_by_ref(
@@ -438,6 +501,39 @@ def _raw_preview_datasets_by_ref(
             raw_ref = _raw_preview_ref(datasource, source.table, source.database)
             out.setdefault(raw_ref, []).append(ref)
     return {key: tuple(values) for key, values in out.items()}
+
+
+def _raw_preview_specs_by_ref(
+    refs: Iterable[str],
+    objects: Mapping[str, object],
+    kinds: Mapping[str, _SemanticKind],
+) -> dict[str, tuple[str, str, str | tuple[str, ...] | None]]:
+    specs: dict[str, tuple[str, str, str | tuple[str, ...] | None]] = {}
+    for ref in refs:
+        if kinds.get(ref) != _SemanticKind.DATASET:
+            continue
+        dataset = objects.get(ref)
+        source = getattr(dataset, "source", None)
+        datasource = getattr(dataset, "datasource", None)
+        if isinstance(source, TableSourceIR) and isinstance(datasource, str):
+            raw_ref = _raw_preview_ref(datasource, source.table, source.database)
+            specs[raw_ref] = (datasource, source.table, source.database)
+    return specs
+
+
+def _datasource_refs_for_checked_refs(
+    refs: Iterable[str],
+    objects: Mapping[str, object],
+    kinds: Mapping[str, _SemanticKind],
+) -> tuple[str, ...]:
+    datasources: list[str] = []
+    for ref in refs:
+        if kinds.get(ref) != _SemanticKind.DATASET:
+            continue
+        datasource = getattr(objects.get(ref), "datasource", None)
+        if isinstance(datasource, str):
+            datasources.append(datasource)
+    return _dedupe(datasources)
 
 
 def _refs_with_issue(issues: Iterable[ReadinessIssue]) -> set[str]:
@@ -563,15 +659,51 @@ def _preview_column_name(semantic_id: str) -> str:
 
 
 def _run_preview(
-    project: SemanticProject, ref: str, kind: _SemanticKind, backend_factory: Callable[[str], Any]
+    project: SemanticProject,
+    ref: str,
+    kind: _SemanticKind,
+    backend_factory: Callable[[str], Any],
+    *,
+    limit: int,
+    redact: bool,
 ) -> PreviewResult:
     if kind == _SemanticKind.DATASET:
-        return project.preview_dataset(ref, backend_factory=backend_factory)
+        return project.preview_dataset(
+            ref, backend_factory=backend_factory, limit=limit, redact=redact
+        )
     if kind in {_SemanticKind.FIELD, _SemanticKind.TIME_FIELD}:
-        return project.preview_field(ref, backend_factory=backend_factory)
+        return project.preview_field(
+            ref, backend_factory=backend_factory, limit=limit, redact=redact
+        )
     if kind == _SemanticKind.METRIC:
-        return project.preview_metric(ref, backend_factory=backend_factory)
+        return project.preview_metric(
+            ref, backend_factory=backend_factory, limit=limit, redact=redact
+        )
     raise ValueError(f"cannot preview semantic kind {kind}")
+
+
+def _run_raw_preview(
+    *,
+    ref: str,
+    datasource: str,
+    table: str,
+    database: str | tuple[str, ...] | None,
+    backend_factory: Callable[[str], Any],
+    preview_limit: int,
+    redact: bool,
+) -> PreviewResult:
+    backend = backend_factory(datasource)
+    preview_table = (
+        backend.table(table) if database is None else backend.table(table, database=database)
+    )
+    return preview_ibis_table(
+        preview_table,
+        kind="datasource_table",
+        ref=ref,
+        limit=preview_limit,
+        sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
+        redact=redact,
+    )
 
 
 @dataclass(frozen=True)
@@ -589,6 +721,9 @@ def _run_semantic_previews(
     kinds: Mapping[str, _SemanticKind],
     objects: Mapping[str, object],
     backend_factory: Callable[[str], Any],
+    *,
+    preview_limit: int,
+    redact: bool,
 ) -> _SemanticPreviewRun:
     completed: list[str] = []
     failed: list[str] = []
@@ -626,9 +761,18 @@ def _run_semantic_previews(
                 refs,
                 kinds,
                 materializer,
+                preview_limit=preview_limit,
+                redact=redact,
             )
         except Exception:
-            fallback = _run_serial_semantic_previews(project, refs, kinds, backend_factory)
+            fallback = _run_serial_semantic_previews(
+                project,
+                refs,
+                kinds,
+                backend_factory,
+                preview_limit=preview_limit,
+                redact=redact,
+            )
             completed.extend(fallback.completed)
             failed.extend(fallback.failed)
             blockers.extend(fallback.blockers)
@@ -644,7 +788,9 @@ def _run_semantic_previews(
         if kind is None:
             continue
         try:
-            preview = _run_metric_preview(ref, metric_materializer)
+            preview = _run_metric_preview(
+                ref, metric_materializer, preview_limit=preview_limit, redact=redact
+            )
         except Exception as exc:
             blockers.append(_semantic_preview_blocker(ref, kind, exc))
             failed.append(ref)
@@ -654,7 +800,14 @@ def _run_semantic_previews(
             warnings.extend(_sensitive_preview_warnings((ref,), preview.warnings))
 
     if serial_refs:
-        fallback = _run_serial_semantic_previews(project, serial_refs, kinds, backend_factory)
+        fallback = _run_serial_semantic_previews(
+            project,
+            serial_refs,
+            kinds,
+            backend_factory,
+            preview_limit=preview_limit,
+            redact=redact,
+        )
         completed.extend(fallback.completed)
         failed.extend(fallback.failed)
         blockers.extend(fallback.blockers)
@@ -675,6 +828,9 @@ def _run_dataset_group_preview(
     refs: Iterable[str],
     kinds: Mapping[str, _SemanticKind],
     materializer: Materializer,
+    *,
+    preview_limit: int,
+    redact: bool,
 ) -> PreviewResult:
     parent_table = materializer.dataset(dataset_ref)
     projections: list[Any] = []
@@ -698,25 +854,33 @@ def _run_dataset_group_preview(
         preview_table,
         kind="semantic_dataset",
         ref=dataset_ref,
-        limit=PREVIEW_DEFAULT_LIMIT,
+        limit=preview_limit,
+        redact=redact,
         sample_policy=PreviewSamplePolicy(
             method="bounded_limit",
-            limit=PREVIEW_DEFAULT_LIMIT,
+            limit=preview_limit,
         ),
     )
 
 
-def _run_metric_preview(ref: str, materializer: Materializer) -> PreviewResult:
+def _run_metric_preview(
+    ref: str,
+    materializer: Materializer,
+    *,
+    preview_limit: int,
+    redact: bool,
+) -> PreviewResult:
     metric_value = materializer.metric(ref)
     result = preview_ibis_value(
         metric_value,
         kind="semantic_metric",
         ref=ref,
-        limit=PREVIEW_DEFAULT_LIMIT,
+        limit=preview_limit,
         column_name="value",
+        redact=redact,
         sample_policy=PreviewSamplePolicy(
             method="pre_aggregate_limit",
-            limit=PREVIEW_DEFAULT_LIMIT,
+            limit=preview_limit,
         ),
     )
     if materializer._sample_size is not None:
@@ -746,6 +910,9 @@ def _run_serial_semantic_previews(
     refs: Iterable[str],
     kinds: Mapping[str, _SemanticKind],
     backend_factory: Callable[[str], Any],
+    *,
+    preview_limit: int,
+    redact: bool,
 ) -> _SemanticPreviewRun:
     completed: list[str] = []
     failed: list[str] = []
@@ -758,7 +925,14 @@ def _run_serial_semantic_previews(
         if kind is None or kind == _SemanticKind.RELATIONSHIP:
             continue
         try:
-            preview = _run_preview(project, ref, kind, backend_factory)
+            preview = _run_preview(
+                project,
+                ref,
+                kind,
+                backend_factory,
+                limit=preview_limit,
+                redact=redact,
+            )
         except Exception as exc:
             blockers.append(_semantic_preview_blocker(ref, kind, exc))
             failed.append(ref)
@@ -811,18 +985,55 @@ def _sensitive_preview_warnings(
     return tuple(warnings)
 
 
+def _decision_record_refs(project: SemanticProject) -> tuple[str, ...]:
+    from marivo.semantic.ledger import LedgerStore
+
+    refs: list[str] = []
+    for record in LedgerStore(project.root).iter_object_records():
+        refs.extend(
+            f"{record.semantic_id}:{decision.decision_kind}" for decision in record.decisions
+        )
+    return _dedupe(refs)
+
+
+def _richness_gap_label(gap: RichnessGap) -> str:
+    return f"{gap.subkind}:{','.join(gap.refs)}"
+
+
+def _richness_warning_kind(gap: RichnessGap) -> ReadinessIssueKind:
+    if gap.subkind == "missing_business_definition":
+        return "missing_business_definition"
+    if gap.subkind == "missing_guardrails":
+        return "missing_guardrails"
+    return "unresolved_clarification"
+
+
+def _richness_warnings(gaps: Iterable[RichnessGap]) -> tuple[ReadinessIssue, ...]:
+    return tuple(
+        _issue(
+            _richness_warning_kind(gap),
+            "warning",
+            gap.refs,
+            f"Richness gap {gap.subkind} affects {', '.join(gap.refs)}.",
+            gap.suggested_action,
+        )
+        for gap in gaps
+    )
+
+
 def build_readiness_report(
     project: SemanticProject,
     evidence: _ReadinessEvidence,
     *,
     backend_factory: Callable[[str], Any] | None = None,
     refs: Iterable[str] | None = None,
-    demand: object | None = None,
+    demand: DemandSignal | None = None,
     preview_limit: int = 20,
     parity_rel_tol: float | None = None,
     parity_abs_tol: float | None = None,
     redact: bool = True,
 ) -> ReadinessReport:
+    preview_limit = validate_preview_limit(preview_limit)
     # Unpack evidence into local variables used throughout the function body.
     raw_previews = evidence.raw_previews
     failed_raw_previews = evidence.failed_raw_previews
@@ -838,7 +1049,6 @@ def build_readiness_report(
     require_preview = True
     require_comments = False
     require_evidence_ledger = True
-    strict_enrichment = True
 
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
@@ -866,7 +1076,7 @@ def build_readiness_report(
                 datasources=(),
                 refs=(),
                 tables=(),
-                decision_records=(),
+                decision_records=_decision_record_refs(project),
             ),
             preview_summary=PreviewSummary(
                 required_previews=(),
@@ -886,14 +1096,26 @@ def build_readiness_report(
         )
 
     kinds, objects = _object_maps(project)
-    checked_refs = _dedupe(refs if refs is not None else _default_checked_refs(kinds))
+    checked_refs, unknown_refs = _expand_checked_refs(refs, kinds, objects)
     checked_ref_set = set(checked_refs)
     table_metadata_tuple = tuple(table_metadata)
     metadata_by_dataset = _metadata_by_dataset_ref(project, table_metadata_tuple)
 
+    for ref in unknown_refs:
+        blockers.append(
+            _issue(
+                "unknown_ref",
+                "blocker",
+                (ref,),
+                f"Requested semantic ref {ref!r} is not loaded in the project registry.",
+                "Reload the project, fix the ref, or remove it from readiness refs.",
+            )
+        )
+
     raw_preview_set = set(raw_previews)
-    failed_raw_preview_set = set(failed_raw_previews)
     raw_ref_datasets = _raw_preview_datasets_by_ref(checked_refs, objects, kinds)
+    raw_preview_specs = _raw_preview_specs_by_ref(checked_refs, objects, kinds)
+    scoped_datasources = _datasource_refs_for_checked_refs(checked_refs, objects, kinds)
     if require_preview:
         raw_required = _dedupe(
             required_raw_previews
@@ -909,50 +1131,61 @@ def build_readiness_report(
         raw_required = _dedupe(required_raw_previews or ())
         semantic_required = _dedupe(required_semantic_previews or ())
 
-    for ref in raw_required:
-        issue_refs = (ref, *raw_ref_datasets.get(ref, ()))
-        if ref in failed_raw_preview_set:
-            blockers.append(
-                _issue(
-                    "raw_preview_failed",
-                    "blocker",
-                    issue_refs,
-                    f"Raw preview failed for {ref}.",
-                    "Run project.collect_source_preview(...) with a bounded limit and fix the datasource or table reference.",
-                )
-            )
-            failed_previews.append(ref)
-        elif ref in raw_preview_set:
-            completed_previews.append(ref)
-        else:
-            blockers.append(
-                _issue(
-                    "missing_raw_preview",
-                    "blocker",
-                    issue_refs,
-                    f"Raw preview evidence is missing for {ref}.",
-                    "Collect a bounded raw table preview with project.collect_source_preview(...).",
-                )
-            )
-
-    if semantic_required and backend_factory is None:
+    if (raw_required or semantic_required) and backend_factory is None:
+        preview_refs = _dedupe(tuple(raw_required) + tuple(semantic_required))
         blockers.append(
             _issue(
                 "datasource_unreachable",
                 "blocker",
-                semantic_required,
-                "Readiness requires project-bound backend access for semantic previews.",
-                "Call project.bind_datasource_access(...) to bind a backend factory.",
+                preview_refs,
+                "Required previews need project-bound backend access; call project.bind_datasource_access(...) before readiness closeout.",
+                "Bind datasource access with project.bind_datasource_access(...) and rerun readiness.",
             )
         )
-        failed_previews.extend(semantic_required)
+        failed_previews.extend(preview_refs)
     elif backend_factory is not None:
+        for ref in raw_required:
+            spec = raw_preview_specs.get(ref)
+            if spec is None:
+                if ref in raw_preview_set:
+                    completed_previews.append(ref)
+                continue
+            datasource, table, database = spec
+            issue_refs = (ref, *raw_ref_datasets.get(ref, ()))
+            try:
+                preview = _run_raw_preview(
+                    ref=ref,
+                    datasource=datasource,
+                    table=table,
+                    database=database,
+                    backend_factory=backend_factory,
+                    preview_limit=preview_limit,
+                    redact=redact,
+                )
+            except Exception as exc:
+                blockers.append(
+                    _issue(
+                        "raw_preview_failed",
+                        "blocker",
+                        issue_refs,
+                        f"Raw preview failed for {ref}: {exc}",
+                        "Fix the datasource or table reference and rerun readiness.",
+                    )
+                )
+                failed_previews.append(ref)
+            else:
+                completed_previews.append(ref)
+                preview_warnings.extend(preview.warnings)
+                warnings.extend(_sensitive_preview_warnings(issue_refs, preview.warnings))
+
         semantic_preview_run = _run_semantic_previews(
             project,
             semantic_required,
             kinds,
             objects,
             backend_factory,
+            preview_limit=preview_limit,
+            redact=redact,
         )
         completed_previews.extend(semantic_preview_run.completed)
         failed_previews.extend(semantic_preview_run.failed)
@@ -963,6 +1196,7 @@ def build_readiness_report(
     verified_metrics: list[str] = []
     unverified_metrics: list[str] = []
     drifted_metrics: list[str] = []
+    unsupported_metrics: list[str] = []
     skipped_metrics: list[str] = []
 
     reg = project._registry
@@ -971,6 +1205,42 @@ def build_readiness_report(
         if metric.semantic_id not in checked_ref_set:
             skipped_metrics.append(metric.semantic_id)
             continue
+        if (
+            backend_factory is not None
+            and not metric.is_derived
+            and metric.provenance.verification_mode == "sql_parity"
+        ):
+            try:
+                parity_result = project.parity_check(
+                    metric.semantic_id,
+                    backend_factory=backend_factory,
+                    rel_tol=parity_rel_tol,
+                    abs_tol=parity_abs_tol,
+                    force=True,
+                )
+            except Exception as exc:
+                unsupported_metrics.append(metric.semantic_id)
+                warnings.append(
+                    _issue(
+                        "metric_compile_failed",
+                        "warning",
+                        (metric.semantic_id,),
+                        f"Metric {metric.semantic_id} parity check could not run: {exc}",
+                        "Fix the source_sql, datasource access, or metric definition and rerun readiness.",
+                    )
+                )
+            else:
+                if parity_result.error is not None:
+                    unsupported_metrics.append(metric.semantic_id)
+                    warnings.append(
+                        _issue(
+                            "metric_compile_failed",
+                            "warning",
+                            (metric.semantic_id,),
+                            f"Metric {metric.semantic_id} parity check could not run: {parity_result.error.message}",
+                            "Fix the source_sql, datasource access, or metric definition and rerun readiness.",
+                        )
+                    )
         parity_status = propagated_parity_status(project, metric.semantic_id)
         if parity_status == ParityStatus.VERIFIED:
             verified_metrics.append(metric.semantic_id)
@@ -998,18 +1268,18 @@ def build_readiness_report(
             )
 
     if reg is not None:
-        for datasource in reg.datasources.values():
+        for datasource_ref in scoped_datasources:
             if backend_factory is None:
                 continue
             try:
-                backend_factory(datasource.semantic_id)
+                backend_factory(datasource_ref)
             except Exception as exc:
                 blockers.append(
                     _issue(
                         "datasource_unreachable",
                         "blocker",
-                        (datasource.semantic_id,),
-                        f"Datasource {datasource.semantic_id} is unreachable: {exc}",
+                        (datasource_ref,),
+                        f"Datasource {datasource_ref} is unreachable: {exc}",
                         "Fix datasource configuration or credentials and rerun readiness.",
                     )
                 )
@@ -1101,7 +1371,13 @@ def build_readiness_report(
                     )
                 )
 
-    for ref in raw_sql_required_refs:
+    scoped_raw_sql_required_refs = _dedupe(
+        ref
+        for ref in (*raw_sql_required_refs, *_derive_raw_sql_required_refs(kinds, objects))
+        if ref in checked_ref_set
+    )
+
+    for ref in scoped_raw_sql_required_refs:
         blockers.append(
             _issue(
                 "requires_raw_sql",
@@ -1137,10 +1413,11 @@ def build_readiness_report(
     if require_evidence_ledger:
         blockers.extend(_evidence_ledger_blockers(project))
 
-    if strict_enrichment:
-        se_blockers, se_warnings = _strict_enrichment_issues(checked_refs, kinds, objects)
-        blockers.extend(se_blockers)
-        warnings.extend(se_warnings)
+    richness_report = build_richness_report(project, demand=demand)
+    scoped_richness_gaps = tuple(
+        gap for gap in richness_report.gaps if set(gap.refs) & checked_ref_set
+    )
+    warnings.extend(_richness_warnings(scoped_richness_gaps))
 
     blocked_refs = _refs_with_issue(blockers)
     analysis_ready_refs = tuple(ref for ref in checked_refs if ref not in blocked_refs)
@@ -1155,38 +1432,12 @@ def build_readiness_report(
         verified_metrics=_dedupe(verified_metrics),
         unverified_metrics=_dedupe(unverified_metrics),
         drifted_metrics=_dedupe(drifted_metrics),
-        unsupported_metrics=(),
+        unsupported_metrics=_dedupe(unsupported_metrics),
         skipped_metrics=_dedupe(skipped_metrics),
     )
-    datasources_checked: tuple[str, ...] = ()
-    if reg is not None:
-        datasources_checked = tuple(
-            datasource.semantic_id
-            for datasource in reg.datasources.values()
-            if backend_factory is not None
-        )
-
-    # Fold richness gaps into warnings.
-    from marivo.semantic.richness import DemandSignal, build_richness_report
-
-    richness = build_richness_report(
-        project, demand=demand if isinstance(demand, DemandSignal) else None
+    datasources_checked: tuple[str, ...] = (
+        scoped_datasources if reg is not None and backend_factory is not None else ()
     )
-    richness_gap_ids = tuple(f"{gap.subkind}:{','.join(gap.refs)}" for gap in richness.gaps)
-    for gap in richness.gaps:
-        warnings.append(
-            _issue(
-                "missing_business_definition"
-                if gap.subkind == "missing_business_definition"
-                else "missing_guardrails"
-                if gap.subkind == "missing_guardrails"
-                else "unresolved_clarification",
-                "warning",
-                gap.refs,
-                f"Richness gap {gap.subkind} for {', '.join(gap.refs)}.",
-                gap.suggested_action,
-            )
-        )
 
     return ReadinessReport(
         status=_status(blockers, warnings),
@@ -1201,6 +1452,8 @@ def build_readiness_report(
         ),
         preview_summary=preview_summary,
         parity_summary=parity_summary,
-        richness_summary=RichnessSummary(gaps=richness_gap_ids),
+        richness_summary=RichnessSummary(
+            gaps=tuple(_richness_gap_label(gap) for gap in scoped_richness_gaps)
+        ),
         checked_at=_checked_at(),
     )

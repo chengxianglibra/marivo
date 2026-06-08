@@ -346,7 +346,7 @@ class AuthoringQuestion:
 
 
 @dataclass(frozen=True)
-class AssessmentResult:
+class AuthoringAssessment:
     status: ReviewStatus
     facts: tuple[EvidenceFact, ...]
     issues: tuple[AssessmentIssue, ...]
@@ -354,11 +354,8 @@ class AssessmentResult:
 
 
 @dataclass(frozen=True)
-class AuthoringAssessment:
-    status: ReviewStatus
-    facts: tuple[EvidenceFact, ...]
-    issues: tuple[AssessmentIssue, ...]
-    questions: tuple[AuthoringQuestion, ...]
+class AssessmentResult(AuthoringAssessment):
+    pass
 
 
 @dataclass(frozen=True)

@@ -28,10 +28,9 @@
 | `ColumnEvidence` | Deep-dive evidence for one source column |
 | `AssessmentIssue` | A single rule-based assessment issue |
 | `AuthoringQuestion` | An unresolved business decision |
-| `AuthoringAssessment` | Facts, issues, and questions from assess_authoring |
-| `AuthoringSourceInput` | Role-tagged source input for assess_authoring |
+| `AuthoringAssessment` | Facts, issues, and questions from an authoring assessment |
 | `AuthoringEvidenceInput` | Source SQL / knowledge / confirmation input |
-| `AiContextInput` | Agent-authored ai_context fields for an assessment |
+| `AiContextInput` | Agent-authored ai_context fields for semantic object handoff |
 
 ## Collecting Evidence
 
@@ -65,33 +64,6 @@ sql_ref = project.record_authoring_evidence(
         content="select sum(amount) from orders where paid",
     )
 )
-```
-
-## Assessing Authoring
-
-After collecting evidence, assess each candidate object before writing it:
-
-```python
-assessment = project.assess_authoring(
-    object_kind="metric",
-    subject_ref="sales.revenue",
-    sources=(
-        ms.AuthoringSourceInput(
-            role="primary",
-            datasource="warehouse",
-            source=ms.TableSource(table="orders"),
-            columns=("amount", "paid"),
-        ),
-    ),
-    semantic_refs=("sales.orders",),
-)
-if assessment.status == "blocked":
-    # resolve blockers first
-    raise RuntimeError([issue.message for issue in assessment.issues])
-if assessment.status == "needs_input":
-    # ask user or provide missing context
-    raise RuntimeError([question.prompt for question in assessment.questions])
-# assessment.status == "supported" -> proceed to author
 ```
 
 ## Retrieving Evidence
@@ -142,12 +114,3 @@ project.record_authoring_evidence(
     )
 )
 ```
-
-## Durable Decision Ledger
-
-Evidence collection produces fresh inspection facts. Authoring assessments and
-readiness reports consume those facts. The durable decision ledger records
-auto-recorded object decisions (`metric_decomposition`, `time_field_identity`)
-and user confirmations. Ledger entries persist across reloads and sessions;
-fresh evidence facts do not invalidate them unless staleness is explicitly
-checked.

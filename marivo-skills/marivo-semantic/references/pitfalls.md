@@ -17,13 +17,16 @@ pack facts (type, comments, nullable, partition hints, sampled values). Use
 `project.inspect_column_context(...)` to deep-dive a small set of columns, then
 author directly.
 
-## Skipping record_authoring_evidence before assess_authoring
+## Passing ledger evidence as source inputs
 
-`assess_authoring` evaluates evidence refs. If you have source SQL,
-knowledge documents, or user confirmations, record them with
-`project.record_authoring_evidence(AuthoringEvidenceInput(...))` first and cite
-the returned `EvidenceRef.id` in the assessment. Skipping this step produces
-`needs_input` or `blocked` results that are trivially resolvable.
+`project.assess_authoring(...)` checks whether the named semantic object has
+enough source context to author. It accepts bounded source roles through
+`sources=(ms.AuthoringSourceInput(...),)` and semantic dependencies through
+`semantic_refs=...`; it does not take ledger ids or ai_context fields as check
+inputs. If you have source SQL, knowledge documents, or user confirmations,
+record them with `project.record_authoring_evidence(AuthoringEvidenceInput(...))`
+for ledger and handoff context, then assess the object with the source/role
+shape.
 
 ## Forgetting to reload before inspect_authored_object
 
@@ -154,7 +157,8 @@ compare the semantic expression to the cited source and verify parity before
 closeout. A renamed field, changed filter, different time axis, or missing
 status condition can silently drift from the source definition.
 
-## Richness confused with readiness
+## Readiness warnings confused with blockers
 
-`project.richness(...)` is advisory. It does not block handoff. Fix readiness
-blockers first, then report richness gaps as recommended follow-up work.
+Readiness may report advisory richness and parity warnings alongside blockers.
+Do not treat warning-only gaps as handoff blockers. Fix readiness blockers
+first, then report advisory gaps as recommended follow-up work.

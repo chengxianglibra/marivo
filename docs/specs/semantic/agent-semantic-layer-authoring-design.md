@@ -1,8 +1,15 @@
 # Agent Semantic Layer Authoring Design
 
-> Superseded workflow note: Phase 0 and choreography-driven authoring loops are superseded by `authoring-pipeline-design.md`. The target authoring flow is discovery, `assess_authoring(...)`, single-file authoring, and `readiness(...)` closeout.
+Status: superseded for the normal agent workflow.
 
-Status: draft design.
+The active normal workflow is defined in
+`docs/specs/semantic/authoring-pipeline-design.md`. The older phased workflow
+in this document is retained as background, but standalone check choreography is
+superseded. Current agents should use:
+
+1. Discovery and source inspection.
+2. `project.assess_authoring(...)` for each candidate object.
+3. A single `project.readiness(...)` closeout.
 
 This document defines the end-to-end contract for Claude Code, Codex, and other
 coding agents that build Marivo semantic layers. It complements
@@ -25,20 +32,15 @@ project, datasource metadata, table comments, bounded data previews, supplied
 knowledge-base content, source SQL, and existing semantic objects before writing
 Python semantic definitions.
 
-The goal is a repeatable authoring loop. The loop has a Phase 0 path that uses
-APIs available today, plus target APIs that should replace ad hoc fallback code
-as they are implemented.
+The goal is a repeatable authoring loop aligned to the authoring pipeline
+design.
 
 ```text
 discover project
-  -> inspect datasource
-  -> collect schema, comments, and raw previews
-  -> ingest knowledge
-  -> propose semantic plan
+  -> inspect datasource and source evidence
+  -> assess each candidate object
   -> author Python semantic objects
-  -> run semantic previews
-  -> check and parity
-  -> produce readiness report
+  -> produce one readiness report
   -> hand off stable refs to analysis
 ```
 
@@ -302,9 +304,8 @@ For metrics with SQL provenance, the agent runs parity:
 project.parity_check("sales.revenue", backend_factory=backend_factory)
 ```
 
-`drifted` parity blocks readiness. `unverified` metrics may load, but strict
-workflows block analysis handoff until they are either verified or explicitly
-marked as `python_native`.
+`drifted` and `unverified` parity findings are readiness warnings. They should
+be reported in closeout, but they do not by themselves block analysis handoff.
 
 ### 9. Readiness Report
 
@@ -312,9 +313,9 @@ The final authoring step is a structured readiness report. It states which
 semantic refs are analysis-ready, which objects are blocked, which warnings
 remain, and which evidence was used.
 
-Phase 0 readiness is an agent-authored closeout based on load errors, preview
-evidence, materialization or compile results, and parity results. Target
-`project.readiness(...)` is specified below but does not exist yet.
+Readiness is the implemented closeout API based on load errors, preview
+evidence, materialization or compile results, parity results, and richness
+warnings.
 
 ### 10. Analysis Handoff
 
@@ -789,8 +790,6 @@ The agent must not hand off refs to `marivo.analysis` when any of these remain:
 - required comments, knowledge, or user confirmation are missing
 - time field preview or cast failed
 - metric materialization or compilation failed
-- source SQL parity is drifted
-- metric is `unverified` in strict readiness
 - relationship join key is unconfirmed
 - metric spans multiple datasources in a workflow that does not support
   federation
@@ -798,6 +797,8 @@ The agent must not hand off refs to `marivo.analysis` when any of these remain:
 
 Warnings may still allow handoff:
 
+- source SQL parity drift is present
+- metric parity is unverified
 - metric is explicitly `python_native`
 - preview sample is small but materialization succeeds
 - primary key uniqueness was not sampled
@@ -812,13 +813,16 @@ Readiness summarizes whether semantic refs can safely flow into analysis.
 Available API. Use this as the standard final validation step after load, raw previews, semantic previews, materialization, and parity checks. The API does not replace Phase 4 datasource metadata inspection; table comments and catalog metadata still come from explicit evidence until the metadata API lands.
 
 ```python
-backend_factory = lambda name: mv.datasources.build_backend(name)
+project.bind_datasource_access(
+    inspect_source=inspect_source,
+    backend_factory=lambda name: mv.datasources.build_backend(name),
+)
 
 report = project.readiness(
-    strict_provenance=True,
-    require_preview=True,
-    require_comments=False,
-    backend_factory=backend_factory,
+    refs=("sales.revenue",),
+    demand=ms.DemandSignal(example_questions=("daily revenue by region",)),
+    preview_limit=20,
+    parity_rel_tol=1e-6,
 )
 ```
 
@@ -840,6 +844,7 @@ class ReadinessReport:
     input_summary: "ReadinessInputSummary"
     preview_summary: "PreviewSummary"
     parity_summary: "ParitySummary"
+    richness_summary: "RichnessSummary"
     checked_at: str
 ```
 
@@ -870,6 +875,8 @@ class ReadinessIssue:
         "requires_raw_sql",
         "primary_key_unsampled",
         "fragile_string_ref",
+        "missing_business_definition",
+        "missing_guardrails",
     ]
     severity: Literal["blocker", "warning"]
     refs: tuple[str, ...]
@@ -907,7 +914,16 @@ class ParitySummary:
     verified_metrics: tuple[str, ...]
     unverified_metrics: tuple[str, ...]
     drifted_metrics: tuple[str, ...]
+    unsupported_metrics: tuple[str, ...]
     skipped_metrics: tuple[str, ...]
+```
+
+### RichnessSummary
+
+```python
+@dataclass(frozen=True)
+class RichnessSummary:
+    gaps: tuple[str, ...]
 ```
 
 Status rules:
@@ -916,9 +932,9 @@ Status rules:
 - no blockers and at least one warning -> `ready_with_warnings`
 - no blockers and no warnings -> `ready`
 
-`drifted` parity is always a blocker. `unverified` is a blocker when
-`strict_provenance=True`; otherwise it is a warning. Derived metric readiness
-inherits the weakest status of its components.
+`drifted` and `unverified` parity findings are warnings. Derived metric
+readiness inherits component parity status for summary purposes, but parity
+warnings do not by themselves create blockers.
 
 ### Agent Closeout Format
 
@@ -1015,6 +1031,7 @@ Implemented:
 - `ReadinessInputSummary`
 - `PreviewSummary`
 - `ParitySummary`
+- `RichnessSummary`
 - JSON output for CLI or check helper
 
 ### Phase 4: Metadata API
@@ -1035,7 +1052,7 @@ Implemented:
 - no-preview dataset authoring is not acceptable
 - ambiguous time axis asks the user
 - unverified metrics appear in readiness
-- parity drift blocks analysis handoff
+- parity drift warns in readiness
 - datasource preview redacts sensitive columns
 
 ## Acceptance Criteria
