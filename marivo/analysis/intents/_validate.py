@@ -55,7 +55,8 @@ def validate_compare(
     alignment: AlignmentPolicy,
 ) -> list[AnalysisError]:
     """Shape/policy compatibility for compare; returns the first issue or []."""
-    from marivo.analysis.intents.compare import _dimension_columns, _panel_grains
+    from marivo.analysis.intents._window_pairs import _panel_grains
+    from marivo.analysis.intents.compare import _dimension_columns
 
     if current.meta.metric_id != baseline.meta.metric_id:
         return [

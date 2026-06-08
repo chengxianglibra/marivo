@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import calendar as calendar_lib
 import hashlib
 import json
 import secrets
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, cast
 
@@ -37,15 +36,20 @@ from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._validate import raise_first, validate_compare
+from marivo.analysis.intents._window_pairs import (
+    _not_nan,
+    _panel_grain,
+    _panel_grains,
+    _prepared_value_map,
+    _walk_ordinal_pairs,
+    _window_bucket_values,
+)
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
 from marivo.analysis.session.attach import active as session_active
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.session.persistence import write_frame_to_disk, write_job_record
-from marivo.analysis.windows.grain import Grain as _Grain
-from marivo.analysis.windows.grain import normalize_grain as _normalize_grain
-from marivo.analysis.windows.spec import is_date_only
 
 EXPECTED_METRIC_FRAME_KIND = "metric_frame"
 PRESENCE_STATUS_COLUMN = "presence_status"
@@ -739,225 +743,6 @@ def _require_matching_time_series_bucket_grain(a: MetricFrame, b: MetricFrame) -
         )
 
 
-def _panel_grain(frame: MetricFrame) -> str | None:
-    for axis in frame.meta.axes.values():
-        if not isinstance(axis, dict):
-            continue
-        if axis.get("role") != "time":
-            continue
-        grain = axis.get("grain")
-        if isinstance(grain, str) and grain:
-            return grain
-    return None
-
-
-def _panel_grains(a: MetricFrame, b: MetricFrame) -> tuple[str | None, str | None]:
-    return _panel_grain(a), _panel_grain(b)
-
-
-def _parse_window_datetime(value: object, *, field: str) -> datetime:
-    if not isinstance(value, str) or not value:
-        raise AlignmentFailedError(
-            message=f"window_bucket alignment requires window.{field}",
-            details={"kind": "WindowBucketWindowMissing", "field": field},
-        )
-    if is_date_only(value):
-        return datetime.combine(date.fromisoformat(value), time.min)
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
-    except ValueError as exc:
-        raise AlignmentFailedError(
-            message=f"window_bucket alignment requires valid ISO window.{field}",
-            details={"kind": "WindowBucketWindowInvalid", "field": field, "value": value},
-        ) from exc
-
-
-def _add_months(value: date, months: int) -> date:
-    index = value.year * 12 + (value.month - 1) + months
-    year = index // 12
-    month = index % 12 + 1
-    day = min(value.day, calendar_lib.monthrange(year, month)[1])
-    return date(year, month, day)
-
-
-def _truncate_bucket_date(value: date, *, grain: str) -> date:
-    if grain == "day":
-        return value
-    if grain == "week":
-        return value - timedelta(days=value.weekday())
-    if grain == "month":
-        return value.replace(day=1)
-    if grain == "quarter":
-        month = ((value.month - 1) // 3) * 3 + 1
-        return value.replace(month=month, day=1)
-    if grain == "year":
-        return value.replace(month=1, day=1)
-    raise AlignmentFailedError(
-        message=f"window_bucket alignment does not support grain {grain!r}",
-        details={"kind": "WindowBucketUnsupportedGrain", "grain": grain},
-    )
-
-
-def _advance_bucket_date(value: date, *, grain: str) -> date:
-    if grain == "day":
-        return value + timedelta(days=1)
-    if grain == "week":
-        return value + timedelta(weeks=1)
-    if grain == "month":
-        return _add_months(value, 1)
-    if grain == "quarter":
-        return _add_months(value, 3)
-    if grain == "year":
-        return value.replace(year=value.year + 1)
-    raise AlignmentFailedError(
-        message=f"window_bucket alignment does not support grain {grain!r}",
-        details={"kind": "WindowBucketUnsupportedGrain", "grain": grain},
-    )
-
-
-_WINDOW_BUCKET_CAP = 100_000
-
-
-def _grain_is_subday_token(grain: str) -> bool:
-    try:
-        return _normalize_grain(grain).is_subday  # type: ignore[union-attr]
-    except (ValueError, TypeError):
-        return False
-
-
-def _truncate_bucket_datetime(value: datetime, *, grain: _Grain) -> datetime:
-    width = grain.width_seconds()
-    day_start = value.replace(hour=0, minute=0, second=0, microsecond=0)
-    offset = int((value - day_start).total_seconds()) // width * width
-    return day_start + timedelta(seconds=offset)
-
-
-def _advance_bucket_datetime(value: datetime, *, grain: _Grain) -> datetime:
-    return value + timedelta(seconds=grain.width_seconds())
-
-
-def _bucket_key(value: object, *, grain: str) -> str:
-    if value is None or pd.isna(cast("Any", value)):
-        return ""
-    timestamp = pd.Timestamp(cast("Any", value))
-    if _grain_is_subday_token(grain):
-        normalized = cast("_Grain", _normalize_grain(grain))
-        bucketed = _truncate_bucket_datetime(timestamp.to_pydatetime(), grain=normalized)
-        return bucketed.strftime("%Y-%m-%dT%H:%M:%S")
-    bucket_date = _truncate_bucket_date(timestamp.date(), grain=grain)
-    return bucket_date.isoformat()
-
-
-def _window_bucket_values(frame: MetricFrame) -> list[object]:
-    grain = _panel_grain(frame)
-    window = frame.meta.window
-    if not isinstance(window, dict) or not isinstance(window.get("start"), str):
-        raise AlignmentFailedError(
-            message=(
-                "window_bucket ordinal alignment requires metric frame window metadata "
-                "when bucket_start values do not overlap"
-            ),
-            details={"kind": "WindowBucketWindowMissing", "frame_ref": frame.ref},
-        )
-    if not isinstance(window.get("end"), str):
-        raise AlignmentFailedError(
-            message="window_bucket ordinal alignment requires window.end metadata",
-            details={"kind": "WindowBucketWindowMissing", "frame_ref": frame.ref},
-        )
-    grain_ok = isinstance(grain, str) and (
-        grain in {"hour", "day", "week", "month", "quarter", "year"}
-        or _grain_is_subday_token(grain)
-    )
-    if not grain_ok:
-        raise AlignmentFailedError(
-            message=("window_bucket ordinal alignment requires a calendar or sub-day grain"),
-            details={"kind": "WindowBucketGrainMissing", "frame_ref": frame.ref, "grain": grain},
-        )
-    assert isinstance(grain, str)  # narrowed by grain_ok guard
-
-    start_raw = window["start"]
-    end_raw = window["end"]
-    if _grain_is_subday_token(grain):
-        normalized = cast("_Grain", _normalize_grain(grain))
-        current_dt = _truncate_bucket_datetime(
-            _parse_window_datetime(start_raw, field="start"), grain=normalized
-        )
-        if is_date_only(end_raw):
-            stop = datetime.combine(date.fromisoformat(end_raw), time.min)
-        else:
-            stop = _parse_window_datetime(end_raw, field="end")
-        buckets: list[object] = []
-        while current_dt < stop:
-            if len(buckets) >= _WINDOW_BUCKET_CAP:
-                raise AlignmentFailedError(
-                    message=(
-                        "window_bucket ordinal alignment would exceed "
-                        f"{_WINDOW_BUCKET_CAP} buckets; coarsen the grain or shrink the window"
-                    ),
-                    details={
-                        "kind": "WindowBucketCapExceeded",
-                        "frame_ref": frame.ref,
-                        "grain": grain,
-                    },
-                )
-            buckets.append(pd.Timestamp(current_dt))
-            current_dt = _advance_bucket_datetime(current_dt, grain=normalized)
-        return buckets
-    if grain == "hour":
-        current = _parse_window_datetime(start_raw, field="start").replace(
-            minute=0, second=0, microsecond=0
-        )
-        if is_date_only(end_raw):
-            stop_exclusive = datetime.combine(date.fromisoformat(end_raw), time.min)
-            values: list[object] = []
-            while current < stop_exclusive:
-                values.append(pd.Timestamp(current))
-                current += timedelta(hours=1)
-            return values
-        stop = _parse_window_datetime(end_raw, field="end").replace(
-            minute=0, second=0, microsecond=0
-        )
-        values = []
-        while current < stop:
-            values.append(pd.Timestamp(current))
-            current += timedelta(hours=1)
-        return values
-
-    current_date = _truncate_bucket_date(
-        _parse_window_datetime(start_raw, field="start").date(), grain=grain
-    )
-    stop_date = _truncate_bucket_date(
-        _parse_window_datetime(end_raw, field="end").date(), grain=grain
-    )
-    values = []
-    while current_date < stop_date:
-        values.append(current_date)
-        current_date = _advance_bucket_date(current_date, grain=grain)
-    return values
-
-
-def _prepared_value_map(
-    df: pd.DataFrame,
-    *,
-    time_column: str,
-    value_column: str,
-    grain: str,
-) -> dict[str, tuple[object, object]]:
-    if df.empty:
-        return {}
-    keys = df[time_column].map(lambda value: _bucket_key(value, grain=grain))
-    if keys.duplicated().any():
-        raise AlignmentFailedError(
-            message="window_bucket ordinal alignment requires unique bucket_start values",
-            details={"kind": "WindowBucketDuplicateBuckets"},
-        )
-    return {
-        str(key): (row[time_column], row[value_column])
-        for key, (_, row) in zip(keys, df.iterrows(), strict=True)
-        if key
-    }
-
-
 def _compute_delta_columns(df: pd.DataFrame) -> pd.DataFrame:
     df["current"] = pd.to_numeric(df["current"], errors="coerce")
     df["baseline"] = pd.to_numeric(df["baseline"], errors="coerce")
@@ -1048,35 +833,25 @@ def _align_ordinal_window_bucket(
     current_present = 0
     baseline_present = 0
     paired_buckets = min(len(current_buckets), len(baseline_buckets))
-    for ordinal in range(max(len(current_buckets), len(baseline_buckets))):
-        current_bucket = current_buckets[ordinal] if ordinal < len(current_buckets) else pd.NaT
-        baseline_bucket = baseline_buckets[ordinal] if ordinal < len(baseline_buckets) else pd.NaT
-        current_key = (
-            "" if pd.isna(cast("Any", current_bucket)) else _bucket_key(current_bucket, grain=grain)
-        )
-        baseline_key = (
-            ""
-            if pd.isna(cast("Any", baseline_bucket))
-            else _bucket_key(baseline_bucket, grain=grain)
-        )
-        current_value = a_values.get(current_key, (None, np.nan))[1] if current_key else np.nan
-        baseline_value = b_values.get(baseline_key, (None, np.nan))[1] if baseline_key else np.nan
-        has_current = current_key in a_values if current_key else False
-        has_baseline = baseline_key in b_values if baseline_key else False
-        if not pd.isna(cast("Any", current_value)):
+    for pair in _walk_ordinal_pairs(
+        a_values, b_values, grain=grain, frame_a=current_frame, frame_b=baseline_frame
+    ):
+        current_value = pair.a_value if pair.a_present else np.nan
+        baseline_value = pair.b_value if pair.b_present else np.nan
+        if _not_nan(current_value):
             current_present += 1
-        if not pd.isna(cast("Any", baseline_value)):
+        if _not_nan(baseline_value):
             baseline_present += 1
-        row = {
-            time_column: current_bucket,
-            f"{time_column}_b": baseline_bucket,
+        row: dict[str, object] = {
+            time_column: pair.a_bucket,
+            f"{time_column}_b": pair.b_bucket,
             "current": current_value,
             "baseline": baseline_value,
         }
         if track_presence_status:
             row[PRESENCE_STATUS_COLUMN] = _presence_status(
-                has_current=has_current,
-                has_baseline=has_baseline,
+                has_current=pair.a_present,
+                has_baseline=pair.b_present,
             )
         rows.append(row)
     result = _compute_delta_columns(pd.DataFrame(rows))
@@ -1498,9 +1273,7 @@ def _panel_groups(
     grouped = df.groupby(dim_columns, dropna=False, sort=False)
     for raw_key, group in grouped:
         key = raw_key if isinstance(raw_key, tuple) else (raw_key,)
-        groups[tuple(None if pd.isna(cast("Any", value)) else value for value in key)] = (
-            group.copy()
-        )
+        groups[tuple(None if not _not_nan(value) else value for value in key)] = group.copy()
     return groups
 
 
