@@ -13,6 +13,17 @@ Kind = Literal["callable", "class", "frame", "module", "topic", "surface", "unkn
 
 
 @dataclass(frozen=True)
+class FieldInfo:
+    """L1 field summary for Pydantic model descriptors."""
+
+    name: str
+    annotation: str
+    required: bool
+    default: str | None
+    description: str | None
+
+
+@dataclass(frozen=True)
 class MethodInfo:
     """L1 method summary for class and frame descriptors."""
 
@@ -42,6 +53,7 @@ class Descriptor:
     constraints: tuple[Constraint, ...] = ()
     examples: tuple[str, ...] = ()
     see_also: tuple[str, ...] = ()
+    fields: tuple[FieldInfo, ...] = ()
     methods: tuple[MethodInfo, ...] = ()
     next_intents: tuple[str, ...] = ()
     constructed_by: str | None = None

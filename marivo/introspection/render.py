@@ -28,6 +28,17 @@ def render_json(descriptor: Descriptor) -> dict[str, Any]:
         data["methods"] = [
             {"name": method.name, "summary": method.summary} for method in descriptor.methods
         ]
+    if descriptor.fields:
+        data["fields"] = [
+            {
+                "name": f.name,
+                "annotation": f.annotation,
+                "required": f.required,
+                **({"default": f.default} if f.default is not None else {}),
+                **({"description": f.description} if f.description is not None else {}),
+            }
+            for f in descriptor.fields
+        ]
     if descriptor.kind == "frame":
         if descriptor.next_intents:
             data["next_intents"] = list(descriptor.next_intents)
@@ -69,6 +80,17 @@ def render_text(descriptor: Descriptor) -> str:
         lines.append("Methods:")
         for method in descriptor.methods:
             lines.append(f"- {method.name}: {method.summary}")
+    if descriptor.fields:
+        lines.append("")
+        lines.append("Fields:")
+        for f in descriptor.fields:
+            tag = "required" if f.required else "optional"
+            parts = [f.name, f"[{f.annotation}]", tag]
+            if f.default is not None:
+                parts.append(f"default={f.default}")
+            if f.description:
+                parts.append(f"-- {f.description}")
+            lines.append(f"- {' '.join(parts)}")
     if descriptor.next_intents:
         lines.append("")
         lines.append(f"Next intents: {', '.join(descriptor.next_intents)}")

@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from marivo.introspection.constraints import ASTSpec, Constraint
-from marivo.introspection.describe import describe_object, own_doc, resolve_method_descriptor
-from marivo.introspection.render import render_json
-from marivo.introspection.schema import Descriptor, MethodInfo
+from marivo.introspection.describe import (
+    describe_object,
+    own_doc,
+    pydantic_fields,
+    resolve_method_descriptor,
+)
+from marivo.introspection.render import render_json, render_text
+from marivo.introspection.schema import Descriptor, FieldInfo, MethodInfo
 from marivo.introspection.surface import Surface, render
 
 
@@ -318,3 +323,97 @@ def test_surface_top_level_entries_are_derived_from_all_names() -> None:
     assert data["kind"] == "surface"
     assert data["entries"] == [{"name": "_OwnDoc", "kind": "class", "summary": "class summary"}]
     assert "test.surface" in render(surface, None, "text")
+
+
+class _PydanticWithFieldAndValidator(BaseModel):
+    name: str = Field(description="item name")
+    count: int = 0
+    tag: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        return v.strip()
+
+
+def test_pydantic_fields_extracts_field_metadata() -> None:
+    fields = pydantic_fields(_PydanticWithFieldAndValidator)
+    assert len(fields) == 3
+    assert fields[0] == FieldInfo(
+        name="name", annotation="str", required=True, default=None, description="item name"
+    )
+    assert fields[1] == FieldInfo(
+        name="count", annotation="int", required=False, default="0", description=None
+    )
+    assert fields[2] == FieldInfo(
+        name="tag", annotation="str | None", required=False, default="None", description=None
+    )
+
+
+def test_pydantic_fields_returns_empty_for_non_basemodel() -> None:
+    assert pydantic_fields(_OwnDoc) == ()
+
+
+def test_pydantic_validators_filtered_from_public_methods() -> None:
+    from marivo.introspection.describe import public_methods
+
+    methods = public_methods(_PydanticWithFieldAndValidator)
+    method_names = {m.name for m in methods}
+    assert "validate_name" not in method_names
+
+
+def test_describe_object_populates_fields_for_pydantic_model() -> None:
+    descriptor = describe_object(
+        surface="test.surface",
+        symbol="_PydanticWithFieldAndValidator",
+        obj=_PydanticWithFieldAndValidator,
+        summary="test model",
+        constraints=(),
+        examples=(),
+        see_also=(),
+    )
+    assert descriptor.kind == "class"
+    assert len(descriptor.fields) == 3
+    assert "validate_name" not in {m.name for m in descriptor.methods}
+
+
+def test_render_json_includes_fields() -> None:
+    descriptor = describe_object(
+        surface="test.surface",
+        symbol="_PydanticWithFieldAndValidator",
+        obj=_PydanticWithFieldAndValidator,
+        summary="test model",
+        constraints=(),
+        examples=(),
+        see_also=(),
+    )
+    data = render_json(descriptor)
+    assert "fields" in data
+    assert len(data["fields"]) == 3
+    field_names = {f["name"] for f in data["fields"]}
+    assert field_names == {"name", "count", "tag"}
+    name_field = next(f for f in data["fields"] if f["name"] == "name")
+    assert name_field["annotation"] == "str"
+    assert name_field["required"] is True
+    assert name_field["description"] == "item name"
+    assert "default" not in name_field
+    count_field = next(f for f in data["fields"] if f["name"] == "count")
+    assert count_field["required"] is False
+    assert count_field["default"] == "0"
+
+
+def test_render_text_includes_fields() -> None:
+    descriptor = describe_object(
+        surface="test.surface",
+        symbol="_PydanticWithFieldAndValidator",
+        obj=_PydanticWithFieldAndValidator,
+        summary="test model",
+        constraints=(),
+        examples=(),
+        see_also=(),
+    )
+    text = render_text(descriptor)
+    assert "Fields:" in text
+    assert "name [str] required" in text
+    assert "count [int] optional default=0" in text
+    assert "-- item name" in text
