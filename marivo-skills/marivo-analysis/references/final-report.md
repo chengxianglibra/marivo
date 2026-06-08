@@ -267,6 +267,9 @@ credentials, or row-level frames that the manifest data policy omits. Publishing
 is deterministic and library-owned; it does not author narrative, HTML, or
 replay scripts.
 
+For direct S3 upload of an HTML report package (without going through
+`publish_report_package`), see `references/upload-html-report.md`.
+
 ## Discovery and anomaly reports
 
 When reporting anomalies or discovered candidates, separate signal from noise.
