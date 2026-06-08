@@ -219,12 +219,12 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
         "region",
         "numerator",
         "denominator",
-        "metric_value",
+        "failure_rate",
     ]
     by_key = {(str(row.bucket_start), row.region): row for row in component_df.itertuples()}
     assert by_key[("2026-07-01", "NORTH")].numerator == pytest.approx(1.0)
     assert by_key[("2026-07-01", "NORTH")].denominator == pytest.approx(2.0)
-    assert by_key[("2026-07-01", "NORTH")].metric_value == pytest.approx(0.5)
+    assert by_key[("2026-07-01", "NORTH")].failure_rate == pytest.approx(0.5)
     assert by_key[("2026-07-02", "SOUTH")].numerator == pytest.approx(1.0)
     assert by_key[("2026-07-02", "SOUTH")].denominator == pytest.approx(1.0)
 
@@ -256,4 +256,4 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
     by_key = {(str(row.bucket_start), row.region): row for row in component_df.itertuples()}
     assert by_key[("2026-07-01", "NORTH")].numerator == pytest.approx(2.0)
     assert by_key[("2026-07-01", "NORTH")].weight == pytest.approx(3.0)
-    assert by_key[("2026-07-01", "NORTH")].metric_value == pytest.approx(2.0 / 3.0)
+    assert by_key[("2026-07-01", "NORTH")].weighted_failure_rate == pytest.approx(2.0 / 3.0)

@@ -222,10 +222,10 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
     component_df = windowed.components().to_pandas().set_index("region")
     assert component_df.loc["NORTH", "numerator"] == pytest.approx(0.0)
     assert component_df.loc["NORTH", "denominator"] == pytest.approx(1.0)
-    assert component_df.loc["NORTH", "metric_value"] == pytest.approx(0.0)
+    assert component_df.loc["NORTH", "failure_rate"] == pytest.approx(0.0)
     assert component_df.loc["SOUTH", "numerator"] == pytest.approx(1.0)
     assert component_df.loc["SOUTH", "denominator"] == pytest.approx(1.0)
-    assert component_df.loc["SOUTH", "metric_value"] == pytest.approx(1.0)
+    assert component_df.loc["SOUTH", "failure_rate"] == pytest.approx(1.0)
 
 
 def test_observe_derived_metric_scalar_uses_component_datasets(tmp_path):
@@ -416,11 +416,11 @@ def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path)
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
     component_df = components.to_pandas()
-    assert list(component_df.columns) == ["region", "numerator", "denominator", "metric_value"]
+    assert list(component_df.columns) == ["region", "numerator", "denominator", "failure_rate"]
     by_region = component_df.set_index("region")
     assert by_region.loc["NORTH", "numerator"] == pytest.approx(1.0)
     assert by_region.loc["NORTH", "denominator"] == pytest.approx(3.0)
-    assert by_region.loc["NORTH", "metric_value"] == pytest.approx(1.0 / 3.0)
+    assert by_region.loc["NORTH", "failure_rate"] == pytest.approx(1.0 / 3.0)
     assert by_region.loc["SOUTH", "numerator"] == pytest.approx(1.0)
     assert by_region.loc["SOUTH", "denominator"] == pytest.approx(1.0)
-    assert by_region.loc["SOUTH", "metric_value"] == pytest.approx(1.0)
+    assert by_region.loc["SOUTH", "failure_rate"] == pytest.approx(1.0)

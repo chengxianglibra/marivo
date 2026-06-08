@@ -609,18 +609,18 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
         "denominator": "sales.total_count",
     }
     component_df = components.to_pandas()
-    assert list(component_df.columns) == ["numerator", "denominator", "metric_value"]
+    assert list(component_df.columns) == ["numerator", "denominator", "failure_rate"]
     assert component_df.iloc[0]["numerator"] == pytest.approx(2.0)
     assert component_df.iloc[0]["denominator"] == pytest.approx(4.0)
-    assert component_df.iloc[0]["metric_value"] == pytest.approx(0.5)
+    assert component_df.iloc[0]["failure_rate"] == pytest.approx(0.5)
 
     self_ratio = observe(MetricRef("sales.failed_count_ratio"), session=session)
     assert self_ratio.to_pandas().iloc[0]["failed_count_ratio"] == pytest.approx(1.0)
     self_components = self_ratio.components().to_pandas()
-    assert list(self_components.columns) == ["numerator", "denominator", "metric_value"]
+    assert list(self_components.columns) == ["numerator", "denominator", "failed_count_ratio"]
     assert self_components.iloc[0]["numerator"] == pytest.approx(2.0)
     assert self_components.iloc[0]["denominator"] == pytest.approx(2.0)
-    assert self_components.iloc[0]["metric_value"] == pytest.approx(1.0)
+    assert self_components.iloc[0]["failed_count_ratio"] == pytest.approx(1.0)
 
 
 def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
@@ -650,15 +650,15 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
         "bucket_start",
         "numerator",
         "denominator",
-        "metric_value",
+        "failure_rate",
     ]
     by_bucket = {str(row.bucket_start): row for row in component_df.itertuples()}
     assert by_bucket["2026-07-01"].numerator == pytest.approx(1.0)
     assert by_bucket["2026-07-01"].denominator == pytest.approx(1.0)
-    assert by_bucket["2026-07-01"].metric_value == pytest.approx(1.0)
+    assert by_bucket["2026-07-01"].failure_rate == pytest.approx(1.0)
     assert by_bucket["2026-07-02"].numerator == pytest.approx(0.0)
     assert by_bucket["2026-07-02"].denominator == pytest.approx(1.0)
-    assert by_bucket["2026-07-02"].metric_value == pytest.approx(0.0)
+    assert by_bucket["2026-07-02"].failure_rate == pytest.approx(0.0)
 
 
 def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):

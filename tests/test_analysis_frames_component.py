@@ -52,7 +52,7 @@ def test_component_frame_meta_kind_and_next_intents():
                 "region": ["NORTH"],
                 "numerator": [1.0],
                 "denominator": [3.0],
-                "metric_value": [1.0 / 3.0],
+                "failure_rate": [1.0 / 3.0],
             }
         ),
         meta=meta,
@@ -60,7 +60,7 @@ def test_component_frame_meta_kind_and_next_intents():
 
     assert meta.kind == "component_frame"
     assert frame.next_intents() == ()
-    assert frame.to_pandas().iloc[0]["metric_value"] == pytest.approx(1.0 / 3.0)
+    assert frame.to_pandas().iloc[0]["failure_rate"] == pytest.approx(1.0 / 3.0)
 
 
 def test_load_frame_round_trips_component_frame():
@@ -71,7 +71,7 @@ def test_load_frame_round_trips_component_frame():
                 "region": ["NORTH"],
                 "numerator": [1.0],
                 "denominator": [3.0],
-                "metric_value": [1.0 / 3.0],
+                "failure_rate": [1.0 / 3.0],
             }
         ),
         meta=ComponentFrameMeta(
@@ -108,7 +108,7 @@ def test_load_frame_round_trips_component_frame():
 def test_metric_frame_components_loads_linked_component_frame():
     session = session_attach.get_or_create(name="demo")
     component = ComponentFrame(
-        _df=pd.DataFrame({"numerator": [1.0], "denominator": [2.0], "metric_value": [0.5]}),
+        _df=pd.DataFrame({"numerator": [1.0], "denominator": [2.0], "failure_rate": [0.5]}),
         meta=ComponentFrameMeta(
             ref="frame_component",
             session_id=session.id,

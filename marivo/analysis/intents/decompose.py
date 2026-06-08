@@ -150,6 +150,24 @@ def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
     )
 
 
+def _infer_delta_value_column_name(component: ComponentFrame) -> str:
+    """Infer the metric-name value column from the component delta frame columns.
+
+    Looks for a ``current_<name>`` column whose ``<name>`` is not a declared
+    decomposition role in ``component.meta.components``.
+    """
+    known_roles = set(component.meta.components.keys())
+    for column in component._df.columns:
+        if column.startswith("current_"):
+            name = column[len("current_") :]
+            if name not in known_roles:
+                return name
+    raise ComponentDecompositionError(
+        message="component delta frame has no metric value column",
+        details={"component_ref": component.ref},
+    )
+
+
 def _component_mix_output_for_df(
     *,
     df: pd.DataFrame,
@@ -157,14 +175,15 @@ def _component_mix_output_for_df(
     axis_column: str,
 ) -> pd.DataFrame:
     share_role = _component_measure_role(component)
+    value_name = _infer_delta_value_column_name(component)
     required = [
         axis_column,
         "current_numerator",
         "baseline_numerator",
         f"current_{share_role}",
         f"baseline_{share_role}",
-        "current_metric_value",
-        "baseline_metric_value",
+        f"current_{value_name}",
+        f"baseline_{value_name}",
     ]
     missing = [column for column in required if column not in df.columns]
     if missing:
@@ -221,8 +240,8 @@ def _component_mix_output_for_df(
             "baseline_numerator",
             f"current_{share_role}",
             f"baseline_{share_role}",
-            "current_metric_value",
-            "baseline_metric_value",
+            f"current_{value_name}",
+            f"baseline_{value_name}",
             "current_share",
             "baseline_share",
             "rank",

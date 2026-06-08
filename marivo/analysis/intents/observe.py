@@ -260,8 +260,7 @@ def _component_frame_df(
     for role in role_columns:
         _require_component_role_column(metric_ir, role, raw_df)
     selected = [*axes_columns, *role_columns, metric_value_column]
-    component_df = raw_df[selected].rename(columns={metric_value_column: "metric_value"})
-    return component_df[[*axes_columns, *role_columns, "metric_value"]]
+    return raw_df[selected][[*axes_columns, *role_columns, metric_value_column]]
 
 
 def _persist_metric_component_frame(

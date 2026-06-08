@@ -901,7 +901,7 @@ def test_compare_calendar_time_series_ratio_persists_component_delta(calendar_pr
                 "bucket_start": "2026-05-05",
                 "numerator": 25.0,
                 "denominator": 100.0,
-                "metric_value": 0.25,
+                "failure_rate": 0.25,
             }
         ],
     )
@@ -914,7 +914,7 @@ def test_compare_calendar_time_series_ratio_persists_component_delta(calendar_pr
                 "bucket_start": "2026-04-07",
                 "numerator": 10.0,
                 "denominator": 100.0,
-                "metric_value": 0.10,
+                "failure_rate": 0.10,
             }
         ],
     )
@@ -936,7 +936,7 @@ def test_compare_calendar_time_series_ratio_persists_component_delta(calendar_pr
     assert component_df.iloc[0]["bucket_start_b"] == "2026-04-07"
     assert component_df.iloc[0]["current_numerator"] == pytest.approx(25.0)
     assert component_df.iloc[0]["baseline_numerator"] == pytest.approx(10.0)
-    assert component_df.iloc[0]["delta_metric_value"] == pytest.approx(0.15)
+    assert component_df.iloc[0]["delta_failure_rate"] == pytest.approx(0.15)
 
 
 def test_align_calendar_info_has_no_calendar_timezone():
