@@ -9,7 +9,7 @@ from types import ModuleType
 from pydantic import BaseModel
 
 from marivo.introspection.constraints import Constraint
-from marivo.introspection.schema import Descriptor, MethodInfo
+from marivo.introspection.schema import Descriptor, FieldInfo, MethodInfo
 
 
 def own_doc(obj: object) -> str:
@@ -107,6 +107,51 @@ def _method_names(cls: type[object], *, include_inherited: bool) -> tuple[str, .
     return tuple(names)
 
 
+def pydantic_fields(cls: type) -> tuple[FieldInfo, ...]:
+    """Extract field metadata from a Pydantic BaseModel subclass."""
+    from pydantic_core import PydanticUndefined
+
+    if not issubclass(cls, BaseModel):
+        return ()
+
+    fields: list[FieldInfo] = []
+    for name, fi in cls.model_fields.items():
+        ann = fi.annotation
+        if ann is None:
+            annotation = "Any"
+        elif hasattr(ann, "__name__"):
+            annotation = ann.__name__
+        else:
+            annotation = str(ann)
+
+        default: str | None = None
+        if fi.default is not PydanticUndefined:
+            default = repr(fi.default)
+        elif fi.default_factory is not None:
+            default = getattr(fi.default_factory, "__name__", repr(fi.default_factory))
+
+        fields.append(
+            FieldInfo(
+                name=name,
+                annotation=annotation,
+                required=fi.is_required(),
+                default=default,
+                description=fi.description,
+            )
+        )
+    return tuple(fields)
+
+
+def _is_pydantic_validator(cls: type, name: str) -> bool:
+    """Return True if name is a Pydantic field_validator or model_validator on cls."""
+    if not issubclass(cls, BaseModel):
+        return False
+    decorators = getattr(cls, "__pydantic_decorators__", None)
+    if decorators is None:
+        return False
+    return name in decorators.field_validators or name in decorators.model_validators
+
+
 def public_methods(
     cls: type[object],
     *,
@@ -118,6 +163,8 @@ def public_methods(
     for name in _method_names(cls, include_inherited=include_inherited):
         method = public_method(cls, name, include_inherited=include_inherited)
         if method is None:
+            continue
+        if _is_pydantic_validator(cls, name):
             continue
         methods.append(MethodInfo(name=name, summary=method_summary(method)))
     return tuple(methods)
@@ -155,6 +202,7 @@ def describe_object(
                 constraints=constraints,
                 examples=examples,
                 see_also=see_also,
+                fields=pydantic_fields(cls),
                 methods=public_methods(cls, include_inherited=True),
                 next_intents=_string_tuple(getattr(cls, "_NEXT_INTENTS", ())),
                 constructed_by=constructed_by.get(symbol) if constructed_by else None,
@@ -169,6 +217,7 @@ def describe_object(
             constraints=constraints,
             examples=examples,
             see_also=see_also,
+            fields=pydantic_fields(cls),
             methods=public_methods(cls),
         )
 

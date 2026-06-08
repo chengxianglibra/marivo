@@ -273,3 +273,24 @@ def test_help_rejects_unknown_format() -> None:
         assert str(exc) == "format must be 'text' or 'json'"
     else:
         raise AssertionError("mv.help should reject unsupported formats")
+
+
+def test_help_json_report_artifact_has_fields_and_no_validator_methods() -> None:
+    result = mv.help("MarivoReportArtifact", format="json")
+    assert isinstance(result, dict)
+    assert "fields" in result
+    field_names = {f["name"] for f in result["fields"]}
+    assert "manifest" in field_names
+    assert "report_spec" in field_names
+    assert "datasets" in field_names
+    method_names = {m["name"] for m in result.get("methods", [])}
+    assert "validate_dataset_keys" not in method_names
+
+
+def test_help_json_report_manifest_has_fields() -> None:
+    result = mv.help("ReportManifest", format="json")
+    assert isinstance(result, dict)
+    assert "fields" in result
+    field_names = {f["name"] for f in result["fields"]}
+    assert "kind" in field_names
+    assert "report_id" in field_names
