@@ -1,0 +1,276 @@
+"""Idempotent frame caching: observe/compare return cached frames on repeat calls,
+and session.get_frame() recovers frames across script boundaries."""
+
+import ibis
+import pytest
+
+import marivo.analysis as mv
+import marivo.analysis.session.attach as session_attach
+from marivo.analysis.errors import (
+    FrameCacheCorruptedError,
+    FrameRefNotFound,
+)
+from marivo.analysis.frames.delta import DeltaFrame
+from marivo.analysis.frames.metric import MetricFrame
+from tests.conftest import bootstrap_sales_project
+
+
+@pytest.fixture(autouse=True)
+def _chdir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TZ", "UTC")
+    session_attach._reset_process_state()
+    yield
+
+
+def _seed(con):
+    con.raw_sql(
+        "CREATE TABLE orders (order_id INTEGER, created_at DATE, "
+        "amount DOUBLE, region VARCHAR, user_id INTEGER)"
+    )
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', 10.0, 'north', 100),"
+        "(2, DATE '2026-07-02', 20.0, 'north', 100),"
+        "(3, DATE '2026-08-01', 30.0, 'south', 200),"
+        "(4, DATE '2026-09-15', 40.0, 'north', 300)"
+    )
+
+
+def _backends(con):
+    return {"warehouse": lambda: con}
+
+
+def _make_session(tmp_path, con):
+    bootstrap_sales_project(tmp_path)
+    return session_attach.get_or_create(name="demo", backends=_backends(con))
+
+
+# --- observe idempotent caching ---
+
+
+def test_observe_idempotent_cache_hit(tmp_path):
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = _make_session(tmp_path, con)
+
+    first = s.observe(mv.MetricRef("sales.revenue"))
+    assert isinstance(first, MetricFrame)
+
+    # Second call with identical inputs should return the cached frame.
+    second = s.observe(mv.MetricRef("sales.revenue"))
+    assert isinstance(second, MetricFrame)
+    assert second.ref == first.ref
+
+
+def test_observe_cache_hit_after_reattach(tmp_path):
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = _make_session(tmp_path, con)
+
+    first = s.observe(mv.MetricRef("sales.revenue"))
+    ref = first.ref
+
+    # Simulate a new script: reset process state and reattach.
+    session_attach._reset_process_state()
+    s2 = session_attach.attach(name="demo", backends=_backends(con))
+
+    second = s2.observe(mv.MetricRef("sales.revenue"))
+    assert second.ref == ref
+
+
+def test_observe_different_inputs_cache_miss(tmp_path):
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = _make_session(tmp_path, con)
+
+    first = s.observe(mv.MetricRef("sales.revenue"))
+    second = s.observe(
+        mv.MetricRef("sales.revenue"),
+        timescope={"start": "2026-07-01", "end": "2026-08-01"},
+    )
+    assert first.ref != second.ref
+
+
+# --- compare idempotent caching ---
+
+
+def test_compare_idempotent_cache_hit(tmp_path):
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = _make_session(tmp_path, con)
+
+    cur = s.observe(
+        mv.MetricRef("sales.revenue"),
+        timescope={"start": "2026-07-01", "end": "2026-10-01"},
+    )
+    base = s.observe(
+        mv.MetricRef("sales.revenue"),
+        timescope={"start": "2025-07-01", "end": "2025-10-01"},
+    )
+    first = s.compare(cur, base)
+    assert isinstance(first, DeltaFrame)
+
+    second = s.compare(cur, base)
+    assert isinstance(second, DeltaFrame)
+    assert second.ref == first.ref
+
+
+# --- session.get_frame ---
+
+
+def test_get_frame_returns_live_frame(tmp_path):
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = _make_session(tmp_path, con)
+
+    original = s.observe(mv.MetricRef("sales.revenue"))
+    loaded = s.get_frame(original.ref)
+
+    assert isinstance(loaded, MetricFrame)
+    assert loaded.ref == original.ref
+    assert loaded.meta.metric_id == "sales.revenue"
+    assert loaded.to_pandas().equals(original.to_pandas())
+
+
+def test_get_frame_cross_script(tmp_path):
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = _make_session(tmp_path, con)
+
+    original = s.observe(mv.MetricRef("sales.revenue"))
+    ref = original.ref
+
+    # Simulate a new script.
+    session_attach._reset_process_state()
+    s2 = session_attach.attach(name="demo", backends=_backends(con))
+
+    loaded = s2.get_frame(ref)
+    assert loaded.ref == ref
+    assert loaded.meta.metric_id == "sales.revenue"
+
+
+def test_get_frame_not_found(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    s = session_attach.get_or_create(name="demo")
+
+    with pytest.raises(FrameRefNotFound):
+        s.get_frame("frame_nonexistent")
+
+
+def test_get_frame_corrupted(tmp_path):
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = _make_session(tmp_path, con)
+
+    original = s.observe(mv.MetricRef("sales.revenue"))
+    ref = original.ref
+
+    # Corrupt the parquet file.
+    parquet_path = s.layout.frames_dir / ref / "data.parquet"
+    parquet_path.write_bytes(b"not a parquet file")
+
+    with pytest.raises(FrameCacheCorruptedError):
+        s.get_frame(ref)
+
+
+# --- session.frame_summaries ---
+
+
+def test_frame_summaries_contains_rich_metadata(tmp_path):
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = _make_session(tmp_path, con)
+
+    s.observe(mv.MetricRef("sales.revenue"))
+
+    summaries = s.frame_summaries()
+    assert len(summaries) >= 1
+    entry = summaries[0]
+    assert entry.kind == "metric_frame"
+    assert entry.metric_id == "sales.revenue"
+    assert entry.semantic_kind is not None
+    assert entry.semantic_model is not None
+
+
+# --- derived-metric observe caching ---
+
+
+def _bootstrap_failure_rate(tmp_path):
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_model.py").write_text(
+        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "\n"
+        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "\n"
+        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "def order_date(orders):\n"
+        "    return orders.created_at.cast('date')\n"
+        "\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
+        "def failed_count(orders):\n"
+        "    return (orders.state == 'FAILED').cast('int64').sum()\n"
+        "\n"
+        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
+        "def total_count(orders):\n"
+        "    return orders.count()\n"
+        "\n"
+        "ms.derived_metric(\n"
+        "    name='failure_rate',\n"
+        "    decomposition=ms.ratio(\n"
+        "        numerator='sales.failed_count',\n"
+        "        denominator='sales.total_count',\n"
+        "    ),\n"
+        ")\n"
+    )
+
+
+def _seed_failure_rate(con):
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER, created_at DATE, state VARCHAR)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', 'FAILED'),"
+        "(2, DATE '2026-07-02', 'SUCCEEDED'),"
+        "(3, DATE '2026-07-03', 'FAILED'),"
+        "(4, DATE '2026-07-04', 'SUCCEEDED')"
+    )
+
+
+def test_observe_derived_metric_cache_hit(tmp_path):
+    _bootstrap_failure_rate(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_failure_rate(con)
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    first = s.observe(mv.MetricRef("sales.failure_rate"))
+    assert isinstance(first, MetricFrame)
+
+    second = s.observe(mv.MetricRef("sales.failure_rate"))
+    assert isinstance(second, MetricFrame)
+    assert second.ref == first.ref
+
+
+# --- session.frames (existing API, smoke test) ---
+
+
+def test_frames_returns_refs(tmp_path):
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = _make_session(tmp_path, con)
+
+    s.observe(mv.MetricRef("sales.revenue"))
+
+    refs = s.frames()
+    assert len(refs) >= 1
+    assert all(r.ref and r.kind for r in refs)

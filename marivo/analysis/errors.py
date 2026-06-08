@@ -671,6 +671,17 @@ class FrameReadError(AnalysisError):
 class FrameRefNotFound(AnalysisError): ...  # noqa: N818
 
 
+class FrameCacheCorruptedError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        ref = self.details.get("ref", "?")
+        cause = self.details.get("cause", "unknown")
+        return {
+            "location": f"frame cache for ref '{ref}'",
+            "cause": f"persisted frame data is unreadable: {cause}",
+            "fix_snippet": f"# Delete the corrupted artifact directory to force re-computation:\n# rm -rf .marivo/analysis/sessions/*/frames/{ref}/",
+        }
+
+
 class BackendError(AnalysisError): ...
 
 

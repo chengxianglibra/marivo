@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from marivo.analysis.errors import (
     CrossSessionFrameError,
+    FrameCacheCorruptedError,
     FrameMetaInvalidError,
     FrameRefNotFound,
 )
@@ -62,7 +63,13 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             message=f"no frame '{ref}' under session {session.id!r}",
             details={"session_id": session.id, "ref": ref},
         )
-    df, meta = read_frame_from_disk(session.layout, ref)
+    try:
+        df, meta = read_frame_from_disk(session.layout, ref)
+    except Exception as exc:
+        raise FrameCacheCorruptedError(
+            message=f"frame '{ref}' exists on disk but cannot be loaded",
+            details={"ref": ref, "cause": str(exc)},
+        ) from exc
     if meta.get("session_id") != session.id:
         raise CrossSessionFrameError(
             message=(

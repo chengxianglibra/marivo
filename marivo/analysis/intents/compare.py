@@ -30,6 +30,8 @@ from marivo.analysis.evidence.pipeline import (
     CommitParams,
     CommitSemanticAnchors,
     commit_result,
+    compute_prospective_artifact_id,
+    frame_exists_on_disk,
 )
 from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
@@ -47,6 +49,7 @@ from marivo.analysis.intents._window_pairs import (
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
+from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.attach import active as session_active
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.session.persistence import write_frame_to_disk, write_job_record
@@ -112,8 +115,6 @@ def _component_decomposition_kind(frame: MetricFrame) -> str | None:
 
 def _load_component_for_compare(frame: MetricFrame, session: Session, label: str) -> ComponentFrame:
     """Load and validate the component frame for a compare input."""
-    from marivo.analysis.session._load import load_frame
-
     if frame.meta.component_ref is None:
         raise ComponentFrameUnavailableError(
             message=(
@@ -603,6 +604,19 @@ def compare(
         "source_baseline_ref": baseline.ref,
         "alignment": alignment_dump,
     }
+
+    # Check cache before constructing the frame and committing.
+    prospective_id = compute_prospective_artifact_id(
+        step_type="compare",
+        inputs=CommitInputs(input_refs=[current.ref, baseline.ref]),
+        params=CommitParams(values=params),
+        semantic_anchors=CommitSemanticAnchors(
+            values={"metric_id": current.meta.metric_id, "model": current.meta.semantic_model}
+        ),
+    )
+    if frame_exists_on_disk(session.layout.frames_dir, prospective_id):
+        return cast("DeltaFrame", load_frame(prospective_id, session=session))
+
     digest = f"sha256:{hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()}"
     meta = DeltaFrameMeta(
         kind="delta_frame",

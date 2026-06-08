@@ -77,6 +77,43 @@ class CommitSemanticAnchors(BaseModel):
     values: dict[str, Any]
 
 
+# --- Public cache helpers ---
+
+
+def compute_prospective_artifact_id(
+    *,
+    step_type: str,
+    inputs: CommitInputs,
+    params: CommitParams,
+    semantic_anchors: CommitSemanticAnchors,
+) -> str:
+    """Compute the deterministic artifact_id that :func:`commit_result` would assign.
+
+    Uses the same :func:`make_artifact_id` call as ``commit_result``, so the
+    result is identical for the same inputs.  Callers use this to check whether
+    a frame already exists on disk before executing an expensive backend query.
+    """
+    return make_artifact_id(
+        step_type=step_type,
+        normalized_inputs=inputs.input_refs,
+        normalized_params=params.values,
+        semantic_anchors=semantic_anchors.values,
+    )
+
+
+def frame_exists_on_disk(frames_dir: Path, artifact_id: str) -> bool:
+    """Return True if both meta.json and data.parquet exist and are non-empty."""
+    frame_dir = frames_dir / artifact_id
+    meta_file = frame_dir / "meta.json"
+    parquet_file = frame_dir / "data.parquet"
+    return (
+        meta_file.is_file()
+        and meta_file.stat().st_size > 0
+        and parquet_file.is_file()
+        and parquet_file.stat().st_size > 0
+    )
+
+
 # --- Internal helpers ---
 
 _ARTIFACT_SCHEMA_VERSION = "v1"
