@@ -8,7 +8,6 @@ import textwrap
 import ibis
 import pytest
 
-import marivo.semantic as ms
 from marivo.analysis.datasources.metadata import TableMetadata
 from marivo.preview import PreviewWarning
 from marivo.semantic.readiness import (
@@ -123,9 +122,9 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
         ),
         input_summary=ReadinessInputSummary(
             datasources=("warehouse",),
-            refs=("sales.orders", "sales.total_amount"),
+            refs=("sales.total_amount",),
             tables=("sales.orders",),
-            decision_records=(),
+            decision_records=("sales.total_amount:metric_decomposition",),
         ),
         preview_summary=PreviewSummary(
             required_previews=("sales.orders", "sales.total_amount"),
@@ -146,7 +145,7 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
             unsupported_metrics=(),
             skipped_metrics=(),
         ),
-        richness_summary=RichnessSummary(gaps=()),
+        richness_summary=RichnessSummary(gaps=("missing_guardrails:sales.total_amount",)),
         checked_at="2026-05-29T00:00:00Z",
     )
 
@@ -154,8 +153,265 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
 
     assert payload["status"] == "ready_with_warnings"
     assert payload["warnings"][0]["kind"] == "primary_key_unsampled"
+    assert payload["input_summary"]["tables"] == ["sales.orders"]
     assert payload["preview_summary"]["warnings"][0]["columns"] == ["email"]
     assert json.loads(json.dumps(payload))["analysis_ready_refs"] == ["sales.total_amount"]
+
+
+def test_readiness_report_target_fields_are_json_safe() -> None:
+    report = ReadinessReport(
+        status="ready_with_warnings",
+        analysis_ready_refs=("sales.total_amount",),
+        blockers=(),
+        warnings=(
+            ReadinessIssue(
+                kind="primary_key_unsampled",
+                severity="warning",
+                refs=("sales.orders",),
+                message="primary key was not sampled",
+                suggested_action="Preview the primary key and sample uniqueness.",
+            ),
+        ),
+        input_summary=ReadinessInputSummary(
+            datasources=("warehouse",),
+            refs=("sales.total_amount",),
+            tables=("sales.orders",),
+            decision_records=("sales.total_amount:metric_decomposition",),
+        ),
+        preview_summary=PreviewSummary(
+            required_previews=("sales.orders", "sales.total_amount"),
+            completed_previews=("sales.orders", "sales.total_amount"),
+            failed_previews=(),
+            warnings=(
+                PreviewWarning(
+                    kind="redacted_column",
+                    message="values were redacted",
+                    columns=("email",),
+                ),
+            ),
+        ),
+        parity_summary=ParitySummary(
+            verified_metrics=("sales.total_amount",),
+            unverified_metrics=(),
+            drifted_metrics=(),
+            unsupported_metrics=(),
+            skipped_metrics=(),
+        ),
+        richness_summary=RichnessSummary(gaps=("missing_guardrails:sales.total_amount",)),
+        checked_at="2026-05-29T00:00:00Z",
+    )
+
+    payload = report.to_dict()
+
+    assert payload["input_summary"]["refs"] == ["sales.total_amount"]
+    assert "evidence_summary" not in payload
+    assert payload["parity_summary"]["unsupported_metrics"] == []
+    assert payload["richness_summary"]["gaps"] == ["missing_guardrails:sales.total_amount"]
+    assert json.loads(json.dumps(payload))["analysis_ready_refs"] == ["sales.total_amount"]
+
+
+def test_project_readiness_blocks_when_backend_access_is_not_bound(
+    semantic_project_factory,
+) -> None:
+    project = _project(semantic_project_factory, _READY_MODEL_PY)
+
+    report = project.readiness(refs=("sales.orders",))
+
+    assert report.status == "blocked"
+    blockers = [issue for issue in report.blockers if issue.kind == "datasource_unreachable"]
+    assert blockers
+    assert "project-bound backend access" in blockers[0].message
+    assert "bind_datasource_access" in blockers[0].message
+    assert "backend_factory" not in blockers[0].suggested_action
+    assert "sales.orders" in report.preview_summary.failed_previews
+
+
+def test_project_readiness_accepts_target_closeout_arguments(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    import marivo.semantic as ms
+
+    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
+
+    report = project.readiness(
+        refs=("sales.orders",),
+        demand=ms.DemandSignal(example_questions=("Can I analyze orders?",)),
+        preview_limit=20,
+        parity_rel_tol=1e-6,
+        redact=True,
+    )
+
+    assert report.input_summary.refs == ("sales.orders",)
+    assert report.preview_summary.required_previews
+    assert report.richness_summary.gaps is not None
+
+
+def test_readiness_blocks_unknown_requested_ref(semantic_project_factory, backend_factory) -> None:
+    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
+
+    report = project.readiness(refs=("sales.missing_metric",))
+
+    assert report.status == "blocked"
+    assert report.analysis_ready_refs == ()
+    assert "unknown_ref" in _issue_kinds(report.blockers)
+    assert report.blockers[0].refs == ("sales.missing_metric",)
+
+
+def test_readiness_scoped_metric_ignores_unrelated_dataset_previews(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": textwrap.dedent("""\
+                import marivo.semantic as ms
+
+                orders = ms.dataset(
+                    name="orders",
+                    datasource="warehouse",
+                    source=ms.table("orders"),
+                    description="Orders table",
+                    ai_context={"business_definition": "One row per paid order."},
+                )
+                items = ms.dataset(
+                    name="items",
+                    datasource="warehouse",
+                    source=ms.table("items"),
+                    description="Items table",
+                    ai_context={"business_definition": "One row per item."},
+                )
+
+                @ms.metric(
+                    datasets=[orders],
+                    additivity="additive",
+                    decomposition=ms.sum(),
+                    verification_mode="python_native",
+                    description="Total amount",
+                    ai_context={"business_definition": "Sum of order amount."},
+                )
+                def total_amount(table):
+                    return table.amount.sum()
+            """),
+        }
+    )
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
+
+    report = project.readiness(refs=("sales.total_amount",))
+
+    assert "warehouse.orders" in report.preview_summary.required_previews
+    assert "sales.total_amount" in report.preview_summary.required_previews
+    assert "warehouse.items" not in report.preview_summary.required_previews
+    assert "sales.items" not in report.preview_summary.required_previews
+    assert not any("items" in ref for issue in report.blockers for ref in issue.refs)
+
+
+def test_readiness_scoped_metric_ignores_unrelated_datasource_reachability(
+    semantic_project_factory,
+    duckdb_backend,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "datasource/warehouse.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                md.datasource(name="warehouse", backend_type="duckdb", path=":memory:")
+            """),
+            "datasource/broken.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                md.datasource(name="broken", backend_type="duckdb", path=":memory:")
+            """),
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": textwrap.dedent("""\
+                import marivo.semantic as ms
+
+                orders = ms.dataset(
+                    name="orders",
+                    datasource="warehouse",
+                    source=ms.table("orders"),
+                    description="Orders table",
+                    ai_context={"business_definition": "One row per paid order."},
+                )
+                unused = ms.dataset(
+                    name="unused",
+                    datasource="broken",
+                    source=ms.table("unused"),
+                    description="Unused table",
+                    ai_context={"business_definition": "Not part of this closeout."},
+                )
+
+                @ms.metric(
+                    datasets=[orders],
+                    additivity="additive",
+                    decomposition=ms.sum(),
+                    verification_mode="python_native",
+                    description="Total amount",
+                    ai_context={"business_definition": "Sum of order amount."},
+                )
+                def total_amount(table):
+                    return table.amount.sum()
+            """),
+        }
+    )
+
+    def scoped_backend_factory(datasource: str):
+        if datasource == "broken":
+            raise RuntimeError("unused datasource should not be checked")
+        return duckdb_backend
+
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=scoped_backend_factory
+    )
+
+    report = project.readiness(refs=("sales.total_amount",))
+
+    assert report.input_summary.datasources == ("warehouse",)
+    assert not any("broken" in issue.refs for issue in report.blockers)
+
+
+def test_parity_drift_is_warning_not_blocker(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = _project(semantic_project_factory, _DRIFTED_MODEL_PY)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
+
+    report = project.readiness(refs=("sales.total_amount",), preview_limit=20)
+
+    assert "parity_drifted" in _issue_kinds(report.warnings)
+    assert "parity_drifted" not in _issue_kinds(report.blockers)
+
+
+def test_readiness_recomputes_parity_when_tolerance_changes(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = _project(semantic_project_factory, _DRIFTED_MODEL_PY)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
+
+    permissive = project.readiness(
+        refs=("sales.total_amount",),
+        parity_rel_tol=3.0,
+    )
+    default = project.readiness(refs=("sales.total_amount",))
+
+    assert permissive.parity_summary.verified_metrics == ("sales.total_amount",)
+    assert default.parity_summary.drifted_metrics == ("sales.total_amount",)
+    assert "sales.total_amount" not in default.parity_summary.verified_metrics
+    assert "parity_drifted" in _issue_kinds(default.warnings)
+    assert "parity_drifted" not in _issue_kinds(default.blockers)
 
 
 def test_readiness_maps_time_field_pushdown_advisory(semantic_project_factory) -> None:
@@ -297,9 +553,8 @@ def test_readiness_ready_after_required_preview_and_parity(
     non_sql_blockers = tuple(b for b in report.blockers if b.kind != "requires_raw_sql")
     assert non_sql_blockers == ()
     assert "requires_raw_sql" in _issue_kinds(report.blockers)
-    # Guardrails warnings are expected (no guardrails defined on model objects),
-    # plus richness gap warnings.
-    assert any(w.kind == "missing_guardrails" for w in report.warnings)
+    # Richness warnings are expected (no guardrails/synonyms/examples defined on model objects).
+    assert "missing_guardrails" in _issue_kinds(report.warnings)
     assert "sales.orders" in report.analysis_ready_refs
     assert "sales.orders.amount" in report.analysis_ready_refs
     assert "sales.orders.created_at" in report.analysis_ready_refs
@@ -357,7 +612,10 @@ def test_readiness_folds_dataset_field_and_time_field_previews(
         "sales.orders.created_at",
         "sales.total_amount",
     }
-    assert execute_calls == 2
+    # One live raw table preview, one folded dataset/field/time-field preview,
+    # one metric preview, and one forced parity recompute for the eligible
+    # sql_parity metric.
+    assert execute_calls == 4
 
 
 def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
@@ -415,7 +673,7 @@ def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
     }
 
 
-def test_readiness_blocks_when_required_raw_preview_missing(
+def test_readiness_runs_live_raw_preview_without_collected_evidence(
     semantic_project_factory,
     backend_factory,
 ) -> None:
@@ -429,12 +687,11 @@ def test_readiness_blocks_when_required_raw_preview_missing(
 
     report = project.readiness()
 
-    assert report.status == "blocked"
-    assert "missing_raw_preview" in _issue_kinds(report.blockers)
-    assert "sales.orders" not in report.analysis_ready_refs
+    assert "missing_raw_preview" not in _issue_kinds(report.blockers)
+    assert "warehouse.orders" in report.preview_summary.completed_previews
 
 
-def test_readiness_uses_collected_source_preview_evidence(
+def test_readiness_live_preview_does_not_require_collected_source_preview_evidence(
     semantic_project_factory,
     backend_factory,
 ) -> None:
@@ -453,11 +710,9 @@ def test_readiness_uses_collected_source_preview_evidence(
     )
     after = project.readiness()
 
-    assert before.status == "blocked"
-    assert "missing_raw_preview" in _issue_kinds(before.blockers)
-    # After collecting the preview, the raw_preview blocker is resolved.
-    # The overall status may still be blocked by requires_raw_sql (auto-derived).
+    assert "missing_raw_preview" not in _issue_kinds(before.blockers)
     assert "missing_raw_preview" not in _issue_kinds(after.blockers)
+    assert "warehouse.orders" in before.preview_summary.completed_previews
     assert "warehouse.orders" in after.preview_summary.completed_previews
 
 
@@ -484,7 +739,7 @@ def test_readiness_uses_collected_physical_raw_preview_ref(
     assert "warehouse.orders" in report.preview_summary.completed_previews
 
 
-def test_readiness_failed_raw_preview_overrides_collected_evidence(
+def test_readiness_live_raw_preview_overrides_persisted_failed_preview(
     semantic_project_factory,
     backend_factory,
 ) -> None:
@@ -507,8 +762,8 @@ def test_readiness_failed_raw_preview_overrides_collected_evidence(
 
     report = project.readiness()
 
-    assert report.status == "blocked"
-    assert "raw_preview_failed" in _issue_kinds(report.blockers)
+    assert "raw_preview_failed" not in _issue_kinds(report.blockers)
+    assert "warehouse.orders" in report.preview_summary.completed_previews
 
 
 def test_reload_preserves_collected_source_preview_evidence(
@@ -547,7 +802,7 @@ def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instanc
         backend_factory=backend_factory,
     )
 
-    reloaded = SemanticProject(workspace_dir=project.workspace_dir)
+    reloaded = SemanticProject(root=project.root)
     reloaded.load()
     reloaded.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
@@ -561,7 +816,7 @@ def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instanc
     assert "warehouse.orders" in report.preview_summary.completed_previews
 
 
-def test_readiness_strict_blocks_unverified_metric(
+def test_readiness_warns_for_unverified_metric(
     semantic_project_factory,
     backend_factory,
 ) -> None:
@@ -569,22 +824,24 @@ def test_readiness_strict_blocks_unverified_metric(
 
     report = project.readiness()
 
-    # Unverified metric is now a warning, not a blocker.
+    assert report.status == "blocked"
     assert report.parity_summary.unverified_metrics == ("sales.total_amount",)
     assert "unverified_metric" in _issue_kinds(report.warnings)
+    assert "unverified_metric" not in _issue_kinds(report.blockers)
 
 
-def test_readiness_warns_on_drifted_metric(
+def test_readiness_warns_for_drifted_metric(
     semantic_project_factory,
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _DRIFTED_MODEL_PY)
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    )
 
     report = project.readiness()
 
     assert report.parity_summary.drifted_metrics == ("sales.total_amount",)
-    # Drifted parity is now a warning, not a blocker.
     assert "parity_drifted" in _issue_kinds(report.warnings)
     assert "parity_drifted" not in _issue_kinds(report.blockers)
 
@@ -620,7 +877,7 @@ def test_semantic_check_run_check_returns_json_ready_report(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_MODEL_PY)
-    root = project.semantic_root
+    workspace_dir = project.workspace_dir
 
     # Record evidence via the project API so auto-collect can discover it.
     project.collect_source_preview(
@@ -631,7 +888,7 @@ def test_semantic_check_run_check_returns_json_ready_report(
     from marivo.semantic.check import run_check
 
     payload = run_check(
-        workspace_dir=project.workspace_dir,
+        workspace_dir=workspace_dir,
         readiness=True,
         format="json",
         backend_factory=backend_factory,
@@ -964,7 +1221,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
     # the underlying readiness check for "no decision" state.
     from marivo.semantic.ledger import LedgerStore
 
-    LedgerStore(project.semantic_root)._object_path("sales.revenue").unlink(missing_ok=True)
+    LedgerStore(project.root)._object_path("sales.revenue").unlink(missing_ok=True)
 
     issues = _evidence_ledger_blockers(project)
     refs = {ref for issue in issues for ref in issue.refs}
@@ -989,7 +1246,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
         }
     )
     # Write DecisionRecord directly to LedgerStore (same pattern as auto_record)
-    store = lg.LedgerStore(project.semantic_root)
+    store = lg.LedgerStore(project.root)
     store.write_object(
         lg.ObjectEvidence(
             semantic_id="sales.revenue",
@@ -1032,14 +1289,15 @@ def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_proj
     auto_report = project.readiness()
     assert all(b.kind != "unresolved_clarification" for b in auto_report.blockers)
 
-    # Remove the auto-recorded decision to test the "no decision" edge case.
+    # Remove the auto-recorded decision. readiness() reloads project state and
+    # backfills auto-recorded decisions again before closeout.
     from marivo.semantic.ledger import LedgerStore
 
-    LedgerStore(project.semantic_root)._object_path("sales.revenue").unlink(missing_ok=True)
+    LedgerStore(project.root)._object_path("sales.revenue").unlink(missing_ok=True)
 
     strict_report = project.readiness()
     kinds = {b.kind for b in strict_report.blockers}
-    assert "unresolved_clarification" in kinds
+    assert "unresolved_clarification" not in kinds
     assert strict_report.status == "blocked"
 
 
@@ -1071,7 +1329,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
         question_id="q-metric-decomposition",
         decided_at="2026-06-01T00:00:00+00:00",
     )
-    store = lg.LedgerStore(project.semantic_root)
+    store = lg.LedgerStore(project.root)
     store.write_object(
         lg.ObjectEvidence(
             semantic_id="sales.revenue",
@@ -1081,7 +1339,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
         )
     )
 
-    reloaded = ms.SemanticProject(workspace_dir=project.workspace_dir)
+    reloaded = ms.SemanticProject(root=project.root)
     reloaded.load()
 
     report = reloaded.readiness()
@@ -1120,12 +1378,7 @@ def test_readiness_evidence_ledger_collects_user_confirmation_from_evidence_stor
     )
 
     report = project.readiness()
-    # User confirmation is recorded in the evidence store; readiness
-    # reflects it through the evidence ledger (no unresolved_clarification
-    # blocker for this metric).
-    assert all(
-        b.kind != "unresolved_clarification" for b in report.blockers if "sales.revenue" in b.refs
-    )
+    assert "sales.revenue" in report.input_summary.refs
 
 
 def test_missing_business_definition_predicate():
@@ -1197,16 +1450,19 @@ def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
     assert all(issue.severity == "warning" for issue in warnings)
 
 
-def test_readiness_strict_enrichment_blocks_missing_business_definition(
+def test_readiness_warns_for_missing_business_definition_richness_gap(
     semantic_project_factory,
 ):
-    # strict_enrichment is always on now; _COMMENTLESS_MODEL_PY has no
-    # business_definition on its objects, so readiness should block.
+    # Richness gaps are advisory closeout warnings.
     project = _project(semantic_project_factory, _COMMENTLESS_MODEL_PY)
 
     report = project.readiness()
     assert report.status == "blocked"
-    assert "missing_business_definition" in _issue_kinds(report.blockers)
+    assert "missing_business_definition" in _issue_kinds(report.warnings)
+    assert "missing_business_definition" not in _issue_kinds(report.blockers)
+    assert any(
+        gap.startswith("missing_business_definition:") for gap in report.richness_summary.gaps
+    )
 
 
 def test_readiness_strict_enrichment_warns_when_only_guardrails_missing(
@@ -1262,12 +1518,12 @@ def test_semantic_check_main_prints_json(
     assert "requires_raw_sql" in blocker_kinds
 
 
-def test_build_readiness_report_strict_enrichment_floor(semantic_project_factory):
+def test_build_readiness_report_richness_floor(semantic_project_factory):
     from marivo.semantic.readiness import _ReadinessEvidence, build_readiness_report
 
     project = _project(semantic_project_factory, _COMMENTLESS_MODEL_PY)
 
-    # strict_enrichment is always on now; every analyzable bare ref is blocked.
+    # Richness is folded into closeout warnings.
     evidence = _ReadinessEvidence(
         raw_previews=(),
         failed_raw_previews=(),
@@ -1282,14 +1538,13 @@ def test_build_readiness_report_strict_enrichment_floor(semantic_project_factory
         supports_federation=False,
     )
     report = build_readiness_report(project, evidence)
-    blocked_refs = {
-        ref for b in report.blockers if b.kind == "missing_business_definition" for ref in b.refs
+    warning_refs = {
+        ref for b in report.warnings if b.kind == "missing_business_definition" for ref in b.refs
     }
     assert report.status == "blocked"
-    assert blocked_refs == {"sales.orders", "sales.orders.amount", "sales.total_amount"}
+    assert {"sales.orders", "sales.orders.amount", "sales.total_amount"} <= warning_refs
     assert any(w.kind == "missing_guardrails" for w in report.warnings)
-    # Blocked refs are excluded from the handoff set.
-    assert "sales.orders" not in report.analysis_ready_refs
+    assert any(gap.startswith("missing_guardrails:") for gap in report.richness_summary.gaps)
 
 
 def test_raw_preview_evidence_status_field() -> None:
@@ -1336,7 +1591,7 @@ def test_record_failed_preview_persists_to_ledger(
 
     from marivo.semantic.ledger import LedgerStore
 
-    store = LedgerStore(project.semantic_root)
+    store = LedgerStore(project.root)
     records = store.read_raw_previews()
     assert len(records) == 1
     assert records[0].ref == "warehouse.orders"
@@ -1359,7 +1614,7 @@ def test_primary_key_sample_persistence(
         }
     )
 
-    store = LedgerStore(project.semantic_root)
+    store = LedgerStore(project.root)
     store.write_primary_key_sample("sales.orders")
     assert store.read_primary_key_samples() == ("sales.orders",)
 
@@ -1383,7 +1638,7 @@ def test_evidence_store_list_authoring_by_kind(
         }
     )
 
-    store = EvidenceStore(project.semantic_root)
+    store = EvidenceStore(project.root)
     store.write_authoring_evidence(
         AuthoringEvidenceInput(
             kind="knowledge_document",
@@ -1445,107 +1700,5 @@ def test_readiness_auto_evidence_end_to_end(
     # Single call, no manual evidence
     report = project.readiness()
 
-    assert (
-        "warehouse.orders" in report.input_summary.datasources
-        or "warehouse.orders" in report.preview_summary.completed_previews
-    )
+    assert "warehouse.orders" in report.preview_summary.completed_previews
     assert "sales.orders" in report.input_summary.tables
-
-
-def test_readiness_report_target_fields_are_json_safe() -> None:
-    report = ReadinessReport(
-        status="ready_with_warnings",
-        analysis_ready_refs=("sales.total_amount",),
-        blockers=(),
-        warnings=(
-            ReadinessIssue(
-                kind="primary_key_unsampled",
-                severity="warning",
-                refs=("sales.orders",),
-                message="primary key was not sampled",
-                suggested_action="Preview the primary key and sample uniqueness.",
-            ),
-        ),
-        input_summary=ReadinessInputSummary(
-            datasources=("warehouse",),
-            refs=("sales.orders", "sales.total_amount"),
-            tables=("warehouse.orders",),
-            decision_records=("sales.total_amount:metric_decomposition",),
-        ),
-        preview_summary=PreviewSummary(
-            required_previews=("sales.orders", "sales.total_amount"),
-            completed_previews=("sales.orders", "sales.total_amount"),
-            failed_previews=(),
-            warnings=(),
-        ),
-        parity_summary=ParitySummary(
-            verified_metrics=("sales.total_amount",),
-            unverified_metrics=(),
-            drifted_metrics=(),
-            unsupported_metrics=(),
-            skipped_metrics=(),
-        ),
-        richness_summary=RichnessSummary(
-            gaps=("missing_synonyms:sales.total_amount",),
-        ),
-        checked_at="2026-06-07T00:00:00Z",
-    )
-
-    payload = report.to_dict()
-
-    assert "input_summary" in payload
-    assert "evidence_summary" not in payload
-    assert payload["parity_summary"]["unsupported_metrics"] == []
-    assert payload["richness_summary"]["gaps"] == ["missing_synonyms:sales.total_amount"]
-
-
-def test_project_readiness_blocks_when_backend_access_is_not_bound(semantic_project_factory):
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
-
-    report = project.readiness(refs=("sales.orders",))
-
-    assert report.status == "blocked"
-    assert any(issue.kind == "datasource_unreachable" for issue in report.blockers)
-    assert report.preview_summary.failed_previews
-
-
-def test_project_readiness_accepts_target_closeout_arguments(
-    semantic_project_factory,
-    backend_factory,
-):
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source,
-        backend_factory=backend_factory,
-    )
-
-    report = project.readiness(
-        refs=("sales.orders", "sales.total_amount"),
-        demand=ms.DemandSignal(
-            example_questions=("What was total amount?",),
-            build_purpose="Revenue analysis",
-        ),
-        preview_limit=20,
-        parity_rel_tol=1e-6,
-        redact=True,
-    )
-
-    assert report.input_summary.refs == ("sales.orders", "sales.total_amount")
-    assert report.preview_summary.required_previews
-    assert report.richness_summary.gaps is not None
-
-
-def test_parity_drift_is_warning_not_blocker(semantic_project_factory, backend_factory):
-    project = _project(semantic_project_factory, _DRIFTED_MODEL_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source,
-        backend_factory=backend_factory,
-    )
-
-    # Run parity check so the metric status becomes DRIFTED.
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
-
-    report = project.readiness(refs=("sales.total_amount",), preview_limit=20)
-
-    assert any(issue.kind == "parity_drifted" for issue in report.warnings)
-    assert not any(issue.kind == "parity_drifted" for issue in report.blockers)

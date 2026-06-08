@@ -37,10 +37,6 @@ the project structure before authoring semantic objects.
   secret that the cache already holds.
 - Python files under `.marivo/semantic/<model>/` are the only semantic source of
   truth.
-- Use `project.assess_authoring(...)` before writing each candidate semantic object. Branch on `AuthoringAssessment.status`: `blocked` stops authoring, `needs_input` requires user or project context, and `supported` can be written.
-- Do not dispatch on choreography enums; that pattern has been removed.
-- Write one `.marivo/semantic/<model>/_model.py` per model and defer reload until closeout.
-- Closeout uses `project.readiness(...)`; it reloads, runs required previews, reports parity warnings, folds richness warnings, and returns analysis-ready refs.
 - Collect source evidence before authoring. Bind datasource access once with
   `project.bind_datasource_access(inspect_source=mv.datasources.inspect_source,
   backend_factory=mv.datasources.build_backend)`, then call
@@ -54,8 +50,12 @@ the project structure before authoring semantic objects.
   values). The project returns no candidate worklist. Deep-dive a small set with
   `project.inspect_column_context(...)`.
 - Record non-sample evidence (source SQL, BI definitions, knowledge, owner notes, user
-  confirmations) with `project.record_authoring_evidence(AuthoringEvidenceInput(...))` and cite
-  the returned `EvidenceRef.id` in checks.
+  confirmations) with `project.record_authoring_evidence(AuthoringEvidenceInput(...))` for
+  ledger/source context.
+- Before writing each candidate object, run `project.assess_authoring(...)` with
+  `sources=(ms.AuthoringSourceInput(...),)` and `semantic_refs=...` where relevant. Branch
+  on `AuthoringAssessment.status`, then inspect `issues` and `questions`; never string-parse
+  messages. Ask the user only for `AuthoringQuestion`s the assessment raises.
 - After authoring and `project.reload()`, run `project.inspect_authored_object(ref)` (cheap,
   backend-free) before any runtime preview/parity.
 - `blast_radius` is a non-negative integer count of distinct transitive dependents,
@@ -65,7 +65,12 @@ the project structure before authoring semantic objects.
   `project.record_authoring_evidence(ms.AuthoringEvidenceInput(kind="user_confirmation", ...))`.
 - Confirm relationships with
   `project.record_authoring_evidence(ms.AuthoringEvidenceInput(kind="relationship_confirmation", subject_refs=(relationship_semantic_id,), content=...))`.
+- Reload after authoring `@ms.metric` or `@ms.time_field` declarations so Marivo
+  can auto-record their object-level `metric_decomposition` and
+  `time_field_identity` decisions.
 - Do not hand off to `marivo-analysis` while readiness is blocked.
+- Run `project.readiness(...)` once at closeout. Richness gaps are folded into
+  readiness warnings and `richness_summary`.
 
 `table.schema()` returns types but not comments.
 
@@ -73,13 +78,13 @@ the project structure before authoring semantic objects.
 
 Read `references/workflow.md` first. The short form is:
 
-1. Discover the project and existing refs; search for reuse before authoring.
-2. Bind datasource access once with `project.bind_datasource_access(...)`.
-3. For each source, call `project.inspect_source_context(...)`; deep-dive selected columns with `project.inspect_column_context(...)` when needed.
-4. Decide candidate datasets, fields, time fields, metrics, relationships, and derived metrics yourself from source facts and project context.
-5. For each candidate object, call `project.assess_authoring(...)`; resolve `blocked` or `needs_input` issues before writing.
-6. Author a single `.marivo/semantic/<model>/_model.py` in dependency order. Do not reload between objects in the same file.
-7. Close with `project.readiness(...)`. Do not hand off to `marivo-analysis` while readiness is blocked; report readiness warnings as follow-up work.
+1. Discovery/source inspection: discover the project and existing refs, bind datasource
+   access once, inspect source context, and deep-dive only the columns that matter.
+2. Assess and author each candidate object: call `project.assess_authoring(...)`,
+   resolve blockers/questions, author one `.marivo/semantic/<model>/_model.py` using ref
+   variables, reload, and inspect the authored object.
+3. Closeout: call `project.readiness(...)` once for the target refs and hand off only when
+   it is not blocked.
 
 ## Authoring Defaults
 
@@ -104,7 +109,7 @@ Read `references/workflow.md` first. The short form is:
 | End-to-end semantic construction | `references/workflow.md` |
 | Python declaration patterns | `references/authoring-patterns.md` |
 | Evidence, questions, confirmations, ledger | `references/evidence-and-ledger.md` |
-| Preview, parity, readiness, richness | `references/closeout.md` |
+| Preview, parity, readiness | `references/closeout.md` |
 | Datasource selection and setup | `references/datasource.md` |
 | Preview behavior and failures | `references/preview.md` |
 | Known failure modes | `references/pitfalls.md` |

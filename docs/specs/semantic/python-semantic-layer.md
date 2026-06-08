@@ -23,7 +23,12 @@
 
 ## Authoring 快速路径
 
-目标态支持 single-file 快速路径。agent 可以先在 `.marivo/semantic/sales/_model.py` 中完成从 dataset 到 metric 的最小声明；项目 datasource 单独放在 `.marivo/datasource/warehouse.py`。当模型变大时，再把相关对象拆到 sibling `.py` 文件中，而不需要改变已有 semantic ids。
+目标态标准 agent authoring pipeline 使用每个 model 一个
+`.marivo/semantic/<model>/_model.py` 文件。agent 应在
+`.marivo/semantic/sales/_model.py` 中完成从 dataset 到 metric 的声明；项目
+datasource 单独放在 `.marivo/datasource/warehouse.py`。底层 loader 仍可执行
+同目录 sibling `.py` 文件，但这是更低层能力，不是当前正常 agent-authored
+文件组织建议。
 
 ```python
 # .marivo/datasource/warehouse.py

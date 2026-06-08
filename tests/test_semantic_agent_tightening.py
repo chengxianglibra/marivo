@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import os
 import sys
@@ -9,6 +10,8 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+
+import marivo.semantic as ms
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,6 +33,41 @@ def _load_run_skill_examples() -> ModuleType:
 
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text()
+
+
+def _extract_call_snippets(text: str, call_name: str) -> tuple[str, ...]:
+    snippets: list[str] = []
+    start = 0
+    while True:
+        call_start = text.find(call_name, start)
+        if call_start == -1:
+            return tuple(snippets)
+
+        open_paren = text.find("(", call_start + len(call_name))
+        if open_paren == -1:
+            return tuple(snippets)
+
+        depth = 0
+        for index in range(open_paren, len(text)):
+            char = text[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    snippets.append(text[call_start : index + 1])
+                    start = index + 1
+                    break
+        else:
+            return tuple(snippets)
+
+
+def _top_level_call_keyword_names(snippet: str) -> tuple[str, ...]:
+    parsed = ast.parse(snippet)
+    expr = parsed.body[0]
+    assert isinstance(expr, ast.Expr)
+    assert isinstance(expr.value, ast.Call)
+    return tuple(keyword.arg for keyword in expr.value.keywords if keyword.arg is not None)
 
 
 _EXAMPLE_PARAMS = [
@@ -56,6 +94,84 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     assert "AuthoringQuestion" in evidence
     assert "table.schema()` returns types but not comments" in skill
     assert "target preview APIs until they exist" not in skill
+
+
+def test_semantic_skill_uses_assess_authoring_not_next_checks() -> None:
+    public_paths = [
+        "marivo-skills/marivo-semantic/SKILL.md",
+        "marivo-skills/marivo-semantic/references/workflow.md",
+        "marivo-skills/marivo-semantic/references/evidence-and-ledger.md",
+        "marivo-skills/marivo-semantic/references/closeout.md",
+        "marivo-skills/marivo-semantic/references/pitfalls.md",
+        "marivo-skills/marivo-semantic/references/examples/02_source_evidence_to_check.py",
+        "marivo-skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py",
+    ]
+    combined = "\n".join(_read(path) for path in public_paths)
+    closeout = "\n".join(
+        _read(path)
+        for path in [
+            "marivo-skills/marivo-semantic/references/closeout.md",
+            "marivo-skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py",
+        ]
+    )
+
+    assert "project.assess_authoring(" in combined
+    assert "ms.AuthoringSourceInput(" in combined
+    assert "next_checks" not in combined
+    assert "needs_evidence" not in combined
+    assert "project.check_authoring_inputs(" not in combined
+    assert "check_authoring_inputs" not in combined
+    assert "project.richness(" not in combined
+    assert "project.readiness(" in closeout
+    assert "project.richness(" not in closeout
+
+
+def test_superseded_specs_point_to_authoring_pipeline_design() -> None:
+    superseded_paths = [
+        "docs/specs/semantic/skill-semantic-layer-authoring-design.md",
+        "docs/specs/semantic/agent-semantic-layer-authoring-design.md",
+    ]
+    for path in superseded_paths:
+        spec = _read(path)
+        assert "docs/specs/semantic/authoring-pipeline-design.md" in spec
+        assert "superseded" in spec.lower()
+        assert "NextCheck" not in spec
+        assert "next_checks" not in spec
+        assert "needs_evidence" not in spec
+        assert "project.check_authoring_inputs(" not in spec
+
+
+def test_semantic_workflow_assess_authoring_snippets_use_sources_shape() -> None:
+    workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
+    snippets = _extract_call_snippets(workflow, "project.assess_authoring")
+
+    assert snippets
+    forbidden = ("datasource=", "source=", "columns=", "evidence_refs=", "ai_context=")
+    stale = {
+        parameter: [
+            snippet
+            for snippet in snippets
+            if parameter.rstrip("=") in _top_level_call_keyword_names(snippet)
+        ]
+        for parameter in forbidden
+    }
+    assert not any(stale.values()), stale
+    assert any("sources=(" in snippet for snippet in snippets)
+    assert "ms.AuthoringSourceInput(" in workflow
+
+
+def test_semantic_ai_context_input_help_is_handoff_context_not_check_input() -> None:
+    evidence = _read("marivo-skills/marivo-semantic/references/evidence-and-ledger.md")
+    help_entries = ms.help(format="json")["entries"]
+    ai_context_summary = next(
+        entry["summary"] for entry in help_entries if entry["name"] == "AiContextInput"
+    )
+
+    combined = "\n".join((evidence, ai_context_summary))
+    assert "Agent-authored ai_context fields for semantic object handoff" in combined
+    assert "agent-authored ai_context fields for semantic object handoff" in combined
+    assert "AiContextInput` | Agent-authored ai_context fields for a check" not in combined
+    assert "AiContextInput: agent-authored ai_context fields for a check" not in combined
 
 
 def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
@@ -125,6 +241,8 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     evidence = _read(
         "marivo-skills/marivo-semantic/references/examples/02_source_evidence_to_check.py"
     )
+    closeout_ref = _read("marivo-skills/marivo-semantic/references/closeout.md")
+    preview_ref = _read("marivo-skills/marivo-semantic/references/preview.md")
     closeout = _read(
         "marivo-skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py"
     )
@@ -138,15 +256,22 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert 'required_prefix="log_date"' in single
     assert "project.inspect_source_context(" in evidence
     assert "bind_datasource_access" in evidence
-    assert "project.record_authoring_evidence(" in evidence
+    assert "ms.AuthoringSourceInput(" in evidence
+    assert "sources=(" in evidence
     assert "project.assess_authoring(" in evidence
     assert "project.inspect_source_context(" in closeout
     assert "bind_datasource_access" in closeout
+    for text in (closeout_ref, preview_ref, closeout):
+        assert "require_preview" not in text
+        assert "require_evidence_ledger" not in text
+        assert "strict_enrichment" not in text
+        assert "project.readiness(backend_factory" not in text
+    assert "project.readiness(" in closeout_ref
+    assert "project.readiness(" in closeout
     assert "project.collect_raw_preview(" not in closeout
     assert "unverified_metric" in closeout
     assert "parity_drifted" in closeout
-    assert "project.readiness(" in closeout
-    assert "DemandSignal" in closeout
+    assert "project.richness(" not in closeout
 
 
 def test_semantic_docs_and_skills_use_verification_mode() -> None:
@@ -164,6 +289,18 @@ def test_semantic_docs_and_skills_use_verification_mode() -> None:
 
     assert "verification_mode" in combined
     assert "declared_status" not in combined
+
+
+def test_agent_semantic_authoring_spec_uses_current_readiness_closeout_contract() -> None:
+    spec = _read("docs/specs/semantic/agent-semantic-layer-authoring-design.md")
+    stale_phrases = (
+        "source SQL parity is drifted",
+        "metric is `unverified` in strict readiness",
+        "project.readiness(...) is specified below but does not exist yet",
+    )
+
+    for phrase in stale_phrases:
+        assert phrase not in spec
 
 
 def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
@@ -220,34 +357,3 @@ def test_semantic_skill_md_caps_respected() -> None:
     ]
     failures = [f for f in failures if f is not None]
     assert not failures, [f"{f.reason}: {f.detail}" for f in failures]
-
-
-def test_semantic_skill_uses_assess_authoring_not_next_checks() -> None:
-    root = Path(__file__).resolve().parents[1]
-    files = [
-        root / "marivo-skills/marivo-semantic/SKILL.md",
-        root / "marivo-skills/marivo-semantic/references/workflow.md",
-        root / "marivo-skills/marivo-semantic/references/evidence-and-ledger.md",
-        root / "marivo-skills/marivo-semantic/references/closeout.md",
-    ]
-
-    combined = "\n".join(path.read_text() for path in files)
-
-    assert "project.assess_authoring(" in combined
-    assert "next_checks" not in combined
-    assert "needs_evidence" not in combined
-    assert "project.check_authoring_inputs(" not in combined
-
-
-def test_superseded_specs_point_to_authoring_pipeline_design() -> None:
-    root = Path(__file__).resolve().parents[1]
-    files = [
-        root / "docs/specs/semantic/skill-semantic-layer-authoring-design.md",
-        root / "docs/specs/semantic/agent-semantic-layer-authoring-design.md",
-        root / "docs/specs/semantic/python-semantic-layer.md",
-    ]
-
-    combined = "\n".join(path.read_text() for path in files)
-
-    assert "authoring-pipeline-design.md" in combined
-    assert "NextCheck" not in combined

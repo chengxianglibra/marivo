@@ -1,12 +1,9 @@
 # marivo-semantic workflow
 
-This is the three-phase authoring pipeline for agents building reusable Marivo
-semantic objects. It is evidence-first, assessment-gated, and
-readiness-closed.
+This is the evidence-driven workflow for agents building reusable Marivo semantic
+objects. It is evidence-first, ledger-aware, and readiness-gated.
 
-## Phase 1: Discovery
-
-### Stage 1: Project Discovery
+## Phase 1: Discovery and Source Inspection
 
 ```bash
 <venv>/bin/python - <<'PY'
@@ -24,8 +21,6 @@ PY
 
 Reuse existing semantic refs when their definitions, guardrails, dependencies,
 and provenance match the requested intent. Search before authoring.
-
-### Stage 2: Source Evidence
 
 Bind datasource access once after loading the project, then collect a
 `SourceEvidencePack` for each physical source. Choose the datasource backend
@@ -74,7 +69,7 @@ metadata = mv.datasources.inspect_source(
 )
 ```
 
-### Stage 3: Column Deep Dives
+### Column Deep Dives
 
 Deep-dive selected columns after source evidence:
 
@@ -94,9 +89,96 @@ for col in evidence:
 Use this for time/enum/amount/join-key columns. Sample-derived values are facts
 about the bounded sample only — never treat them as full-table truth.
 
-## Phase 2: Authoring
+Record source SQL, knowledge, and user confirmations as ledger evidence when
+they materially support the candidate object:
 
-Assess each candidate before writing it:
+```python
+project.record_authoring_evidence(
+    ms.AuthoringEvidenceInput(
+        kind="source_sql",
+        subject_refs=("sales.revenue",),
+        content="select sum(amount) as revenue from orders where paid",
+        source_dialect="trino",
+    )
+)
+```
+
+## Phase 2: Assess and Author Each Candidate Object
+
+Call `project.assess_authoring(...)` before writing each candidate object. It
+collects current source context through the datasource access bound in Phase 1,
+checks the source roles and semantic refs, and returns facts, issues, and
+questions.
+
+```python
+assessment = project.assess_authoring(
+    object_kind="dataset",
+    subject_ref="sales.orders",
+    sources=(
+        ms.AuthoringSourceInput(
+            role="primary",
+            datasource="warehouse",
+            source=ms.TableSource(table="orders"),
+        ),
+    ),
+)
+if assessment.status == "blocked":
+    # resolve blockers first
+    pass
+```
+
+Then author and reload:
+
+```python
+# write .marivo/semantic/sales/_model.py
+project.reload()
+project.inspect_authored_object("sales.orders")
+```
+
+### Time Field Authoring
+
+Author time fields only after temporal evidence. If partition vs event-time
+conflict, surface the `AuthoringQuestion`:
+
+```python
+assessment = project.assess_authoring(
+    object_kind="time_field",
+    subject_ref="sales.orders.dt",
+    sources=(
+        ms.AuthoringSourceInput(
+            role="primary",
+            datasource="warehouse",
+            source=ms.TableSource(table="orders"),
+            columns=("dt",),
+        ),
+    ),
+    semantic_refs=("sales.orders",),
+)
+```
+
+Reload so Marivo can auto-record `time_field_identity` decisions.
+
+### Field Authoring
+
+```python
+assessment = project.assess_authoring(
+    object_kind="field",
+    subject_ref="sales.orders.amount",
+    sources=(
+        ms.AuthoringSourceInput(
+            role="primary",
+            datasource="warehouse",
+            source=ms.TableSource(table="orders"),
+            columns=("amount",),
+        ),
+    ),
+    semantic_refs=("sales.orders",),
+)
+```
+
+### Metric Authoring
+
+Pass physical source roles and semantic dependencies into the assessment:
 
 ```python
 assessment = project.assess_authoring(
@@ -112,97 +194,55 @@ assessment = project.assess_authoring(
     ),
     semantic_refs=("sales.orders",),
 )
-if assessment.status == "blocked":
-    raise RuntimeError([issue.message for issue in assessment.issues])
-if assessment.status == "needs_input":
-    raise RuntimeError([question.prompt for question in assessment.questions])
 ```
 
-Write all confirmed objects into one `.marivo/semantic/<model>/_model.py`:
+After authoring and reload, run `inspect_authored_object`. Final runtime
+preview, parity, and richness checks are composed by the readiness closeout.
+
+### Relationship Authoring
+
+Require relationship-intent evidence. Orphan/fanout/RI scans are optional
+diagnostics, not gates.
 
 ```python
-# .marivo/semantic/sales/_model.py
-import marivo.datasource as md
-import marivo.semantic as ms
-
-ms.model(name="sales", description="Sales analytics")
-warehouse = md.ref("warehouse")
-
-orders = ms.dataset(
-    name="orders",
-    datasource=warehouse,
-    source=ms.table("orders"),
-    primary_key=["order_id"],
-    ai_context={
-        "business_definition": "One row per order.",
-        "guardrails": ["Preview raw orders before analysis handoff."],
-    },
-)
-
-@ms.time_field(
-    dataset=orders,
-    name="order_date",
-    data_type="date",
-    granularity="day",
-    ai_context={
-        "business_definition": "Daily order partition.",
-        "guardrails": ["Use as the default reporting window axis."],
-    },
-)
-def order_date(table):
-    return table.dt
-
-@ms.metric(
-    datasets=[orders],
-    additivity="additive",
-    decomposition=ms.sum(),
-    name="revenue",
-    source_sql="select sum(amount) as revenue from orders where paid",
-    source_dialect="duckdb",
-    ai_context={
-        "business_definition": "Paid order revenue before refunds.",
-        "guardrails": ["Excludes unpaid orders."],
-    },
-    verification_mode="sql_parity",
-)
-def revenue(table):
-    return table.amount.sum()
-```
-
-Record source SQL or knowledge evidence before assessing metrics that need it:
-
-```python
-sql_ref = project.record_authoring_evidence(
-    ms.AuthoringEvidenceInput(
-        kind="source_sql",
-        subject_refs=("sales.revenue",),
-        content="select sum(amount) as revenue from orders where paid",
-        source_dialect="duckdb",
-    )
+assessment = project.assess_authoring(
+    object_kind="relationship",
+    subject_ref="sales.orders_to_customers",
+    sources=(
+        ms.AuthoringSourceInput(
+            role="from",
+            datasource="warehouse",
+            source=ms.TableSource(table="orders"),
+            columns=("customer_id",),
+        ),
+        ms.AuthoringSourceInput(
+            role="to",
+            datasource="warehouse",
+            source=ms.TableSource(table="customers"),
+            columns=("customer_id",),
+        ),
+    ),
+    semantic_refs=("sales.orders", "sales.customers"),
 )
 ```
 
-Do not reload between objects in the same file. Reload is deferred until
-closeout.
-
-## Phase 3: Validation
+## Phase 3: Single Readiness Closeout
 
 ```python
+project.reload()
+project.inspect_authored_object("sales.revenue")
 report = project.readiness(
     refs=("sales.orders", "sales.revenue"),
     demand=ms.DemandSignal(
         example_questions=("What was revenue by region last week?",),
+        intents=("revenue trend",),
+        run_history_refs=("sales.revenue",),
         build_purpose="Revenue analysis",
     ),
     preview_limit=20,
-    parity_rel_tol=1e-6,
 )
 print(report.to_dict())
-if report.status == "blocked":
-    raise RuntimeError([issue.message for issue in report.blockers])
 ```
 
-Do not hand off to `marivo-analysis` while readiness is blocked. Warnings
-include parity and richness follow-up work. Richness gaps are folded into
-readiness warnings; a separate `project.richness(...)` call is optional for
-deeper advisory coverage.
+Do not hand off to `marivo-analysis` while readiness is blocked. Richness gaps
+are reported as readiness warnings and summarized in `richness_summary`.

@@ -64,9 +64,10 @@ def test_all_list_matches_expected() -> None:
         "AssessmentIssue",
         "AssessmentResult",
         "AuthoringAssessment",
-        "AuthoringSourceInput",
         "AuthoringEvidenceInput",
         "AuthoringQuestion",
+        "AuthoringSourceRole",
+        "AuthoringSourceInput",
         "BoundedProfilePolicy",
         "ColumnEvidence",
         "ColumnProfile",
@@ -81,8 +82,8 @@ def test_all_list_matches_expected() -> None:
         "MetadataOnlyPolicy",
         "ParitySummary",
         "PreviewSummary",
-        "ReadinessInputSummary",
         "ReadinessIssue",
+        "ReadinessInputSummary",
         "ReadinessReport",
         "RejectedCandidate",
         "RelationshipSummary",
@@ -122,16 +123,38 @@ def test_all_list_matches_expected() -> None:
 
 def test_semantic_project_class() -> None:
     assert ms.SemanticProject is not None
-    project = ms.SemanticProject(workspace_dir="/tmp/test")
+    project = ms.SemanticProject(root="/tmp/test")
     assert not project.is_ready()
 
 
 def test_readiness_public_dtos() -> None:
     assert ms.ReadinessReport is not None
     assert ms.ReadinessIssue is not None
+    assert not hasattr(ms, "EvidenceSummary")
     assert ms.ReadinessInputSummary is not None
     assert ms.ParitySummary is not None
     assert ms.PreviewSummary is not None
+    assert ms.RichnessSummary is not None
+
+
+def test_readiness_public_contract_has_no_stale_evidence_summary_refs() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    checked_paths = [
+        repo_root / "marivo" / "semantic" / "__init__.py",
+        repo_root / "marivo" / "semantic" / "help.py",
+        repo_root / "docs" / "specs" / "semantic" / "agent-semantic-layer-authoring-design.md",
+        repo_root / "docs" / "specs" / "semantic" / "skill-semantic-layer-authoring-design.md",
+    ]
+    stale_terms = ("EvidenceSummary", "evidence_summary", "project.readiness(backend_factory")
+
+    offenders: list[str] = []
+    for path in checked_paths:
+        text = path.read_text()
+        for term in stale_terms:
+            if term in text:
+                offenders.append(f"{path.relative_to(repo_root)}: {term}")
+
+    assert offenders == []
 
 
 def test_typing_submodule() -> None:
@@ -815,7 +838,7 @@ def test_propagated_parity_status_callable() -> None:
 
 
 def test_semantic_project_init() -> None:
-    project = ms.SemanticProject(workspace_dir="/tmp/test")
+    project = ms.SemanticProject(root="/tmp/test")
     assert not project.is_ready()
     assert project.errors() == ()
 
@@ -828,7 +851,7 @@ def test_semantic_project_load_works() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         semantic_root = Path(tmp) / ".marivo" / "semantic"
         semantic_root.mkdir(parents=True)
-        project = ms.SemanticProject(workspace_dir=Path(tmp))
+        project = ms.SemanticProject(root=semantic_root)
         result = project.load()
         assert result.status == "ready"
 
@@ -841,6 +864,6 @@ def test_semantic_project_reload_works() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         semantic_root = Path(tmp) / ".marivo" / "semantic"
         semantic_root.mkdir(parents=True)
-        project = ms.SemanticProject(workspace_dir=Path(tmp))
+        project = ms.SemanticProject(root=semantic_root)
         result = project.reload()
         assert result.status == "ready"

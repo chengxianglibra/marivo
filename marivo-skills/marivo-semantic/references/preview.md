@@ -5,12 +5,14 @@ meaning by itself.
 
 ## Source preview evidence
 
-`inspect_source_context(...)` folds source inspection and bounded preview;
-`readiness(require_preview=True)` is satisfied by it. Use bounded raw previews
-before declaring or revising datasets, time-like columns, amount columns,
-enum/status columns, and join keys.
+`inspect_source_context(...)` folds source inspection and bounded profiling.
+Readiness runs required raw and semantic previews live through project-bound
+datasource access. Use bounded raw previews before
+declaring or revising datasets, time-like columns, amount columns, enum/status
+columns, and join keys.
 
-For closeout or targeted re-preview, `collect_source_preview` is still available:
+For debugging or targeted raw table inspection, `collect_source_preview` is still
+available:
 
 ```python
 import marivo.analysis as mv
@@ -41,10 +43,11 @@ Raw previews help validate time formats, enum values, nulls, amount signs,
 amount units, JSON-like strings, and join-key shape. They do not prove that a
 column is the correct business concept.
 
-Successful source previews record project-local readiness evidence under
-`.marivo/semantic/.evidence/`, so a later Python process can run readiness
-without passing `raw_previews` manually. Marivo persists preview metadata only;
-raw sample rows are not written to the evidence file.
+Successful source previews record project-local preview metadata under
+`.marivo/semantic/.evidence/`. Normal closeout still uses
+`project.readiness(...)`, which reruns the required previews against the current
+bound datasource access. Marivo persists preview metadata only; raw sample rows
+are not written to the evidence file.
 
 ## Semantic preview
 

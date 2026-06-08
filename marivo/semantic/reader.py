@@ -10,6 +10,7 @@ import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, ClassVar, Literal, cast
 
 import ibis
@@ -41,6 +42,7 @@ from marivo.semantic.evidence import (
     AssessmentResult,
     AuthoringAssessment,
     AuthoringEvidenceInput,
+    AuthoringObjectKind,
     AuthoringSourceInput,
     BoundedProfilePolicy,
     ColumnEvidence,
@@ -73,13 +75,13 @@ from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
     ReadinessReport,
+    RichnessSummary,
     _ReadinessEvidence,
     build_readiness_report,
 )
 from marivo.semantic.richness import (
     DemandSignal,
     RichnessReport,
-    RichnessSummary,
     build_richness_report,
 )
 from marivo.semantic.validator import Registry, Sidecar
@@ -471,12 +473,21 @@ class SemanticProject:
             models = project.list_models(display=False)
     """
 
-    def __init__(self, workspace_dir: str | Path | None = None) -> None:
-        if workspace_dir is None:
-            env = os.environ.get("MARIVO_PROJECT_ROOT")
-            workspace_dir = env if env else "."
-        self._workspace_dir = Path(workspace_dir).resolve()
-        self._semantic_root = self._workspace_dir / ".marivo" / "semantic"
+    def __init__(
+        self,
+        workspace_dir: str | Path | None = None,
+        *,
+        root: str | Path | None = None,
+    ) -> None:
+        if root is not None:
+            self._semantic_root = Path(root).resolve()
+            self._workspace_dir = self._semantic_root.parent.parent
+        else:
+            if workspace_dir is None:
+                env = os.environ.get("MARIVO_PROJECT_ROOT")
+                workspace_dir = env if env else "."
+            self._workspace_dir = Path(workspace_dir).resolve()
+            self._semantic_root = self._workspace_dir / ".marivo" / "semantic"
         self._status: str = "unloaded"  # unloaded | ready | errored
         self._errors: tuple[SemanticError, ...] = ()
         self._warnings: tuple[StructuredWarning, ...] = ()
@@ -499,6 +510,11 @@ class SemanticProject:
     def workspace_dir(self) -> Path:
         """Return the workspace directory path."""
         return self._workspace_dir
+
+    @property
+    def root(self) -> Path:
+        """Return the semantic root path for compatibility."""
+        return self._semantic_root
 
     def _record_raw_preview_evidence(self, *refs: str) -> None:
         self._raw_preview_evidence = tuple(dict.fromkeys((*self._raw_preview_evidence, *refs)))
@@ -1771,6 +1787,7 @@ class SemanticProject:
         backend_factory: Callable[..., Any] | None = None,
         rel_tol: float | None = None,
         abs_tol: float | None = None,
+        force: bool = False,
     ) -> ParityResult:
         """Run parity check for a metric against its source SQL.
 
@@ -1783,6 +1800,7 @@ class SemanticProject:
             backend_factory=factory,
             rel_tol=rel_tol,
             abs_tol=abs_tol,
+            force=force,
         )
 
     # -- readiness ----------------------------------------------------------
@@ -1790,13 +1808,6 @@ class SemanticProject:
     def _auto_collect_evidence(self) -> _ReadinessEvidence:
         from marivo.semantic.evidence_store import EvidenceStore
         from marivo.semantic.ledger import LedgerStore
-        from marivo.semantic.readiness import (
-            _dataset_raw_preview_refs,
-            _default_checked_refs,
-            _derive_raw_sql_required_refs,
-            _object_maps,
-            _semantic_preview_refs,
-        )
 
         store = LedgerStore(self._semantic_root)
         evidence_store = EvidenceStore(self._semantic_root)
@@ -1809,17 +1820,11 @@ class SemanticProject:
         # Merge with in-memory evidence
         raw_previews = tuple(dict.fromkeys((*raw_previews, *self._raw_preview_evidence)))
 
-        # Required previews: derived from IR
-        if self.is_ready():
-            kinds, objects = _object_maps(self)
-            checked_refs = _default_checked_refs(kinds)
-            required_raw_previews = _dataset_raw_preview_refs(checked_refs, objects, kinds)
-            required_semantic_previews = _semantic_preview_refs(checked_refs, kinds)
-            raw_sql_required_refs = _derive_raw_sql_required_refs(kinds, objects)
-        else:
-            required_raw_previews = ()
-            required_semantic_previews = ()
-            raw_sql_required_refs = ()
+        # Required previews are scoped inside readiness() after requested refs
+        # and dependencies have been resolved.
+        required_raw_previews = ()
+        required_semantic_previews = ()
+        raw_sql_required_refs = ()
 
         # Knowledge documents from evidence store
         kd_refs = evidence_store.list_authoring_by_kind("knowledge_document")
@@ -1907,18 +1912,22 @@ class SemanticProject:
         parity_abs_tol: float | None = None,
         redact: bool = True,
     ) -> ReadinessReport:
-        """Return the semantic closeout report used before analysis handoff.
+        """Return a structured semantic readiness report.
 
-        The project must already have datasource access bound with
-        bind_datasource_access(...). Readiness reloads project state, runs required
-        backend previews, runs eligible parity checks, folds richness gaps into
-        warnings, and reports blockers that prevent analysis handoff.
+        Evidence is auto-loaded from the project's ledger and evidence store.
+        Closeout uses project-bound backend access for semantic previews and
+        eligible parity checks, folds richness gaps into warnings, and reports
+        missing backend access as a readiness blocker. Use ``refs`` to scope
+        which semantic objects to check; by default all loaded objects are
+        checked.
         """
+        self.reload()
         evidence = self._auto_collect_evidence()
+        factory = self._backend_factory
         return build_readiness_report(
             self,
             evidence,
-            backend_factory=self._backend_factory,
+            backend_factory=factory,
             refs=refs,
             demand=demand,
             preview_limit=preview_limit,
@@ -2042,52 +2051,57 @@ class SemanticProject:
     def assess_authoring(
         self,
         *,
-        object_kind: str,
+        object_kind: AuthoringObjectKind,
         subject_ref: str,
         sources: Sequence[AuthoringSourceInput] = (),
         semantic_refs: Sequence[str] = (),
     ) -> AuthoringAssessment:
-        """Inspect current source context and return a composed authoring assessment.
+        """Collect current source context and assess semantic authoring inputs.
 
-        Parameters:
-            object_kind: Semantic object kind: dataset, field, time_field, metric,
-                derived_metric, or relationship.
-            subject_ref: Target semantic id such as "sales.revenue".
-            sources: Physical source roles that ground the object. Derived metrics may
-                pass an empty tuple when all grounding is semantic-ref based.
-            semantic_refs: Existing semantic refs the target depends on.
+        Parameters
+        ----------
+        object_kind:
+            Kind of semantic object being authored, such as ``"metric"`` or
+            ``"derived_metric"``.
+        subject_ref:
+            Fully qualified semantic ref the object will use after authoring.
+        sources:
+            Physical source declarations to inspect before checking the authoring
+            inputs. Each source is profiled with a bounded sample; selected
+            columns receive a focused column profile.
+        semantic_refs:
+            Existing semantic objects this authored object depends on.
 
-        Returns:
-            AuthoringAssessment with facts, issues, questions, and status.
+        Returns
+        -------
+        AuthoringAssessment
+            Facts, issues, questions, and final status from the composed
+            evidence collection and static authoring check.
 
-        Example:
-            project.assess_authoring(
-                object_kind="metric",
-                subject_ref="sales.revenue",
-                sources=(ms.AuthoringSourceInput(
-                    role="primary",
-                    datasource="warehouse",
-                    source=ms.TableSource(table="orders"),
-                    columns=("amount",),
-                ),),
-                semantic_refs=("sales.orders",),
-            )
+        Usage
+        -----
+        ``project.assess_authoring(object_kind="metric", subject_ref="sales.revenue",
+        sources=(AuthoringSourceInput(...),))``
 
-        Constraints:
-            Does not accept drafted object content, source_sql, ai_context, or
-            evidence_refs. Bind datasource access before assessing source-backed objects.
+        Constraints
+        -----------
+        This method accepts only source and semantic references, not drafted
+        object content. For physical sources, call
+        ``project.bind_datasource_access(...)`` first so Marivo can collect
+        current datasource evidence.
         """
-        if sources and (self._bound_inspect_source is None or self._backend_factory is None):
+        if sources and (self._bound_inspect_source is None or self._bound_backend_factory is None):
             issue = AssessmentIssue(
                 kind="missing_source",
                 severity="blocker",
                 refs=(subject_ref,),
-                message=(
-                    "assess_authoring requires bound datasource access. "
-                    "Call project.bind_datasource_access(inspect_source=..., backend_factory=...) first."
-                ),
                 rule_id="datasource_access_bound",
                 evidence_refs=(),
+                message=(
+                    "Datasource access is required before assessing physical sources. "
+                    "Call project.bind_datasource_access(...) with inspect_source and "
+                    "backend_factory."
+                ),
             )
             return AuthoringAssessment(
                 status="blocked",
@@ -2096,51 +2110,63 @@ class SemanticProject:
                 questions=(),
             )
 
-        for source_input in sources:
-            self.inspect_source_context(
-                datasource=source_input.datasource,
-                source=source_input.source,
-                sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=50),
-            )
-            if source_input.columns:
-                self.inspect_column_context(
+        from marivo.semantic.authoring_check import check_authoring_inputs as _check
+        from marivo.semantic.inspect import collect_column_evidence, collect_source_evidence
+
+        with TemporaryDirectory() as tempdir:
+            assessment_store = EvidenceStore(tempdir)
+            for source_input in sources:
+                collect_source_evidence(
                     datasource=source_input.datasource,
                     source=source_input.source,
-                    columns=source_input.columns,
-                    sample_policy=SelectedColumnsPolicy(
-                        limit=100,
-                        columns=source_input.columns,
-                        max_profiled_columns=len(source_input.columns),
-                    ),
+                    inspect_source=self._resolve_inspect_source(None),
+                    backend_factory=self._resolve_backend_factory(None),
+                    sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=50),
+                    store=assessment_store,
                 )
+                if source_input.columns:
+                    collect_column_evidence(
+                        datasource=source_input.datasource,
+                        source=source_input.source,
+                        columns=source_input.columns,
+                        inspect_source=self._resolve_inspect_source(None),
+                        backend_factory=self._resolve_backend_factory(None),
+                        sample_policy=SelectedColumnsPolicy(
+                            limit=100,
+                            columns=source_input.columns,
+                            max_profiled_columns=len(source_input.columns),
+                        ),
+                        store=assessment_store,
+                    )
 
-        result = self.check_authoring_inputs(
-            object_kind=object_kind,
-            subject_ref=subject_ref,
-            sources=sources,
-            semantic_refs=semantic_refs,
-        )
+            assessment = _check(
+                store=assessment_store,
+                object_kind=object_kind,
+                subject_ref=subject_ref,
+                sources=sources,
+                semantic_refs=semantic_refs,
+            )
         return AuthoringAssessment(
-            status=result.status,
-            facts=result.facts,
-            issues=result.issues,
-            questions=result.questions,
+            status=assessment.status,
+            facts=assessment.facts,
+            issues=assessment.issues,
+            questions=assessment.questions,
         )
 
     def check_authoring_inputs(
         self,
         *,
-        object_kind: str,
+        object_kind: AuthoringObjectKind,
         subject_ref: str,
         sources: Sequence[AuthoringSourceInput] = (),
         semantic_refs: Sequence[str] = (),
     ) -> AssessmentResult:
-        """Internal multi-source authoring guardrail used by assess_authoring."""
+        """Cheap pre-authoring guardrail for refs, columns, and evidence."""
         from marivo.semantic.authoring_check import check_authoring_inputs as _check
 
         return _check(
             store=self._evidence_store(),
-            object_kind=object_kind,  # type: ignore[arg-type]
+            object_kind=object_kind,
             subject_ref=subject_ref,
             sources=sources,
             semantic_refs=semantic_refs,

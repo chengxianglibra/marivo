@@ -4,7 +4,7 @@ Public surface::
 
     import marivo.semantic as ms
 
-    project = ms.find_project()        # or ms.SemanticProject(workspace_dir)
+    project = ms.find_project()        # or ms.SemanticProject(root)
     project.load()
 
     ms.model(name="sales", default=True)
@@ -45,6 +45,7 @@ from marivo.semantic.evidence import (
     AuthoringEvidenceInput,
     AuthoringQuestion,
     AuthoringSourceInput,
+    AuthoringSourceRole,
     BoundedProfilePolicy,
     ColumnEvidence,
     ColumnProfile,
@@ -75,12 +76,12 @@ from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
     ReadinessReport,
+    RichnessSummary,
 )
 from marivo.semantic.richness import (
     DemandSignal,
     RichnessGap,
     RichnessReport,
-    RichnessSummary,
 )
 from marivo.semantic.typing import AiContext
 
@@ -93,6 +94,7 @@ __all__ = [
     "AuthoringEvidenceInput",
     "AuthoringQuestion",
     "AuthoringSourceInput",
+    "AuthoringSourceRole",
     "BoundedProfilePolicy",
     "ColumnEvidence",
     "ColumnProfile",

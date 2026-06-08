@@ -37,7 +37,7 @@ def _backend_factory(_name):
 def _project_with_source(tmp_path) -> SemanticProject:
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(workspace_dir=tmp_path)
+    project = SemanticProject(root=root)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )
@@ -49,7 +49,7 @@ def _project_with_source(tmp_path) -> SemanticProject:
     return project
 
 
-def test_metric_with_source_columns_supported(tmp_path):
+def test_metric_with_known_source_is_supported(tmp_path):
     project = _project_with_source(tmp_path)
     result = project.check_authoring_inputs(
         object_kind="metric",
@@ -64,6 +64,29 @@ def test_metric_with_source_columns_supported(tmp_path):
         ),
     )
     assert result.status == "supported"
+    assert any(f.label == "source_context" for f in result.facts)
+
+
+def test_metric_with_semantic_dependencies_records_fact(tmp_path):
+    project = _project_with_source(tmp_path)
+    result = project.check_authoring_inputs(
+        object_kind="metric",
+        subject_ref="sales.revenue",
+        sources=(
+            AuthoringSourceInput(
+                role="primary",
+                datasource="warehouse",
+                source=TableSource(table="orders"),
+                columns=("amount",),
+            ),
+        ),
+        semantic_refs=("sales.orders",),
+    )
+    assert result.status == "supported"
+    assert any(
+        fact.label == "semantic_dependencies" and fact.value == ["sales.orders"]
+        for fact in result.facts
+    )
 
 
 def test_missing_column_is_a_blocker(tmp_path):
@@ -84,10 +107,10 @@ def test_missing_column_is_a_blocker(tmp_path):
     assert any(i.kind == "missing_column" and i.severity == "blocker" for i in result.issues)
 
 
-def test_unknown_source_returns_needs_input(tmp_path):
+def test_unknown_source_returns_needs_input_with_missing_source_issue(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(workspace_dir=tmp_path)
+    project = SemanticProject(root=root)
     result = project.check_authoring_inputs(
         object_kind="dataset",
         subject_ref="sales.orders",
@@ -100,12 +123,13 @@ def test_unknown_source_returns_needs_input(tmp_path):
         ),
     )
     assert result.status == "needs_input"
+    assert any(i.kind == "missing_source" for i in result.issues)
 
 
 def test_metric_without_sources_requires_at_least_one(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = SemanticProject(workspace_dir=root)
+    project = SemanticProject(root=root)
     result = project.check_authoring_inputs(
         object_kind="metric",
         subject_ref="sales.revenue",

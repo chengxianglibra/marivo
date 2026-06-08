@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import get_args, get_type_hints
+
 import pytest
 
 from marivo.semantic.evidence import (
@@ -78,6 +80,28 @@ def test_file_source_to_dict_is_json_safe():
         "path": "/data/orders.parquet",
         "format": "parquet",
     }
+
+
+def test_authoring_source_input_to_dict_is_json_safe():
+    src = AuthoringSourceInput(
+        role="from",
+        datasource="warehouse",
+        source=TableSource(table="orders", database="sales_mart"),
+        columns=("customer_id",),
+    )
+    assert src.to_dict() == {
+        "role": "from",
+        "datasource": "warehouse",
+        "source": {"kind": "table", "table": "orders", "database": "sales_mart"},
+        "columns": ["customer_id"],
+    }
+
+
+def test_authoring_source_role_is_finite_public_vocabulary():
+    from marivo.semantic.evidence import AuthoringSourceRole
+
+    assert get_args(AuthoringSourceRole) == ("primary", "from", "to", "component")
+    assert get_type_hints(AuthoringSourceInput)["role"] == AuthoringSourceRole
 
 
 def test_table_source_to_dict_round_trips_through_from_dict():
@@ -242,32 +266,6 @@ def test_derive_status_needs_input_then_supported():
     assert derive_status((), ()) == "supported"
 
 
-def test_assessment_result_is_frozen():
-    result = AssessmentResult(status="supported", facts=(), issues=(), questions=())
-    with pytest.raises(AttributeError):
-        result.status = "blocked"  # type: ignore[misc]
-
-
-def test_authoring_source_input_to_dict_is_json_safe():
-    src = AuthoringSourceInput(
-        role="from",
-        datasource="warehouse",
-        source=TableSource(table="orders", database="sales_mart"),
-        columns=("customer_id",),
-    )
-
-    assert src.to_dict() == {
-        "role": "from",
-        "datasource": "warehouse",
-        "source": {
-            "kind": "table",
-            "table": "orders",
-            "database": "sales_mart",
-        },
-        "columns": ["customer_id"],
-    }
-
-
 def test_authoring_assessment_status_uses_needs_input():
     issue = AssessmentIssue(
         kind="missing_source",
@@ -277,18 +275,19 @@ def test_authoring_assessment_status_uses_needs_input():
         rule_id="source_context_present",
         evidence_refs=(),
     )
+    status = derive_status((issue,), ())
+    assessment = AuthoringAssessment(status=status, facts=(), issues=(issue,), questions=())
 
-    assessment = AuthoringAssessment(
-        status=derive_status((issue,), ()),
-        facts=(),
-        issues=(issue,),
-        questions=(),
-    )
-
+    assert status == "needs_input"
     assert assessment.status == "needs_input"
 
 
 def test_assessment_result_has_no_next_checks_field():
     result = AssessmentResult(status="supported", facts=(), issues=(), questions=())
-
     assert not hasattr(result, "next_checks")
+
+
+def test_assessment_result_is_frozen():
+    result = AssessmentResult(status="supported", facts=(), issues=(), questions=())
+    with pytest.raises(AttributeError):
+        result.status = "blocked"  # type: ignore[misc]

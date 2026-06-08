@@ -1,15 +1,10 @@
-"""Closeout: readiness as the single closeout gate.
-
-Shows: readiness with demand, preview_limit, and parity_rel_tol. Richness
-gaps are folded into readiness warnings; a separate richness call is optional.
-"""
+"""Closeout: readiness folds preview, parity, and richness signals."""
 
 from __future__ import annotations
 
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import ibis
 
@@ -48,7 +43,7 @@ orders = ms.dataset(
     },
 )
 def order_date(table):
-    return table.dt
+    return table.dt.cast("date")
 
 @ms.metric(
     datasets=[orders],
@@ -73,7 +68,7 @@ def unverified_revenue(table):
     source_dialect="duckdb",
     ai_context={
         "business_definition": "Gross order amount with intentionally drifted oracle.",
-        "guardrails": ["Parity drift blocks readiness."],
+        "guardrails": ["Parity drift warns in readiness."],
     },
 )
 def drifted_revenue(table):
@@ -118,15 +113,12 @@ with tempfile.TemporaryDirectory() as tmp:
         mv.datasources.register(
             md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path))
         )
-        project = ms.SemanticProject(workspace_dir=root)
+        project = ms.SemanticProject(root=root / ".marivo" / "semantic")
         project.load()
-
-        def backend_factory(name: str) -> Any:
-            return mv.datasources.build_backend(name)
 
         project.bind_datasource_access(
             inspect_source=fake_inspect_source,
-            backend_factory=backend_factory,
+            backend_factory=mv.datasources.build_backend,
         )
 
         # inspect_source_context folds source inspection and bounded preview
@@ -138,18 +130,23 @@ with tempfile.TemporaryDirectory() as tmp:
         print("source schema columns:", len(pack.schema))
 
         report = project.readiness(
+            refs=("sales.orders", "sales.unverified_revenue", "sales.drifted_revenue"),
             demand=ms.DemandSignal(
                 example_questions=("What was revenue by day?",),
+                intents=("revenue trend",),
+                run_history_refs=("sales.unverified_revenue", "sales.drifted_revenue"),
                 build_purpose="Revenue analysis",
             ),
             preview_limit=20,
-            parity_rel_tol=1e-6,
         )
         print("readiness:", report.status)
+        print("blockers:", [issue.kind for issue in report.blockers])
+        print("warnings:", [issue.kind for issue in report.warnings])
         print(
             "unverified_metric:",
             "sales.unverified_revenue" in report.parity_summary.unverified_metrics,
         )
         print("parity_drifted:", "sales.drifted_revenue" in report.parity_summary.drifted_metrics)
+        print("richness gaps:", len(report.richness_summary.gaps))
     finally:
         os.chdir(previous)
