@@ -84,8 +84,8 @@ class DataPolicy(_ReportModel):
 
 
 class SourceProvenance(_ReportModel):
-    generated_from: FlowStepKind
-    query_summary: str
+    generated_from: FlowStepKind = "intent"
+    query_summary: str = ""
     semantic_refs: tuple[str, ...] = ()
     datasource_refs: tuple[str, ...] = ()
     sql_status: SqlStatus = Field(
@@ -128,12 +128,13 @@ class SourceProvenance(_ReportModel):
 
 
 class DatasetMetadata(_ReportModel):
-    dataset_id: str
-    grain: str
-    row_count: int
-    truncated: bool
+    dataset_id: str | None = None
+    grain: str = "overall"
+    row_count: int | None = None
+    truncated: bool = False
+    columns: tuple[str, ...] = ()
     source_artifacts: tuple[str, ...] = ()
-    source_provenance: SourceProvenance
+    source_provenance: SourceProvenance = Field(default_factory=SourceProvenance)
     metric_definitions: tuple[str, ...] = ()
     filters: tuple[str, ...] = ()
     data_policy: DataPolicy = Field(default_factory=DataPolicy)
@@ -149,6 +150,29 @@ class Dataset(_ReportModel):
     def validate_rows_are_strict_json(cls, value: tuple[JsonRow, ...]) -> tuple[JsonRow, ...]:
         return _validate_json_row_scalars_are_finite(value)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _auto_fill_metadata_identity(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        dataset_id = data.get("dataset_id")
+        metadata = data.get("metadata")
+        if dataset_id is None or metadata is None:
+            return data
+        if isinstance(metadata, DatasetMetadata):
+            metadata = metadata.model_dump(mode="python")
+        if isinstance(metadata, dict):
+            updates: dict[str, Any] = {}
+            if metadata.get("dataset_id") is None:
+                updates["dataset_id"] = dataset_id
+            if metadata.get("row_count") is None:
+                rows = data.get("rows")
+                updates["row_count"] = len(rows) if rows is not None else 0
+            if updates:
+                metadata = {**metadata, **updates}
+                data = {**data, "metadata": metadata}
+        return data
+
     @model_validator(mode="after")
     def validate_dataset_identity(self) -> Dataset:
         if self.metadata.dataset_id != self.dataset_id:
@@ -156,6 +180,25 @@ class Dataset(_ReportModel):
         if self.metadata.row_count != len(self.rows):
             raise ValueError("dataset metadata row_count must match rows length")
         return self
+
+    @classmethod
+    def from_rows(
+        cls,
+        *,
+        dataset_id: str,
+        rows: tuple[JsonRow, ...],
+        metadata: DatasetMetadata | None = None,
+    ) -> Dataset:
+        """Construct a Dataset with auto-derived metadata defaults.
+
+        dataset_id and row_count are auto-filled on the metadata.
+        columns defaults to the keys of the first row when metadata is not provided.
+        All other DatasetMetadata fields use their defaults.
+        """
+        if metadata is None:
+            columns = tuple(rows[0].keys()) if rows else ()
+            metadata = DatasetMetadata(columns=columns)
+        return cls(dataset_id=dataset_id, metadata=metadata, rows=rows)
 
 
 class ReportMetric(_ReportModel):
