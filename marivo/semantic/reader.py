@@ -736,15 +736,21 @@ class SemanticProject:
         return results
 
     def list_fields(
-        self, *, dataset: str | None = None, display: bool = True
+        self,
+        *,
+        model: str | None = None,
+        dataset: str | None = None,
+        display: bool = True,
     ) -> list[FieldSummary]:
-        """Return field summaries, optionally filtered by dataset.
+        """Return field summaries, optionally filtered by model or dataset.
 
         Fields are all @ms.field declarations that are not time fields.
         For time fields, use list_time_fields().
         """
         reg = _require_registry(self._registry, project=self)
         irs = [f for f in reg.fields.values() if not f.is_time_field]
+        if model is not None:
+            irs = [f for f in irs if f.model == model]
         if dataset is not None:
             irs = [f for f in irs if f.dataset == dataset]
         results = [
@@ -781,11 +787,17 @@ class SemanticProject:
         return results
 
     def list_time_fields(
-        self, *, dataset: str | None = None, display: bool = True
+        self,
+        *,
+        model: str | None = None,
+        dataset: str | None = None,
+        display: bool = True,
     ) -> list[FieldSummary]:
-        """Return time field summaries, optionally filtered by dataset."""
+        """Return time field summaries, optionally filtered by model or dataset."""
         reg = _require_registry(self._registry, project=self)
         irs = [f for f in reg.fields.values() if f.is_time_field]
+        if model is not None:
+            irs = [f for f in irs if f.model == model]
         if dataset is not None:
             irs = [f for f in irs if f.dataset == dataset]
         results = [
