@@ -13,12 +13,12 @@ from marivo.analysis.frames.metric import MetricFrame
 _FREQ = {"day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
 
 
-def run_metric_checks(frame: MetricFrame) -> list[dict[str, str]]:
+def run_metric_checks(frame: MetricFrame, *, tz: str | None = None) -> list[dict[str, str]]:
     df = frame.to_pandas()
     rows = [_row_count_check(df)]
     rows.extend(_null_ratio_checks(df, frame))
     if frame.meta.semantic_kind in {"time_series", "panel"}:
-        rows.append(_time_coverage_check(df, frame))
+        rows.append(_time_coverage_check(df, frame, tz=tz))
     if frame.meta.semantic_kind in {"segmented", "panel"}:
         rows.append(_duplicate_keys_check(df, frame))
     return rows
@@ -97,7 +97,9 @@ def _time_axis(frame: MetricFrame) -> tuple[str, str]:
     return "time", "day"
 
 
-def _time_coverage_check(df: pd.DataFrame, frame: MetricFrame) -> dict[str, str]:
+def _time_coverage_check(
+    df: pd.DataFrame, frame: MetricFrame, *, tz: str | None = None
+) -> dict[str, str]:
     time_col, grain = _time_axis(frame)
     window = frame.meta.window or {}
     start = window.get("start")
@@ -119,11 +121,16 @@ def _time_coverage_check(df: pd.DataFrame, frame: MetricFrame) -> dict[str, str]
     expected = pd.date_range(
         pd.Timestamp(start), pd.Timestamp(end), freq=_FREQ[grain], inclusive="left"
     )
-    observed = (
-        list(pd.to_datetime(df[time_col]).dropna().dt.normalize().unique())
+    observed_ts = (
+        pd.to_datetime(df[time_col]).dropna()
         if time_col in df and len(df)
-        else []
+        else pd.Series(dtype="datetime64[ns]")
     )
+    if tz and len(observed_ts) > 0:
+        if observed_ts.dt.tz is None:
+            observed_ts = observed_ts.dt.tz_localize("UTC")
+        observed_ts = observed_ts.dt.tz_convert(tz).dt.tz_localize(None)
+    observed = observed_ts.dt.normalize().unique()
     observed_set = {pd.Timestamp(value).normalize() for value in observed}
     missing = [value for value in expected if value.normalize() not in observed_set]
     ratio = 1.0 if len(expected) == 0 else (len(expected) - len(missing)) / len(expected)
@@ -144,8 +151,21 @@ def _time_coverage_check(df: pd.DataFrame, frame: MetricFrame) -> dict[str, str]
 
 
 def _segment_dimensions(frame: MetricFrame) -> list[str]:
-    dims = frame.meta.axes.get("dimensions", [])
-    return [str(dim["field"]) for dim in dims if isinstance(dim, dict) and "field" in dim]
+    dims = frame.meta.axes.get("dimensions")
+    if isinstance(dims, list):
+        return [
+            str(dim.get("column") or dim.get("field"))
+            for dim in dims
+            if isinstance(dim, dict) and (dim.get("column") or dim.get("field"))
+        ]
+    columns: list[str] = []
+    for axis in frame.meta.axes.values():
+        if not isinstance(axis, dict) or axis.get("role") != "dimension":
+            continue
+        column = axis.get("column") or axis.get("field")
+        if isinstance(column, str):
+            columns.append(column)
+    return columns
 
 
 def _duplicate_keys_check(df: pd.DataFrame, frame: MetricFrame) -> dict[str, str]:

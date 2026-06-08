@@ -222,3 +222,103 @@ def test_summary_scalar_without_metric_id(tmp_path):
 
     s = report.summary()
     assert s.target_metric_id is None
+
+
+# --- Panel duplicate_keys with observe-produced axes format ---
+
+
+def test_panel_duplicate_keys_no_false_positive(tmp_path):
+    """Panel frames with observe-produced axes (role='dimension') must not
+    flag every row as a duplicate.  The key must be (time_col, dimension_col)."""
+    session = session_attach.get_or_create(name="demo")
+    rows = [
+        {"bucket_start": "2026-01-01", "region": "north", "value": 10.0},
+        {"bucket_start": "2026-01-01", "region": "south", "value": 20.0},
+        {"bucket_start": "2026-01-02", "region": "north", "value": 30.0},
+        {"bucket_start": "2026-01-02", "region": "south", "value": 40.0},
+    ]
+    frame = _metric(
+        session,
+        rows,
+        semantic_kind="panel",
+        axes={
+            "time": {"role": "time", "column": "bucket_start", "grain": "day"},
+            "region": {"role": "dimension", "column": "region"},
+        },
+        measure={"field": "value"},
+        window={
+            "start": "2026-01-01",
+            "end": "2026-01-03",
+            "grain": "day",
+            "time_field": "bucket_start",
+        },
+    )
+
+    report = session.assess_quality(frame)
+    duplicate = report.to_pandas().set_index("check_kind").loc["duplicate_keys"]
+    assert duplicate["severity"] == "ok"
+
+
+def test_panel_duplicate_keys_catches_real_duplicates(tmp_path):
+    """Real duplicate rows in a panel frame must still be caught."""
+    session = session_attach.get_or_create(name="demo")
+    rows = [
+        {"bucket_start": "2026-01-01", "region": "north", "value": 10.0},
+        {"bucket_start": "2026-01-01", "region": "north", "value": 99.0},
+    ]
+    frame = _metric(
+        session,
+        rows,
+        semantic_kind="panel",
+        axes={
+            "time": {"role": "time", "column": "bucket_start", "grain": "day"},
+            "region": {"role": "dimension", "column": "region"},
+        },
+        measure={"field": "value"},
+        window=None,
+    )
+
+    report = session.assess_quality(frame)
+    duplicate = report.to_pandas().set_index("check_kind").loc["duplicate_keys"]
+    assert duplicate["severity"] == "blocking"
+
+
+def test_panel_time_coverage_with_timezone(tmp_path):
+    """Weekly grain with a non-UTC timezone must not yield 0% coverage.
+    bucket_start values are in UTC (e.g., 2026-05-24T16:00:00 for UTC+8's 5/25),
+    but the check must compare against local-calendar dates."""
+    session = session_attach.get_or_create(name="demo")
+    # Simulate weekly buckets in UTC+8: each "Monday" bucket_start is the
+    # preceding Sunday at 16:00 UTC.
+    rows = [
+        {"bucket_start": "2026-05-17T16:00:00", "region": "US", "value": 1.0},
+        {"bucket_start": "2026-05-24T16:00:00", "region": "US", "value": 2.0},
+        {"bucket_start": "2026-05-17T16:00:00", "region": "CA", "value": 3.0},
+        {"bucket_start": "2026-05-24T16:00:00", "region": "CA", "value": 4.0},
+    ]
+    frame = _metric(
+        session,
+        rows,
+        semantic_kind="panel",
+        axes={
+            "time": {"role": "time", "column": "bucket_start", "grain": "week"},
+            "region": {"role": "dimension", "column": "region"},
+        },
+        measure={"field": "value"},
+        window={
+            "start": "2026-05-18",
+            "end": "2026-06-01",
+            "grain": "week",
+            "time_field": "bucket_start",
+        },
+    )
+    # Force the session timezone to Asia/Shanghai (UTC+8)
+    from zoneinfo import ZoneInfo
+
+    session.tz = ZoneInfo("Asia/Shanghai")
+
+    report = session.assess_quality(frame)
+    coverage = report.to_pandas().set_index("check_kind").loc["time_coverage"]
+    details = json.loads(coverage["details_json"])
+    # With timezone alignment, coverage should be near 1.0, not 0.0
+    assert details["coverage_ratio"] > 0.5

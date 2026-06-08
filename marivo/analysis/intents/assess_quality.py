@@ -74,7 +74,7 @@ def assess_quality(
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    rows = run_metric_checks(frame)
+    rows = run_metric_checks(frame, tz=str(session.tz) if session.tz else None)
     output = pd.DataFrame(rows)
     checks_run = output["check_id"].astype(str).tolist()
     blocking_issues = _blocking_issues(frame, output)
