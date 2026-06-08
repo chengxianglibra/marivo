@@ -25,6 +25,7 @@ from marivo.analysis.errors import (
     SegmentDimensionMismatchError,
     SemanticKindMismatchError,
 )
+from marivo.analysis.evidence.identity import make_component_artifact_id
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
     CommitParams,
@@ -406,7 +407,7 @@ def _persist_delta_component_frame(
     job_ref: str,
 ) -> ComponentFrame:
     """Persist the delta component frame and return it."""
-    comp_ref = _gen_ref("comp")
+    comp_ref = make_component_artifact_id(parent_ref)
     meta = ComponentFrameMeta(
         ref=comp_ref,
         session_id=session.id,

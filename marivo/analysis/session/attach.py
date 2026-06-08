@@ -213,6 +213,27 @@ def _lookup_session_by_name(project_root: Path, name: str) -> dict[str, Any] | N
     return dict(row) if row is not None else None
 
 
+def _lookup_session_by_id(project_root: Path, session_id: str) -> Session:
+    """Load a Session by its ID from the project session index.
+
+    Unlike attach(name=...), this does not change the process-wide active session.
+    """
+    with closing(_connect_index(project_root)) as conn:
+        row = conn.execute(
+            "SELECT id, name, state, cwd, created_at, updated_at FROM sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+    if row is None:
+        from marivo.analysis.errors import NoActiveSessionError
+
+        raise NoActiveSessionError(
+            message=f"session {session_id!r} not found in project index",
+            hint="The session may have been archived or deleted. Re-create it with mv.session.get_or_create().",
+        )
+    factory = _compile_backend_factory(None, None, use_datasources=True)
+    return _session_from_row(project_root=project_root, row=dict(row), factory=factory)
+
+
 def create(
     name: str,
     question: str | None = None,

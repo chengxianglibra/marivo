@@ -10,6 +10,7 @@ from marivo.analysis.errors import (
     FrameCacheCorruptedError,
     FrameRefNotFound,
 )
+from marivo.analysis.frames.component import ComponentFrame
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
 from tests.conftest import bootstrap_sales_project
@@ -259,6 +260,92 @@ def test_observe_derived_metric_cache_hit(tmp_path):
     second = s.observe(mv.MetricRef("sales.failure_rate"))
     assert isinstance(second, MetricFrame)
     assert second.ref == first.ref
+
+
+def test_observe_derived_metric_cache_hit_components_accessible(tmp_path):
+    """After a cache hit, frame.components() returns a valid ComponentFrame."""
+    _bootstrap_failure_rate(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_failure_rate(con)
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    first = s.observe(mv.MetricRef("sales.failure_rate"))
+    first_components = first.components()
+    assert isinstance(first_components, ComponentFrame)
+
+    # Second call returns cached frame
+    second = s.observe(mv.MetricRef("sales.failure_rate"))
+    assert second.ref == first.ref
+    # Components must still be accessible
+    second_components = second.components()
+    assert isinstance(second_components, ComponentFrame)
+    assert second_components.meta.parent_ref == first.ref
+
+
+def test_observe_derived_metric_components_after_reattach(tmp_path):
+    """frame.components() works after session re-attachment (new process)."""
+    _bootstrap_failure_rate(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_failure_rate(con)
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    frame = s.observe(mv.MetricRef("sales.failure_rate"))
+    ref = frame.ref
+
+    # Simulate new process
+    session_attach._reset_process_state()
+    s2 = session_attach.attach(name="demo", backends={"warehouse": lambda: con})
+
+    loaded = s2.get_frame(ref)
+    components = loaded.components()
+    assert isinstance(components, ComponentFrame)
+    assert components.meta.parent_ref == ref
+
+
+def test_components_via_session_get_frame(tmp_path):
+    """frame.components() works on a frame loaded via session.get_frame()."""
+    _bootstrap_failure_rate(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_failure_rate(con)
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    frame = s.observe(mv.MetricRef("sales.failure_rate"))
+    ref = frame.ref
+
+    loaded = s.get_frame(ref)
+    components = loaded.components()
+    assert isinstance(components, ComponentFrame)
+    assert components.meta.decomposition_kind == "ratio"
+
+
+def test_compare_derived_metric_delta_components_after_cache_hit(tmp_path):
+    """DeltaFrame.components() works after a cache hit on compare."""
+    _bootstrap_failure_rate(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_failure_rate(con)
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    cur = s.observe(
+        mv.MetricRef("sales.failure_rate"),
+        timescope={"start": "2026-07-01", "end": "2026-07-04"},
+        grain="day",
+    )
+    base = s.observe(
+        mv.MetricRef("sales.failure_rate"),
+        timescope={"start": "2026-07-01", "end": "2026-07-04"},
+        grain="day",
+    )
+
+    delta = s.compare(cur, base)
+    assert delta.meta.component_ref is not None
+    delta_comp = delta.components()
+    assert isinstance(delta_comp, ComponentFrame)
+
+    # Cache hit
+    delta2 = s.compare(cur, base)
+    assert delta2.ref == delta.ref
+    delta_comp2 = delta2.components()
+    assert isinstance(delta_comp2, ComponentFrame)
 
 
 # --- session.frames (existing API, smoke test) ---

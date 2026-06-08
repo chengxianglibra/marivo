@@ -17,6 +17,7 @@ from marivo.analysis.errors import (
     MetricShapeUnsupportedError,
     SemanticKindMismatchError,
 )
+from marivo.analysis.evidence.identity import make_component_artifact_id
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
     CommitParams,
@@ -276,7 +277,7 @@ def _persist_metric_component_frame(
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
     job_ref: str,
 ) -> ComponentFrame:
-    frame_ref = _gen_ref("frame")
+    frame_ref = make_component_artifact_id(parent.ref)
     component = ComponentFrame(
         _df=df.copy(),
         meta=ComponentFrameMeta(

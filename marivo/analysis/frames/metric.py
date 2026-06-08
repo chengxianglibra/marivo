@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import ConfigDict
 
-from marivo.analysis.errors import ComponentFrameUnavailableError
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, assert_semantic_shape
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.windows import (
@@ -141,27 +140,15 @@ class MetricFrame(BaseFrame):
 
     def components(self) -> ComponentFrame:
         """Load the linked ComponentFrame for component-aware derived metrics."""
-        from marivo.analysis.frames.component import ComponentFrame
-        from marivo.analysis.session._load import load_frame
-        from marivo.analysis.session.attach import active
+        from marivo.analysis.frames._component import _load_component_frame
 
-        if self.meta.component_ref is None:
-            raise ComponentFrameUnavailableError(
-                message=(
-                    "components are only available for derived ratio or "
-                    "weighted-average metric frames produced by component-aware observe"
-                ),
-                details={"parent_ref": self.ref, "parent_kind": self.meta.kind},
-            )
-        loaded = load_frame(self.meta.component_ref, session=active())
-        if not isinstance(loaded, ComponentFrame):
-            raise ComponentFrameUnavailableError(
-                message="linked component_ref did not resolve to a ComponentFrame",
-                details={
-                    "parent_ref": self.ref,
-                    "parent_kind": self.meta.kind,
-                    "component_ref": self.meta.component_ref,
-                    "loaded_kind": loaded.meta.kind,
-                },
-            )
-        return loaded
+        return _load_component_frame(
+            parent_ref=self.ref,
+            parent_kind=self.meta.kind,
+            session_id=self.meta.session_id,
+            project_root=self.meta.project_root,
+            artifact_id=self.meta.artifact_id,
+            component_ref=self.meta.component_ref,
+            decomposition=self.meta.decomposition,
+            advice="re-run observe() to regenerate it",
+        )
