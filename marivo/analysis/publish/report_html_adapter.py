@@ -1174,7 +1174,7 @@ def _render_claim_evidence_block(block: dict[str, Any], payload: dict[str, Any])
                 f'<p class="audit-meta">Unknown claim <code>{_escape(claim_ref)}</code>.</p>'
             )
             continue
-        text = claim.get("text") or claim.get("text_template") or claim_ref
+        text = claim.get("text_template") or claim_ref
         panels.append(
             f'<details class="proof-panel" id="proof-{_escape(claim_ref)}"{open_attr}>'
             f"<summary>{_escape(text)}</summary>"
@@ -1260,7 +1260,7 @@ def _render_claims(payload: dict[str, Any]) -> str:
     parts = []
     for claim in claims:
         claim_id = _escape(claim.get("id", "claim"))
-        claim_text = claim.get("text") or claim.get("text_template") or claim.get("id", "")
+        claim_text = claim.get("text_template") or claim.get("id", "")
         parts.append(f'<article class="audit-panel" id="claim-{claim_id}">')
         parts.append(f"<h4>{_escape(claim_text)}</h4>")
         parts.append(_render_labeled_value("Grounding", claim.get("grounding_type")))
