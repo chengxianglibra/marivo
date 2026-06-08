@@ -113,10 +113,75 @@ constructing the artifact — the keyword argument overrides it for the render.
 To add a language, add a `<lang>.json` catalog — never hardcode non-English
 labels in Python.
 
-Script references: `FlowStep.script_refs` and `SourceProvenance.script_refs` are
-lists; pass every script path (e.g. `("scripts/step4.py", "scripts/step5.py")`)
-rather than collapsing a range into one filename. The Audit Trail renders each
-as a link.
+Output locations: agent-generated analysis scripts and rendered HTML reports
+belong under the active session's directory, not at the project root. Use
+`session.layout.scripts_dir` and `session.layout.reports_dir` (both resolve
+to `<project_root>/.marivo/analysis/sessions/<session_id>/{scripts,reports}/`)
+and create the directory lazily before writing:
+
+```python
+from pathlib import Path
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(name="investigation")
+
+scripts_dir = session.layout.scripts_dir
+scripts_dir.mkdir(parents=True, exist_ok=True)
+(scripts_dir / "step_observe.py").write_text("# observe ...", encoding="utf-8")
+
+reports_dir = session.layout.reports_dir
+reports_dir.mkdir(parents=True, exist_ok=True)
+html = mv.render_report_html(artifact, language="zh-Hans")
+(reports_dir / "trino_anomaly_weekly.html").write_text(html, encoding="utf-8")
+```
+
+For a full report package, call
+`materialize_html_adapter(artifact, root=session.layout.reports_dir / artifact.manifest.report_id)`
+so the package files land under `reports/<report_id>/`. Paths in
+`script_refs` stay relative (e.g. `"scripts/step_observe.py"`); they resolve
+against `session.layout.session_dir` for validation (see below).
+
+Script references: `FlowStep.script_refs` and `SourceProvenance.script_refs`
+must list every real script path — one entry per file that exists on disk.
+Never invent a range-style filename like `"scripts/step1-7.py"` or
+`"scripts/step4-6.py"` to stand in for several files; those files do not
+exist, and the Audit Trail will publish broken links that readers cannot open.
+Enumerate each path explicitly.
+
+Wrong:
+
+```python
+# One fabricated filename pretending to cover steps 1 through 7.
+script_refs=("scripts/trino_anomaly_step1-7.py",)
+```
+
+Right:
+
+```python
+script_refs=(
+    "scripts/trino_anomaly_step1.py",
+    "scripts/trino_anomaly_step2.py",
+    "scripts/trino_anomaly_step3.py",
+    "scripts/trino_anomaly_step4.py",
+    "scripts/trino_anomaly_step5.py",
+    "scripts/trino_anomaly_step6.py",
+    "scripts/trino_anomaly_step7.py",
+)
+```
+
+The Audit Trail renders each entry as its own clickable link, so a real
+per-file list is both correct and more useful to readers. The same rule
+applies to `FlowStep.script_refs` for individual steps: if a step is
+implemented by `step4.py`, `step5.py`, and `step6.py`, list all three — not
+the invented aggregate `"scripts/step4-6.py"`.
+
+Before rendering, call
+`validate_report_artifact(artifact, script_root=session.layout.session_dir)`
+so every `script_refs` entry is checked against the session directory the
+relative paths resolve against. The validator emits one `script_ref_missing`
+issue per path that does not exist on disk, so a fabricated
+`"scripts/step1-7.py"` is caught regardless of filename shape — the check is
+existence, not pattern matching.
 
 Before rendering or publishing, validate that `grounding.json` resolves every
 executive-summary claim, partial evidence is visible, source provenance matches

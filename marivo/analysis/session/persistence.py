@@ -42,6 +42,14 @@ class PersistenceLayout:
         return self.session_dir / "frames"
 
     @property
+    def scripts_dir(self) -> Path:
+        return self.session_dir / "scripts"
+
+    @property
+    def reports_dir(self) -> Path:
+        return self.session_dir / "reports"
+
+    @property
     def meta_file(self) -> Path:
         return self.session_dir / "meta.json"
 

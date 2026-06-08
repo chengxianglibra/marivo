@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from marivo.analysis.publish import (
@@ -842,3 +844,103 @@ def test_validate_report_artifact_rejects_visual_without_adjacent_narrative() ->
 
     assert result.ok is False
     assert "narrative_adjacency" in {issue.check for issue in result.issues}
+
+
+def _artifact_with_script_refs(
+    flow_script_refs: tuple[str, ...] = (),
+    provenance_script_refs: tuple[str, ...] = (),
+) -> MarivoReportArtifact:
+    artifact = _valid_artifact()
+    flow = artifact.flow.model_copy(
+        update={
+            "steps": (artifact.flow.steps[0].model_copy(update={"script_refs": flow_script_refs}),)
+        }
+    )
+    dataset = artifact.datasets["headline_metrics"]
+    metadata = dataset.metadata.model_copy(
+        update={
+            "source_provenance": dataset.metadata.source_provenance.model_copy(
+                update={"script_refs": provenance_script_refs}
+            )
+        }
+    )
+    datasets = {
+        "headline_metrics": dataset.model_copy(update={"metadata": metadata}),
+    }
+    return artifact.model_copy(update={"flow": flow, "datasets": datasets})
+
+
+def test_validate_report_artifact_skips_script_existence_without_script_root() -> None:
+    from marivo.analysis.publish import validate_report_artifact
+
+    artifact = _artifact_with_script_refs(
+        flow_script_refs=("scripts/does_not_exist.py",),
+        provenance_script_refs=("scripts/also_missing.py",),
+    )
+
+    result = validate_report_artifact(artifact)
+
+    assert result.ok is True
+    assert result.issues == ()
+
+
+def test_validate_report_artifact_accepts_existing_flow_step_scripts(
+    tmp_path: Path,
+) -> None:
+    from marivo.analysis.publish import validate_report_artifact
+
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "step_observe.py").write_text("# observe\n", encoding="utf-8")
+
+    artifact = _artifact_with_script_refs(
+        flow_script_refs=("scripts/step_observe.py",),
+    )
+
+    result = validate_report_artifact(artifact, script_root=tmp_path)
+
+    assert result.ok is True
+    assert result.issues == ()
+
+
+def test_validate_report_artifact_rejects_missing_flow_step_script(
+    tmp_path: Path,
+) -> None:
+    from marivo.analysis.publish import validate_report_artifact
+
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "step_observe.py").write_text("# observe\n", encoding="utf-8")
+
+    artifact = _artifact_with_script_refs(
+        flow_script_refs=("scripts/step_observe.py", "scripts/ghost.py"),
+    )
+
+    result = validate_report_artifact(artifact, script_root=tmp_path)
+
+    assert result.ok is False
+    missing = [issue for issue in result.issues if issue.check == "script_ref_missing"]
+    assert len(missing) == 1
+    assert "scripts/ghost.py" in missing[0].message
+    assert missing[0].location == "flow.steps[0].script_refs[1]"
+
+
+def test_validate_report_artifact_rejects_missing_source_provenance_script(
+    tmp_path: Path,
+) -> None:
+    from marivo.analysis.publish import validate_report_artifact
+
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "real.py").write_text("# real\n", encoding="utf-8")
+
+    artifact = _artifact_with_script_refs(
+        provenance_script_refs=("scripts/real.py", "scripts/fabricated.py"),
+    )
+
+    result = validate_report_artifact(artifact, script_root=tmp_path)
+
+    assert result.ok is False
+    missing = [issue for issue in result.issues if issue.check == "script_ref_missing"]
+    assert len(missing) == 1
+    assert "scripts/fabricated.py" in missing[0].message
+    assert missing[0].location == (
+        "datasets.headline_metrics.metadata.source_provenance.script_refs[1]"
+    )
