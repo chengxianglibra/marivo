@@ -144,6 +144,9 @@ class DatasetSummary:
     description: str | None
     dataset_provenance: DatasetProvenance | None  # None = not yet materialized
 
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.semantic_id!r})"
+
 
 @dataclass(frozen=True)
 class MetricSummary:
@@ -157,6 +160,9 @@ class MetricSummary:
     is_derived: bool
     parity_status: ParityStatus
     python_symbol: str
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.semantic_id!r})"
 
 
 @dataclass(frozen=True)
@@ -177,6 +183,9 @@ class FieldSummary:
     timezone: str | None = None
     required_prefix: str | None = None
 
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.semantic_id!r})"
+
 
 @dataclass(frozen=True)
 class RelationshipSummary:
@@ -190,6 +199,9 @@ class RelationshipSummary:
     from_fields: tuple[str, ...]
     to_fields: tuple[str, ...]
     description: str | None
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.semantic_id!r})"
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +224,9 @@ class SearchHit:
         "examples",
     ]
     matched_snippet: str  # matched substring with short context
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.semantic_id!r})"
 
 
 def _display_value(value: object) -> str:
