@@ -30,7 +30,7 @@ orders = ms.dataset(
     name="log_date",
     data_type="string",
     granularity="day",
-    date_format="yyyymmdd",
+    date_format="%Y%m%d",
     is_default=True,
     ai_context={
         "business_definition": "Partition time field for order reporting windows.",
@@ -45,7 +45,6 @@ def log_date(table):
     name="log_hour",
     data_type="string",
     granularity="hour",
-    date_format="HH",
     required_prefix="log_date",
     ai_context={
         "business_definition": "Hour partition used with log_date for hourly reporting windows.",

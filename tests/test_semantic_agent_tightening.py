@@ -249,10 +249,10 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
 
     assert "partition time field" in single
     assert 'data_type="string"' in single
-    assert 'date_format="yyyymmdd"' in single
+    assert 'date_format="%Y%m%d"' in single
+    assert 'date_format="HH"' not in single
     assert "return table.dt" in single
     assert "return table.dt.cast" not in single
-    assert 'date_format="HH"' in single
     assert 'required_prefix="log_date"' in single
     assert "project.inspect_source_context(" in evidence
     assert "bind_datasource_access" in evidence
@@ -308,8 +308,8 @@ def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
     pitfalls = _read("marivo-skills/marivo-semantic/references/pitfalls.md")
 
     assert 'data_type="string"' in authoring
-    assert 'date_format="yyyymmdd"' in authoring
-    assert 'date_format="HH"' in authoring
+    assert 'date_format="%Y%m%d"' in authoring
+    assert 'date_format="HH"' not in authoring
     assert 'required_prefix="log_date"' in authoring
     assert "return table.dt" in authoring
     assert "return table.dt.cast" not in authoring

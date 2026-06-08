@@ -218,7 +218,7 @@ orders = ms.dataset(
 )
 
 @ms.time_field(dataset=orders, name="log_date", data_type="string",
-               granularity="day", date_format="yyyymmdd")
+               granularity="day", date_format="%Y%m%d")
 def log_date(table):
     return table.dt
 

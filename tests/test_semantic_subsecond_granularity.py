@@ -111,7 +111,7 @@ def test_minute_granularity_string_with_time_format_is_valid(semantic_project_fa
                 "import marivo.semantic as ms\n"
                 "events = ms.dataset(name='events', datasource='warehouse', source=ms.table('events'))\n"
                 "@ms.time_field(dataset=events, data_type='string', granularity='minute', "
-                "date_format='yyyymmddhhmm')\n"
+                "date_format='%Y%m%d%H%M')\n"
                 "def ts(events):\n"
                 "    return events.ts\n"
             ),
@@ -120,7 +120,7 @@ def test_minute_granularity_string_with_time_format_is_valid(semantic_project_fa
 
 
 def test_minute_granularity_string_without_time_format_is_rejected(semantic_project_factory):
-    """String with no time-bearing format should be rejected for minute granularity."""
+    """String with a date-only format should be rejected for minute granularity."""
     project = semantic_project_factory(
         {
             "ops/_model.py": "import marivo.semantic as ms\nms.model(name='ops')\n",
@@ -128,7 +128,7 @@ def test_minute_granularity_string_without_time_format_is_rejected(semantic_proj
                 "import marivo.semantic as ms\n"
                 "events = ms.dataset(name='events', datasource='warehouse', source=ms.table('events'))\n"
                 "@ms.time_field(dataset=events, data_type='string', granularity='minute', "
-                "date_format='yyyymmdd')\n"
+                "date_format='%Y%m%d')\n"
                 "def ts(events):\n"
                 "    return events.ts\n"
             ),

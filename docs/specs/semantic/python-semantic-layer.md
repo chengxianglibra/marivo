@@ -380,7 +380,6 @@ time field 是特殊 field，显式承载时间轴元数据：
     dataset=orders,
     data_type="date",
     granularity="day",
-    format=None,
     description="Order creation date.",
 )
 def order_date(orders):
@@ -391,10 +390,11 @@ def order_date(orders):
 
 - 需要作为时间窗口、时间粒度或 calendar axis 使用的字段必须声明为 `time_field`。
 - 普通 `field` 不应靠名称如 `dt`、`date`、`event_time` 被自动推断为时间字段。
-- `data_type` 支持 `date`、`datetime`、`timestamp`、`string`、`integer`；字符串或整数时间字段用可选 `format` 声明物理格式。
+- `data_type` 支持 `date`、`datetime`、`timestamp`、`string`、`integer`。`date_format` 仅在 `data_type` 为 `string` 或 `integer` 且未声明 `required_prefix` 时使用。
+- `date_format` 必须是 Python strptime 格式串（`%` 前缀），例如 `"%Y%m%d"`、`"%Y-%m-%d"`、`"%Y%m%d%H"`、`"%Y-%m-%d %H:%M:%S"`。简写别名（`yyyymmdd`、`hh` 等）不再被接受；格式串原样传给 backend 的 `date_parse`，作者需按目标 backend 语义书写（参见下一节 `%M` 与 `%i` 注意事项）。`data_type` 为 `date`、`datetime`、`timestamp` 时不允许 `date_format`（列已是时间类型）；声明了 `required_prefix` 的 hour-only 字段也不允许 `date_format`（运行时用 `lpad(2, "0")` 归一化 hour 列）。
 - `granularity` 支持 `year` | `quarter` | `month` | `week` | `day` | `hour` | `minute` | `second`。`minute` 和 `second` 要求 `data_type` 为 `datetime` 或 `timestamp`；`hour` 在非 timestamp 类型上必须声明 `required_prefix`。
 - `data_type` 必须与 body 返回的 ibis dtype 兼容：`.cast("date")` → `data_type="date"`；`.cast("timestamp")` 或原始 timestamp 列 → `data_type="datetime"` 或 `"timestamp"`。不匹配时执行器 TypeError。
-- hour-only 字段（例如 `data_type="string", format="hh"` 或 `data_type="integer", format="h"`）必须显式声明 `required_prefix`；timestamp/datetime hour 字段或单列完整 hour 格式不需要。
+- hour-only 字段（例如 `data_type="string"` 或 `data_type="integer"`，且列只存小时数值）必须显式声明 `required_prefix` 且不得声明 `date_format`；timestamp/datetime hour 字段或单列完整 hour 格式不需要。
 - 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `field` / `time_field`，再在 metric 中引用。
 - `@ms.field` / `@ms.time_field` 不要求 provenance status。它们的可信度来自所属 dataset、row-level 表达式可读性和 materialization 校验。`source_sql` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。
 - `is_default` (optional, default `False`): Mark this field as the default time axis
@@ -403,6 +403,31 @@ def order_date(orders):
   At most one time field per dataset may carry `is_default=True`; declaring two or
   more raises `SemanticLoadError` with kind `duplicate_default_time_field` at assembly
   time.
+
+#### Format specifier divergence: Python strptime vs MySQL/Trino/Presto
+
+`date_format` strings flow unchanged to the backend's `date_parse`
+function. Trino and Presto `date_parse` accept MySQL-style format
+specifiers, which agree with Python strptime on most common tokens
+(`%Y %m %d %H %S %y %j`) but disagree on minutes:
+
+| Specifier | Python strptime | Trino/Presto `date_parse` |
+|---|---|---|
+| `%M` | Minutes (00..59) | **Month name** (January..December) |
+| `%i` | (not used) | Minutes (00..59) |
+| `%c` | Locale-dependent datetime | Month, numeric (1..12) |
+
+For minute-granularity string fields on Trino/Presto backends, write
+`%i` for minutes, not `%M`. Example: `date_format="%Y-%m-%d %H:%i:%S"`.
+
+Marivo does not translate Python strptime to MySQL format. The contract
+is: the format string reaches the backend's `date_parse` unchanged;
+author with the target backend's MySQL semantics in mind.
+
+Trino additionally does not support these specifiers (per the Trino
+datetime functions reference): `%D`, `%U`, `%u`, `%V`, `%w`, `%X`.
+Queries using them will fail at the backend with the backend's native
+error; Marivo does not pre-validate against backend support.
 
 ### Metric
 

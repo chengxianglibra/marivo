@@ -44,6 +44,7 @@ from marivo.semantic.ir import (
     ValidityVersioningIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+from marivo.semantic.time_format import normalize_strptime
 from marivo.semantic.typing import AiContext
 from marivo.semantic.validator import validate_metric_body_ast
 
@@ -516,18 +517,19 @@ def time_field(
         data_type: ``date | datetime | timestamp | string | integer``.
         granularity: ``year | quarter | month | week | day | hour | minute | second`` — the
             finest grain at which queries are meaningful.
-        date_format: Required when ``data_type="string"`` or ``data_type="integer"``.
-            Accepts shorthand aliases (``"yyyymmdd"``, ``"yyyy-mm-dd"``,
-            ``"yyyymmddhh"``, ``"yyyymmdd-hh"``, ``"yyyy-mm-dd-hh"``,
-            ``"yyyymmddthh"``) or any strptime-compatible format string
-            (e.g. ``"%Y-%m-%d"``, ``"%Y/%m/%d"``, ``"%Y%m%d%H"``,
-            ``"%Y-%m-%d %H:%M:%S"``).
+        date_format: Canonical Python strptime format string (e.g. ``"%Y%m%d"``,
+            ``"%Y-%m-%d"``, ``"%Y%m%d%H"``, ``"%Y-%m-%d %H:%M:%S"``). Required
+            when ``data_type="string"`` or ``data_type="integer"`` without
+            ``required_prefix``; forbidden otherwise (temporal ``data_type`` or
+            hour-only fields with ``required_prefix``). Shorthand aliases like
+            ``"yyyymmdd"`` are no longer accepted — write the ``%``-prefixed
+            strptime form.
         required_prefix: Optional fixed prefix the source value must start with.
         timezone: Optional IANA timezone for timestamp-like values. For naive
             timestamp expressions and time-bearing string/integer formats,
             Marivo interprets source values in this timezone before converting
             them to the analysis session timezone for windowing and bucketing.
-            Day partition encodings such as ``yyyymmdd`` should omit it so
+            Day partition encodings such as ``"%Y%m%d"`` should omit it so
             predicates stay as raw partition comparisons.
         is_default: Mark this field as the default time axis when multiple time fields
             exist on the dataset. At most one time field per dataset may carry
@@ -585,6 +587,47 @@ def time_field(
                     cls=SemanticDecoratorError,
                 )
 
+        # Enforce the strptime-only author surface:
+        #   - temporal data_types forbid date_format (column is already temporal)
+        #   - hour-only fields (required_prefix) forbid date_format
+        #   - string/integer without required_prefix REQUIRE a canonical strptime
+        if date_format is not None:
+            if data_type in {"date", "datetime", "timestamp"}:
+                _raise(
+                    ErrorKind.INVALID_REF,
+                    f"time field {semantic_id!r}: date_format is not allowed when "
+                    f"data_type is {data_type!r} (column is already temporal).",
+                    refs=(semantic_id,),
+                    cls=SemanticDecoratorError,
+                )
+            if required_prefix is not None:
+                _raise(
+                    ErrorKind.INVALID_REF,
+                    f"time field {semantic_id!r}: date_format is not allowed on "
+                    f"hour-only fields (those that use required_prefix).",
+                    refs=(semantic_id,),
+                    cls=SemanticDecoratorError,
+                )
+            try:
+                normalized_format = normalize_strptime(date_format)
+            except ValueError as exc:
+                _raise(
+                    ErrorKind.INVALID_REF,
+                    f"time field {semantic_id!r}: {exc}",
+                    refs=(semantic_id,),
+                    cls=SemanticDecoratorError,
+                )
+        else:
+            if data_type in {"string", "integer"} and required_prefix is None:
+                _raise(
+                    ErrorKind.INVALID_REF,
+                    f"time field {semantic_id!r}: data_type {data_type!r} requires "
+                    f"a strptime date_format (e.g. '%Y%m%d') or a required_prefix.",
+                    refs=(semantic_id,),
+                    cls=SemanticDecoratorError,
+                )
+            normalized_format = None
+
         ir = FieldIR(
             semantic_id=semantic_id,
             model=resolved_model,
@@ -598,7 +641,7 @@ def time_field(
             required_prefix=required_prefix,
             python_symbol=fn.__name__,
             location=location,
-            format=date_format,
+            format=normalized_format,
             timezone=timezone,
             is_default=is_default,
         )

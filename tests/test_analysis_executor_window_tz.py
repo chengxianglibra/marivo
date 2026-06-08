@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import ibis
@@ -68,22 +68,6 @@ def test_window_bound_predicates_timestamp_date_only_end_uses_exclusive_end_date
     assert upper.op().right.value == datetime(2026, 5, 31, 0, 0)
 
 
-def test_window_bound_predicates_epoch_seconds_date_only_end_uses_exclusive_end_date():
-    table = ibis.table([("event_ts", "int64")], name="events")
-    window = AbsoluteWindow(start="2026-05-01", end="2026-05-31", grain="day")
-    lower, upper = _window_bound_predicates(
-        table.event_ts,
-        window,
-        FakeMeta("integer", "epoch_seconds"),
-        session_tz=ZoneInfo("Asia/Shanghai"),
-    )
-
-    assert type(lower.op()).__name__ == "GreaterEqual"
-    assert type(upper.op()).__name__ == "Less"
-    assert lower.op().right.value == int(datetime(2026, 4, 30, 16, 0, tzinfo=UTC).timestamp())
-    assert upper.op().right.value == int(datetime(2026, 5, 30, 16, 0, tzinfo=UTC).timestamp())
-
-
 def test_apply_window_to_dataset_timestamp_date_only_uses_session_tz():
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE events (event_ts TIMESTAMP)")
@@ -112,30 +96,6 @@ def test_apply_window_to_dataset_timestamp_date_only_uses_session_tz():
     )
     rows = filtered.order_by("event_ts").execute()["event_ts"].tolist()
     assert rows == [datetime(2026, 5, 1, 0, 0), datetime(2026, 5, 1, 15, 59, 59)]
-
-
-def test_apply_window_to_dataset_epoch_seconds_date_only_uses_session_tz():
-    con = ibis.duckdb.connect(":memory:")
-    con.raw_sql("CREATE TABLE events (event_ts BIGINT)")
-    con.raw_sql("INSERT INTO events VALUES (1777564799),(1777564800),(1777651199),(1777651200)")
-    dataset_ir = _dataset_ir_for(
-        field_name="event_ts",
-        column="event_ts",
-        time_meta=FakeMeta("integer", "epoch_seconds"),
-    )
-    filtered = apply_window_to_dataset(
-        con.table("events"),
-        AbsoluteWindow(
-            start="2026-05-01",
-            end="2026-05-02",
-            grain="day",
-            time_field="event_ts",
-        ),
-        dataset_ir=dataset_ir,
-        session_tz=ZoneInfo("Asia/Shanghai"),
-    )
-    rows = filtered.order_by("event_ts").execute()["event_ts"].tolist()
-    assert rows == [1777564800, 1777651199]
 
 
 def test_apply_window_to_dataset_timestamp_explicit_datetime_end_is_exclusive():
@@ -207,7 +167,7 @@ def test_timezone_declaration_on_partition_field_fails_closed():
         _window_bound_predicates(
             table.order_day,
             window,
-            FakeMeta("string", "yyyymmdd", timezone="UTC"),
+            FakeMeta("string", "%Y%m%d", timezone="UTC"),
             session_tz=ZoneInfo("Asia/Shanghai"),
         )
     assert exc_info.value.details["kind"] == "TimezoneDeclarationUnsupported"

@@ -104,7 +104,7 @@ def _seed_multi_dataset(con):
     con.raw_sql("INSERT INTO refunds VALUES (DATE '2026-05-24', 5.0)")
 
 
-def _bootstrap_epoch_seconds(tmp_path):
+def _bootstrap_date_field(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasource"
@@ -117,9 +117,6 @@ def _bootstrap_epoch_seconds(tmp_path):
     (semantic_dir / "_model.py").write_text(
         "import marivo.semantic as ms\nms.model(name='sales')\n"
     )
-    # v1.1 does not support data_type='integer' / format='epoch_seconds' yet;
-    # use a date-based time field instead so the session_tz bucketing logic
-    # can still be exercised.
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
@@ -135,7 +132,7 @@ def _bootstrap_epoch_seconds(tmp_path):
     )
 
 
-def _seed_epoch_seconds(con):
+def _seed_date_field(con):
     con.raw_sql("CREATE TABLE orders (order_date DATE, amount DOUBLE)")
     con.raw_sql("INSERT INTO orders VALUES (DATE '2026-05-01', 10.0),(DATE '2026-05-01', 20.0)")
 
@@ -253,9 +250,9 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
 
 
 def test_date_time_series_day_bucket_respects_session_tz(tmp_path):
-    _bootstrap_epoch_seconds(tmp_path)
+    _bootstrap_date_field(tmp_path)
     con = ibis.duckdb.connect(":memory:")
-    _seed_epoch_seconds(con)
+    _seed_date_field(con)
     s = session_attach.get_or_create(
         name="demo",
         backends={"warehouse": lambda: con},

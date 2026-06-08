@@ -38,32 +38,8 @@ from marivo.analysis.timezone import zoneinfo_from_name
 from marivo.analysis.windows.grain import _TRUNCATE_CODE, Grain
 from marivo.analysis.windows.spec import AbsoluteWindow, is_date_only
 
-_SUPPORTED_FORMATS = {
-    ("date", None),
-    ("timestamp", None),
-    ("string", "yyyy-mm-dd"),
-    ("string", "yyyymmdd"),
-    ("string", "yyyymmddhh"),
-    ("string", "yyyymmdd-hh"),
-    ("string", "yyyy-mm-dd-hh"),
-    ("string", "yyyymmddthh"),
-    ("integer", "yyyymmdd"),
-    ("integer", "yyyymmddhh"),
-    ("integer", "epoch_seconds"),
-}
-_HOUR_PRECISION_FORMATS = frozenset({"yyyymmddhh", "yyyymmdd-hh", "yyyy-mm-dd-hh", "yyyymmddthh"})
-_HOUR_ONLY_FORMATS = frozenset({"hh", "h", "int"})
 UTC_ZONE = ZoneInfo("UTC")
 _MISSING_ATTR = object()
-
-_SHORTHAND_TO_STRPTIME: dict[str, str] = {
-    "yyyy-mm-dd": "%Y-%m-%d",
-    "yyyymmdd": "%Y%m%d",
-    "yyyymmddhh": "%Y%m%d%H",
-    "yyyymmdd-hh": "%Y%m%d-%H",
-    "yyyy-mm-dd-hh": "%Y-%m-%d-%H",
-    "yyyymmddthh": "%Y%m%dT%H",
-}
 
 _DATE_DIRECTIVES = frozenset({"%Y", "%y", "%m", "%d", "%j", "%U", "%W"})
 _HOUR_DIRECTIVES = frozenset({"%H", "%I", "%k", "%l"})
@@ -71,55 +47,6 @@ _MINUTE_DIRECTIVES = frozenset({"%M"})
 _SECOND_DIRECTIVES = frozenset({"%S"})
 _SUBSECOND_DIRECTIVES = frozenset({"%f"})
 _AMPM_DIRECTIVES = frozenset({"%p", "%P"})
-
-_STRPTIME_TO_JODA: list[tuple[re.Pattern[str], str]] = [
-    # Each strptime directive is exactly 2 chars (%X), so order is
-    # currently irrelevant. Listed alphabetically by directive.
-    (re.compile(r"%d"), "dd"),
-    (re.compile(r"%e"), "d"),
-    (re.compile(r"%f"), "SSSSSS"),
-    (re.compile(r"%H"), "HH"),
-    (re.compile(r"%I"), "hh"),
-    (re.compile(r"%j"), "DD"),
-    (re.compile(r"%k"), "H"),
-    (re.compile(r"%l"), "h"),
-    (re.compile(r"%M"), "mm"),
-    (re.compile(r"%m"), "MM"),
-    (re.compile(r"%P"), "a"),
-    (re.compile(r"%p"), "a"),
-    (re.compile(r"%S"), "ss"),
-    (re.compile(r"%Y"), "yyyy"),
-    (re.compile(r"%y"), "yy"),
-]
-
-_NO_JODA_EQUIVALENT = frozenset({"%U", "%W"})
-
-
-class StrptimeToJodaError(BackendError):
-    """Raised when a strptime directive has no safe Joda equivalent."""
-
-
-def _strptime_to_joda(fmt: str) -> str:
-    """Convert a Python strptime format string to a Joda Time format string.
-
-    Raises ``StrptimeToJodaError`` for directives with no safe Joda equivalent
-    (currently ``%U`` and ``%W``).
-    """
-    for directive in _NO_JODA_EQUIVALENT:
-        if directive in fmt:
-            raise StrptimeToJodaError(
-                message=f"strptime directive {directive} has no safe Joda Time equivalent "
-                f"and cannot be used with Trino date_parse()",
-                details={
-                    "kind": "StrptimeToJodaNoEquivalent",
-                    "directive": directive,
-                    "format": fmt,
-                },
-            )
-    result = fmt
-    for pattern, replacement in _STRPTIME_TO_JODA:
-        result = pattern.sub(replacement, result)
-    return result
 
 
 def _classify_strptime_format(fmt: str) -> str:
@@ -146,59 +73,9 @@ def _classify_strptime_format(fmt: str) -> str:
     return "hour_only"
 
 
-def _resolve_strptime_format(fmt: str | None) -> str | None:
-    """Resolve a format string to its strptime equivalent.
-
-    Shorthand aliases (e.g. ``"yyyymmdd"``) map to their strptime forms.
-    Strptime-style strings (starting with ``%``) pass through.
-    Hour-only shorthands (``"hh"``, ``"h"``, ``"int"``) pass through as-is.
-    """
-    if fmt is None:
-        return None
-    normalized = _normalize_time_format(fmt)
-    if normalized is None:
-        return None
-    if normalized.startswith("%"):
-        return normalized
-    if normalized in _HOUR_ONLY_FORMATS:
-        return normalized
-    if normalized in _SHORTHAND_TO_STRPTIME:
-        return _SHORTHAND_TO_STRPTIME[normalized]
-    return None
-
-
-def _normalize_time_format(value: str | None) -> str | None:
-    if value is None:
-        return None
-    stripped = value.strip()
-    if stripped.startswith("%"):
-        return stripped
-    lowered = stripped.lower()
-    compact = lowered.replace("_", "").replace(" ", "")
-    if compact in {"yyyy-mm-dd-hh", "yyyy/mm/dd/hh"}:
-        return "yyyy-mm-dd-hh"
-    if compact == "yyyymmdd-hh":
-        return "yyyymmdd-hh"
-    if compact == "yyyymmddthh":
-        return "yyyymmddthh"
-    if compact in {"%y-%m-%d", "%y/%m/%d", "yyyy-mm-dd", "yyyy/mm/dd"}:
-        return "yyyy-mm-dd"
-    normalized = compact.replace("-", "").replace("/", "")
-    if normalized in {"epochseconds"}:
-        return "epoch_seconds"
-    if normalized in {"yyyymmddhh"}:
-        return "yyyymmddhh"
-    if normalized in {"%y%m%d", "yyyymmdd"}:
-        return "yyyymmdd"
-    if normalized in _HOUR_ONLY_FORMATS:
-        return normalized
-    return normalized
-
-
 def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
     data_type = time_meta.data_type
-    fmt = _normalize_time_format(time_meta.format)
-    strptime_fmt = _resolve_strptime_format(time_meta.format)
+    fmt = time_meta.format
 
     if data_type == "date":
         return ibis.date(iso_string)
@@ -206,32 +83,33 @@ def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
         return ibis.timestamp(iso_string)
 
     if data_type in {"string", "integer"}:
-        if data_type == "integer" and fmt == "epoch_seconds":
-            dt = datetime.fromisoformat(iso_string)
-            return int(dt.timestamp())
+        if fmt is None or not fmt.startswith("%"):
+            raise WindowInvalidError(
+                message=f"unsupported window bound format (data_type={data_type}, format={fmt!r})",
+                details={"data_type": data_type, "format": fmt},
+            )
+        classification = _classify_strptime_format(fmt)
 
-        # Shorthand hour-precision formats
-        if fmt in _HOUR_PRECISION_FORMATS:
+        # Hour-only formats cannot encode a window bound on their own; they
+        # require a composite required_prefix field for date context.
+        if classification in {"hour_only", "hour_only_minute"}:
+            raise WindowInvalidError(
+                message=f"unsupported window bound format (data_type={data_type}, format={fmt!r})",
+                details={"data_type": data_type, "format": fmt},
+            )
+
+        # Hour-precision formats: parse ISO bound and reformat
+        if classification == "hour":
             parsed_dt, _is_date_bound = _parse_partition_datetime(
                 iso_string, fmt=fmt, tz=UTC_ZONE, bound_name="bound"
             )
             result = _format_hour_precision_partition_literal(parsed_dt, fmt)
             return int(result) if data_type == "integer" else result
 
-        # Shorthand day-precision formats
-        if data_type == "string" and fmt == "yyyy-mm-dd":
-            return iso_string
-        if fmt == "yyyymmdd":
-            result = iso_string[:10].replace("-", "")
-            return int(result) if data_type == "integer" else result
-
-        # Arbitrary strptime formats
-        if strptime_fmt is not None and strptime_fmt not in _HOUR_ONLY_FORMATS:
-            parsed, _ = _parse_partition_datetime(
-                iso_string, fmt=None, tz=UTC_ZONE, bound_name="bound"
-            )
-            result = parsed.strftime(strptime_fmt)
-            return int(result) if data_type == "integer" else result
+        # Day-precision and other time-bearing formats: parse ISO and reformat
+        parsed, _ = _parse_partition_datetime(iso_string, fmt=None, tz=UTC_ZONE, bound_name="bound")
+        result = parsed.strftime(fmt)
+        return int(result) if data_type == "integer" else result
 
     raise WindowInvalidError(
         message=f"unsupported window bound format (data_type={data_type}, format={fmt!r})",
@@ -239,69 +117,72 @@ def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
     )
 
 
+_ISO_LEXICOGRAPHIC_DAY_FORMATS = frozenset(
+    {
+        "%Y%m%d",
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+    }
+)
+
+
+def _is_lexicographic_day_format(fmt: str | None) -> bool:
+    """True when a day format is ISO-ordered so lexicographic order matches dates.
+
+    Only year-first, fixed-width formats have the property that string ordering
+    matches chronological ordering. Month-first or day-first formats (e.g.
+    ``%m/%d/%Y``, ``%d/%m/%Y``) are fixed-width but NOT lexicographically
+    sortable, so they must be parsed via STRPTIME before comparison.
+    """
+    return fmt in _ISO_LEXICOGRAPHIC_DAY_FORMATS
+
+
 def _is_day_partition_meta(time_meta: Any) -> bool:
     data_type = time_meta.data_type
-    fmt = _normalize_time_format(time_meta.format)
-    return (data_type, fmt) in {
-        ("string", "yyyy-mm-dd"),
-        ("string", "yyyymmdd"),
-        ("integer", "yyyymmdd"),
-    }
+    if data_type not in {"string", "integer"}:
+        return False
+    fmt = time_meta.format
+    if fmt is None or not fmt.startswith("%"):
+        return False
+    return _classify_strptime_format(fmt) == "day"
 
 
 def _is_hour_precision_partition_meta(time_meta: Any) -> bool:
     data_type = time_meta.data_type
-    fmt = _normalize_time_format(time_meta.format)
-    return (data_type == "string" and fmt in _HOUR_PRECISION_FORMATS) or (
-        data_type == "integer" and fmt == "yyyymmddhh"
-    )
+    if data_type not in {"string", "integer"}:
+        return False
+    fmt = time_meta.format
+    if fmt is None or not fmt.startswith("%"):
+        return False
+    return _classify_strptime_format(fmt) == "hour"
 
 
 def _is_hour_only_partition_meta(time_meta: Any) -> bool:
-    """True for string/integer time fields whose format encodes only the hour (no date)."""
+    """True for string/integer hour-only time fields that use required_prefix.
+
+    Hour-only fields carry no date component in their own value; they rely on a
+    separate day-level required_prefix field to supply the date context.
+    """
     data_type = time_meta.data_type
     if data_type not in {"string", "integer"}:
         return False
-    fmt = _normalize_time_format(time_meta.format)
-    if fmt in _HOUR_ONLY_FORMATS:
-        return True
-    strptime_fmt = _resolve_strptime_format(time_meta.format)
-    if strptime_fmt is not None and strptime_fmt.startswith("%"):
-        classification = _classify_strptime_format(strptime_fmt)
-        return classification in {"hour_only", "hour_only_minute"}
-    return False
+    return getattr(time_meta, "required_prefix", None) is not None
 
 
 def _parse_hour_precision_literal(value: str, fmt: str | None) -> datetime | None:
-    if fmt == "yyyymmddhh" and len(value) == 10 and value.isdigit():
-        return datetime(
-            int(value[0:4]),
-            int(value[4:6]),
-            int(value[6:8]),
-            int(value[8:10]),
-        )
-    if fmt == "yyyymmdd-hh" and len(value) == 11 and value[8] == "-":
-        return datetime(
-            int(value[0:4]),
-            int(value[4:6]),
-            int(value[6:8]),
-            int(value[9:11]),
-        )
-    if fmt == "yyyy-mm-dd-hh" and len(value) == 13 and value[10] == "-":
-        return datetime(
-            int(value[0:4]),
-            int(value[5:7]),
-            int(value[8:10]),
-            int(value[11:13]),
-        )
-    if fmt == "yyyymmddthh" and len(value) == 11 and value[8].lower() == "t":
-        return datetime(
-            int(value[0:4]),
-            int(value[4:6]),
-            int(value[6:8]),
-            int(value[9:11]),
-        )
-    return None
+    """Parse a compact hour-precision partition bound string using its strptime format.
+
+    Returns None if fmt is not an hour-precision strptime or the value does not
+    match the format exactly.
+    """
+    if fmt is None or not fmt.startswith("%"):
+        return None
+    if _classify_strptime_format(fmt) != "hour":
+        return None
+    try:
+        return datetime.strptime(value, fmt)
+    except ValueError:
+        return None
 
 
 def _parse_partition_datetime(
@@ -314,8 +195,6 @@ def _parse_partition_datetime(
     raw = str(value).strip()
     try:
         parsed_hour = _parse_hour_precision_literal(raw, fmt)
-        if parsed_hour is None and fmt not in _HOUR_PRECISION_FORMATS:
-            parsed_hour = _parse_hour_precision_literal(raw, "yyyymmddhh")
     except (TypeError, ValueError) as exc:
         _raise_window_bound_invalid(bound_name=bound_name, value=value, tz=tz, error=exc)
     if parsed_hour is not None:
@@ -362,35 +241,20 @@ def _partition_exclusive_end_datetime(
 
 
 def _format_hour_precision_partition_literal(value: datetime, fmt: str | None) -> str:
-    if fmt == "yyyymmddhh":
-        return value.strftime("%Y%m%d%H")
-    if fmt == "yyyymmdd-hh":
-        return value.strftime("%Y%m%d-%H")
-    if fmt == "yyyy-mm-dd-hh":
-        return value.strftime("%Y-%m-%d-%H")
-    if fmt == "yyyymmddthh":
-        return value.strftime("%Y%m%dT%H")
-    strptime_fmt = _resolve_strptime_format(fmt)
-    if strptime_fmt is not None and strptime_fmt not in _HOUR_ONLY_FORMATS:
-        return value.strftime(strptime_fmt)
-    raise WindowInvalidError(message=f"unsupported hour partition format {fmt!r}")
+    if fmt is None or not fmt.startswith("%"):
+        raise WindowInvalidError(message=f"unsupported hour partition format {fmt!r}")
+    return value.strftime(fmt)
 
 
 def _encode_hour_precision_bound(value: datetime, time_meta: Any) -> Any:
-    fmt = _normalize_time_format(time_meta.format)
-    literal = _format_hour_precision_partition_literal(value, fmt)
+    literal = _format_hour_precision_partition_literal(value, time_meta.format)
     return int(literal) if time_meta.data_type == "integer" else literal
 
 
 def _encode_hour_only_bound(hour: int, time_meta: Any) -> Any:
-    fmt = _normalize_time_format(time_meta.format)
-    if fmt == "hh":
-        literal = f"{hour:02d}"
-    elif fmt in {"h", "int"}:
-        literal = str(hour)
-    else:
-        raise WindowInvalidError(message=f"unsupported hour partition format {fmt!r}")
-    return int(literal) if time_meta.data_type == "integer" else literal
+    if time_meta.data_type == "integer":
+        return hour
+    return f"{hour:02d}"
 
 
 def _encode_partition_date_bound(value: date, time_meta: Any) -> Any:
@@ -400,11 +264,11 @@ def _encode_partition_date_bound(value: date, time_meta: Any) -> Any:
 def _parse_string_column(field_expr: Any, time_meta: Any) -> Any:
     """Parse a string/integer column into a temporal type using as_date/as_timestamp."""
     data_type = time_meta.data_type
-    strptime_fmt = _resolve_strptime_format(time_meta.format)
-    if strptime_fmt is None or strptime_fmt in _HOUR_ONLY_FORMATS:
+    fmt = time_meta.format
+    if fmt is None or not fmt.startswith("%"):
         raise WindowInvalidError(
-            message=f"cannot parse string column without a resolvable strptime format "
-            f"(data_type={data_type!r}, format={time_meta.format!r})",
+            message=f"cannot parse string column without a strptime format "
+            f"(data_type={data_type!r}, format={fmt!r})",
         )
     if data_type == "integer":
         string_expr = field_expr.cast("string")
@@ -414,10 +278,10 @@ def _parse_string_column(field_expr: Any, time_meta: Any) -> Any:
         raise WindowInvalidError(
             message=f"_parse_string_column only supports string/integer, got {data_type!r}",
         )
-    classification = _classify_strptime_format(strptime_fmt)
+    classification = _classify_strptime_format(fmt)
     if classification == "day":
-        return string_expr.as_date(strptime_fmt)
-    return string_expr.as_timestamp(strptime_fmt)
+        return string_expr.as_date(fmt)
+    return string_expr.as_timestamp(fmt)
 
 
 def _raise_window_bound_invalid(
@@ -466,10 +330,10 @@ def _is_time_bearing_string_integer_meta(time_meta: Any) -> bool:
     data_type = time_meta.data_type
     if data_type not in {"string", "integer"}:
         return False
-    strptime_fmt = _resolve_strptime_format(time_meta.format)
-    if strptime_fmt is None or strptime_fmt in _HOUR_ONLY_FORMATS:
+    fmt = time_meta.format
+    if fmt is None or not fmt.startswith("%"):
         return False
-    return _classify_strptime_format(strptime_fmt) != "day"
+    return _classify_strptime_format(fmt) not in {"day", "hour_only", "hour_only_minute"}
 
 
 def _field_timezone(field_expr: Any) -> str | None:
@@ -631,10 +495,9 @@ def _window_bound_predicates(
     _validate_time_field_timezone(field_expr, time_meta)
     _validate_time_field_dtype(field_expr, time_meta)
     data_type = time_meta.data_type
-    fmt = _normalize_time_format(time_meta.format)
-    strptime_fmt = _resolve_strptime_format(time_meta.format)
+    fmt = time_meta.format
 
-    # timestamp / epoch_seconds: compare as proper temporal values
+    # timestamp: compare as proper temporal values
     if data_type in {"datetime", "timestamp"}:
         declared = _declared_timezone(time_meta)
         actual = _field_timezone(field_expr)
@@ -673,21 +536,8 @@ def _window_bound_predicates(
             field_expr >= ibis.timestamp(lower_dt.isoformat()),
             field_expr < ibis.timestamp(upper_dt.isoformat()),
         )
-    if data_type == "integer" and fmt == "epoch_seconds":
-        lower_epoch = int(
-            _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start").timestamp()
-        )
-        if is_date_only(window.end):
-            upper_epoch = int(
-                _local_midnight_of(window.end, tz=session_tz, bound_name="end").timestamp()
-            )
-            return (field_expr >= lower_epoch, field_expr < upper_epoch)
-        upper_epoch = int(
-            _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end").timestamp()
-        )
-        return (field_expr >= lower_epoch, field_expr < upper_epoch)
 
-    # Shorthand hour-precision formats: raw string/integer comparison
+    # Hour-precision partition formats: raw string/integer comparison
     if _is_hour_precision_partition_meta(time_meta):
         declared = _declared_timezone(time_meta)
         if declared is None:
@@ -728,8 +578,12 @@ def _window_bound_predicates(
         upper = _encode_hour_precision_bound(upper_dt, time_meta)
         return (field_expr >= lower, field_expr < upper)
 
-    # Shorthand day-precision formats: raw string/integer comparison
-    if _is_day_partition_meta(time_meta):
+    # ISO-ordered day-precision partition formats: raw string/integer
+    # comparison is pushdown-friendly AND correct, because lexicographic order
+    # matches chronological order for these formats.
+    # Non-ISO day formats (e.g. %m/%d/%Y) fall through to the STRPTIME path
+    # below, since their lexicographic order does not match dates.
+    if _is_day_partition_meta(time_meta) and _is_lexicographic_day_format(fmt):
         lower = _encode_window_bound(window.start, time_meta)
         upper = _encode_window_bound(window.end, time_meta)
         return (field_expr >= lower, field_expr < upper)
@@ -737,17 +591,18 @@ def _window_bound_predicates(
     # Strptime formats: parse column into temporal type and compare
     if (
         data_type in {"string", "integer"}
-        and strptime_fmt is not None
-        and strptime_fmt not in _HOUR_ONLY_FORMATS
+        and fmt is not None
+        and fmt.startswith("%")
+        and not _is_hour_only_partition_meta(time_meta)
     ):
         if session_tz is None:
             raise WindowInvalidError(
                 message="strptime format time fields require an explicit session timezone",
                 hint="Pass timezone= when attaching the session.",
-                details={"format": strptime_fmt},
+                details={"format": fmt},
             )
         parsed_expr = _parse_string_column(field_expr, time_meta)
-        classification = _classify_strptime_format(strptime_fmt)
+        classification = _classify_strptime_format(fmt)
         declared = _declared_timezone(time_meta)
         if declared is None:
             lower_dt = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
@@ -916,7 +771,7 @@ def _composite_hour_partition_predicate(
     if not _is_day_partition_meta(date_field_ir.time_meta):
         return None
 
-    hour_fmt = _normalize_time_format(hour_field_ir.time_meta.format)
+    hour_fmt = hour_field_ir.time_meta.format
     lower_dt = _partition_start_datetime(
         window.start, fmt=hour_fmt, tz=session_tz, bound_name="start"
     )
@@ -1042,24 +897,19 @@ def _local_bucket_expr(
     """Compute a bucket-start expression that aligns instant or declared-naive
     timestamp fields to session-local calendar boundaries.
 
-    For epoch_seconds columns, values are first cast to timestamp (UTC instant).
     For naive timestamp columns with a declared timezone, the shift converts
     from declared-local to session-local.  For naive timestamp columns with no
     declaration, the column is already in session-local space so the shift is
     zero.
     """
     data_type = time_meta.data_type
-    fmt = _normalize_time_format(time_meta.format)
     declared = _declared_timezone(time_meta)
-    if data_type == "integer" and fmt == "epoch_seconds":
-        ts_expr = raw.cast("timestamp")
-        column_tz = UTC_ZONE
-    elif data_type in {"datetime", "timestamp"}:
+    if data_type in {"datetime", "timestamp"}:
         ts_expr = raw
         column_tz = zoneinfo_from_name(declared) if declared is not None else session_tz
     else:
         raise WindowInvalidError(
-            message=f"_local_bucket_expr only supports datetime/timestamp/epoch_seconds, "
+            message=f"_local_bucket_expr only supports datetime/timestamp, "
             f"got data_type={data_type!r}",
         )
 
@@ -1125,15 +975,14 @@ def _apply_hour_only_bucket(
         prefix_date = _prefix_date_expr(table, prefix_field_ir)
         return table.mutate(bucket_start=bucket_start_expr(prefix_date, grain))
 
-    # Grain matches field: concatenate prefix + hour into sortable string
-    # No parse, no truncate — raw values already represent the bucket.
+    # Grain matches field: concatenate prefix + hour into sortable string.
+    # lpad(2, "0") unconditionally handles both "1" and "01" source columns.
     hour_str = raw if time_meta.data_type == "string" else raw.cast("string")
-    if _normalize_time_format(time_meta.format) in {"h", "int"}:
-        hour_str = hour_str.lpad(2, "0")
-    prefix_fmt = _normalize_time_format(prefix_field_ir.time_meta.format)
-    if prefix_fmt == "yyyy-mm-dd":
+    hour_str = hour_str.lpad(2, "0")
+    prefix_fmt = prefix_field_ir.time_meta.format
+    if prefix_fmt == "%Y-%m-%d":
         bucket = (prefix_raw + ibis.literal("-") + hour_str).name("bucket_start")
-    elif prefix_fmt == "yyyymmdd":
+    elif prefix_fmt == "%Y%m%d":
         bucket = (prefix_raw + hour_str).name("bucket_start")
     else:
         # Fallback for unusual prefix formats
@@ -1182,7 +1031,7 @@ def ensure_bucket_start_timestamp(
     if prefix_field_ir is None or prefix_field_ir.time_meta is None:
         return series
 
-    prefix_fmt = _normalize_time_format(prefix_field_ir.time_meta.format)
+    prefix_fmt = prefix_field_ir.time_meta.format
 
     # Map (prefix_fmt, grain) → strptime format for the concatenated bucket_start.
     # _apply_hour_only_bucket only produces string bucket_start for count=1
@@ -1190,13 +1039,13 @@ def ensure_bucket_start_timestamp(
     # and use the timestamp fallback path instead.
     if grain.unit == "hour" and grain.count == 1:
         fmt_map = {
-            "yyyy-mm-dd": "%Y-%m-%d-%H",
-            "yyyymmdd": "%Y%m%d%H",
+            "%Y-%m-%d": "%Y-%m-%d-%H",
+            "%Y%m%d": "%Y%m%d%H",
         }
     elif grain.is_day:
         fmt_map = {
-            "yyyy-mm-dd": "%Y-%m-%d",
-            "yyyymmdd": "%Y%m%d",
+            "%Y-%m-%d": "%Y-%m-%d",
+            "%Y%m%d": "%Y%m%d",
         }
     else:
         return series
@@ -1227,19 +1076,19 @@ def apply_time_series_bucket(
     time_meta = field_ir.time_meta
     data_type = time_meta.data_type
     fmt = time_meta.format
-    strptime_fmt = _resolve_strptime_format(fmt)
     if window.grain is None:
         return table
 
     # Strptime format: parse the column into a temporal type
-    # (excludes hour-only formats like "hh", "%H" — those need required_prefix)
+    # (excludes hour-only fields that rely on required_prefix)
     if (
         data_type in {"string", "integer"}
-        and strptime_fmt is not None
+        and fmt is not None
+        and fmt.startswith("%")
         and not _is_hour_only_partition_meta(time_meta)
     ):
         parsed = _parse_string_column(raw, time_meta)
-        classification = _classify_strptime_format(strptime_fmt)
+        classification = _classify_strptime_format(fmt)
         grain_matches_classification = (
             (window.grain.is_day and classification == "day")
             or (
@@ -1264,10 +1113,8 @@ def apply_time_series_bucket(
             bucket = bucket_start_expr(local_parsed, window.grain)
         return table.mutate(bucket_start=bucket)
 
-    # Timestamp / epoch_seconds: bucket in session-local calendar
-    if data_type in {"datetime", "timestamp"} or (
-        data_type == "integer" and fmt == "epoch_seconds"
-    ):
+    # Timestamp: bucket in session-local calendar
+    if data_type in {"datetime", "timestamp"}:
         bucket = _local_bucket_expr(
             raw,
             time_meta=time_meta,
@@ -1488,35 +1335,6 @@ def _fix_clickhouse_datetrunc(sql: str) -> str:
     return re.sub(r"dateTrunc\('([A-Za-z]+)',\s*", _replace_unit, sql)
 
 
-_DATE_PARSE_FMT_RE = re.compile(
-    r"(date_parse\(\s*.*?,\s*')([^']*%[a-zA-Z][^']*)('\s*\))",
-    re.IGNORECASE,
-)
-
-
-def _fix_trino_date_parse(sql: str) -> str:
-    """Convert strptime format strings in date_parse() calls to Joda format.
-
-    Ibis compiles ``StringToTimestamp`` (``.as_timestamp()``) to
-    ``date_parse(col, '%Y-%m-%d %H:%M:%S')`` using an anonymous function node,
-    bypassing sqlglot's strptime-to-Joda format conversion.  Trino's
-    ``date_parse()`` expects Joda Time format strings, so the raw strptime
-    format causes ``INVALID_FUNCTION_ARGUMENT``.
-
-    This post-compilation fix detects ``date_parse()`` calls whose format
-    argument contains ``%`` (indicating strptime) and converts the format
-    string to Joda Time notation.
-    """
-
-    def _replace_fmt(match: re.Match[str]) -> str:
-        prefix = match.group(1)
-        strptime_fmt = match.group(2)
-        suffix = match.group(3)
-        return f"{prefix}{_strptime_to_joda(strptime_fmt)}{suffix}"
-
-    return _DATE_PARSE_FMT_RE.sub(_replace_fmt, sql)
-
-
 def _backend_dialect(backend: Any) -> str:
     return getattr(backend, "name", "unknown")
 
@@ -1547,8 +1365,6 @@ def execute(
                 dialect = _backend_dialect(backend)
                 if dialect == "clickhouse":
                     sql = _fix_clickhouse_datetrunc(sql)
-                if dialect == "trino":
-                    sql = _fix_trino_date_parse(sql)
 
                 prefixed = _prefix_sql_for_session(sql, session_id=session_id)
                 captured_sql = prefixed
@@ -1566,8 +1382,6 @@ def execute(
                 dialect = _backend_dialect(backend)
                 if dialect == "clickhouse":
                     sql = _fix_clickhouse_datetrunc(sql)
-                if dialect == "trino":
-                    sql = _fix_trino_date_parse(sql)
 
                 captured_sql = sql
                 return sql
