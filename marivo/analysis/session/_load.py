@@ -22,6 +22,7 @@ from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
+from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session.persistence import read_frame_from_disk
 from marivo.analysis.windows import AbsoluteWindow
 
@@ -42,8 +43,10 @@ _FRAME_CLASSES = {
 }
 
 
-def load_frame(ref: str, *, session: Session) -> BaseFrame:
+def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     """Load a persisted analysis frame by ref from the given or active session."""
+    if isinstance(ref, ArtifactRef):
+        ref = ref.id
 
     frame_dir = session.layout.frames_dir / ref
     if not (frame_dir / "meta.json").is_file():

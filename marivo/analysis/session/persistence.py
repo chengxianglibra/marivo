@@ -13,6 +13,7 @@ from typing import Any, cast
 import pandas as pd
 
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.analysis.refs import ArtifactRef
 
 
 @dataclass(frozen=True)
@@ -101,8 +102,10 @@ def write_frame_to_disk(layout: PersistenceLayout, frame: BaseFrame) -> BaseFram
 
 def read_frame_from_disk(
     layout: PersistenceLayout,
-    frame_ref: str,
+    frame_ref: str | ArtifactRef,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if isinstance(frame_ref, ArtifactRef):
+        frame_ref = frame_ref.id
     frame_dir = layout.frames_dir / frame_ref
     df = pd.read_parquet(frame_dir / "data.parquet", engine="pyarrow", to_pandas_kwargs={})
     meta = json.loads((frame_dir / "meta.json").read_text())
