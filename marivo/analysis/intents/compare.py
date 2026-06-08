@@ -207,10 +207,17 @@ def _component_axis_columns(component: ComponentFrame) -> list[str]:
 
 
 def _component_role_columns(component: ComponentFrame) -> list[str]:
-    axis_columns = set(_component_axis_columns(component))
-    return [
-        str(column) for column in component.to_pandas().columns if str(column) not in axis_columns
-    ]
+    return list(component.meta.components.keys())
+
+
+def _component_value_column(component: ComponentFrame, parent: MetricFrame) -> str | None:
+    """Return the metric-name value column if present in the component frame."""
+    measure_name = (
+        parent.meta.measure.get("name") if isinstance(parent.meta.measure, dict) else None
+    )
+    if isinstance(measure_name, str) and measure_name in component._df.columns:
+        return measure_name
+    return None
 
 
 def _component_role_metric_frame(
@@ -327,19 +334,24 @@ def _align_component_frames(
 ) -> pd.DataFrame:
     """Merge current/baseline component data with delta columns using parent alignment logic."""
     role_columns = _component_role_columns(current_comp)
+    value_column = _component_value_column(current_comp, current_parent)
+    # The value column (e.g. "bandwidth_utilization") is aligned through the
+    # same role-metric-frame path as decomposition roles (numerator, denominator,
+    # weight) so it gets current_/baseline_/delta_ prefixed columns in the output.
+    all_columns = role_columns + ([value_column] if value_column else [])
     result: pd.DataFrame | None = None
     key_columns: list[str] | None = None
 
-    for role_column in role_columns:
+    for col in all_columns:
         current_role = _component_role_metric_frame(
             current_parent,
             current_comp,
-            role_column=role_column,
+            role_column=col,
         )
         baseline_role = _component_role_metric_frame(
             baseline_parent,
             baseline_comp,
-            role_column=role_column,
+            role_column=col,
         )
         aligned = _align_component_role(
             current_role,
@@ -350,9 +362,9 @@ def _align_component_frames(
         role_keys = _aligned_key_columns(aligned)
         renamed = aligned[[*role_keys, "current", "baseline", "delta"]].rename(
             columns={
-                "current": f"current_{role_column}",
-                "baseline": f"baseline_{role_column}",
-                "delta": f"delta_{role_column}",
+                "current": f"current_{col}",
+                "baseline": f"baseline_{col}",
+                "delta": f"delta_{col}",
             }
         )
         if result is None:
@@ -363,7 +375,7 @@ def _align_component_frames(
             raise ComponentFrameMismatchError(
                 message="component role alignment produced incompatible key columns",
                 details={
-                    "role_column": role_column,
+                    "role_column": col,
                     "expected_key_columns": key_columns,
                     "got_key_columns": role_keys,
                 },

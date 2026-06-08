@@ -169,8 +169,8 @@ def test_compare_segmented_ratio_persists_clean_delta_and_component_delta():
             {"region": "SOUTH", "failure_rate": 0.50},
         ],
         component_rows=[
-            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "metric_value": 0.25},
-            {"region": "SOUTH", "numerator": 50.0, "denominator": 100.0, "metric_value": 0.50},
+            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "failure_rate": 0.25},
+            {"region": "SOUTH", "numerator": 50.0, "denominator": 100.0, "failure_rate": 0.50},
         ],
     )
     baseline = _component_aware_metric(
@@ -181,8 +181,8 @@ def test_compare_segmented_ratio_persists_clean_delta_and_component_delta():
             {"region": "SOUTH", "failure_rate": 0.40},
         ],
         component_rows=[
-            {"region": "NORTH", "numerator": 10.0, "denominator": 100.0, "metric_value": 0.10},
-            {"region": "SOUTH", "numerator": 20.0, "denominator": 50.0, "metric_value": 0.40},
+            {"region": "NORTH", "numerator": 10.0, "denominator": 100.0, "failure_rate": 0.10},
+            {"region": "SOUTH", "numerator": 20.0, "denominator": 50.0, "failure_rate": 0.40},
         ],
     )
 
@@ -217,17 +217,17 @@ def test_compare_segmented_ratio_persists_clean_delta_and_component_delta():
         "current_denominator",
         "baseline_denominator",
         "delta_denominator",
-        "current_metric_value",
-        "baseline_metric_value",
-        "delta_metric_value",
+        "current_failure_rate",
+        "baseline_failure_rate",
+        "delta_failure_rate",
     ]
     north = component_df.set_index("region").loc["NORTH"]
     assert north["current_numerator"] == pytest.approx(25.0)
     assert north["baseline_numerator"] == pytest.approx(10.0)
     assert north["delta_numerator"] == pytest.approx(15.0)
-    assert north["current_metric_value"] == pytest.approx(0.25)
-    assert north["baseline_metric_value"] == pytest.approx(0.10)
-    assert north["delta_metric_value"] == pytest.approx(0.15)
+    assert north["current_failure_rate"] == pytest.approx(0.25)
+    assert north["baseline_failure_rate"] == pytest.approx(0.10)
+    assert north["delta_failure_rate"] == pytest.approx(0.15)
 
 
 def test_compare_component_aware_metric_missing_component_frame_fails_closed():
@@ -237,7 +237,7 @@ def test_compare_component_aware_metric_missing_component_frame_fails_closed():
         ref="frame_current",
         rows=[{"region": "NORTH", "failure_rate": 0.25}],
         component_rows=[
-            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "metric_value": 0.25}
+            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "failure_rate": 0.25}
         ],
     )
     baseline = MetricFrame(
@@ -280,7 +280,7 @@ def test_compare_component_frame_metadata_mismatch_fails_closed():
         ref="frame_current",
         rows=[{"region": "NORTH", "failure_rate": 0.25}],
         component_rows=[
-            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "metric_value": 0.25}
+            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "failure_rate": 0.25}
         ],
     )
     baseline = _component_aware_metric(
@@ -288,7 +288,7 @@ def test_compare_component_frame_metadata_mismatch_fails_closed():
         ref="frame_baseline",
         rows=[{"region": "NORTH", "failure_rate": 0.10}],
         component_rows=[
-            {"region": "NORTH", "numerator": 10.0, "weight": 100.0, "metric_value": 0.10}
+            {"region": "NORTH", "numerator": 10.0, "weight": 100.0, "failure_rate": 0.10}
         ],
         decomposition_kind="weighted_average",
         components={"numerator": "sales.failed_count", "weight": "sales.total_count"},
@@ -308,8 +308,8 @@ def test_decompose_component_aware_ratio_delta_emits_value_and_mix_effects():
             {"region": "SOUTH", "failure_rate": 0.50},
         ],
         component_rows=[
-            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "metric_value": 0.25},
-            {"region": "SOUTH", "numerator": 50.0, "denominator": 100.0, "metric_value": 0.50},
+            {"region": "NORTH", "numerator": 25.0, "denominator": 100.0, "failure_rate": 0.25},
+            {"region": "SOUTH", "numerator": 50.0, "denominator": 100.0, "failure_rate": 0.50},
         ],
     )
     baseline = _component_aware_metric(
@@ -320,8 +320,8 @@ def test_decompose_component_aware_ratio_delta_emits_value_and_mix_effects():
             {"region": "SOUTH", "failure_rate": 0.40},
         ],
         component_rows=[
-            {"region": "NORTH", "numerator": 10.0, "denominator": 100.0, "metric_value": 0.10},
-            {"region": "SOUTH", "numerator": 20.0, "denominator": 50.0, "metric_value": 0.40},
+            {"region": "NORTH", "numerator": 10.0, "denominator": 100.0, "failure_rate": 0.10},
+            {"region": "SOUTH", "numerator": 20.0, "denominator": 50.0, "failure_rate": 0.40},
         ],
     )
     delta = session.compare(current, baseline)
@@ -342,8 +342,8 @@ def test_decompose_component_aware_ratio_delta_emits_value_and_mix_effects():
         "baseline_numerator",
         "current_denominator",
         "baseline_denominator",
-        "current_metric_value",
-        "baseline_metric_value",
+        "current_failure_rate",
+        "baseline_failure_rate",
         "current_share",
         "baseline_share",
         "rank",
@@ -371,8 +371,8 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
             {"region": "SOUTH", "failure_rate": 0.50},
         ],
         component_rows=[
-            {"region": "NORTH", "numerator": 25.0, "weight": 100.0, "metric_value": 0.25},
-            {"region": "SOUTH", "numerator": 50.0, "weight": 100.0, "metric_value": 0.50},
+            {"region": "NORTH", "numerator": 25.0, "weight": 100.0, "failure_rate": 0.25},
+            {"region": "SOUTH", "numerator": 50.0, "weight": 100.0, "failure_rate": 0.50},
         ],
         decomposition_kind="weighted_average",
         components={"numerator": "sales.weighted_failed", "weight": "sales.total_weight"},
@@ -385,8 +385,8 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
             {"region": "SOUTH", "failure_rate": 0.40},
         ],
         component_rows=[
-            {"region": "NORTH", "numerator": 10.0, "weight": 100.0, "metric_value": 0.10},
-            {"region": "SOUTH", "numerator": 20.0, "weight": 50.0, "metric_value": 0.40},
+            {"region": "NORTH", "numerator": 10.0, "weight": 100.0, "failure_rate": 0.10},
+            {"region": "SOUTH", "numerator": 20.0, "weight": 50.0, "failure_rate": 0.40},
         ],
         decomposition_kind="weighted_average",
         components={"numerator": "sales.weighted_failed", "weight": "sales.total_weight"},
@@ -411,7 +411,7 @@ def test_decompose_component_aware_ratio_with_no_valid_denominators_raises():
         ref="frame_current",
         rows=[{"region": "NORTH", "failure_rate": float("nan")}],
         component_rows=[
-            {"region": "NORTH", "numerator": 1.0, "denominator": 0.0, "metric_value": float("nan")}
+            {"region": "NORTH", "numerator": 1.0, "denominator": 0.0, "failure_rate": float("nan")}
         ],
     )
     baseline = _component_aware_metric(
@@ -419,7 +419,7 @@ def test_decompose_component_aware_ratio_with_no_valid_denominators_raises():
         ref="frame_baseline",
         rows=[{"region": "NORTH", "failure_rate": float("nan")}],
         component_rows=[
-            {"region": "NORTH", "numerator": 1.0, "denominator": 0.0, "metric_value": float("nan")}
+            {"region": "NORTH", "numerator": 1.0, "denominator": 0.0, "failure_rate": float("nan")}
         ],
     )
     delta = session.compare(current, baseline)
@@ -453,13 +453,13 @@ def test_compare_time_series_ratio_window_bucket_persists_component_delta():
                 "bucket_start": "2026-07-01",
                 "numerator": 25.0,
                 "denominator": 100.0,
-                "metric_value": 0.25,
+                "failure_rate": 0.25,
             },
             {
                 "bucket_start": "2026-07-02",
                 "numerator": 50.0,
                 "denominator": 100.0,
-                "metric_value": 0.50,
+                "failure_rate": 0.50,
             },
         ],
     )
@@ -478,13 +478,13 @@ def test_compare_time_series_ratio_window_bucket_persists_component_delta():
                 "bucket_start": "2026-06-24",
                 "numerator": 10.0,
                 "denominator": 100.0,
-                "metric_value": 0.10,
+                "failure_rate": 0.10,
             },
             {
                 "bucket_start": "2026-06-25",
                 "numerator": 20.0,
                 "denominator": 50.0,
-                "metric_value": 0.40,
+                "failure_rate": 0.40,
             },
         ],
     )
@@ -502,9 +502,9 @@ def test_compare_time_series_ratio_window_bucket_persists_component_delta():
         "current_denominator",
         "baseline_denominator",
         "delta_denominator",
-        "current_metric_value",
-        "baseline_metric_value",
-        "delta_metric_value",
+        "current_failure_rate",
+        "baseline_failure_rate",
+        "delta_failure_rate",
     ]
     first = component_df.iloc[0]
     assert str(first["bucket_start"]) == "2026-07-01"
@@ -540,14 +540,14 @@ def test_compare_panel_ratio_window_bucket_persists_component_delta():
                 "region": "NORTH",
                 "numerator": 25.0,
                 "denominator": 100.0,
-                "metric_value": 0.25,
+                "failure_rate": 0.25,
             },
             {
                 "bucket_start": "2026-07-01",
                 "region": "SOUTH",
                 "numerator": 50.0,
                 "denominator": 100.0,
-                "metric_value": 0.50,
+                "failure_rate": 0.50,
             },
         ],
     )
@@ -567,14 +567,14 @@ def test_compare_panel_ratio_window_bucket_persists_component_delta():
                 "region": "NORTH",
                 "numerator": 10.0,
                 "denominator": 100.0,
-                "metric_value": 0.10,
+                "failure_rate": 0.10,
             },
             {
                 "bucket_start": "2026-06-24",
                 "region": "SOUTH",
                 "numerator": 20.0,
                 "denominator": 50.0,
-                "metric_value": 0.40,
+                "failure_rate": 0.40,
             },
         ],
     )
@@ -618,13 +618,13 @@ def test_decompose_component_aware_time_series_ratio_delta_by_bucket():
                 "bucket_start": "2026-07-01",
                 "numerator": 25.0,
                 "denominator": 100.0,
-                "metric_value": 0.25,
+                "failure_rate": 0.25,
             },
             {
                 "bucket_start": "2026-07-02",
                 "numerator": 50.0,
                 "denominator": 100.0,
-                "metric_value": 0.50,
+                "failure_rate": 0.50,
             },
         ],
     )
@@ -643,13 +643,13 @@ def test_decompose_component_aware_time_series_ratio_delta_by_bucket():
                 "bucket_start": "2026-06-24",
                 "numerator": 10.0,
                 "denominator": 100.0,
-                "metric_value": 0.10,
+                "failure_rate": 0.10,
             },
             {
                 "bucket_start": "2026-06-25",
                 "numerator": 20.0,
                 "denominator": 50.0,
-                "metric_value": 0.40,
+                "failure_rate": 0.40,
             },
         ],
     )
@@ -693,14 +693,14 @@ def test_decompose_component_aware_panel_ratio_delta_per_bucket():
                 "region": "NORTH",
                 "numerator": 25.0,
                 "denominator": 100.0,
-                "metric_value": 0.25,
+                "failure_rate": 0.25,
             },
             {
                 "bucket_start": "2026-07-01",
                 "region": "SOUTH",
                 "numerator": 50.0,
                 "denominator": 100.0,
-                "metric_value": 0.50,
+                "failure_rate": 0.50,
             },
         ],
     )
@@ -720,14 +720,14 @@ def test_decompose_component_aware_panel_ratio_delta_per_bucket():
                 "region": "NORTH",
                 "numerator": 10.0,
                 "denominator": 100.0,
-                "metric_value": 0.10,
+                "failure_rate": 0.10,
             },
             {
                 "bucket_start": "2026-06-24",
                 "region": "SOUTH",
                 "numerator": 20.0,
                 "denominator": 50.0,
-                "metric_value": 0.40,
+                "failure_rate": 0.40,
             },
         ],
     )
@@ -748,8 +748,8 @@ def test_decompose_component_aware_panel_ratio_delta_per_bucket():
         "baseline_numerator",
         "current_denominator",
         "baseline_denominator",
-        "current_metric_value",
-        "baseline_metric_value",
+        "current_failure_rate",
+        "baseline_failure_rate",
         "current_share",
         "baseline_share",
         "rank",
@@ -823,9 +823,9 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
                     "current_denominator": 100.0,
                     "baseline_denominator": 100.0,
                     "delta_denominator": 0.0,
-                    "current_metric_value": 0.25,
-                    "baseline_metric_value": 0.10,
-                    "delta_metric_value": 0.15,
+                    "current_failure_rate": 0.25,
+                    "baseline_failure_rate": 0.10,
+                    "delta_failure_rate": 0.15,
                 }
             ]
         ),

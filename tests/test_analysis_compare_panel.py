@@ -549,14 +549,14 @@ def test_compare_calendar_panel_ratio_persists_component_delta(tmp_path):
                 "region": "WEB",
                 "numerator": 25.0,
                 "denominator": 100.0,
-                "metric_value": 0.25,
+                "failure_rate": 0.25,
             },
             {
                 "bucket_start": "2026-05-05",
                 "region": "APP",
                 "numerator": 50.0,
                 "denominator": 100.0,
-                "metric_value": 0.50,
+                "failure_rate": 0.50,
             },
         ],
     )
@@ -572,7 +572,7 @@ def test_compare_calendar_panel_ratio_persists_component_delta(tmp_path):
                 "region": "WEB",
                 "numerator": 10.0,
                 "denominator": 100.0,
-                "metric_value": 0.10,
+                "failure_rate": 0.10,
             },
         ],
     )
