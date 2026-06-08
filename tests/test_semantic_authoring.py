@@ -30,6 +30,8 @@ from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLo
 from marivo.semantic.ir import (
     AiContextIR,
     DatasetRef,
+    FieldIR,
+    FieldKind,
     FieldRef,
     MetricRef,
     RelationshipRef,
@@ -445,6 +447,36 @@ def test_field_body_rejects_lambda() -> None:
         _exit_ctx()
 
 
+def test_field_kind_defaults_to_dimension() -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+
+        @ms.field(dataset="sales.orders")
+        def amount(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        irs = [obj for obj, _ in ctx.pending_objects if isinstance(obj, FieldIR)]
+        assert len(irs) == 1
+        assert irs[0].kind == FieldKind.DIMENSION
+    finally:
+        _exit_ctx()
+
+
+def test_field_kind_measure() -> None:
+    ctx = _enter_ctx(default_model="sales")
+    try:
+
+        @ms.field(dataset="sales.orders", kind="measure")
+        def amount(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        irs = [obj for obj, _ in ctx.pending_objects if isinstance(obj, FieldIR)]
+        assert len(irs) == 1
+        assert irs[0].kind == FieldKind.MEASURE
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # ms.time_field() decorator
 # ---------------------------------------------------------------------------
@@ -482,6 +514,7 @@ def test_time_field_ir_has_time_metadata() -> None:
         assert ir.data_type == "timestamp"
         assert ir.granularity == "hour"
         assert ir.required_prefix == "order_date"
+        assert ir.kind == FieldKind.TIME
     finally:
         _exit_ctx()
 

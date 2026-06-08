@@ -60,6 +60,7 @@ from marivo.semantic.evidence import (
     TableSource,
 )
 from marivo.semantic.help import help
+from marivo.semantic.ir import FieldKind
 from marivo.semantic.ledger import (
     DecisionRecord,
     RejectedCandidate,
@@ -104,6 +105,7 @@ __all__ = [
     "DemandSignal",
     "EvidenceFact",
     "EvidenceRef",
+    "FieldKind",
     "FieldSummary",
     "FileSource",
     "MetadataOnlyPolicy",

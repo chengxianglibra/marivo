@@ -28,6 +28,7 @@ from marivo.semantic.ir import (
     DatasetSourceIR,
     DecompositionIR,
     FieldIR,
+    FieldKind,
     FieldRef,
     FileSourceIR,
     MetricIR,
@@ -415,6 +416,7 @@ def field(
     model: ModelRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
+    kind: Literal["dimension", "measure"] = "dimension",
 ) -> Callable[[Callable[..., Any]], FieldRef]:
     """Declare a field whose body returns an ibis expression over its dataset.
 
@@ -430,6 +432,8 @@ def field(
             by ``ms.model(...)``. Defaults to the file's default model.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
+        kind: ``"dimension"`` for qualitative/grouping fields (default) or
+            ``"measure"`` for quantitative/fact fields.
 
     Returns:
         A decorator that returns a ``FieldRef``.
@@ -445,6 +449,13 @@ def field(
     """
     ctx = _require_ctx()
     resolved_model = _resolve_model(model, ctx)
+    if kind not in ("dimension", "measure"):
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"Field kind must be 'dimension' or 'measure', got {kind!r}.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
 
     def decorator(fn: Callable[..., Any]) -> FieldRef:
         obj_name = name or fn.__name__
@@ -474,6 +485,7 @@ def field(
             description=description,
             ai_context=ai_ctx,
             is_time_field=False,
+            kind=FieldKind(kind),
             data_type=None,
             granularity=None,
             required_prefix=None,
@@ -636,6 +648,7 @@ def time_field(
             description=description,
             ai_context=ai_ctx,
             is_time_field=True,
+            kind=FieldKind.TIME,
             data_type=data_type,
             granularity=granularity,
             required_prefix=required_prefix,

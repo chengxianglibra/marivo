@@ -26,6 +26,7 @@ from marivo.semantic.ir import (
     DatasetIR,
     DatasourceIR,
     FieldIR,
+    FieldKind,
     MetricIR,
     RelationshipIR,
     SymbolKind,
@@ -200,7 +201,7 @@ def test_list_methods_display_tables_by_default(semantic_project_factory, capsys
         (project.list_datasets, "semantic_id | model | datasource | description", "sales.orders"),
         (
             project.list_fields,
-            "semantic_id | dataset | name | description",
+            "semantic_id | dataset | name | kind | description",
             "sales.orders.amount",
         ),
         (
@@ -315,6 +316,7 @@ def test_list_fields(semantic_project_factory) -> None:
     assert "region" in field_names
     assert all(isinstance(f, FieldSummary) for f in fields)
     assert all(not f.is_time_field for f in fields)
+    assert all(f.kind == FieldKind.DIMENSION for f in fields)
 
 
 def test_list_fields_filter_by_dataset_keyword(semantic_project_factory) -> None:
@@ -376,6 +378,7 @@ def test_list_time_fields(semantic_project_factory) -> None:
     assert len(time_fields) >= 1
     assert any(f.name == "created_at" for f in time_fields)
     assert all(f.is_time_field for f in time_fields)
+    assert all(f.kind == FieldKind.TIME for f in time_fields)
 
 
 def test_list_time_fields_filter_by_model(semantic_project_factory) -> None:
@@ -399,6 +402,46 @@ def test_list_time_fields_rejects_positional_dataset(semantic_project_factory) -
     )
     with pytest.raises(TypeError):
         project.list_time_fields("sales.orders", display=False)
+
+
+def test_list_fields_kind_measure(semantic_project_factory) -> None:
+    model_with_measure = textwrap.dedent("""\
+        import marivo.semantic as ms
+        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+
+        @ms.field(dataset=orders, kind="measure")
+        def amount(table):
+            return table.amount
+
+        @ms.field(dataset=orders)
+        def region(table):
+            return table.region
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": model_with_measure,
+        }
+    )
+    fields = project.list_fields(display=False)
+    amount_field = next(f for f in fields if f.name == "amount")
+    region_field = next(f for f in fields if f.name == "region")
+    assert amount_field.kind == FieldKind.MEASURE
+    assert region_field.kind == FieldKind.DIMENSION
+
+
+def test_kind_string_comparison(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    fields = project.list_fields(display=False)
+    dimension_fields = [f for f in fields if f.kind == "dimension"]
+    assert len(dimension_fields) >= 2
+    time_fields = project.list_time_fields(display=False)
+    assert all(f.kind == "time" for f in time_fields)
 
 
 # ---------------------------------------------------------------------------
