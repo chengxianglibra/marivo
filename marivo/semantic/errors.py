@@ -175,6 +175,9 @@ class SemanticError(Exception):
             lines.append(f"  at: {self.location.file}:{self.location.line}")
         if self.hint is not None:
             lines.append(f"  hint: {self.hint}")
+        dym = self.details.get("did_you_mean")
+        if isinstance(dym, list) and dym:
+            lines.append(f"  Did you mean: {', '.join(dym)}")
         return "\n".join(lines)
 
 

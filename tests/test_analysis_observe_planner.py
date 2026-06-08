@@ -105,6 +105,44 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
             project, metric, dimensions=[DimensionRef("tier")], where=None, time_field=None
         )
     assert exc_info.value.details["code"] == "field-ref-not-found"
+    assert "tier" in exc_info.value.details["candidates"].get("did_you_mean", [])
+
+
+def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "users = ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+                "@ms.field(dataset=orders)\n"
+                "def region(orders):\n"
+                "    return orders.region\n"
+                "@ms.field(dataset=users)\n"
+                "def tier(users):\n"
+                "    return users.tier\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    metric = project.get_metric("sales.revenue")
+    assert metric is not None
+
+    with pytest.raises(ObservePlanningError) as exc_info:
+        resolve_observe_fields(
+            project, metric, dimensions=[DimensionRef("regn")], where=None, time_field=None
+        )
+    details = exc_info.value.details
+    assert details["code"] == "field-ref-not-found"
+    assert "region" in details["candidates"].get("did_you_mean", [])
+    assert isinstance(details["candidates"].get("available_field_ids"), list)
+    repair = details.get("repair", [])
+    assert len(repair) >= 1
+    assert repair[0]["action"] == "replace_field_ref"
+    assert repair[0]["value"] == "region"
 
     resolved = resolve_observe_fields(
         project, metric, dimensions=[DimensionRef("sales.users.tier")], where=None, time_field=None

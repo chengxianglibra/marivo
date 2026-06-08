@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from marivo.datasource.ir import DatasourceIR
+from marivo.introspection._fuzzy import did_you_mean
 from marivo.semantic.constraints import ASTSpec, ConstraintId, get_constraint
 from marivo.semantic.errors import (
     ErrorKind,
@@ -711,6 +712,12 @@ def assembly_validate(
                     message=f"Dataset {ds_id!r} references unknown "
                     f"datasource {ds_ir.datasource!r}.",
                     refs=(ds_id, ds_ir.datasource),
+                    details={
+                        "missing_ref": ds_ir.datasource,
+                        "did_you_mean": did_you_mean(
+                            ds_ir.datasource, sorted(registry.datasources.keys())
+                        ),
+                    },
                 )
             )
         # Warn on string datasource ref
@@ -735,6 +742,12 @@ def assembly_validate(
                         kind=ErrorKind.MISSING_DATASET_REF,
                         message=f"Field {f_id!r} references unknown dataset {f_ir.dataset!r}.",
                         refs=(f_id, f_ir.dataset),
+                        details={
+                            "missing_ref": f_ir.dataset,
+                            "did_you_mean": did_you_mean(
+                                f_ir.dataset, sorted(registry.datasets.keys())
+                            ),
+                        },
                     )
                 )
 
@@ -750,6 +763,12 @@ def assembly_validate(
                             kind=ErrorKind.MISSING_DATASET_REF,
                             message=f"Metric {m_id!r} references unknown dataset {ds_ref!r}.",
                             refs=(m_id, ds_ref),
+                            details={
+                                "missing_ref": ds_ref,
+                                "did_you_mean": did_you_mean(
+                                    ds_ref, sorted(registry.datasets.keys())
+                                ),
+                            },
                         )
                     )
 
@@ -886,6 +905,12 @@ def assembly_validate(
                             f"{comp_key!r} references unknown metric "
                             f"{comp_ref!r}.",
                             refs=(m_id, comp_ref),
+                            details={
+                                "missing_ref": comp_ref,
+                                "did_you_mean": did_you_mean(
+                                    comp_ref, sorted(registry.metrics.keys())
+                                ),
+                            },
                         )
                     )
 
@@ -939,6 +964,10 @@ def assembly_validate(
                             kind=ErrorKind.MISSING_FIELD_REF,
                             message=f"Relationship {r_id!r} references unknown from_field {ff!r}.",
                             refs=(r_id, ff),
+                            details={
+                                "missing_ref": ff,
+                                "did_you_mean": did_you_mean(ff, sorted(registry.fields.keys())),
+                            },
                         )
                     )
         for tf in r_ir.to_fields:
@@ -951,6 +980,10 @@ def assembly_validate(
                             kind=ErrorKind.MISSING_FIELD_REF,
                             message=f"Relationship {r_id!r} references unknown to_field {tf!r}.",
                             refs=(r_id, tf),
+                            details={
+                                "missing_ref": tf,
+                                "did_you_mean": did_you_mean(tf, sorted(registry.fields.keys())),
+                            },
                         )
                     )
 
@@ -1003,6 +1036,12 @@ def assembly_validate(
                         message=f"Time field {f_id!r} required_prefix "
                         f"{f_ir.required_prefix!r} is not a registered time field.",
                         refs=(f_id, f_ir.required_prefix),
+                        details={
+                            "missing_ref": f_ir.required_prefix,
+                            "did_you_mean": did_you_mean(
+                                f_ir.required_prefix, sorted(registry.fields.keys())
+                            ),
+                        },
                     )
                 )
 

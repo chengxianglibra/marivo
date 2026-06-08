@@ -1020,3 +1020,127 @@ def test_field_ir_is_default_defaults_to_false() -> None:
         location=_LOC,
     )
     assert field.is_default is False
+
+
+# ---------------------------------------------------------------------------
+# did_you_mean in MISSING_*_REF errors
+# ---------------------------------------------------------------------------
+
+
+def test_missing_datasource_ref_includes_did_you_mean() -> None:
+    registry = _make_registry()
+    registry.datasets["sales.bad_ds"] = DatasetIR(
+        semantic_id="sales.bad_ds",
+        model="sales",
+        name="bad_ds",
+        datasource="w",  # close to "wh"
+        source=TableSourceIR(table="bad_ds"),
+        primary_key=(),
+        description=None,
+        ai_context=AiContextIR(),
+        python_symbol="bad_ds",
+        location=_LOC,
+    )
+    errors, _warnings = assembly_validate(registry)
+    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_DATASET_REF]
+    assert len(dym_errors) >= 1
+    dym = dym_errors[0].details.get("did_you_mean", [])
+    assert "wh" in dym
+
+
+def test_missing_dataset_ref_on_field_includes_did_you_mean() -> None:
+    registry = _make_registry()
+    registry.fields["sales.ordrs.bad_field"] = FieldIR(
+        semantic_id="sales.ordrs.bad_field",
+        model="sales",
+        dataset="sales.ordrs",  # close to "sales.orders"
+        name="bad_field",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_field=False,
+        data_type=None,
+        granularity=None,
+        required_prefix=None,
+        python_symbol="bad_field",
+        location=_LOC,
+    )
+    errors, _warnings = assembly_validate(registry)
+    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_DATASET_REF]
+    assert len(dym_errors) >= 1
+    dym = dym_errors[0].details.get("did_you_mean", [])
+    assert "sales.orders" in dym
+
+
+def test_missing_metric_ref_includes_did_you_mean() -> None:
+    registry = _make_registry()
+    registry.metrics["sales.ratio_metric"] = MetricIR(
+        semantic_id="sales.ratio_metric",
+        model="sales",
+        name="ratio_metric",
+        datasets=(),
+        is_derived=True,
+        decomposition=DecompositionIR(
+            kind="ratio",
+            components={"numerator": "sales.revenu", "denominator": "sales.revenue"},
+        ),
+        provenance=ProvenanceIR(),
+        description=None,
+        ai_context=AiContextIR(),
+        body_ast_hash="abc",
+        python_symbol="ratio_metric",
+        location=_LOC,
+    )
+    errors, _warnings = assembly_validate(registry)
+    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_METRIC_REF]
+    assert len(dym_errors) >= 1
+    dym = dym_errors[0].details.get("did_you_mean", [])
+    assert "sales.revenue" in dym
+
+
+def test_missing_field_ref_includes_did_you_mean() -> None:
+    registry = _make_registry()
+    registry.relationships["rel"] = RelationshipIR(
+        semantic_id="rel",
+        model="sales",
+        name="rel",
+        from_dataset="sales.orders",
+        to_dataset="sales.orders",
+        from_fields=("sales.orders.amoun",),  # close to "sales.orders.amount"
+        to_fields=("sales.orders.amount",),
+        description=None,
+        ai_context=AiContextIR(),
+        location=_LOC,
+    )
+    errors, _warnings = assembly_validate(registry)
+    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_FIELD_REF]
+    assert len(dym_errors) >= 1
+    dym = dym_errors[0].details.get("did_you_mean", [])
+    assert "sales.orders.amount" in dym
+
+
+def test_semantic_error_str_renders_did_you_mean() -> None:
+    from marivo.semantic.errors import SemanticLoadError
+
+    err = SemanticLoadError(
+        kind="MISSING_DATASET_REF",
+        message="references unknown datasource 'w'.",
+        refs=("sales.bad_ds", "w"),
+        details={"missing_ref": "w", "did_you_mean": ["wh"]},
+    )
+
+    rendered = str(err)
+    assert "Did you mean: wh" in rendered
+
+
+def test_semantic_error_str_omits_did_you_mean_when_empty() -> None:
+    from marivo.semantic.errors import SemanticLoadError
+
+    err = SemanticLoadError(
+        kind="MISSING_DATASET_REF",
+        message="references unknown datasource 'xyz'.",
+        refs=("sales.bad_ds", "xyz"),
+        details={"missing_ref": "xyz", "did_you_mean": []},
+    )
+
+    rendered = str(err)
+    assert "Did you mean" not in rendered
