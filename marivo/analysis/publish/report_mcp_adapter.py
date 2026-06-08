@@ -122,8 +122,8 @@ def _source_for_dataset(dataset: Dataset) -> dict[str, Any]:
         notes.append(f"source_artifacts: {', '.join(dataset.metadata.source_artifacts)}")
     if source.semantic_refs:
         notes.append(f"semantic_refs: {', '.join(source.semantic_refs)}")
-    if source.script_ref:
-        notes.append(f"script_ref: {source.script_ref}")
+    if source.script_refs:
+        notes.append(f"script_refs: {', '.join(source.script_refs)}")
     if source.promotion_ref:
         notes.append(f"promotion_ref: {source.promotion_ref}")
     return {
@@ -498,19 +498,36 @@ def materialize_mcp_adapter(
     root: str | Path,
     *,
     target_schema: str = _DEFAULT_TARGET_SCHEMA,
+    language: str | None = None,
 ) -> MarivoReportArtifact:
-    """Write MCP adapter payload files and return the artifact with adapter metadata."""
-    payload = to_mcp_artifact_payload(artifact, target_schema=target_schema)
+    """Write MCP adapter payload files and return the artifact with adapter metadata.
+
+    If *language* is provided, it is stamped onto the manifest before writing
+    so the written ``manifest.json`` reflects the intended report language.
+    The manifest is only marked ``adapter_mcp.materialized=True`` once all
+    adapter files have been written successfully.
+    """
+    manifest_for_payload: dict[str, Any] = {}
+    if language is not None:
+        manifest_for_payload["language"] = language
+    staged = (
+        artifact
+        if not manifest_for_payload
+        else artifact.model_copy(
+            update={"manifest": artifact.manifest.model_copy(update=manifest_for_payload)}
+        )
+    )
+    payload = to_mcp_artifact_payload(staged, target_schema=target_schema)
     package_root = Path(root)
-    write_report_artifact(artifact, package_root)
+    write_report_artifact(staged, package_root)
     adapter_root = package_root / "adapters" / "mcp"
     _write_json(adapter_root / "manifest.json", payload["manifest"])
     _write_json(adapter_root / "snapshot.json", payload["snapshot"])
     _write_json(adapter_root / "package_info.json", payload["package_info"])
     _write_json(adapter_root / "sources.json", payload["sources"])
-    updated = artifact.model_copy(
+    updated = staged.model_copy(
         update={
-            "manifest": artifact.manifest.model_copy(
+            "manifest": staged.manifest.model_copy(
                 update={
                     "adapter_mcp": McpAdapterMetadata(
                         materialized=True,

@@ -445,11 +445,11 @@ def _validate_source_provenance(
     for dataset in artifact.datasets.values():
         source = dataset.metadata.source_provenance
         location = f"datasets.{dataset.dataset_id}.metadata.source_provenance"
-        if source.generated_from == "pandas_scratch" and not source.script_ref:
+        if source.generated_from == "pandas_scratch" and not source.script_refs:
             issues.append(
                 _issue(
-                    "script_ref",
-                    "pandas_scratch datasets require script_ref",
+                    "script_refs",
+                    "pandas_scratch datasets require script_refs",
                     location=location,
                 )
             )

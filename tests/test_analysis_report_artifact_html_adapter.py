@@ -665,3 +665,258 @@ def test_render_report_html_includes_local_search() -> None:
     assert '<input id="report-search"' in rendered
     assert 'data-searchable="true"' in rendered
     assert 'getElementById("report-search")' in rendered
+
+
+def _artifact_with_markdown(text: str):
+    artifact = _html_artifact()
+    section = artifact.report_spec.sections[0]
+    block = section.blocks[0].model_copy(update={"text": text})
+    section = section.model_copy(update={"blocks": (block, *section.blocks[1:])})
+    return artifact.model_copy(
+        update={
+            "report_spec": artifact.report_spec.model_copy(
+                update={"sections": (section, *artifact.report_spec.sections[1:])}
+            )
+        }
+    )
+
+
+def test_render_report_html_renders_inline_and_block_markdown() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    text = (
+        "Total **19,505,768** via `query_count`\n"
+        "\n"
+        "- bullet **bold**\n"
+        "\n"
+        "1. first\n"
+        "2. second\n"
+        "\n"
+        "| A | B |\n"
+        "|---|---|\n"
+        "| `x` | y |\n"
+    )
+
+    rendered = render_report_html(_artifact_with_markdown(text))
+
+    assert "<p>Total <strong>19,505,768</strong> via <code>query_count</code></p>" in rendered
+    assert "<ul><li>bullet <strong>bold</strong></li></ul>" in rendered
+    assert "<ol><li>first</li><li>second</li></ol>" in rendered
+    assert (
+        "<table><thead><tr><th>A</th><th>B</th></tr></thead>"
+        "<tbody><tr><td><code>x</code></td><td>y</td></tr></tbody></table>"
+    ) in rendered
+
+
+def test_render_report_html_keeps_code_span_content_literal() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_artifact_with_markdown("see `a**b**c` here"))
+
+    assert "<code>a**b**c</code>" in rendered
+    assert "<strong>b</strong>" not in rendered
+
+
+def _set_kpi_format(artifact, value_format: str):
+    from marivo.analysis.publish import ReportMetric
+
+    section = artifact.report_spec.sections[0]
+    kpi = section.blocks[1].model_copy(
+        update={
+            "metrics": (
+                ReportMetric(
+                    label="Share",
+                    value_ref="headline_metrics[0].value",
+                    format=value_format,
+                ),
+            )
+        }
+    )
+    section = section.model_copy(update={"blocks": (section.blocks[0], kpi)})
+    return artifact.model_copy(
+        update={
+            "report_spec": artifact.report_spec.model_copy(
+                update={"sections": (section, *artifact.report_spec.sections[1:])}
+            )
+        }
+    )
+
+
+def test_render_report_html_formats_percent_without_scaling() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_set_kpi_format(_html_artifact(), "percent"))
+
+    assert "125%" in rendered
+    assert "12,500%" not in rendered
+
+
+def _artifact_with_trend_chart(rows, fields, *, chart_type="bar"):
+    from marivo.analysis.publish import ReportChartSpec
+
+    artifact = _html_artifact()
+    trend = artifact.datasets["trend_rows"]
+    dataset = trend.model_copy(
+        update={
+            "metadata": trend.metadata.model_copy(update={"row_count": len(rows)}),
+            "rows": tuple(rows),
+        }
+    )
+    trend_section = artifact.report_spec.sections[1]
+    chart = trend_section.blocks[1].model_copy(
+        update={"chart": ReportChartSpec(type=chart_type, fields=fields)}
+    )
+    trend_section = trend_section.model_copy(
+        update={"blocks": (trend_section.blocks[0], chart, trend_section.blocks[2])}
+    )
+    return artifact.model_copy(
+        update={
+            "datasets": {**artifact.datasets, "trend_rows": dataset},
+            "report_spec": artifact.report_spec.model_copy(
+                update={
+                    "sections": (
+                        artifact.report_spec.sections[0],
+                        trend_section,
+                        artifact.report_spec.sections[2],
+                    )
+                }
+            ),
+        }
+    )
+
+
+def test_render_report_html_truncates_long_chart_labels() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rows = (
+        {"date": "k8soneservice-oneservice", "revenue": 100.0, "orders": 1},
+        {"date": "k8sdqc-dqc1-cluster", "revenue": 80.0, "orders": 2},
+        {"date": "k8sbi-bi1-cluster", "revenue": 60.0, "orders": 3},
+    )
+    rendered = render_report_html(_artifact_with_trend_chart(rows, {"x": "date", "y": "revenue"}))
+
+    # Full label is preserved in a hover title; the visible label is truncated.
+    assert "<title>k8soneservice-oneservice</title>" in rendered
+    assert "k8soneservice…" in rendered
+
+
+def test_render_report_html_renders_grouped_series_bar_chart() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rows = (
+        {"date": "Mon", "revenue": 10.0, "orders": 1, "series": "SELECT"},
+        {"date": "Mon", "revenue": 4.0, "orders": 2, "series": "INSERT"},
+        {"date": "Tue", "revenue": 8.0, "orders": 3, "series": "SELECT"},
+        {"date": "Tue", "revenue": 3.0, "orders": 4, "series": "INSERT"},
+    )
+    rendered = render_report_html(
+        _artifact_with_trend_chart(rows, {"x": "date", "y": "revenue", "series": "series"})
+    )
+
+    assert 'fill="#0f766e"' in rendered
+    assert 'fill="#b45309"' in rendered
+    assert ">SELECT</text>" in rendered
+    assert ">INSERT</text>" in rendered
+    assert "<title>Mon / SELECT: 10.0</title>" in rendered
+
+
+def test_render_report_html_rejects_chart_with_duplicate_x_without_series() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rows = (
+        {"date": "Mon", "revenue": 10.0, "orders": 1},
+        {"date": "Mon", "revenue": 4.0, "orders": 2},
+    )
+
+    with pytest.raises(ValueError, match=r"chart block 'trend_chart' has duplicate x values"):
+        render_report_html(_artifact_with_trend_chart(rows, {"x": "date", "y": "revenue"}))
+
+
+def test_render_report_html_rejects_series_grouped_duplicate_rows() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rows = (
+        {"date": "Mon", "revenue": 10.0, "orders": 1, "series": "SELECT"},
+        {"date": "Mon", "revenue": 4.0, "orders": 2, "series": "SELECT"},
+    )
+
+    with pytest.raises(ValueError, match=r"duplicate rows for x='Mon' series='SELECT'"):
+        render_report_html(
+            _artifact_with_trend_chart(rows, {"x": "date", "y": "revenue", "series": "series"})
+        )
+
+
+def _with_language(artifact, language: str):
+    return artifact.model_copy(
+        update={"manifest": artifact.manifest.model_copy(update={"language": language})}
+    )
+
+
+def _zh_labels() -> dict[str, str]:
+    import json
+    from importlib import resources
+
+    text = (resources.files("marivo.analysis.publish") / "locales" / "zh-Hans.json").read_text(
+        encoding="utf-8"
+    )
+    return json.loads(text)
+
+
+def test_render_report_html_defaults_to_english_audit_trail() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_html_artifact())
+
+    assert '<html lang="en">' in rendered
+    assert "<h2>Audit Trail</h2>" in rendered
+    assert "Marivo Analysis Report" in rendered
+
+
+def test_render_report_html_localizes_chrome_and_audit_trail() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_with_language(_html_artifact(), "zh-Hans"))
+    labels = _zh_labels()
+
+    assert '<html lang="zh-Hans">' in rendered
+    assert f"<h2>{labels['audit_trail']}</h2>" in rendered
+    assert labels["report_eyebrow"] in rendered
+    assert labels["claim_evidence"] in rendered
+
+
+def test_render_report_html_resolves_bcp47_region_tag_to_script_catalog() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_with_language(_html_artifact(), "zh-Hans-CN"))
+    labels = _zh_labels()
+
+    assert '<html lang="zh-Hans-CN">' in rendered
+    assert f"<h2>{labels['audit_trail']}</h2>" in rendered
+
+
+def test_render_report_html_unknown_language_falls_back_to_english_labels() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    rendered = render_report_html(_with_language(_html_artifact(), "xx"))
+
+    assert '<html lang="xx">' in rendered
+    assert "<h2>Audit Trail</h2>" in rendered
+
+
+def test_render_report_html_links_multiple_script_refs() -> None:
+    from marivo.analysis.publish import render_report_html
+
+    artifact = _html_artifact()
+    step = artifact.flow.steps[0].model_copy(
+        update={"script_refs": ("scripts/step_a.py", "scripts/step_b.py")}
+    )
+    artifact = artifact.model_copy(
+        update={
+            "flow": artifact.flow.model_copy(update={"steps": (step, *artifact.flow.steps[1:])})
+        }
+    )
+
+    rendered = render_report_html(artifact)
+
+    assert '<a href="scripts/step_a.py">scripts/step_a.py</a>' in rendered
+    assert '<a href="scripts/step_b.py">scripts/step_b.py</a>' in rendered

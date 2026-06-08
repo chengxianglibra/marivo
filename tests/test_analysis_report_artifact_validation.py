@@ -694,7 +694,7 @@ def test_validate_report_artifact_rejects_dataset_policy_that_weakens_manifest()
 @pytest.mark.parametrize(
     ("generated_from", "expected_check"),
     [
-        ("pandas_scratch", "script_ref"),
+        ("pandas_scratch", "script_refs"),
         ("promotion", "promotion_ref"),
     ],
 )
@@ -741,7 +741,7 @@ def test_validate_report_artifact_rejects_dataset_source_provenance_step_kind_mi
         query_summary="Produced a dataset with scratch pandas work.",
         sql_status="not_applicable",
         sql_reason="No SQL was used.",
-        script_ref="analysis.py",
+        script_refs=("analysis.py",),
     )
     artifact = artifact.model_copy(
         update={

@@ -64,6 +64,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["marivo*"]
 
+[tool.setuptools.package-data]
+"marivo.analysis.publish" = ["locales/*.json"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
