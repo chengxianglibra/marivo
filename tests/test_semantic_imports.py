@@ -33,6 +33,7 @@ from marivo.semantic.ir import (
     DatasourceIR,
     DecompositionIR,
     FieldIR,
+    FieldKind,
     FieldRef,
     MetricIR,
     MetricRef,
@@ -77,6 +78,7 @@ def test_all_list_matches_expected() -> None:
         "DemandSignal",
         "EvidenceFact",
         "EvidenceRef",
+        "FieldKind",
         "FieldSummary",
         "FileSource",
         "MetadataOnlyPolicy",
@@ -612,6 +614,18 @@ def test_symbol_kind_is_str_enum() -> None:
 def test_parity_status_is_str_enum() -> None:
     assert isinstance(ParityStatus.VERIFIED, str)
     assert ParityStatus.VERIFIED.value == "verified"
+
+
+def test_field_kind_values() -> None:
+    expected = {"dimension", "measure", "time"}
+    actual = {k.value for k in FieldKind}
+    assert actual == expected
+
+
+def test_field_kind_is_str_enum() -> None:
+    assert isinstance(FieldKind.DIMENSION, str)
+    assert FieldKind.DIMENSION.value == "dimension"
+    assert FieldKind.DIMENSION == "dimension"
 
 
 # ---------------------------------------------------------------------------

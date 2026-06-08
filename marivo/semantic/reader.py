@@ -60,6 +60,7 @@ from marivo.semantic.ir import (
     DatasetIR,
     DatasetProvenance,
     FieldIR,
+    FieldKind,
     MetricIR,
     ParityStatus,
     RelationshipIR,
@@ -168,6 +169,7 @@ class FieldSummary:
     name: str
     description: str | None
     is_time_field: bool
+    kind: FieldKind
     data_type: str | None
     granularity: str | None
     is_default: bool
@@ -761,6 +763,7 @@ class SemanticProject:
                 name=f.name,
                 description=f.description,
                 is_time_field=f.is_time_field,
+                kind=f.kind,
                 data_type=f.data_type,
                 granularity=f.granularity,
                 is_default=f.is_default,
@@ -777,11 +780,12 @@ class SemanticProject:
                         "semantic_id": item.semantic_id,
                         "dataset": item.dataset,
                         "name": item.name,
+                        "kind": item.kind,
                         "description": item.description,
                     }
                     for item in results
                 ],
-                columns=("semantic_id", "dataset", "name", "description"),
+                columns=("semantic_id", "dataset", "name", "kind", "description"),
                 empty_message="No fields found.",
             )
         return results
@@ -808,6 +812,7 @@ class SemanticProject:
                 name=f.name,
                 description=f.description,
                 is_time_field=f.is_time_field,
+                kind=f.kind,
                 data_type=f.data_type,
                 granularity=f.granularity,
                 is_default=f.is_default,

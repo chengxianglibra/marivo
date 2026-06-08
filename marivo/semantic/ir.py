@@ -32,6 +32,7 @@ __all__ = [
     "DatasourceSourceLocation",
     "DecompositionIR",
     "FieldIR",
+    "FieldKind",
     "FieldRef",
     "FileSourceIR",
     "MetadataOnlyPolicyIR",
@@ -78,6 +79,14 @@ class SymbolKind(StrEnum):
     TIME_FIELD = "time_field"
     METRIC = "metric"
     RELATIONSHIP = "relationship"
+
+
+class FieldKind(StrEnum):
+    """Kind of field: dimension, measure, or time."""
+
+    DIMENSION = "dimension"
+    MEASURE = "measure"
+    TIME = "time"
 
 
 class ParityStatus(StrEnum):
@@ -320,6 +329,7 @@ class FieldIR:
     description: str | None
     ai_context: AiContextIR
     is_time_field: bool
+    kind: FieldKind
     data_type: str | None
     granularity: str | None
     required_prefix: str | None
@@ -328,6 +338,13 @@ class FieldIR:
     format: str | None = None
     timezone: str | None = None
     is_default: bool = False
+
+    def __post_init__(self) -> None:
+        if self.is_time_field != (self.kind == FieldKind.TIME):
+            raise ValueError(
+                f"FieldIR {self.semantic_id!r}: is_time_field={self.is_time_field} "
+                f"inconsistent with kind={self.kind.value!r}"
+            )
 
 
 @dataclass(frozen=True)

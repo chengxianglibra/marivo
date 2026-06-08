@@ -383,7 +383,7 @@ def test_time_field_dtype_advisory_cast_date_declared_datetime() -> None:
         return table.dt.cast("timestamp").cast("date")
 
     from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import FieldIR, SourceLocation
+    from marivo.semantic.ir import FieldIR, FieldKind, SourceLocation
     from marivo.semantic.validator import _time_field_dtype_advisory
 
     field_ir = FieldIR(
@@ -394,6 +394,7 @@ def test_time_field_dtype_advisory_cast_date_declared_datetime() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
+        kind=FieldKind.TIME,
         data_type="datetime",
         granularity="day",
         required_prefix=None,
@@ -410,7 +411,7 @@ def test_time_field_dtype_advisory_cast_timestamp_declared_datetime_ok() -> None
         return table.ts.cast("timestamp")
 
     from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import FieldIR, SourceLocation
+    from marivo.semantic.ir import FieldIR, FieldKind, SourceLocation
     from marivo.semantic.validator import _time_field_dtype_advisory
 
     field_ir = FieldIR(
@@ -421,6 +422,7 @@ def test_time_field_dtype_advisory_cast_timestamp_declared_datetime_ok() -> None
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
+        kind=FieldKind.TIME,
         data_type="datetime",
         granularity="day",
         required_prefix=None,
@@ -437,7 +439,7 @@ def test_time_field_dtype_advisory_cast_date_declared_date_ok() -> None:
         return table.dt.cast("date")
 
     from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import FieldIR, SourceLocation
+    from marivo.semantic.ir import FieldIR, FieldKind, SourceLocation
     from marivo.semantic.validator import _time_field_dtype_advisory
 
     field_ir = FieldIR(
@@ -448,6 +450,7 @@ def test_time_field_dtype_advisory_cast_date_declared_date_ok() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
+        kind=FieldKind.TIME,
         data_type="date",
         granularity="day",
         required_prefix=None,
@@ -464,7 +467,7 @@ def test_time_field_dtype_advisory_no_cast_no_advisory() -> None:
         return table.dt
 
     from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import FieldIR, SourceLocation
+    from marivo.semantic.ir import FieldIR, FieldKind, SourceLocation
     from marivo.semantic.validator import _time_field_dtype_advisory
 
     field_ir = FieldIR(
@@ -475,6 +478,7 @@ def test_time_field_dtype_advisory_no_cast_no_advisory() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
+        kind=FieldKind.TIME,
         data_type="datetime",
         granularity="day",
         required_prefix=None,
