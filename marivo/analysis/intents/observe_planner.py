@@ -24,6 +24,7 @@ from marivo.analysis.intents.observe_errors import (
 )
 from marivo.analysis.refs import DimensionRef
 from marivo.analysis.windows.spec import is_date_only
+from marivo.introspection._fuzzy import did_you_mean
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
 
 
@@ -149,11 +150,30 @@ def _resolve_field_ref(
             # datasets (reachable via relationships) can be resolved.
             matches = [f for f in fields if f.name == ref_id]
     if not matches:
+        all_field_ids = sorted(f.semantic_id for f in fields)
+        pool = all_field_ids if "." in ref_id else sorted({f.name for f in fields})
+        suggestions = did_you_mean(ref_id, pool)
+        repair_actions: list[RepairAction] = []
+        if suggestions:
+            repair_actions.append(
+                RepairAction(
+                    action="replace_field_ref",
+                    target=ref_id,
+                    arg="field_ref",
+                    value=suggestions[0],
+                    safety=RepairSafety.AUTO_SAFE,
+                    why=f"closest match for {ref_id!r}",
+                )
+            )
         raise_observe_planning_error(
             code="field-ref-not-found",
             message=f"Field reference {ref_id!r} was not found in observe plan scope.",
-            candidates={"searched_datasets": sorted(scoped_dataset_ids)},
-            repair=[],
+            candidates={
+                "searched_datasets": sorted(scoped_dataset_ids),
+                "available_field_ids": all_field_ids,
+                "did_you_mean": suggestions,
+            },
+            repair=repair_actions,
         )
     if len(matches) > 1:
         raise_observe_planning_error(
@@ -606,11 +626,29 @@ def _field_fn(project: Any, field_id: str) -> Any:
     sidecar = project._sidecar
     fn = sidecar.get(field_id) if sidecar else None
     if fn is None:
+        sidecar_keys = sorted(sidecar.keys()) if sidecar else []
+        suggestions = did_you_mean(field_id, sidecar_keys)
+        repair_actions: list[RepairAction] = []
+        if suggestions:
+            repair_actions.append(
+                RepairAction(
+                    action="replace_field_ref",
+                    target=field_id,
+                    arg="field_ref",
+                    value=suggestions[0],
+                    safety=RepairSafety.AUTO_SAFE,
+                    why=f"closest match for {field_id!r}",
+                )
+            )
         raise_observe_planning_error(
             code="field-ref-not-found",
             message=f"Field callable {field_id!r} was not found.",
-            candidates={"field": field_id},
-            repair=[],
+            candidates={
+                "field": field_id,
+                "available_field_ids": sidecar_keys,
+                "did_you_mean": suggestions,
+            },
+            repair=repair_actions,
         )
     return fn
 

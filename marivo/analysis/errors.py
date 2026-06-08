@@ -982,7 +982,33 @@ class PanelGrainMismatchError(AlignmentFailedError):
 
 
 class SegmentDimensionMismatchError(AlignmentFailedError):
-    pass
+    def _template_fields(self) -> dict[str, str]:
+        current_dims = self.details.get("current_dimensions")
+        baseline_dims = self.details.get("baseline_dimensions")
+        if not isinstance(current_dims, list) or not isinstance(baseline_dims, list):
+            return {}
+        cur = ", ".join(current_dims)
+        base = ", ".join(baseline_dims)
+        extra_current = sorted(set(current_dims) - set(baseline_dims))
+        extra_baseline = sorted(set(baseline_dims) - set(current_dims))
+        cause = f"segment dimensions differ: current=[{cur}] vs baseline=[{base}]."
+        if extra_current:
+            cause += f" Extra in current: {', '.join(extra_current)}."
+        if extra_baseline:
+            cause += f" Extra in baseline: {', '.join(extra_baseline)}."
+        return {
+            "location": "session.compare call",
+            "cause": cause,
+            "fix_snippet": (
+                "current = session.observe(mv.MetricRef('model.metric'), "
+                'dimensions=[mv.DimensionRef("common_dim")])\n'
+                "baseline = session.observe(mv.MetricRef('model.metric'), "
+                'dimensions=[mv.DimensionRef("common_dim")])\n'
+                "delta = session.compare(current, baseline, "
+                'alignment=mv.AlignmentPolicy(kind="window_bucket"))'
+            ),
+            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+        }
 
 
 class AlignmentPolicyNotApplicableError(AlignmentFailedError):

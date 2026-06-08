@@ -334,3 +334,54 @@ def test_no_backend_factory_without_details_uses_session_backend_template() -> N
     assert "mv.datasources.register" in rendered
     assert "backend_factory=" in rendered
     assert "Docs: marivo-skills/marivo-semantic/references/datasource.md" in rendered
+
+
+def test_segment_dimension_mismatch_renders_cause_and_fix():
+    from marivo.analysis.errors import SegmentDimensionMismatchError
+
+    err = SegmentDimensionMismatchError(
+        message="compare requires matching segment dimension columns",
+        details={
+            "current_dimensions": ["country"],
+            "baseline_dimensions": ["region"],
+        },
+    )
+
+    rendered = str(err)
+
+    assert rendered.startswith("SegmentDimensionMismatchError:")
+    assert "Extra in current: country" in rendered
+    assert "Extra in baseline: region" in rendered
+    assert "Fix:" in rendered
+    assert "Docs: marivo-skills/marivo-analysis/references/pitfalls.md" in rendered
+
+
+def test_segment_dimension_mismatch_shows_set_differences():
+    from marivo.analysis.errors import SegmentDimensionMismatchError
+
+    err = SegmentDimensionMismatchError(
+        message="compare requires matching segment dimension columns",
+        details={
+            "current_dimensions": ["country", "channel"],
+            "baseline_dimensions": ["country", "region"],
+        },
+    )
+
+    rendered = str(err)
+
+    assert "Extra in current: channel" in rendered
+    assert "Extra in baseline: region" in rendered
+
+
+def test_segment_dimension_mismatch_without_details_is_bare():
+    from marivo.analysis.errors import SegmentDimensionMismatchError
+
+    err = SegmentDimensionMismatchError(
+        message="compare requires matching segment dimension columns",
+    )
+
+    rendered = str(err)
+
+    assert rendered.startswith("SegmentDimensionMismatchError:")
+    assert "Cause:" not in rendered
+    assert "Fix:" not in rendered
