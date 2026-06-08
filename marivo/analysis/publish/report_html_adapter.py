@@ -1329,6 +1329,7 @@ def _render_dataset_panels(payload: dict[str, Any]) -> str:
         parts.append(_render_labeled_value("Grain", metadata.get("grain")))
         parts.append(_render_labeled_value("Row count", metadata.get("row_count")))
         parts.append(_render_labeled_value("Truncated", metadata.get("truncated")))
+        parts.append(_render_labeled_value("Columns", metadata.get("columns")))
         parts.append(_render_labeled_value("Source artifacts", metadata.get("source_artifacts")))
         parts.append(
             _render_labeled_value("Metric definitions", metadata.get("metric_definitions"))

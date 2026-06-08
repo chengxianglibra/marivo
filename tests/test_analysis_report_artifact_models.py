@@ -311,3 +311,115 @@ def test_source_provenance_sql_status_field_documents_constraints() -> None:
     sql_status_prop = schema["properties"]["sql_status"]
     assert "available" in sql_status_prop["description"]
     assert "sql_reason" in sql_status_prop["description"]
+
+
+def test_source_provenance_defaults() -> None:
+    from marivo.analysis.publish import SourceProvenance
+
+    source = SourceProvenance()
+    assert source.generated_from == "intent"
+    assert source.query_summary == ""
+    assert source.sql_status == "not_applicable"
+    assert source.sql_reason == "No SQL was generated for this source."
+
+
+def test_dataset_metadata_defaults() -> None:
+    from marivo.analysis.publish import DatasetMetadata
+
+    metadata = DatasetMetadata()
+    assert metadata.dataset_id is None
+    assert metadata.grain == "overall"
+    assert metadata.row_count is None
+    assert metadata.truncated is False
+    assert metadata.columns == ()
+    assert metadata.source_provenance.generated_from == "intent"
+
+
+def test_dataset_auto_fills_metadata_identity() -> None:
+    from marivo.analysis.publish import Dataset, DatasetMetadata
+
+    dataset = Dataset(
+        dataset_id="test_dataset",
+        metadata=DatasetMetadata(),
+        rows=({"a": 1, "b": 2}, {"a": 3, "b": 4}),
+    )
+    assert dataset.metadata.dataset_id == "test_dataset"
+    assert dataset.metadata.row_count == 2
+
+
+def test_dataset_preserves_explicit_metadata_identity() -> None:
+    from marivo.analysis.publish import Dataset, DatasetMetadata, SourceProvenance
+
+    metadata = DatasetMetadata(
+        dataset_id="explicit_id",
+        grain="daily",
+        row_count=1,
+        source_provenance=SourceProvenance(query_summary="Custom query."),
+    )
+    dataset = Dataset(
+        dataset_id="explicit_id",
+        metadata=metadata,
+        rows=({"x": 10},),
+    )
+    assert dataset.metadata.dataset_id == "explicit_id"
+    assert dataset.metadata.grain == "daily"
+    assert dataset.metadata.row_count == 1
+    assert dataset.metadata.source_provenance.query_summary == "Custom query."
+
+
+def test_dataset_from_rows() -> None:
+    from marivo.analysis.publish import Dataset
+
+    dataset = Dataset.from_rows(
+        dataset_id="metrics",
+        rows=({"name": "revenue", "value": 125.0},),
+    )
+    assert dataset.dataset_id == "metrics"
+    assert dataset.metadata.dataset_id == "metrics"
+    assert dataset.metadata.row_count == 1
+    assert dataset.metadata.columns == ("name", "value")
+    assert dataset.metadata.grain == "overall"
+    assert dataset.metadata.truncated is False
+
+
+def test_dataset_from_rows_with_custom_metadata() -> None:
+    from marivo.analysis.publish import Dataset, DatasetMetadata, SourceProvenance
+
+    dataset = Dataset.from_rows(
+        dataset_id="trend",
+        rows=({"date": "2026-01-01", "revenue": 100},),
+        metadata=DatasetMetadata(
+            grain="daily",
+            source_provenance=SourceProvenance(
+                generated_from="explore_ibis",
+                query_summary="Daily revenue trend.",
+            ),
+        ),
+    )
+    assert dataset.metadata.grain == "daily"
+    assert dataset.metadata.source_provenance.generated_from == "explore_ibis"
+
+
+def test_dataset_from_rows_empty() -> None:
+    from marivo.analysis.publish import Dataset
+
+    dataset = Dataset.from_rows(dataset_id="empty", rows=())
+    assert dataset.metadata.columns == ()
+    assert dataset.metadata.row_count == 0
+
+
+def test_auto_filled_metadata_round_trips_json() -> None:
+    from marivo.analysis.publish import Dataset, DatasetMetadata
+
+    dataset = Dataset(
+        dataset_id="auto_fill_test",
+        metadata=DatasetMetadata(),
+        rows=({"col_a": 1}, {"col_a": 2}),
+    )
+    payload = dataset.model_dump(mode="json")
+    restored = Dataset.model_validate(json.loads(json.dumps(payload)))
+
+    assert restored.metadata.dataset_id == "auto_fill_test"
+    assert restored.metadata.row_count == 2
+    assert restored.metadata.grain == "overall"
+    assert restored.metadata.truncated is False
