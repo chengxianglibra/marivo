@@ -88,11 +88,33 @@ class SourceProvenance(_ReportModel):
     query_summary: str
     semantic_refs: tuple[str, ...] = ()
     datasource_refs: tuple[str, ...] = ()
-    sql_status: SqlStatus = "not_applicable"
-    sql: str | None = None
-    sql_reason: str | None = None
+    sql_status: SqlStatus = Field(
+        default="not_applicable",
+        description=(
+            "SQL availability. 'available' requires sql text; "
+            "'not_applicable'/'unavailable'/'redacted' require sql_reason."
+        ),
+    )
+    sql: str | None = Field(
+        default=None,
+        description="SQL text. Required when sql_status='available'; forbidden otherwise.",
+    )
+    sql_reason: str | None = Field(
+        default=None,
+        description="Reason sql is unavailable. Auto-populated if omitted for non-available sql_status.",
+    )
     script_ref: str | None = None
     promotion_ref: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_sql_reason_for_non_available(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            sql_status = data.get("sql_status", "not_applicable")
+            sql_reason = data.get("sql_reason")
+            if sql_status != "available" and not sql_reason:
+                data = {**data, "sql_reason": "No SQL was generated for this source."}
+        return data
 
     @model_validator(mode="after")
     def validate_sql_status(self) -> SourceProvenance:

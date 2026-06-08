@@ -253,3 +253,61 @@ def test_source_provenance_rejects_sql_for_non_available_statuses(sql_status: st
             sql="select revenue from sales",
             sql_reason="SQL is not publishable.",
         )
+
+
+def test_source_provenance_auto_populates_sql_reason_for_non_available() -> None:
+    from marivo.analysis.publish import SourceProvenance
+
+    source = SourceProvenance(
+        generated_from="intent",
+        query_summary="Observed revenue for the requested window.",
+    )
+    assert source.sql_status == "not_applicable"
+    assert source.sql_reason == "No SQL was generated for this source."
+
+
+@pytest.mark.parametrize("sql_status", ["not_applicable", "unavailable", "redacted"])
+def test_source_provenance_auto_populates_sql_reason_for_explicit_non_available(
+    sql_status: str,
+) -> None:
+    from marivo.analysis.publish import SourceProvenance
+
+    source = SourceProvenance(
+        generated_from="intent",
+        query_summary="Observed revenue for the requested window.",
+        sql_status=sql_status,
+    )
+    assert source.sql_reason == "No SQL was generated for this source."
+
+
+def test_source_provenance_preserves_explicit_sql_reason() -> None:
+    from marivo.analysis.publish import SourceProvenance
+
+    source = SourceProvenance(
+        generated_from="intent",
+        query_summary="Observed revenue for the requested window.",
+        sql_status="unavailable",
+        sql_reason="SQL query timed out.",
+    )
+    assert source.sql_reason == "SQL query timed out."
+
+
+def test_source_provenance_available_status_keeps_sql_reason_none() -> None:
+    from marivo.analysis.publish import SourceProvenance
+
+    source = SourceProvenance(
+        generated_from="explore_ibis",
+        query_summary="Revenue query.",
+        sql_status="available",
+        sql="select sum(revenue) from sales",
+    )
+    assert source.sql_reason is None
+
+
+def test_source_provenance_sql_status_field_documents_constraints() -> None:
+    from marivo.analysis.publish import SourceProvenance
+
+    schema = SourceProvenance.model_json_schema()
+    sql_status_prop = schema["properties"]["sql_status"]
+    assert "available" in sql_status_prop["description"]
+    assert "sql_reason" in sql_status_prop["description"]
