@@ -329,6 +329,31 @@ def test_list_fields_filter_by_dataset_keyword(semantic_project_factory) -> None
     assert all(f.dataset == "sales.orders" for f in fields)
 
 
+def test_list_fields_filter_by_model(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    fields = project.list_fields(model="sales", display=False)
+    assert len(fields) >= 1
+    assert all(f.model == "sales" for f in fields)
+
+
+def test_list_fields_filter_by_model_and_dataset(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    fields = project.list_fields(model="sales", dataset="sales.orders", display=False)
+    assert len(fields) >= 1
+    assert all(f.model == "sales" for f in fields)
+    assert all(f.dataset == "sales.orders" for f in fields)
+
+
 def test_list_fields_rejects_positional_dataset(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
@@ -351,6 +376,18 @@ def test_list_time_fields(semantic_project_factory) -> None:
     assert len(time_fields) >= 1
     assert any(f.name == "created_at" for f in time_fields)
     assert all(f.is_time_field for f in time_fields)
+
+
+def test_list_time_fields_filter_by_model(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        }
+    )
+    time_fields = project.list_time_fields(model="sales", display=False)
+    assert len(time_fields) >= 1
+    assert all(f.model == "sales" for f in time_fields)
 
 
 def test_list_time_fields_rejects_positional_dataset(semantic_project_factory) -> None:
