@@ -259,3 +259,42 @@ def test_discover_stale_archived_session_raises():
 def test_detect_is_not_public_api():
     assert not hasattr(mv, "discover")
     assert not hasattr(mv, "detect")
+
+
+def test_discover_point_anomalies_object_dtype_time_column():
+    """bucket_start with datetime.date objects (object dtype) is still detected as time."""
+    import datetime
+
+    session = session_attach.get_or_create(name="demo")
+    dates = [datetime.date(2026, 1, i) for i in range(1, 9)]
+    frame = MetricFrame.from_dataframe(
+        pd.DataFrame(
+            {
+                "bucket_start": dates,
+                "value": [-100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0],
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={
+            "time": {"role": "time", "column": "bucket_start", "grain": "day"},
+        },
+        measure={"name": "revenue"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        session=session,
+    )
+
+    out = session.discover(frame, objective="point_anomalies", threshold=1.0)
+    df = out.to_pandas()
+
+    assert len(df) == 2
+
+    # window_start should contain actual dates, not Timestamp.now()
+    for ts in df["window_start"]:
+        assert ts.year == 2026
+        assert ts.month == 1
+
+    # bucket_start should NOT appear in keys_json
+    keys = [json.loads(k) for k in df["keys_json"]]
+    for key_dict in keys:
+        assert "bucket_start" not in key_dict

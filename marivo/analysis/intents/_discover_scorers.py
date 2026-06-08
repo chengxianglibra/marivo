@@ -27,7 +27,11 @@ def _row_window(df: pd.DataFrame, row_index: int, time_columns: list[str]) -> di
     if pd.isna(raw):
         ts = pd.Timestamp.now(tz="UTC").isoformat()
         return {"start": ts, "end": ts}
-    iso = pd.Timestamp(raw).isoformat()
+    try:
+        iso = pd.Timestamp(raw).isoformat()
+    except (ValueError, TypeError):
+        ts = pd.Timestamp.now(tz="UTC").isoformat()
+        return {"start": ts, "end": ts}
     return {"start": iso, "end": iso}
 
 
@@ -43,6 +47,7 @@ def score_point_anomalies(
     source_ref: str,
     value_column: str,
     threshold: float,
+    time_column: str | None = None,
 ) -> list[dict[str, Any]]:
     series = source_df[value_column]
     non_null = series.dropna()
@@ -56,7 +61,7 @@ def score_point_anomalies(
             mean = float(non_null.mean())
             scores = ((series - mean) / std).fillna(0).to_numpy()
 
-    time_columns = _detect_time_columns(source_df)
+    time_columns = [time_column] if time_column else _detect_time_columns(source_df)
     key_columns = [
         col for col in source_df.columns if col != value_column and col not in time_columns
     ]

@@ -207,7 +207,7 @@ def _dedupe(values: Iterable[str]) -> tuple[str, ...]:
 def _decision_record_summary(project: SemanticProject, refs: Iterable[str]) -> tuple[str, ...]:
     from marivo.semantic.ledger import LedgerStore
 
-    store = LedgerStore(project.root)
+    store = LedgerStore(project.workspace_dir)
     records: list[str] = []
     for ref in refs:
         record = store.read_object(ref)

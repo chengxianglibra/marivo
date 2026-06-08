@@ -540,11 +540,13 @@ def _run_scorer(
         threshold_value = _validate_threshold(3.0 if threshold is None else threshold)
         df = source.to_pandas()
         value_column = require_numeric_column(df, value, purpose="discover")
+        time_column, _ = _resolve_frame_axes(source, df)
         rows = score_point_anomalies(
             df,
             source_ref=source.ref,
             value_column=value_column,
             threshold=threshold_value,
+            time_column=time_column,
         )
         params = {"value": value, "threshold": threshold_value}
         return rows, params
@@ -610,14 +612,8 @@ def _run_scorer(
             non_value_columns = [bucket_column, *dim_columns]
         else:
             measure_kind = "metric"
-            from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype
-
-            non_value_columns = [col for col in df.columns if is_datetime64_any_dtype(df[col])]
-            dim_columns = [
-                col
-                for col in df.columns
-                if col not in non_value_columns and not is_numeric_dtype(df[col])
-            ]
+            time_column, dim_columns = _resolve_frame_axes(source, df)
+            non_value_columns = [c for c in [time_column, *dim_columns] if c is not None]
         value_column = require_numeric_column(
             df.drop(columns=[c for c in non_value_columns if c in df.columns]),
             value,
@@ -647,10 +643,8 @@ def _run_scorer(
         if isinstance(source, DeltaFrame):
             bucket_column, group_columns = _delta_axes(source)
         else:
-            from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype
-
-            time_columns = [c for c in df.columns if is_datetime64_any_dtype(df[c])]
-            if not time_columns:
+            time_column, group_columns = _resolve_frame_axes(source, df)
+            if time_column is None:
                 raise SemanticKindMismatchError(
                     message="interesting_windows requires a time bucket column",
                     details={
@@ -658,10 +652,7 @@ def _run_scorer(
                         "expected_kind": "time_series|panel",
                     },
                 )
-            bucket_column = time_columns[0]
-            group_columns = [
-                c for c in df.columns if c != bucket_column and not is_numeric_dtype(df[c])
-            ]
+            bucket_column = time_column
         value_column = require_numeric_column(
             df.drop(columns=[c for c in [bucket_column, *group_columns] if c in df.columns]),
             value,
@@ -681,13 +672,7 @@ def _run_scorer(
     if objective == "cross_sectional_outliers":
         threshold_value = _validate_threshold(3.0 if threshold is None else threshold)
         df = source.to_pandas()
-        from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype
-
-        time_columns = [c for c in df.columns if is_datetime64_any_dtype(df[c])]
-        bucket_col: str | None = time_columns[0] if time_columns else None
-        segment_columns = [
-            c for c in df.columns if c not in time_columns and not is_numeric_dtype(df[c])
-        ]
+        bucket_col, segment_columns = _resolve_frame_axes(source, df)
         value_column = require_numeric_column(
             df.drop(columns=[c for c in [bucket_col, *segment_columns] if c]),
             value,
@@ -791,21 +776,25 @@ def _validate_period_shift_min_buckets(
     )
 
 
-def _delta_axes(source: DeltaFrame) -> tuple[str, list[str]]:
-    """Return (bucket_column, dimension_columns) for a DeltaFrame.
+def _resolve_frame_axes(
+    source: MetricFrame | DeltaFrame,
+    df: pd.DataFrame,
+) -> tuple[str | None, list[str]]:
+    """Return (time_column, dimension_columns) from axes metadata or dtype fallback.
 
-    Falls back to the first datetime column + auto-detected non-numeric
-    columns when alignment metadata is incomplete; real compare-produced
-    frames already populate alignment.axes correctly.
+    Checks source.meta.axes (MetricFrame) or source.meta.alignment["axes"]
+    (DeltaFrame) for entries with role="time" and role="dimension".
+    Falls back to is_datetime64_any_dtype detection when metadata is absent
+    or incomplete.
     """
-
     from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype
 
-    df = source.to_pandas()
-    df_columns = list(df.columns)
-    axes = source.meta.alignment.get("axes")
-    bucket_column = "bucket_start"
+    df_columns = set(df.columns)
+    axes = source.meta.alignment.get("axes") if isinstance(source, DeltaFrame) else source.meta.axes
+
+    time_column: str | None = None
     dim_columns: list[str] = []
+
     if isinstance(axes, dict):
         for axis in axes.values():
             if not isinstance(axis, dict):
@@ -813,21 +802,40 @@ def _delta_axes(source: DeltaFrame) -> tuple[str, list[str]]:
             column = axis.get("column")
             if not isinstance(column, str) or not column:
                 continue
-            if axis.get("role") == "time":
-                bucket_column = column
+            if column not in df_columns:
+                continue
+            if axis.get("role") == "time" and time_column is None:
+                time_column = column
             elif axis.get("role") == "dimension":
                 dim_columns.append(column)
-    if bucket_column not in df_columns:
-        for col in df_columns:
+
+    if time_column is None:
+        for col in df.columns:
             if is_datetime64_any_dtype(df[col]):
-                bucket_column = col
+                time_column = col
                 break
+
     if not dim_columns:
+        time_col_set = {time_column} if time_column else set()
         dim_columns = [
             col
-            for col in df_columns
-            if col != bucket_column
+            for col in df.columns
+            if col not in time_col_set
             and not is_numeric_dtype(df[col])
             and not is_datetime64_any_dtype(df[col])
         ]
-    return bucket_column, sorted(dim_columns)
+
+    return time_column, sorted(dim_columns)
+
+
+def _delta_axes(source: DeltaFrame) -> tuple[str, list[str]]:
+    """Return (bucket_column, dimension_columns) for a DeltaFrame.
+
+    Delegates to _resolve_frame_axes for metadata-aware detection, then
+    applies the DeltaFrame-specific default that a bucket column always
+    exists.
+    """
+    df = source.to_pandas()
+    time_column, dim_columns = _resolve_frame_axes(source, df)
+    bucket_column = time_column or "bucket_start"
+    return bucket_column, dim_columns
