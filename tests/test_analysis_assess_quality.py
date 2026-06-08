@@ -147,3 +147,78 @@ def test_non_metric_frame_raises(tmp_path):
     )
     with pytest.raises(QualityShapeUnsupportedError):
         session.assess_quality(delta)
+
+
+def test_summary_returns_quality_report_summary(tmp_path):
+    from marivo.analysis.frames.quality import (
+        CheckResult,
+        QualityReportSummary,
+    )
+
+    session = session_attach.get_or_create(name="demo")
+    frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
+    report = session.assess_quality(frame)
+
+    s = report.summary()
+    assert isinstance(s, QualityReportSummary)
+    assert s.kind == "quality_report"
+    assert s.overall_status == "ok"
+    assert s.blocking_issue_count == 0
+    assert s.warning_count == 0
+    assert s.target_semantic_kind == "time_series"
+    assert s.target_metric_id == "sales.revenue"
+    assert len(s.checks) == 3
+    assert all(isinstance(c, CheckResult) for c in s.checks)
+    check_ids = [c.check_id for c in s.checks]
+    assert "row_count" in check_ids
+    assert all(c.status == "ok" for c in s.checks)
+
+
+def test_summary_reflects_blocking(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    empty = _metric(session, [], semantic_kind="scalar", axes={})
+    report = session.assess_quality(empty)
+
+    s = report.summary()
+    assert s.overall_status == "blocking"
+    assert s.blocking_issue_count >= 1
+    assert any(c.status == "blocking" for c in s.checks)
+
+
+def test_repr_contains_overall_status_and_checks(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
+    report = session.assess_quality(frame)
+
+    r = repr(report)
+    assert "overall=ok" in r
+    assert "blocking=0" in r
+    assert "warnings=0" in r
+    assert "row_count" in r
+    assert "time_coverage" in r
+
+
+def test_summary_reflects_warning(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    rows = [{"time": t, "value": 1.0} for t in pd.date_range("2026-01-01", periods=9, freq="D")]
+    warning = _metric(
+        session,
+        rows,
+        window={"start": "2026-01-01", "end": "2026-01-11", "grain": "day", "time_field": "time"},
+    )
+    report = session.assess_quality(warning)
+
+    s = report.summary()
+    assert s.overall_status == "warning"
+    assert s.warning_count >= 1
+    assert s.blocking_issue_count == 0
+
+
+def test_summary_scalar_without_metric_id(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    frame = _metric(session, [], semantic_kind="scalar", axes={}, window=None)
+    frame.meta.metric_id = None
+    report = session.assess_quality(frame)
+
+    s = report.summary()
+    assert s.target_metric_id is None

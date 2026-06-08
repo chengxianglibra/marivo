@@ -10,7 +10,12 @@ from marivo.analysis.frames.exploration import ExplorationResult, ExplorationRes
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
-from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
+from marivo.analysis.frames.quality import (
+    CheckResult,
+    QualityReport,
+    QualityReportMeta,
+    QualityReportSummary,
+)
 
 __all__ = [
     "AssociationResult",
@@ -21,6 +26,7 @@ __all__ = [
     "BaseFrameMeta",
     "CandidateSet",
     "CandidateSetMeta",
+    "CheckResult",
     "ComponentFrame",
     "ComponentFrameMeta",
     "DeltaFrame",
@@ -36,4 +42,5 @@ __all__ = [
     "MetricFrameMeta",
     "QualityReport",
     "QualityReportMeta",
+    "QualityReportSummary",
 ]

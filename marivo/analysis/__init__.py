@@ -51,7 +51,12 @@ from marivo.analysis.frames.exploration import ExplorationResult, ExplorationRes
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
-from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
+from marivo.analysis.frames.quality import (
+    CheckResult,
+    QualityReport,
+    QualityReportMeta,
+    QualityReportSummary,
+)
 from marivo.analysis.help import help, help_text
 from marivo.analysis.intents._types import (
     DiscoverSensitivity,
@@ -150,6 +155,7 @@ __all__ = [
     "CandidateSetMeta",
     "CandidateShape",
     "ChangeFact",
+    "CheckResult",
     "ColumnMetadata",
     "ComponentFrame",
     "ComponentFrameMeta",
@@ -203,6 +209,7 @@ __all__ = [
     "PublishTarget",
     "QualityReport",
     "QualityReportMeta",
+    "QualityReportSummary",
     "QualitySummary",
     "ReportBlock",
     "ReportChartSpec",

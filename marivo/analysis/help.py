@@ -76,6 +76,8 @@ _SUMMARIES: dict[str, str] = {
     "AttributionFrame": "decomposition, correlation, or anomaly attribution output",
     "ForecastFrame": "forecast output for a time_series or panel metric history",
     "QualityReport": "quality assessment output for an observed metric frame",
+    "QualityReportSummary": "aggregated quality summary returned by QualityReport.summary()",
+    "CheckResult": "single quality-check outcome (check_id, status, message)",
     "CandidateSet": "ranked candidate follow-ups returned by discovery",
     "AssociationResult": "correlation result frame",
     "ComponentFrame": "component values linked to component-aware derived metric frames",
