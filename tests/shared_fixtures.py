@@ -201,14 +201,17 @@ def seeded_time_series_metric_frame(
         for idx, bucket in enumerate(times):
             rows.append({"time": bucket, "value": value_at(idx)})
         semantic_kind = "time_series"
-        axes = {"time": {"field": "time", "grain": grain}}
+        axes = {"time": {"role": "time", "field": "time", "grain": grain}}
     else:
         for segment in segments:
             offset = float(len(rows))
             for idx, bucket in enumerate(times):
                 rows.append({"segment": segment, "time": bucket, "value": value_at(idx) + offset})
         semantic_kind = "panel"
-        axes = {"time": {"field": "time", "grain": grain}, "dimensions": [{"field": "segment"}]}
+        axes = {
+            "time": {"role": "time", "field": "time", "grain": grain},
+            "dimensions": [{"field": "segment"}],
+        }
 
     return MetricFrame.from_dataframe(
         pd.DataFrame(rows),

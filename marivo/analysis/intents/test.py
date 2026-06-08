@@ -12,6 +12,7 @@ import pandas as pd
 from scipy import stats
 
 from marivo.analysis.errors import (
+    AlignmentFailedError,
     SemanticKindMismatchError,
     TestAlignmentError,
     TestPolicyError,
@@ -33,6 +34,12 @@ from marivo.analysis.intents._derived import (
     params_digest,
     require_numeric_column,
     resolve_session,
+)
+from marivo.analysis.intents._window_pairs import (
+    _not_nan,
+    _panel_grain,
+    _prepared_value_map,
+    _walk_ordinal_pairs,
 )
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
@@ -148,12 +155,21 @@ def hypothesis_test(
             a_value=a_value,
             b_value=b_value,
             segment_dims=segment_dims,
+            frame_a=a,
+            frame_b=b,
             min_n=sampling.min_n,
             alpha=alpha,
         )
         result_shape: Literal["single", "per_segment"] = "per_segment"
     else:
-        paired = _paired_values(a_df, b_df, a_value=a_value, b_value=b_value, keys=_pairing_keys(a))
+        if a.meta.semantic_kind == "segmented":
+            paired = _paired_values(
+                a_df, b_df, a_value=a_value, b_value=b_value, keys=_segment_dimensions(a)
+            )
+        else:
+            paired = _ordinal_paired_values(
+                a_df, b_df, a_value=a_value, b_value=b_value, frame_a=a, frame_b=b
+            )
         if paired.empty:
             raise TestAlignmentError(message="test alignment produced no paired rows")
         row = _paired_t_row(paired, min_n=sampling.min_n, alpha=alpha)
@@ -278,12 +294,6 @@ def _time_column(frame: MetricFrame) -> str:
     return "time"
 
 
-def _pairing_keys(frame: MetricFrame) -> list[str]:
-    if frame.meta.semantic_kind == "segmented":
-        return _segment_dimensions(frame)
-    return [_time_column(frame)]
-
-
 def _paired_values(
     a_df: pd.DataFrame,
     b_df: pd.DataFrame,
@@ -296,6 +306,37 @@ def _paired_values(
     right = b_df[[*keys, b_value]].rename(columns={b_value: "value_b"})
     paired = pd.merge(left, right, on=keys, validate="one_to_one")
     return paired.dropna(subset=["value_a", "value_b"])
+
+
+def _ordinal_paired_values(
+    a_df: pd.DataFrame,
+    b_df: pd.DataFrame,
+    *,
+    a_value: str,
+    b_value: str,
+    frame_a: MetricFrame,
+    frame_b: MetricFrame,
+) -> pd.DataFrame:
+    """Pair two time-indexed frames by ordinal bucket position.
+
+    Uses :func:`_walk_ordinal_pairs` to enumerate the expected bucket
+    timestamps for each frame and walk them in lockstep. Emits one row
+    per ordinal where both frames have an observed (non-NaN) value.
+    """
+    grain = _panel_grain(frame_a)
+    if not isinstance(grain, str) or not grain:
+        raise AlignmentFailedError(
+            message="test alignment requires a time axis grain",
+            details={"kind": "WindowBucketGrainMissing"},
+        )
+    time_column = _time_column(frame_a)
+    a_map = _prepared_value_map(a_df, time_column=time_column, value_column=a_value, grain=grain)
+    b_map = _prepared_value_map(b_df, time_column=time_column, value_column=b_value, grain=grain)
+    rows: list[dict[str, object]] = []
+    for pair in _walk_ordinal_pairs(a_map, b_map, grain=grain, frame_a=frame_a, frame_b=frame_b):
+        if pair.a_present and pair.b_present and _not_nan(pair.a_value) and _not_nan(pair.b_value):
+            rows.append({"value_a": pair.a_value, "value_b": pair.b_value})
+    return pd.DataFrame(rows, columns=["value_a", "value_b"])
 
 
 def _paired_t_row(
@@ -369,17 +410,41 @@ def _panel_tests(
     a_value: str,
     b_value: str,
     segment_dims: list[str],
+    frame_a: MetricFrame,
+    frame_b: MetricFrame,
     min_n: int,
     alpha: float,
 ) -> list[dict[str, object]]:
+    """Run a paired t-test per segment, pairing the time axis ordinally.
+
+    Each segment slice is paired by ordinal bucket position via
+    ``_ordinal_paired_values`` so that two panel windows over disjoint date
+    ranges still produce paired rows per segment.
+    """
     rows: list[dict[str, object]] = []
-    keys = [*segment_dims, "time"]
-    paired = _paired_values(a_df, b_df, a_value=a_value, b_value=b_value, keys=keys)
-    if paired.empty:
-        raise TestAlignmentError(message="test alignment produced no paired rows")
     group_key: str | list[str] = segment_dims[0] if len(segment_dims) == 1 else segment_dims
-    for segment_key, group in paired.groupby(group_key, dropna=False):
+    a_groups = dict(iter(a_df.groupby(group_key, dropna=False)))
+    b_groups = dict(iter(b_df.groupby(group_key, dropna=False)))
+    any_paired = False
+    for segment_key in list(a_groups.keys()) + [key for key in b_groups if key not in a_groups]:
+        a_segment = a_groups.get(segment_key)
+        b_segment = b_groups.get(segment_key)
+        if a_segment is None or b_segment is None:
+            continue
+        paired = _ordinal_paired_values(
+            a_segment,
+            b_segment,
+            a_value=a_value,
+            b_value=b_value,
+            frame_a=frame_a,
+            frame_b=frame_b,
+        )
+        if paired.empty:
+            continue
+        any_paired = True
         values = segment_key if isinstance(segment_key, tuple) else (segment_key,)
         prefix = dict(zip(segment_dims, values, strict=True))
-        rows.append(_paired_t_row(group, min_n=min_n, alpha=alpha, prefix=prefix))
+        rows.append(_paired_t_row(paired, min_n=min_n, alpha=alpha, prefix=prefix))
+    if not any_paired:
+        raise TestAlignmentError(message="test alignment produced no paired rows")
     return rows

@@ -23,7 +23,7 @@ def _metric(session, values: list[float]) -> MetricFrame:
     return MetricFrame.from_dataframe(
         pd.DataFrame({"time": times, "value": values}),
         metric_id="sales.revenue",
-        axes={"time": {"field": "time", "grain": "day"}},
+        axes={"time": {"role": "time", "field": "time", "grain": "day"}},
         measure={"field": "value", "aggregation": "sum"},
         semantic_kind="time_series",
         semantic_model="sales",

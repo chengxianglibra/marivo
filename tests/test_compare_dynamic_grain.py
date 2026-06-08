@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from marivo.analysis.errors import AlignmentFailedError
-from marivo.analysis.intents.compare import (
+from marivo.analysis.intents._window_pairs import (
     _advance_bucket_datetime,
     _bucket_key,
     _window_bucket_values,
