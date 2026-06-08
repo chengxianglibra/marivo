@@ -30,6 +30,8 @@ def test_layout_paths(tmp_path):
     assert layout.session_dir == tmp_path / ".marivo" / "analysis" / "sessions" / "sess_test01"
     assert layout.jobs_dir == layout.session_dir / "jobs"
     assert layout.frames_dir == layout.session_dir / "frames"
+    assert layout.scripts_dir == layout.session_dir / "scripts"
+    assert layout.reports_dir == layout.session_dir / "reports"
 
 
 def test_write_and_read_session_meta(tmp_path):

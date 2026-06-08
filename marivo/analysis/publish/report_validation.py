@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from marivo.analysis.publish.report_models import (
     MarivoReportArtifact,
@@ -562,8 +563,19 @@ def _validate_narrative_adjacency(
                 )
 
 
-def validate_report_artifact(artifact: MarivoReportArtifact) -> ReportPackageValidationResult:
-    """Validate report package cross-references and required report sections."""
+def validate_report_artifact(
+    artifact: MarivoReportArtifact,
+    *,
+    script_root: str | Path | None = None,
+) -> ReportPackageValidationResult:
+    """Validate report package cross-references and required report sections.
+
+    When *script_root* is provided, every ``FlowStep.script_refs`` and
+    ``SourceProvenance.script_refs`` entry is also checked for existence on
+    disk relative to that directory. Pass ``None`` (the default) to skip the
+    file-existence check — for example, when validating an artifact before the
+    scripts are staged alongside it.
+    """
     issues: list[ReportPackageValidationIssue] = []
     section_ids = {section.section_id for section in artifact.report_spec.sections}
     block_ids = {
@@ -581,5 +593,42 @@ def validate_report_artifact(artifact: MarivoReportArtifact) -> ReportPackageVal
     _validate_source_provenance(artifact, issues)
     _validate_grounding_and_numbers(artifact, issues)
     _validate_narrative_adjacency(artifact, issues)
+    if script_root is not None:
+        _validate_script_refs_exist(artifact, Path(script_root), issues)
 
     return ReportPackageValidationResult(ok=not issues, issues=tuple(issues))
+
+
+def _validate_script_refs_exist(
+    artifact: MarivoReportArtifact,
+    script_root: Path,
+    issues: list[ReportPackageValidationIssue],
+) -> None:
+    for step_index, step in enumerate(artifact.flow.steps):
+        for ref_index, script_ref in enumerate(step.script_refs):
+            location = f"flow.steps[{step_index}].script_refs[{ref_index}]"
+            _check_script_ref_exists(script_ref, script_root, location, issues)
+    for dataset_id, dataset in artifact.datasets.items():
+        for ref_index, script_ref in enumerate(dataset.metadata.source_provenance.script_refs):
+            location = f"datasets.{dataset_id}.metadata.source_provenance.script_refs[{ref_index}]"
+            _check_script_ref_exists(script_ref, script_root, location, issues)
+
+
+def _check_script_ref_exists(
+    script_ref: str,
+    script_root: Path,
+    location: str,
+    issues: list[ReportPackageValidationIssue],
+) -> None:
+    resolved = script_root / script_ref
+    if not resolved.is_file():
+        issues.append(
+            _issue(
+                "script_ref_missing",
+                (
+                    f"script_ref {script_ref!r} does not exist relative to "
+                    f"script_root {str(script_root)!r}"
+                ),
+                location=location,
+            )
+        )
