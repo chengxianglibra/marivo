@@ -8,7 +8,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session.attach as session_attach
-from marivo.analysis.errors import FrameMetaInvalidError
+from marivo.analysis.errors import FrameMetaInvalidError, FrameRefNotFound
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session.persistence import write_frame_to_disk
@@ -242,3 +242,25 @@ def test_loads_new_operator_frame_families(tmp_path, monkeypatch):
         "forecast_frame",
         "quality_report",
     ]
+
+
+def test_load_frame_accepts_artifact_ref():
+    session = session_attach.get_or_create(name="demo")
+    frame = MetricFrame.from_dataframe(
+        pd.DataFrame({"value": [1.0]}),
+        metric_id="custom.metric",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="custom",
+        session=session,
+    )
+    loaded = mv.load_frame(mv.ArtifactRef(frame.ref), session=session)
+    assert isinstance(loaded, MetricFrame)
+    assert loaded.ref == frame.ref
+
+
+def test_load_frame_artifact_ref_not_found():
+    session = session_attach.get_or_create(name="demo")
+    with pytest.raises(FrameRefNotFound):
+        mv.load_frame(mv.ArtifactRef("frame_nonexistent"), session=session)
