@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import warnings
 from html import escape as _html_escape
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -1759,16 +1761,80 @@ def render_report_html(
     )
 
 
+def _collect_script_refs(artifact: MarivoReportArtifact) -> frozenset[str]:
+    refs: set[str] = set()
+    for step in artifact.flow.steps:
+        refs.update(step.script_refs)
+    for dataset in artifact.datasets.values():
+        refs.update(dataset.metadata.source_provenance.script_refs)
+    return frozenset(refs)
+
+
+def _copy_scripts_into_package(
+    artifact: MarivoReportArtifact,
+    script_source_dir: Path,
+    package_root: Path,
+) -> int:
+    refs = _collect_script_refs(artifact)
+    if not refs:
+        return 0
+
+    # Clean stale scripts from previous materialization.
+    scripts_subdir = package_root / "scripts"
+    if scripts_subdir.is_dir():
+        for path in scripts_subdir.rglob("*.py"):
+            rel = path.relative_to(package_root).as_posix()
+            if rel not in refs:
+                path.unlink()
+                for parent in path.parents:
+                    if parent == scripts_subdir:
+                        break
+                    try:
+                        parent.rmdir()
+                    except OSError:
+                        break
+
+    copied = 0
+    for script_ref in sorted(refs):
+        src = script_source_dir / script_ref
+        dst = package_root / script_ref
+        if not src.is_file():
+            warnings.warn(
+                f"script_ref {script_ref!r} does not exist at {src}; skipping copy",
+                stacklevel=2,
+            )
+            continue
+        # Safety: destination must stay within package_root.
+        try:
+            dst.resolve().relative_to(package_root.resolve())
+        except ValueError:
+            warnings.warn(
+                f"script_ref {script_ref!r} resolves outside the package root; skipping",
+                stacklevel=2,
+            )
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        copied += 1
+    return copied
+
+
 def materialize_html_adapter(
     artifact: MarivoReportArtifact,
     root: str | Path,
     *,
     language: str | None = None,
+    script_source_dir: str | Path | None = None,
 ) -> MarivoReportArtifact:
     """Write canonical report package files plus standalone ``index.html``.
 
     If *language* is provided, it is stamped onto the manifest before rendering
     so the written ``manifest.json`` and ``index.html`` both reflect it.
+
+    If *script_source_dir* is provided, every ``FlowStep.script_refs`` and
+    ``SourceProvenance.script_refs`` entry is resolved relative to that
+    directory and copied into the report package, making script links in the
+    rendered HTML functional after publishing.
     """
     package_root = Path(root)
     manifest_update: dict[str, Any] = {
@@ -1784,4 +1850,6 @@ def materialize_html_adapter(
     index_path = package_root / "index.html"
     index_path.write_text(html_text, encoding="utf-8")
     write_report_artifact(updated, package_root)
+    if script_source_dir is not None:
+        _copy_scripts_into_package(updated, Path(script_source_dir), package_root)
     return updated

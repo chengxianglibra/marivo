@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from marivo.analysis.publish import MarivoReportArtifact
 from tests.test_analysis_report_artifact_mcp_adapter import (
     _artifact_with_chart_and_table,
     _artifact_with_metric_spec,
@@ -920,3 +921,127 @@ def test_render_report_html_links_multiple_script_refs() -> None:
 
     assert '<a href="scripts/step_a.py">scripts/step_a.py</a>' in rendered
     assert '<a href="scripts/step_b.py">scripts/step_b.py</a>' in rendered
+
+
+def _artifact_with_script_refs(
+    *,
+    flow_script_refs: tuple[str, ...] = (),
+    provenance_script_refs: tuple[str, ...] = (),
+) -> MarivoReportArtifact:
+
+    artifact = _html_artifact()
+    step = artifact.flow.steps[0].model_copy(update={"script_refs": flow_script_refs})
+    provenance = artifact.datasets["headline_metrics"].metadata.source_provenance.model_copy(
+        update={"script_refs": provenance_script_refs}
+    )
+    meta = artifact.datasets["headline_metrics"].metadata.model_copy(
+        update={"source_provenance": provenance}
+    )
+    ds = artifact.datasets["headline_metrics"].model_copy(update={"metadata": meta})
+    return artifact.model_copy(
+        update={
+            "flow": artifact.flow.model_copy(update={"steps": (step, *artifact.flow.steps[1:])}),
+            "datasets": {**artifact.datasets, "headline_metrics": ds},
+        }
+    )
+
+
+def test_materialize_copies_scripts_when_source_dir_provided(tmp_path: Path) -> None:
+    from marivo.analysis.publish import materialize_html_adapter
+
+    artifact = _artifact_with_script_refs(
+        flow_script_refs=("scripts/step_observe.py",),
+        provenance_script_refs=("scripts/step_observe.py",),
+    )
+
+    source_dir = tmp_path / "source"
+    (source_dir / "scripts").mkdir(parents=True)
+    (source_dir / "scripts" / "step_observe.py").write_text("# observe\n", encoding="utf-8")
+
+    package_dir = tmp_path / "package"
+    materialize_html_adapter(artifact, package_dir, script_source_dir=source_dir)
+
+    assert (package_dir / "scripts" / "step_observe.py").is_file()
+    assert (package_dir / "scripts" / "step_observe.py").read_text() == "# observe\n"
+
+
+def test_materialize_no_scripts_without_source_dir(tmp_path: Path) -> None:
+    from marivo.analysis.publish import materialize_html_adapter
+
+    artifact = _artifact_with_script_refs(
+        flow_script_refs=("scripts/step_observe.py",),
+    )
+
+    materialize_html_adapter(artifact, tmp_path)
+
+    assert not (tmp_path / "scripts").exists()
+
+
+def test_materialize_removes_stale_scripts_on_re_run(tmp_path: Path) -> None:
+    from marivo.analysis.publish import materialize_html_adapter
+
+    source_dir = tmp_path / "source"
+    (source_dir / "scripts").mkdir(parents=True)
+
+    (source_dir / "scripts" / "step_a.py").write_text("# a\n", encoding="utf-8")
+    (source_dir / "scripts" / "step_b.py").write_text("# b\n", encoding="utf-8")
+
+    artifact_a = _artifact_with_script_refs(
+        flow_script_refs=("scripts/step_a.py", "scripts/step_b.py"),
+    )
+    package_dir = tmp_path / "package"
+    materialize_html_adapter(artifact_a, package_dir, script_source_dir=source_dir)
+    assert (package_dir / "scripts" / "step_a.py").is_file()
+    assert (package_dir / "scripts" / "step_b.py").is_file()
+
+    artifact_b = _artifact_with_script_refs(
+        flow_script_refs=("scripts/step_a.py",),
+    )
+    materialize_html_adapter(artifact_b, package_dir, script_source_dir=source_dir)
+    assert (package_dir / "scripts" / "step_a.py").is_file()
+    assert not (package_dir / "scripts" / "step_b.py").exists()
+
+
+def test_materialize_warns_on_missing_source_script(tmp_path: Path) -> None:
+    import warnings
+
+    from marivo.analysis.publish import materialize_html_adapter
+
+    source_dir = tmp_path / "source"
+    (source_dir / "scripts").mkdir(parents=True)
+
+    artifact = _artifact_with_script_refs(
+        flow_script_refs=("scripts/ghost.py",),
+    )
+    package_dir = tmp_path / "package"
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        materialize_html_adapter(artifact, package_dir, script_source_dir=source_dir)
+
+    assert any("ghost.py" in str(w.message) for w in caught)
+    assert not (package_dir / "scripts" / "ghost.py").exists()
+
+
+def test_materialize_skips_path_traversal_script_ref(tmp_path: Path) -> None:
+    import warnings
+
+    from marivo.analysis.publish import materialize_html_adapter
+
+    source_dir = tmp_path / "source"
+    (source_dir / "scripts").mkdir(parents=True)
+    (source_dir / "scripts" / "step.py").write_text("# step\n", encoding="utf-8")
+
+    artifact = _artifact_with_script_refs(
+        flow_script_refs=("scripts/step.py", "../../etc/passwd"),
+    )
+    package_dir = tmp_path / "package"
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        materialize_html_adapter(artifact, package_dir, script_source_dir=source_dir)
+
+    assert (package_dir / "scripts" / "step.py").is_file()
+    # The traversal ref triggers a warning (missing source or path escape).
+    assert any("passwd" in str(w.message) for w in caught)
+    assert not (package_dir.parent.parent / "etc" / "passwd").exists()

@@ -136,10 +136,13 @@ html = mv.render_report_html(artifact, language="zh-Hans")
 ```
 
 For a full report package, call
-`materialize_html_adapter(artifact, root=session.layout.reports_dir / artifact.manifest.report_id)`
-so the package files land under `reports/<report_id>/`. Paths in
-`script_refs` stay relative (e.g. `"scripts/step_observe.py"`); they resolve
-against `session.layout.session_dir` for validation (see below).
+`materialize_html_adapter(artifact, root=session.layout.reports_dir / artifact.manifest.report_id, script_source_dir=session.layout.session_dir)`
+so the package files land under `reports/<report_id>/`. When
+`script_source_dir` is provided, every referenced script is copied into the
+report package, making `<a href="scripts/...">` links functional after
+publishing. Paths in `script_refs` stay relative (e.g.
+`"scripts/step_observe.py"`); they resolve against
+`session.layout.session_dir` for validation (see below).
 
 Script references: `FlowStep.script_refs` and `SourceProvenance.script_refs`
 must list every real script path — one entry per file that exists on disk.
