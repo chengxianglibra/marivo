@@ -658,8 +658,9 @@ def _execute_base(
             metric_datasets=metric_datasets,
             dataset_tables=dataset_tables,
         )
+        grouped_expr = plan.table.aggregate(**{metric_name: metric_expr})
         result = execute(
-            metric_expr,
+            grouped_expr,
             datasource_name=primary_datasource,
             cache=session.backend_cache,
             session_id=session.id,
