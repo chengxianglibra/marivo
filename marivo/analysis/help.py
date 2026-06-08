@@ -81,6 +81,8 @@ _SUMMARIES: dict[str, str] = {
     "CandidateSet": "ranked candidate follow-ups returned by discovery",
     "AssociationResult": "correlation result frame",
     "ComponentFrame": "component values linked to component-aware derived metric frames",
+    "FrameRef": "typed reference to a persisted analysis frame",
+    "FrameSummaryEntry": "summary metadata for a persisted analysis frame",
     "ExplorationResult": "exploration result frame",
     "HypothesisTestResult": "statistical test result frame",
     "DataPolicy": "row-level data inclusion policy for a report package",

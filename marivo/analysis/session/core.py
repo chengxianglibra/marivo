@@ -62,6 +62,16 @@ class FrameRef:
     kind: str
 
 
+@dataclass(frozen=True)
+class FrameSummaryEntry:
+    ref: str
+    kind: str
+    metric_id: str | None
+    semantic_kind: str | None
+    semantic_model: str | None
+    created_at: str | None
+
+
 @dataclass
 class Session:
     id: str
@@ -180,6 +190,54 @@ class Session:
                 meta = json.loads(meta_file.read_text())
                 refs.append(FrameRef(ref=meta["ref"], kind=meta["kind"]))
         return refs
+
+    def get_frame(self, ref: str) -> BaseFrame:
+        """Load a persisted frame by ref or artifact_id.
+
+        Reconstructs a live frame object from the on-disk parquet and
+        meta.json.  The returned frame is fully functional and can be
+        passed to any intent (compare, decompose, etc.).
+
+        Args:
+            ref: The frame ref string.  After observe() or compare()
+                returns, ``frame.ref`` equals the deterministic
+                artifact_id, so ``session.get_frame(prev_frame.ref)``
+                works across script boundaries.
+
+        Raises:
+            FrameRefNotFound: No frame with this ref exists in this session.
+            CrossSessionFrameError: The frame belongs to a different session.
+            FrameCacheCorruptedError: The frame data is on disk but unreadable.
+        """
+        from marivo.analysis.session._load import load_frame
+
+        return load_frame(ref, session=self)
+
+    def frame_summaries(self) -> list[FrameSummaryEntry]:
+        """Return rich metadata for each persisted frame in this session.
+
+        Unlike :meth:`frames` which returns lightweight (ref, kind) pairs,
+        this method includes metric_id, semantic_kind, and other fields
+        needed for semantic lookup across script boundaries.
+        """
+        if not self.layout.frames_dir.is_dir():
+            return []
+        entries: list[FrameSummaryEntry] = []
+        for frame_dir in sorted(self.layout.frames_dir.iterdir()):
+            meta_file = frame_dir / "meta.json"
+            if meta_file.is_file():
+                meta = json.loads(meta_file.read_text())
+                entries.append(
+                    FrameSummaryEntry(
+                        ref=meta["ref"],
+                        kind=meta["kind"],
+                        metric_id=meta.get("metric_id"),
+                        semantic_kind=meta.get("semantic_kind"),
+                        semantic_model=meta.get("semantic_model"),
+                        created_at=meta.get("created_at"),
+                    )
+                )
+        return entries
 
     def close(self) -> None:
         """Release session resources: the evidence store and cached backends.

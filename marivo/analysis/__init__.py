@@ -111,6 +111,7 @@ from marivo.analysis.publish import (
 from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
 from marivo.analysis.session._introspection import install_intent_docstrings
 from marivo.analysis.session._load import load_frame
+from marivo.analysis.session.core import FrameRef, FrameSummaryEntry
 from marivo.analysis.validation import ValidationIssue
 from marivo.analysis.windows import GrainUnit, ensure_grain_supported
 from marivo.analysis.windows.spec import (
@@ -179,6 +180,8 @@ __all__ = [
     "ForecastFrameMeta",
     "ForecastSummary",
     "FramePreview",
+    "FrameRef",
+    "FrameSummaryEntry",
     "Grain",
     "GrainInput",
     "GrainUnit",

@@ -22,6 +22,8 @@ from marivo.analysis.evidence.pipeline import (
     CommitParams,
     CommitSemanticAnchors,
     commit_result,
+    compute_prospective_artifact_id,
+    frame_exists_on_disk,
 )
 from marivo.analysis.evidence.types import Subject
 from marivo.analysis.executor.runner import (
@@ -43,6 +45,7 @@ from marivo.analysis.intents.observe_planner import (
 )
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.refs import DimensionRef, MetricRef
+from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.attach import active as session_active
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.session.persistence import (
@@ -995,17 +998,8 @@ def observe(
         )
         # plan_observe always returns DerivedObservePlan for derived metrics
         assert isinstance(derived_plan, DerivedObservePlan)
-        result, component_df, derived_axes, derived_kind = _execute_derived(
-            derived_plan,
-            metric_ir,
-            sp=sp,
-            session=session,
-            resolved_window=resolved_window,
-        )
-        _persist_known_datasources(session)
-        finished_at = datetime.now(UTC)
-        frame_ref = _gen_ref("frame")
-        job_ref = _gen_ref("job")
+
+        # Build params and check cache before executing the backend query.
         params_timescope = None
         if resolved_window is not None:
             params_timescope = {
@@ -1026,6 +1020,28 @@ def observe(
             "warnings": derived_plan.warnings,
             "lineage_metadata": derived_plan.lineage_metadata,
         }
+        prospective_id = compute_prospective_artifact_id(
+            step_type="observe",
+            inputs=CommitInputs(input_refs=[]),
+            params=CommitParams(values=params),
+            semantic_anchors=CommitSemanticAnchors(
+                values={"metric_id": metric_id, "model": model_name}
+            ),
+        )
+        if frame_exists_on_disk(session.layout.frames_dir, prospective_id):
+            return cast("MetricFrame", load_frame(prospective_id, session=session))
+
+        result, component_df, derived_axes, derived_kind = _execute_derived(
+            derived_plan,
+            metric_ir,
+            sp=sp,
+            session=session,
+            resolved_window=resolved_window,
+        )
+        _persist_known_datasources(session)
+        finished_at = datetime.now(UTC)
+        frame_ref = _gen_ref("frame")
+        job_ref = _gen_ref("job")
         meta = MetricFrameMeta(
             kind="metric_frame",
             ref=frame_ref,
@@ -1152,18 +1168,7 @@ def observe(
     if primary_datasource is None:
         raise MetricNotFoundError(message=f"metric '{metric_id}' references no datasets")
 
-    result, axes, semantic_kind = _execute_base(
-        plan,
-        metric_ir,
-        sp=sp,
-        session=session,
-        dimensions=dimensions,
-        resolved_window=resolved_window,
-    )
-    finished_at = datetime.now(UTC)
-
-    frame_ref = _gen_ref("frame")
-    job_ref = _gen_ref("job")
+    # Build params and check cache before executing the backend query.
     params_timescope = None
     if resolved_window is not None:
         params_timescope = {
@@ -1182,6 +1187,29 @@ def observe(
         "fanouts": plan.lineage_metadata.get("fanouts") or [],
         "warnings": plan.warnings,
     }
+    prospective_id = compute_prospective_artifact_id(
+        step_type="observe",
+        inputs=CommitInputs(input_refs=[]),
+        params=CommitParams(values=params),
+        semantic_anchors=CommitSemanticAnchors(
+            values={"metric_id": metric_id, "model": model_name}
+        ),
+    )
+    if frame_exists_on_disk(session.layout.frames_dir, prospective_id):
+        return cast("MetricFrame", load_frame(prospective_id, session=session))
+
+    result, axes, semantic_kind = _execute_base(
+        plan,
+        metric_ir,
+        sp=sp,
+        session=session,
+        dimensions=dimensions,
+        resolved_window=resolved_window,
+    )
+    finished_at = datetime.now(UTC)
+
+    frame_ref = _gen_ref("frame")
+    job_ref = _gen_ref("job")
     meta = MetricFrameMeta(
         kind="metric_frame",
         ref=frame_ref,
