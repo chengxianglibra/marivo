@@ -269,23 +269,9 @@ class EvidenceStore:
 
 
 def _source_pack_to_record(pack: SourceEvidencePack) -> JsonRecord:
-    return {
-        "record_type": "source",
-        "datasource": pack.datasource,
-        "source": pack.source.to_dict(),
-        "schema": [list(item) for item in pack.schema],
-        "table_comment": pack.table_comment,
-        "column_comments": [list(item) for item in pack.column_comments],
-        "nullable": [list(item) for item in pack.nullable],
-        "partition_hints": list(pack.partition_hints),
-        "key_hints": [list(item) for item in pack.key_hints],
-        "column_profiles": [profile.to_dict() for profile in pack.column_profiles],
-        "metadata_warnings": list(pack.metadata_warnings),
-        "evidence_refs": [ref.to_dict() for ref in pack.evidence_refs],
-        "sample_policy": _sample_policy_to_dict(pack.sample_policy),
-        "redaction_status": pack.redaction_status,
-        "truncated": pack.truncated,
-    }
+    record: JsonRecord = pack.to_dict()
+    record["record_type"] = "source"
+    return record
 
 
 def _source_pack_structural_fingerprint(pack: SourceEvidencePack) -> str:

@@ -295,6 +295,15 @@ class ColumnProfile:
 
 
 @dataclass(frozen=True)
+class SchemaColumn:
+    name: str
+    data_type: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {"name": self.name, "data_type": self.data_type}
+
+
+@dataclass(frozen=True)
 class SourceEvidencePack:
     datasource: str
     source: DatasetSource
@@ -310,6 +319,46 @@ class SourceEvidencePack:
     sample_policy: SamplePolicy
     redaction_status: RedactionStatus
     truncated: bool
+
+    @property
+    def schema_columns(self) -> tuple[SchemaColumn, ...]:
+        return tuple(
+            SchemaColumn(name=name, data_type=data_type) for name, data_type in self.schema
+        )
+
+    @property
+    def schema_by_column(self) -> dict[str, str]:
+        return dict(self.schema)
+
+    @property
+    def nullable_by_column(self) -> dict[str, bool | None]:
+        return dict(self.nullable)
+
+    @property
+    def column_comments_by_column(self) -> dict[str, str]:
+        return dict(self.column_comments)
+
+    @property
+    def column_profiles_by_column(self) -> dict[str, ColumnProfile]:
+        return {profile.column: profile for profile in self.column_profiles}
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "datasource": self.datasource,
+            "source": self.source.to_dict(),
+            "schema": [list(item) for item in self.schema],
+            "table_comment": self.table_comment,
+            "column_comments": [list(item) for item in self.column_comments],
+            "nullable": [list(item) for item in self.nullable],
+            "partition_hints": list(self.partition_hints),
+            "key_hints": [list(item) for item in self.key_hints],
+            "column_profiles": [profile.to_dict() for profile in self.column_profiles],
+            "metadata_warnings": list(self.metadata_warnings),
+            "evidence_refs": [ref.to_dict() for ref in self.evidence_refs],
+            "sample_policy": self.sample_policy.to_dict(),
+            "redaction_status": self.redaction_status,
+            "truncated": self.truncated,
+        }
 
 
 @dataclass(frozen=True)

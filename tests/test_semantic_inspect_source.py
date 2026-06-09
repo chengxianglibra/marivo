@@ -54,6 +54,17 @@ def test_metadata_only_collects_facts_without_profiles(tmp_path):
         store=store,
     )
     assert dict(pack.schema)["amount"] == "DOUBLE"
+    assert pack.schema_by_column["amount"] == "DOUBLE"
+    assert pack.nullable_by_column["order_id"] is False
+    assert pack.nullable_by_column["amount"] is True
+    assert pack.column_comments_by_column["amount"] == "Gross amount"
+    assert pack.column_profiles_by_column == {}
+    assert pack.schema_columns[0].name == "order_id"
+    assert pack.schema_columns[2].data_type == "DOUBLE"
+    d = pack.to_dict()
+    assert d["datasource"] == "warehouse"
+    assert d["schema"] == [["order_id", "INTEGER"], ["status", "VARCHAR"], ["amount", "DOUBLE"]]
+    assert d["table_comment"] == "orders fact"
     assert pack.table_comment == "orders fact"
     assert pack.partition_hints == ("dt",)
     assert pack.column_profiles == ()
@@ -78,6 +89,8 @@ def test_bounded_profile_collects_sample_scoped_profiles(tmp_path):
     assert ("paid", 2) in by_col["status"].top_values
     assert by_col["amount"].sample_scope == "bounded_sample"
     assert by_col["amount"].approximate is True
+    assert pack.column_profiles_by_column["amount"].null_count == 1
+    assert pack.column_profiles_by_column["status"].distinct_count == 2
 
 
 def test_max_profiled_columns_skips_extra_columns_with_warning(tmp_path):
