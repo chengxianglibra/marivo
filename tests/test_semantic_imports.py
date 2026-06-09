@@ -94,6 +94,7 @@ def test_all_list_matches_expected() -> None:
         "RichnessReport",
         "RichnessSummary",
         "SamplePolicy",
+        "SchemaColumn",
         "SelectedColumnsPolicy",
         "SemanticProject",
         "SourceEvidencePack",

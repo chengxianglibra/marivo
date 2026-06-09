@@ -44,6 +44,7 @@ _SUMMARIES: dict[str, str] = {
     "SelectedColumnsPolicy": "profiling policy that reads selected columns with a limit",
     "SemanticProject": "primary reader for a loaded semantic project",
     "SourceEvidencePack": "collected facts and bounded profiles for a source",
+    "SchemaColumn": "named column with name and data_type attributes, from a pack's schema",
     "TableSource": "physical table source (table name, optional database)",
     "dataset": "declare a dataset over a structured source",
     "derived_metric": "declare a body-free canonical ratio or weighted-average metric",
