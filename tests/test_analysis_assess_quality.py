@@ -285,16 +285,15 @@ def test_panel_duplicate_keys_catches_real_duplicates(tmp_path):
 
 def test_panel_time_coverage_with_timezone(tmp_path):
     """Weekly grain with a non-UTC timezone must not yield 0% coverage.
-    bucket_start values are in UTC (e.g., 2026-05-24T16:00:00 for UTC+8's 5/25),
-    but the check must compare against local-calendar dates."""
+    bucket_start values are session-local (e.g., 2026-05-18 for Shanghai's
+    Monday), and the check must compare against local-calendar dates."""
     session = session_attach.get_or_create(name="demo")
-    # Simulate weekly buckets in UTC+8: each "Monday" bucket_start is the
-    # preceding Sunday at 16:00 UTC.
+    # Simulate weekly buckets in UTC+8: Monday midnights in session-local time.
     rows = [
-        {"bucket_start": "2026-05-17T16:00:00", "region": "US", "value": 1.0},
-        {"bucket_start": "2026-05-24T16:00:00", "region": "US", "value": 2.0},
-        {"bucket_start": "2026-05-17T16:00:00", "region": "CA", "value": 3.0},
-        {"bucket_start": "2026-05-24T16:00:00", "region": "CA", "value": 4.0},
+        {"bucket_start": "2026-05-18T00:00:00", "region": "US", "value": 1.0},
+        {"bucket_start": "2026-05-25T00:00:00", "region": "US", "value": 2.0},
+        {"bucket_start": "2026-05-18T00:00:00", "region": "CA", "value": 3.0},
+        {"bucket_start": "2026-05-25T00:00:00", "region": "CA", "value": 4.0},
     ]
     frame = _metric(
         session,

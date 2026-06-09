@@ -999,17 +999,27 @@ def ensure_bucket_start_timestamp(
     time_meta: Any,
     dataset_ir: Any,
     grain: Grain | None,
+    session_tz: ZoneInfo | None = None,
 ) -> pd.Series:
-    """Convert string bucket_start values to ``pd.Timestamp``.
+    """Normalize bucket_start values after SQL execution.
 
-    ``apply_time_series_bucket`` may produce string-typed ``bucket_start``
-    values (e.g. hour-only fields via ``_apply_hour_only_bucket``) for
-    efficient ibis-level sorting and grouping.  This function converts them
-    to proper timestamps after execution so downstream consumers (compare,
-    discover) can use ``pd.Timestamp()`` on them.
+    Handles two post-execution normalizations:
+
+    1. String-to-timestamp conversion for hour-only partition fields
+       (produced by ``_apply_hour_only_bucket``).
+    2. Timezone normalization: tz-aware bucket_start values (e.g. from
+       ClickHouse ``Nullable(DateTime)`` columns) are converted to
+       session-local naive timestamps so that downstream consumers see
+       business-timezone dates, not UTC.
     """
     if grain is None:
         return series
+
+    # Timezone normalization: convert tz-aware timestamps to session-local naive.
+    if session_tz is not None and isinstance(series.dtype, pd.DatetimeTZDtype):
+        converted: pd.Series = series.dt.tz_convert(session_tz).dt.tz_localize(None)
+        return converted
+
     if not pd.api.types.is_string_dtype(series):
         return series
 

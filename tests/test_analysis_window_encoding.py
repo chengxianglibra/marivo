@@ -1,5 +1,7 @@
 """_encode_window_bound: ISO string -> physical value per time field format."""
 
+from zoneinfo import ZoneInfo
+
 import ibis
 import pandas as pd
 import pytest
@@ -613,6 +615,125 @@ def test_ensure_bucket_start_timestamp_skips_none_grain():
         grain=None,
     )
     assert result is series
+
+
+# ---------------------------------------------------------------------------
+# ensure_bucket_start_timestamp — timezone normalization
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_bucket_start_timestamp_tz_aware_utc_to_session_tz():
+    """UTC-aware bucket_start is converted to session-local naive."""
+    shanghai = ZoneInfo("Asia/Shanghai")
+    utc = ZoneInfo("UTC")
+    # 2026-05-24 16:00 UTC = 2026-05-25 00:00 Shanghai
+    series = pd.Series(
+        [pd.Timestamp("2026-05-24 16:00:00", tz=utc)],
+        dtype="datetime64[ns, UTC]",
+    )
+    time_meta = FakeMeta("datetime", None)
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=FakeDataset([]),
+        grain=Grain(count=1, unit="week"),
+        session_tz=shanghai,
+    )
+    assert result.dtype == "datetime64[ns]"
+    assert result.iloc[0] == pd.Timestamp("2026-05-25 00:00:00")
+
+
+def test_ensure_bucket_start_timestamp_tz_aware_non_utc():
+    """Non-UTC-aware bucket_start is converted to session-local naive."""
+    tokyo = ZoneInfo("Asia/Tokyo")
+    shanghai = ZoneInfo("Asia/Shanghai")
+    # 2026-05-25 01:00 Tokyo = 2026-05-25 00:00 Shanghai
+    series = pd.Series(
+        [pd.Timestamp("2026-05-25 01:00:00", tz=tokyo)],
+        dtype="datetime64[ns, Asia/Tokyo]",
+    )
+    time_meta = FakeMeta("datetime", None)
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=FakeDataset([]),
+        grain=Grain(count=1, unit="week"),
+        session_tz=shanghai,
+    )
+    assert result.dtype == "datetime64[ns]"
+    assert result.iloc[0] == pd.Timestamp("2026-05-25 00:00:00")
+
+
+def test_ensure_bucket_start_timestamp_tz_naive_unchanged():
+    """Tz-naive bucket_start is returned unchanged (already session-local)."""
+    shanghai = ZoneInfo("Asia/Shanghai")
+    series = pd.Series([pd.Timestamp("2026-05-25 00:00:00")], dtype="datetime64[ns]")
+    time_meta = FakeMeta("datetime", None)
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=FakeDataset([]),
+        grain=Grain(count=1, unit="week"),
+        session_tz=shanghai,
+    )
+    assert result is series
+
+
+def test_ensure_bucket_start_timestamp_no_session_tz():
+    """Without session_tz, tz-aware bucket_start is returned unchanged."""
+    utc = ZoneInfo("UTC")
+    series = pd.Series(
+        [pd.Timestamp("2026-05-24 16:00:00", tz=utc)],
+        dtype="datetime64[ns, UTC]",
+    )
+    time_meta = FakeMeta("datetime", None)
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=FakeDataset([]),
+        grain=Grain(count=1, unit="week"),
+    )
+    assert result is series
+
+
+def test_ensure_bucket_start_timestamp_dst_transition():
+    """DST boundary: 2026-03-08 07:00 UTC = 2026-03-08 03:00 EDT (spring forward)."""
+    eastern = ZoneInfo("America/New_York")
+    utc = ZoneInfo("UTC")
+    # 2026-03-08 is a Sunday; EDT starts at 02:00 local (07:00 UTC)
+    series = pd.Series(
+        [pd.Timestamp("2026-03-08 07:00:00", tz=utc)],
+        dtype="datetime64[ns, UTC]",
+    )
+    time_meta = FakeMeta("datetime", None)
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=FakeDataset([]),
+        grain=Grain(count=1, unit="day"),
+        session_tz=eastern,
+    )
+    assert result.dtype == "datetime64[ns]"
+    assert result.iloc[0] == pd.Timestamp("2026-03-08 03:00:00")
+
+
+def test_ensure_bucket_start_timestamp_utc_session_tz():
+    """When session_tz is UTC, tz_convert is a no-op; result is naive UTC."""
+    utc = ZoneInfo("UTC")
+    series = pd.Series(
+        [pd.Timestamp("2026-05-24 16:00:00", tz=utc)],
+        dtype="datetime64[ns, UTC]",
+    )
+    time_meta = FakeMeta("datetime", None)
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=FakeDataset([]),
+        grain=Grain(count=1, unit="week"),
+        session_tz=utc,
+    )
+    assert result.dtype == "datetime64[ns]"
+    assert result.iloc[0] == pd.Timestamp("2026-05-24 16:00:00")
 
 
 def test_timescope_rejects_expr_field():

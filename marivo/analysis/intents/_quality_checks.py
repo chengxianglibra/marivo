@@ -126,9 +126,7 @@ def _time_coverage_check(
         if time_col in df and len(df)
         else pd.Series(dtype="datetime64[ns]")
     )
-    if tz and len(observed_ts) > 0:
-        if observed_ts.dt.tz is None:
-            observed_ts = observed_ts.dt.tz_localize("UTC")
+    if tz and len(observed_ts) > 0 and observed_ts.dt.tz is not None:
         observed_ts = observed_ts.dt.tz_convert(tz).dt.tz_localize(None)
     observed = observed_ts.dt.normalize().unique()
     observed_set = {pd.Timestamp(value).normalize() for value in observed}
