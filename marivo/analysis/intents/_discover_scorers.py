@@ -65,6 +65,14 @@ def score_point_anomalies(
     key_columns = [
         col for col in source_df.columns if col != value_column and col not in time_columns
     ]
+    baseline_window: dict[str, str] | None = None
+    if time_columns:
+        ts_col = source_df[time_columns[0]].dropna()
+        if not ts_col.empty:
+            baseline_window = {
+                "start": pd.Timestamp(ts_col.min()).isoformat(),
+                "end": pd.Timestamp(ts_col.max()).isoformat(),
+            }
     rows: list[dict[str, Any]] = []
     for row_index, is_candidate in enumerate(np.abs(scores) >= threshold):
         if not bool(is_candidate):
@@ -82,6 +90,7 @@ def score_point_anomalies(
                 "source_refs": [f"{source_ref}#row={row_index}"],
                 "keys": keys if keys else {},
                 "window": window,
+                "baseline_window": baseline_window,
             }
         )
     return rows

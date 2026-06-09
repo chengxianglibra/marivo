@@ -175,7 +175,7 @@ def test_validate_shape_columns_rejects_invalid_followup_payload() -> None:
         (
             "point_anomaly",
             {"window_start", "window_end", "direction"},
-            {"keys_json"},
+            {"keys_json", "baseline_window_start", "baseline_window_end"},
         ),
         (
             "period_shift",

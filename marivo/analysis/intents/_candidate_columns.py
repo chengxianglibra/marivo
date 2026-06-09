@@ -75,7 +75,7 @@ REQUIRED_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
 }
 
 ALLOWED_OPTIONAL_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
-    "point_anomaly": {"keys_json"},
+    "point_anomaly": {"keys_json", "baseline_window_start", "baseline_window_end"},
     "period_shift": {"keys_json"},
     "driver_axis": set(),
     "slice": {"window_start", "window_end"},
