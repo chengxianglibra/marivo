@@ -118,9 +118,18 @@ session = mv.session.get_or_create(name="my_investigation")
 ```
 
 When a script is split after reading `summary()` or `next_intents`, the next
-script must use the same session. Create a new session only for a genuinely
-independent investigation, or when the old session is polluted and the restart
-reason will be reported to the user.
+script must use the same session. Recover previously produced frames from disk
+instead of re-running observe:
+
+```python
+session = mv.session.get_or_create(name="my_investigation")
+summaries = session.frame_summaries()  # find refs by metric_id
+prev = session.get_frame("<ref>")       # reload, zero datasource queries
+```
+
+Create a new session only for a genuinely independent investigation, or when
+the old session is polluted and the restart reason will be reported to the
+user.
 
 ## No backend factory
 

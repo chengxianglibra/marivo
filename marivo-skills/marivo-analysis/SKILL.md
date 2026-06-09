@@ -295,6 +295,19 @@ downstream steps "in case" — they waste compute and obscure the judgment. Afte
 the split, continue with the original task session instead of starting a fresh
 one.
 
+In the follow-up script, recover previously produced frames from disk instead
+of re-running observe:
+
+```python
+session = mv.session.get_or_create(name="my_analysis")
+# Discover available frames by metric_id:
+summaries = session.frame_summaries()
+# Load a frame by ref — zero datasource queries:
+prev = session.get_frame("<ref>")
+# Or use the module-level function:
+# prev = mv.load_frame("<ref>", session=session)
+```
+
 ## Walkthrough
 
 ```python
@@ -346,6 +359,7 @@ example to see the correct pattern.
 | `PanelGrainMismatch` | `compare` got two `panel` frames with different time grain | `references/examples/compare_panel.py` |
 | `AlignmentPolicyNotApplicable` | Alignment kind not allowed for the frame's semantic kind | `references/examples/compare_segmented.py` |
 | `CrossSessionFrame` | A frame was produced in another session; return to the original task session | `references/examples/session_timezone.py`, `references/pitfalls.md` |
+| `FrameRefNotFound` | No persisted frame with this ref in the current session; check `session.frame_summaries()` for available refs | `references/examples/session_frame_recovery.py` |
 | `AxisNotInPanelDimensions` | `decompose(axis=...)` axis is not a segment column of the panel | `references/examples/03_decompose_attribution.py` |
 | `ForecastShapeUnsupported` / `ForecastInsufficientHistory` | Bad shape, NaN values, or too little history | `references/examples/06_forecast_horizon.py` |
 | `TestPolicyError` / `TestShapeNotTestable` | Unsupported hypothesis, bad alpha, or scalar frame | `references/examples/05_test_hypothesis.py` |
