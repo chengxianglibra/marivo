@@ -5,9 +5,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict
 
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+
+
+class AssociationResultSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str
+    ref: str
+    metric_ids: list[str]
+    method: Literal["pearson"]
+    correlation: float
+    aligned_row_count: int
+    dropped_row_count: int
+    produced_by_job: str | None
+    lineage_oneliner: str
 
 
 class AssociationResultMeta(BaseFrameMeta):
@@ -29,3 +43,35 @@ class AssociationResultMeta(BaseFrameMeta):
 @dataclass
 class AssociationResult(BaseFrame):
     meta: AssociationResultMeta
+
+    def summary(self) -> AssociationResultSummary:  # type: ignore[override]
+        step_intents = [step.intent for step in self.meta.lineage.steps]
+        lineage_oneliner = " -> ".join(step_intents) if step_intents else "(empty)"
+        return AssociationResultSummary(
+            kind=self.meta.kind,
+            ref=self.meta.ref,
+            metric_ids=self.meta.metric_ids,
+            method=self.meta.method,
+            correlation=self.meta.correlation,
+            aligned_row_count=self.meta.aligned_row_count,
+            dropped_row_count=self.meta.dropped_row_count,
+            produced_by_job=self.meta.produced_by_job,
+            lineage_oneliner=lineage_oneliner,
+        )
+
+    def __repr__(self) -> str:
+        m = self.meta
+        header = (
+            f"<{type(self).__name__} ref={m.ref} kind={m.kind} "
+            f"r={m.correlation:.4f} method={m.method} "
+            f"aligned={m.aligned_row_count} dropped={m.dropped_row_count}>"
+        )
+        if len(self._df) == 0:
+            intents = self.next_intents()
+            if intents:
+                return f"{header}\n  next: {', '.join(intents)}"
+            return header
+        # Reuse BaseFrame body (preview + notes + next_intents), swap header
+        body = super().__repr__()
+        first_newline = body.index("\n")
+        return header + body[first_newline:]

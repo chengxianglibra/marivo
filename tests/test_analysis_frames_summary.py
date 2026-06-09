@@ -268,3 +268,90 @@ def test_terminal_frame_has_empty_next_intents() -> None:
     assert AttributionFrame._NEXT_INTENTS == ()
     assert ForecastFrame._NEXT_INTENTS == ()
     assert HypothesisTestResult._NEXT_INTENTS == ()
+
+
+def _make_association_meta(
+    *,
+    correlation: float = 0.9627,
+    aligned_row_count: int = 12,
+    dropped_row_count: int = 0,
+):
+    from marivo.analysis.frames.association import AssociationResultMeta
+
+    return AssociationResultMeta(
+        kind="association_result",
+        ref="frame_assoc123",
+        session_id="s_abc",
+        project_root="/tmp/proj",
+        produced_by_job="job_corr1",
+        created_at=datetime(2026, 6, 9, tzinfo=UTC),
+        row_count=1,
+        byte_size=0,
+        source_refs=["frame_a", "frame_b"],
+        metric_ids=["sales.revenue", "marketing.spend"],
+        semantic_kinds=["time_series", "time_series"],
+        semantic_models=["sales", "marketing"],
+        method="pearson",
+        alignment={"kind": "window_bucket"},
+        lag_policy={"mode": "single", "offset": 0},
+        aligned_row_count=aligned_row_count,
+        dropped_row_count=dropped_row_count,
+        correlation=correlation,
+    )
+
+
+def test_association_summary_includes_correlation() -> None:
+    from marivo.analysis.frames.association import (
+        AssociationResult,
+        AssociationResultSummary,
+    )
+
+    df = pd.DataFrame({"correlation": [0.9627]})
+    frame = AssociationResult(_df=df, meta=_make_association_meta())
+    s = frame.summary()
+
+    assert isinstance(s, AssociationResultSummary)
+    assert s.kind == "association_result"
+    assert s.correlation == pytest.approx(0.9627)
+    assert s.method == "pearson"
+    assert s.metric_ids == ["sales.revenue", "marketing.spend"]
+    assert s.aligned_row_count == 12
+    assert s.dropped_row_count == 0
+
+
+def test_association_summary_is_not_generic_frame_summary() -> None:
+    from marivo.analysis.frames.association import (
+        AssociationResult,
+        AssociationResultSummary,
+    )
+    from marivo.analysis.frames.base import FrameSummary
+
+    df = pd.DataFrame({"correlation": [0.5]})
+    frame = AssociationResult(_df=df, meta=_make_association_meta(correlation=0.5))
+    s = frame.summary()
+
+    assert type(s) is AssociationResultSummary
+    assert not isinstance(s, FrameSummary)
+
+
+def test_association_repr_includes_correlation() -> None:
+    from marivo.analysis.frames.association import AssociationResult
+
+    df = pd.DataFrame({"correlation": [0.9627]})
+    frame = AssociationResult(_df=df, meta=_make_association_meta())
+    r = repr(frame)
+
+    assert "r=0.9627" in r
+    assert "method=pearson" in r
+    assert "aligned=12" in r
+
+
+def test_association_repr_empty_frame() -> None:
+    from marivo.analysis.frames.association import AssociationResult
+
+    df = pd.DataFrame(columns=["correlation"])
+    frame = AssociationResult(_df=df, meta=_make_association_meta())
+    r = repr(frame)
+
+    assert r.startswith("<AssociationResult")
+    assert "r=0.9627" in r
