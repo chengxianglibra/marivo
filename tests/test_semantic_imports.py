@@ -15,6 +15,7 @@ plain functions to match the rest of the test suite.
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 from pathlib import Path
 from typing import Any, cast
@@ -273,7 +274,8 @@ def test_help_json_top_level_returns_compact_directory(
     result = ms.help(format="json")
 
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert captured.out != ""
+    assert json.loads(captured.out) == result
     assert isinstance(result, dict)
     assert result["schema_version"] == "1"
     assert result["surface"] == "marivo.semantic"
@@ -306,7 +308,7 @@ def test_help_json_metric_includes_constraints_and_examples(
     result = ms.help("metric", format="json")
 
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert captured.out != ""
     assert isinstance(result, dict)
     assert "metric(" in cast("str", result["signature"])
     constraints = cast("list[dict[str, Any]]", result["constraints"])
@@ -327,7 +329,7 @@ def test_help_json_time_field_includes_partition_pushdown_advisory(
     result = ms.help("time_field", format="json")
 
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert captured.out != ""
     assert isinstance(result, dict)
     constraints = cast("list[dict[str, Any]]", result["constraints"])
     assert isinstance(constraints, list)
@@ -347,7 +349,7 @@ def test_help_json_decomposition_documents_supported_builders_and_aggregation_bo
     result = ms.help("decomposition", format="json")
 
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert captured.out != ""
     assert isinstance(result, dict)
     assert result["kind"] == "topic"
     assert result["symbol"] == "decomposition"

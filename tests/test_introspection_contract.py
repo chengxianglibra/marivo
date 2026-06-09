@@ -160,7 +160,7 @@ def test_top_level_listing_matches_public_surface(
 ) -> None:
     data = _json_help(module)
 
-    assert capsys.readouterr().out == ""
+    assert capsys.readouterr().out != ""
     assert data["schema_version"] == "1"
     assert data["surface"] == surface_name
     assert data["kind"] == "surface"
@@ -378,6 +378,15 @@ def test_datasource_text_help_prints_and_can_be_suppressed(
     assert isinstance(suppressed, str)
     assert "marivo.datasource: DatasourceSpec" in suppressed
     assert captured.out == ""
+
+
+def test_datasource_help_json_print_false_suppresses_stdout(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = md.help("DatasourceSpec", format="json", print=False)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert isinstance(result, dict)
 
 
 def test_datasource_help_invalid_format_raises_shared_error() -> None:

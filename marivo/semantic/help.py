@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from typing import Any, Literal, cast
 
@@ -264,12 +265,14 @@ def help(  # noqa: A001, RUF100
     Without arguments, lists top-level entries. With a symbol name (decorator,
     builder, function, exception class, topic, or constraint id) prints its
     signature, docstring, and bounded constraint summaries. With
-    ``format="json"``, returns a structured dict and does not print.
+    ``format="json"``, prints the structured JSON descriptor and returns the dict.
     """
 
     normalized = None if symbol == "" else symbol
     if format == "json":
-        return cast("dict[str, object]", render(_surface(), normalized, "json"))
+        data = cast("dict[str, object]", render(_surface(), normalized, "json"))
+        print(json.dumps(data, indent=2, sort_keys=True))
+        return data
     if format != "text":
         raise ValueError("format must be 'text' or 'json'")
     print(help_text(normalized))
