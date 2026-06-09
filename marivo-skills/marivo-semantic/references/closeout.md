@@ -7,7 +7,7 @@ Closeout decides whether semantic refs are ready for `marivo-analysis`.
 ```python
 project = ms.find_project()
 assert project is not None
-print(project.reload())
+print(project.load())
 ```
 
 ## Bind Datasource Access

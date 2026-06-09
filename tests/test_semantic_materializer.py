@@ -704,7 +704,7 @@ def test_runtime_metadata_cleared_on_reload(semantic_project_factory, duckdb_bac
     project.materialize_dataset("sales.orders", backend_factory=factory)
     assert project._runtime_metadata.get("sales.orders") is not None
 
-    project.reload()
+    project.load()
     assert project._runtime_metadata.get("sales.orders") is None
 
 

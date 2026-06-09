@@ -716,7 +716,7 @@ def test_parity_results_cleared_on_reload(semantic_project_factory, backend_fact
     result1 = project.parity_check("sales.total_amount", backend_factory=backend_factory)
     assert result1.ok is True
 
-    project.reload()
+    project.load()
 
     # After reload, parity cache should be empty, so status goes back to UNVERIFIED
     status = propagated_parity_status(project, "sales.total_amount")

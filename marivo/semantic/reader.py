@@ -377,7 +377,7 @@ def _require_registry(
     raise SemanticLoadFailed(
         [
             SemanticRuntimeError(
-                kind=ErrorKind.NOT_FOUND,
+                kind=ErrorKind.PROJECT_NOT_LOADED,
                 message="Project is not loaded. Call project.load() first.",
             )
         ]
@@ -544,13 +544,24 @@ class SemanticProject:
 
     # -- lifecycle -----------------------------------------------------------
 
-    def load(self, *, models: Sequence[str] | None = None) -> LoadResult:
+    def load(self, models: str | Sequence[str] | None = None) -> LoadResult:
         """Load the project from disk.
 
         When *models* is specified, only those model directories are loaded.
+        Pass a single model name as a string or a list of names.
         Cross-model references to filtered-out models produce warnings instead
         of errors, so the registry remains usable.
         """
+        if isinstance(models, str):
+            models = [models]
+        if self._status != "unloaded":
+            self._status = "unloaded"
+            self._errors = ()
+            self._warnings = ()
+            self._registry = None
+            self._sidecar = None
+            self._runtime_metadata = {}
+            self._parity_results = {}
         if self._semantic_root.exists() and not self._semantic_root.is_dir():
             _raise(
                 ErrorKind.INVALID_PROJECT,
@@ -587,27 +598,6 @@ class SemanticProject:
                 blast_radius_of=self.blast_radius_of,
             )
         return result
-
-    def reload(self, *, models: Sequence[str] | None = None) -> LoadResult:
-        """Re-load the project from disk.
-
-        If *models* is not provided, re-applies the filter from the last load.
-        """
-        # Reset state before reload
-        self._status = "unloaded"
-        self._errors = ()
-        self._warnings = ()
-        self._registry = None
-        self._sidecar = None
-        self._runtime_metadata = {}
-        self._parity_results = {}
-        # Use provided models, or fall back to the previously stored filter
-        effective_models = (
-            models
-            if models is not None
-            else (self._filtered_models if self._filtered_models else None)
-        )
-        return self.load(models=effective_models)
 
     def is_ready(self) -> bool:
         """Return True if the project is in the ready state."""
@@ -1953,7 +1943,7 @@ class SemanticProject:
         which semantic objects to check; by default all loaded objects are
         checked.
         """
-        self.reload()
+        self.load(models=list(self._filtered_models) if self._filtered_models else None)
         evidence = self._auto_collect_evidence()
         factory = self._backend_factory
         return build_readiness_report(

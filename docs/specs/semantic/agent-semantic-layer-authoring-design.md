@@ -68,7 +68,7 @@ registry and validation pieces:
 
 - `marivo.semantic.SemanticProject`
 - `ms.find_project()`
-- `project.load()` / `project.reload()`
+- `project.load()`
 - `project.list_models()` / `list_datasources()` / `list_datasets()` /
   `list_fields()` / `list_time_fields()` / `list_metrics()` /
   `list_relationships()`
@@ -295,7 +295,7 @@ Preview failure does not always mean project load failure, but it is a readiness
 The agent reloads the project and fixes all structured errors:
 
 ```python
-result = project.reload()
+result = project.load()
 ```
 
 For metrics with SQL provenance, the agent runs parity:

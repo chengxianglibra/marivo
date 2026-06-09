@@ -1351,6 +1351,49 @@ def test_reader_on_errored_project_raises(semantic_project_factory) -> None:
         project.list_models(display=False)
 
 
+def test_require_registry_uses_project_not_loaded_error_kind(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        },
+        load=False,
+    )
+    with pytest.raises(SemanticLoadFailed) as exc_info:
+        project.list_metrics(display=False)
+    errors = exc_info.value.errors
+    assert len(errors) == 1
+    assert errors[0].kind == "project_not_loaded"
+    assert errors[0].constraint_id == "project_loaded_required"
+    assert "project.load()" in (errors[0].hint or "")
+    assert "list_metrics" not in (errors[0].hint or "")
+
+
+def test_load_single_model_string(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        },
+        load=False,
+    )
+    result = project.load("sales")
+    assert result.status == "ready"
+    assert project._filtered_models == ("sales",)
+
+
+def test_load_single_model_string_on_already_loaded_project(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": _MODEL_PY,
+            "sales/objects.py": _FULL_MODEL_PY,
+        },
+    )
+    project.load("sales")
+    assert project._filtered_models == ("sales",)
+    assert project.is_ready()
+
+
 # ---------------------------------------------------------------------------
 # returned objects are read-only (frozen dataclasses)
 # ---------------------------------------------------------------------------
@@ -1714,7 +1757,7 @@ def test_bind_datasource_access_preserved_across_reload(
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
-    project.reload()
+    project.load()
     table = project.materialize_dataset("sales.orders")
     assert hasattr(table, "columns")
 

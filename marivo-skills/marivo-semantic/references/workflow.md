@@ -127,11 +127,11 @@ if assessment.status == "blocked":
     pass
 ```
 
-Then author and reload:
+Then author and load:
 
 ```python
 # write .marivo/semantic/sales/_model.py
-project.reload()
+project.load()
 project.inspect_authored_object("sales.orders")
 ```
 
@@ -196,7 +196,7 @@ assessment = project.assess_authoring(
 )
 ```
 
-After authoring and reload, run `inspect_authored_object`. Final runtime
+After authoring and load, run `inspect_authored_object`. Final runtime
 preview, parity, and richness checks are composed by the readiness closeout.
 
 ### Relationship Authoring
@@ -229,7 +229,7 @@ assessment = project.assess_authoring(
 ## Phase 3: Single Readiness Closeout
 
 ```python
-project.reload()
+project.load()
 project.inspect_authored_object("sales.revenue")
 report = project.readiness(
     refs=("sales.orders", "sales.revenue"),

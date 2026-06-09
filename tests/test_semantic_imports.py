@@ -507,6 +507,7 @@ _EXPECTED_RUNTIME_KINDS = {
     "cross_datasource_not_supported",
     "backend_factory_required",
     "inspect_source_required",
+    "project_not_loaded",
 }
 
 _EXPECTED_PARITY_KINDS = {
@@ -872,8 +873,8 @@ def test_semantic_project_load_works() -> None:
         assert result.status == "ready"
 
 
-def test_semantic_project_reload_works() -> None:
-    """SemanticProject.reload() now works (implemented in Slice 1)."""
+def test_semantic_project_load_reloads() -> None:
+    """SemanticProject.load() resets and re-loads when called again."""
     import tempfile
     from pathlib import Path
 
@@ -881,5 +882,5 @@ def test_semantic_project_reload_works() -> None:
         semantic_root = Path(tmp) / ".marivo" / "semantic"
         semantic_root.mkdir(parents=True)
         project = ms.SemanticProject(root=semantic_root)
-        result = project.reload()
+        result = project.load()
         assert result.status == "ready"

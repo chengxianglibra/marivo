@@ -110,7 +110,7 @@ def test_auto_record_idempotent_on_reload(semantic_project_factory):
     assert obj_before is not None
     n_before = len([d for d in obj_before.decisions if d.decision_kind == "metric_decomposition"])
 
-    project.reload()
+    project.load()
 
     obj_after = store.read_object("sales.revenue")
     assert obj_after is not None
@@ -156,7 +156,7 @@ def test_auto_record_preserves_richer_answer_decision(semantic_project_factory):
         )
     )
 
-    project.reload()
+    project.load()
 
     obj = lg.LedgerStore(project.semantic_root).read_object("sales.revenue")
     assert obj is not None
@@ -197,7 +197,7 @@ def revenue(orders):
     model_dir = project.semantic_root / "sales"
     (model_dir / "datasets.py").write_text(datasets_py_changed)
 
-    project.reload()
+    project.load()
 
     obj_second = store.read_object("sales.revenue")
     assert obj_second is not None
@@ -270,7 +270,7 @@ def test_auto_record_only_records_missing_decisions(semantic_project_factory):
         )
     )
 
-    project.reload()
+    project.load()
 
     store = lg.LedgerStore(project.semantic_root)
     # Time field: user_confirmation decision preserved; no new authoring auto-record added
@@ -325,7 +325,7 @@ def test_auto_record_writes_alongside_user_confirmation_when_no_prior_authoring(
         )
     )
 
-    project.reload()
+    project.load()
 
     obj = store.read_object("sales.revenue")
     assert obj is not None
