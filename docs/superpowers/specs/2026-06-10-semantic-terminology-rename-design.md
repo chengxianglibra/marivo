@@ -105,8 +105,9 @@ accordingly.
 
 ## Execution Plan
 
-All changes land in a single PR. Commits are ordered to keep `make typecheck`
-passing at each step:
+All changes land in a single PR. Commits are ordered by dependency layer so
+that reviewers can follow the rename bottom-up; `make typecheck` and
+`make test` are only required to pass on the final commit of the PR:
 
 1. **`marivo/semantic/ir.py`** — rename `SymbolKind` values, all IR and Ref
    classes, `FieldKind` → `DimensionKind` with `DIMENSION` → `CATEGORICAL`.
