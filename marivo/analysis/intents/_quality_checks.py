@@ -8,9 +8,10 @@ from typing import Any
 
 import pandas as pd
 
+from marivo.analysis.frames._meta_defaults import GRAIN_FREQ
 from marivo.analysis.frames.metric import MetricFrame
 
-_FREQ = {"day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
+_FREQ = GRAIN_FREQ
 
 
 def run_metric_checks(frame: MetricFrame, *, tz: str | None = None) -> list[dict[str, str]]:

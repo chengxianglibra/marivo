@@ -9,7 +9,6 @@ from pydantic import ConfigDict, Field
 
 from marivo.analysis.followups import (
     BlockingIssue,
-    ConfidenceScope,
     FollowupAction,
 )
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
@@ -60,7 +59,6 @@ class CandidateSetMeta(BaseFrameMeta):
     source_refs: list[str]
     recommended_followups: list[FollowupAction] = Field(default_factory=list)
     blocking_issues: list[BlockingIssue] = Field(default_factory=list)
-    confidence_scope: ConfidenceScope | None = None
 
     params: dict[str, Any]
 

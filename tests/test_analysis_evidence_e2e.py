@@ -79,3 +79,73 @@ def test_e2e_replay_artifact_id_stability(tmp_path) -> None:
         session=session,
     )
     assert cur.meta.artifact_id == cur2.meta.artifact_id
+
+
+def test_e2e_observe_populates_quality_and_confidence_scope(tmp_path) -> None:
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    session = mv.session.attach.create(
+        name="t", backends=sales_backends(con), use_datasources=False
+    )
+
+    cur = observe(
+        mv.MetricRef("sales.revenue"),
+        timescope={"start": "2026-09-01", "end": "2026-09-30"},
+        session=session,
+    )
+
+    # meta.quality is populated by pipeline step 4c
+    assert cur.meta.quality is not None
+    assert cur.meta.quality.sample_size == cur.meta.row_count
+    assert cur.meta.quality.null_rate is not None
+    assert cur.meta.quality.metric_definition_compatibility == "unknown"
+
+    # meta.confidence_scope is populated by pipeline step 4c
+    assert cur.meta.confidence_scope is not None
+    assert cur.meta.confidence_scope.metric_ids == ["sales.revenue"]
+    assert cur.meta.confidence_scope.window is not None
+
+
+def test_e2e_compare_populates_quality_and_confidence_scope(tmp_path) -> None:
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    session = mv.session.attach.create(
+        name="t", backends=sales_backends(con), use_datasources=False
+    )
+
+    cur = observe(
+        mv.MetricRef("sales.revenue"),
+        timescope={"start": "2026-09-01", "end": "2026-09-30"},
+        session=session,
+    )
+    base = observe(
+        mv.MetricRef("sales.revenue"),
+        timescope={"start": "2026-08-01", "end": "2026-08-31"},
+        session=session,
+    )
+    delta = compare(cur, base, session=session)
+
+    assert delta.meta.quality is not None
+    assert delta.meta.quality.sample_size == delta.meta.row_count
+    assert delta.meta.confidence_scope is not None
+    assert "sales.revenue" in delta.meta.confidence_scope.metric_ids
+
+
+def test_e2e_observe_time_series_coverage(tmp_path) -> None:
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    session = mv.session.attach.create(
+        name="t", backends=sales_backends(con), use_datasources=False
+    )
+
+    series = observe(
+        mv.MetricRef("sales.revenue"),
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        grain="month",
+        session=session,
+    )
+
+    assert series.meta.quality is not None
+    # time_series shape should compute coverage
+    if series.meta.semantic_kind == "time_series":
+        assert series.meta.quality.coverage is not None
