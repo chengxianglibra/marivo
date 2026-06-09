@@ -10,12 +10,10 @@ objects. It is evidence-first, ledger-aware, and readiness-gated.
 import marivo.semantic as ms
 
 ms.help()
-project = ms.find_project()
-assert project is not None
-print(project.load())
-project.list_models()
-project.list_datasets()
-project.list_metrics()
+catalog = ms.load()
+catalog.list().show()
+catalog.list("sales").show()
+catalog.list("sales.orders").show()
 PY
 ```
 
@@ -215,19 +213,12 @@ assessment = project.assess_authoring(
 ## Phase 3: Single Readiness Closeout
 
 ```python
-project.load()
-project.inspect_authored_object("sales.revenue")
-report = project.readiness(
-    refs=("sales.orders", "sales.revenue"),
-    demand=ms.DemandSignal(
-        example_questions=("What was revenue by region last week?",),
-        intents=("revenue trend",),
-        run_history_refs=("sales.revenue",),
-        build_purpose="Revenue analysis",
-    ),
-    preview_limit=20,
-)
-print(report.to_dict())
+catalog = ms.load()
+revenue = catalog.get("sales.revenue")
+report = catalog.readiness(refs=[revenue.ref])
+if report.blocked:
+    report.show()
+    raise SystemExit
 ```
 
 Do not hand off to `marivo-analysis` while readiness is blocked. Richness gaps

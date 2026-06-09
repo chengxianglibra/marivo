@@ -80,6 +80,33 @@ def revenue(table):
     return table.amount.sum()
 ```
 
+## description vs ai_context
+
+`description` is a **short display summary** shown in listings and cards.
+It is not a substitute for business meaning.
+
+Business meaning, usage constraints, and agent guidance belong in `ai_context`:
+
+```python
+@ms.metric(
+    datasets=[orders],
+    decomposition=ms.sum(),
+    description="Gross revenue.",       # short summary for display
+    ai_context={
+        "business_definition": "Sum of order amounts for completed orders.",
+        "guardrails": ["Exclude refunded orders.", "Use status='complete' filter."],
+        "synonyms": ["revenue", "net sales"],
+    },
+)
+def revenue(table):
+    return table.amount.sum()
+```
+
+When `catalog.get("sales.revenue")` is called:
+- `obj.description` → `"Gross revenue."`
+- `obj.context.business_definition` → `"Sum of order amounts for completed orders."`
+- `obj.context.guardrails` → `["Exclude refunded orders.", ...]`
+
 ## Ref defaults
 
 - Use `md.ref("<datasource>")` for datasource references.

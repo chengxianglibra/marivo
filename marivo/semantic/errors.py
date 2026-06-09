@@ -95,6 +95,10 @@ class ErrorKind(StrEnum):
     INSPECT_SOURCE_REQUIRED = "inspect_source_required"
     PROJECT_NOT_LOADED = "project_not_loaded"
 
+    # catalog
+    UNSUPPORTED_KIND = "unsupported_kind"
+    UNSUPPORTED_LIST_PARENT = "unsupported_list_parent"
+
     # parity
     SOURCE_SQL_MISSING = "source_sql_missing"
     UNVERIFIED_PROVENANCE = "unverified_provenance"
