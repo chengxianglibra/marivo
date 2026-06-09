@@ -79,7 +79,7 @@ _SUMMARIES: dict[str, str] = {
     "QualityReportSummary": "aggregated quality summary returned by QualityReport.summary()",
     "CheckResult": "single quality-check outcome (check_id, status, message)",
     "CandidateSet": "ranked candidate follow-ups returned by discovery",
-    "AssociationResult": "correlation result frame",
+    "AssociationResult": "correlation result (summary shows r, method, sample size)",
     "ComponentFrame": "component values linked to component-aware derived metric frames",
     "FrameRef": "typed reference to a persisted analysis frame",
     "FrameSummaryEntry": "summary metadata for a persisted analysis frame",
