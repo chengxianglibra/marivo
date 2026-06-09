@@ -17,6 +17,7 @@ from marivo.analysis.errors import (
     FrameReadError,
     SemanticKindMismatchError,
 )
+from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.followups import BlockingIssue, ConfidenceScope, FollowupAction
 from marivo.analysis.lineage import Lineage
 
@@ -156,7 +157,7 @@ class BaseFrameMeta(BaseModel):
     artifact_id: str | None = None
     evidence_status: Literal["complete", "partial", "unavailable"] = "unavailable"
     confidence_scope: ConfidenceScope | None = None
-    quality: dict[str, Any] | None = None
+    quality: QualitySummary | None = None
     blocking_issues: list[BlockingIssue] = Field(default_factory=list)
     recommended_followups: list[FollowupAction] = Field(default_factory=list)
 

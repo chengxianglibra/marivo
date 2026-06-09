@@ -55,8 +55,15 @@ from marivo.analysis.evidence.seeding import (
     seed_test_hypothesis_proposition,
 )
 from marivo.analysis.evidence.store import JudgmentStore
-from marivo.analysis.evidence.types import Finding, Proposition, Subject, TriggeredByFollowup
-from marivo.analysis.followups import BlockingIssue, FollowupAction
+from marivo.analysis.evidence.types import (
+    Finding,
+    Proposition,
+    QualitySummary,
+    Subject,
+    TriggeredByFollowup,
+)
+from marivo.analysis.followups import BlockingIssue, ConfidenceScope, FollowupAction
+from marivo.analysis.frames._meta_defaults import compute_confidence_scope, compute_quality_summary
 from marivo.analysis.frames.base import BaseFrame
 
 # --- Public DTOs ---
@@ -411,6 +418,8 @@ def _insert_artifact(
     artifact_type: str,
     subject: Subject,
     lineage_payload: str,
+    confidence_scope: ConfidenceScope | None,
+    quality_summary: QualitySummary | None,
     evidence_status: str,
     frame_path: str | None,
     frame_sha: str | None,
@@ -436,8 +445,8 @@ def _insert_artifact(
             _ARTIFACT_SCHEMA_VERSION,
             canonical_json(subject.model_dump(mode="json")),
             lineage_payload,
-            None,
-            None,
+            canonical_json(confidence_scope.model_dump(mode="json")) if confidence_scope else None,
+            canonical_json(quality_summary.model_dump(mode="json")) if quality_summary else None,
             evidence_status,
             frame_path,
             frame_sha,
@@ -628,6 +637,10 @@ def commit_result(
     df = frame.to_pandas()
     frame_sha = _atomic_write_parquet(df, parquet_path)
 
+    # 2c. Compute confidence_scope and quality_summary (step 4c)
+    confidence_scope = compute_confidence_scope(frame)
+    quality_summary = compute_quality_summary(frame)
+
     # 3. Handle unavailable path (store=None)
     if store is None:
         issue_id = make_issue_id(
@@ -649,6 +662,8 @@ def commit_result(
                 "evidence_status": "unavailable",
                 "blocking_issues": [issue],
                 "recommended_followups": [],
+                "confidence_scope": confidence_scope,
+                "quality": quality_summary,
             }
         )
         frame.meta = new_meta
@@ -702,6 +717,8 @@ def commit_result(
             artifact_type=extractor_family,
             subject=subject,
             lineage_payload=lineage_payload,
+            confidence_scope=confidence_scope,
+            quality_summary=quality_summary,
             evidence_status="complete",
             frame_path=str(parquet_path),
             frame_sha=frame_sha,
@@ -799,6 +816,8 @@ def commit_result(
             "evidence_status": evidence_status,
             "blocking_issues": blocking_issues,
             "recommended_followups": followups,
+            "confidence_scope": confidence_scope,
+            "quality": quality_summary,
         }
     )
     frame.meta = new_meta
