@@ -10,10 +10,10 @@ Use the uniform runtime help contract for exact callable, frame, policy, and
 topic details:
 
 ```python
-mv.help('discover', format='json')      # objective compatibility and required kwargs
-mv.help('alignment', format='json')     # AlignmentPolicy variants
-mv.help('MetricFrame', format='json')   # methods and next_intents
-mv.help('MetricFrame.components', format='json')  # method signature and doc
+mv.help('discover')                      # objective compatibility and required kwargs
+mv.help('alignment')                     # AlignmentPolicy variants
+mv.help('MetricFrame')                   # methods and next_intents
+mv.help('MetricFrame.components')        # method signature and doc
 ```
 
 ## Intents

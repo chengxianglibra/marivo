@@ -185,17 +185,14 @@ def test_summary_reflects_blocking(tmp_path):
     assert any(c.status == "blocking" for c in s.checks)
 
 
-def test_repr_contains_overall_status_and_checks(tmp_path):
+def test_repr_contains_identity_and_show_hint(tmp_path):
     session = session_attach.get_or_create(name="demo")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
     report = session.assess_quality(frame)
 
     r = repr(report)
-    assert "overall=ok" in r
-    assert "blocking=0" in r
-    assert "warnings=0" in r
-    assert "row_count" in r
-    assert "time_coverage" in r
+    assert "QualityReport" in r
+    assert "call .show() to inspect" in r
 
 
 def test_summary_reflects_warning(tmp_path):

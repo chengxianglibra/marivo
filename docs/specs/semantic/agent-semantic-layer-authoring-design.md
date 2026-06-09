@@ -21,7 +21,7 @@ semantic layer is ready for `marivo.analysis`.
 Where this document repeats object-level decision rules from
 `python-semantic-layer.md`, those rules are included only to make the agent
 workflow executable. The API-level source of truth remains
-`python-semantic-layer.md` and the live `ms.help(..., format="json")` catalog.
+`python-semantic-layer.md` and the live `ms.help(...)` catalog.
 This document owns the evidence, preview, readiness, and agent handoff contract.
 
 ## Purpose
@@ -78,7 +78,7 @@ registry and validation pieces:
 - `project.materialize_dataset(...)` / `materialize_field(...)` /
   `materialize_metric(...)`
 - `project.parity_check(...)`
-- `ms.help(..., format="json")` and `ms.help("constraints", format="json")`
+- `ms.help(...)` and `ms.help("constraints")`
 - `mv.datasources.register(...)`, `all()`, `describe()`, `build_backend()`,
   and `test()`
 - analysis frame `preview(limit=...)`
@@ -266,8 +266,8 @@ The agent should use `marivo.semantic` decorators and builders:
 - `ms.ratio(...)`
 - `ms.weighted_average(...)`
 
-The agent should inspect `ms.help("<symbol>", format="json")` and
-`ms.help("constraints", format="json")` instead of guessing allowed shapes.
+The agent should inspect `ms.help("<symbol>")` and
+`ms.help("constraints")` instead of guessing allowed shapes.
 
 ### 7. Semantic Preview
 

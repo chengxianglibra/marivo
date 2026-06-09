@@ -63,11 +63,14 @@ class CandidateSetMeta(BaseFrameMeta):
     params: dict[str, Any]
 
 
-@dataclass
+@dataclass(repr=False)
 class CandidateSet(BaseFrame):
     meta: CandidateSetMeta
 
     _NEXT_INTENTS = ("select",)
+
+    def _repr_identity(self) -> str:
+        return f"CandidateSet ref={self.meta.ref} rows={self.meta.row_count}"
 
     def _assert_shape(self, expected: CandidateShape) -> CandidateSet:
         if self.meta.shape != expected:

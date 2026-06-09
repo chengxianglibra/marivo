@@ -15,7 +15,6 @@ plain functions to match the rest of the test suite.
 from __future__ import annotations
 
 import dataclasses
-import json
 import re
 from pathlib import Path
 from typing import Any, cast
@@ -23,6 +22,7 @@ from typing import Any, cast
 import pytest
 
 import marivo.semantic as ms
+from marivo.introspection.surface import render as surface_render
 from marivo.semantic import errors as errors_mod
 from marivo.semantic import typing as typing_mod
 from marivo.semantic.constraints import get_constraint, iter_constraints
@@ -52,6 +52,13 @@ from marivo.semantic.ir import (
 # ---------------------------------------------------------------------------
 # __all__ importability
 # ---------------------------------------------------------------------------
+
+
+def _ms_json_data(symbol: str | None = None) -> dict[str, Any]:
+    """Return the JSON descriptor dict for a semantic symbol using internal render."""
+    from marivo.semantic.help import _surface
+
+    return cast("dict[str, Any]", surface_render(_surface(), symbol, "json"))
 
 
 def test_all_symbols_importable() -> None:
@@ -264,14 +271,9 @@ def test_help_text_top_level_is_compact_directory(capsys: pytest.CaptureFixture[
     assert "ms.help(" in captured.out
 
 
-def test_help_json_top_level_returns_compact_directory(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    result = ms.help(format="json")
+def test_help_json_top_level_returns_compact_directory() -> None:
+    result = _ms_json_data()
 
-    captured = capsys.readouterr()
-    assert captured.out != ""
-    assert json.loads(captured.out) == result
     assert isinstance(result, dict)
     assert result["schema_version"] == "1"
     assert result["surface"] == "marivo.semantic"
@@ -298,13 +300,9 @@ def test_help_json_top_level_returns_compact_directory(
     assert "typing" in entry_names
 
 
-def test_help_json_metric_includes_constraints_and_examples(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    result = ms.help("metric", format="json")
+def test_help_json_metric_includes_constraints_and_examples() -> None:
+    result = _ms_json_data("metric")
 
-    captured = capsys.readouterr()
-    assert captured.out != ""
     assert isinstance(result, dict)
     assert "metric(" in cast("str", result["signature"])
     constraints = cast("list[dict[str, Any]]", result["constraints"])
@@ -319,13 +317,9 @@ def test_help_json_metric_includes_constraints_and_examples(
     assert "examples" in result
 
 
-def test_help_json_time_field_includes_partition_pushdown_advisory(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    result = ms.help("time_field", format="json")
+def test_help_json_time_field_includes_partition_pushdown_advisory() -> None:
+    result = _ms_json_data("time_field")
 
-    captured = capsys.readouterr()
-    assert captured.out != ""
     assert isinstance(result, dict)
     constraints = cast("list[dict[str, Any]]", result["constraints"])
     assert isinstance(constraints, list)
@@ -339,13 +333,9 @@ def test_help_json_time_field_includes_partition_pushdown_advisory(
     assert "date_format" in advisory["hint"]
 
 
-def test_help_json_decomposition_documents_supported_builders_and_aggregation_boundary(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    result = ms.help("decomposition", format="json")
+def test_help_json_decomposition_documents_supported_builders_and_aggregation_boundary() -> None:
+    result = _ms_json_data("decomposition")
 
-    captured = capsys.readouterr()
-    assert captured.out != ""
     assert isinstance(result, dict)
     assert result["kind"] == "topic"
     assert result["symbol"] == "decomposition"
@@ -371,9 +361,9 @@ def test_help_json_decomposition_documents_supported_builders_and_aggregation_bo
         == "ms.derived_metric(..., decomposition=ms.weighted_average(...))"
     )
     related_help = cast("list[str]", content["related_help"])
-    assert "ms.help('derived_metric', format='json')" in related_help
-    assert "ms.help('component', format='json')" not in related_help
-    assert "ms.help('metric', format='json')" in cast("list[str]", result["see_also"])
+    assert "ms.help('derived_metric')" in related_help
+    assert "ms.help('component')" not in related_help
+    assert "ms.help('metric')" in cast("list[str]", result["see_also"])
 
 
 def test_help_text_decomposition_documents_aggregation_boundary(
@@ -388,7 +378,7 @@ def test_help_text_decomposition_documents_aggregation_boundary(
 
 
 def test_help_json_constraints_cover_error_kinds() -> None:
-    result = ms.help("constraints", format="json")
+    result = _ms_json_data("constraints")
 
     assert isinstance(result, dict)
     assert result["kind"] == "topic"
@@ -400,7 +390,7 @@ def test_help_json_constraints_cover_error_kinds() -> None:
     covered = set()
     for entry in constraints:
         assert set(entry) <= {"id", "title"}
-        detail = ms.help(entry["id"], format="json")
+        detail = _ms_json_data(entry["id"])
         assert isinstance(detail, dict)
         assert detail["kind"] == "topic"
         assert detail["symbol"] == entry["id"]
@@ -422,7 +412,7 @@ def test_constraint_example_paths_exist() -> None:
 def test_invalid_decomposition_hint_points_to_decomposition_help() -> None:
     constraint = get_constraint("decomposition_shape")
     assert constraint is not None
-    assert "ms.help('decomposition', format='json')" in constraint.hint
+    assert "ms.help('decomposition')" in constraint.hint
     assert "aggregation" in constraint.hint
 
 

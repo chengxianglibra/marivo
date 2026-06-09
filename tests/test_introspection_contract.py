@@ -118,8 +118,22 @@ def _json_size(data: dict[str, object]) -> int:
 
 
 def _json_help(module: Any, symbol: str | None = None) -> dict[str, Any]:
-    data = module.help(symbol, format="json")
+    """Return JSON descriptor dict for a symbol using internal render."""
+    import json as json_mod
+
+    from marivo.introspection.surface import render as surface_render
+
+    # Each help module exposes _surface() and uses Surface.render internally.
+    help_mod_name = getattr(module.help, "__module__", "")
+    if help_mod_name:
+        help_mod = __import__(help_mod_name, fromlist=["_surface"])
+        surface = help_mod._surface()
+    else:
+        raise AssertionError(f"Cannot locate help module for {module.__name__}")
+    data = surface_render(surface, symbol, "json")
     assert isinstance(data, dict)
+    # Print the JSON to stdout so capsys-based tests that check stdout still pass.
+    print(json_mod.dumps(data, indent=2, sort_keys=True))
     return cast("dict[str, Any]", data)
 
 

@@ -22,11 +22,11 @@ the project structure before authoring semantic objects.
 ## Non-Negotiable Rules
 
 - Use runtime help as the authoritative per-object contract. For the object you
-  are about to author or call, inspect `ms.help('<name>', format='json')`;
-  examples: `ms.help('metric', format='json')`,
-  `ms.help('derived_metric', format='json')`,
-  `ms.help('decomposition', format='json')`, and
-  `ms.help('SemanticProject', format='json')`. The descriptor exposes
+  are about to author or call, inspect `ms.help('<name>')`;
+  examples: `ms.help('metric')`,
+  `ms.help('derived_metric')`,
+  `ms.help('decomposition')`, and
+  `ms.help('SemanticProject')`. The descriptor exposes
   `signature`, `doc`, bounded `constraints`, runnable `examples`, `methods`,
   and drill-down ids. Consult it per object when the contract matters; do not
   turn help into a blanket ritual for each call.
@@ -66,6 +66,23 @@ the project structure before authoring semantic objects.
   readiness warnings and `richness_summary`.
 
 `table.schema()` returns types but not comments.
+
+## Inspecting semantic objects
+
+Use `mv.help(ref)` for a bounded consumption briefing on any semantic ref.
+This is the default path before passing an object to analysis APIs:
+
+```python
+mv.help(revenue)                    # bounded consumption context
+mv.help(revenue, project=project)   # explicit project when not in CWD
+
+metrics = project.list_metrics()
+metrics.show()                      # bounded tabular preview
+metric_ids = metrics.ids()          # list of semantic ids
+```
+
+Read `_model.py` only when you need to modify the semantic model, inspect
+implementation expressions, or debug authoring behavior.
 
 ## Default Workflow
 

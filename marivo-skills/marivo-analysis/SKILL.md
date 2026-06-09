@@ -33,13 +33,13 @@ consistently for every install, check, and script run.
 2. For a specific intent pattern, adapt the closest runnable
    `references/examples/NN_*.py`; those examples use a tiny fixture so they
    can run in CI.
-3. Confirm metric ids: `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()`.
+3. Confirm metric ids: `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics().show()`.
 4. Use runtime help as the authoritative per-object contract. For the intent,
    frame, policy, or topic you are about to use, inspect
-   `mv.help('<name>', format='json')`; examples:
-   `mv.help('observe', format='json')`, `mv.help('discover', format='json')`,
-   `mv.help('alignment', format='json')`, and
-   `mv.help('MetricFrame', format='json')`. The descriptor exposes `signature`,
+   `mv.help('<name>')`; examples:
+   `mv.help('observe')`, `mv.help('discover')`,
+   `mv.help('alignment')`, and
+   `mv.help('MetricFrame')`. The descriptor exposes `signature`,
    `doc`, bounded `constraints`, runnable `examples`, `methods`,
    `next_intents`, and drill-down ids. Consult it per object when the contract
    matters; do not turn help into a blanket ritual for each call.
@@ -63,18 +63,34 @@ session.forecast(series, horizon=7)                                             
 session.assess_quality(series)                                                        # -> QualityReport
 
 mv.session.current()     # safe probe — returns Session or None; check and continue work
-mv.help("discover")      # prints typed objective helpers and compatibility dispatcher
-print(frame.summary())   # cheap next-step summary; repr shows next_intents
+mv.help("discover")      # bounded typed objective helpers and compatibility dispatcher
+frame.show()             # bounded result card; repr hints to .show()
 ```
 
 Every intent returns a typed, immutable frame. Stay in frame world until you
-call `frame.to_pandas()`. Prefer `frame.summary()` before printing full data.
+call `frame.to_pandas()`. Use `frame.show()` for bounded inspection.
 
 `AlignmentPolicy(kind="window_bucket")` compares time-series and panel windows
 by ordinal bucket position by default. Use
 `AlignmentPolicy(kind="window_bucket", mode="calendar_bucket")` only when the
 same absolute bucket key should be treated as the same row. Use
 `strict_lengths=True` only when unequal window bucket counts must fail.
+
+## When to call show()
+
+Call `show()` at deliberate observation points — not after every API call.
+Multi-step scripts are quiet until you explicitly inspect:
+
+```python
+session = mv.session.get_or_create(name="revenue_drop")
+cur = session.observe(mv.MetricRef("sales.revenue"), timescope="last_7d")
+base = session.observe(mv.MetricRef("sales.revenue"), timescope="previous_7d")
+delta = session.compare(cur, base)
+delta.show()            # deliberate inspection point
+```
+
+Bounded `show()` output is a working observation, not the final user answer.
+Final reports must still be answer-first and source-backed.
 
 ## Derived ratio and weighted-average components
 
@@ -86,7 +102,7 @@ state.
 ```python
 rate = session.observe(mv.MetricRef("sales.failure_rate"))
 components = rate.components()
-print(components.summary())
+components.show()
 ```
 
 When two compatible component-aware metric frames are compared, the returned
@@ -137,7 +153,7 @@ the evidence namespace: `session.evidence.findings(...)`,
 ## Final analysis report
 
 For any non-trivial close-out, read `references/final-report.md` before the
-final user response. Do not end with only `frame.summary()`, `frame.head(n)`, or
+final user response. Do not end with only `frame.show()`, `frame.head(n)`, or
 raw tables. Synthesize the answer, scope, evidence, caveats, source details, and
 recommended next steps into a clear Markdown report.
 
@@ -198,7 +214,7 @@ cur = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2026-07-
 base = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
-print(attribution.summary())
+attribution.show()
 ```
 
 ### Discover + select
@@ -215,7 +231,7 @@ window = candidates.select(rank=1, attribute="window")
 a = session.observe(mv.MetricRef("<metric_a>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
 b = session.observe(mv.MetricRef("<metric_b>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
 result = session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="window_bucket"))
-print(result.summary())
+result.show()
 ```
 
 ### Escape hatch
@@ -269,7 +285,7 @@ which check failed:
 4. Adapt the nearest `references/examples/NN_*.py` file.
 5. Run every follow-up script with the same session; on errors, read the
    structured output and apply the fix.
-6. Use `frame.summary()` / `frame.head(n)` before materializing full data.
+6. Use `frame.show()` for bounded inspection; `frame.head(n)` / `frame.to_pandas()` when you need full data.
 
 ## When to split scripts
 
@@ -278,7 +294,7 @@ script when the next intent depends on values you have not seen yet. A split is
 only a script boundary; it is not a session boundary. Reuse the same session so
 artifacts, knowledge, facts, followups, and job history remain available.
 
-- **Bundle** (one script, end with `print(frame.summary())`):
+- **Bundle** (one script, end with `frame.show()`):
   observe → compare → decompose with a pre-chosen axis; observe → forecast;
   observe → assess_quality. The shape and the next call are decided before
   you run.
@@ -286,11 +302,11 @@ artifacts, knowledge, facts, followups, and job history remain available.
   - `discover` → which candidate to `select` and drill into.
   - `correlate` → which of several associations is worth follow-up.
   - `decompose` → which segment from the ranking to observe at finer grain.
-  - Any branch where `frame.summary()` or `next_intents` is the input to your
+  - Any branch where `frame.show()` or `next_intents` is the input to your
     decision.
 
 Rule of thumb: if you cannot write the next `mv.*` call without first reading
-the printed `summary()`, that is a split point. Do not pre-write speculative
+the `show()` output, that is a split point. Do not pre-write speculative
 downstream steps "in case" — they waste compute and obscure the judgment. After
 the split, continue with the original task session instead of starting a fresh
 one.
@@ -326,7 +342,7 @@ baseline = session.observe(
     dimensions=[ap.DimensionRef("region")],
 )
 delta = session.compare(current, baseline, alignment=ap.AlignmentPolicy(kind="window_bucket"))
-print(delta.summary())
+delta.show()
 
 for issue in delta.meta.blocking_issues:
     print(issue.kind, issue.message)

@@ -40,9 +40,12 @@ class AssociationResultMeta(BaseFrameMeta):
     correlation: float
 
 
-@dataclass
+@dataclass(repr=False)
 class AssociationResult(BaseFrame):
     meta: AssociationResultMeta
+
+    def _repr_identity(self) -> str:
+        return f"AssociationResult ref={self.meta.ref} rows={self.meta.row_count}"
 
     def summary(self) -> AssociationResultSummary:  # type: ignore[override]
         step_intents = [step.intent for step in self.meta.lineage.steps]
@@ -58,20 +61,3 @@ class AssociationResult(BaseFrame):
             produced_by_job=self.meta.produced_by_job,
             lineage_oneliner=lineage_oneliner,
         )
-
-    def __repr__(self) -> str:
-        m = self.meta
-        header = (
-            f"<{type(self).__name__} ref={m.ref} kind={m.kind} "
-            f"r={m.correlation:.4f} method={m.method} "
-            f"aligned={m.aligned_row_count} dropped={m.dropped_row_count}>"
-        )
-        if len(self._df) == 0:
-            intents = self.next_intents()
-            if intents:
-                return f"{header}\n  next: {', '.join(intents)}"
-            return header
-        # Reuse BaseFrame body (preview + notes + next_intents), swap header
-        body = super().__repr__()
-        first_newline = body.index("\n")
-        return header + body[first_newline:]

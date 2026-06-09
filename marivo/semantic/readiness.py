@@ -167,6 +167,43 @@ class ReadinessReport:
     richness_summary: RichnessSummary
     checked_at: str
 
+    def __repr__(self) -> str:
+        issues = len(self.blockers) + len(self.warnings)
+        return f"<ReadinessReport status={self.status} issues={issues}; call .show() to inspect>"
+
+    def render(self) -> str:
+        """Return bounded plain-text inspection card without a trailing newline."""
+        lines: list[str] = [
+            f"ReadinessReport status={self.status}",
+        ]
+        if self.blockers:
+            lines.append(f"blockers ({len(self.blockers)}):")
+            for issue in self.blockers[:3]:
+                lines.append(f"  - {issue.kind}: {issue.message}")
+            if len(self.blockers) > 3:
+                lines.append(f"  ... {len(self.blockers) - 3} more; call .to_dict() for full list")
+        if self.warnings:
+            lines.append(f"warnings ({len(self.warnings)}):")
+            for issue in self.warnings[:3]:
+                lines.append(f"  - {issue.kind}: {issue.message}")
+            if len(self.warnings) > 3:
+                lines.append(f"  ... {len(self.warnings) - 3} more; call .to_dict() for full list")
+        ready = list(self.analysis_ready_refs)
+        if ready:
+            shown = ready[:5]
+            lines.append(f"analysis_ready: {', '.join(shown)}")
+            if len(ready) > 5:
+                lines.append(f"  ... {len(ready) - 5} more")
+        lines.append(f"checked_at: {self.checked_at}")
+        lines.append("available:")
+        for entry in (".render()", ".to_dict()"):
+            lines.append(f"- {entry}")
+        return "\n".join(lines)
+
+    def show(self) -> None:
+        """Print render() output followed by a trailing newline and return None."""
+        print(self.render())
+
     def to_dict(self) -> dict[str, object]:
         return {
             "status": self.status,

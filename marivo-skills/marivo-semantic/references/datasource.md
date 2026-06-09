@@ -53,12 +53,12 @@ analysis:
 ```python
 import marivo.datasource as md
 
-md.help(format='json')                         # top-level datasource entries
-md.help('DatasourceSpec', format='json')       # constructor, doc, constraints
-md.help('datasource_secret_env_ref', format='json')  # full secret-handling rule
+md.help()                                       # top-level datasource entries
+md.help('DatasourceSpec')                       # constructor, doc, constraints
+md.help('datasource_secret_env_ref')            # full secret-handling rule
 ```
 
-Use `md.help('DatasourceSpec', format='json')` before writing a new datasource
+Use `md.help('DatasourceSpec')` before writing a new datasource
 declaration when credential, backend type, or field-shape details matter.
 
 ## Choose the native backend first

@@ -145,7 +145,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("transform", "MetricFrame", "DeltaFrame"),
         "Transform operators require their documented keyword arguments.",
         "Each transform op has a specific parameter contract; missing or contradictory kwargs produce ambiguous frames.",
-        "Inspect mv.help('transform', format='json') and pass the required args for the selected op.",
+        "Inspect mv.help('transform') and pass the required args for the selected op.",
         example=f"{_EXAMPLE_BASE}/transform_topk_delta.py",
         docs_ref=_CHEATSHEET,
     ),

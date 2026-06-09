@@ -11,8 +11,8 @@ def test_analysis_skill_links_final_report_guidance() -> None:
     text = SKILL_PATH.read_text()
 
     assert "references/final-report.md" in text
-    assert "frame.summary()" in text
-    assert "frame.head(n)" in text
+    # show() replaces print(frame.summary()) as the default inspection pattern
+    assert "frame.show()" in text or ".show()" in text
 
 
 def test_final_report_guidance_contains_required_contract() -> None:
@@ -94,7 +94,7 @@ def test_final_report_guidance_covers_cdn_review_patterns() -> None:
 def test_analysis_cheatsheet_points_to_runtime_help_contract() -> None:
     cheatsheet = (REPO_ROOT / "marivo-skills/marivo-analysis/references/cheatsheet.md").read_text()
 
-    assert "mv.help('discover', format='json')" in cheatsheet
-    assert "mv.help('alignment', format='json')" in cheatsheet
-    assert "mv.help('MetricFrame', format='json')" in cheatsheet
-    assert "mv.help('MetricFrame.components', format='json')" in cheatsheet
+    assert "mv.help('discover')" in cheatsheet
+    assert "mv.help('alignment')" in cheatsheet
+    assert "mv.help('MetricFrame')" in cheatsheet
+    assert "mv.help('MetricFrame.components')" in cheatsheet

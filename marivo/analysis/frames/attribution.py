@@ -27,9 +27,12 @@ class AttributionFrameMeta(BaseFrameMeta):
     semantic_model: str
 
 
-@dataclass
+@dataclass(repr=False)
 class AttributionFrame(BaseFrame):
     meta: AttributionFrameMeta
+
+    def _repr_identity(self) -> str:
+        return f"AttributionFrame ref={self.meta.ref} rows={self.meta.row_count}"
 
     @property
     def attribution_shape(self) -> str:

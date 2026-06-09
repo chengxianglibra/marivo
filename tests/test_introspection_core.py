@@ -65,7 +65,7 @@ def test_constraint_to_dict_accepts_plain_string_id() -> None:
         applies_to=("help",),
         title="Example rule.",
         why="Agents need stable rule metadata.",
-        hint="Call help('example_rule', format='json') for details.",
+        hint="Call help('example_rule') for details.",
         example="marivo-skills/marivo-analysis/references/examples/01_observe_single_window.py",
         docs_ref="marivo-skills/marivo-analysis/references/cheatsheet.md",
         ast_spec=ASTSpec(
@@ -83,7 +83,7 @@ def test_constraint_to_dict_accepts_plain_string_id() -> None:
         "applies_to": ["help"],
         "title": "Example rule.",
         "why": "Agents need stable rule metadata.",
-        "hint": "Call help('example_rule', format='json') for details.",
+        "hint": "Call help('example_rule') for details.",
         "example": "marivo-skills/marivo-analysis/references/examples/01_observe_single_window.py",
         "docs_ref": "marivo-skills/marivo-analysis/references/cheatsheet.md",
         "ast_spec": {

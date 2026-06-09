@@ -207,8 +207,8 @@ ms.relationship(
 ## Aggregation body vs decomposition
 
 Metric decomposition is not SQL aggregation. Before authoring metrics, inspect
-`ms.help("metric", format="json")` and
-`ms.help("decomposition", format="json")`. The supported decomposition builders
+`ms.help("metric")` and
+`ms.help("decomposition")`. The supported decomposition builders
 come from runtime help; do not invent `ms.count()` or `ms.mean()`.
 
 | Business shape | Metric body | Decomposition |

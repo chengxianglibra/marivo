@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 import io
-import json
 from contextlib import redirect_stdout
 from typing import Any, cast
 
@@ -13,6 +12,15 @@ from pytest import CaptureFixture
 import marivo.analysis as mv
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.intents.compare import compare as compare_fn
+from marivo.introspection.surface import render
+
+
+def _json_data(symbol: str | None = None) -> dict[str, Any]:
+    """Return the JSON descriptor dict for a symbol using the internal render."""
+    from marivo.analysis.help import _surface
+
+    return cast("dict[str, Any]", render(_surface(), symbol, "json"))
+
 
 _HELP_ONLY_ENTRIES = {
     "observe",
@@ -202,14 +210,9 @@ def test_help_calendar_prints_file_schema_and_entry_example() -> None:
     assert "use holiday_id rather than name/label" in out
 
 
-def test_help_json_top_level_is_canonical_and_prints_json(
-    capsys: CaptureFixture[str],
-) -> None:
-    result = mv.help(format="json")
-    captured = capsys.readouterr()
+def test_help_json_top_level_is_canonical() -> None:
+    result = _json_data()
 
-    assert captured.out != ""
-    assert json.loads(captured.out) == result
     assert isinstance(result, dict)
     assert result["schema_version"] == "1"
     assert result["surface"] == "marivo.analysis"
@@ -219,7 +222,7 @@ def test_help_json_top_level_is_canonical_and_prints_json(
 
 
 def test_help_json_load_frame_uses_own_docstring_only() -> None:
-    result = mv.help("load_frame", format="json")
+    result = _json_data("load_frame")
 
     assert isinstance(result, dict)
     assert result["kind"] == "callable"
@@ -240,7 +243,7 @@ def test_help_topics_json_have_structured_content() -> None:
     }
 
     for symbol, key in expected_keys.items():
-        result = mv.help(symbol, format="json")
+        result = _json_data(symbol)
         assert isinstance(result, dict)
         assert result["kind"] == "topic"
         content = cast("dict[str, Any]", result["content"])
@@ -248,7 +251,7 @@ def test_help_topics_json_have_structured_content() -> None:
 
 
 def test_help_json_metric_frame_descriptor_lists_methods_and_workflow() -> None:
-    result = mv.help("MetricFrame", format="json")
+    result = _json_data("MetricFrame")
 
     assert isinstance(result, dict)
     assert result["kind"] == "frame"
@@ -259,7 +262,7 @@ def test_help_json_metric_frame_descriptor_lists_methods_and_workflow() -> None:
 
 
 def test_help_json_frame_method_descriptor() -> None:
-    result = mv.help("MetricFrame.components", format="json")
+    result = _json_data("MetricFrame.components")
 
     assert isinstance(result, dict)
     assert result["kind"] == "callable"
@@ -268,17 +271,18 @@ def test_help_json_frame_method_descriptor() -> None:
     assert "Load the linked ComponentFrame" in cast("str", result["doc"])
 
 
-def test_help_rejects_unknown_format() -> None:
+def test_help_rejects_format_kwarg() -> None:
+    """format= is no longer accepted by mv.help()."""
     try:
-        mv.help(format="yaml")  # type: ignore[arg-type]
-    except ValueError as exc:
-        assert str(exc) == "format must be 'text' or 'json'"
+        mv.help(format="json")  # type: ignore[call-arg]
+    except TypeError:
+        pass
     else:
-        raise AssertionError("mv.help should reject unsupported formats")
+        raise AssertionError("mv.help should reject format= keyword argument")
 
 
 def test_help_json_report_artifact_has_fields_and_no_validator_methods() -> None:
-    result = mv.help("MarivoReportArtifact", format="json")
+    result = _json_data("MarivoReportArtifact")
     assert isinstance(result, dict)
     assert "fields" in result
     field_names = {f["name"] for f in result["fields"]}
@@ -290,9 +294,149 @@ def test_help_json_report_artifact_has_fields_and_no_validator_methods() -> None
 
 
 def test_help_json_report_manifest_has_fields() -> None:
-    result = mv.help("ReportManifest", format="json")
+    result = _json_data("ReportManifest")
     assert isinstance(result, dict)
     assert "fields" in result
     field_names = {f["name"] for f in result["fields"]}
     assert "kind" in field_names
     assert "report_id" in field_names
+
+
+# --- format= removal ---
+
+
+def test_mv_help_rejects_format_kwarg():
+    import pytest
+
+    with pytest.raises(TypeError):
+        mv.help("observe", format="json")  # type: ignore[call-arg]
+
+
+def test_ms_help_rejects_format_kwarg():
+    import pytest
+
+    import marivo.semantic as ms
+
+    with pytest.raises(TypeError):
+        ms.help("metric", format="json")  # type: ignore[call-arg]
+
+
+# --- return type is always None ---
+
+
+def test_mv_help_returns_none():
+    result = mv.help()
+    assert result is None
+
+
+def test_mv_help_with_symbol_returns_none(capsys: CaptureFixture[str]):
+    result = mv.help("observe")
+    assert result is None
+
+
+def test_ms_help_returns_none():
+    import marivo.semantic as ms
+
+    result = ms.help()
+    assert result is None
+
+
+def test_ms_help_with_symbol_returns_none(capsys: CaptureFixture[str]):
+    import marivo.semantic as ms
+
+    result = ms.help("metric")
+    assert result is None
+
+
+# --- prints bounded help ---
+
+
+def test_mv_help_prints_something(capsys: CaptureFixture[str]):
+    mv.help()
+    captured = capsys.readouterr()
+    assert len(captured.out) > 0
+
+
+def test_mv_help_observe_prints_something(capsys: CaptureFixture[str]):
+    mv.help("observe")
+    captured = capsys.readouterr()
+    assert len(captured.out) > 0
+
+
+# --- canonical help target accepts string and None ---
+
+
+def test_mv_help_none_target_is_top_level(capsys: CaptureFixture[str]):
+    mv.help(None)
+    captured = capsys.readouterr()
+    assert "marivo.analysis" in captured.out
+
+
+# --- help output stays within 80-line budget ---
+
+
+def test_mv_help_output_within_80_lines(capsys: CaptureFixture[str]):
+    mv.help("observe")
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) <= 80
+
+
+def test_ms_help_output_within_80_lines(capsys: CaptureFixture[str]):
+    import marivo.semantic as ms
+
+    ms.help("metric")
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) <= 80
+
+
+# --- semantic ref object support ---
+
+
+def test_mv_help_accepts_metric_ref(capsys: CaptureFixture[str]):
+    import pytest
+
+    from marivo.semantic.errors import SemanticError
+    from marivo.semantic.ir import MetricRef
+
+    ref = MetricRef("sales.revenue")
+    with pytest.raises(Exception) as exc_info:
+        mv.help(ref)
+    assert isinstance(exc_info.value, SemanticError)
+
+
+def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: CaptureFixture[str]):
+    import pytest
+
+    from marivo.semantic.ir import MetricRef
+
+    project = semantic_project_factory(
+        {
+            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\n"
+                "warehouse = md.ref('warehouse')\n"
+                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "\n"
+                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), "
+                "name='revenue', verification_mode='python_native')\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    metric_ids = project.list_metrics().ids()
+    if not metric_ids:
+        pytest.skip("no metrics in fixture")
+    ref = MetricRef(metric_ids[0])
+    mv.help(ref, project=project)
+    captured = capsys.readouterr()
+    assert len(captured.out) > 0
+    assert metric_ids[0].split(".")[-1] in captured.out or metric_ids[0] in captured.out
+
+
+def test_mv_help_semantic_prefix_routes_to_semantic_surface(capsys: CaptureFixture[str]):
+    mv.help("semantic.metric")
+    captured = capsys.readouterr()
+    assert "metric" in captured.out.lower()
+    assert len(captured.out) > 0

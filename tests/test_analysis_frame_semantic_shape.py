@@ -170,10 +170,10 @@ def test_summary_semantic_shape_is_none_for_base_frame():
     assert frame.summary().semantic_shape is None
 
 
-def test_repr_header_includes_semantic_shape_for_metric_frame():
+def test_repr_identity_includes_semantic_shape_for_metric_frame():
     mf = MetricFrame(_df=pd.DataFrame({"v": [1.0]}), meta=_metric_meta("panel"))
-    header = repr(mf).splitlines()[0]
-    assert "shape=panel" in header
+    r = repr(mf)
+    assert "shape=panel" in r
 
 
 def test_delta_predicted_attribution_shape_sum_when_no_component():

@@ -32,6 +32,12 @@ class ForecastFrameMeta(BaseFrameMeta):
     segment_dimensions: list[str]
 
 
-@dataclass
+@dataclass(repr=False)
 class ForecastFrame(BaseFrame):
     meta: ForecastFrameMeta
+
+    def _repr_identity(self) -> str:
+        return (
+            f"ForecastFrame ref={self.meta.ref} metric={self.meta.metric_id} "
+            f"rows={self.meta.row_count}"
+        )

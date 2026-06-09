@@ -35,6 +35,12 @@ class DeltaFrame(BaseFrame):
 
     _NEXT_INTENTS = ("decompose", "discover", "transform")
 
+    def _repr_identity(self) -> str:
+        return (
+            f"DeltaFrame ref={self.meta.ref} metric={self.meta.metric_id} "
+            f"rows={self.meta.row_count}"
+        )
+
     @property
     def semantic_shape(self) -> Literal["scalar", "time_series", "segmented", "panel"]:
         """The frame's semantic shape (distinct from .shape, the dataframe dims)."""

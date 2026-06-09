@@ -33,9 +33,12 @@ def _isolate_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return isolated
 
 
-@dataclass
+@dataclass(repr=False)
 class ExplorationResult(BaseFrame):
     meta: ExplorationResultMeta
+
+    def _repr_identity(self) -> str:
+        return f"ExplorationResult ref={self.meta.ref} rows={self.meta.row_count}"
 
     def to_pandas(self) -> pd.DataFrame:
         """Return a recursively isolated copy of the wrapped DataFrame."""

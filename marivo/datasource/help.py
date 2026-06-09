@@ -46,7 +46,7 @@ def _constraint_topic() -> Descriptor:
                 "",
                 *(f"  {constraint['id']:<36} {constraint['title']}" for constraint in constraints),
                 "",
-                'Call md.help("<constraint_id>", format="json") for full rule details.',
+                'Call md.help("<constraint_id>") for full rule details.',
             )
         ),
     )
@@ -85,7 +85,6 @@ def _format_top_level_text() -> str:
         lines.append(f"  md.{entry['name']:<24} [{entry['kind']}]  {entry['summary']}")
     lines.append("")
     lines.append('Call md.help("<name>") for detail on any entry.')
-    lines.append('Call md.help("<name>", format="json") for agent-readable data.')
     return "\n".join(lines)
 
 

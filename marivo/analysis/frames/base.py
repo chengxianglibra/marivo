@@ -6,7 +6,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, time
-from html import escape
 from typing import Any, Literal
 
 import pandas as pd
@@ -19,20 +18,13 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.followups import BlockingIssue, ConfidenceScope, FollowupAction
+from marivo.analysis.frames.render import format_bounded_card
 from marivo.analysis.lineage import Lineage
 
-_REPR_MAX_ROWS = 3
-_REPR_MAX_COLUMNS = 8
-_REPR_MAX_TEXT_WIDTH = 40
+_RENDER_PREVIEW_ROWS = 5
+_RENDER_MAX_COLUMNS = 8
 _PREVIEW_DEFAULT_LIMIT = 10
 _PREVIEW_MAX_LIMIT = 100
-
-
-def _truncate_repr_text(value: Any) -> str:
-    text = str(value)
-    if len(text) <= _REPR_MAX_TEXT_WIDTH:
-        return text
-    return f"{text[: _REPR_MAX_TEXT_WIDTH - 3]}..."
 
 
 def _display_column_names(columns: pd.Index) -> list[str]:
@@ -162,12 +154,18 @@ class BaseFrameMeta(BaseModel):
     recommended_followups: list[FollowupAction] = Field(default_factory=list)
 
 
-@dataclass
+@dataclass(repr=False)
 class BaseFrame:
     _df: pd.DataFrame
     meta: BaseFrameMeta
 
     _NEXT_INTENTS: tuple[str, ...] = ()
+    _AVAILABLE_ENTRIES: tuple[str, ...] = (
+        ".summary()",
+        ".preview(limit=...)",
+        ".to_pandas()",
+        ".render()",
+    )
 
     @property
     def ref(self) -> str:
@@ -282,48 +280,59 @@ class BaseFrame:
             semantic_shape=semantic_shape,
         )
 
+    def _repr_identity(self) -> str:
+        return f"{type(self).__name__} ref={self.meta.ref} rows={self.meta.row_count}"
+
+    def _render_status(self) -> str | None:
+        parts: list[str] = []
+        if self.meta.evidence_status != "unavailable":
+            parts.append(f"evidence={self.meta.evidence_status}")
+        if self.meta.quality is not None:
+            compat = self.meta.quality.metric_definition_compatibility
+            if compat is not None:
+                parts.append(f"quality={compat}")
+        return " ".join(parts) if parts else None
+
     def __repr__(self) -> str:
-        visible_columns = list(self._df.columns[:_REPR_MAX_COLUMNS])
-        omitted_columns = max(0, len(self._df.columns) - _REPR_MAX_COLUMNS)
-        header_columns = [_truncate_repr_text(column) for column in visible_columns]
-        if omitted_columns:
-            header_columns.append(f"...+{omitted_columns}")
-        cols = ",".join(header_columns)
-        raw_shape = getattr(self.meta, "semantic_kind", None)
-        shape_segment = f"shape={raw_shape} " if isinstance(raw_shape, str) and raw_shape else ""
-        header = (
-            f"<{type(self).__name__} ref={self.meta.ref} kind={self.meta.kind} "
-            f"{shape_segment}rows={self.meta.row_count} cols=[{cols}]>"
+        return f"<{self._repr_identity()}; call .show() to inspect>"
+
+    def _repr_html_(self) -> None:
+        return None
+
+    def render(self) -> str:
+        """Return bounded plain-text result card without a trailing newline.
+
+        Returns:
+            Bounded plain text suitable for terminal/agent inspection.
+
+        Example:
+            >>> print(frame.render())
+            MetricFrame ref=frame_ab12 metric=sales.revenue shape=time_series rows=7
+            ...
+        """
+        columns = _display_column_names(self._df.columns)
+        visible_columns = columns[:_RENDER_MAX_COLUMNS]
+        preview_rows: list[list[str]] = []
+        for row in self._df.head(_RENDER_PREVIEW_ROWS).itertuples(index=False, name=None):
+            preview_rows.append([str(_preview_cell(v)) for v in row[:_RENDER_MAX_COLUMNS]])
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=self._render_status(),
+            columns=visible_columns,
+            rows=preview_rows,
+            row_count=len(self._df),
+            preview_truncation_hint="call .preview(limit=...) or .to_pandas()",
+            available=self._AVAILABLE_ENTRIES,
         )
-        next_line: str | None = None
-        intents = self.next_intents()
-        if intents:
-            next_line = "  next: " + ", ".join(intents)
-        if len(self._df) == 0:
-            return header if next_line is None else f"{header}\n{next_line}"
 
-        notes: list[str] = []
-        if omitted_columns:
-            notes.append(f"  ... (+{omitted_columns} more columns)")
-        if len(self._df) > _REPR_MAX_ROWS:
-            remaining = len(self._df) - _REPR_MAX_ROWS
-            notes.append(
-                f"  ... ({remaining} more rows, use .to_pandas() to materialize)",
-            )
+    def show(self) -> None:
+        """Print render() output followed by a trailing newline and return None.
 
-        preview_source = self._df.iloc[:_REPR_MAX_ROWS, :_REPR_MAX_COLUMNS]
-        preview = pd.DataFrame(
-            [
-                [_truncate_repr_text(value) for value in row]
-                for row in preview_source.itertuples(index=False, name=None)
-            ],
-            columns=[_truncate_repr_text(column) for column in preview_source.columns],
-        )
-        preview_text = preview.to_string(index=False)
-        sections = [header, preview_text, *notes]
-        if next_line is not None:
-            sections.append(next_line)
-        return "\n".join(sections)
+        Returns:
+            None
 
-    def _repr_html_(self) -> str:
-        return f"<pre>{escape(repr(self))}</pre>"
+        Example:
+            >>> frame.show()
+            MetricFrame ref=frame_ab12 ...
+        """
+        print(self.render())

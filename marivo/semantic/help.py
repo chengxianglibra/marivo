@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from functools import lru_cache
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from marivo.introspection.schema import Descriptor
 from marivo.introspection.surface import Surface, render
@@ -85,7 +84,7 @@ def _constraint_topic() -> Descriptor:
                 "",
                 *(f"  {constraint['id']:<34} {constraint['title']}" for constraint in constraints),
                 "",
-                'Call ms.help("<constraint_id>", format="json") for full rule details.',
+                'Call ms.help("<constraint_id>") for full rule details.',
             )
         ),
     )
@@ -146,9 +145,9 @@ def _decomposition_content() -> dict[str, object]:
             "Do not infer decomposition builders from common SQL aggregate names.",
         ],
         "related_help": [
-            "ms.help('metric', format='json')",
-            "ms.help('derived_metric', format='json')",
-            "ms.help('constraints', format='json')",
+            "ms.help('metric')",
+            "ms.help('derived_metric')",
+            "ms.help('constraints')",
         ],
     }
 
@@ -175,7 +174,7 @@ def _decomposition_text(content: dict[str, object]) -> str:
     for anti_pattern in anti_patterns:
         lines.append(f"  - {anti_pattern}")
     lines.append("")
-    lines.append('Call ms.help("decomposition", format="json") for agent-readable data.')
+    lines.append('Call ms.help("decomposition") for agent-readable data.')
     return "\n".join(lines)
 
 
@@ -189,9 +188,9 @@ def _decomposition_topic() -> Descriptor:
         content=content,
         doc=_decomposition_text(content),
         see_also=(
-            "ms.help('metric', format='json')",
-            "ms.help('derived_metric', format='json')",
-            "ms.help('constraints', format='json')",
+            "ms.help('metric')",
+            "ms.help('derived_metric')",
+            "ms.help('constraints')",
         ),
     )
 
@@ -238,7 +237,6 @@ def _format_top_level_text() -> str:
         lines.append(f"  ms.{entry['name']:<18} [{entry['kind']}]  {entry['summary']}")
     lines.append("")
     lines.append('Call ms.help("<name>") for detail on any entry.')
-    lines.append('Call ms.help("<name>", format="json") for agent-readable data.')
     return "\n".join(lines)
 
 
@@ -251,25 +249,28 @@ def help_text(symbol: str | None = None) -> str:
     return cast("str", render(_surface(), normalized, "text"))
 
 
-def help(  # noqa: A001, RUF100
+def help(
     symbol: str | None = None,
-    *,
-    format: Literal["text", "json"] = "text",
-) -> dict[str, object] | None:
-    """Print or return agent-facing help for the semantic surface.
+) -> None:
+    """Print bounded agent-facing help for the semantic surface and return None.
 
-    Without arguments, lists top-level entries. With a symbol name (decorator,
-    builder, function, exception class, topic, or constraint id) prints its
-    signature, docstring, and bounded constraint summaries. With
-    ``format="json"``, prints the structured JSON descriptor and returns the dict.
+    Args:
+        symbol: Symbol name, constraint id, or topic (e.g. "metric",
+            "derived_metric", "decomposition", "constraints"). None prints
+            the top-level surface listing.
+
+    Returns:
+        None
+
+    Raises:
+        TypeError: When called with ``format=``, ``json=``, or other
+            unsupported keyword arguments.
+
+    Example:
+        >>> ms.help()
+        >>> ms.help("metric")
+        >>> ms.help("decomposition")
     """
 
     normalized = None if symbol == "" else symbol
-    if format == "json":
-        data = cast("dict[str, object]", render(_surface(), normalized, "json"))
-        print(json.dumps(data, indent=2, sort_keys=True))
-        return data
-    if format != "text":
-        raise ValueError("format must be 'text' or 'json'")
     print(help_text(normalized))
-    return None

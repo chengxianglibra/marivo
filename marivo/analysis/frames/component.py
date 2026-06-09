@@ -24,8 +24,11 @@ class ComponentFrameMeta(BaseFrameMeta):
     semantic_model: str
 
 
-@dataclass
+@dataclass(repr=False)
 class ComponentFrame(BaseFrame):
     meta: ComponentFrameMeta
 
     _NEXT_INTENTS: tuple[str, ...] = ()
+
+    def _repr_identity(self) -> str:
+        return f"ComponentFrame ref={self.meta.ref} rows={self.meta.row_count}"
