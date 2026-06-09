@@ -87,7 +87,7 @@ def test_collect_check_author_reload_inspect(tmp_path):
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
-    project.reload()
+    project.load()
     assert project.is_ready()
 
     # 4. cheap post-reload inspection

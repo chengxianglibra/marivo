@@ -586,7 +586,7 @@ If no backend access is bound, the report is blocked.
 
 Internal orchestration:
 
-1. `project.reload()`.
+1. `project.load()`.
 2. Resolve every requested ref and dependency from the loaded registry.
 3. Run required backend previews/materialization for datasets, fields,
    time-fields, and metrics, using `preview_limit` and `redact`.

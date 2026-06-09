@@ -56,7 +56,7 @@ the project structure before authoring semantic objects.
   `sources=(ms.AuthoringSourceInput(...),)` and `semantic_refs=...` where relevant. Branch
   on `AuthoringAssessment.status`, then inspect `issues` and `questions`; never string-parse
   messages. Ask the user only for `AuthoringQuestion`s the assessment raises.
-- After authoring and `project.reload()`, run `project.inspect_authored_object(ref)` (cheap,
+- After authoring and `project.load()`, run `project.inspect_authored_object(ref)` (cheap,
   backend-free) before any runtime preview/parity.
 - `blast_radius` is a non-negative integer count of distinct transitive dependents,
   not a ref tuple/list or candidate list.
@@ -82,7 +82,7 @@ Read `references/workflow.md` first. The short form is:
    access once, inspect source context, and deep-dive only the columns that matter.
 2. Assess and author each candidate object: call `project.assess_authoring(...)`,
    resolve blockers/questions, author one `.marivo/semantic/<model>/_model.py` using ref
-   variables, reload, and inspect the authored object.
+   variables, load, and inspect the authored object.
 3. Closeout: call `project.readiness(...)` once for the target refs and hand off only when
    it is not blocked.
 

@@ -51,7 +51,7 @@ are not written to the evidence file.
 
 ## Semantic preview
 
-After authoring and reload, preview the semantic objects that will be handed to
+After authoring and load, preview the semantic objects that will be handed to
 analysis:
 
 ```python
@@ -80,7 +80,7 @@ Keep preview limits bounded. Prefer representative filters only when they are
 needed to expose recent values, non-null examples, or known edge cases.
 
 If raw preview fails, repair the datasource configuration or table access path
-before authoring semantics from that source. If semantic preview fails, reload
+before authoring semantics from that source. If semantic preview fails, load
 after edits and rerun preview before closeout. Closeout can mention remaining
 preview gaps only when readiness does not require those refs for analysis
 handoff.

@@ -82,7 +82,7 @@ refs = project.list_evidence(subject_refs=("sales.revenue",))
 
 ## Auto-Recorded Decisions
 
-On reload, Marivo auto-records `metric_decomposition` and `time_field_identity`
+On load, Marivo auto-records `metric_decomposition` and `time_field_identity`
 decisions for authored metrics and time fields. These are the sole mechanism
 for writing `DecisionRecord` entries and satisfy the
 `dangerous_decision_recorded` rule in `inspect_authored_object`.

@@ -76,6 +76,7 @@ class ConstraintId(StrEnum):
     AMBIGUOUS_REFERENCE = "ambiguous_reference"
     BACKEND_FACTORY_AVAILABLE = "backend_factory_available"
     INSPECT_SOURCE_AVAILABLE = "inspect_source_available"
+    PROJECT_LOADED_REQUIRED = "project_loaded_required"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -604,6 +605,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Source inspection methods require an inspect_source callable.",
         "inspect_source maps datasource+source to TableMetadata for schema discovery.",
         "Call project.bind_datasource_access(...) after load() or pass inspect_source=... explicitly.",
+    ),
+    ConstraintId.PROJECT_LOADED_REQUIRED: _constraint(
+        ConstraintId.PROJECT_LOADED_REQUIRED,
+        "project_not_loaded",
+        "runtime",
+        ("SemanticProject",),
+        "Project must be loaded before accessing semantic objects.",
+        "Listing and lookup methods require a loaded registry.",
+        "Call project.load() first, then access metrics, datasets, or fields.",
     ),
 }
 

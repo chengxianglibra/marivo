@@ -779,7 +779,7 @@ def test_reload_preserves_collected_source_preview_evidence(
     )
     assert project.raw_preview_evidence()
 
-    project.reload()
+    project.load()
 
     assert project.raw_preview_evidence() == ("warehouse.orders",)
 

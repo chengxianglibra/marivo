@@ -179,7 +179,7 @@ print(project.describe("sales.revenue", compile_sql=True))
 | `project.materialize_dataset(name, backend_factory=...)` | 物化 dataset 到 Ibis table |
 | `project.materialize_field(name, backend_factory=...)` | 物化 field 到 Ibis expression |
 | `project.materialize_metric(name, backend_factory=...)` | 物化 metric 到 Ibis expression |
-| `project.reload()` | 重新加载该项目 |
+| `project.load()` | 重新加载该项目 |
 | `project.richness(demand=None)` | 返回纯 advisory 的 demand-ranked semantic coverage/depth gap report，不阻塞 readiness |
 
 `project.richness(...)` returns a `RichnessReport`; callers seed ranking with
@@ -232,7 +232,7 @@ value = expr.execute()
 
 ### SemanticProject
 
-目标态：`SemanticProject` 是唯一显式项目边界；reader、reload、materialization 都优先通过 project methods 调用。
+目标态：`SemanticProject` 是唯一显式项目边界；reader、materialization 都优先通过 project methods 调用。
 
 ```python
 from marivo.semantic import SemanticProject
@@ -645,7 +645,7 @@ if result.errors:
 
 ### 3. Reload 并处理结构化错误
 
-修改 authoring 文件后，应优先运行 `check`。REPL 中可调用 `project.reload()`，但 agent fix loop 不应依赖 thread-local active project 或上一次 import 的模块缓存。遇到 `SemanticDecoratorError`、`SemanticLoadError`、`SemanticRuntimeError`、`SemanticParityError` 时，优先按错误中的 kind、refs、hint 和 source location 修改定义，不要用 try/except 隐藏错误。
+修改 authoring 文件后，应优先运行 `check`。REPL 中可调用 `project.load()`，但 agent fix loop 不应依赖 thread-local active project 或上一次 import 的模块缓存。遇到 `SemanticDecoratorError`、`SemanticLoadError`、`SemanticRuntimeError`、`SemanticParityError` 时，优先按错误中的 kind、refs、hint 和 source location 修改定义，不要用 try/except 隐藏错误。
 
 ### 4. Materialize 或交给 analysis
 
@@ -840,8 +840,8 @@ typed frames + session persistence + lineage
 - `SemanticProject`、project-scoped registry、context-local active registry。
 - decorators：`model`、`datasource`、`dataset`、`field`、`time_field`、`metric`、`relationship`。
 - builders：`sum`、`ratio`、`weighted_average`、`ref`。
-- loader：model 目录扫描、`_model.py` 优先执行、sibling files 排序执行、reload 清理项目模块。
-- reader/introspection：`list_models`、`list_datasources`、`list_datasets`、`list_metrics`、`describe`、`help`、`reload`。v1 现状的 reader 是 module-level free functions，依赖 context-local active project；v1.1 全部迁移到 `SemanticProject` methods（参见上方 §Reader / Introspection），free function 形态仅作为有显式 active project 的 REPL 糖保留。
+- loader：model 目录扫描、`_model.py` 优先执行、sibling files 排序执行、re-load 清理项目模块。
+- reader/introspection：`list_models`、`list_datasources`、`list_datasets`、`list_metrics`、`describe`、`help`。v1 现状的 reader 是 module-level free functions，依赖 context-local active project；v1.1 全部迁移到 `SemanticProject` methods（参见上方 §Reader / Introspection），free function 形态仅作为有显式 active project 的 REPL 糖保留。
 - materialization：dataset、field、metric 到 Ibis object。
 - validation：metric body AST 约束、missing refs、time prefix、relationship endpoint/columns/arity。
 - SQL provenance：`source_sql`、`source_dialect`、`source_document`、`source_notes`。

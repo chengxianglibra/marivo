@@ -9,7 +9,7 @@ Tests cover:
 - sys.path injection and cleanup
 - Load result status (ready/errored)
 - Errors accumulate across model directories
-- reload() works
+- load() on already-loaded project resets and re-loads
 """
 
 from __future__ import annotations
@@ -308,18 +308,18 @@ def test_one_bad_model_does_not_block_good_one(semantic_project_factory) -> None
 
 
 # ---------------------------------------------------------------------------
-# reload
+# re-load
 # ---------------------------------------------------------------------------
 
 
-def test_reload_works(semantic_project_factory) -> None:
+def test_load_on_already_loaded_project(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
         }
     )
     assert project.is_ready()
-    result = project.reload()
+    result = project.load()
     assert project.is_ready()
     assert result.status == "ready"
 
@@ -509,7 +509,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     root = project.semantic_root
     (root / "sales" / "dataset.py").write_text(dataset_v2)
 
-    result = project.reload()
+    result = project.load()
 
     assert result.status == "errored"
     assert any("query_info" in err.message for err in result.errors)
@@ -1222,7 +1222,7 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
     assert any("finance" in w.message for w in filtered_warnings)
 
 
-def test_reload_reapplies_stored_filter(semantic_project_factory) -> None:
+def test_load_without_models_loads_all(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
@@ -1233,12 +1233,12 @@ def test_reload_reapplies_stored_filter(semantic_project_factory) -> None:
     project.load(models=["sales"])
     assert "sales" in project._registry.models
     assert "finance" not in project._registry.models
-    project.reload()
+    project.load()
     assert "sales" in project._registry.models
-    assert "finance" not in project._registry.models
+    assert "finance" in project._registry.models
 
 
-def test_reload_can_change_filter(semantic_project_factory) -> None:
+def test_load_can_change_filter(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_model.py": _MINIMAL_MODEL_PY,
@@ -1248,6 +1248,6 @@ def test_reload_can_change_filter(semantic_project_factory) -> None:
     )
     project.load(models=["sales"])
     assert "finance" not in project._registry.models
-    project.reload(models=["sales", "finance"])
+    project.load(models=["sales", "finance"])
     assert "sales" in project._registry.models
     assert "finance" in project._registry.models

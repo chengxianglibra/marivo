@@ -28,10 +28,10 @@ record them with `project.record_authoring_evidence(AuthoringEvidenceInput(...))
 for ledger and handoff context, then assess the object with the source/role
 shape.
 
-## Forgetting to reload before inspect_authored_object
+## Forgetting to load before inspect_authored_object
 
-After authoring `.marivo/semantic/<model>/*.py`, always call `project.reload()`
-before `project.inspect_authored_object(ref)`. Without reload, the registry is
+After authoring `.marivo/semantic/<model>/*.py`, always call `project.load()`
+before `project.inspect_authored_object(ref)`. Without load, the registry is
 stale and the inspection reflects the pre-authoring state. This also ensures
 auto-recorded `metric_decomposition` and `time_field_identity` decisions are
 present in the ledger.
@@ -140,7 +140,7 @@ federation.
 ## Multi-file sprawl
 
 Avoid spreading one model change across many small files when a focused dataset,
-field, metric, or relationship edit would do. Sprawl makes reload, review, and
+field, metric, or relationship edit would do. Sprawl makes load, review, and
 readiness harder because related definitions become difficult to inspect
 together.
 

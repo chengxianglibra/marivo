@@ -31,7 +31,7 @@ The root cause is a structural asymmetry, not a missing primitive:
      `_confirmed_question_ids`).
 
 The common metric case is already half-solved: declaring `@ms.metric` /
-`ms.derived_metric` and calling `project.reload()` auto-records the object-level
+`ms.derived_metric` and calling `project.load()` auto-records the object-level
 `metric_decomposition` decision. That happy path is simply undocumented as the
 incremental route.
 
@@ -108,7 +108,7 @@ These forks were resolved during brainstorming:
 4. **Author one object** in the existing `.marivo/semantic/<model>/_model.py`,
    matching surrounding style and using ref variables. Do not add a new file
    (cross-ref "Multi-file sprawl").
-5. **Reload to auto-record.** `project.reload()` auto-records the object-level
+5. **Reload to auto-record.** `project.load()` auto-records the object-level
    `metric_decomposition` (metrics) or `time_field_identity` (time fields). This
    replaces manual `record_decision` for the common case.
 6. **Settle only genuinely-needed decisions.** For a dangerous decision the
@@ -161,7 +161,7 @@ average_order_value = ms.derived_metric(
 )
 ```
 
-After either, `project.reload()` auto-records `metric_decomposition`;
+After either, `project.load()` auto-records `metric_decomposition`;
 `readiness(refs=[...])` over the new metric plus its dependencies should clear
 with no hand-built `DecisionRecord`.
 
