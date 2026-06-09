@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from functools import lru_cache
-from typing import Literal, cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from marivo.semantic.ir import _BaseRef
+    from marivo.semantic.reader import SemanticProject
 
 from marivo.introspection.constraints import Constraint
 from marivo.introspection.schema import Descriptor
@@ -108,16 +111,16 @@ _SUMMARIES: dict[str, str] = {
 }
 
 _SEE_ALSO: dict[str, tuple[str, ...]] = {
-    "MetricFrame": ("mv.help('observe', format='json')", "mv.help('MetricFrame.components')"),
-    "DeltaFrame": ("mv.help('compare', format='json')", "mv.help('decompose')"),
-    "CandidateSet": ("mv.help('discover', format='json')", "mv.help('select')"),
-    "AlignmentPolicy": ("mv.help('alignment', format='json')", "mv.help('calendar')"),
+    "MetricFrame": ("mv.help('observe')", "mv.help('MetricFrame.components')"),
+    "DeltaFrame": ("mv.help('compare')", "mv.help('decompose')"),
+    "CandidateSet": ("mv.help('discover')", "mv.help('select')"),
+    "AlignmentPolicy": ("mv.help('alignment')", "mv.help('calendar')"),
     "MarivoReportArtifact": (
-        "mv.help('ReportManifest', format='json')",
-        "mv.help('ReportSpec', format='json')",
+        "mv.help('ReportManifest')",
+        "mv.help('ReportSpec')",
     ),
-    "ReportManifest": ("mv.help('MarivoReportArtifact', format='json')",),
-    "ReportSpec": ("mv.help('MarivoReportArtifact', format='json')",),
+    "ReportManifest": ("mv.help('MarivoReportArtifact')",),
+    "ReportSpec": ("mv.help('MarivoReportArtifact')",),
 }
 
 
@@ -682,7 +685,6 @@ def _format_top_level_text() -> str:
         lines.append(f"  {label:<27} [{entry['kind']}]  {entry['summary']}")
     lines.append("")
     lines.append('Call mv.help("<name>") for detail on any entry.')
-    lines.append('Call mv.help("<name>", format="json") for agent-readable data.')
     return "\n".join(lines)
 
 
@@ -695,23 +697,141 @@ def help_text(symbol: str | None = None) -> str:
     return cast("str", render(_surface(), normalized, "text"))
 
 
-def help(  # noqa: A001, RUF100
-    symbol: str | None = None,
+def help(
+    target: str | _BaseRef | None = None,
     *,
-    format: Literal["text", "json"] = "text",
-) -> dict[str, object] | None:
-    """Print or return agent-facing help for the analysis surface.
+    project: SemanticProject | None = None,
+) -> None:
+    """Print bounded help text for a Marivo analysis symbol or semantic ref.
 
-    With ``format="text"``, prints a compact text descriptor and returns None.
-    With ``format="json"``, prints the JSON descriptor and returns the dict.
+    Args:
+        target: One of:
+            - None -- print top-level analysis surface help.
+            - str -- print help for a named symbol or topic (e.g. "observe",
+              "MetricFrame", "session").
+            - _BaseRef -- print semantic-object help for an already-defined
+              Python semantic ref (MetricRef, DatasetRef, etc.).
+        project: Explicit SemanticProject for semantic ref resolution.
+            Required when ``target`` is a ``_BaseRef`` and no project can be
+            inferred from the current working directory.
+
+    Returns:
+        None
+
+    Raises:
+        SemanticError: When target is a _BaseRef and the project cannot be
+            resolved (no loaded project found; pass ``project=project``).
+        TypeError: When called with ``format=``, ``json=``, or other
+            unsupported keyword arguments.
+
+    Example:
+        >>> mv.help()                       # top-level analysis help
+        >>> mv.help("observe")              # intent help
+        >>> mv.help("MetricFrame")          # frame type help
+        >>> mv.help(revenue_ref, project=p) # semantic-object help
     """
+    from marivo.semantic.ir import _BaseRef as _BaseRefType
 
-    normalized = None if symbol == "" else symbol
-    if format == "json":
-        data = cast("dict[str, object]", render(_surface(), normalized, "json"))
-        print(json.dumps(data, indent=2, sort_keys=True))
-        return data
-    if format == "text":
-        print(help_text(normalized))
-        return None
-    raise ValueError("format must be 'text' or 'json'")
+    if isinstance(target, _BaseRefType):
+        _help_semantic_ref(target, project=project)
+        return
+
+    # Route "semantic.<topic>" to the semantic help surface
+    if isinstance(target, str) and target.startswith("semantic."):
+        semantic_symbol = target[len("semantic.") :]
+        from marivo.semantic.help import help_text as ms_help_text
+
+        print(ms_help_text(semantic_symbol or None))
+        return
+
+    normalized = None if target == "" else target
+    print(help_text(normalized))
+
+
+def _help_semantic_ref(
+    ref: _BaseRef,
+    *,
+    project: SemanticProject | None = None,
+) -> None:
+    """Resolve project and print bounded semantic-object help for a ref."""
+    from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+
+    resolved_project = project
+    if resolved_project is None:
+        try:
+            import marivo.semantic as ms
+
+            resolved_project = ms.find_project()
+            if resolved_project is not None:
+                resolved_project.load()
+        except Exception:
+            resolved_project = None
+
+    if resolved_project is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            (
+                f"Cannot resolve project for mv.help({ref.semantic_id!r}). "
+                "No loaded semantic project found. "
+                "Pass project=project explicitly: mv.help(ref, project=project)."
+            ),
+            cls=SemanticRuntimeError,
+        )
+
+    _print_semantic_object_help(ref, resolved_project)
+
+
+def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None:
+    """Print bounded consumption context for a semantic ref."""
+    from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+    from marivo.semantic.ir import SymbolKind
+
+    reg = getattr(project, "_registry", None)
+    if reg is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"Project not loaded. Call project.load() before mv.help({ref.semantic_id!r}).",
+            cls=SemanticRuntimeError,
+        )
+
+    ir = None
+    if ref.kind == SymbolKind.METRIC:
+        ir = reg.metrics.get(ref.semantic_id)
+    elif ref.kind == SymbolKind.DATASET:
+        ir = reg.datasets.get(ref.semantic_id)
+    elif ref.kind in (SymbolKind.FIELD, SymbolKind.TIME_FIELD):
+        ir = reg.fields.get(ref.semantic_id)
+
+    if ir is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            (
+                f"{ref.kind} {ref.semantic_id!r} not found in loaded project. "
+                "Call project.list_metrics().ids() to see available ids."
+            ),
+            cls=SemanticRuntimeError,
+        )
+
+    lines: list[str] = [
+        f"{ref.kind}: {ir.semantic_id}",
+    ]
+    if ir.description:
+        lines.append(f"description: {ir.description}")
+    ai = getattr(ir, "ai_context", None)
+    if ai is not None:
+        if getattr(ai, "business_definition", None):
+            lines.append(f"business_definition: {ai.business_definition}")
+        if getattr(ai, "guardrails", None):
+            lines.append("guardrails:")
+            for g in list(ai.guardrails)[:3]:
+                lines.append(f"  - {g}")
+        if getattr(ai, "examples", None):
+            lines.append("examples:")
+            for ex in list(ai.examples)[:3]:
+                lines.append(f"  - {ex}")
+    lines.append("")
+    lines.append(
+        f"use: project.list_metrics().ids() to enumerate; "
+        f"pass {ir.semantic_id!r} to session.observe(mv.MetricRef(...))"
+    )
+    print("\n".join(lines))

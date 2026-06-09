@@ -692,6 +692,17 @@ preview = delta.preview(limit=20)
 
 Projection 不产生 canonical artifact family，不直接 seed evidence proposition，也不能作为 `compare`、`decompose`、`discover`、`hypothesis_test` 的输入。下游核心算子必须引用 canonical artifact、selector ref 或 typed input。
 
+## Result Contract
+
+Analysis operators do not write stdout. Every returned result object supports:
+
+- `result.show()` — print bounded result card, return None
+- `result.render()` — return bounded text without writing stdout
+- `repr(result)` — one-line cold-start hint pointing to `.show()`
+- `result.summary()` — typed bounded projection (tabular results only)
+- `result.preview(limit=10)` — bounded row projection (tabular results only)
+- `result.to_pandas()` — isolated DataFrame copy (analysis frames)
+
 ## Candidate consumption protocol
 
 `candidate_set` 的 item schema 由 `shape` 决定，但所有 item 共享以下通用字段：

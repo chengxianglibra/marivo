@@ -46,6 +46,29 @@ class RichnessReport:
     gaps: tuple[RichnessGap, ...]
     checked_at: str
 
+    def __repr__(self) -> str:
+        return f"<RichnessReport gaps={len(self.gaps)}; call .show() to inspect>"
+
+    def render(self) -> str:
+        """Return bounded plain-text inspection card without a trailing newline."""
+        lines: list[str] = [f"RichnessReport gaps={len(self.gaps)}"]
+        if self.gaps:
+            for gap in self.gaps[:5]:
+                lines.append(f"  - {gap.kind}: {', '.join(gap.refs)}")
+            if len(self.gaps) > 5:
+                lines.append(f"  ... {len(self.gaps) - 5} more; call .to_dict() for full list")
+        else:
+            lines.append("  (no gaps found)")
+        lines.append(f"checked_at: {self.checked_at}")
+        lines.append("available:")
+        for entry in (".render()", ".to_dict()"):
+            lines.append(f"- {entry}")
+        return "\n".join(lines)
+
+    def show(self) -> None:
+        """Print render() output followed by a trailing newline and return None."""
+        print(self.render())
+
     def to_dict(self) -> dict[str, object]:
         return {
             "gaps": [gap.to_dict() for gap in self.gaps],

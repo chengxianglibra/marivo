@@ -9,7 +9,7 @@ objects. It is evidence-first, ledger-aware, and readiness-gated.
 <venv>/bin/python - <<'PY'
 import marivo.semantic as ms
 
-ms.help(format="json")
+ms.help()
 project = ms.find_project()
 assert project is not None
 print(project.load())

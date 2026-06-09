@@ -111,7 +111,7 @@ def _hint_from_catalog(kind: ErrorKind, **_kwargs: Any) -> str:
     hint = default_hint_for_error_kind(kind.value)
     if hint is not None:
         return hint
-    return "Run ms.help('constraints', format='json') to inspect semantic constraints."
+    return "Run ms.help('constraints') to inspect semantic constraints."
 
 
 HINTS: dict[ErrorKind, Callable[..., str]] = {

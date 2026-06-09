@@ -7,7 +7,7 @@ All read-only access to the loaded semantic model goes through
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Literal, cast
@@ -28,6 +28,7 @@ from marivo.preview import (
     validate_preview_limit,
 )
 from marivo.semantic.constraints import ConstraintId
+from marivo.semantic.discovery import DiscoveryResult
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,
@@ -222,29 +223,6 @@ class SearchHit:
         return f"{type(self).__name__}({self.semantic_id!r})"
 
 
-def _display_value(value: object) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value).replace("\n", " ")
-
-
-def _print_table(
-    rows: Sequence[Mapping[str, object]],
-    *,
-    columns: Sequence[str],
-    empty_message: str,
-) -> None:
-    if not rows:
-        print(empty_message)
-        return
-
-    print(" | ".join(columns))
-    for row in rows:
-        print(" | ".join(_display_value(row.get(column)) for column in columns))
-
-
 # ---------------------------------------------------------------------------
 # DependencyNode
 # ---------------------------------------------------------------------------
@@ -257,6 +235,48 @@ class DependencyNode:
     semantic_id: str
     kind: SymbolKind
     children: tuple[DependencyNode, ...]  # upstream or downstream
+
+    def __repr__(self) -> str:
+        return (
+            f"<DependencyNode id={self.semantic_id} kind={self.kind} "
+            f"children={len(self.children)}; call .show() to inspect>"
+        )
+
+    def _render_tree(self, prefix: str = "", depth: int = 0, max_depth: int = 4) -> list[str]:
+        lines: list[str] = []
+        indent = "  " * depth
+        lines.append(f"{indent}{prefix}{self.semantic_id} [{self.kind}]")
+        if depth >= max_depth:
+            if self.children:
+                lines.append(f"{indent}  ... (deeper tree omitted; call .to_dict() for full tree)")
+            return lines
+        for child in self.children:
+            lines.extend(child._render_tree(prefix="", depth=depth + 1, max_depth=max_depth))
+        return lines
+
+    def render(self) -> str:
+        """Return bounded plain-text tree card without a trailing newline."""
+        lines: list[str] = [f"DependencyNode id={self.semantic_id} kind={self.kind}"]
+        tree_lines = self._render_tree(depth=1, max_depth=4)
+        lines.extend(tree_lines[:70])
+        if len(tree_lines) > 70:
+            lines.append("  ... (tree truncated; call .to_dict() for full tree)")
+        lines.append("available:")
+        lines.append("- .render()")
+        lines.append("- .to_dict()")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict[str, object]:
+        """Return structured recursive tree as a plain dict."""
+        return {
+            "semantic_id": self.semantic_id,
+            "kind": str(self.kind),
+            "children": [child.to_dict() for child in self.children],
+        }
+
+    def show(self) -> None:
+        """Print render() output followed by a trailing newline and return None."""
+        print(self.render())
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +500,10 @@ class SemanticProject:
         project = SemanticProject(workspace_dir="/path/to/project")
         result = project.load()
         if project.is_ready():
-            models = project.list_models(display=False)
+            models = project.list_models()
+            models.show()   # print bounded preview
+            for m in models:
+                ...
     """
 
     def __init__(
@@ -609,8 +632,12 @@ class SemanticProject:
 
     # -- listings -----------------------------------------------------------
 
-    def list_models(self, display: bool = True) -> list[ModelSummary]:
-        """Return all model summaries."""
+    def list_models(self) -> DiscoveryResult[ModelSummary]:
+        """Return all model summaries.
+
+        Returns:
+            DiscoveryResult[ModelSummary] — iterate, call .ids(), .show(), etc.
+        """
         reg = _require_registry(self._registry, project=self)
         results: list[ModelSummary] = []
         for model_ir in reg.models.values():
@@ -642,37 +669,14 @@ class SemanticProject:
                     object_counts=obj_counts,
                 )
             )
-        if display:
-            _print_table(
-                [
-                    {
-                        "name": item.name,
-                        "default": item.default,
-                        "datasets": item.object_counts.get("dataset", 0),
-                        "fields": item.object_counts.get("field", 0),
-                        "time_fields": item.object_counts.get("time_field", 0),
-                        "metrics": item.object_counts.get("metric", 0),
-                        "relationships": item.object_counts.get("relationship", 0),
-                        "description": item.description,
-                    }
-                    for item in results
-                ],
-                columns=(
-                    "name",
-                    "default",
-                    "datasets",
-                    "fields",
-                    "time_fields",
-                    "metrics",
-                    "relationships",
-                    "description",
-                ),
-                empty_message="No models found.",
-            )
-        return results
+        return DiscoveryResult(results, item_type_name="ModelSummary", has_ids=False)
 
-    def list_datasources(self, display: bool = True) -> list[DatasourceSummary]:
-        """Return all datasource summaries."""
+    def list_datasources(self) -> DiscoveryResult[DatasourceSummary]:
+        """Return all datasource summaries.
+
+        Returns:
+            DiscoveryResult[DatasourceSummary] — iterate, call .ids(), .show(), etc.
+        """
         irs = self._datasource_irs or (
             tuple(self._registry.datasources.values()) if self._registry is not None else ()
         )
@@ -685,26 +689,17 @@ class SemanticProject:
             )
             for ds_ir in irs
         ]
-        if display:
-            _print_table(
-                [
-                    {
-                        "semantic_id": item.semantic_id,
-                        "name": item.name,
-                        "backend_type": item.backend_type,
-                        "description": item.description,
-                    }
-                    for item in results
-                ],
-                columns=("semantic_id", "name", "backend_type", "description"),
-                empty_message="No datasources found.",
-            )
-        return results
+        return DiscoveryResult(results, item_type_name="DatasourceSummary")
 
-    def list_datasets(
-        self, *, model: str | None = None, display: bool = True
-    ) -> list[DatasetSummary]:
-        """Return dataset summaries, optionally filtered by model name."""
+    def list_datasets(self, *, model: str | None = None) -> DiscoveryResult[DatasetSummary]:
+        """Return dataset summaries, optionally filtered by model name.
+
+        Args:
+            model: Optional model name to filter datasets.
+
+        Returns:
+            DiscoveryResult[DatasetSummary] — iterate, call .ids(), .show(), etc.
+        """
         reg = _require_registry(self._registry, project=self)
         datasets = list(reg.datasets.values())
         if model is not None:
@@ -724,33 +719,25 @@ class SemanticProject:
             )
             for d in datasets
         ]
-        if display:
-            _print_table(
-                [
-                    {
-                        "semantic_id": item.semantic_id,
-                        "model": item.model,
-                        "datasource": item.datasource,
-                        "description": item.description,
-                    }
-                    for item in results
-                ],
-                columns=("semantic_id", "model", "datasource", "description"),
-                empty_message="No datasets found.",
-            )
-        return results
+        return DiscoveryResult(results, item_type_name="DatasetSummary")
 
     def list_fields(
         self,
         *,
         model: str | None = None,
         dataset: str | None = None,
-        display: bool = True,
-    ) -> list[FieldSummary]:
+    ) -> DiscoveryResult[FieldSummary]:
         """Return field summaries, optionally filtered by model or dataset.
 
         Fields are all @ms.field declarations that are not time fields.
         For time fields, use list_time_fields().
+
+        Args:
+            model: Optional model name to filter fields.
+            dataset: Optional dataset semantic_id to filter fields.
+
+        Returns:
+            DiscoveryResult[FieldSummary] — iterate, call .ids(), .show(), etc.
         """
         reg = _require_registry(self._registry, project=self)
         irs = [f for f in reg.fields.values() if not f.is_time_field]
@@ -776,31 +763,23 @@ class SemanticProject:
             )
             for f in irs
         ]
-        if display:
-            _print_table(
-                [
-                    {
-                        "semantic_id": item.semantic_id,
-                        "dataset": item.dataset,
-                        "name": item.name,
-                        "kind": item.kind,
-                        "description": item.description,
-                    }
-                    for item in results
-                ],
-                columns=("semantic_id", "dataset", "name", "kind", "description"),
-                empty_message="No fields found.",
-            )
-        return results
+        return DiscoveryResult(results, item_type_name="FieldSummary")
 
     def list_time_fields(
         self,
         *,
         model: str | None = None,
         dataset: str | None = None,
-        display: bool = True,
-    ) -> list[FieldSummary]:
-        """Return time field summaries, optionally filtered by model or dataset."""
+    ) -> DiscoveryResult[FieldSummary]:
+        """Return time field summaries, optionally filtered by model or dataset.
+
+        Args:
+            model: Optional model name to filter time fields.
+            dataset: Optional dataset semantic_id to filter time fields.
+
+        Returns:
+            DiscoveryResult[FieldSummary] — iterate, call .ids(), .show(), etc.
+        """
         reg = _require_registry(self._registry, project=self)
         irs = [f for f in reg.fields.values() if f.is_time_field]
         if model is not None:
@@ -825,30 +804,7 @@ class SemanticProject:
             )
             for f in irs
         ]
-        if display:
-            _print_table(
-                [
-                    {
-                        "semantic_id": item.semantic_id,
-                        "dataset": item.dataset,
-                        "name": item.name,
-                        "data_type": item.data_type,
-                        "granularity": item.granularity,
-                        "description": item.description,
-                    }
-                    for item in results
-                ],
-                columns=(
-                    "semantic_id",
-                    "dataset",
-                    "name",
-                    "data_type",
-                    "granularity",
-                    "description",
-                ),
-                empty_message="No time fields found.",
-            )
-        return results
+        return DiscoveryResult(results, item_type_name="FieldSummary")
 
     def list_metrics(
         self,
@@ -856,9 +812,17 @@ class SemanticProject:
         dataset: str | None = None,
         decomposition: Literal["sum", "ratio", "weighted_average"] | None = None,
         provenance_status: ParityStatus | None = None,
-        display: bool = True,
-    ) -> list[MetricSummary]:
-        """Return metric summaries, optionally filtered."""
+    ) -> DiscoveryResult[MetricSummary]:
+        """Return metric summaries, optionally filtered.
+
+        Args:
+            dataset: Optional dataset semantic_id to filter metrics.
+            decomposition: Optional decomposition kind to filter metrics.
+            provenance_status: Optional parity status to filter metrics.
+
+        Returns:
+            DiscoveryResult[MetricSummary] — iterate, call .ids(), .show(), etc.
+        """
         reg = _require_registry(self._registry, project=self)
         metrics = list(reg.metrics.values())
         if dataset is not None:
@@ -884,37 +848,19 @@ class SemanticProject:
             )
             for m in metrics
         ]
-        if display:
-            _print_table(
-                [
-                    {
-                        "semantic_id": item.semantic_id,
-                        "model": item.model,
-                        "name": item.name,
-                        "decomposition_kind": item.decomposition_kind,
-                        "is_derived": item.is_derived,
-                        "parity_status": item.parity_status,
-                        "description": item.description,
-                    }
-                    for item in results
-                ],
-                columns=(
-                    "semantic_id",
-                    "model",
-                    "name",
-                    "decomposition_kind",
-                    "is_derived",
-                    "parity_status",
-                    "description",
-                ),
-                empty_message="No metrics found.",
-            )
-        return results
+        return DiscoveryResult(results, item_type_name="MetricSummary")
 
     def list_relationships(
-        self, *, model: str | None = None, display: bool = True
-    ) -> list[RelationshipSummary]:
-        """Return relationship summaries, optionally filtered by model."""
+        self, *, model: str | None = None
+    ) -> DiscoveryResult[RelationshipSummary]:
+        """Return relationship summaries, optionally filtered by model.
+
+        Args:
+            model: Optional model name to filter relationships.
+
+        Returns:
+            DiscoveryResult[RelationshipSummary] — iterate, call .ids(), .show(), etc.
+        """
         reg = _require_registry(self._registry, project=self)
         rel_irs = list(reg.relationships.values())
         if model is not None:
@@ -932,22 +878,7 @@ class SemanticProject:
             )
             for r in rel_irs
         ]
-        if display:
-            _print_table(
-                [
-                    {
-                        "semantic_id": item.semantic_id,
-                        "model": item.model,
-                        "from_dataset": item.from_dataset,
-                        "to_dataset": item.to_dataset,
-                        "description": item.description,
-                    }
-                    for item in results
-                ],
-                columns=("semantic_id", "model", "from_dataset", "to_dataset", "description"),
-                empty_message="No relationships found.",
-            )
-        return results
+        return DiscoveryResult(results, item_type_name="RelationshipSummary")
 
     # -- single-object accessors -------------------------------------------
 
@@ -982,14 +913,19 @@ class SemanticProject:
 
     # -- discovery ---------------------------------------------------------
 
-    def search(
-        self, query: str, *, kind: SymbolKind | None = None, display: bool = True
-    ) -> list[SearchHit]:
+    def search(self, query: str, *, kind: SymbolKind | None = None) -> DiscoveryResult[SearchHit]:
         """Search across all IR objects by name, description, ai_context.
 
         Case-insensitive substring match.  Field priority:
         semantic_id > name > description > business_definition > synonyms > examples.
         Within priority, sort by semantic_id lexicographically.
+
+        Args:
+            query: Search string (case-insensitive substring match).
+            kind: Optional SymbolKind to restrict search scope.
+
+        Returns:
+            DiscoveryResult[SearchHit] — iterate, call .ids(), .show(), etc.
         """
         reg = _require_registry(self._registry, project=self)
         results: list[SearchHit] = []
@@ -1118,21 +1054,7 @@ class SemanticProject:
             "examples": 5,
         }
         results.sort(key=lambda h: (_field_priority.get(h.matched_field, 99), h.semantic_id))
-        if display:
-            _print_table(
-                [
-                    {
-                        "semantic_id": item.semantic_id,
-                        "kind": item.kind,
-                        "matched_field": item.matched_field,
-                        "matched_snippet": item.matched_snippet,
-                    }
-                    for item in results
-                ],
-                columns=("semantic_id", "kind", "matched_field", "matched_snippet"),
-                empty_message="No search results found.",
-            )
-        return results
+        return DiscoveryResult(results, item_type_name="SearchHit")
 
     # -- dependency graph ---------------------------------------------------
 

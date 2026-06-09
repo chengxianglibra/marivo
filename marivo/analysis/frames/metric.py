@@ -54,6 +54,12 @@ class MetricFrame(BaseFrame):
         "forecast",
     )
 
+    def _repr_identity(self) -> str:
+        return (
+            f"MetricFrame ref={self.meta.ref} metric={self.meta.metric_id} "
+            f"shape={self.meta.semantic_kind} rows={self.meta.row_count}"
+        )
+
     @property
     def semantic_shape(self) -> Literal["scalar", "time_series", "segmented", "panel"]:
         """The frame's semantic shape (distinct from .shape, the dataframe dims)."""

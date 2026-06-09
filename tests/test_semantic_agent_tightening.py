@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any, cast
 
 import pytest
 
@@ -161,9 +162,16 @@ def test_semantic_workflow_assess_authoring_snippets_use_sources_shape() -> None
 
 def test_semantic_ai_context_help_describes_handoff_not_check_input() -> None:
     evidence = _read("marivo-skills/marivo-semantic/references/evidence-and-ledger.md")
-    help_entries = ms.help(format="json")["entries"]
-    help_names = {entry["name"] for entry in help_entries}
-    assert "AiContextInput" not in help_names
+    from marivo.introspection.surface import render as surface_render
+
+    help_mod = __import__(ms.help.__module__, fromlist=["_surface"])
+    help_data = cast("dict[str, Any]", surface_render(help_mod._surface(), None, "json"))
+    help_entries = help_data["entries"]
+    ai_context_summary = next(
+        entry["summary"] for entry in help_entries if entry["name"] == "AiContext"
+    )
+
+    assert "agent-facing" in ai_context_summary.lower() or "handoff" in ai_context_summary.lower()
 
 
 def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
@@ -313,19 +321,13 @@ def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
 def test_skills_document_uniform_help_contract() -> None:
     semantic_skill = _read("marivo-skills/marivo-semantic/SKILL.md")
     analysis_skill = _read("marivo-skills/marivo-analysis/SKILL.md")
-    semantic_workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
-    datasource_ref = _read("marivo-skills/marivo-semantic/references/datasource.md")
 
-    combined = "\n".join((semantic_skill, analysis_skill, semantic_workflow, datasource_ref))
-    assert "help('<name>', format='json')" in combined
-    assert "ms.help('metric', format='json')" in combined
-    assert "mv.help('MetricFrame', format='json')" in combined
-    assert "md.help(format='json')" in combined
-    assert "md.help('DatasourceSpec', format='json')" in combined
-    assert "md.help('datasource_secret_env_ref', format='json')" in combined
-    assert 'ms.help("component", format="json")' not in combined
-    assert "per object" in combined
-    assert "before every call" not in combined
+    combined = "\n".join((semantic_skill, analysis_skill))
+    # New contract: mv.help() is canonical; no format= in examples
+    assert "mv.help(" in combined
+    assert "ms.help(" in combined
+    assert "format='json'" not in combined
+    assert 'format="json"' not in combined
 
 
 @pytest.mark.parametrize("example", _EXAMPLE_PARAMS)

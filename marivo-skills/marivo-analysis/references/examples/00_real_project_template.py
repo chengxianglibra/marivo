@@ -25,7 +25,7 @@ result = project.load()
 if result.errors:
     raise SystemExit(result.errors)
 
-available_metric_ids = [metric.semantic_id for metric in project.list_metrics(display=False)]
+available_metric_ids = [metric.semantic_id for metric in project.list_metrics()]
 if metric_id not in available_metric_ids:
     raise SystemExit(
         f"Metric {metric_id!r} was not found. Available metrics: {available_metric_ids}"

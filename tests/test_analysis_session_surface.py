@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import marivo.analysis as mv
+from marivo.introspection.surface import render as surface_render
+
+
+def _mv_json_data(symbol: str | None = None) -> dict[str, Any]:
+    """Return the JSON descriptor dict for an analysis symbol using internal render."""
+    from marivo.analysis.help import _surface
+
+    return cast("dict[str, Any]", surface_render(_surface(), symbol, "json"))
+
 
 EXPECTED_SESSION_IDENTITY_FIELDS = (
     "id",
@@ -95,7 +106,7 @@ def test_hidden_members_are_still_callable(tmp_path, monkeypatch):
 
 
 def test_help_session_lists_object_methods():
-    data = mv.help("session", format="json")
+    data = _mv_json_data("session")
     assert isinstance(data, dict)
     assert data["kind"] == "topic"
     expected_method_names = {
@@ -133,7 +144,7 @@ def test_help_session_lists_object_methods():
 
 
 def test_help_session_lists_identity_fields():
-    data = mv.help("session", format="json")
+    data = _mv_json_data("session")
     assert isinstance(data, dict)
     content = data["content"]
     identity_fields = [field["name"] for field in content["identity_fields"]]

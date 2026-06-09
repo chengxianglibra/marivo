@@ -215,9 +215,114 @@ def test_repr_includes_kind_ref_and_row_count():
     df = pd.DataFrame({"x": [1, 2]})
     f = BaseFrame(_df=df, meta=_meta())
     r = repr(f)
-    first = r.splitlines()[0]
-    assert first.startswith("<BaseFrame")
-    assert "kind=metric_frame" in first
-    assert "ref=frame_abc12345" in first
-    assert "rows=2" in first
-    assert "cols=[x]" in first
+    assert r.count("\n") == 0
+    assert "BaseFrame" in r
+    assert "ref=frame_abc12345" in r
+    assert "rows=2" in r
+    assert "call .show() to inspect" in r
+
+
+def test_repr_is_one_line_cold_start_hint():
+    df = pd.DataFrame({"x": [1, 2]})
+    f = BaseFrame(_df=df, meta=_meta())
+    r = repr(f)
+    assert r.count("\n") == 0
+    assert r.startswith("<BaseFrame")
+    assert "call .show() to inspect" in r
+    # No preview data rows should appear in repr
+    assert "preview:" not in r
+
+
+def test_repr_includes_ref_and_rows():
+    df = pd.DataFrame({"x": [1, 2]})
+    f = BaseFrame(_df=df, meta=_meta())
+    r = repr(f)
+    assert "ref=frame_abc12345" in r
+    assert "rows=2" in r
+
+
+def test_repr_html_returns_none():
+    df = pd.DataFrame({"x": [1, 2]})
+    f = BaseFrame(_df=df, meta=_meta())
+    html = f._repr_html_()
+    assert html is None
+
+
+def test_render_returns_string_no_stdout(capsys):
+    df = pd.DataFrame({"x": [1, 2]})
+    f = BaseFrame(_df=df, meta=_meta())
+    result = f.render()
+    captured = capsys.readouterr()
+    assert isinstance(result, str)
+    assert captured.out == ""
+
+
+def test_render_does_not_end_with_newline():
+    df = pd.DataFrame({"x": [1, 2]})
+    f = BaseFrame(_df=df, meta=_meta())
+    assert not f.render().endswith("\n")
+
+
+def test_render_contains_identity_columns_preview_available():
+    df = pd.DataFrame({"x": [1, 2]})
+    f = BaseFrame(_df=df, meta=_meta())
+    rendered = f.render()
+    assert "BaseFrame" in rendered
+    assert "frame_abc12345" in rendered
+    assert "columns:" in rendered
+    assert "preview:" in rendered
+    assert "available:" in rendered
+
+
+def test_render_available_never_empty():
+    df = pd.DataFrame({"x": [1]})
+    f = BaseFrame(_df=df, meta=_meta())
+    rendered = f.render()
+    lines = rendered.splitlines()
+    avail_idx = next(i for i, ln in enumerate(lines) if ln == "available:")
+    assert avail_idx < len(lines) - 1
+    assert lines[avail_idx + 1].startswith("- ")
+
+
+def test_render_includes_to_pandas_in_available():
+    df = pd.DataFrame({"x": [1]})
+    f = BaseFrame(_df=df, meta=_meta())
+    assert ".to_pandas()" in f.render()
+
+
+def test_show_prints_render_plus_newline(capsys):
+    df = pd.DataFrame({"x": [1]})
+    f = BaseFrame(_df=df, meta=_meta())
+    result = f.show()
+    captured = capsys.readouterr()
+    assert result is None
+    assert captured.out == f.render() + "\n"
+
+
+def test_show_returns_none():
+    df = pd.DataFrame({"x": [1]})
+    f = BaseFrame(_df=df, meta=_meta())
+    assert f.show() is None
+
+
+def test_render_preview_bounded_at_five_rows():
+    df = pd.DataFrame({"x": list(range(20))})
+    f = BaseFrame(_df=df, meta=_meta(row_count=20))
+    rendered = f.render()
+    preview_lines = [
+        ln
+        for ln in rendered.splitlines()
+        if ln
+        and not ln.startswith(
+            ("BaseFrame", "status:", "columns:", "preview:", "available:", "-", "...")
+        )
+    ]
+    assert len(preview_lines) <= 5
+
+
+def test_render_truncation_line_actionable():
+    df = pd.DataFrame({"x": list(range(20))})
+    f = BaseFrame(_df=df, meta=_meta(row_count=20))
+    rendered = f.render()
+    assert "more rows" in rendered
+    assert ".preview(limit=...)" in rendered or ".to_pandas()" in rendered

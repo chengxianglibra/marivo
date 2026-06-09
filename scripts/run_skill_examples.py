@@ -28,7 +28,7 @@ _TEMPLATE_REQUIRED_SNIPPETS = (
     "marivo.analysis",
     "ms.find_project()",
     "project.load()",
-    "project.list_metrics(display=False)",
+    "project.list_metrics()",
     "mv.session.get_or_create(",
     "default_calendar=",
     "session.observe(",

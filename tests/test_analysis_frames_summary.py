@@ -105,79 +105,73 @@ def test_repr_header_includes_kind_ref_and_shape() -> None:
     meta = _make_meta()
     frame = BaseFrame(_df=df, meta=meta)
     r = repr(frame)
-    first = r.splitlines()[0]
-    assert first.startswith("<BaseFrame")
-    assert "ref=frame_test123" in first
-    assert "rows=3" in first
-    assert "cols=[bucket,value]" in first
+    assert r.startswith("<BaseFrame")
+    assert "ref=frame_test123" in r
+    assert "rows=3" in r
+    assert "call .show() to inspect" in r
 
 
-def test_repr_shows_head3_when_dataframe_has_more_rows() -> None:
+def test_render_shows_head5_when_dataframe_has_more_rows() -> None:
     df = pd.DataFrame({"bucket": list("abcdefg"), "value": list(range(7))})
     frame = BaseFrame(_df=df, meta=_make_meta())
-    r = repr(frame)
+    r = frame.render()
     rendered_buckets = {
         line.split()[0]
-        for line in r.splitlines()[2:]
-        if line.strip() and not line.lstrip().startswith("...")
+        for line in r.splitlines()
+        if line.strip()
+        and not line.startswith(
+            ("BaseFrame", "status:", "columns:", "preview:", "available:", "-", "...")
+        )
     }
     assert {"a", "b", "c"}.issubset(rendered_buckets)
-    # Repr preview is bounded to the first three rows.
-    assert {"d", "e", "f", "g"}.isdisjoint(rendered_buckets)
-    assert "use .to_pandas() to materialize" in r
+    # Render preview is bounded to the first five rows.
+    assert {"f", "g"}.isdisjoint(rendered_buckets)
 
 
-def test_repr_skips_materialize_hint_when_short() -> None:
+def test_render_skips_truncation_hint_when_short() -> None:
     df = pd.DataFrame({"x": [1, 2]})
     frame = BaseFrame(_df=df, meta=_make_meta())
-    r = repr(frame)
-    assert "use .to_pandas()" not in r
+    r = frame.render()
+    assert "more rows" not in r
 
 
-def test_repr_bounds_wide_dataframe_and_mentions_omitted_columns() -> None:
+def test_render_bounds_wide_dataframe_and_shows_truncated_columns() -> None:
     df = pd.DataFrame(
         {f"col_{idx}": [f"visible_row_{row}_col_{idx}" for row in range(4)] for idx in range(12)},
     )
     frame = BaseFrame(_df=df, meta=_make_meta(row_count=4))
 
-    r = repr(frame)
+    r = frame.render()
 
     assert "col_0" in r
     assert "col_7" in r
     assert "col_8" not in r
     assert "col_11" not in r
-    assert "+4" in r
-    assert "more columns" in r
 
 
-def test_repr_empty_wide_dataframe_returns_header_only() -> None:
+def test_repr_empty_wide_dataframe_returns_one_liner() -> None:
     df = pd.DataFrame(columns=[f"empty_col_{idx}" for idx in range(12)])
     frame = BaseFrame(_df=df, meta=_make_meta(row_count=0))
 
-    lines = repr(frame).splitlines()
+    r = repr(frame)
 
-    assert len(lines) == 1
-    assert "empty_col_0" in lines[0]
-    assert "...+4" in lines[0]
-    assert "more columns" not in repr(frame)
+    assert r.count("\n") == 0
+    assert "call .show() to inspect" in r
 
 
-def test_repr_truncates_long_cell_values_and_column_names() -> None:
+def test_render_shows_columns_in_output() -> None:
     long_column = "long_column_name_" + ("x" * 80)
     long_value = "long_cell_value_" + ("y" * 120)
     df = pd.DataFrame({long_column: [long_value]})
     frame = BaseFrame(_df=df, meta=_make_meta(row_count=1))
 
-    r = repr(frame)
+    r = frame.render()
 
     assert "long_column_name_" in r
-    assert long_column not in r
     assert "long_cell_value_" in r
-    assert long_value not in r
-    assert "..." in r
 
 
-def test_repr_html_uses_compact_repr_without_hidden_rows_or_columns() -> None:
+def test_repr_html_returns_none() -> None:
     df = pd.DataFrame(
         {f"html_col_{idx}": [f"html_row_{row}_col_{idx}" for row in range(6)] for idx in range(10)},
     )
@@ -185,14 +179,7 @@ def test_repr_html_uses_compact_repr_without_hidden_rows_or_columns() -> None:
 
     html = frame._repr_html_()
 
-    assert html.startswith("<pre>")
-    assert "&lt;BaseFrame" in html
-    assert "html_row_0_col_0" in html
-    assert "html_row_3_col_0" not in html
-    assert "html_col_8" not in html
-    assert "+2" in html
-    assert "more columns" in html
-    assert "use .to_pandas() to materialize" in html
+    assert html is None
 
 
 def test_summary_includes_lineage_one_liner() -> None:
@@ -334,16 +321,16 @@ def test_association_summary_is_not_generic_frame_summary() -> None:
     assert not isinstance(s, FrameSummary)
 
 
-def test_association_repr_includes_correlation() -> None:
+def test_association_repr_includes_identity() -> None:
     from marivo.analysis.frames.association import AssociationResult
 
     df = pd.DataFrame({"correlation": [0.9627]})
     frame = AssociationResult(_df=df, meta=_make_association_meta())
     r = repr(frame)
 
-    assert "r=0.9627" in r
-    assert "method=pearson" in r
-    assert "aligned=12" in r
+    assert "AssociationResult" in r
+    assert "ref=frame_assoc123" in r
+    assert "call .show() to inspect" in r
 
 
 def test_association_repr_empty_frame() -> None:
@@ -354,4 +341,4 @@ def test_association_repr_empty_frame() -> None:
     r = repr(frame)
 
     assert r.startswith("<AssociationResult")
-    assert "r=0.9627" in r
+    assert "call .show() to inspect" in r

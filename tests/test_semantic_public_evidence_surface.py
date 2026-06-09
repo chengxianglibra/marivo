@@ -30,5 +30,8 @@ def test_candidate_workflow_types_are_not_exported():
 
 
 def test_help_lists_new_dtos(capsys):
-    data = ms.help("TableSource", format="json")
+    from marivo.introspection.surface import render as surface_render
+    from marivo.semantic.help import _surface
+
+    data = surface_render(_surface(), "TableSource", "json")
     assert data["kind"] in ("class", "callable")

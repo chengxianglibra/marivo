@@ -122,7 +122,7 @@ def resolve_metric_root(metric_ir: Any) -> str:
 
 
 def _all_fields(project: Any) -> list[Any]:
-    return [*project.list_fields(display=False), *project.list_time_fields(display=False)]
+    return [*project.list_fields(), *project.list_time_fields()]
 
 
 def _fields_for_datasets(project: Any, dataset_ids: set[str]) -> list[Any]:
@@ -271,7 +271,7 @@ def resolve_observe_fields(
 
 def _relationship_neighbors(project: Any, dataset_id: str) -> list[tuple[str, Any]]:
     neighbors: list[tuple[str, Any]] = []
-    for relationship in project.list_relationships(display=False):
+    for relationship in project.list_relationships():
         if relationship.from_dataset == dataset_id:
             neighbors.append((relationship.to_dataset, relationship))
         elif relationship.to_dataset == dataset_id:
@@ -458,9 +458,7 @@ def _root_time_field(
 ) -> Any | None:
     if explicit_time_field is not None:
         return explicit_time_field
-    candidates = [
-        tf for tf in project.list_time_fields(display=False) if tf.dataset == root_dataset_id
-    ]
+    candidates = [tf for tf in project.list_time_fields() if tf.dataset == root_dataset_id]
     if not candidates:
         return None
     if len(candidates) == 1:

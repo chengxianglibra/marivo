@@ -49,9 +49,12 @@ class QualityReportMeta(BaseFrameMeta):
     warning_count: int
 
 
-@dataclass
+@dataclass(repr=False)
 class QualityReport(BaseFrame):
     meta: QualityReportMeta
+
+    def _repr_identity(self) -> str:
+        return f"QualityReport ref={self.meta.ref} rows={self.meta.row_count}"
 
     def summary(self) -> QualityReportSummary:  # type: ignore[override]  # replaces meaningless FrameSummary fields with quality-specific ones
         step_intents = [step.intent for step in self.meta.lineage.steps]
@@ -76,22 +79,3 @@ class QualityReport(BaseFrame):
             produced_by_job=self.meta.produced_by_job,
             lineage_oneliner=lineage_oneliner,
         )
-
-    def __repr__(self) -> str:
-        m = self.meta
-        target = m.target_metric_id or "?"
-        header = (
-            f"<{type(self).__name__} ref={m.ref} kind={m.kind} "
-            f"overall={m.overall_status} blocking={m.blocking_issue_count} "
-            f"warnings={m.warning_count} target={target} "
-            f"({m.target_semantic_kind})>"
-        )
-        if len(self._df) == 0:
-            return header
-        lines = [header]
-        for _, row in self._df.iterrows():
-            status = str(row["status"])
-            check_id = str(row["check_id"])
-            message = str(row["message"])
-            lines.append(f"  {status:<10s} {check_id:<20s} {message}")
-        return "\n".join(lines)

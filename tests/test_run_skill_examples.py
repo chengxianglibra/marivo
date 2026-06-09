@@ -225,7 +225,7 @@ _VALID_TEMPLATE = textwrap.dedent(
     if result.errors:
         raise SystemExit(result.errors)
 
-    metric_ids = [metric.semantic_id for metric in project.list_metrics(display=False)]
+    metric_ids = [metric.semantic_id for metric in project.list_metrics()]
     metric_id = "sales.revenue"
     if metric_id not in metric_ids:
         raise SystemExit(f"Metric not found: {metric_id}")

@@ -85,7 +85,7 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
     )
 
     assert project.is_ready()
-    datasources = project.list_datasources(display=False)
+    datasources = project.list_datasources()
     assert [ds.semantic_id for ds in datasources] == ["warehouse"]
     assert project.get_dataset("sales.orders").datasource == "warehouse"
     assert project.get_dataset("finance.refunds").datasource == "warehouse"
@@ -155,7 +155,7 @@ def test_datasources_accessible_when_model_load_errors(semantic_project_factory)
     assert not project.is_ready()
     assert any(e.kind == ErrorKind.MODEL_FILE_MISSING for e in project.errors())
 
-    datasources = project.list_datasources(display=False)
+    datasources = project.list_datasources()
     assert len(datasources) == 1
     assert datasources[0].name == "warehouse"
 
@@ -164,7 +164,7 @@ def test_datasources_accessible_when_model_load_errors(semantic_project_factory)
     assert ds.backend_type == "duckdb"
 
     with pytest.raises(Exception):
-        project.list_models(display=False)
+        project.list_models()
 
 
 def test_model_name_mismatch(semantic_project_factory) -> None:
@@ -1024,7 +1024,7 @@ def test_semantic_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) 
     result = project.load()
     # scripts/ should NOT appear as a model dir — only .marivo/semantic/ is scanned
     assert result.status == "ready"
-    assert len(project.list_models(display=False)) == 0
+    assert len(project.list_models()) == 0
 
 
 # ---------------------------------------------------------------------------

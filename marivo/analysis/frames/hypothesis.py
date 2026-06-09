@@ -29,6 +29,9 @@ class HypothesisTestResultMeta(BaseFrameMeta):
     not_enough_data_count: int
 
 
-@dataclass
+@dataclass(repr=False)
 class HypothesisTestResult(BaseFrame):
     meta: HypothesisTestResultMeta
+
+    def _repr_identity(self) -> str:
+        return f"HypothesisTestResult ref={self.meta.ref} rows={self.meta.row_count}"
