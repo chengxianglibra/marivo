@@ -1773,7 +1773,7 @@ def test_readiness_uses_bound_factory(semantic_project_factory, backend_factory)
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
     report = project.readiness()
-    assert report.status in ("ready", "warning", "blocked")
+    assert report.status in ("ready", "ready_with_warnings", "warning", "blocked")
 
 
 def test_readiness_without_bound_factory(semantic_project_factory) -> None:

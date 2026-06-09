@@ -23,10 +23,7 @@ author directly.
 enough source context to author. It accepts bounded source roles through
 `sources=(ms.AuthoringSourceInput(...),)` and semantic dependencies through
 `semantic_refs=...`; it does not take ledger ids or ai_context fields as check
-inputs. If you have source SQL, knowledge documents, or user confirmations,
-record them with `project.record_authoring_evidence(AuthoringEvidenceInput(...))`
-for ledger and handoff context, then assess the object with the source/role
-shape.
+inputs. Assess the object with the source/role shape directly.
 
 ## Forgetting to load before inspect_authored_object
 

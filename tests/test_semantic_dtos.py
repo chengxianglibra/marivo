@@ -4,9 +4,8 @@ from typing import get_args, get_type_hints
 
 import pytest
 
-from marivo.semantic.evidence import (
+from marivo.semantic.dtos import (
     AssessmentIssue,
-    AssessmentResult,
     AuthoringAssessment,
     AuthoringQuestion,
     AuthoringSourceInput,
@@ -16,8 +15,6 @@ from marivo.semantic.evidence import (
     MetadataOnlyPolicy,
     SelectedColumnsPolicy,
     TableSource,
-    _dataset_source_from_ir,
-    _sample_policy_from_ir,
     derive_status,
 )
 from marivo.semantic.ir import (
@@ -35,7 +32,6 @@ def test_table_source_round_trips_through_ir():
     assert isinstance(ir, TableSourceIR)
     assert ir.table == "orders"
     assert ir.database == "sales_mart"
-    assert _dataset_source_from_ir(ir) == src
 
 
 def test_file_source_round_trips_through_ir():
@@ -43,7 +39,6 @@ def test_file_source_round_trips_through_ir():
     ir = src.to_ir()
     assert isinstance(ir, FileSourceIR)
     assert ir.path == "/data/orders.parquet"
-    assert _dataset_source_from_ir(ir) == src
 
 
 def test_file_source_supports_json():
@@ -98,62 +93,10 @@ def test_authoring_source_input_to_dict_is_json_safe():
 
 
 def test_authoring_source_role_is_finite_public_vocabulary():
-    from marivo.semantic.evidence import AuthoringSourceRole
+    from marivo.semantic.dtos import AuthoringSourceRole
 
     assert get_args(AuthoringSourceRole) == ("primary", "from", "to", "component")
     assert get_type_hints(AuthoringSourceInput)["role"] == AuthoringSourceRole
-
-
-def test_table_source_to_dict_round_trips_through_from_dict():
-    from marivo.semantic.evidence_store import _dataset_source_from_dict
-
-    src = TableSource(table="orders", database="sales_mart")
-    restored = _dataset_source_from_dict(src.to_dict())
-    assert restored == src
-
-
-def test_file_source_to_dict_round_trips_through_from_dict():
-    from marivo.semantic.evidence_store import _dataset_source_from_dict
-
-    src = FileSource(path="/data/orders.csv", format="csv")
-    restored = _dataset_source_from_dict(src.to_dict())
-    assert restored == src
-
-
-def test_dataset_source_from_dict_reads_old_format_with_null_fields():
-    """Old DatasetSource.to_dict() included null keys for the other variant."""
-    from marivo.semantic.evidence_store import _dataset_source_from_dict
-
-    old_table_dict = {
-        "kind": "table",
-        "table": "orders",
-        "database": None,
-        "path": None,
-        "format": None,
-    }
-    assert _dataset_source_from_dict(old_table_dict) == TableSource(table="orders")
-
-    old_file_dict = {
-        "kind": "file",
-        "table": None,
-        "database": None,
-        "path": "/data/orders.parquet",
-        "format": "parquet",
-    }
-    assert _dataset_source_from_dict(old_file_dict) == FileSource(
-        path="/data/orders.parquet", format="parquet"
-    )
-
-
-def test_sample_policy_to_dict_round_trips_through_from_dict():
-    from marivo.semantic.evidence_store import _sample_policy_from_dict
-
-    for policy in (
-        MetadataOnlyPolicy(timeout_seconds=30, redact=False),
-        BoundedProfilePolicy(limit=100, max_profiled_columns=10),
-        SelectedColumnsPolicy(limit=50, columns=("a", "b")),
-    ):
-        assert _sample_policy_from_dict(policy.to_dict()) == policy
 
 
 def test_metadata_only_policy_round_trips_through_ir():
@@ -162,7 +105,6 @@ def test_metadata_only_policy_round_trips_through_ir():
     assert isinstance(ir, MetadataOnlyPolicyIR)
     assert ir.timeout_seconds == 30
     assert ir.redact is False
-    assert _sample_policy_from_ir(ir) == policy
 
 
 def test_bounded_profile_policy_round_trips_through_ir():
@@ -171,7 +113,6 @@ def test_bounded_profile_policy_round_trips_through_ir():
     assert isinstance(ir, BoundedProfilePolicyIR)
     assert ir.limit == 100
     assert ir.max_profiled_columns == 10
-    assert _sample_policy_from_ir(ir) == policy
 
 
 def test_selected_columns_policy_round_trips_through_ir():
@@ -179,7 +120,6 @@ def test_selected_columns_policy_round_trips_through_ir():
     ir = policy.to_ir()
     assert isinstance(ir, SelectedColumnsPolicyIR)
     assert ir.columns == ("a", "b")
-    assert _sample_policy_from_ir(ir) == policy
 
 
 def test_selected_columns_policy_requires_columns():
@@ -235,7 +175,6 @@ def test_derive_status_blocked_on_blocker_issue():
         refs=("sales.revenue",),
         message="x",
         rule_id="r1",
-        evidence_refs=(),
     )
     assert derive_status((issue,), ()) == "blocked"
 
@@ -247,7 +186,6 @@ def test_derive_status_blocked_on_blocking_question():
         subject_refs=("sales.revenue",),
         prompt="p",
         reason="r",
-        evidence_refs=(),
         readiness_effect="blocks",
     )
     assert derive_status((), (q,)) == "blocked"
@@ -260,7 +198,6 @@ def test_derive_status_needs_input_then_supported():
         refs=("sales.revenue",),
         message="x",
         rule_id="r1",
-        evidence_refs=(),
     )
     assert derive_status((needs,), ()) == "needs_input"
     assert derive_status((), ()) == "supported"
@@ -273,7 +210,6 @@ def test_authoring_assessment_status_uses_needs_input():
         refs=("sales.revenue",),
         message="source context is missing",
         rule_id="source_context_present",
-        evidence_refs=(),
     )
     status = derive_status((issue,), ())
     assessment = AuthoringAssessment(status=status, facts=(), issues=(issue,), questions=())
@@ -282,12 +218,7 @@ def test_authoring_assessment_status_uses_needs_input():
     assert assessment.status == "needs_input"
 
 
-def test_assessment_result_has_no_next_checks_field():
-    result = AssessmentResult(status="supported", facts=(), issues=(), questions=())
-    assert not hasattr(result, "next_checks")
-
-
-def test_assessment_result_is_frozen():
-    result = AssessmentResult(status="supported", facts=(), issues=(), questions=())
+def test_authoring_assessment_is_frozen():
+    assessment = AuthoringAssessment(status="supported", facts=(), issues=(), questions=())
     with pytest.raises(AttributeError):
-        result.status = "blocked"  # type: ignore[misc]
+        assessment.status = "blocked"  # type: ignore[misc]

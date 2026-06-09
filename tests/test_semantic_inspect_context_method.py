@@ -3,7 +3,7 @@ from __future__ import annotations
 import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
-from marivo.semantic.evidence import (
+from marivo.semantic.dtos import (
     BoundedProfilePolicy,
     MetadataOnlyPolicy,
     SelectedColumnsPolicy,
@@ -110,8 +110,6 @@ def test_inspect_source_context_returns_pack_and_persists(tmp_path):
     )
     assert pack.datasource == "warehouse"
     assert {c.column for c in pack.column_profiles} == {"order_id", "amount"}
-    refs = project.list_evidence(datasource="warehouse", source=TableSource(table="orders"))
-    assert len(refs) == 1
 
 
 def test_inspect_source_context_records_raw_preview_for_readiness(tmp_path):

@@ -6,82 +6,63 @@ import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
 from marivo.semantic.authoring_check import check_authoring_inputs
-from marivo.semantic.evidence import (
+from marivo.semantic.dtos import (
     AuthoringSourceInput,
     ColumnProfile,
     MetadataOnlyPolicy,
     SourceEvidencePack,
     TableSource,
 )
-from marivo.semantic.evidence_store import EvidenceStore, structural_fingerprint
 from marivo.semantic.reader import SemanticProject
 
 
-def _write_source_pack(
-    store: EvidenceStore,
+def _source_pack(
     *,
     datasource: str = "warehouse",
     table: str,
     columns: tuple[tuple[str, str], ...],
-) -> None:
+) -> SourceEvidencePack:
     source = TableSource(table=table)
-    structural_fp = structural_fingerprint(
+    return SourceEvidencePack(
         datasource=datasource,
         source=source,
         schema=columns,
         table_comment=f"{table} source",
         column_comments=(),
-    )
-    ref = store.make_source_ref(
-        datasource=datasource,
-        source=source,
-        structural_fp=structural_fp,
-        collected_at="2026-06-06T00:00:00+00:00",
-    )
-    store.write_source_pack(
-        SourceEvidencePack(
-            datasource=datasource,
-            source=source,
-            schema=columns,
-            table_comment=f"{table} source",
-            column_comments=(),
-            nullable=tuple((column, True) for column, _type in columns),
-            partition_hints=(),
-            key_hints=(),
-            column_profiles=(
-                ColumnProfile(
-                    column=column,
-                    data_type=data_type,
-                    nullable=True,
-                    comment=None,
-                    sample_scope="none",
-                )
-                for column, data_type in columns
-            ),
-            metadata_warnings=(),
-            evidence_refs=(ref,),
-            sample_policy=MetadataOnlyPolicy(),
-            redaction_status="redacted",
-            truncated=False,
-        )
+        nullable=tuple((column, True) for column, _type in columns),
+        partition_hints=(),
+        key_hints=(),
+        column_profiles=(
+            ColumnProfile(
+                column=column,
+                data_type=data_type,
+                nullable=True,
+                comment=None,
+                sample_scope="none",
+            )
+            for column, data_type in columns
+        ),
+        metadata_warnings=(),
+        sample_policy=MetadataOnlyPolicy(),
+        redaction_status="redacted",
+        truncated=False,
     )
 
 
-def test_check_authoring_inputs_checks_each_source_role_schema(tmp_path):
-    store = EvidenceStore(tmp_path)
-    _write_source_pack(
-        store,
-        table="orders",
-        columns=(("order_id", "BIGINT"), ("customer_id", "BIGINT")),
-    )
-    _write_source_pack(
-        store,
-        table="customers",
-        columns=(("customer_id", "BIGINT"), ("name", "VARCHAR")),
-    )
+def test_check_authoring_inputs_checks_each_source_role_schema():
+    packs = [
+        _source_pack(
+            table="orders",
+            columns=(("order_id", "BIGINT"), ("customer_id", "BIGINT")),
+        ),
+        _source_pack(
+            table="customers",
+            columns=(("customer_id", "BIGINT"), ("name", "VARCHAR")),
+        ),
+    ]
 
     result = check_authoring_inputs(
-        store=store,
+        packs=packs,
         object_kind="relationship",
         subject_ref="sales.orders_to_customers",
         sources=(
@@ -110,16 +91,16 @@ def test_check_authoring_inputs_checks_each_source_role_schema(tmp_path):
     assert "missing_customer_id" in result.issues[0].message
 
 
-def test_check_authoring_inputs_requires_relationship_from_and_to_sources(tmp_path):
-    store = EvidenceStore(tmp_path)
-    _write_source_pack(
-        store,
-        table="orders",
-        columns=(("order_id", "BIGINT"), ("customer_id", "BIGINT")),
-    )
+def test_check_authoring_inputs_requires_relationship_from_and_to_sources():
+    packs = [
+        _source_pack(
+            table="orders",
+            columns=(("order_id", "BIGINT"), ("customer_id", "BIGINT")),
+        ),
+    ]
 
     result = check_authoring_inputs(
-        store=store,
+        packs=packs,
         object_kind="relationship",
         subject_ref="sales.orders_to_customers",
         sources=(
@@ -138,9 +119,9 @@ def test_check_authoring_inputs_requires_relationship_from_and_to_sources(tmp_pa
     assert "requires a 'to' source" in result.issues[0].message
 
 
-def test_check_authoring_inputs_marks_missing_source_as_needs_input(tmp_path):
+def test_check_authoring_inputs_marks_missing_source_as_needs_input():
     result = check_authoring_inputs(
-        store=EvidenceStore(tmp_path),
+        packs=[],
         object_kind="metric",
         subject_ref="sales.revenue",
         sources=(
@@ -158,9 +139,9 @@ def test_check_authoring_inputs_marks_missing_source_as_needs_input(tmp_path):
     assert result.issues[0].refs == ("sales.revenue", "role:primary", "warehouse.orders")
 
 
-def test_derived_metric_allows_empty_sources(tmp_path):
+def test_derived_metric_allows_empty_sources():
     result = check_authoring_inputs(
-        store=EvidenceStore(tmp_path),
+        packs=[],
         object_kind="derived_metric",
         subject_ref="sales.average_order_value",
         semantic_refs=("sales.revenue", "sales.order_count"),
@@ -217,7 +198,6 @@ def test_assess_authoring_collects_current_source_context_then_checks(tmp_path):
     assert result.status == "supported"
     assert any(fact.label == "source_context" for fact in result.facts)
     assert any(fact.label == "referenced_columns" for fact in result.facts)
-    assert project.list_evidence(datasource="warehouse", source=source) == ()
 
 
 def test_assess_authoring_rejects_unbound_datasource_access(tmp_path):
@@ -269,7 +249,6 @@ def test_assess_authoring_signature_omits_draft_and_datasource_overrides():
     assert not {
         "ai_context",
         "source_sql",
-        "evidence_refs",
         "inspect_source",
         "backend_factory",
     }.intersection(signature.parameters)

@@ -9,13 +9,12 @@ from marivo.analysis.datasources.metadata import (
     PartitionMetadata,
     TableMetadata,
 )
-from marivo.semantic.evidence import (
+from marivo.semantic.dtos import (
     BoundedProfilePolicy,
     MetadataOnlyPolicy,
     SelectedColumnsPolicy,
     TableSource,
 )
-from marivo.semantic.evidence_store import EvidenceStore
 from marivo.semantic.inspect import collect_column_evidence, collect_source_evidence
 
 
@@ -43,15 +42,13 @@ def _backend_factory(_name):
     return con
 
 
-def test_metadata_only_collects_facts_without_profiles(tmp_path):
-    store = EvidenceStore(tmp_path)
+def test_metadata_only_collects_facts_without_profiles():
     pack = collect_source_evidence(
         datasource="warehouse",
         source=TableSource(table="orders"),
         inspect_source=_fake_inspect_source,
         backend_factory=_backend_factory,
         sample_policy=MetadataOnlyPolicy(),
-        store=store,
     )
     assert dict(pack.schema)["amount"] == "DOUBLE"
     assert pack.schema_by_column["amount"] == "DOUBLE"
@@ -59,8 +56,8 @@ def test_metadata_only_collects_facts_without_profiles(tmp_path):
     assert pack.nullable_by_column["amount"] is True
     assert pack.column_comments_by_column["amount"] == "Gross amount"
     assert pack.column_profiles_by_column == {}
-    assert pack.schema_columns[0].name == "order_id"
-    assert pack.schema_columns[2].data_type == "DOUBLE"
+    assert pack.schema[0][0] == "order_id"
+    assert pack.schema[2][1] == "DOUBLE"
     d = pack.to_dict()
     assert d["datasource"] == "warehouse"
     assert d["schema"] == [["order_id", "INTEGER"], ["status", "VARCHAR"], ["amount", "DOUBLE"]]
@@ -70,18 +67,15 @@ def test_metadata_only_collects_facts_without_profiles(tmp_path):
     assert pack.column_profiles == ()
     assert isinstance(pack.sample_policy, MetadataOnlyPolicy)
     assert pack.metadata_warnings  # carries the nullable_unavailable warning
-    # persisted and retrievable
-    assert store.read_pack(pack.evidence_refs[0].id) is not None
 
 
-def test_bounded_profile_collects_sample_scoped_profiles(tmp_path):
+def test_bounded_profile_collects_sample_scoped_profiles():
     pack = collect_source_evidence(
         datasource="warehouse",
         source=TableSource(table="orders"),
         inspect_source=_fake_inspect_source,
         backend_factory=_backend_factory,
         sample_policy=BoundedProfilePolicy(limit=100),
-        store=EvidenceStore(tmp_path),
     )
     by_col = {p.column: p for p in pack.column_profiles}
     assert by_col["amount"].null_count == 1
@@ -93,20 +87,19 @@ def test_bounded_profile_collects_sample_scoped_profiles(tmp_path):
     assert pack.column_profiles_by_column["status"].distinct_count == 2
 
 
-def test_max_profiled_columns_skips_extra_columns_with_warning(tmp_path):
+def test_max_profiled_columns_skips_extra_columns_with_warning():
     pack = collect_source_evidence(
         datasource="warehouse",
         source=TableSource(table="orders"),
         inspect_source=_fake_inspect_source,
         backend_factory=_backend_factory,
         sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=1),
-        store=EvidenceStore(tmp_path),
     )
     assert len(pack.column_profiles) == 1
     assert any("skipped" in w for w in pack.metadata_warnings)
 
 
-def test_source_max_profiled_columns_selects_only_profiled_columns(tmp_path):
+def test_source_max_profiled_columns_selects_only_profiled_columns():
     selected_columns = []
 
     class FakeTable:
@@ -130,7 +123,6 @@ def test_source_max_profiled_columns_selects_only_profiled_columns(tmp_path):
         inspect_source=_fake_inspect_source,
         backend_factory=lambda _name: FakeBackend(),
         sample_policy=BoundedProfilePolicy(limit=2, max_profiled_columns=1),
-        store=EvidenceStore(tmp_path),
     )
 
     assert selected_columns == ["order_id"]
@@ -139,26 +131,23 @@ def test_source_max_profiled_columns_selects_only_profiled_columns(tmp_path):
     assert any("skipped" in w for w in pack.metadata_warnings)
 
 
-def test_source_timeout_budget_skips_backend_and_persists_partial_pack(tmp_path):
+def test_source_timeout_budget_skips_backend_and_returns_partial_pack():
     def backend_factory(_name):
         raise AssertionError("backend_factory should not be called")
 
-    store = EvidenceStore(tmp_path)
     pack = collect_source_evidence(
         datasource="warehouse",
         source=TableSource(table="orders"),
         inspect_source=_fake_inspect_source,
         backend_factory=backend_factory,
         sample_policy=BoundedProfilePolicy(limit=100, timeout_seconds=0),
-        store=store,
     )
 
     assert pack.column_profiles == ()
     assert any("timeout" in warning for warning in pack.metadata_warnings)
-    assert store.read_pack(pack.evidence_refs[0].id) is not None
 
 
-def test_column_max_profiled_columns_skips_later_columns_without_reading_them(tmp_path):
+def test_column_max_profiled_columns_skips_later_columns_without_reading_them():
     selected_columns = []
 
     class FakeTable:
@@ -187,7 +176,6 @@ def test_column_max_profiled_columns_skips_later_columns_without_reading_them(tm
             columns=("order_id", "status", "amount"),
             max_profiled_columns=1,
         ),
-        store=EvidenceStore(tmp_path),
     )
 
     assert selected_columns == ["order_id"]
