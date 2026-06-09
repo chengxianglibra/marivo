@@ -99,6 +99,38 @@ _OBJECTIVE_REQUIRED_KWARGS: dict[CandidateObjective, tuple[str, ...]] = {
     "cross_sectional_outliers": (),
 }
 
+_OBJECTIVE_THRESHOLD: dict[CandidateObjective, dict[str, Any] | None] = {
+    "point_anomalies": {
+        "method": "zscore",
+        "default": 3.0,
+        "description": "absolute z-score cutoff (|z| >= threshold)",
+    },
+    "period_shifts": {
+        "method": "delta_window_zscore",
+        "default": 2.0,
+        "description": "absolute z-score of rolling window mean (|z| >= threshold)",
+    },
+    "interesting_slices": {
+        "method": "delta_magnitude",
+        "default": 2.0,
+        "description": (
+            "absolute z-score for MetricFrame (|z| >= threshold); "
+            "absolute delta value for DeltaFrame"
+        ),
+    },
+    "interesting_windows": {
+        "method": "rolling_zscore",
+        "default": 2.0,
+        "description": "absolute z-score per value (|z| >= threshold)",
+    },
+    "cross_sectional_outliers": {
+        "method": "mad",
+        "default": 3.0,
+        "description": "robust z-score using MAD (|robust_z| >= threshold)",
+    },
+    "driver_axes": None,
+}
+
 
 def _is_valid_objective(objective: str) -> TypeGuard[CandidateObjective]:
     return objective in _VALID_OBJECTIVES
@@ -133,7 +165,14 @@ def _discover_dispatch(
         strategy: Scoring strategy. Defaults are picked per objective
             (e.g. ``zscore`` for ``point_anomalies``).
         value: Numeric column to score. Defaults to the frame's measure column.
-        threshold: Score cutoff. If omitted, all rows are returned (subject to ``limit``).
+        threshold: Score cutoff whose meaning depends on the objective.
+        ``point_anomalies``: absolute z-score cutoff, default 3.0.
+        ``period_shifts``: absolute z-score of rolling window mean, default 2.0.
+        ``interesting_slices``: absolute z-score for MetricFrame / absolute delta
+        value for DeltaFrame, default 2.0.
+        ``interesting_windows``: absolute z-score per value, default 2.0.
+        ``cross_sectional_outliers``: robust z-score via MAD, default 3.0.
+        ``driver_axes`` does not accept threshold.
         sensitivity: ``"conservative" | "balanced" | "aggressive"``.
         limit: Maximum number of candidates to return.
         search_space: Required for ``driver_axes`` — dimensions to consider as drivers.
@@ -350,7 +389,8 @@ class DiscoverAPI:
         """Find time-series points with unusual values.
 
         Source must be a MetricFrame with time_series or panel shape.
-        ``threshold`` controls anomaly sensitivity (lower = more candidates).
+        ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 3.0.
+        Lower values flag more candidates.
         """
         return _discover_dispatch(
             source,
@@ -372,6 +412,8 @@ class DiscoverAPI:
 
         Requires at least four time buckets in a time-series delta, or at least
         one panel series with four time buckets.
+        ``threshold`` is an absolute z-score cutoff on rolling window means
+        (|z| >= threshold); default 2.0.
         """
 
         return _discover_dispatch(
@@ -419,6 +461,8 @@ class DiscoverAPI:
 
         Accepts a MetricFrame or DeltaFrame. Optionally narrow the search
         with ``search_space``; otherwise all available dimensions are probed.
+        ``threshold`` is an absolute z-score for MetricFrame (|z| >= threshold)
+        or absolute delta value for DeltaFrame; default 2.0.
         """
         return _discover_dispatch(
             source,
@@ -442,6 +486,7 @@ class DiscoverAPI:
 
         Source must have time_series or panel shape. Returns windows where
         the metric exhibits significant trends, level shifts, or volatility.
+        ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 2.0.
         """
         return _discover_dispatch(
             source,
@@ -465,6 +510,8 @@ class DiscoverAPI:
         Source must be a MetricFrame with segmented or panel shape.
         ``peer_scope`` defines the grouping for peer comparison; defaults to
         all non-time axes.
+        ``threshold`` is a robust z-score cutoff using MAD
+        (|robust_z| >= threshold); default 3.0.
         """
         return _discover_dispatch(
             source,
@@ -537,7 +584,11 @@ def _run_scorer(
     peer_scope: list[DimensionRef] | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if objective == "point_anomalies":
-        threshold_value = _validate_threshold(3.0 if threshold is None else threshold)
+        _threshold_info = _OBJECTIVE_THRESHOLD[objective]
+        assert _threshold_info is not None  # guaranteed for point_anomalies
+        threshold_value = _validate_threshold(
+            _threshold_info["default"] if threshold is None else threshold
+        )
         df = source.to_pandas()
         value_column = require_numeric_column(df, value, purpose="discover")
         time_column, _ = _resolve_frame_axes(source, df)
@@ -552,7 +603,11 @@ def _run_scorer(
         return rows, params
 
     if objective == "period_shifts":
-        threshold_value = _validate_threshold(2.0 if threshold is None else threshold)
+        _threshold_info = _OBJECTIVE_THRESHOLD[objective]
+        assert _threshold_info is not None  # guaranteed for period_shifts
+        threshold_value = _validate_threshold(
+            _threshold_info["default"] if threshold is None else threshold
+        )
         df = source.to_pandas()
         bucket_column, group_columns = _delta_axes(cast("DeltaFrame", source))
         value_column = require_numeric_column(
@@ -604,7 +659,11 @@ def _run_scorer(
         return rows, driver_params
 
     if objective == "interesting_slices":
-        threshold_value = _validate_threshold(2.0 if threshold is None else threshold)
+        _threshold_info = _OBJECTIVE_THRESHOLD[objective]
+        assert _threshold_info is not None  # guaranteed for interesting_slices
+        threshold_value = _validate_threshold(
+            _threshold_info["default"] if threshold is None else threshold
+        )
         df = source.to_pandas()
         if isinstance(source, DeltaFrame):
             bucket_column, dim_columns = _delta_axes(source)
@@ -638,7 +697,11 @@ def _run_scorer(
         return rows, slice_params
 
     if objective == "interesting_windows":
-        threshold_value = _validate_threshold(2.0 if threshold is None else threshold)
+        _threshold_info = _OBJECTIVE_THRESHOLD[objective]
+        assert _threshold_info is not None  # guaranteed for interesting_windows
+        threshold_value = _validate_threshold(
+            _threshold_info["default"] if threshold is None else threshold
+        )
         df = source.to_pandas()
         if isinstance(source, DeltaFrame):
             bucket_column, group_columns = _delta_axes(source)
@@ -670,7 +733,11 @@ def _run_scorer(
         return rows, params
 
     if objective == "cross_sectional_outliers":
-        threshold_value = _validate_threshold(3.0 if threshold is None else threshold)
+        _threshold_info = _OBJECTIVE_THRESHOLD[objective]
+        assert _threshold_info is not None  # guaranteed for cross_sectional_outliers
+        threshold_value = _validate_threshold(
+            _threshold_info["default"] if threshold is None else threshold
+        )
         df = source.to_pandas()
         bucket_col, segment_columns = _resolve_frame_axes(source, df)
         value_column = require_numeric_column(
