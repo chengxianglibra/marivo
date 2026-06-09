@@ -1978,6 +1978,17 @@ class SemanticProject:
     def _evidence_store(self) -> EvidenceStore:
         return EvidenceStore(self._semantic_root)
 
+    def _datasets_by_source(self, datasource: str, source: DatasetSource) -> tuple[DatasetIR, ...]:
+        reg = self._registry
+        if reg is None:
+            return ()
+        source_ir = source.to_ir()
+        return tuple(
+            ds
+            for ds in reg.datasets.values()
+            if ds.datasource == datasource and ds.source == source_ir
+        )
+
     def inspect_source_context(
         self,
         *,
@@ -2020,6 +2031,10 @@ class SemanticProject:
                 limit=min(sample_policy.limit, PREVIEW_MAX_LIMIT),
                 redact=sample_policy.redact,
             )
+        if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)):
+            for ds in self._datasets_by_source(datasource, source):
+                if ds.primary_key:
+                    self.record_primary_key_sample(ds.semantic_id)
         return pack
 
     def inspect_column_context(
@@ -2037,7 +2052,7 @@ class SemanticProject:
         factory = self._resolve_backend_factory(backend_factory)
         from marivo.semantic.inspect import collect_column_evidence
 
-        return collect_column_evidence(
+        result = collect_column_evidence(
             datasource=datasource,
             source=source,
             columns=columns,
@@ -2046,6 +2061,11 @@ class SemanticProject:
             sample_policy=sample_policy,
             store=self._evidence_store(),
         )
+        column_set = set(columns)
+        for ds in self._datasets_by_source(datasource, source):
+            if ds.primary_key and set(ds.primary_key) <= column_set:
+                self.record_primary_key_sample(ds.semantic_id)
+        return result
 
     def list_evidence(
         self,
