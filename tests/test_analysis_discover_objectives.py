@@ -319,6 +319,29 @@ def test_period_shifts_segment_merging():
     assert pd.notna(rows.loc[0, "baseline_window_end"])
 
 
+def test_point_anomalies_baseline_window_populated():
+    session = session_attach.get_or_create(name="demo")
+    values = [1.0] * 20 + [50.0]
+    df = pd.DataFrame(
+        {
+            "bucket": pd.date_range("2026-01-01", periods=21, freq="D", tz="UTC"),
+            "value": values,
+        }
+    )
+    src = _metric(session, df, semantic_kind="time_series")
+    out = session.discover(
+        src,
+        objective="point_anomalies",
+        threshold=2.0,
+    )
+    rows = out.to_pandas()
+    assert len(rows) >= 1
+    assert pd.notna(rows.loc[0, "window_start"])
+    assert pd.notna(rows.loc[0, "window_end"])
+    assert pd.notna(rows.loc[0, "baseline_window_start"])
+    assert pd.notna(rows.loc[0, "baseline_window_end"])
+
+
 def test_period_shifts_panel_groups_independently():
     session = session_attach.get_or_create(name="demo")
     buckets = list(pd.date_range("2026-01-01", periods=15, freq="D", tz="UTC"))
