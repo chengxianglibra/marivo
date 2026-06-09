@@ -4,8 +4,8 @@ Public surface::
 
     import marivo.semantic as ms
 
-    project = ms.find_project()        # or ms.SemanticProject(root)
-    project.load()
+    catalog = ms.load()                # returns SemanticCatalog
+    catalog.list().show()
 
     ms.model(name="sales", default=True)
     orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
@@ -33,6 +33,26 @@ from marivo.semantic.authoring import (
     time_field,
     validity,
     weighted_average,
+)
+from marivo.semantic.catalog import (
+    AiContextView,
+    DatasetDetails,
+    DatasourceDetails,
+    FieldDetails,
+    MetricDetails,
+    ModelDetails,
+    RelationshipDetails,
+    SemanticCatalog,
+    SemanticKind,
+    SemanticObject,
+    SemanticObjectDetails,
+    SemanticObjectList,
+    SemanticRef,
+    SemanticRefInput,
+    SnapshotVersioning,
+    TimeFieldDetails,
+    ValidityVersioning,
+    load,
 )
 from marivo.semantic.classifier import (
     DecisionKind,
@@ -84,6 +104,7 @@ from marivo.semantic.typing import AiContext
 
 __all__ = [
     "AiContext",
+    "AiContextView",
     "AssessmentIssue",
     "AuthoringAssessment",
     "AuthoringQuestion",
@@ -92,15 +113,20 @@ __all__ = [
     "BoundedProfilePolicy",
     "ColumnEvidence",
     "ColumnProfile",
+    "DatasetDetails",
     "DatasetSource",
+    "DatasourceDetails",
     "DecisionKind",
     "DecisionRecord",
     "DemandSignal",
     "EvidenceFact",
+    "FieldDetails",
     "FieldKind",
     "FieldSummary",
     "FileSource",
     "MetadataOnlyPolicy",
+    "MetricDetails",
+    "ModelDetails",
     "ModelRef",
     "ParitySummary",
     "PreviewSummary",
@@ -108,15 +134,26 @@ __all__ = [
     "ReadinessIssue",
     "ReadinessReport",
     "RejectedCandidate",
+    "RelationshipDetails",
     "RelationshipSummary",
     "RichnessGap",
     "RichnessReport",
     "RichnessSummary",
     "SamplePolicy",
     "SelectedColumnsPolicy",
+    "SemanticCatalog",
+    "SemanticKind",
+    "SemanticObject",
+    "SemanticObjectDetails",
+    "SemanticObjectList",
     "SemanticProject",
+    "SemanticRef",
+    "SemanticRefInput",
+    "SnapshotVersioning",
     "SourceEvidencePack",
     "TableSource",
+    "TimeFieldDetails",
+    "ValidityVersioning",
     "dataset",
     "derived_metric",
     "errors",
@@ -124,6 +161,7 @@ __all__ = [
     "file",
     "find_project",
     "help",
+    "load",
     "metric",
     "model",
     "ratio",

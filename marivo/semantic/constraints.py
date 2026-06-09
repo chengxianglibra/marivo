@@ -77,6 +77,8 @@ class ConstraintId(StrEnum):
     BACKEND_FACTORY_AVAILABLE = "backend_factory_available"
     INSPECT_SOURCE_AVAILABLE = "inspect_source_available"
     PROJECT_LOADED_REQUIRED = "project_loaded_required"
+    CATALOG_KIND_VALID = "catalog_kind_valid"
+    CATALOG_PARENT_BROWSABLE = "catalog_parent_browsable"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -614,6 +616,24 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Project must be loaded before accessing semantic objects.",
         "Listing and lookup methods require a loaded registry.",
         "Call project.load() first, then access metrics, datasets, or fields.",
+    ),
+    ConstraintId.CATALOG_KIND_VALID: _constraint(
+        ConstraintId.CATALOG_KIND_VALID,
+        "unsupported_kind",
+        "runtime",
+        ("SemanticCatalog",),
+        "Kind filter must be a valid SemanticKind value.",
+        "The kind parameter accepts: model, datasource, dataset, field, time_field, metric, relationship.",
+        "Use catalog.list() without kind to browse all, or pass a valid kind string.",
+    ),
+    ConstraintId.CATALOG_PARENT_BROWSABLE: _constraint(
+        ConstraintId.CATALOG_PARENT_BROWSABLE,
+        "unsupported_list_parent",
+        "runtime",
+        ("SemanticCatalog",),
+        "Only model, datasource, and dataset refs can be used as catalog.list() parents.",
+        "Metrics, fields, time fields, and relationships are leaf objects with no children to list.",
+        "Use catalog.get(ref).details() to inspect a leaf object's dependencies.",
     ),
 }
 

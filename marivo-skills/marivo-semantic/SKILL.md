@@ -30,6 +30,9 @@ the project structure before authoring semantic objects.
   `signature`, `doc`, bounded `constraints`, runnable `examples`, `methods`,
   and drill-down ids. Consult it per object when the contract matters; do not
   turn help into a blanket ritual for each call.
+- Use `ms.load()` to obtain a `SemanticCatalog` for browsing and inspecting
+  loaded semantic objects. Do not construct `SemanticProject` directly for
+  read-only consumption.
 - Before authoring `*_env` credential fields on a `DatasourceSpec`, read
   `~/.marivo/secrets.toml` to discover cached env var names. Reuse an existing
   name when the same credential type is already cached (e.g., reuse
@@ -69,16 +72,23 @@ the project structure before authoring semantic objects.
 
 ## Inspecting semantic objects
 
-Use `mv.help(ref)` for a bounded consumption briefing on any semantic ref.
+Use `ms.load()` to obtain a `SemanticCatalog`, then browse and inspect:
+
+```python
+catalog = ms.load()
+catalog.list().show()                         # top-level: models and datasources
+catalog.list("sales").show()                  # datasets and metrics under a model
+catalog.list("sales.orders").show()           # fields, time fields, relationships, filtered metrics
+revenue = catalog.get("sales.revenue")
+revenue.details()                             # kind-specific details
+```
+
+Use `ms.help(ref)` for a bounded consumption briefing on any semantic ref.
 This is the default path before passing an object to analysis APIs:
 
 ```python
 mv.help(revenue)                    # bounded consumption context
 mv.help(revenue, project=project)   # explicit project when not in CWD
-
-metrics = project.list_metrics()
-metrics.show()                      # bounded tabular preview
-metric_ids = metrics.ids()          # list of semantic ids
 ```
 
 Read `_model.py` only when you need to modify the semantic model, inspect
