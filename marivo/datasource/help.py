@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import json
 from functools import lru_cache
 from typing import Literal, cast
 
@@ -107,12 +108,16 @@ def help(  # noqa: A001, RUF100
 
     With ``format="text"``, prints a compact text descriptor by default and
     returns None. Pass ``print=False`` to return the text without printing.
-    With ``format="json"``, returns a structured descriptor and does not print.
+    With ``format="json"``, prints the structured JSON descriptor by default
+    and returns the dict. Pass ``print=False`` to suppress printing.
     """
 
     normalized = None if symbol == "" else symbol
     if format == "json":
-        return cast("dict[str, object]", render(_surface(), normalized, "json"))
+        data = cast("dict[str, object]", render(_surface(), normalized, "json"))
+        if print:
+            builtins.print(json.dumps(data, indent=2, sort_keys=True))
+        return data
     if format == "text":
         text = help_text(normalized)
         if print:

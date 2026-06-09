@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import io
+import json
 from contextlib import redirect_stdout
 from typing import Any, cast
 
@@ -201,13 +202,14 @@ def test_help_calendar_prints_file_schema_and_entry_example() -> None:
     assert "use holiday_id rather than name/label" in out
 
 
-def test_help_json_top_level_is_canonical_and_has_no_stdout(
+def test_help_json_top_level_is_canonical_and_prints_json(
     capsys: CaptureFixture[str],
 ) -> None:
     result = mv.help(format="json")
     captured = capsys.readouterr()
 
-    assert captured.out == ""
+    assert captured.out != ""
+    assert json.loads(captured.out) == result
     assert isinstance(result, dict)
     assert result["schema_version"] == "1"
     assert result["surface"] == "marivo.analysis"

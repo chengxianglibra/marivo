@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from typing import Literal, cast
 
@@ -688,12 +689,14 @@ def help(  # noqa: A001, RUF100
     """Print or return agent-facing help for the analysis surface.
 
     With ``format="text"``, prints a compact text descriptor and returns None.
-    With ``format="json"``, returns a structured descriptor and does not print.
+    With ``format="json"``, prints the JSON descriptor and returns the dict.
     """
 
     normalized = None if symbol == "" else symbol
     if format == "json":
-        return cast("dict[str, object]", render(_surface(), normalized, "json"))
+        data = cast("dict[str, object]", render(_surface(), normalized, "json"))
+        print(json.dumps(data, indent=2, sort_keys=True))
+        return data
     if format == "text":
         print(help_text(normalized))
         return None
