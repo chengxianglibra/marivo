@@ -555,6 +555,7 @@ def _execute_base(
                 time_meta=time_field_ir.time_meta,
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
+                session_tz=cast("ZoneInfo", session.tz),
             )
         if (
             resolved_window.grain is not None
@@ -618,6 +619,7 @@ def _execute_base(
                 time_meta=time_field_ir.time_meta,
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
+                session_tz=cast("ZoneInfo", session.tz),
             )
         axes = {
             "time": {
@@ -753,6 +755,7 @@ def _execute_derived(
                 time_meta=time_field_ir.time_meta,
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain if resolved_window else None,
+                session_tz=cast("ZoneInfo", session.tz),
             )
         if (
             has_time

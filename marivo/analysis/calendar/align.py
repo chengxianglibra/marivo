@@ -210,9 +210,9 @@ def _local_dates(series: pd.Series, *, session_tz: str) -> pd.Series:
         _require_no_na_dates(parsed, session_tz=session_tz)
         return parsed.dt.tz_convert(tz).dt.date
     if pd.api.types.is_datetime64_any_dtype(series):
-        parsed = pd.to_datetime(series, utc=True, errors="coerce")
+        parsed = pd.to_datetime(series, errors="coerce")
         _require_no_na_dates(parsed, session_tz=session_tz)
-        return parsed.dt.tz_convert(tz).dt.date
+        return parsed.dt.date
     return series.map(lambda value: _coerce_local_date(value, session_tz=session_tz))
 
 
@@ -523,5 +523,6 @@ def _require_no_na_dates(series: pd.Series, *, session_tz: str) -> None:
 
 
 def _timestamp_to_local_date(ts: pd.Timestamp, tz: ZoneInfo) -> date:
-    localized = ts.tz_localize("UTC") if ts.tzinfo is None else ts
-    return localized.tz_convert(tz).date()
+    if ts.tzinfo is None:
+        return ts.date()
+    return ts.tz_convert(tz).date()

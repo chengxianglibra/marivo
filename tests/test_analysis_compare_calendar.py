@@ -215,7 +215,7 @@ def test_local_dates_handles_tz_aware_naive_string_and_python_date_values():
     assert _local_dates(tz_aware, session_tz="Asia/Shanghai").tolist() == [date(2026, 5, 2)]
 
     naive = pd.Series(pd.to_datetime(["2026-05-01T23:30:00"]))
-    assert _local_dates(naive, session_tz="Asia/Shanghai").tolist() == [date(2026, 5, 2)]
+    assert _local_dates(naive, session_tz="Asia/Shanghai").tolist() == [date(2026, 5, 1)]
 
     mixed = pd.Series(["2026-05-01", date(2026, 5, 2)])
     assert _local_dates(mixed, session_tz="Asia/Shanghai").tolist() == [
