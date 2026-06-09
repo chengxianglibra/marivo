@@ -517,6 +517,7 @@ class SemanticProject:
         self._raw_preview_evidence: tuple[str, ...] = ()
         self._bound_inspect_source: Callable[..., Any] | None = None
         self._bound_backend_factory: Callable[[str], Any] | None = None
+        self._datasource_irs: tuple[DatasourceIR, ...] = ()
 
     @property
     def semantic_root(self) -> Path:
@@ -562,6 +563,7 @@ class SemanticProject:
             self._sidecar = None
             self._runtime_metadata = {}
             self._parity_results = {}
+            self._datasource_irs = ()
         if self._semantic_root.exists() and not self._semantic_root.is_dir():
             _raise(
                 ErrorKind.INVALID_PROJECT,
@@ -582,6 +584,7 @@ class SemanticProject:
         self._warnings = result.warnings
         self._registry = result.registry
         self._sidecar = result.sidecar
+        self._datasource_irs = result.datasource_irs
         if self._registry is not None:
             from marivo.semantic.auto_record import (
                 auto_record_authoring_decisions,
@@ -677,7 +680,9 @@ class SemanticProject:
 
     def list_datasources(self, display: bool = True) -> list[DatasourceSummary]:
         """Return all datasource summaries."""
-        reg = _require_registry(self._registry, project=self)
+        irs = self._datasource_irs or (
+            tuple(self._registry.datasources.values()) if self._registry is not None else ()
+        )
         results = [
             DatasourceSummary(
                 semantic_id=ds_ir.semantic_id,
@@ -685,7 +690,7 @@ class SemanticProject:
                 backend_type=ds_ir.backend_type,
                 description=ds_ir.description,
             )
-            for ds_ir in reg.datasources.values()
+            for ds_ir in irs
         ]
         if display:
             _print_table(
@@ -960,8 +965,12 @@ class SemanticProject:
 
     def get_datasource(self, name: str) -> DatasourceIR | None:
         """Return a datasource IR by semantic_id, or None if not found."""
-        reg = _require_registry(self._registry, project=self)
-        return reg.datasources.get(name)
+        for ds_ir in self._datasource_irs:
+            if ds_ir.semantic_id == name:
+                return ds_ir
+        if self._registry is not None:
+            return self._registry.datasources.get(name)
+        return None
 
     def get_field(self, name: str) -> FieldIR | None:
         """Return a field IR by semantic_id, or None if not found."""
