@@ -125,12 +125,14 @@ def _discover_content() -> dict[str, object]:
     from marivo.analysis.intents.discover import (
         _OBJECTIVE_COMPATIBILITY,
         _OBJECTIVE_REQUIRED_KWARGS,
+        _OBJECTIVE_THRESHOLD,
         _OBJECTIVE_TO_SHAPE,
     )
 
     objectives: list[dict[str, object]] = []
     for objective in sorted(_OBJECTIVE_COMPATIBILITY):
         compat = _OBJECTIVE_COMPATIBILITY[objective]
+        threshold_info = _OBJECTIVE_THRESHOLD.get(objective)
         objectives.append(
             {
                 "objective": objective,
@@ -141,6 +143,7 @@ def _discover_content() -> dict[str, object]:
                     for source_kind, semantic_kinds in sorted(compat.items())
                 },
                 "required_kwargs": list(_OBJECTIVE_REQUIRED_KWARGS.get(objective, ())),
+                "threshold": threshold_info,
             }
         )
     return {
@@ -152,19 +155,30 @@ def _discover_content() -> dict[str, object]:
     }
 
 
+def _threshold_label(threshold_info: dict[str, object] | None) -> str:
+    if threshold_info is None:
+        return "-"
+    method = cast("str", threshold_info["method"])
+    default = cast("float", threshold_info["default"])
+    return f"{method} >= {default}"
+
+
 def _discover_text(content: dict[str, object]) -> str:
     objectives = cast("list[dict[str, object]]", content["objectives"])
     lines = ["session.discover objective helper matrix:", ""]
-    header = f"  {'helper':<42}{'source':<14}{'semantic_kind':<40}{'shape':<26}required"
+    header = (
+        f"  {'helper':<42}{'source':<14}{'semantic_kind':<40}{'shape':<26}{'threshold':<28}required"
+    )
     lines.append(header)
     lines.append("  " + "-" * (len(header) - 2))
     for item in objectives:
         sources = cast("dict[str, list[str]]", item["sources"])
         required = ", ".join(cast("list[str]", item["required_kwargs"])) or "-"
+        threshold_label = _threshold_label(cast("dict[str, object] | None", item.get("threshold")))
         for source_kind in sorted(sources):
             kinds = "|".join(sources[source_kind])
             lines.append(
-                f"  {item['helper']:<42}{source_kind:<14}{kinds:<40}{item['shape']:<26}{required}"
+                f"  {item['helper']:<42}{source_kind:<14}{kinds:<40}{item['shape']:<26}{threshold_label:<28}{required}"
             )
     lines.append("")
     lines.append(f"Example: {content['example']}")
