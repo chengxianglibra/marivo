@@ -145,6 +145,28 @@ def test_missing_model_py(semantic_project_factory) -> None:
     assert ErrorKind.MODEL_FILE_MISSING in kind_values
 
 
+def test_datasources_accessible_when_model_load_errors(semantic_project_factory) -> None:
+    """list_datasources / get_datasource work even if model dirs are broken."""
+    project = semantic_project_factory(
+        {
+            "sales/datasets.py": _MINIMAL_DATASET_PY,
+        }
+    )
+    assert not project.is_ready()
+    assert any(e.kind == ErrorKind.MODEL_FILE_MISSING for e in project.errors())
+
+    datasources = project.list_datasources(display=False)
+    assert len(datasources) == 1
+    assert datasources[0].name == "warehouse"
+
+    ds = project.get_datasource("warehouse")
+    assert ds is not None
+    assert ds.backend_type == "duckdb"
+
+    with pytest.raises(Exception):
+        project.list_models(display=False)
+
+
 def test_model_name_mismatch(semantic_project_factory) -> None:
     """_model.py declares a different name than the directory name."""
     bad_model = textwrap.dedent("""\

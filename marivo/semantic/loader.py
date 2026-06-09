@@ -107,6 +107,7 @@ class LoadResult:
     registry: Registry | None = None
     sidecar: Sidecar | None = None
     filtered_models: tuple[str, ...] = ()
+    datasource_irs: tuple[DatasourceIR, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +475,7 @@ def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResu
         registry=registry if status == "ready" else None,
         sidecar=sidecar if status == "ready" else None,
         filtered_models=filtered_models_tuple,
+        datasource_irs=datasource_result.datasources,
     )
 
 
