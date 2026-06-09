@@ -942,13 +942,11 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
 
 
 def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> None:
-    """Hour-only string time field with bare %H format fails at decoration time.
+    """Hour-only string time field with bare %H format requires required_prefix.
 
-    A bare ``%H`` cannot parse a complete datetime, so normalize_strptime
-    rejects it and the decorator surfaces an INVALID_REF. The
-    HOUR_TIME_FIELD_PREFIX_MISSING assembly guard is no longer reachable for
-    string/integer fields because the decorator now requires either a complete
-    strptime date_format or a required_prefix up front.
+    A bare ``%H`` is a valid strptime format so it passes decorator validation,
+    but hour-only string fields still require a ``required_prefix`` pointing to a
+    day-level time field for pushdown (assembly guard).
     """
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -975,7 +973,7 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
     )
     assert not project.is_ready()
     errors = project.errors()
-    assert any(e.kind == ErrorKind.INVALID_REF for e in errors)
+    assert any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
 
 
 def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
