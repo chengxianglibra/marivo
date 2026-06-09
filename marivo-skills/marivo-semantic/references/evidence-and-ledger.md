@@ -3,8 +3,7 @@
 ## Two Output Levels
 
 - **Fact**: An observed, verifiable piece of evidence (column type, null count,
-  sample top values). Facts carry `evidence_refs` linking back to the
-  `SourceEvidencePack` or `AuthoringEvidenceInput` that produced them.
+  sample top values).
 - **Assessment**: A rule-based evaluation of whether authoring can proceed.
   `AuthoringAssessment` contains `facts`, `issues`, and `questions`. Issues have
   severity (`blocker`/`warning`/`info`); questions represent unresolved
@@ -21,16 +20,13 @@
 | `BoundedProfilePolicy` | Reads rows with a limit |
 | `SelectedColumnsPolicy` | Reads selected columns with a limit |
 | `SamplePolicy` | Type alias: `MetadataOnlyPolicy \| BoundedProfilePolicy \| SelectedColumnsPolicy` |
-| `EvidenceRef` | Reference to collected authoring evidence |
-| `EvidenceFact` | Single observed fact with evidence refs |
+| `EvidenceFact` | Single observed fact |
 | `ColumnProfile` | Bounded-sample profile for one column |
 | `SourceEvidencePack` | Collected facts and profiles for a source |
 | `ColumnEvidence` | Deep-dive evidence for one source column |
 | `AssessmentIssue` | A single rule-based assessment issue |
 | `AuthoringQuestion` | An unresolved business decision |
 | `AuthoringAssessment` | Facts, issues, and questions from an authoring assessment |
-| `AuthoringEvidenceInput` | Source SQL / knowledge / confirmation input |
-| `AiContextInput` | Agent-authored ai_context fields for semantic object handoff |
 
 ## Collecting Evidence
 
@@ -55,29 +51,6 @@ evidence = project.inspect_column_context(
     columns=("status", "amount"),
     sample_policy=ms.SelectedColumnsPolicy(limit=100, columns=("status", "amount")),
 )
-
-# Non-sample evidence
-sql_ref = project.record_authoring_evidence(
-    ms.AuthoringEvidenceInput(
-        kind="source_sql",
-        subject_refs=("sales.revenue",),
-        content="select sum(amount) from orders where paid",
-    )
-)
-```
-
-## Retrieving Evidence
-
-```python
-# Source-keyed lookup
-refs = project.list_evidence(
-    datasource="warehouse",
-    source=ms.TableSource(table="orders"),
-)
-pack = project.get_evidence_pack(refs[0].id)
-
-# Subject-keyed lookup
-refs = project.list_evidence(subject_refs=("sales.revenue",))
 ```
 
 ## Auto-Recorded Decisions
@@ -86,31 +59,3 @@ On load, Marivo auto-records `metric_decomposition` and `time_field_identity`
 decisions for authored metrics and time fields. These are the sole mechanism
 for writing `DecisionRecord` entries and satisfy the
 `dangerous_decision_recorded` rule in `inspect_authored_object`.
-
-## User Confirmations
-
-Record user confirmations with:
-
-```python
-project.record_authoring_evidence(
-    ms.AuthoringEvidenceInput(
-        kind="user_confirmation",
-        subject_refs=("sales.order_date",),
-        content="Use dt as the reporting time axis.",
-    )
-)
-```
-
-## Relationship Confirmations
-
-Confirm relationships to satisfy the `relationship_unconfirmed` readiness gate:
-
-```python
-project.record_authoring_evidence(
-    ms.AuthoringEvidenceInput(
-        kind="relationship_confirmation",
-        subject_refs=("sales.orders_to_items",),
-        content="Confirmed join on order_id between orders and items.",
-    )
-)
-```

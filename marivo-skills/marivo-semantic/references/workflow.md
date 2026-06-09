@@ -89,20 +89,6 @@ for col in evidence:
 Use this for time/enum/amount/join-key columns. Sample-derived values are facts
 about the bounded sample only — never treat them as full-table truth.
 
-Record source SQL, knowledge, and user confirmations as ledger evidence when
-they materially support the candidate object:
-
-```python
-project.record_authoring_evidence(
-    ms.AuthoringEvidenceInput(
-        kind="source_sql",
-        subject_refs=("sales.revenue",),
-        content="select sum(amount) as revenue from orders where paid",
-        source_dialect="trino",
-    )
-)
-```
-
 ## Phase 2: Assess and Author Each Candidate Object
 
 Call `project.assess_authoring(...)` before writing each candidate object. It

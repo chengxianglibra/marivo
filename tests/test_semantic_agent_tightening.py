@@ -90,7 +90,6 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     assert "project.assess_authoring(" in workflow
     assert "sample_scope" in workflow or "sample_scope" in skill
     assert "non-negative integer count" in skill
-    assert "record_authoring_evidence" in evidence
     assert "AuthoringQuestion" in evidence
     assert "table.schema()` returns types but not comments" in skill
     assert "target preview APIs until they exist" not in skill
@@ -146,7 +145,7 @@ def test_semantic_workflow_assess_authoring_snippets_use_sources_shape() -> None
     snippets = _extract_call_snippets(workflow, "project.assess_authoring")
 
     assert snippets
-    forbidden = ("datasource=", "source=", "columns=", "evidence_refs=", "ai_context=")
+    forbidden = ("datasource=", "source=", "columns=", "ai_context=")
     stale = {
         parameter: [
             snippet
@@ -160,18 +159,11 @@ def test_semantic_workflow_assess_authoring_snippets_use_sources_shape() -> None
     assert "ms.AuthoringSourceInput(" in workflow
 
 
-def test_semantic_ai_context_input_help_is_handoff_context_not_check_input() -> None:
+def test_semantic_ai_context_help_describes_handoff_not_check_input() -> None:
     evidence = _read("marivo-skills/marivo-semantic/references/evidence-and-ledger.md")
     help_entries = ms.help(format="json")["entries"]
-    ai_context_summary = next(
-        entry["summary"] for entry in help_entries if entry["name"] == "AiContextInput"
-    )
-
-    combined = "\n".join((evidence, ai_context_summary))
-    assert "Agent-authored ai_context fields for semantic object handoff" in combined
-    assert "agent-authored ai_context fields for semantic object handoff" in combined
-    assert "AiContextInput` | Agent-authored ai_context fields for a check" not in combined
-    assert "AiContextInput: agent-authored ai_context fields for a check" not in combined
+    help_names = {entry["name"] for entry in help_entries}
+    assert "AiContextInput" not in help_names
 
 
 def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:

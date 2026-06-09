@@ -959,9 +959,6 @@ def test_readiness_emits_derived_source_grain_unverified_for_view(
         failed_raw_previews=(),
         required_raw_previews=(),
         required_semantic_previews=(),
-        knowledge_documents=(),
-        user_confirmations=(),
-        confirmed_relationships=(),
         primary_keys_sampled=(),
         raw_sql_required_refs=(),
         table_metadata=(view_md,),
@@ -989,9 +986,6 @@ def test_readiness_emits_derived_source_grain_unverified_for_view(
         failed_raw_previews=(),
         required_raw_previews=(),
         required_semantic_previews=(),
-        knowledge_documents=(),
-        user_confirmations=(),
-        confirmed_relationships=(),
         primary_keys_sampled=(),
         raw_sql_required_refs=(),
         table_metadata=(base_md,),
@@ -1042,9 +1036,6 @@ def test_view_advisory_attaches_to_aliased_dataset(semantic_project_factory) -> 
         failed_raw_previews=(),
         required_raw_previews=(),
         required_semantic_previews=(),
-        knowledge_documents=(),
-        user_confirmations=(),
-        confirmed_relationships=(),
         primary_keys_sampled=(),
         raw_sql_required_refs=(),
         table_metadata=(view_md,),
@@ -1110,9 +1101,6 @@ def test_view_advisory_matches_clickhouse_datasource_default_database(
         failed_raw_previews=(),
         required_raw_previews=(),
         required_semantic_previews=(),
-        knowledge_documents=(),
-        user_confirmations=(),
-        confirmed_relationships=(),
         primary_keys_sampled=(),
         raw_sql_required_refs=(),
         table_metadata=(view_md,),
@@ -1167,9 +1155,6 @@ def test_readiness_does_not_attach_view_metadata_from_different_database(
         failed_raw_previews=(),
         required_raw_previews=(),
         required_semantic_previews=(),
-        knowledge_documents=(),
-        user_confirmations=(),
-        confirmed_relationships=(),
         primary_keys_sampled=(),
         raw_sql_required_refs=(),
         table_metadata=(view_md,),
@@ -1352,35 +1337,6 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
     assert "sales.revenue" not in refs
 
 
-def test_readiness_evidence_ledger_collects_user_confirmation_from_evidence_store(
-    semantic_project_factory,
-) -> None:
-    import marivo.semantic as ms
-
-    project = semantic_project_factory(
-        {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
-            "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
-                "def revenue(orders):\n    return orders.amount.sum()\n"
-            ),
-        }
-    )
-    # Record user confirmation evidence via the evidence store
-    project.record_authoring_evidence(
-        ms.AuthoringEvidenceInput(
-            kind="user_confirmation",
-            subject_refs=("sales.revenue",),
-            content="Revenue is the sum of paid order amounts.",
-        )
-    )
-
-    report = project.readiness()
-    assert "sales.revenue" in report.input_summary.refs
-
-
 def test_missing_business_definition_predicate():
     from types import SimpleNamespace
 
@@ -1529,9 +1485,6 @@ def test_build_readiness_report_richness_floor(semantic_project_factory):
         failed_raw_previews=(),
         required_raw_previews=(),
         required_semantic_previews=(),
-        knowledge_documents=(),
-        user_confirmations=(),
-        confirmed_relationships=(),
         primary_keys_sampled=(),
         raw_sql_required_refs=(),
         table_metadata=(),
@@ -1620,47 +1573,6 @@ def test_primary_key_sample_persistence(
 
     store.write_primary_key_sample("sales.orders")
     assert store.read_primary_key_samples() == ("sales.orders",)
-
-
-def test_evidence_store_list_authoring_by_kind(
-    semantic_project_factory,
-) -> None:
-    from marivo.semantic.evidence import AuthoringEvidenceInput
-    from marivo.semantic.evidence_store import EvidenceStore
-
-    project = semantic_project_factory(
-        {
-            "sales/_model.py": textwrap.dedent("""\
-                import marivo.semantic as ms
-                ms.model(name="sales")
-                ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
-            """),
-        }
-    )
-
-    store = EvidenceStore(project.root)
-    store.write_authoring_evidence(
-        AuthoringEvidenceInput(
-            kind="knowledge_document",
-            subject_refs=("sales.orders",),
-            content="Revenue definition doc",
-        )
-    )
-    store.write_authoring_evidence(
-        AuthoringEvidenceInput(
-            kind="user_confirmation",
-            subject_refs=("sales.orders",),
-            content="Owner confirmed revenue excludes tax",
-        )
-    )
-
-    kd_refs = store.list_authoring_by_kind("knowledge_document")
-    assert len(kd_refs) == 1
-    assert kd_refs[0].kind == "knowledge_document"
-
-    uc_refs = store.list_authoring_by_kind("user_confirmation")
-    assert len(uc_refs) == 1
-    assert uc_refs[0].kind == "user_confirmation"
 
 
 def test_readiness_auto_evidence_end_to_end(

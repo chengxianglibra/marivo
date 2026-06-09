@@ -37,12 +37,9 @@ from marivo.semantic.authoring import (
 from marivo.semantic.classifier import (
     DecisionKind,
 )
-from marivo.semantic.evidence import (
-    AiContextInput,
+from marivo.semantic.dtos import (
     AssessmentIssue,
-    AssessmentResult,
     AuthoringAssessment,
-    AuthoringEvidenceInput,
     AuthoringQuestion,
     AuthoringSourceInput,
     AuthoringSourceRole,
@@ -51,11 +48,9 @@ from marivo.semantic.evidence import (
     ColumnProfile,
     DatasetSource,
     EvidenceFact,
-    EvidenceRef,
     FileSource,
     MetadataOnlyPolicy,
     SamplePolicy,
-    SchemaColumn,
     SelectedColumnsPolicy,
     SourceEvidencePack,
     TableSource,
@@ -89,11 +84,8 @@ from marivo.semantic.typing import AiContext
 
 __all__ = [
     "AiContext",
-    "AiContextInput",
     "AssessmentIssue",
-    "AssessmentResult",
     "AuthoringAssessment",
-    "AuthoringEvidenceInput",
     "AuthoringQuestion",
     "AuthoringSourceInput",
     "AuthoringSourceRole",
@@ -105,7 +97,6 @@ __all__ = [
     "DecisionRecord",
     "DemandSignal",
     "EvidenceFact",
-    "EvidenceRef",
     "FieldKind",
     "FieldSummary",
     "FileSource",
@@ -122,7 +113,6 @@ __all__ = [
     "RichnessReport",
     "RichnessSummary",
     "SamplePolicy",
-    "SchemaColumn",
     "SelectedColumnsPolicy",
     "SemanticProject",
     "SourceEvidencePack",

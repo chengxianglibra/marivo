@@ -41,17 +41,13 @@ the project structure before authoring semantic objects.
   `project.bind_datasource_access(inspect_source=mv.datasources.inspect_source,
   backend_factory=mv.datasources.build_backend)`, then call
   `project.inspect_source_context(datasource=..., source=ms_evidence.DatasetSource(...),
-  sample_policy=...)`. It folds metadata inspection and bounded preview into one call and
-  persists evidence metadata under `.marivo/semantic/.evidence/`.
+  sample_policy=...)`. It folds metadata inspection and bounded preview into one call.
 - Sample-derived values (`top_values`, `distinct_count`, `min_value`/`max_value`) are facts
   about the bounded sample only (`sample_scope="bounded_sample"`, `approximate=True`). Never
   treat them as full-column cardinality, complete enums, or global ranges.
 - Rank columns yourself from pack facts (type, comments, nullable, partition hints, sampled
   values). The project returns no candidate worklist. Deep-dive a small set with
   `project.inspect_column_context(...)`.
-- Record non-sample evidence (source SQL, BI definitions, knowledge, owner notes, user
-  confirmations) with `project.record_authoring_evidence(AuthoringEvidenceInput(...))` for
-  ledger/source context.
 - Before writing each candidate object, run `project.assess_authoring(...)` with
   `sources=(ms.AuthoringSourceInput(...),)` and `semantic_refs=...` where relevant. Branch
   on `AuthoringAssessment.status`, then inspect `issues` and `questions`; never string-parse
@@ -61,10 +57,7 @@ the project structure before authoring semantic objects.
 - `blast_radius` is a non-negative integer count of distinct transitive dependents,
   not a ref tuple/list or candidate list.
 - Ask users only for unresolved blockers or business decisions evidence cannot
-  settle. Record user confirmations with
-  `project.record_authoring_evidence(ms.AuthoringEvidenceInput(kind="user_confirmation", ...))`.
-- Confirm relationships with
-  `project.record_authoring_evidence(ms.AuthoringEvidenceInput(kind="relationship_confirmation", subject_refs=(relationship_semantic_id,), content=...))`.
+  settle.
 - Reload after authoring `@ms.metric` or `@ms.time_field` declarations so Marivo
   can auto-record their object-level `metric_decomposition` and
   `time_field_identity` decisions.

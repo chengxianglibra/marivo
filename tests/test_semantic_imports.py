@@ -62,11 +62,8 @@ def test_all_symbols_importable() -> None:
 def test_all_list_matches_expected() -> None:
     expected = {
         "AiContext",
-        "AiContextInput",
         "AssessmentIssue",
-        "AssessmentResult",
         "AuthoringAssessment",
-        "AuthoringEvidenceInput",
         "AuthoringQuestion",
         "AuthoringSourceRole",
         "AuthoringSourceInput",
@@ -78,7 +75,6 @@ def test_all_list_matches_expected() -> None:
         "DecisionRecord",
         "DemandSignal",
         "EvidenceFact",
-        "EvidenceRef",
         "FieldKind",
         "FieldSummary",
         "FileSource",
@@ -94,7 +90,6 @@ def test_all_list_matches_expected() -> None:
         "RichnessReport",
         "RichnessSummary",
         "SamplePolicy",
-        "SchemaColumn",
         "SelectedColumnsPolicy",
         "SemanticProject",
         "SourceEvidencePack",

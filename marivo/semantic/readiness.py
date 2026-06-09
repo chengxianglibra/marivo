@@ -45,7 +45,6 @@ ReadinessIssueKind = Literal[
     "metric_compile_failed",
     "unverified_metric",
     "parity_drifted",
-    "relationship_unconfirmed",
     "sensitive_preview_column",
     "cross_datasource_unfederated",
     "requires_raw_sql",
@@ -150,9 +149,6 @@ class _ReadinessEvidence:
     failed_raw_previews: tuple[str, ...]
     required_raw_previews: tuple[str, ...]
     required_semantic_previews: tuple[str, ...]
-    knowledge_documents: tuple[str, ...]
-    user_confirmations: tuple[str, ...]
-    confirmed_relationships: tuple[str, ...]
     primary_keys_sampled: tuple[str, ...]
     raw_sql_required_refs: tuple[str, ...]
     table_metadata: tuple[Any, ...]
@@ -1039,7 +1035,6 @@ def build_readiness_report(
     failed_raw_previews = evidence.failed_raw_previews
     required_raw_previews = evidence.required_raw_previews or None
     required_semantic_previews = evidence.required_semantic_previews or None
-    confirmed_relationships = evidence.confirmed_relationships
     primary_keys_sampled = evidence.primary_keys_sampled
     raw_sql_required_refs = evidence.raw_sql_required_refs
     table_metadata = evidence.table_metadata
@@ -1332,20 +1327,6 @@ def build_readiness_report(
                         "Confirm the row grain and additivity, verify the time field still "
                         "prunes (see time_field_pushdown_advisory), and set primary_key "
                         "deliberately rather than inheriting base-table assumptions.",
-                    )
-                )
-
-        for relationship in reg.relationships.values():
-            if relationship.semantic_id in checked_ref_set and relationship.semantic_id not in set(
-                confirmed_relationships
-            ):
-                blockers.append(
-                    _issue(
-                        "relationship_unconfirmed",
-                        "blocker",
-                        (relationship.semantic_id,),
-                        f"Relationship {relationship.semantic_id} has not been confirmed.",
-                        "Confirm join keys with metadata, preview evidence, or the user.",
                     )
                 )
 

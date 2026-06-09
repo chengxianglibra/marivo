@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from marivo.preview import normalize_preview_cell
-from marivo.semantic.evidence import (
+from marivo.semantic.dtos import (
     BoundedProfilePolicy,
     ColumnEvidence,
     ColumnProfile,
@@ -19,7 +18,6 @@ from marivo.semantic.evidence import (
     SourceEvidencePack,
     TableSource,
 )
-from marivo.semantic.evidence_store import EvidenceStore, structural_fingerprint
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -46,10 +44,6 @@ _TEMPORAL_TYPE_TOKENS = (
     "TIMESTAMP",
     "DATETIME",
 )
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _source_table_expr(backend: Any, source: DatasetSource) -> Any:
@@ -147,7 +141,6 @@ def collect_source_evidence(
     inspect_source: Callable[..., Any],
     backend_factory: Callable[[str], Any],
     sample_policy: SamplePolicy,
-    store: EvidenceStore,
 ) -> SourceEvidencePack:
     metadata = inspect_source(datasource, source=source.to_ir())
 
@@ -194,21 +187,7 @@ def collect_source_evidence(
                     for name, data_type, nullable_value, comment in profile_specs
                 )
 
-    collected_at = _now()
-    fingerprint = structural_fingerprint(
-        datasource=datasource,
-        source=source,
-        schema=schema,
-        table_comment=metadata.comment,
-        column_comments=column_comments,
-    )
-    ref = store.make_source_ref(
-        datasource=datasource,
-        source=source,
-        structural_fp=fingerprint,
-        collected_at=collected_at,
-    )
-    pack = SourceEvidencePack(
+    return SourceEvidencePack(
         datasource=datasource,
         source=source,
         schema=schema,
@@ -219,13 +198,10 @@ def collect_source_evidence(
         key_hints=(),
         column_profiles=column_profiles,
         metadata_warnings=tuple(metadata_warnings),
-        evidence_refs=(ref,),
         sample_policy=sample_policy,
         redaction_status="redacted" if sample_policy.redact else "not_redacted",
         truncated=truncated,
     )
-    store.write_source_pack(pack)
-    return pack
 
 
 def collect_column_evidence(
@@ -236,7 +212,6 @@ def collect_column_evidence(
     inspect_source: Callable[..., Any],
     backend_factory: Callable[[str], Any],
     sample_policy: BoundedProfilePolicy | SelectedColumnsPolicy,
-    store: EvidenceStore,
 ) -> tuple[ColumnEvidence, ...]:
     limit = _validated_row_limit(sample_policy)
     metadata = inspect_source(datasource, source=source.to_ir())
@@ -245,15 +220,6 @@ def collect_column_evidence(
         name: (data_type, nullable_value, comment)
         for name, data_type, nullable_value, comment in specs
     }
-    schema = tuple((name, data_type) for name, data_type, _, _ in specs)
-    column_comments = tuple((name, comment) for name, _, _, comment in specs if comment is not None)
-    fingerprint = structural_fingerprint(
-        datasource=datasource,
-        source=source,
-        schema=schema,
-        table_comment=metadata.comment,
-        column_comments=column_comments,
-    )
 
     selected_columns = tuple(dict.fromkeys(columns))
     max_columns = sample_policy.max_profiled_columns
@@ -274,16 +240,8 @@ def collect_column_evidence(
         frame = table_expr.select(*present_columns).limit(limit).execute()
         timeout_exceeded = _budget_exceeded_after_read(sample_policy, started_at)
 
-    collected_at = _now()
     evidence: list[ColumnEvidence] = []
     for column in selected_columns:
-        ref = store.make_column_ref(
-            datasource=datasource,
-            source=source,
-            column=column,
-            structural_fp=fingerprint,
-            collected_at=collected_at,
-        )
         spec = specs_by_name.get(column)
         if column in skipped_columns:
             profile = _none_scope_profile(
@@ -327,16 +285,15 @@ def collect_column_evidence(
             else:
                 profile = _profile_column(frame, column, data_type, nullable_value, comment)
 
-        column_evidence = ColumnEvidence(
-            datasource=datasource,
-            source=source,
-            column=column,
-            profile=profile,
-            issues=(),
-            evidence_refs=(ref.id,),
+        evidence.append(
+            ColumnEvidence(
+                datasource=datasource,
+                source=source,
+                column=column,
+                profile=profile,
+                issues=(),
+            )
         )
-        store.write_column_evidence(column_evidence)
-        evidence.append(column_evidence)
 
     return tuple(evidence)
 

@@ -10,7 +10,6 @@ import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any, ClassVar, Literal, cast
 
 import ibis
@@ -29,19 +28,9 @@ from marivo.preview import (
     validate_preview_limit,
 )
 from marivo.semantic.constraints import ConstraintId
-from marivo.semantic.errors import (
-    ErrorKind,
-    SemanticError,
-    SemanticLoadError,
-    SemanticRuntimeError,
-    StructuredWarning,
-    _raise,
-)
-from marivo.semantic.evidence import (
+from marivo.semantic.dtos import (
     AssessmentIssue,
-    AssessmentResult,
     AuthoringAssessment,
-    AuthoringEvidenceInput,
     AuthoringObjectKind,
     AuthoringSourceInput,
     BoundedProfilePolicy,
@@ -52,10 +41,14 @@ from marivo.semantic.evidence import (
     SourceEvidencePack,
     TableSource,
 )
-from marivo.semantic.evidence import (
-    EvidenceRef as AuthoringEvidenceRef,
+from marivo.semantic.errors import (
+    ErrorKind,
+    SemanticError,
+    SemanticLoadError,
+    SemanticRuntimeError,
+    StructuredWarning,
+    _raise,
 )
-from marivo.semantic.evidence_store import EvidenceStore
 from marivo.semantic.ir import (
     DatasetIR,
     DatasetProvenance,
@@ -1837,11 +1830,9 @@ class SemanticProject:
     # -- readiness ----------------------------------------------------------
 
     def _auto_collect_evidence(self) -> _ReadinessEvidence:
-        from marivo.semantic.evidence_store import EvidenceStore
         from marivo.semantic.ledger import LedgerStore
 
         store = LedgerStore(self._semantic_root)
-        evidence_store = EvidenceStore(self._semantic_root)
 
         # Raw previews: success vs failed
         raw_preview_records = store.read_raw_previews()
@@ -1857,20 +1848,6 @@ class SemanticProject:
         required_semantic_previews = ()
         raw_sql_required_refs = ()
 
-        # Knowledge documents from evidence store
-        kd_refs = evidence_store.list_authoring_by_kind("knowledge_document")
-        knowledge_documents = tuple(r.id for r in kd_refs)
-
-        # User confirmations from evidence store
-        uc_subject_refs = evidence_store.list_authoring_subject_refs_by_kind("user_confirmation")
-        user_confirmations = tuple(dict.fromkeys(s[0] for s in uc_subject_refs if s))
-
-        # Confirmed relationships from evidence store
-        rc_subject_refs = evidence_store.list_authoring_subject_refs_by_kind(
-            "relationship_confirmation"
-        )
-        confirmed_relationships = tuple(dict.fromkeys(s[0] for s in rc_subject_refs if s))
-
         # Primary keys sampled
         primary_keys_sampled = store.read_primary_key_samples()
 
@@ -1879,9 +1856,6 @@ class SemanticProject:
             failed_raw_previews=failed_raw_previews,
             required_raw_previews=required_raw_previews,
             required_semantic_previews=required_semantic_previews,
-            knowledge_documents=knowledge_documents,
-            user_confirmations=user_confirmations,
-            confirmed_relationships=confirmed_relationships,
             primary_keys_sampled=primary_keys_sampled,
             raw_sql_required_refs=raw_sql_required_refs,
             table_metadata=(),
@@ -1984,9 +1958,6 @@ class SemanticProject:
 
     # -- authoring evidence -------------------------------------------------
 
-    def _evidence_store(self) -> EvidenceStore:
-        return EvidenceStore(self._semantic_root)
-
     def _datasets_by_source(self, datasource: str, source: DatasetSource) -> tuple[DatasetIR, ...]:
         reg = self._registry
         if reg is None:
@@ -2027,7 +1998,6 @@ class SemanticProject:
             inspect_source=fn,
             backend_factory=factory,
             sample_policy=sample_policy,
-            store=self._evidence_store(),
         )
         if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)) and isinstance(
             source, TableSource
@@ -2068,36 +2038,12 @@ class SemanticProject:
             inspect_source=fn,
             backend_factory=factory,
             sample_policy=sample_policy,
-            store=self._evidence_store(),
         )
         column_set = set(columns)
         for ds in self._datasets_by_source(datasource, source):
             if ds.primary_key and set(ds.primary_key) <= column_set:
                 self.record_primary_key_sample(ds.semantic_id)
         return result
-
-    def list_evidence(
-        self,
-        *,
-        datasource: str | None = None,
-        source: DatasetSource | None = None,
-        subject_refs: Iterable[str] | None = None,
-    ) -> tuple[AuthoringEvidenceRef, ...]:
-        """Retrieve evidence refs by source identity or by subject refs."""
-        return self._evidence_store().list_evidence(
-            datasource=datasource,
-            source=source,
-            subject_refs=tuple(subject_refs) if subject_refs is not None else None,
-        )
-
-    def get_evidence_pack(self, evidence_id: str) -> SourceEvidencePack | ColumnEvidence | None:
-        """Return a persisted source/column evidence pack by id."""
-        return self._evidence_store().read_pack(evidence_id)
-
-    def record_authoring_evidence(self, evidence: AuthoringEvidenceInput) -> AuthoringEvidenceRef:
-        """Record non-sample evidence (source SQL, knowledge docs, owner notes,
-        user confirmations) and return its EvidenceRef."""
-        return self._evidence_store().write_authoring_evidence(evidence)
 
     def assess_authoring(
         self,
@@ -2147,7 +2093,6 @@ class SemanticProject:
                 severity="blocker",
                 refs=(subject_ref,),
                 rule_id="datasource_access_bound",
-                evidence_refs=(),
                 message=(
                     "Datasource access is required before assessing physical sources. "
                     "Call project.bind_datasource_access(...) with inspect_source and "
@@ -2162,68 +2107,28 @@ class SemanticProject:
             )
 
         from marivo.semantic.authoring_check import check_authoring_inputs as _check
-        from marivo.semantic.inspect import collect_column_evidence, collect_source_evidence
+        from marivo.semantic.inspect import collect_source_evidence
 
-        with TemporaryDirectory() as tempdir:
-            assessment_store = EvidenceStore(tempdir)
-            for source_input in sources:
-                collect_source_evidence(
-                    datasource=source_input.datasource,
-                    source=source_input.source,
-                    inspect_source=self._resolve_inspect_source(None),
-                    backend_factory=self._resolve_backend_factory(None),
-                    sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=50),
-                    store=assessment_store,
-                )
-                if source_input.columns:
-                    collect_column_evidence(
-                        datasource=source_input.datasource,
-                        source=source_input.source,
-                        columns=source_input.columns,
-                        inspect_source=self._resolve_inspect_source(None),
-                        backend_factory=self._resolve_backend_factory(None),
-                        sample_policy=SelectedColumnsPolicy(
-                            limit=100,
-                            columns=source_input.columns,
-                            max_profiled_columns=len(source_input.columns),
-                        ),
-                        store=assessment_store,
-                    )
-
-            assessment = _check(
-                store=assessment_store,
-                object_kind=object_kind,
-                subject_ref=subject_ref,
-                sources=sources,
-                semantic_refs=semantic_refs,
+        collected_packs: list[SourceEvidencePack] = []
+        for source_input in sources:
+            pack = collect_source_evidence(
+                datasource=source_input.datasource,
+                source=source_input.source,
+                inspect_source=self._resolve_inspect_source(None),
+                backend_factory=self._resolve_backend_factory(None),
+                sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=50),
             )
-        return AuthoringAssessment(
-            status=assessment.status,
-            facts=assessment.facts,
-            issues=assessment.issues,
-            questions=assessment.questions,
-        )
-
-    def check_authoring_inputs(
-        self,
-        *,
-        object_kind: AuthoringObjectKind,
-        subject_ref: str,
-        sources: Sequence[AuthoringSourceInput] = (),
-        semantic_refs: Sequence[str] = (),
-    ) -> AssessmentResult:
-        """Cheap pre-authoring guardrail for refs, columns, and evidence."""
-        from marivo.semantic.authoring_check import check_authoring_inputs as _check
+            collected_packs.append(pack)
 
         return _check(
-            store=self._evidence_store(),
+            packs=collected_packs,
             object_kind=object_kind,
             subject_ref=subject_ref,
             sources=sources,
             semantic_refs=semantic_refs,
         )
 
-    def inspect_authored_object(self, ref: str) -> AssessmentResult:
+    def inspect_authored_object(self, ref: str) -> AuthoringAssessment:
         """Cheap post-reload inspection of a loaded authored object.
 
         Backend-free: inspects the registry and evidence ledger only. It never

@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from marivo.semantic.evidence import (
+from marivo.semantic.dtos import (
     AssessmentIssue,
-    AssessmentResult,
+    AuthoringAssessment,
     AuthoringObjectKind,
     AuthoringSourceInput,
     DatasetSource,
@@ -18,7 +18,6 @@ from marivo.semantic.evidence import (
     SourceEvidencePack,
     derive_status,
 )
-from marivo.semantic.evidence_store import EvidenceStore
 from marivo.semantic.ir import DatasetIR, FieldIR, MetricIR, RelationshipIR, source_label
 from marivo.semantic.ledger import LedgerStore
 
@@ -39,11 +38,10 @@ _REQUIRED_SOURCE_ROLES_BY_KIND = {
 
 
 def _source_pack(
-    store: EvidenceStore, datasource: str, source: DatasetSource
+    packs: Sequence[SourceEvidencePack], datasource: str, source: DatasetSource
 ) -> SourceEvidencePack | None:
-    for ref in store.list_evidence(datasource=datasource, source=source):
-        pack = store.read_pack(ref.id)
-        if isinstance(pack, SourceEvidencePack):
+    for pack in packs:
+        if pack.datasource == datasource and pack.source == source:
             return pack
     return None
 
@@ -54,12 +52,12 @@ def _source_ref(source_input: AuthoringSourceInput) -> str:
 
 def check_authoring_inputs(
     *,
-    store: EvidenceStore,
+    packs: Sequence[SourceEvidencePack],
     object_kind: AuthoringObjectKind,
     subject_ref: str,
     sources: Sequence[AuthoringSourceInput] = (),
     semantic_refs: Sequence[str] = (),
-) -> AssessmentResult:
+) -> AuthoringAssessment:
     facts: list[EvidenceFact] = []
     issues: list[AssessmentIssue] = []
 
@@ -71,10 +69,9 @@ def check_authoring_inputs(
                 refs=(subject_ref,),
                 message=f"{object_kind} authoring requires at least one source input.",
                 rule_id="source_evidence_present",
-                evidence_refs=(),
             )
         )
-        return AssessmentResult(
+        return AuthoringAssessment(
             status=derive_status(tuple(issues), ()),
             facts=tuple(facts),
             issues=tuple(issues),
@@ -91,14 +88,13 @@ def check_authoring_inputs(
                     refs=(subject_ref, f"role:{required_role}"),
                     message=f"{object_kind} authoring requires a {required_role!r} source.",
                     rule_id="source_role_present",
-                    evidence_refs=(),
                 )
             )
 
     for source_input in sources:
         source_ref = _source_ref(source_input)
         refs = (subject_ref, f"role:{source_input.role}", source_ref)
-        pack = _source_pack(store, source_input.datasource, source_input.source)
+        pack = _source_pack(packs, source_input.datasource, source_input.source)
         if pack is None:
             issues.append(
                 AssessmentIssue(
@@ -110,12 +106,10 @@ def check_authoring_inputs(
                         f"{source_ref}. Collect it before authoring."
                     ),
                     rule_id="source_evidence_present",
-                    evidence_refs=(),
                 )
             )
             continue
 
-        pack_evidence_refs = tuple(ref.id for ref in pack.evidence_refs)
         facts.append(
             EvidenceFact(
                 id=f"source:{subject_ref}:{source_input.role}:{source_ref}",
@@ -125,7 +119,6 @@ def check_authoring_inputs(
                     "datasource": source_input.datasource,
                     "source": source_input.source.to_dict(),
                 },
-                evidence_refs=pack_evidence_refs,
             )
         )
 
@@ -143,7 +136,6 @@ def check_authoring_inputs(
                         f"{source_ref} is not in the source schema."
                     ),
                     rule_id="referenced_column_exists",
-                    evidence_refs=pack_evidence_refs,
                 )
             )
         present = [column for column in source_input.columns if column in schema_columns]
@@ -153,7 +145,6 @@ def check_authoring_inputs(
                     id=f"columns:{subject_ref}:{source_input.role}:{source_ref}",
                     label="referenced_columns",
                     value={"role": source_input.role, "columns": present},
-                    evidence_refs=pack_evidence_refs,
                 )
             )
 
@@ -163,11 +154,10 @@ def check_authoring_inputs(
                 id=f"semantic:{subject_ref}",
                 label="semantic_dependencies",
                 value=list(semantic_refs),
-                evidence_refs=(),
             )
         )
 
-    return AssessmentResult(
+    return AuthoringAssessment(
         status=derive_status(tuple(issues), ()),
         facts=tuple(facts),
         issues=tuple(issues),
@@ -180,7 +170,7 @@ def inspect_authored_object(
     registry: object,
     ledger_store: LedgerStore,
     ref: str,
-) -> AssessmentResult:
+) -> AuthoringAssessment:
     """Cheap, backend-free inspection of a loaded authored object."""
     obj = _find_loaded(registry, ref)
     if obj is None:
@@ -190,9 +180,8 @@ def inspect_authored_object(
             refs=(ref,),
             message=f"{ref!r} is not in the loaded registry. Reload the project after authoring.",
             rule_id="authored_object_loaded",
-            evidence_refs=(),
         )
-        return AssessmentResult(
+        return AuthoringAssessment(
             status=derive_status((issue,), ()),
             facts=(),
             issues=(issue,),
@@ -200,7 +189,7 @@ def inspect_authored_object(
         )
 
     facts: list[EvidenceFact] = [
-        EvidenceFact(id=f"kind:{ref}", label="object_kind", value=_kind_of(obj), evidence_refs=())
+        EvidenceFact(id=f"kind:{ref}", label="object_kind", value=_kind_of(obj))
     ]
     issues: list[AssessmentIssue] = []
 
@@ -215,7 +204,6 @@ def inspect_authored_object(
                 refs=(ref,),
                 message="ai_context.business_definition is empty for a handoff object.",
                 rule_id="business_definition_present",
-                evidence_refs=(),
             )
         )
 
@@ -237,11 +225,10 @@ def inspect_authored_object(
                         "auto-record it, or record it explicitly."
                     ),
                     rule_id="dangerous_decision_recorded",
-                    evidence_refs=(),
                 )
             )
 
-    return AssessmentResult(
+    return AuthoringAssessment(
         status=derive_status(tuple(issues), ()),
         facts=tuple(facts),
         issues=tuple(issues),

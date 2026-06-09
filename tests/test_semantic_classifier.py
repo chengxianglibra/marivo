@@ -211,10 +211,11 @@ def test_enrichment_defaults_are_conservative():
     assert e.chosen is None
 
 
-def test_evidence_ref_is_exported():
-    import marivo.semantic as ms
+def test_classifier_evidence_ref_exists():
+    from marivo.semantic.classifier import EvidenceRef
 
-    assert hasattr(ms, "EvidenceRef")
+    ref = EvidenceRef(evidence_type="comment", locator="c")
+    assert ref.evidence_type == "comment"
 
 
 def _cand(kind, subject, object_kind="metric", evidence=()):

@@ -1,4 +1,4 @@
-"""Public evidence and assessment DTOs for skill-driven semantic authoring."""
+"""Public DTOs for skill-driven semantic authoring and assessment."""
 
 from __future__ import annotations
 
@@ -7,25 +7,11 @@ from typing import Literal
 
 from marivo.semantic.ir import (
     BoundedProfilePolicyIR,
-    DatasetSourceIR,
     FileSourceIR,
     MetadataOnlyPolicyIR,
-    SamplePolicyIR,
     SelectedColumnsPolicyIR,
     TableSourceIR,
 )
-
-EvidenceKind = Literal[
-    "catalog_metadata",
-    "table_comment",
-    "column_comment",
-    "schema",
-    "raw_preview_profile",
-    "source_sql",
-    "knowledge_document",
-    "user_confirmation",
-    "relationship_confirmation",
-]
 
 Severity = Literal["blocker", "warning", "info"]
 
@@ -107,14 +93,6 @@ class AuthoringSourceInput:
         }
 
 
-def _dataset_source_from_ir(source: DatasetSourceIR) -> DatasetSource:
-    if isinstance(source, TableSourceIR):
-        return TableSource(table=source.table, database=source.database)
-    if isinstance(source, FileSourceIR):
-        return FileSource(path=source.path, format=source.format)
-    raise TypeError(f"unsupported dataset source IR: {type(source).__name__}")
-
-
 @dataclass(frozen=True)
 class MetadataOnlyPolicy:
     timeout_seconds: int | None = None
@@ -187,75 +165,11 @@ class SelectedColumnsPolicy:
 SamplePolicy = MetadataOnlyPolicy | BoundedProfilePolicy | SelectedColumnsPolicy
 
 
-def _sample_policy_from_ir(policy: SamplePolicyIR) -> SamplePolicy:
-    if isinstance(policy, MetadataOnlyPolicyIR):
-        return MetadataOnlyPolicy(timeout_seconds=policy.timeout_seconds, redact=policy.redact)
-    if isinstance(policy, BoundedProfilePolicyIR):
-        return BoundedProfilePolicy(
-            limit=policy.limit,
-            timeout_seconds=policy.timeout_seconds,
-            max_profiled_columns=policy.max_profiled_columns,
-            redact=policy.redact,
-        )
-    if isinstance(policy, SelectedColumnsPolicyIR):
-        return SelectedColumnsPolicy(
-            limit=policy.limit,
-            columns=policy.columns,
-            timeout_seconds=policy.timeout_seconds,
-            max_profiled_columns=policy.max_profiled_columns,
-            redact=policy.redact,
-        )
-    raise TypeError(f"unsupported sample policy IR: {type(policy).__name__}")
-
-
-@dataclass(frozen=True)
-class AiContextInput:
-    business_definition: str | None = None
-    guardrails: tuple[str, ...] = ()
-    synonyms: tuple[str, ...] = ()
-    examples: tuple[str, ...] = ()
-    instructions: str | None = None
-    owner_notes: str | None = None
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "business_definition": self.business_definition,
-            "guardrails": list(self.guardrails),
-            "synonyms": list(self.synonyms),
-            "examples": list(self.examples),
-            "instructions": self.instructions,
-            "owner_notes": self.owner_notes,
-        }
-
-
-@dataclass(frozen=True)
-class EvidenceRef:
-    id: str
-    kind: EvidenceKind
-    datasource: str | None
-    source: DatasetSource | None
-    collected_at: str
-    structural_fingerprint: str | None = None
-    content_fingerprint: str | None = None
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "id": self.id,
-            "kind": self.kind,
-            "datasource": self.datasource,
-            "source": self.source.to_dict() if self.source is not None else None,
-            "collected_at": self.collected_at,
-            "structural_fingerprint": self.structural_fingerprint,
-            "content_fingerprint": self.content_fingerprint,
-        }
-
-
 @dataclass(frozen=True)
 class EvidenceFact:
     id: str
     label: str
     value: object
-    evidence_refs: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -295,15 +209,6 @@ class ColumnProfile:
 
 
 @dataclass(frozen=True)
-class SchemaColumn:
-    name: str
-    data_type: str
-
-    def to_dict(self) -> dict[str, object]:
-        return {"name": self.name, "data_type": self.data_type}
-
-
-@dataclass(frozen=True)
 class SourceEvidencePack:
     datasource: str
     source: DatasetSource
@@ -315,16 +220,9 @@ class SourceEvidencePack:
     key_hints: tuple[tuple[str, ...], ...]
     column_profiles: tuple[ColumnProfile, ...]
     metadata_warnings: tuple[str, ...]
-    evidence_refs: tuple[EvidenceRef, ...]
     sample_policy: SamplePolicy
     redaction_status: RedactionStatus
     truncated: bool
-
-    @property
-    def schema_columns(self) -> tuple[SchemaColumn, ...]:
-        return tuple(
-            SchemaColumn(name=name, data_type=data_type) for name, data_type in self.schema
-        )
 
     @property
     def schema_by_column(self) -> dict[str, str]:
@@ -354,7 +252,6 @@ class SourceEvidencePack:
             "key_hints": [list(item) for item in self.key_hints],
             "column_profiles": [profile.to_dict() for profile in self.column_profiles],
             "metadata_warnings": list(self.metadata_warnings),
-            "evidence_refs": [ref.to_dict() for ref in self.evidence_refs],
             "sample_policy": self.sample_policy.to_dict(),
             "redaction_status": self.redaction_status,
             "truncated": self.truncated,
@@ -368,7 +265,6 @@ class AssessmentIssue:
     refs: tuple[str, ...]
     message: str
     rule_id: str
-    evidence_refs: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -378,7 +274,6 @@ class ColumnEvidence:
     column: str
     profile: ColumnProfile
     issues: tuple[AssessmentIssue, ...] = ()
-    evidence_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -388,7 +283,6 @@ class AuthoringQuestion:
     subject_refs: tuple[str, ...]
     prompt: str
     reason: str
-    evidence_refs: tuple[str, ...]
     options: tuple[str, ...] = ()
     default_option: str | None = None
     readiness_effect: ReadinessEffect = "blocks"
@@ -400,23 +294,6 @@ class AuthoringAssessment:
     facts: tuple[EvidenceFact, ...]
     issues: tuple[AssessmentIssue, ...]
     questions: tuple[AuthoringQuestion, ...]
-
-
-@dataclass(frozen=True)
-class AssessmentResult(AuthoringAssessment):
-    pass
-
-
-@dataclass(frozen=True)
-class AuthoringEvidenceInput:
-    kind: Literal[
-        "source_sql", "knowledge_document", "user_confirmation", "relationship_confirmation"
-    ]
-    subject_refs: tuple[str, ...]
-    content: str
-    source_document: str | None = None
-    source_dialect: str | None = None
-    content_fingerprint: str | None = None
 
 
 def derive_status(

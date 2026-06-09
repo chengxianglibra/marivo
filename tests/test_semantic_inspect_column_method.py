@@ -3,7 +3,7 @@ from __future__ import annotations
 import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
-from marivo.semantic.evidence import SelectedColumnsPolicy, TableSource
+from marivo.semantic.dtos import SelectedColumnsPolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 
 
@@ -46,6 +46,3 @@ def test_inspect_column_context_profiles_selected_columns(tmp_path):
     by_col = {e.column: e for e in evidence}
     assert by_col["status"].profile.distinct_count == 2
     assert by_col["amount"].profile.min_value == 5.0
-    # retrievable as a pack by its evidence id
-    pack = project.get_evidence_pack(by_col["status"].evidence_refs[0])
-    assert pack is not None

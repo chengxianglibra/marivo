@@ -9,7 +9,7 @@ from __future__ import annotations
 import ibis
 
 from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
-from marivo.semantic.evidence import AuthoringSourceInput, BoundedProfilePolicy, TableSource
+from marivo.semantic.dtos import AuthoringSourceInput, BoundedProfilePolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 
 
@@ -60,7 +60,7 @@ def test_collect_check_author_reload_inspect(tmp_path):
     )
 
     # 2. check dataset inputs
-    dataset_check = project.check_authoring_inputs(
+    dataset_check = project.assess_authoring(
         object_kind="dataset",
         subject_ref="sales.orders",
         sources=(
