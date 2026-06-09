@@ -153,6 +153,10 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 | Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` |
 | Inspect calendar file shape | `mv.help("calendar")` |
 | Confirm metric ids | `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics()` |
+| Recover a frame across scripts (no re-query) | `session.get_frame(ref)` |
+| List persisted frame refs | `session.frames()` |
+| Find frame ref by metric_id | `session.frame_summaries()` |
+| Module-level frame load | `mv.load_frame(ref, session=session)` |
 
 Calendar alignment and timestamp bucketing use the Python process system timezone. If a naive warehouse timestamp physically stores UTC, declare it in the semantic layer with `@ms.time_field(..., timezone="UTC")`.
 
