@@ -73,7 +73,6 @@ def test_all_list_matches_expected() -> None:
         "AssessmentIssue",
         "AuthoringAssessment",
         "AuthoringQuestion",
-        "AuthoringSourceRole",
         "AuthoringSourceInput",
         "BoundedProfilePolicy",
         "ColumnEvidence",
@@ -81,45 +80,42 @@ def test_all_list_matches_expected() -> None:
         "EntityDetails",
         "DatasetSource",
         "DatasourceDetails",
-        "DecisionKind",
-        "DecisionRecord",
-        "DemandSignal",
-        "EvidenceFact",
         "DimensionDetails",
-        "DimensionKind",
-        "DimensionSummary",
+        "DimensionRef",
+        "DomainDetails",
+        "DomainRef",
+        "EntityRef",
+        "EvidenceFact",
         "FileSource",
         "MetadataOnlyPolicy",
         "MetricDetails",
-        "DomainDetails",
-        "DomainRef",
+        "MetricRef",
         "ParitySummary",
         "PreviewSummary",
         "ReadinessIssue",
         "ReadinessInputSummary",
         "ReadinessReport",
-        "RejectedCandidate",
         "RelationshipDetails",
-        "RelationshipSummary",
-        "RichnessGap",
-        "RichnessReport",
+        "RelationshipRef",
         "RichnessSummary",
         "SamplePolicy",
         "SelectedColumnsPolicy",
         "SemanticCatalog",
         "SemanticKind",
+        "SemanticKindInput",
         "SemanticObject",
         "SemanticObjectDetails",
         "SemanticObjectList",
-        "SemanticProject",
         "SemanticRef",
         "SemanticRefInput",
         "SnapshotVersioning",
         "SourceEvidencePack",
         "TableSource",
         "TimeDimensionDetails",
+        "TimeDimensionRef",
         "ValidityVersioning",
         "find_project",
+        "help_text",
         "load",
         "domain",
         "entity",
@@ -141,13 +137,28 @@ def test_all_list_matches_expected() -> None:
         "errors",
     }
     assert set(ms.__all__) == expected
-    assert not hasattr(ms, "help_text")
     assert not hasattr(ms, "component")
+    # Category 1 symbols removed from public API
+    for name in (
+        "SemanticProject",
+        "DecisionKind",
+        "DecisionRecord",
+        "RejectedCandidate",
+        "DimensionKind",
+        "AuthoringSourceRole",
+        "DemandSignal",
+        "RichnessGap",
+        "RichnessReport",
+        "DimensionSummary",
+        "RelationshipSummary",
+    ):
+        assert name not in ms.__all__, f"{name} should not be in ms.__all__"
 
 
 def test_semantic_project_class() -> None:
-    assert ms.SemanticProject is not None
-    project = ms.SemanticProject(root="/tmp/test")
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject(root="/tmp/test")
     assert not project.is_ready()
 
 
@@ -314,7 +325,7 @@ def test_help_json_top_level_returns_compact_directory() -> None:
     assert "component" not in entry_names
     assert "constraints" in entry_names
     assert "decomposition" in entry_names
-    assert "SemanticProject" in entry_names
+    assert "SemanticProject" not in entry_names
     assert "typing" in entry_names
 
 
@@ -869,7 +880,9 @@ def test_propagated_parity_status_callable() -> None:
 
 
 def test_semantic_project_init() -> None:
-    project = ms.SemanticProject(root="/tmp/test")
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject(root="/tmp/test")
     assert not project.is_ready()
     assert project.errors() == ()
 
@@ -879,10 +892,12 @@ def test_semantic_project_load_works() -> None:
     import tempfile
     from pathlib import Path
 
+    from marivo.semantic.reader import SemanticProject
+
     with tempfile.TemporaryDirectory() as tmp:
         semantic_root = Path(tmp) / ".marivo" / "semantic"
         semantic_root.mkdir(parents=True)
-        project = ms.SemanticProject(root=semantic_root)
+        project = SemanticProject(root=semantic_root)
         result = project.load()
         assert result.status == "ready"
 
@@ -892,9 +907,11 @@ def test_semantic_project_load_reloads() -> None:
     import tempfile
     from pathlib import Path
 
+    from marivo.semantic.reader import SemanticProject
+
     with tempfile.TemporaryDirectory() as tmp:
         semantic_root = Path(tmp) / ".marivo" / "semantic"
         semantic_root.mkdir(parents=True)
-        project = ms.SemanticProject(root=semantic_root)
+        project = SemanticProject(root=semantic_root)
         result = project.load()
         assert result.status == "ready"

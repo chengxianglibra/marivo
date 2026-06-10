@@ -184,8 +184,8 @@ def test_ledger_store_read_missing_object_is_none(tmp_path):
 def test_ledger_types_exported():
     import marivo.semantic as ms
 
-    assert hasattr(ms, "DecisionRecord")
-    assert hasattr(ms, "RejectedCandidate")
+    assert "DecisionRecord" not in ms.__all__
+    assert "RejectedCandidate" not in ms.__all__
 
 
 def test_decision_record_persists_fingerprint_inputs():

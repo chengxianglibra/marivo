@@ -113,7 +113,9 @@ with tempfile.TemporaryDirectory() as tmp:
         mv.datasources.register(
             md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path))
         )
-        project = ms.SemanticProject(root=root / ".marivo" / "semantic")
+        from marivo.semantic.reader import SemanticProject
+
+        project = SemanticProject(root=root / ".marivo" / "semantic")
         project.load()
 
         project.bind_datasource_access(
@@ -131,12 +133,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
         report = project.readiness(
             refs=("sales.orders", "sales.unverified_revenue", "sales.drifted_revenue"),
-            demand=ms.DemandSignal(
-                example_questions=("What was revenue by day?",),
-                intents=("revenue trend",),
-                run_history_refs=("sales.unverified_revenue", "sales.drifted_revenue"),
-                build_purpose="Revenue analysis",
-            ),
+            demand=None,
             preview_limit=20,
         )
         print("readiness:", report.status)

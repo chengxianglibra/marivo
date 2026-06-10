@@ -44,6 +44,7 @@ from marivo.semantic.catalog import (
     RelationshipDetails,
     SemanticCatalog,
     SemanticKind,
+    SemanticKindInput,
     SemanticObject,
     SemanticObjectDetails,
     SemanticObjectList,
@@ -54,15 +55,11 @@ from marivo.semantic.catalog import (
     ValidityVersioning,
     load,
 )
-from marivo.semantic.classifier import (
-    DecisionKind,
-)
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,
     AuthoringQuestion,
     AuthoringSourceInput,
-    AuthoringSourceRole,
     BoundedProfilePolicy,
     ColumnEvidence,
     ColumnProfile,
@@ -75,18 +72,15 @@ from marivo.semantic.dtos import (
     SourceEvidencePack,
     TableSource,
 )
-from marivo.semantic.help import help
-from marivo.semantic.ir import DimensionKind
-from marivo.semantic.ledger import (
-    DecisionRecord,
-    RejectedCandidate,
+from marivo.semantic.help import help, help_text
+from marivo.semantic.ir import (
+    DimensionRef,
+    EntityRef,
+    MetricRef,
+    RelationshipRef,
+    TimeDimensionRef,
 )
 from marivo.semantic.loader import find_project
-from marivo.semantic.reader import (
-    DimensionSummary,
-    RelationshipSummary,
-    SemanticProject,
-)
 from marivo.semantic.readiness import (
     ParitySummary,
     PreviewSummary,
@@ -94,11 +88,6 @@ from marivo.semantic.readiness import (
     ReadinessIssue,
     ReadinessReport,
     RichnessSummary,
-)
-from marivo.semantic.richness import (
-    DemandSignal,
-    RichnessGap,
-    RichnessReport,
 )
 from marivo.semantic.typing import AiContext
 
@@ -109,50 +98,45 @@ __all__ = [
     "AuthoringAssessment",
     "AuthoringQuestion",
     "AuthoringSourceInput",
-    "AuthoringSourceRole",
     "BoundedProfilePolicy",
     "ColumnEvidence",
     "ColumnProfile",
     "DatasetSource",
     "DatasourceDetails",
-    "DecisionKind",
-    "DecisionRecord",
-    "DemandSignal",
     "DimensionDetails",
-    "DimensionKind",
-    "DimensionSummary",
+    "DimensionRef",
     "DomainDetails",
     "DomainRef",
     "EntityDetails",
+    "EntityRef",
     "EvidenceFact",
     "FileSource",
     "MetadataOnlyPolicy",
     "MetricDetails",
+    "MetricRef",
     "ParitySummary",
     "PreviewSummary",
     "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",
-    "RejectedCandidate",
     "RelationshipDetails",
-    "RelationshipSummary",
-    "RichnessGap",
-    "RichnessReport",
+    "RelationshipRef",
     "RichnessSummary",
     "SamplePolicy",
     "SelectedColumnsPolicy",
     "SemanticCatalog",
     "SemanticKind",
+    "SemanticKindInput",
     "SemanticObject",
     "SemanticObjectDetails",
     "SemanticObjectList",
-    "SemanticProject",
     "SemanticRef",
     "SemanticRefInput",
     "SnapshotVersioning",
     "SourceEvidencePack",
     "TableSource",
     "TimeDimensionDetails",
+    "TimeDimensionRef",
     "ValidityVersioning",
     "derived_metric",
     "dimension",
@@ -162,6 +146,7 @@ __all__ = [
     "file",
     "find_project",
     "help",
+    "help_text",
     "load",
     "metric",
     "ratio",

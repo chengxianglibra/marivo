@@ -158,10 +158,7 @@ def test_datasources_accessible_when_model_load_errors(semantic_project_factory)
     datasources = project.list_datasources()
     assert len(datasources) == 1
     assert datasources[0].name == "warehouse"
-
-    ds = project.get_datasource("warehouse")
-    assert ds is not None
-    assert ds.backend_type == "duckdb"
+    assert datasources[0].backend_type == "duckdb"
 
     with pytest.raises(Exception):
         project.list_domains()

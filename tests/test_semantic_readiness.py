@@ -230,8 +230,6 @@ def test_project_readiness_accepts_target_closeout_arguments(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    import marivo.semantic as ms
-
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
@@ -239,7 +237,7 @@ def test_project_readiness_accepts_target_closeout_arguments(
 
     report = project.readiness(
         refs=("sales.orders",),
-        demand=ms.DemandSignal(example_questions=("Can I analyze orders?",)),
+        demand=None,
         preview_limit=20,
         parity_rel_tol=1e-6,
         redact=True,
@@ -755,9 +753,24 @@ def test_readiness_live_raw_preview_overrides_persisted_failed_preview(
         backend_factory=backend_factory,
     )
     # Override with a failed preview record.
-    project.record_failed_preview(
-        datasource="warehouse",
-        table="orders",
+    from datetime import UTC, datetime
+
+    from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
+
+    LedgerStore(project.semantic_root).write_raw_preview(
+        RawPreviewEvidence(
+            ref="warehouse.orders",
+            datasource="warehouse",
+            table="orders",
+            database=None,
+            columns=(),
+            types={},
+            requested_limit=0,
+            returned_row_count=0,
+            sample_policy={},
+            collected_at=datetime.now(UTC).isoformat(),
+            status="failed",
+        )
     )
 
     report = project.readiness()
@@ -777,11 +790,15 @@ def test_reload_preserves_collected_source_preview_evidence(
         table="orders",
         backend_factory=backend_factory,
     )
-    assert project.raw_preview_evidence()
 
     project.load()
 
-    assert project.raw_preview_evidence() == ("warehouse.orders",)
+    from marivo.semantic.ledger import LedgerStore
+
+    store = LedgerStore(project.semantic_root)
+    records = store.read_raw_previews()
+    assert len(records) >= 1
+    assert records[0].ref == "warehouse.orders"
 
 
 def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instance(
@@ -810,7 +827,12 @@ def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instanc
     reloaded.parity_check("sales.total_amount", backend_factory=backend_factory)
     report = reloaded.readiness()
 
-    assert reloaded.raw_preview_evidence() == ("warehouse.orders",)
+    from marivo.semantic.ledger import LedgerStore
+
+    store = LedgerStore(reloaded.semantic_root)
+    records = store.read_raw_previews()
+    assert len(records) >= 1
+    assert records[0].ref == "warehouse.orders"
     # Status may be blocked by requires_raw_sql, but raw preview is persisted.
     assert "missing_raw_preview" not in _issue_kinds(report.blockers)
     assert "warehouse.orders" in report.preview_summary.completed_previews
@@ -1287,8 +1309,6 @@ def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_proj
 
 
 def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_project_factory):
-    import marivo.semantic as ms
-
     project = semantic_project_factory(
         {
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
@@ -1324,7 +1344,9 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
         )
     )
 
-    reloaded = ms.SemanticProject(root=project.root)
+    from marivo.semantic.reader import SemanticProject
+
+    reloaded = SemanticProject(root=project.root)
     reloaded.load()
 
     report = reloaded.readiness()
@@ -1527,6 +1549,10 @@ def test_raw_preview_evidence_status_field() -> None:
 def test_record_failed_preview_persists_to_ledger(
     semantic_project_factory,
 ) -> None:
+    from datetime import UTC, datetime
+
+    from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
+
     project = semantic_project_factory(
         {
             "sales/_domain.py": textwrap.dedent("""\
@@ -1537,12 +1563,21 @@ def test_record_failed_preview_persists_to_ledger(
         }
     )
 
-    project.record_failed_preview(
-        datasource="warehouse",
-        table="orders",
+    LedgerStore(project.root).write_raw_preview(
+        RawPreviewEvidence(
+            ref="warehouse.orders",
+            datasource="warehouse",
+            table="orders",
+            database=None,
+            columns=(),
+            types={},
+            requested_limit=0,
+            returned_row_count=0,
+            sample_policy={},
+            collected_at=datetime.now(UTC).isoformat(),
+            status="failed",
+        )
     )
-
-    from marivo.semantic.ledger import LedgerStore
 
     store = LedgerStore(project.root)
     records = store.read_raw_previews()

@@ -307,20 +307,15 @@ def test_no_inherited_or_module_docstring_leaks() -> None:
         mv.load_frame.__doc__ = original_doc
 
 
-def test_semantic_project_descriptor_lists_agent_workflow_methods() -> None:
-    result = _json_help(ms, "SemanticProject")
+def test_semantic_catalog_descriptor_lists_agent_workflow_methods() -> None:
+    result = _json_help(ms, "SemanticCatalog")
 
     assert result["kind"] == "class"
     methods = {entry["name"] for entry in cast("list[dict[str, Any]]", result["methods"])}
     assert {
-        "load",
-        "list_metrics",
-        "bind_datasource_access",
-        "inspect_source_context",
-        "inspect_column_context",
-        "inspect_authored_object",
+        "list",
+        "get",
         "readiness",
-        "richness",
     } <= methods
 
 

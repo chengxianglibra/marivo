@@ -86,12 +86,6 @@ def test_list_datasources_is_silent(semantic_project_factory, capsys) -> None:
     assert capsys.readouterr().out == ""
 
 
-def test_search_is_silent(semantic_project_factory, capsys) -> None:
-    project = _make_project(semantic_project_factory)
-    project.search("revenue")
-    assert capsys.readouterr().out == ""
-
-
 def test_readiness_is_silent(semantic_project_factory, capsys) -> None:
     project = _make_project(semantic_project_factory)
     project.readiness()
@@ -101,15 +95,6 @@ def test_readiness_is_silent(semantic_project_factory, capsys) -> None:
 def test_richness_is_silent(semantic_project_factory, capsys) -> None:
     project = _make_project(semantic_project_factory)
     project.richness()
-    assert capsys.readouterr().out == ""
-
-
-def test_dependencies_is_silent(semantic_project_factory, capsys) -> None:
-    project = _make_project(semantic_project_factory)
-    ids = project.list_metrics().ids()
-    if not ids:
-        pytest.skip("no metrics in fixture")
-    project.dependencies(ids[0])
     assert capsys.readouterr().out == ""
 
 
@@ -183,12 +168,6 @@ def test_list_models_no_display_parameter(semantic_project_factory) -> None:
 def test_list_datasources_no_display_parameter(semantic_project_factory) -> None:
     project = _make_project(semantic_project_factory)
     sig = inspect.signature(project.list_datasources)
-    assert "display" not in sig.parameters
-
-
-def test_search_no_display_parameter(semantic_project_factory) -> None:
-    project = _make_project(semantic_project_factory)
-    sig = inspect.signature(project.search)
     assert "display" not in sig.parameters
 
 

@@ -201,7 +201,7 @@ def test_select_for_user_splits_blockers_optionals_assumptions():
 def test_public_exports_available():
     import marivo.semantic as ms
 
-    assert hasattr(ms, "DecisionKind")
+    assert "DecisionKind" not in ms.__all__
 
 
 def test_enrichment_defaults_are_conservative():

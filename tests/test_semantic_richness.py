@@ -300,8 +300,5 @@ def test_project_richness_default_demand_is_none(semantic_project_factory):
 def test_richness_types_are_public():
     import marivo.semantic as ms
 
-    assert hasattr(ms, "DemandSignal")
-    assert hasattr(ms, "RichnessGap")
-    assert hasattr(ms, "RichnessReport")
     for name in ("DemandSignal", "RichnessGap", "RichnessReport"):
-        assert name in ms.__all__
+        assert name not in ms.__all__

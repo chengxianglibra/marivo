@@ -114,7 +114,7 @@ def _compile_backend_factory(
 
 
 def _build_semantic_project(project_root: Path) -> Any:
-    from marivo.semantic import SemanticProject
+    from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject(workspace_dir=project_root)
     project.load()
