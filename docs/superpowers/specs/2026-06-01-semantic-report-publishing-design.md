@@ -110,7 +110,7 @@ semantic-releases/sales/1.2.0/
   manifest.json
   semantic/
     sales/
-      _model.py
+      _domain.py
       datasets.py
       fields.py
       metrics.py
@@ -147,7 +147,7 @@ Excluded content:
 
 The copied semantic tree must preserve every loadable `.py` file, not a fixed
 file list. The package builder uses the same exclusion rules as the semantic
-loader: `_model.py` is handled as the model entrypoint; `_exports.py`, dotfiles,
+loader: `_domain.py` is handled as the model entrypoint; `_exports.py`, dotfiles,
 `test_*.py`, and `*_test.py` are excluded from loadable objects. If `_exports.py`
 is present, it must still be copied because other semantic files may import it;
 the manifest marks it `loader_excluded`, and it must not be treated as a loaded
@@ -209,7 +209,7 @@ analysis-reports/sales_may_review/exp_20260601_103000/
   evidence/
   semantic-embed/
     sales/
-      _model.py
+      _domain.py
       datasets.py
       fields.py
       metrics.py
@@ -338,7 +338,7 @@ import marivo.semantic as ms
 
 ms.publish.semantic_release(
     model="sales",
-    domain="sales",
+    model="sales",
     version="1.2.0",
     exported_by="alice",
     target=None,

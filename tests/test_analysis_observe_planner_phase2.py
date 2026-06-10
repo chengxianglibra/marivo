@@ -16,16 +16,16 @@ from marivo.analysis.intents.observe_planner import (
 def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
     return semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.field(dataset='sales.user_history')\n"
+                "@ms.dimension(dataset='sales.user_history')\n"
                 "def valid_from(t):\n"
                 "    return t.valid_from\n"
-                "@ms.field(dataset='sales.user_history')\n"
+                "@ms.dimension(dataset='sales.user_history')\n"
                 "def valid_to(t):\n"
                 "    return t.valid_to\n"
-                "user_history = ms.dataset(\n"
+                "user_history = ms.entity(\n"
                 "    name='user_history',\n"
                 "    datasource='warehouse',\n"
                 "    source=ms.table('user_history'),\n"
@@ -140,10 +140,10 @@ def test_derive_version_mode_string_time_field_is_not_qualifying():
 def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"

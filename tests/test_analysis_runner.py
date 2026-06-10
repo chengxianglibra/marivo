@@ -44,14 +44,14 @@ def _bootstrap_project(
         f"md.datasource(name='{datasource_name}', backend_type='duckdb', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        f"import marivo.semantic as ms\nms.model(name='{model_name}')\n"
+    (semantic_dir / "_domain.py").write_text(
+        f"import marivo.semantic as ms\nms.domain(name='{model_name}')\n"
     )
 
     time_field_block = ""
     if with_time_field:
         time_field_block = (
-            f"\n@ms.time_field(dataset={dataset_name}, "
+            f"\n@ms.time_dimension(dataset={dataset_name}, "
             f"data_type='{time_field_data_type}', granularity='day')\n"
             f"def created_at({dataset_name}):\n"
             f"    return {dataset_name}.created_at\n"
@@ -60,10 +60,10 @@ def _bootstrap_project(
     (semantic_dir / "definitions.py").write_text(
         f"import marivo.semantic as ms\n"
         f"\n"
-        f"{dataset_name} = ms.dataset(name='{dataset_name}', datasource='{datasource_name}', "
+        f"{dataset_name} = ms.entity(name='{dataset_name}', datasource='{datasource_name}', "
         f"source=ms.table('{dataset_name}'))\n"
         f"\n"
-        f"@ms.field(dataset={dataset_name})\n"
+        f"@ms.dimension(dataset={dataset_name})\n"
         f"def region({dataset_name}):\n"
         f"    return {dataset_name}.region.upper()\n"
         f"{time_field_block}"
@@ -75,7 +75,7 @@ def _bootstrap_project(
 
 
 def _build_dataset_adapter(sp: SemanticProject, dataset_semantic_id: str) -> object:
-    """Build an adapter object that mimics old-style DatasetIR for runner.py.
+    """Build an adapter object that mimics old-style EntityIR for runner.py.
 
     The runner expects dataset_ir.fn(backend), dataset_ir.fields, etc.
     """

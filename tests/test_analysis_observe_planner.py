@@ -57,10 +57,10 @@ def test_observe_planning_error_payload_is_stable():
 def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
@@ -75,15 +75,15 @@ def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
 def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "users = ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-                "@ms.field(dataset=orders)\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+                "@ms.dimension(dataset=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
-                "@ms.field(dataset=users)\n"
+                "@ms.dimension(dataset=users)\n"
                 "def tier(users):\n"
                 "    return users.tier\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
@@ -111,15 +111,15 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
 def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "users = ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-                "@ms.field(dataset=orders)\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+                "@ms.dimension(dataset=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
-                "@ms.field(dataset=users)\n"
+                "@ms.dimension(dataset=users)\n"
                 "def tier(users):\n"
                 "    return users.tier\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
@@ -153,15 +153,15 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
 def test_unique_shortest_path_and_join_safety(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "users = ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-                "@ms.field(dataset=orders)\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+                "@ms.dimension(dataset=orders)\n"
                 "def order_user_id(orders):\n"
                 "    return orders.user_id\n"
-                "@ms.field(dataset=users)\n"
+                "@ms.dimension(dataset=users)\n"
                 "def user_id(users):\n"
                 "    return users.user_id\n"
                 "@ms.metric(datasets=[orders, users], root_dataset=orders, additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"

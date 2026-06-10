@@ -4,7 +4,7 @@ Status: Approved design (ready for plan)
 
 ## Problem
 
-`session.observe(..., time_field=<string/integer column>)` against Trino or
+`session.observe(..., time_dimension=<string/integer column>)` against Trino or
 Presto backends fails with `INVALID_FUNCTION_ARGUMENT` (`Invalid format:
 "yyyyMMdd"` or similar). The failure has nothing to do with format strings
 leaking through uncompiled — it is caused by Marivo itself rewriting correct
@@ -57,7 +57,7 @@ Two orthogonal changes bundled as one breaking-change release:
 
 The two are bundled because both touch the same author-facing surface
 and the same set of tests. Splitting them would force two migrations on
-`.marivo/semantic/<model>/_model.py` authors.
+`.marivo/semantic/<model>/_domain.py` authors.
 
 ## §1 — Delete the Joda translation layer
 
@@ -93,7 +93,7 @@ and the same set of tests. Splitting them would force two migrations on
 
 ## §2 — Canonical strptime author surface
 
-`@ms.time_field(date_format=...)` accepts **only** Python strptime strings
+`@ms.time_dimension(date_format=...)` accepts **only** Python strptime strings
 (`%Y-%m-%d`, `%Y%m%d`, `%Y%m%d%H`, `%Y-%m-%d-%H`, ...).
 
 Removed:
@@ -137,7 +137,7 @@ Input must be `%`-prefixed. Non-`%` input raises `ValueError`. Both
 
 ### IR invariant
 
-`FieldIR.format` is constrained by:
+`DimensionIR.format` is constrained by:
 
 - `data_type` ∈ {`"string"`, `"integer"`} and no `required_prefix` →
   must be a valid strptime string.
@@ -145,7 +145,7 @@ Input must be `%`-prefixed. Non-`%` input raises `ValueError`. Both
 - `required_prefix is not None` → must be `None` (hour-only fields carry
   no format).
 
-`@ms.time_field` enforces this at decoration time. The IR loader trusts
+`@ms.time_dimension` enforces this at decoration time. The IR loader trusts
 the invariant.
 
 ### Validator simplification
@@ -202,7 +202,7 @@ Affected specifiers (documented in author guide):
 
 | Check | When |
 |---|---|
-| strptime syntax (`time.strptime` accepts it) | `@ms.time_field` decorator |
+| strptime syntax (`time.strptime` accepts it) | `@ms.time_dimension` decorator |
 | granularity consistent with strptime tokens (sub-hour tokens cannot pair with `granularity="day"`) | decorator |
 
 No backend-compatibility check at decorator time. A field is valid for
@@ -221,9 +221,9 @@ at query time with the backend's native error.
 
 | Test | Covers |
 |---|---|
-| `@ms.time_field(date_format="yyyymmdd", ...)` raises | shorthand rejected (regression) |
-| `@ms.time_field(date_format="%Q", ...)` raises | invalid strptime |
-| `@ms.time_field(data_type="date", date_format="%Y-%m-%d", ...)` raises | temporal type rejects format |
+| `@ms.time_dimension(date_format="yyyymmdd", ...)` raises | shorthand rejected (regression) |
+| `@ms.time_dimension(date_format="%Q", ...)` raises | invalid strptime |
+| `@ms.time_dimension(data_type="date", date_format="%Y-%m-%d", ...)` raises | temporal type rejects format |
 | hour-only field with `date_format` raises | hour-only rejects format |
 | end-to-end Trino strptime observe: assert emitted SQL contains `DATE_PARSE(col, '%Y%m%d')` verbatim, no Joda | regression for the actual bug |
 | end-to-end Presto-as-Trino observe: same assertion | regression for the original reported failure |
@@ -251,7 +251,7 @@ This gate must pass before the PR is considered complete.
 - [ ] `make lint` green.
 - [ ] Reproduction test from §4 committed first, fails on `main`, passes
       after refactor.
-- [ ] Manual run: real Trino `session.observe(time_field=<partition column>,
+- [ ] Manual run: real Trino `session.observe(time_dimension=<partition column>,
       ...)` no longer raises `INVALID_FUNCTION_ARGUMENT`.
 - [ ] At least one `.marivo/semantic/` model file migrated from shorthand
       to strptime as dogfooding evidence.
@@ -274,7 +274,7 @@ This gate must pass before the PR is considered complete.
   Python but month name in Trino/Presto `date_parse`. Use `%i` for
   minutes on string-parsed time fields.
 
-Authors updating existing `.marivo/semantic/<model>/_model.py` files:
+Authors updating existing `.marivo/semantic/<model>/_domain.py` files:
 rewrite `date_format="yyyymmdd"` → `date_format="%Y%m%d"` (and similarly
 for the other shorthands per the migration table in §2); drop
 `date_format` from hour-only and from temporal-typed fields; for any

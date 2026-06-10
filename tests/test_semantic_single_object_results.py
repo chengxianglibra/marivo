@@ -46,7 +46,7 @@ def _make_dependency_node() -> DependencyNode:
     return DependencyNode(
         semantic_id="sales.revenue",
         kind=SymbolKind.METRIC,
-        children=(DependencyNode("sales.orders", SymbolKind.DATASET, ()),),
+        children=(DependencyNode("sales.orders", SymbolKind.ENTITY, ()),),
     )
 
 

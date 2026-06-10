@@ -27,11 +27,13 @@ def _bootstrap_events(tmp_path):
         "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text("import marivo.semantic as ms\nms.model(name='ops')\n")
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='ops')\n"
+    )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "events = ms.dataset(name='events', datasource='warehouse', source=ms.table('events'))\n"
-        "@ms.time_field(dataset=events, data_type='timestamp', granularity='minute')\n"
+        "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
+        "@ms.time_dimension(dataset=events, data_type='timestamp', granularity='minute')\n"
         "def ts(events):\n"
         "    return events.ts\n"
         "@ms.metric(datasets=[events], additivity='additive', decomposition=ms.sum(), name='hits', verification_mode='python_native',)\n"

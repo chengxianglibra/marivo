@@ -14,12 +14,12 @@ from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLoca
 from marivo.semantic.dtos import DatasetSource, FileSource, TableSource
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
-    DatasetIR,
-    DatasetVersioningIR,
-    FieldIR,
-    FieldKind,
+    DimensionIR,
+    DimensionKind,
+    DomainIR,
+    EntityIR,
+    EntityVersioningIR,
     MetricIR,
-    ModelIR,
     RelationshipIR,
     SnapshotVersioningIR,
     SourceLocation,
@@ -39,12 +39,12 @@ _ListOfSemanticObject = list["SemanticObject"]
 
 __all__ = [
     "AiContextView",
-    "DatasetDetails",
     "DatasetVersioning",
     "DatasourceDetails",
-    "FieldDetails",
+    "DimensionDetails",
+    "DomainDetails",
+    "EntityDetails",
     "MetricDetails",
-    "ModelDetails",
     "RelationshipDetails",
     "SemanticCatalog",
     "SemanticKind",
@@ -55,14 +55,14 @@ __all__ = [
     "SemanticRef",
     "SemanticRefInput",
     "SnapshotVersioning",
-    "TimeFieldDetails",
+    "TimeDimensionDetails",
     "ValidityVersioning",
     "load",
 ]
 
 # SemanticKind is a stable alias for the internal SymbolKind enum.
-# Both share the same values: model, datasource, dataset, field,
-# time_field, metric, relationship.
+# Both share the same values: domain, datasource, entity, dimension,
+# time_dimension, metric, relationship.
 SemanticKind = SymbolKind
 
 
@@ -186,8 +186,8 @@ class DatasourceDetails:
 
 
 @dataclass(frozen=True)
-class ModelDetails:
-    """Details for a model object."""
+class DomainDetails:
+    """Details for a domain object."""
 
     ref: SemanticRef
     kind: SemanticKind
@@ -202,8 +202,8 @@ class ModelDetails:
 
 
 @dataclass(frozen=True)
-class DatasetDetails:
-    """Details for a dataset object."""
+class EntityDetails:
+    """Details for an entity object."""
 
     ref: SemanticRef
     kind: SemanticKind
@@ -222,7 +222,7 @@ class DatasetDetails:
 
 
 @dataclass(frozen=True)
-class FieldDetails:
+class DimensionDetails:
     """Details for a dimension or measure field."""
 
     ref: SemanticRef
@@ -236,12 +236,12 @@ class FieldDetails:
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
     dataset: SemanticRef
-    field_kind: Literal["dimension", "measure"]
+    field_kind: Literal["categorical", "measure"]
 
 
 @dataclass(frozen=True)
-class TimeFieldDetails:
-    """Details for a time field."""
+class TimeDimensionDetails:
+    """Details for a time dimension object."""
 
     ref: SemanticRef
     kind: SemanticKind
@@ -314,10 +314,10 @@ class RelationshipDetails:
 
 SemanticObjectDetails = (
     DatasourceDetails
-    | ModelDetails
-    | DatasetDetails
-    | FieldDetails
-    | TimeFieldDetails
+    | DomainDetails
+    | EntityDetails
+    | DimensionDetails
+    | TimeDimensionDetails
     | MetricDetails
     | RelationshipDetails
 )
@@ -368,7 +368,7 @@ class SemanticObject:
             None
 
         Returns:
-            Kind-specific details dataclass (DatasetDetails, MetricDetails, etc.)
+            Kind-specific details dataclass (EntityDetails, MetricDetails, etc.)
             including parents, children, dependents, and structural facts.
 
         Example:
@@ -471,8 +471,8 @@ _VALID_KINDS: frozenset[str] = frozenset(str(k) for k in SymbolKind)
 
 _BROWSABLE_PARENT_KINDS: frozenset[str] = frozenset(
     {
-        str(SymbolKind.MODEL),
-        str(SymbolKind.DATASET),
+        str(SymbolKind.DOMAIN),
+        str(SymbolKind.ENTITY),
         str(SymbolKind.DATASOURCE),
     }
 )
@@ -510,7 +510,7 @@ def _normalize_location(loc: SourceLocation | DatasourceSourceLocation) -> Sourc
 
 
 def _versioning_from_ir(
-    ir_v: DatasetVersioningIR | None,
+    ir_v: EntityVersioningIR | None,
 ) -> DatasetVersioning | None:
     if ir_v is None:
         return None
@@ -543,7 +543,7 @@ def _source_from_ir(source_ir: Any) -> DatasetSource:
 def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObject:
     ref = SemanticRef(ref=ds_ir.semantic_id, kind=SemanticKind.DATASOURCE)
     dependents = tuple(
-        SemanticRef(ref=d.semantic_id, kind=SemanticKind.DATASET)
+        SemanticRef(ref=d.semantic_id, kind=SemanticKind.ENTITY)
         for d in reg.datasets.values()
         if d.datasource == ds_ir.semantic_id
     )
@@ -572,10 +572,10 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
     )
 
 
-def _build_model_object(model_ir: ModelIR, reg: Registry) -> SemanticObject:
-    ref = SemanticRef(ref=model_ir.name, kind=SemanticKind.MODEL)
+def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
+    ref = SemanticRef(ref=model_ir.name, kind=SemanticKind.DOMAIN)
     datasets_refs = tuple(
-        SemanticRef(ref=d.semantic_id, kind=SemanticKind.DATASET)
+        SemanticRef(ref=d.semantic_id, kind=SemanticKind.ENTITY)
         for d in reg.datasets.values()
         if d.model == model_ir.name
     )
@@ -585,9 +585,9 @@ def _build_model_object(model_ir: ModelIR, reg: Registry) -> SemanticObject:
         if m.model == model_ir.name
     )
     children = datasets_refs + metrics_refs
-    details = ModelDetails(
+    details = DomainDetails(
         ref=ref,
-        kind=SemanticKind.MODEL,
+        kind=SemanticKind.DOMAIN,
         name=model_ir.name,
         model=model_ir.name,
         description=model_ir.description,
@@ -599,7 +599,7 @@ def _build_model_object(model_ir: ModelIR, reg: Registry) -> SemanticObject:
     )
     return SemanticObject(
         ref=ref,
-        kind=SemanticKind.MODEL,
+        kind=SemanticKind.DOMAIN,
         name=model_ir.name,
         model=model_ir.name,
         description=model_ir.description,
@@ -609,13 +609,13 @@ def _build_model_object(model_ir: ModelIR, reg: Registry) -> SemanticObject:
     )
 
 
-def _build_dataset_object(ds_ir: DatasetIR, reg: Registry) -> SemanticObject:
-    ref = SemanticRef(ref=ds_ir.semantic_id, kind=SemanticKind.DATASET)
+def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
+    ref = SemanticRef(ref=ds_ir.semantic_id, kind=SemanticKind.ENTITY)
     ds_ref = SemanticRef(ref=ds_ir.datasource, kind=SemanticKind.DATASOURCE)
     fields_refs = tuple(
         SemanticRef(
             ref=f.semantic_id,
-            kind=SemanticKind.TIME_FIELD if f.is_time_field else SemanticKind.FIELD,
+            kind=SemanticKind.TIME_DIMENSION if f.is_time_field else SemanticKind.DIMENSION,
         )
         for f in reg.fields.values()
         if f.dataset == ds_ir.semantic_id
@@ -632,9 +632,9 @@ def _build_dataset_object(ds_ir: DatasetIR, reg: Registry) -> SemanticObject:
         if ds_ir.semantic_id in m.datasets
     )
     source = _source_from_ir(ds_ir.source)
-    details = DatasetDetails(
+    details = EntityDetails(
         ref=ref,
-        kind=SemanticKind.DATASET,
+        kind=SemanticKind.ENTITY,
         name=ds_ir.name,
         model=ds_ir.model,
         description=ds_ir.description,
@@ -650,7 +650,7 @@ def _build_dataset_object(ds_ir: DatasetIR, reg: Registry) -> SemanticObject:
     )
     return SemanticObject(
         ref=ref,
-        kind=SemanticKind.DATASET,
+        kind=SemanticKind.ENTITY,
         name=ds_ir.name,
         model=ds_ir.model,
         description=ds_ir.description,
@@ -660,13 +660,13 @@ def _build_dataset_object(ds_ir: DatasetIR, reg: Registry) -> SemanticObject:
     )
 
 
-def _build_field_object(f_ir: FieldIR, reg: Registry) -> SemanticObject:
+def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
     is_time = f_ir.is_time_field
-    kind = SemanticKind.TIME_FIELD if is_time else SemanticKind.FIELD
+    kind = SemanticKind.TIME_DIMENSION if is_time else SemanticKind.DIMENSION
     ref = SemanticRef(ref=f_ir.semantic_id, kind=kind)
-    ds_ref = SemanticRef(ref=f_ir.dataset, kind=SemanticKind.DATASET)
+    ds_ref = SemanticRef(ref=f_ir.dataset, kind=SemanticKind.ENTITY)
     if is_time:
-        details: SemanticObjectDetails = TimeFieldDetails(
+        details: SemanticObjectDetails = TimeDimensionDetails(
             ref=ref,
             kind=kind,
             name=f_ir.name,
@@ -686,10 +686,10 @@ def _build_field_object(f_ir: FieldIR, reg: Registry) -> SemanticObject:
             is_default=f_ir.is_default,
         )
     else:
-        field_kind: Literal["dimension", "measure"] = (
-            "measure" if f_ir.kind == FieldKind.MEASURE else "dimension"
+        field_kind: Literal["categorical", "measure"] = (
+            "measure" if f_ir.kind == DimensionKind.MEASURE else "categorical"
         )
-        details = FieldDetails(
+        details = DimensionDetails(
             ref=ref,
             kind=kind,
             name=f_ir.name,
@@ -717,9 +717,9 @@ def _build_field_object(f_ir: FieldIR, reg: Registry) -> SemanticObject:
 
 def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject) -> SemanticObject:
     ref = SemanticRef(ref=m_ir.semantic_id, kind=SemanticKind.METRIC)
-    datasets_refs = tuple(SemanticRef(ref=ds, kind=SemanticKind.DATASET) for ds in m_ir.datasets)
+    datasets_refs = tuple(SemanticRef(ref=ds, kind=SemanticKind.ENTITY) for ds in m_ir.datasets)
     root_ds_ref = (
-        SemanticRef(ref=m_ir.root_dataset, kind=SemanticKind.DATASET) if m_ir.root_dataset else None
+        SemanticRef(ref=m_ir.root_dataset, kind=SemanticKind.ENTITY) if m_ir.root_dataset else None
     )
     component_refs = tuple(
         SemanticRef(ref=comp_ref, kind=SemanticKind.METRIC)
@@ -781,8 +781,8 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
 
 def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticObject:
     ref = SemanticRef(ref=r_ir.semantic_id, kind=SemanticKind.RELATIONSHIP)
-    from_ref = SemanticRef(ref=r_ir.from_dataset, kind=SemanticKind.DATASET)
-    to_ref = SemanticRef(ref=r_ir.to_dataset, kind=SemanticKind.DATASET)
+    from_ref = SemanticRef(ref=r_ir.from_dataset, kind=SemanticKind.ENTITY)
+    to_ref = SemanticRef(ref=r_ir.to_dataset, kind=SemanticKind.ENTITY)
     details = RelationshipDetails(
         ref=ref,
         kind=SemanticKind.RELATIONSHIP,
@@ -856,7 +856,7 @@ class SemanticCatalog:
                 A dataset ref (e.g. "sales.orders") returns fields, time fields,
                 relationships, and a filtered metric view.
             kind: Optional kind filter. Accepts SemanticKind values or strings
-                such as "metric", "field". Raises an error on unsupported values.
+                such as "metric", "dimension". Raises an error on unsupported values.
 
         Returns:
             SemanticObjectList with .show(), .refs(), and .objects.
@@ -900,7 +900,7 @@ class SemanticCatalog:
                 refs=(parent_str,),
             )
 
-        if parent_kind == SemanticKind.MODEL:
+        if parent_kind == SemanticKind.DOMAIN:
             items = self._list_under_model(parent_str, reg, validated_kind)
         elif parent_kind == SemanticKind.DATASOURCE:
             items = self._list_under_datasource(parent_str, reg, validated_kind)
@@ -919,9 +919,9 @@ class SemanticCatalog:
         kind_filter: SemanticKind | None,
     ) -> _ListOfSemanticObject:
         items: list[SemanticObject] = []
-        if kind_filter is None or kind_filter == SemanticKind.MODEL:
+        if kind_filter is None or kind_filter == SemanticKind.DOMAIN:
             for model_ir in reg.models.values():
-                items.append(_build_model_object(model_ir, reg))
+                items.append(_build_domain_object(model_ir, reg))
         if kind_filter is None or kind_filter == SemanticKind.DATASOURCE:
             datasource_irs = self._project._datasource_irs or tuple(reg.datasources.values())
             for ds_ir in datasource_irs:
@@ -935,10 +935,10 @@ class SemanticCatalog:
         kind_filter: SemanticKind | None,
     ) -> _ListOfSemanticObject:
         items: list[SemanticObject] = []
-        if kind_filter is None or kind_filter == SemanticKind.DATASET:
+        if kind_filter is None or kind_filter == SemanticKind.ENTITY:
             for ds_ir in reg.datasets.values():
                 if ds_ir.model == model_name:
-                    items.append(_build_dataset_object(ds_ir, reg))
+                    items.append(_build_entity_object(ds_ir, reg))
         if kind_filter is None or kind_filter == SemanticKind.METRIC:
             for m_ir in reg.metrics.values():
                 if m_ir.model == model_name:
@@ -952,10 +952,10 @@ class SemanticCatalog:
         kind_filter: SemanticKind | None,
     ) -> _ListOfSemanticObject:
         items: list[SemanticObject] = []
-        if kind_filter is None or kind_filter == SemanticKind.DATASET:
+        if kind_filter is None or kind_filter == SemanticKind.ENTITY:
             for ds_ir in reg.datasets.values():
                 if ds_ir.datasource == datasource_ref:
-                    items.append(_build_dataset_object(ds_ir, reg))
+                    items.append(_build_entity_object(ds_ir, reg))
         return items
 
     def _list_under_dataset(
@@ -965,14 +965,14 @@ class SemanticCatalog:
         kind_filter: SemanticKind | None,
     ) -> _ListOfSemanticObject:
         items: list[SemanticObject] = []
-        if kind_filter is None or kind_filter == SemanticKind.FIELD:
+        if kind_filter is None or kind_filter == SemanticKind.DIMENSION:
             for f_ir in reg.fields.values():
                 if f_ir.dataset == dataset_ref and not f_ir.is_time_field:
-                    items.append(_build_field_object(f_ir, reg))
-        if kind_filter is None or kind_filter == SemanticKind.TIME_FIELD:
+                    items.append(_build_dimension_object(f_ir, reg))
+        if kind_filter is None or kind_filter == SemanticKind.TIME_DIMENSION:
             for f_ir in reg.fields.values():
                 if f_ir.dataset == dataset_ref and f_ir.is_time_field:
-                    items.append(_build_field_object(f_ir, reg))
+                    items.append(_build_dimension_object(f_ir, reg))
         if kind_filter is None or kind_filter == SemanticKind.RELATIONSHIP:
             for r_ir in reg.relationships.values():
                 if r_ir.from_dataset == dataset_ref or r_ir.to_dataset == dataset_ref:
@@ -987,16 +987,16 @@ class SemanticCatalog:
 
     def _resolve_kind_of(self, ref_str: str, reg: Registry) -> SemanticKind | None:
         if ref_str in reg.models:
-            return SemanticKind.MODEL
+            return SemanticKind.DOMAIN
         datasource_irs = self._project._datasource_irs or tuple(reg.datasources.values())
         for ds_ir in datasource_irs:
             if ds_ir.semantic_id == ref_str:
                 return SemanticKind.DATASOURCE
         if ref_str in reg.datasets:
-            return SemanticKind.DATASET
+            return SemanticKind.ENTITY
         if ref_str in reg.fields:
             f = reg.fields[ref_str]
-            return SemanticKind.TIME_FIELD if f.is_time_field else SemanticKind.FIELD
+            return SemanticKind.TIME_DIMENSION if f.is_time_field else SemanticKind.DIMENSION
         if ref_str in reg.metrics:
             return SemanticKind.METRIC
         if ref_str in reg.relationships:
@@ -1041,15 +1041,15 @@ class SemanticCatalog:
 
     def _get_object(self, ref_str: str, reg: Registry) -> SemanticObject | None:
         if ref_str in reg.models:
-            return _build_model_object(reg.models[ref_str], reg)
+            return _build_domain_object(reg.models[ref_str], reg)
         datasource_irs = self._project._datasource_irs or tuple(reg.datasources.values())
         for ds_ir in datasource_irs:
             if ds_ir.semantic_id == ref_str:
                 return _build_datasource_object(ds_ir, reg)
         if ref_str in reg.datasets:
-            return _build_dataset_object(reg.datasets[ref_str], reg)
+            return _build_entity_object(reg.datasets[ref_str], reg)
         if ref_str in reg.fields:
-            return _build_field_object(reg.fields[ref_str], reg)
+            return _build_dimension_object(reg.fields[ref_str], reg)
         if ref_str in reg.metrics:
             return _build_metric_object(reg.metrics[ref_str], reg, self._project)
         if ref_str in reg.relationships:

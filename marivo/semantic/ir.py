@@ -22,25 +22,25 @@ from marivo.datasource.ir import (
 __all__ = [
     "AiContextIR",
     "BoundedProfilePolicyIR",
-    "DatasetIR",
-    "DatasetProvenance",
-    "DatasetRef",
-    "DatasetSourceIR",
-    "DatasetVersioningIR",
     "DatasourceAiContextIR",
     "DatasourceIR",
     "DatasourceSourceLocation",
     "DecompositionIR",
-    "FieldIR",
-    "FieldKind",
-    "FieldRef",
+    "DimensionIR",
+    "DimensionKind",
+    "DimensionRef",
+    "DomainIR",
+    "DomainRef",
+    "EntityIR",
+    "EntityProvenance",
+    "EntityRef",
+    "EntitySourceIR",
+    "EntityVersioningIR",
     "FileSourceIR",
     "MetadataOnlyPolicyIR",
     "MetricAdditivity",
     "MetricIR",
     "MetricRef",
-    "ModelIR",
-    "ModelRef",
     "ParityStatus",
     "ProvenanceIR",
     "RelationshipIR",
@@ -51,7 +51,7 @@ __all__ = [
     "SourceLocation",
     "SymbolKind",
     "TableSourceIR",
-    "TimeFieldRef",
+    "TimeDimensionRef",
     "ValidityVersioningIR",
     "VerificationMode",
     "_BaseRef",
@@ -72,19 +72,19 @@ DatasourceAiContextIR = AiContextIR
 class SymbolKind(StrEnum):
     """Kind of semantic object."""
 
-    MODEL = "model"
+    DOMAIN = "domain"
     DATASOURCE = "datasource"
-    DATASET = "dataset"
-    FIELD = "field"
-    TIME_FIELD = "time_field"
+    ENTITY = "entity"
+    DIMENSION = "dimension"
+    TIME_DIMENSION = "time_dimension"
     METRIC = "metric"
     RELATIONSHIP = "relationship"
 
 
-class FieldKind(StrEnum):
-    """Kind of field: dimension, measure, or time."""
+class DimensionKind(StrEnum):
+    """Kind of dimension: categorical, measure, or time."""
 
-    DIMENSION = "dimension"
+    CATEGORICAL = "categorical"
     MEASURE = "measure"
     TIME = "time"
 
@@ -112,8 +112,8 @@ class MetricAdditivity(StrEnum):
     NON_ADDITIVE = "non_additive"
 
 
-class DatasetProvenance(StrEnum):
-    """How a dataset's physical table was produced."""
+class EntityProvenance(StrEnum):
+    """How an entity's physical table was produced."""
 
     IBIS_TABLE = "ibis_table"
     SQL_VIEW = "sql_view"
@@ -155,7 +155,7 @@ class ValidityVersioningIR:
     timezone: str | None = None
 
 
-DatasetVersioningIR = SnapshotVersioningIR | ValidityVersioningIR
+EntityVersioningIR = SnapshotVersioningIR | ValidityVersioningIR
 
 
 @dataclass(frozen=True)
@@ -177,7 +177,7 @@ class FileSourceIR:
     kind: Literal["file"] = "file"
 
 
-DatasetSourceIR = TableSourceIR | FileSourceIR
+EntitySourceIR = TableSourceIR | FileSourceIR
 
 
 @dataclass(frozen=True)
@@ -217,7 +217,7 @@ def _sanitize_source_name(value: str) -> str:
     return name or "file_source"
 
 
-def source_name(source: DatasetSourceIR) -> str:
+def source_name(source: EntitySourceIR) -> str:
     if isinstance(source, TableSourceIR):
         return source.table
 
@@ -228,7 +228,7 @@ def source_name(source: DatasetSourceIR) -> str:
     return _sanitize_source_name(raw_name)
 
 
-def source_to_dict(source: DatasetSourceIR) -> dict[str, object]:
+def source_to_dict(source: EntitySourceIR) -> dict[str, object]:
     if isinstance(source, TableSourceIR):
         database: str | list[str] | None = (
             list(source.database) if isinstance(source.database, tuple) else source.database
@@ -242,7 +242,7 @@ def source_to_dict(source: DatasetSourceIR) -> dict[str, object]:
     }
 
 
-def source_from_dict(data: Mapping[str, object]) -> DatasetSourceIR:
+def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
     kind = data.get("kind")
     if kind == "table":
         raw_database = data.get("database")
@@ -265,10 +265,10 @@ def source_from_dict(data: Mapping[str, object]) -> DatasetSourceIR:
             format=format_value,  # type: ignore[arg-type]
             options=options,
         )
-    raise ValueError(f"unsupported dataset source kind: {kind!r}")
+    raise ValueError(f"unsupported entity source kind: {kind!r}")
 
 
-def source_label(source: DatasetSourceIR) -> str:
+def source_label(source: EntitySourceIR) -> str:
     if isinstance(source, TableSourceIR):
         if source.database is None:
             return source.table
@@ -291,8 +291,8 @@ class ProvenanceIR:
 
 
 @dataclass(frozen=True)
-class ModelIR:
-    """Semantic model container."""
+class DomainIR:
+    """Semantic domain container."""
 
     name: str
     description: str | None
@@ -302,25 +302,25 @@ class ModelIR:
 
 
 @dataclass(frozen=True)
-class DatasetIR:
-    """Dataset declaration with physical grounding."""
+class EntityIR:
+    """Entity declaration with physical grounding."""
 
     semantic_id: str
     model: str
     name: str
     datasource: str
-    source: DatasetSourceIR
+    source: EntitySourceIR
     primary_key: tuple[str, ...]
     description: str | None
     ai_context: AiContextIR
     python_symbol: str
     location: SourceLocation
-    versioning: DatasetVersioningIR | None = None
+    versioning: EntityVersioningIR | None = None
 
 
 @dataclass(frozen=True)
-class FieldIR:
-    """Field declaration (dimension or measure column)."""
+class DimensionIR:
+    """Dimension declaration (categorical or measure column)."""
 
     semantic_id: str
     model: str
@@ -329,7 +329,7 @@ class FieldIR:
     description: str | None
     ai_context: AiContextIR
     is_time_field: bool
-    kind: FieldKind
+    kind: DimensionKind
     data_type: str | None
     granularity: str | None
     required_prefix: str | None
@@ -340,9 +340,9 @@ class FieldIR:
     is_default: bool = False
 
     def __post_init__(self) -> None:
-        if self.is_time_field != (self.kind == FieldKind.TIME):
+        if self.is_time_field != (self.kind == DimensionKind.TIME):
             raise ValueError(
-                f"FieldIR {self.semantic_id!r}: is_time_field={self.is_time_field} "
+                f"DimensionIR {self.semantic_id!r}: is_time_field={self.is_time_field} "
                 f"inconsistent with kind={self.kind.value!r}"
             )
 
@@ -415,49 +415,49 @@ class _BaseRef:
         return f"{self.__class__.__name__}({self.semantic_id!r})"
 
 
-class DatasetRef(_BaseRef):
-    """Ref returned by ms.dataset().  Not callable."""
+class EntityRef(_BaseRef):
+    """Ref returned by ms.entity().  Not callable."""
 
     def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.DATASET)
+        super().__init__(semantic_id, SymbolKind.ENTITY)
 
 
-class FieldRef(_BaseRef):
-    """Ref returned by ms.field().  Callable in base metric bodies.
+class DimensionRef(_BaseRef):
+    """Ref returned by ms.dimension().  Callable in base metric bodies.
 
-    Calling ``field_ref(parent_table)`` resolves to the sidecar callable
+    Calling ``dimension_ref(parent_table)`` resolves to the sidecar callable
     stored in the loader registry and invokes it with the parent table.
     """
 
     _resolver: Callable[[str, Any], Any] | None
 
     def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.FIELD)
+        super().__init__(semantic_id, SymbolKind.DIMENSION)
         self._resolver = None
 
     def __call__(self, parent_table: Any) -> Any:
         if self._resolver is None:
             raise RuntimeError(
-                f"FieldRef({self.semantic_id!r}) has no resolver. "
-                "FieldRefs can only be called inside a loaded semantic project."
+                f"DimensionRef({self.semantic_id!r}) has no resolver. "
+                "DimensionRefs can only be called inside a loaded semantic project."
             )
         return self._resolver(self.semantic_id, parent_table)
 
 
-class TimeFieldRef(_BaseRef):
-    """Ref returned by ms.time_field().  Callable like FieldRef."""
+class TimeDimensionRef(_BaseRef):
+    """Ref returned by ms.time_dimension().  Callable like DimensionRef."""
 
     _resolver: Callable[[str, Any], Any] | None
 
     def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.TIME_FIELD)
+        super().__init__(semantic_id, SymbolKind.TIME_DIMENSION)
         self._resolver = None
 
     def __call__(self, parent_table: Any) -> Any:
         if self._resolver is None:
             raise RuntimeError(
-                f"TimeFieldRef({self.semantic_id!r}) has no resolver. "
-                "TimeFieldRefs can only be called inside a loaded semantic project."
+                f"TimeDimensionRef({self.semantic_id!r}) has no resolver. "
+                "TimeDimensionRefs can only be called inside a loaded semantic project."
             )
         return self._resolver(self.semantic_id, parent_table)
 
@@ -480,8 +480,8 @@ class RelationshipRef(_BaseRef):
         super().__init__(semantic_id, SymbolKind.RELATIONSHIP)
 
 
-class ModelRef(_BaseRef):
-    """Ref returned by ms.model().  Not callable."""
+class DomainRef(_BaseRef):
+    """Ref returned by ms.domain().  Not callable."""
 
     def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.MODEL)
+        super().__init__(semantic_id, SymbolKind.DOMAIN)

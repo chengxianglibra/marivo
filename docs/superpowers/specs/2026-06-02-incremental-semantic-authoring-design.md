@@ -8,7 +8,7 @@ Status: approved design, pending written-spec review
 
 The `marivo-semantic` skill documents one authoring path: cold-start bulk
 discovery — inspect a datasource, `propose_candidates(...)` over its sources,
-classify with `open_questions(...)`, author the whole `_model.py`, then close
+classify with `open_questions(...)`, author the whole `_domain.py`, then close
 out. It has no guidance for the common case of adding **one** object (typically a
 metric) to a model that is already authored and readiness-clear.
 
@@ -105,7 +105,7 @@ These forks were resolved during brainstorming:
    - Needs an undeclared column: `mv.datasources.inspect_source(...)` for that
      one table to read the column type, comment, and nullability, then author the
      field from that evidence.
-4. **Author one object** in the existing `.marivo/semantic/<model>/_model.py`,
+4. **Author one object** in the existing `.marivo/semantic/<model>/_domain.py`,
    matching surrounding style and using ref variables. Do not add a new file
    (cross-ref "Multi-file sprawl").
 5. **Reload to auto-record.** `project.load()` auto-records the object-level
@@ -129,7 +129,7 @@ These forks were resolved during brainstorming:
 Base metric over an existing field (reuses `orders`):
 
 ```python
-# orders dataset already authored above in _model.py; the body reads the raw
+# orders dataset already authored above in _domain.py; the body reads the raw
 # column, reusing only the orders dataset ref
 @ms.metric(
     datasets=[orders],

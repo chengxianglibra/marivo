@@ -56,15 +56,15 @@ def _fake_inspect_source(datasource, *, source, include_partitions=True):
     )
 
 
-_MODEL_PY = textwrap.dedent("""\
+_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    ms.model(name="sales", default=True)
+    ms.domain(name="sales", default=True)
 """)
 
-_READY_MODEL_PY = textwrap.dedent("""\
+_READY_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    orders = ms.dataset(
+    orders = ms.entity(
         name="orders",
         datasource="warehouse",
         source=ms.table("orders"),
@@ -73,7 +73,7 @@ _READY_MODEL_PY = textwrap.dedent("""\
         ai_context={"business_definition": "One row per paid order."},
     )
 
-    @ms.field(
+    @ms.dimension(
         dataset=orders,
         description="Order amount",
         ai_context={"business_definition": "Gross order amount in USD."},
@@ -81,7 +81,7 @@ _READY_MODEL_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.time_field(
+    @ms.time_dimension(
         dataset=orders,
         data_type="timestamp",
         granularity="day",
@@ -213,7 +213,7 @@ def test_readiness_report_target_fields_are_json_safe() -> None:
 def test_project_readiness_blocks_when_backend_access_is_not_bound(
     semantic_project_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
 
     report = project.readiness(refs=("sales.orders",))
 
@@ -232,7 +232,7 @@ def test_project_readiness_accepts_target_closeout_arguments(
 ) -> None:
     import marivo.semantic as ms
 
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -251,7 +251,7 @@ def test_project_readiness_accepts_target_closeout_arguments(
 
 
 def test_readiness_blocks_unknown_requested_ref(semantic_project_factory, backend_factory) -> None:
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -270,18 +270,18 @@ def test_readiness_scoped_metric_ignores_unrelated_dataset_previews(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/objects.py": textwrap.dedent("""\
                 import marivo.semantic as ms
 
-                orders = ms.dataset(
+                orders = ms.entity(
                     name="orders",
                     datasource="warehouse",
                     source=ms.table("orders"),
                     description="Orders table",
                     ai_context={"business_definition": "One row per paid order."},
                 )
-                items = ms.dataset(
+                items = ms.entity(
                     name="items",
                     datasource="warehouse",
                     source=ms.table("items"),
@@ -329,18 +329,18 @@ def test_readiness_scoped_metric_ignores_unrelated_datasource_reachability(
                 import marivo.datasource as md
                 md.datasource(name="broken", backend_type="duckdb", path=":memory:")
             """),
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/objects.py": textwrap.dedent("""\
                 import marivo.semantic as ms
 
-                orders = ms.dataset(
+                orders = ms.entity(
                     name="orders",
                     datasource="warehouse",
                     source=ms.table("orders"),
                     description="Orders table",
                     ai_context={"business_definition": "One row per paid order."},
                 )
-                unused = ms.dataset(
+                unused = ms.entity(
                     name="unused",
                     datasource="broken",
                     source=ms.table("unused"),
@@ -381,7 +381,7 @@ def test_parity_drift_is_warning_not_blocker(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _DRIFTED_MODEL_PY)
+    project = _project(semantic_project_factory, _DRIFTED_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -396,7 +396,7 @@ def test_readiness_recomputes_parity_when_tolerance_changes(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _DRIFTED_MODEL_PY)
+    project = _project(semantic_project_factory, _DRIFTED_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -414,17 +414,17 @@ def test_readiness_recomputes_parity_when_tolerance_changes(
     assert "parity_drifted" not in _issue_kinds(default.blockers)
 
 
-def test_readiness_maps_time_field_pushdown_advisory(semantic_project_factory) -> None:
+def test_readiness_maps_time_dimension_pushdown_advisory(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": textwrap.dedent("""\
+            "sales/_domain.py": textwrap.dedent("""\
                 import marivo.semantic as ms
 
-                ms.model(name="sales")
+                ms.domain(name="sales")
 
-                orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+                orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-                @ms.time_field(dataset=orders, data_type="date", granularity="day")
+                @ms.time_dimension(dataset=orders, data_type="date", granularity="day")
                 def order_date(table):
                     return table.dt.cast("date")
             """)
@@ -435,13 +435,13 @@ def test_readiness_maps_time_field_pushdown_advisory(semantic_project_factory) -
 
     # Status may be blocked due to missing previews (require_preview is always on),
     # but the pushdown advisory should still appear as a warning.
-    assert any(issue.kind == "time_field_pushdown_advisory" for issue in report.warnings)
+    assert any(issue.kind == "time_dimension_pushdown_advisory" for issue in report.warnings)
 
 
-_UNVERIFIED_MODEL_PY = textwrap.dedent("""\
+_UNVERIFIED_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    orders = ms.dataset(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -457,10 +457,10 @@ _UNVERIFIED_MODEL_PY = textwrap.dedent("""\
 """)
 
 
-_DRIFTED_MODEL_PY = textwrap.dedent("""\
+_DRIFTED_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    orders = ms.dataset(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -476,10 +476,10 @@ _DRIFTED_MODEL_PY = textwrap.dedent("""\
 """)
 
 
-_PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
+_PYTHON_NATIVE_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    orders = ms.dataset(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -493,10 +493,10 @@ _PYTHON_NATIVE_MODEL_PY = textwrap.dedent("""\
 """)
 
 
-_DERIVED_WITH_PYTHON_NATIVE_COMPONENT_MODEL_PY = textwrap.dedent("""\
+_DERIVED_WITH_PYTHON_NATIVE_COMPONENT_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    orders = ms.dataset(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -522,7 +522,7 @@ _DERIVED_WITH_PYTHON_NATIVE_COMPONENT_MODEL_PY = textwrap.dedent("""\
 def _project(semantic_project_factory, model_py: str):
     return semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/objects.py": model_py,
         }
     )
@@ -536,7 +536,7 @@ def test_readiness_ready_after_required_preview_and_parity(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -582,7 +582,7 @@ def test_readiness_folds_dataset_field_and_time_field_previews(
 ) -> None:
     from ibis.expr.types.relations import Table
 
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -624,11 +624,11 @@ def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/objects.py": textwrap.dedent("""\
                 import marivo.semantic as ms
 
-                orders = ms.dataset(
+                orders = ms.entity(
                     name="orders",
                     datasource="warehouse",
                     source=ms.table("orders"),
@@ -636,7 +636,7 @@ def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
                     ai_context={"business_definition": "One row per paid order."},
                 )
 
-                @ms.field(
+                @ms.dimension(
                     dataset=orders,
                     description="Order amount",
                     ai_context={"business_definition": "Gross order amount in USD."},
@@ -644,7 +644,7 @@ def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
                 def amount(table):
                     return table.amount
 
-                @ms.field(
+                @ms.dimension(
                     dataset=orders,
                     description="Missing field",
                     ai_context={"business_definition": "A field with a broken expression."},
@@ -668,16 +668,16 @@ def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
     assert "sales.orders" in report.preview_summary.completed_previews
     assert "sales.orders.amount" in report.preview_summary.completed_previews
     assert "sales.orders.missing_field" in report.preview_summary.failed_previews
-    assert {issue.refs for issue in report.blockers if issue.kind == "field_preview_failed"} == {
-        ("sales.orders.missing_field",)
-    }
+    assert {
+        issue.refs for issue in report.blockers if issue.kind == "dimension_preview_failed"
+    } == {("sales.orders.missing_field",)}
 
 
 def test_readiness_runs_live_raw_preview_without_collected_evidence(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -695,7 +695,7 @@ def test_readiness_live_preview_does_not_require_collected_source_preview_eviden
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -720,7 +720,7 @@ def test_readiness_uses_collected_physical_raw_preview_ref(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -743,7 +743,7 @@ def test_readiness_live_raw_preview_overrides_persisted_failed_preview(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -770,7 +770,7 @@ def test_reload_preserves_collected_source_preview_evidence(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
 
     project.collect_source_preview(
         datasource="warehouse",
@@ -790,7 +790,7 @@ def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instanc
 ) -> None:
     from marivo.semantic.reader import SemanticProject
 
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -820,7 +820,7 @@ def test_readiness_warns_for_unverified_metric(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _UNVERIFIED_MODEL_PY)
+    project = _project(semantic_project_factory, _UNVERIFIED_DOMAIN_PY)
 
     report = project.readiness()
 
@@ -834,7 +834,7 @@ def test_readiness_warns_for_drifted_metric(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _DRIFTED_MODEL_PY)
+    project = _project(semantic_project_factory, _DRIFTED_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
@@ -850,7 +850,7 @@ def test_readiness_treats_python_native_metric_as_verified(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _PYTHON_NATIVE_MODEL_PY)
+    project = _project(semantic_project_factory, _PYTHON_NATIVE_DOMAIN_PY)
 
     report = project.readiness()
 
@@ -863,7 +863,7 @@ def test_readiness_treats_derived_python_native_component_as_verified(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _DERIVED_WITH_PYTHON_NATIVE_COMPONENT_MODEL_PY)
+    project = _project(semantic_project_factory, _DERIVED_WITH_PYTHON_NATIVE_COMPONENT_DOMAIN_PY)
 
     report = project.readiness()
 
@@ -876,7 +876,7 @@ def test_semantic_check_run_check_returns_json_ready_report(
     semantic_project_factory,
     backend_factory,
 ) -> None:
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
     workspace_dir = project.workspace_dir
 
     # Record evidence via the project API so auto-collect can discover it.
@@ -903,12 +903,12 @@ def test_semantic_check_run_check_returns_json_ready_report(
     assert "requires_raw_sql" in blocker_kinds
 
 
-_COMMENTLESS_MODEL_PY = textwrap.dedent("""\
+_COMMENTLESS_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    orders = ms.dataset(name="orders", datasource="warehouse", primary_key=["order_id"], source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", primary_key=["order_id"], source=ms.table("orders"))
 
-    @ms.field(dataset=orders)
+    @ms.dimension(dataset=orders)
     def amount(table):
         return table.amount
 
@@ -929,12 +929,12 @@ def test_readiness_emits_derived_source_grain_unverified_for_view(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": textwrap.dedent("""\
+            "sales/_domain.py": textwrap.dedent("""\
                 import marivo.semantic as ms
 
-                ms.model(name="sales")
+                ms.domain(name="sales")
 
-                orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+                orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
             """)
         }
     )
@@ -1002,12 +1002,12 @@ def test_readiness_emits_derived_source_grain_unverified_for_view(
 def test_view_advisory_attaches_to_aliased_dataset(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": textwrap.dedent("""\
+            "sales/_domain.py": textwrap.dedent("""\
                 import marivo.semantic as ms
 
-                ms.model(name="sales")
+                ms.domain(name="sales")
 
-                orders = ms.dataset(
+                orders = ms.entity(
                     name="orders",
                     datasource="warehouse",
                     source=ms.table("v_orders"),
@@ -1066,12 +1066,12 @@ def test_view_advisory_matches_clickhouse_datasource_default_database(
                 )
                 md.datasource(warehouse)
             """),
-            "sales/_model.py": textwrap.dedent("""\
+            "sales/_domain.py": textwrap.dedent("""\
                 import marivo.semantic as ms
 
-                ms.model(name="sales")
+                ms.domain(name="sales")
 
-                orders = ms.dataset(
+                orders = ms.entity(
                     name="orders",
                     datasource="warehouse",
                     source=ms.table("v_orders"),
@@ -1121,12 +1121,12 @@ def test_readiness_does_not_attach_view_metadata_from_different_database(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": textwrap.dedent("""\
+            "sales/_domain.py": textwrap.dedent("""\
                 import marivo.semantic as ms
 
-                ms.model(name="sales")
+                ms.domain(name="sales")
 
-                orders = ms.dataset(
+                orders = ms.entity(
                     name="orders",
                     datasource="warehouse",
                     source=ms.table("orders", database="base_schema"),
@@ -1192,10 +1192,10 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
@@ -1221,10 +1221,10 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
@@ -1259,10 +1259,10 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
 def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
@@ -1291,10 +1291,10 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
@@ -1373,17 +1373,17 @@ def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/objects.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
                 "    ai_context={'business_definition': 'One row per order.',\n"
                 "               'guardrails': ['Exclude test orders.']})\n"
-                "@ms.field(dataset=orders, name='amount',\n"
+                "@ms.dimension(dataset=orders, name='amount',\n"
                 "    ai_context={'business_definition': 'Gross amount.',\n"
                 "               'guardrails': ['USD only.']})\n"
                 "def amount(table):\n    return table.amount\n"
-                "@ms.field(dataset=orders, name='region')\n"
+                "@ms.dimension(dataset=orders, name='region')\n"
                 "def region(table):\n    return table.region\n"
             ),
         }
@@ -1410,7 +1410,7 @@ def test_readiness_warns_for_missing_business_definition_richness_gap(
     semantic_project_factory,
 ):
     # Richness gaps are advisory closeout warnings.
-    project = _project(semantic_project_factory, _COMMENTLESS_MODEL_PY)
+    project = _project(semantic_project_factory, _COMMENTLESS_DOMAIN_PY)
 
     report = project.readiness()
     assert report.status == "blocked"
@@ -1424,8 +1424,8 @@ def test_readiness_warns_for_missing_business_definition_richness_gap(
 def test_readiness_strict_enrichment_warns_when_only_guardrails_missing(
     semantic_project_factory,
 ):
-    # _READY_MODEL_PY has business_definition on every object but no guardrails.
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    # _READY_DOMAIN_PY has business_definition on every object but no guardrails.
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
 
     report = project.readiness()
 
@@ -1439,7 +1439,7 @@ def test_semantic_check_main_prints_json(
     capsys,
     monkeypatch,
 ) -> None:
-    project = _project(semantic_project_factory, _READY_MODEL_PY)
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
 
     # Record evidence via the project API so auto-collect can discover it.
     project.collect_source_preview(
@@ -1477,7 +1477,7 @@ def test_semantic_check_main_prints_json(
 def test_build_readiness_report_richness_floor(semantic_project_factory):
     from marivo.semantic.readiness import _ReadinessEvidence, build_readiness_report
 
-    project = _project(semantic_project_factory, _COMMENTLESS_MODEL_PY)
+    project = _project(semantic_project_factory, _COMMENTLESS_DOMAIN_PY)
 
     # Richness is folded into closeout warnings.
     evidence = _ReadinessEvidence(
@@ -1529,10 +1529,10 @@ def test_record_failed_preview_persists_to_ledger(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": textwrap.dedent("""\
+            "sales/_domain.py": textwrap.dedent("""\
                 import marivo.semantic as ms
-                ms.model(name="sales")
-                ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+                ms.domain(name="sales")
+                ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
             """),
         }
     )
@@ -1558,10 +1558,10 @@ def test_primary_key_sample_persistence(
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": textwrap.dedent("""\
+            "sales/_domain.py": textwrap.dedent("""\
                 import marivo.semantic as ms
-                ms.model(name="sales")
-                ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"),
+                ms.domain(name="sales")
+                ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"),
                           primary_key=("order_id",))
             """),
         }
@@ -1581,10 +1581,10 @@ def test_readiness_auto_evidence_end_to_end(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": textwrap.dedent("""\
+            "sales/_domain.py": textwrap.dedent("""\
                 import marivo.semantic as ms
-                ms.model(name="sales")
-                orders = ms.dataset(
+                ms.domain(name="sales")
+                orders = ms.entity(
                     name="orders",
                     datasource="warehouse",
                     source=ms.table("orders"),

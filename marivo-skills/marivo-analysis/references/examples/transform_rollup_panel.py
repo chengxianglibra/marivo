@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 
-# Setup: load the tiny semantic model and attach an examples session.
+# Setup: load the tiny semantic domain and attach an examples session.
 ensure_loaded()
 
 import marivo.analysis as mv  # noqa: E402

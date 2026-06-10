@@ -25,7 +25,7 @@ from marivo.preview import (
     PreviewSamplePolicy,
     preview_ibis_table,
 )
-from marivo.semantic.ir import DatasetSourceIR
+from marivo.semantic.ir import EntitySourceIR
 
 
 @dataclass(frozen=True)
@@ -303,7 +303,7 @@ def inspect_table(
 def inspect_source(
     datasource: str,
     *,
-    source: DatasetSourceIR,
+    source: EntitySourceIR,
     include_partitions: bool = True,
 ) -> TableMetadata:
     """Return schema, comments, nullable flags, and partition hints for a source."""

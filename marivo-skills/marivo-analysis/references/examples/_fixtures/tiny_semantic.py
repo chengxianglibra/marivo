@@ -1,17 +1,17 @@
-"""Tiny in-memory semantic model for analysis examples.
+"""Tiny in-memory semantic domain for analysis examples.
 
 Provides:
   - one ``orders`` table with a few rows in a fresh DuckDB instance
   - one ``tiny_orders`` datasource
-  - one ``orders`` dataset
+  - one ``orders`` entity
   - one ``revenue`` metric (sum of amount)
   - one optional ``region`` segment axis
 
 ``ensure_loaded()`` is idempotent: calling it twice within one process reuses
-the registered semantic model and keeps the ``examples`` session attached.
+the registered semantic domain and keeps the ``examples`` session attached.
 
 This fixture creates a temporary project on disk under .marivo/semantic/
-and uses the standard loader pipeline to build the semantic model.
+and uses the standard loader pipeline to build the semantic domain.
 """
 # mypy: disable-error-code=import-untyped
 
@@ -28,9 +28,9 @@ import ibis
 
 import marivo.analysis as mv
 
-MODEL_NAME = "sales"
-METRIC_ID = f"{MODEL_NAME}.revenue"
-DERIVED_RATIO_METRIC_ID = f"{MODEL_NAME}.failure_rate"
+DOMAIN_NAME = "sales"
+METRIC_ID = f"{DOMAIN_NAME}.revenue"
+DERIVED_RATIO_METRIC_ID = f"{DOMAIN_NAME}.failure_rate"
 SESSION_NAME = "examples"
 DATASOURCE_NAME = "tiny_orders"
 
@@ -79,11 +79,11 @@ def _bootstrap_semantic_project(root: Path) -> None:
         f"{DATASOURCE_NAME} = md.DatasourceSpec(name='{DATASOURCE_NAME}', backend_type='duckdb', path=':memory:')\n"
         f"md.datasource({DATASOURCE_NAME})\n"
     )
-    semantic_dir = root / ".marivo" / "semantic" / MODEL_NAME
+    semantic_dir = root / ".marivo" / "semantic" / DOMAIN_NAME
     semantic_dir.mkdir(parents=True, exist_ok=True)
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "definitions.py").write_text(
         "import marivo.semantic as ms\n"
@@ -91,13 +91,13 @@ def _bootstrap_semantic_project(root: Path) -> None:
         "\n"
         f"{DATASOURCE_NAME} = md.ref('{DATASOURCE_NAME}')\n"
         "\n"
-        f"orders = ms.dataset(name='orders', datasource={DATASOURCE_NAME}, source=ms.table('orders'))\n"
+        f"orders = ms.entity(name='orders', datasource={DATASOURCE_NAME}, source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def created_at(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def region(orders):\n"
         "    return orders.region\n"
         "\n"
@@ -139,7 +139,7 @@ def _backends() -> dict[str, Any]:
 
 
 def ensure_loaded(*, default_calendar: str | None = None) -> Any:
-    """Register the tiny semantic model and attach a writable examples session."""
+    """Register the tiny semantic domain and attach a writable examples session."""
     root = _session_root()
     _bootstrap_semantic_project(root)
     with _temporary_cwd(root):

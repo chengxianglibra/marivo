@@ -1658,7 +1658,7 @@ def _plan_derived_observe(
             )
         except WindowInvalidError as _win_exc:
             # Component root has no time field; skip window for this component.
-            if "has no @ms.time_field" not in (_win_exc.message or ""):
+            if "has no @ms.time_dimension" not in (_win_exc.message or ""):
                 raise
             base_plan = plan_base_observe(
                 project=project,

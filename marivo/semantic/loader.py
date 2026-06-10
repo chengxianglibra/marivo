@@ -30,7 +30,7 @@ from marivo.semantic.errors import (
     StructuredWarning,
     _raise,
 )
-from marivo.semantic.ir import ModelIR
+from marivo.semantic.ir import DomainIR
 from marivo.semantic.validator import Registry, Sidecar, assembly_validate
 
 __all__ = [
@@ -51,7 +51,7 @@ class LoaderContext:
     current_model_file: str | None = None
     default_model: str | None = None
     pending_objects: list[Any] = field(default_factory=list)
-    #: FieldRef/TimeFieldRef instances returned by decorators, to have
+    #: DimensionRef/TimeDimensionRef instances returned by decorators, to have
     #: their _resolver wired up after the two-pass load completes.
     pending_refs: list[Any] = field(default_factory=list)
 
@@ -118,7 +118,7 @@ class LoadResult:
 def _is_excluded_file(filename: str) -> bool:
     """Return True if a file should be excluded from loading."""
     basename = filename
-    if basename == "_model.py":
+    if basename == "_domain.py":
         return True  # Handled separately
     if basename == "_exports.py":
         return True
@@ -130,7 +130,7 @@ def _is_excluded_file(filename: str) -> bool:
 
 
 def _discover_model_dirs(root: Path) -> list[Path]:
-    """Find top-level subdirectories that could contain model definitions.
+    """Find top-level subdirectories that could contain domain definitions.
 
     Returns directories sorted by name for deterministic load order.
     """
@@ -159,8 +159,8 @@ def _filter_model_dirs(
     missing = model_set - discovered_names
     warnings = [
         StructuredWarning(
-            kind="filtered_model_ref",
-            message=f"Requested model {name!r} has no directory on disk.",
+            kind="filtered_domain_ref",
+            message=f"Requested domain {name!r} has no directory on disk.",
             refs=(name,),
             location=None,
         )
@@ -238,21 +238,21 @@ def _load_model_dir(
 
     Returns the LoaderContext with pending objects, or None on critical failure.
     """
-    model_file = model_dir / "_model.py"
+    model_file = model_dir / "_domain.py"
     model_name = model_dir.name
 
-    # Check _model.py exists
+    # Check _domain.py exists
     if not model_file.exists():
         errors.append(
             SemanticLoadError(
-                kind=ErrorKind.MODEL_FILE_MISSING,
-                message=f"Model directory {model_name!r} is missing _model.py.",
+                kind=ErrorKind.DOMAIN_FILE_MISSING,
+                message=f"Domain directory {model_name!r} is missing _domain.py.",
                 refs=(model_name,),
             )
         )
         return None
 
-    # Execute _model.py
+    # Execute _domain.py
     ctx = LoaderContext()
     model_package = f"{module_prefix}.{model_name}"
     _ensure_package(model_package, model_dir)
@@ -260,18 +260,18 @@ def _load_model_dir(
         model_file,
         ctx,
         errors,
-        module_name=f"{model_package}._model",
+        module_name=f"{model_package}._domain",
         package_name=model_package,
     )
 
-    # Validate ms.model() was called and name matches directory
-    model_names = [ir.name for ir, _ in ctx.pending_objects if isinstance(ir, ModelIR)]
+    # Validate ms.domain() was called and name matches directory
+    model_names = [ir.name for ir, _ in ctx.pending_objects if isinstance(ir, DomainIR)]
 
     if not model_names:
         errors.append(
             SemanticLoadError(
-                kind=ErrorKind.MODEL_FILE_MISSING,
-                message=f"_model.py in {model_name!r} did not call ms.model().",
+                kind=ErrorKind.DOMAIN_FILE_MISSING,
+                message=f"_domain.py in {model_name!r} did not call ms.domain().",
                 refs=(model_name,),
             )
         )
@@ -281,8 +281,8 @@ def _load_model_dir(
     if model_names[0] != model_name:
         errors.append(
             SemanticLoadError(
-                kind=ErrorKind.MODEL_FILE_MISMATCH,
-                message=f"Model name {model_names[0]!r} does not match directory name {model_name!r}.",
+                kind=ErrorKind.DOMAIN_FILE_MISMATCH,
+                message=f"Domain name {model_names[0]!r} does not match directory name {model_name!r}.",
                 refs=(model_name, model_names[0]),
             )
         )
@@ -290,11 +290,11 @@ def _load_model_dir(
 
     # Set default_model from the model declaration
     for ir, _ in ctx.pending_objects:
-        if isinstance(ir, ModelIR) and ir.default:
+        if isinstance(ir, DomainIR) and ir.default:
             ctx.default_model = ir.name
             break
 
-    # Execute sibling .py files (exclude _model.py, _exports.py, etc.)
+    # Execute sibling .py files (exclude _domain.py, _exports.py, etc.)
     sibling_files: list[Path] = []
     for child in sorted(model_dir.iterdir()):
         if not child.is_file():
@@ -327,12 +327,12 @@ def _build_registry(
     Pass 2: assemble all pending IR objects into the registry.
     """
     from marivo.semantic.ir import (
-        DatasetIR,
-        FieldIR,
-        FieldRef,
+        DimensionIR,
+        DimensionRef,
+        EntityIR,
         MetricIR,
         RelationshipIR,
-        TimeFieldRef,
+        TimeDimensionRef,
     )
 
     registry = Registry()
@@ -343,18 +343,18 @@ def _build_registry(
     for ctx in all_contexts:
         for ir, callable_ in ctx.pending_objects:
             if not hasattr(ir, "semantic_id"):
-                # ModelIR doesn't have semantic_id
-                if isinstance(ir, ModelIR):
+                # DomainIR doesn't have semantic_id
+                if isinstance(ir, DomainIR):
                     registry.models[ir.name] = ir
                 continue
 
             sid = ir.semantic_id
 
-            if isinstance(ir, DatasetIR):
+            if isinstance(ir, EntityIR):
                 registry.datasets[sid] = ir
                 if callable_ is not None:
                     sidecar[sid] = callable_
-            elif isinstance(ir, FieldIR):
+            elif isinstance(ir, DimensionIR):
                 registry.fields[sid] = ir
                 if callable_ is not None:
                     sidecar[sid] = callable_
@@ -365,14 +365,14 @@ def _build_registry(
             elif isinstance(ir, RelationshipIR):
                 registry.relationships[sid] = ir
 
-    # Wire up FieldRef/TimeFieldRef resolvers so that calling
-    # field_ref(parent_table) in metric bodies resolves to the sidecar callable.
+    # Wire up DimensionRef/TimeDimensionRef resolvers so that calling
+    # dimension_ref(parent_table) in metric bodies resolves to the sidecar callable.
     def _make_field_resolver(sidecar_dict: Sidecar) -> Callable[[str, Any], Any]:
         def _resolver(semantic_id: str, parent_table: Any) -> Any:
             callable_ = sidecar_dict.get(semantic_id)
             if callable_ is None:
                 raise RuntimeError(
-                    f"FieldRef({semantic_id!r}) resolver: no sidecar callable found."
+                    f"DimensionRef({semantic_id!r}) resolver: no sidecar callable found."
                 )
             return callable_(parent_table)
 
@@ -380,11 +380,11 @@ def _build_registry(
 
     resolver = _make_field_resolver(sidecar)
 
-    # Set _resolver on all FieldRef/TimeFieldRef instances that were
+    # Set _resolver on all DimensionRef/TimeDimensionRef instances that were
     # registered during decorator execution via ctx.pending_refs.
     for ctx in all_contexts:
         for ref in ctx.pending_refs:
-            if isinstance(ref, (FieldRef, TimeFieldRef)):
+            if isinstance(ref, (DimensionRef, TimeDimensionRef)):
                 ref._resolver = resolver
 
     return registry, sidecar
@@ -400,6 +400,9 @@ def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResu
     When *models* is specified, only those model directories are loaded.
     Cross-model references to filtered-out models produce warnings instead
     of errors, so the registry remains usable.
+
+    Note: Each model directory is expected to contain a ``_domain.py`` file
+    that calls ``ms.domain(name=...)``.
 
     Returns a LoadResult with status, errors, warnings, registry, and sidecar.
     """

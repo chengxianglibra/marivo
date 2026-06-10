@@ -68,11 +68,11 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "md.datasource(warehouse)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    time_field = (
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+    time_dimension = (
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n\n"
         if with_time
@@ -84,10 +84,10 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "\n"
         "warehouse = md.ref('warehouse')\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
         "\n"
-        f"{time_field}"
-        "@ms.field(dataset=orders)\n"
+        f"{time_dimension}"
+        "@ms.dimension(dataset=orders)\n"
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"

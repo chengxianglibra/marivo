@@ -5,7 +5,7 @@ from __future__ import annotations
 from marivo.semantic import ledger as lg
 from marivo.semantic.auto_record import _AUTHORING_QUALIFYING_SOURCE
 
-MODEL_PY = "import marivo.semantic as ms\nms.model(name='sales')\n"
+DOMAIN_PY = "import marivo.semantic as ms\nms.domain(name='sales')\n"
 
 DATASETS_PY = """
 import marivo.semantic as ms
@@ -13,7 +13,7 @@ import marivo.datasource as md
 
 warehouse = md.ref('warehouse')
 
-orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))
+orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))
 
 @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
@@ -26,9 +26,9 @@ import marivo.datasource as md
 
 warehouse = md.ref('warehouse')
 
-orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))
+orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))
 
-@ms.time_field(dataset=orders, data_type='date', granularity='day')
+@ms.time_dimension(dataset=orders, data_type='date', granularity='day')
 def order_date(orders):
     return orders.created_at.cast('date')
 
@@ -48,7 +48,7 @@ def _project_with_metric(semantic_project_factory):
     return semantic_project_factory(
         {
             "datasource/warehouse.py": WAREHOUSE_PY,
-            "sales/_model.py": MODEL_PY,
+            "sales/_domain.py": DOMAIN_PY,
             "sales/datasets.py": DATASETS_PY,
         }
     )
@@ -58,7 +58,7 @@ def _project_with_metric_and_time_field(semantic_project_factory):
     return semantic_project_factory(
         {
             "datasource/warehouse.py": WAREHOUSE_PY,
-            "sales/_model.py": MODEL_PY,
+            "sales/_domain.py": DOMAIN_PY,
             "sales/datasets.py": DATASETS_WITH_TIME_PY,
         }
     )
@@ -83,12 +83,12 @@ def test_auto_record_creates_metric_decomposition_decision(semantic_project_fact
     assert chosen["additivity"] == "additive"
 
 
-def test_auto_record_creates_time_field_identity_decision(semantic_project_factory):
+def test_auto_record_creates_time_dimension_identity_decision(semantic_project_factory):
     project = _project_with_metric_and_time_field(semantic_project_factory)
     store = lg.LedgerStore(project.semantic_root)
     obj = store.read_object("sales.orders.order_date")
     assert obj is not None
-    decisions = [d for d in obj.decisions if d.decision_kind == "time_field_identity"]
+    decisions = [d for d in obj.decisions if d.decision_kind == "time_dimension_identity"]
     assert len(decisions) == 1
     d = decisions[0]
     assert d.qualifying_sources == (_AUTHORING_QUALIFYING_SOURCE,)
@@ -97,7 +97,7 @@ def test_auto_record_creates_time_field_identity_decision(semantic_project_facto
     assert d.question_id is None
     chosen = d.chosen
     assert isinstance(chosen, dict)
-    assert chosen["dataset"] == "sales.orders"
+    assert chosen["entity"] == "sales.orders"
     assert chosen["name"] == "order_date"
     assert chosen["data_type"] == "date"
     assert chosen["granularity"] == "day"
@@ -188,7 +188,7 @@ import marivo.datasource as md
 
 warehouse = md.ref('warehouse')
 
-orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))
+orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))
 
 @ms.metric(datasets=[orders], additivity='non_additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
@@ -219,7 +219,7 @@ def test_readiness_passes_after_auto_record(semantic_project_factory):
         for i in report.blockers
         if i.kind == "unresolved_clarification" and i.severity == "blocker"
     ]
-    # No metric_decomposition or time_field_identity blockers
+    # No metric_decomposition or time_dimension_identity blockers
     blocker_refs = [i.refs for i in blockers]
     assert ("sales.revenue",) not in blocker_refs
     assert ("sales.orders.order_date",) not in blocker_refs
@@ -228,9 +228,9 @@ def test_readiness_passes_after_auto_record(semantic_project_factory):
 def test_auto_record_only_records_missing_decisions(semantic_project_factory):
     project = _project_with_metric_and_time_field(semantic_project_factory)
 
-    # Record a user-confirmed time_field_identity decision directly in ledger
+    # Record a user-confirmed time_dimension_identity decision directly in ledger
     user_tf_decision = lg.DecisionRecord(
-        decision_kind="time_field_identity",
+        decision_kind="time_dimension_identity",
         chosen="date",
         agreement_confidence="high",
         qualifying_sources=("user_confirmation",),
@@ -245,7 +245,7 @@ def test_auto_record_only_records_missing_decisions(semantic_project_factory):
         [
             d
             for d in store_before.read_object("sales.orders.order_date").decisions
-            if d.decision_kind == "time_field_identity"
+            if d.decision_kind == "time_dimension_identity"
             and d.qualifying_sources == (_AUTHORING_QUALIFYING_SOURCE,)
         ]
     )
@@ -276,7 +276,7 @@ def test_auto_record_only_records_missing_decisions(semantic_project_factory):
     # Time field: user_confirmation decision preserved; no new authoring auto-record added
     tf_obj = store.read_object("sales.orders.order_date")
     assert tf_obj is not None
-    tf_decisions = [d for d in tf_obj.decisions if d.decision_kind == "time_field_identity"]
+    tf_decisions = [d for d in tf_obj.decisions if d.decision_kind == "time_dimension_identity"]
     assert any(d.qualifying_sources == ("user_confirmation",) for d in tf_decisions)
     n_authoring_tf_after = len(
         [d for d in tf_decisions if d.qualifying_sources == (_AUTHORING_QUALIFYING_SOURCE,)]

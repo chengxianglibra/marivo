@@ -38,7 +38,7 @@ the project structure before authoring semantic objects.
   name when the same credential type is already cached (e.g., reuse
   `TRINO_PASSWORD` for a second Trino datasource). Do not ask the user for a
   secret that the cache already holds.
-- Python files under `.marivo/semantic/<model>/` are the only semantic source of
+- Python files under `.marivo/semantic/<domain>/` are the only semantic source of
   truth.
 - Collect source evidence before authoring. Bind datasource access once with
   `project.bind_datasource_access(inspect_source=mv.datasources.inspect_source,
@@ -61,9 +61,9 @@ the project structure before authoring semantic objects.
   not a ref tuple/list or candidate list.
 - Ask users only for unresolved blockers or business decisions evidence cannot
   settle.
-- Reload after authoring `@ms.metric` or `@ms.time_field` declarations so Marivo
+- Reload after authoring `@ms.metric` or `@ms.time_dimension` declarations so Marivo
   can auto-record their object-level `metric_decomposition` and
-  `time_field_identity` decisions.
+  `time_dimension_identity` decisions.
 - Do not hand off to `marivo-analysis` while readiness is blocked.
 - Run `project.readiness(...)` once at closeout. Richness gaps are folded into
   readiness warnings and `richness_summary`.
@@ -91,7 +91,7 @@ mv.help(revenue)                    # bounded consumption context
 mv.help(revenue, project=project)   # explicit project when not in CWD
 ```
 
-Read `_model.py` only when you need to modify the semantic model, inspect
+Read `_domain.py` only when you need to modify the semantic model, inspect
 implementation expressions, or debug authoring behavior.
 
 ## Default Workflow
@@ -101,18 +101,18 @@ Read `references/workflow.md` first. The short form is:
 1. Discovery/source inspection: discover the project and existing refs, bind datasource
    access once, inspect source context, and deep-dive only the columns that matter.
 2. Assess and author each candidate object: call `project.assess_authoring(...)`,
-   resolve blockers/questions, author one `.marivo/semantic/<model>/_model.py` using ref
+   resolve blockers/questions, author one `.marivo/semantic/<domain>/_domain.py` using ref
    variables, load, and inspect the authored object.
 3. Closeout: call `project.readiness(...)` once for the target refs and hand off only when
    it is not blocked.
 
 ## Authoring Defaults
 
-- Default to one `.marivo/semantic/<model>/_model.py` per model.
+- Default to one `.marivo/semantic/<domain>/_domain.py` per domain.
 - Use `md.ref("<datasource>")` for datasource references.
 - Use Python ref variables between semantic objects.
-- Prefer a partition time field such as `dt`, `log_date`, or `event_date` as
-  the dataset `@ms.time_field`.
+- Prefer a partition time dimension such as `dt`, `log_date`, or `event_date` as
+  the entity `@ms.time_dimension`.
 - For sortable day/hour partition columns, keep the raw string/integer column
   body and declare `date_format` as a Python strptime string (e.g. `"%Y%m%d"`);
   use `required_prefix` (no `date_format`) for hour-only fields.

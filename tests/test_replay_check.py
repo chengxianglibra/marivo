@@ -22,20 +22,20 @@ SALES_FILES = {
         "md.datasource(warehouse)\n"
     ),
     "sales/__init__.py": "",
-    "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+    "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
     "sales/datasets.py": (
         "import marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
         "warehouse = md.ref('warehouse')\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"

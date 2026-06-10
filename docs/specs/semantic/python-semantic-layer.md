@@ -24,8 +24,8 @@
 ## Authoring 快速路径
 
 目标态标准 agent authoring pipeline 使用每个 model 一个
-`.marivo/semantic/<model>/_model.py` 文件。agent 应在
-`.marivo/semantic/sales/_model.py` 中完成从 dataset 到 metric 的声明；项目
+`.marivo/semantic/<model>/_domain.py` 文件。agent 应在
+`.marivo/semantic/sales/_domain.py` 中完成从 dataset 到 metric 的声明；项目
 datasource 单独放在 `.marivo/datasource/warehouse.py`。底层 loader 仍可执行
 同目录 sibling `.py` 文件，但这是更低层能力，不是当前正常 agent-authored
 文件组织建议。
@@ -43,14 +43,14 @@ md.datasource(warehouse)
 ```
 
 ```python
-# .marivo/semantic/sales/_model.py
+# .marivo/semantic/sales/_domain.py
 import marivo.datasource as md
 import marivo.semantic as ms
 
-ms.model(name="sales", description="Sales analytics")
+ms.domain(name="sales", description="Sales analytics")
 warehouse = md.ref("warehouse")
 
-orders = ms.dataset(
+orders = ms.entity(
     name="orders",
     datasource=warehouse,
     source=ms.table("orders"),
@@ -62,7 +62,7 @@ orders = ms.dataset(
     },
 )
 
-@ms.field(dataset=orders, description="Paid order flag.")
+@ms.dimension(dataset=orders, description="Paid order flag.")
 def is_paid(orders):
     return orders.pay_status == 1
 
@@ -94,7 +94,7 @@ def revenue(order_rows):
 - `name=` 省略时，Python 变量名或函数名作为 fallback identity。
 - Python 符号名只是 local alias，不参与 semantic id。
 - `description=` 是短标签或一行说明；`ai_context.business_definition` 是完整业务定义，可多行，agent 用它判断对象是否匹配用户意图。
-- `ai_context` schema 适用于 model、project datasource、dataset、field、time_field、metric 和 relationship 所有对象。所有字段可选，缺失时 `describe` 返回 `null` 或空列表。
+- `ai_context` schema 适用于 model、project datasource、dataset、dimension、time_dimension、metric 和 relationship 所有对象。所有字段可选，缺失时 `describe` 返回 `null` 或空列表。
 - `ai_context` 固定字段是 `business_definition: str | None`、`guardrails: list[str]`、`synonyms: list[str]`、`examples: list[str]`、`instructions: str | None`、`owner_notes: str | None`。
 - `business_definition` 和 `guardrails` 对 dataset 与 metric 最重要；跨 model 引用前，agent 应优先读取这两个字段判断是否可复用。
 - `examples` 只放自然语言示例问法，不放 SQL、Ibis snippet 或 expected values。
@@ -107,32 +107,32 @@ def revenue(order_rows):
 ```text
 semantic/
   sales/
-    _model.py          # agent authoring pipeline keeps all declarations here
+    _domain.py          # agent authoring pipeline keeps all declarations here
   marketing/
-    _model.py
+    _domain.py
     _exports.py
 ```
 
 `docs/specs/semantic/authoring-pipeline-design.md` 定义的 agent authoring
-pipeline 只使用每个 model 的 `_model.py` 单文件。Loader 仍可以执行同目录
+pipeline 只使用每个 model 的 `_domain.py` 单文件。Loader 仍可以执行同目录
 sibling `.py` 文件，但那是底层 loader 能力，不是当前标准 authoring pipeline
 的组织建议。
 
 目标态 loader 规则是：
 
-- 每个 model 必须在 `<root>/<model>/_model.py` 中调用一次 `ms.model(name="<model>", ...)`。
-- `_model.py` 是该 model 的 entrypoint，可以只声明 model metadata，也可以承载 single-file 快速路径中的 datasource、dataset、field、metric 和 relationship；但不能声明多个 model，也不能用与目录名不同的 `name`。
-- `ms.model(default=...)` 缺省为 `True`。默认场景下，同目录 sibling files 里的对象可以省略重复 `model=`（`ModelRef`）；如果项目希望 review 时强制每个对象显式写 `model=`，可在 `_model.py` 里传 `default=False`。
-- default model 作用域仅限当前 model 目录的顶层 sibling files，不向子目录传播。`sales/subdomain/*.py` 不继承 `sales/_model.py` 的 default；子目录若要被加载，应作为独立 model 域或由项目明确扩展 loader 规则。
+- 每个 model 必须在 `<root>/<model>/_domain.py` 中调用一次 `ms.domain(name="<model>", ...)`。
+- `_domain.py` 是该 model 的 entrypoint，可以只声明 model metadata，也可以承载 single-file 快速路径中的 datasource、dataset、field、metric 和 relationship；但不能声明多个 model，也不能用与目录名不同的 `name`。
+- `ms.domain(default=...)` 缺省为 `True`。默认场景下，同目录 sibling files 里的对象可以省略重复 `model=`（`DomainRef`）；如果项目希望 review 时强制每个对象显式写 `model=`，可在 `_domain.py` 里传 `default=False`。
+- default model 作用域仅限当前 model 目录的顶层 sibling files，不向子目录传播。`sales/subdomain/*.py` 不继承 `sales/_domain.py` 的 default；子目录若要被加载，应作为独立 model 域或由项目明确扩展 loader 规则。
 - default model 是 loader 在加载该 model 目录时的上下文，不随 `from x import *` 或普通 Python import 跨 module boundary 传播。decorator 在 loader context 外执行仍然 fail closed。
 - 显式 `model=other_ref` 永远覆盖 default，并触发组织校验；对象不会因为文件移动而静默改名。
-- 文件系统路径只用于发现候选 Python 文件和做组织校验；对象身份只来自显式 `model=`（`ModelRef`）或显式 default model。
+- 文件系统路径只用于发现候选 Python 文件和做组织校验；对象身份只来自显式 `model=`（`DomainRef`）或显式 default model。
 - loader 采用 two-pass 语义：第一阶段 collect 所有声明，第二阶段 resolve refs 和校验依赖。文件名和 sibling sort order 不应影响合法模型是否能加载。
 - Python 文件是受信任本地代码，不做 sandbox。
 - 成功加载后 registry 进入 `ready`；失败时清空部分模型，进入 `errored`，并记录结构化 `load_errors`。
 
 文件组织应优先服务 agent 的增量修改。当前标准 authoring pipeline 选择把一个
-model 的声明集中在 `_model.py`，按依赖顺序维护 dataset、field、time field、
+model 的声明集中在 `_domain.py`，按依赖顺序维护 dataset、field、time field、
 metric、relationship 和 derived metric。底层 loader 支持 sibling files，但
 多文件 authoring 需要单独说明 import order、default model scope 和 review
 边界，不能作为默认 agent 工作流。
@@ -141,10 +141,10 @@ For agent-authored models, the normal authoring contract is one file:
 
 ```text
 .marivo/semantic/<model>/
-  _model.py
+  _domain.py
 ```
 
-The loader may still execute sibling Python files as a lower-level capability, but the authoring pipeline in `authoring-pipeline-design.md` uses `_model.py` as the single normal authoring file.
+The loader may still execute sibling Python files as a lower-level capability, but the authoring pipeline in `authoring-pipeline-design.md` uses `_domain.py` as the single normal authoring file.
 
 ## Reader / Introspection
 
@@ -198,7 +198,7 @@ API 形态。`ms.help()` 打印帮助文本并返回 None。
 
 `project.list_*()` 和 `project.search(...)` 默认把结果打印成稳定的纯文本表格，同时仍返回结构化对象列表。程序化消费返回值时传 `display=False`，避免污染 stdout，例如 `[m.semantic_id for m in project.list_metrics(display=False)]`。
 
-`describe(..., format="object")` 返回结构化 dataclass / dict，而不是只打印文本。最小字段包括 `semantic_id`、`kind`、`model`、`description`、`business_definition`、`guardrails`、`parity_status`、`compiled_sql`、`compile_error`、`source_sql`、`dependencies`、`dependents`、`python_symbol` 和 `source_location`。`format="text"` 只作为人类阅读糖；agent 默认消费结构化对象。
+`describe(..., format="object")` 返回结构化 dataclass / dict，而不是只打印文本。最小字段包括 `semantic_id`、`kind`、`domain`、`description`、`business_definition`、`guardrails`、`parity_status`、`compiled_sql`、`compile_error`、`source_sql`、`dependencies`、`dependents`、`python_symbol` 和 `source_location`。`format="text"` 只作为人类阅读糖；agent 默认消费结构化对象。
 
 free function 形态只允许作为 REPL 糖保留；如果没有显式 active project，必须 fail closed，不能 silent fallback 到 CWD 推断。
 
@@ -287,7 +287,7 @@ md.datasource(warehouse)
 设计约束：
 
 - datasource name 是全局 key，禁止使用 `<model>.<datasource>`。
-- semantic model 不调用 `ms.datasource(...)`，优先用 `md.ref("warehouse")` 在 `ms.dataset(datasource=warehouse, source=...)` 中引用全局 datasource name。
+- semantic model 不调用 `ms.datasource(...)`，优先用 `md.ref("warehouse")` 在 `ms.entity(datasource=warehouse, source=...)` 中引用全局 datasource name。
 - 非机密连接字段写在 datasource 文件里；`user`、`password`、`auth`、`token`、`api_key`、`secret`、`private_key` 等机密字段只能通过 `<field>_env` 引用环境变量。
 - Trino `catalog` 是连接目标；`schema` 只是可选默认 schema，也可以在 `ms.table("orders", database="sales_mart")` 中显式传入。
 - datasource 是 dataset 的执行来源，不是 metric 的业务口径。
@@ -297,9 +297,9 @@ md.datasource(warehouse)
 dataset 是业务实体或事实表的逻辑视图：
 
 ```python
-sales_ref = ms.model(name="sales", description="Sales analytics")
+sales_ref = ms.domain(name="sales", description="Sales analytics")
 
-orders = ms.dataset(
+orders = ms.entity(
     model=sales_ref,
     name="orders",
     datasource=warehouse,
@@ -321,7 +321,7 @@ Snapshot dataset declarations expose their partition key through
 should be observed at the latest available partition by default:
 
 ```python
-user_profile_daily = ms.dataset(
+user_profile_daily = ms.entity(
     name="user_profile_daily",
     datasource=warehouse,
     source=ms.table("user_profile_daily"),
@@ -349,7 +349,7 @@ versioning. Phase 2 supports the `valid_from` / `valid_to` + `interval` +
 `open_end` dialect; `current_flag` is not yet supported.
 
 ```python
-user_history = ms.dataset(
+user_history = ms.entity(
     name="user_history",
     datasource="warehouse",
     source=ms.table("user_history"),
@@ -379,7 +379,7 @@ table is collapsed to one row per `(key, anchor)`.
 field 是 row-level 属性，供过滤、分组、relationship 或 metric 表达式复用：
 
 ```python
-@ms.field(model=sales_ref, dataset=orders, description="Normalized region.")
+@ms.dimension(model=sales_ref, dataset=orders, description="Normalized region.")
 def region(orders):
     return orders.region.upper()
 ```
@@ -387,7 +387,7 @@ def region(orders):
 time field 是特殊 field，显式承载时间轴元数据：
 
 ```python
-@ms.time_field(
+@ms.time_dimension(
     model=sales_ref,
     dataset=orders,
     data_type="date",
@@ -400,20 +400,20 @@ def order_date(orders):
 
 设计约束：
 
-- 需要作为时间窗口、时间粒度或 calendar axis 使用的字段必须声明为 `time_field`。
-- 普通 `field` 不应靠名称如 `dt`、`date`、`event_time` 被自动推断为时间字段。
+- 需要作为时间窗口、时间粒度或 calendar axis 使用的维度必须声明为 `time_dimension`。
+- 普通 `dimension` 不应靠名称如 `dt`、`date`、`event_time` 被自动推断为时间维度。
 - `data_type` 支持 `date`、`datetime`、`timestamp`、`string`、`integer`。`date_format` 仅在 `data_type` 为 `string` 或 `integer` 且未声明 `required_prefix` 时使用。
 - `date_format` 必须是 Python strptime 格式串（`%` 前缀），例如 `"%Y%m%d"`、`"%Y-%m-%d"`、`"%Y%m%d%H"`、`"%Y-%m-%d %H:%M:%S"`。简写别名（`yyyymmdd`、`hh` 等）不再被接受；格式串原样传给 backend 的 `date_parse`，作者需按目标 backend 语义书写（参见下一节 `%M` 与 `%i` 注意事项）。`data_type` 为 `date`、`datetime`、`timestamp` 时不允许 `date_format`（列已是时间类型）；声明了 `required_prefix` 的 hour-only 字段也不允许 `date_format`（运行时用 `lpad(2, "0")` 归一化 hour 列）。
 - `granularity` 支持 `year` | `quarter` | `month` | `week` | `day` | `hour` | `minute` | `second`。`minute` 和 `second` 要求 `data_type` 为 `datetime` 或 `timestamp`；`hour` 在非 timestamp 类型上必须声明 `required_prefix`。
 - `data_type` 必须与 body 返回的 ibis dtype 兼容：`.cast("date")` → `data_type="date"`；`.cast("timestamp")` 或原始 timestamp 列 → `data_type="datetime"` 或 `"timestamp"`。不匹配时执行器 TypeError。
 - hour-only 字段（例如 `data_type="string"` 或 `data_type="integer"`，且列只存小时数值）必须显式声明 `required_prefix` 且不得声明 `date_format`；timestamp/datetime hour 字段或单列完整 hour 格式不需要。
-- 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `field` / `time_field`，再在 metric 中引用。
-- `@ms.field` / `@ms.time_field` 不要求 provenance status。它们的可信度来自所属 dataset、row-level 表达式可读性和 materialization 校验。`source_sql` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。
+- 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `dimension` / `time_dimension`，再在 metric 中引用。
+- `@ms.dimension` / `@ms.time_dimension` 不要求 provenance status。它们的可信度来自所属 dataset、row-level 表达式可读性和 materialization 校验。`source_sql` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。
 - `is_default` (optional, default `False`): Mark this field as the default time axis
   when the dataset has multiple time fields. When `observe()` is called without an
-  explicit `time_field=` argument, the `is_default=True` field is used automatically.
+  explicit `time_dimension=` argument, the `is_default=True` field is used automatically.
   At most one time field per dataset may carry `is_default=True`; declaring two or
-  more raises `SemanticLoadError` with kind `duplicate_default_time_field` at assembly
+  more raises `SemanticLoadError` with kind `duplicate_default_time_dimension` at assembly
   time.
 
 #### Format specifier divergence: Python strptime vs MySQL/Trino/Presto
@@ -543,13 +543,13 @@ def gmv_with_items(orders, order_items):
 relationship 描述 dataset 之间的连接路径：
 
 ```python
-# .marivo/semantic/sales/_model.py
+# .marivo/semantic/sales/_domain.py
 import marivo.semantic as ms
 
-ms.model(name="sales")
+ms.domain(name="sales")
 
 # orders, customers, order_customer_id, and customer_id are declared earlier
-# in this _model.py.
+# in this _domain.py.
 ms.relationship(
     name="orders_to_customers",
     from_dataset=orders,
@@ -559,7 +559,7 @@ ms.relationship(
 )
 ```
 
-目标态 relationship 是纯 metadata 顶级调用。连接键必须使用 `field` / `time_field` 的 ref 引用，不能使用裸字符串物理列名。`from_columns` / `to_columns` 不应作为 alias 继续保留；目标态只接受 `from_fields` / `to_fields`，值为 decorated field refs 或当前实现格式的 semantic id，例如 `ms.ref("sales.orders.order_user_id")`。
+目标态 relationship 是纯 metadata 顶级调用。连接键必须使用 `dimension` / `time_dimension` 的 ref 引用，不能使用裸字符串物理列名。`from_columns` / `to_columns` 不应作为 alias 继续保留；目标态只接受 `from_fields` / `to_fields`，值为 decorated dimension refs 或当前实现格式的 semantic id，例如 `ms.ref("sales.orders.order_user_id")`。
 
 ### Decomposition
 
@@ -589,7 +589,7 @@ Ibis expression follows the target backend's SQL semantics. Most backends return
 wrap that behavior in a base metric, then reference the base metric from the
 derived decomposition.
 
-If a derived calculation needs field/time_field or row-level intermediate values,
+If a derived calculation needs dimension/time_dimension or row-level intermediate values,
 first package those values as base metrics. Derived metrics cannot directly
 reference datasets, fields, or time fields.
 
@@ -651,7 +651,7 @@ if result.errors:
 
 ### 2. 声明最小业务对象
 
-新增 metric 时的最小 happy path 是 datasource、dataset、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_field、field 和 relationship。表级证据首选 `mv.datasources.inspect_source(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
+新增 metric 时的最小 happy path 是 datasource、dataset、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `mv.datasources.inspect_source(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
 
 新建 metric 可以省略 provenance 并自动进入 `unverified`，但 agent 不能把它当作完成状态。若同一 PR 新增多个 unverified metrics，应停下来确认业务来源；CI 可用 `--strict-provenance` 禁止 unverified metric 合入。
 
@@ -679,12 +679,12 @@ print(frame.summary())
 
 | 问题 | 选择 |
 | --- | --- |
-| 每一行都能计算出来，例如国家、平台、订单日期 | `@ms.field` 或 `@ms.time_field` |
+| 每一行都能计算出来，例如国家、平台、订单日期 | `@ms.dimension` 或 `@ms.time_dimension` |
 | 需要跨行聚合，例如 revenue、DAU、conversion rate | `@ms.metric` |
 | 只是 metric 内部的一段条件表达式，不需要下游引用 | 可直接写在 metric Ibis 表达式内 |
-| 会被多个 metric、filter、relationship 或分析 slice 复用 | 提升为 field/time_field |
+| 会被多个 metric、filter、relationship 或分析 slice 复用 | 提升为 dimension/time_dimension |
 
-为了让 agent 能机械执行，目标态再加一条硬规则：metric body 内只允许聚合表达式和对已声明 field/time_field 的引用。凡是 row-level `.filter(...)`、`.cast(...)`、复杂 `case`、多步链式中间值，默认先抽成 `field` 或 `time_field`；只有一次性且无业务命名价值的简单列访问可以留在 metric body。
+为了让 agent 能机械执行，目标态再加一条硬规则：metric body 内只允许聚合表达式和对已声明 dimension/time_dimension 的引用。凡是 row-level `.filter(...)`、`.cast(...)`、复杂 `case`、多步链式中间值，默认先抽成 `dimension` 或 `time_dimension`；只有一次性且无业务命名价值的简单列访问可以留在 metric body。
 
 ### Sum vs Ratio vs Weighted Average
 
@@ -724,11 +724,11 @@ Refactor helper 契约：
 
 ```python
 project.refactor.rename("metric", "sales.old_revenue", "sales.revenue", write=False)
-project.refactor.rename("field", "sales.orders.old_user_id", "sales.orders.user_id", write=True)
+project.refactor.rename("dimension", "sales.orders.old_user_id", "sales.orders.user_id", write=True)
 ```
 
 - 缺省 dry-run，输出 unified diff 和变更文件列表；只有 `--write` 才落盘。
-- 输入是 `<kind> <old-fqn> <new-fqn>`，`kind` 至少覆盖 `model`、`datasource`、`dataset`、`field`、`time_field`、`metric`、`relationship`。
+- 输入是 `<kind> <old-fqn> <new-fqn>`，`kind` 至少覆盖 `domain`、`datasource`、`entity`、`dimension`、`time_dimension`、`metric`、`relationship`。
 - 覆盖范围包括 decorator / metadata call 的 `name=`、`model=` 必要改动、`ms.ref(...)` 字符串、relationship endpoint refs、`from_fields` / `to_fields`、decomposition component refs、`_exports.py` re-export。
 - 不修改 `source_sql`、`source_document` 或自然语言 prose；这些字段需要人工 review。
 
@@ -743,7 +743,7 @@ decorator 执行时检查局部声明是否自洽：
 - model/datasource/dataset/field/metric 重名。
 - decorated ref 类型错误。
 - 跨 model / 跨 dataset ref 不合法。
-- expression-bearing decorator 缺少显式 `model=`，且所在加载上下文没有显式 default model。此错误只在 `_model.py` 显式 `default=False`，或对象声明在 model 目录之外的文件中时触发；缺省 `default=True` 场景下，同目录对象自然继承 model，不会进入此错误路径。
+- expression-bearing decorator 缺少显式 `model=`，且所在加载上下文没有显式 default model。此错误只在 `_domain.py` 显式 `default=False`，或对象声明在 model 目录之外的文件中时触发；缺省 `default=True` 场景下，同目录对象自然继承 model，不会进入此错误路径。
 - base metric 缺少 `datasets=[...]`。
 - derived metric 带 dataset 参数、缺少 decomposition components 或在 body 中读取 dataset table。
 - decorator / metadata call 出现在 semantic loader context 之外。
@@ -757,7 +757,7 @@ decorator 执行时检查局部声明是否自洽：
 | Error kind | Agent action |
 | --- | --- |
 | `duplicate_name` | 检查同一 model 内是否重复声明；删除旧声明或改 `name=`，再运行 check |
-| `missing_model` | 在 `<root>/<model>/_model.py` 增加 `ms.model(name=...)`，或在对象声明上补 `model=ms.model(name=...)` 的返回值 |
+| `missing_model` | 在 `<root>/<model>/_domain.py` 增加 `ms.domain(name=...)`，或在对象声明上补 `model=ms.domain(name=...)` 的返回值 |
 | `missing_dataset_ref` | 确认 dataset 已声明；若跨文件前向引用，改用 decorated ref 或 `ms.ref(...)` |
 | `cross_model_reference` | 优先通过 `_exports.py` 导入；没有 `_exports.py` 时可直接 import sibling file 或使用显式 `ms.ref(...)` |
 | `invalid_decomposition` | 检查 `ms.ratio(...)` / `ms.weighted_average(...)` 的 components 是否都指向已注册 metric |
@@ -770,8 +770,8 @@ decorator 执行时检查局部声明是否自洽：
 
 loader 执行项目文件后，assembly validation 检查跨对象关系：
 
-- `_model.py` 缺失或 model 注册不匹配目录。
-- `ms.model(...)` 出现在非 `<root>/<model>/_model.py` 文件，或一个 `_model.py` 声明多个 model。
+- `_domain.py` 缺失或 model 注册不匹配目录。
+- `ms.domain(...)` 出现在非 `<root>/<model>/_domain.py` 文件，或一个 `_domain.py` 声明多个 model。
 - dataset 引用不存在的 datasource。
 - metric 引用不存在的 dataset 或 decomposition component。
 - cross-model `ms.ref(...)` 不存在、对象类型不匹配或形成循环依赖。
@@ -850,9 +850,9 @@ typed frames + session persistence + lineage
 当前 `marivo/semantic` 已经提供以下能力：
 
 - `SemanticProject`、project-scoped registry、context-local active registry。
-- decorators：`model`、`datasource`、`dataset`、`field`、`time_field`、`metric`、`relationship`。
+- decorators：`domain`、`datasource`、`entity`、`dimension`、`time_dimension`、`metric`、`relationship`。
 - builders：`sum`、`ratio`、`weighted_average`、`ref`。
-- loader：model 目录扫描、`_model.py` 优先执行、sibling files 排序执行、re-load 清理项目模块。
+- loader：model 目录扫描、`_domain.py` 优先执行、sibling files 排序执行、re-load 清理项目模块。
 - reader/introspection：`list_models`、`list_datasources`、`list_datasets`、`list_metrics`、`describe`、`help`。v1 现状的 reader 是 module-level free functions，依赖 context-local active project；v1.1 全部迁移到 `SemanticProject` methods（参见上方 §Reader / Introspection），free function 形态仅作为有显式 active project 的 REPL 糖保留。
 - materialization：dataset、field、metric 到 Ibis object。
 - validation：metric body AST 约束、missing refs、time prefix、relationship endpoint/columns/arity。
@@ -867,9 +867,9 @@ typed frames + session persistence + lineage
 以下目标应作为下一轮实现的破坏性契约调整，而不是长期后续愿望：
 
 - 所有语义对象使用显式 `model=` 或显式 default model；文件位置只做 discovery 和组织校验。
-- `ms.model(...)` 只能出现在 `<root>/<model>/_model.py`，且 `name` 必须等于目录名；`default` 缺省为 `True`，允许同目录对象省略重复 `model=`。
-- 标准 agent authoring pipeline 使用 `_model.py` 单文件；对象变多时仍按依赖顺序在
-  `_model.py` 内维护。feature-oriented sibling files 只能作为另行设计的多文件
+- `ms.domain(...)` 只能出现在 `<root>/<model>/_domain.py`，且 `name` 必须等于目录名；`default` 缺省为 `True`，允许同目录对象省略重复 `model=`。
+- 标准 agent authoring pipeline 使用 `_domain.py` 单文件；对象变多时仍按依赖顺序在
+  `_domain.py` 内维护。feature-oriented sibling files 只能作为另行设计的多文件
   authoring 模式。
 - Metric 显式 `datasets=[...]`；函数参数名只做局部 alias。
 - Base metric 使用 `@ms.metric(..., verification_mode="python_native",)`；derived metric 使用 body-free `ms.derived_metric(...)`，依赖来自 decomposition components。
@@ -877,11 +877,11 @@ typed frames + session persistence + lineage
 - Derived metrics do not have Python bodies; custom derived arithmetic must be expressed through base component metrics.
 - Derived metric 的有效 parity status 从自身 provenance 和 components status 中取更弱者。
 - Datasource 和 relationship 改为顶级 metadata call，不再要求无意义 function body。
-- Relationship join keys 改为 field/time_field refs；裸字符串 `from_columns` / `to_columns` 不再是目标态契约。
+- Relationship join keys 改为 dimension/time_dimension refs；裸字符串 `from_columns` / `to_columns` 不再是目标态契约。
 - Reader / materialization 主 API 迁移到 `SemanticProject` methods；free functions 只保留为有显式 active project 的 REPL sugar。
 - Metric provenance status 始终存在；authoring-time 缺省为 `unverified`，promotion / strict CI / analysis consumption 前必须提升为 SQL triple 或 `python_native`。
 - Parity status 成为 metric / frame / describe 的可见属性。
-- Field / time_field 不要求 provenance status；缺失 provenance 在 describe 中显示为 `null`。
+- Dimension / time_dimension 不要求 provenance status；缺失 provenance 在 describe 中显示为 `null`。
 - Dataset 不支持 Python body SQL view；持久化 SQL view 应作为普通 table source authoring。
 - 提供 Python-only check helper，显式加载 `SemanticProject` 并返回结构化 errors / warnings。
 - `check` 缺省向上查找 `.marivo/semantic/`，支持 `--strict-provenance`，并默认提示字符串 refs。

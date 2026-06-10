@@ -710,7 +710,7 @@ def help(
             - str -- print help for a named symbol or topic (e.g. "observe",
               "MetricFrame", "session").
             - _BaseRef -- print semantic-object help for an already-defined
-              Python semantic ref (MetricRef, DatasetRef, etc.).
+              Python semantic ref (MetricRef, EntityRef, etc.).
         project: Explicit SemanticProject for semantic ref resolution.
             Required when ``target`` is a ``_BaseRef`` and no project can be
             inferred from the current working directory.
@@ -797,9 +797,9 @@ def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None
     ir = None
     if ref.kind == SymbolKind.METRIC:
         ir = reg.metrics.get(ref.semantic_id)
-    elif ref.kind == SymbolKind.DATASET:
+    elif ref.kind == SymbolKind.ENTITY:
         ir = reg.datasets.get(ref.semantic_id)
-    elif ref.kind in (SymbolKind.FIELD, SymbolKind.TIME_FIELD):
+    elif ref.kind in (SymbolKind.DIMENSION, SymbolKind.TIME_DIMENSION):
         ir = reg.fields.get(ref.semantic_id)
 
     if ir is None:

@@ -14,14 +14,14 @@ import marivo.semantic as ms
 from marivo.analysis.datasources.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
 from marivo.semantic.ir import TableSourceIR
 
-MODEL = """
+DOMAIN = """
 import marivo.datasource as md
 import marivo.semantic as ms
 
-ms.model(name="sales")
+ms.domain(name="sales")
 warehouse = md.ref("warehouse")
 
-orders = ms.dataset(
+orders = ms.entity(
     name="orders",
     datasource=warehouse,
     source=ms.table("orders"),
@@ -32,7 +32,7 @@ orders = ms.dataset(
     },
 )
 
-@ms.time_field(
+@ms.time_dimension(
     dataset=orders,
     name="order_date",
     data_type="date",
@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     semantic_dir = root / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    (semantic_dir / "_model.py").write_text(MODEL)
+    (semantic_dir / "_domain.py").write_text(DOMAIN)
 
     previous = Path.cwd()
     try:

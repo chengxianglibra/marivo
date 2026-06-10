@@ -131,7 +131,7 @@ For semantic objects, the preferred target is the Python ref object returned by
 the semantic authoring API, not a string id:
 
 ```python
-orders = ms.dataset(...)
+orders = ms.entity(...)
 
 @ms.metric(datasets=[orders], decomposition=ms.sum(), name="revenue")
 def revenue(table):
@@ -149,13 +149,13 @@ the canonical path because it forces agents back to string lookup even when they
 already hold a typed semantic ref.
 
 Semantic-object help is a read-only semantic briefing. It exists to help agents
-use an object safely, not to replace `_model.py` as the authoring source and not
+use an object safely, not to replace `_domain.py` as the authoring source and not
 to provide structured data access. It should summarize bounded consumption
 context such as business meaning, guardrails, dependencies, grain, additivity,
 decomposition, default time field, readiness or parity warnings, examples, and
 the semantic id or Python ref to use in analysis APIs.
 
-Reading `_model.py` remains the right path when the agent needs to modify the
+Reading `_domain.py` remains the right path when the agent needs to modify the
 semantic model, inspect implementation expressions, debug authoring behavior, or
 audit help output against source. `mv.help(ref)` is the default consumption
 surface when the agent needs to understand how to use an already-defined object
@@ -323,7 +323,7 @@ These results are non-tabular. They implement the core inspection surface only:
 `preview()`.
 
 For user-facing semantic-object help, use `mv.help(ref)` where `ref` is the
-Python semantic ref returned by `_model.py`. Use `mv.help(ref, project=project)`
+Python semantic ref returned by `_domain.py`. Use `mv.help(ref, project=project)`
 only when project resolution cannot be inferred safely.
 
 ### Analysis Operators
@@ -530,7 +530,7 @@ metric_ids = metrics.ids()
 
 It should not rely on discovery APIs printing by default, and it should teach
 `mv.help(ref)` as the semantic-object briefing path before telling agents to
-read `_model.py`.
+read `_domain.py`.
 
 ### Docs and Drift Tests
 
@@ -645,7 +645,7 @@ Add regressions for agent-script safety:
   `mv.help(ref)` is the default semantic-object briefing path for already
   defined Python semantic refs.
 - Semantic-object help gives bounded consumption context without replacing
-  `_model.py` for authoring, implementation inspection, or debugging.
+  `_domain.py` for authoring, implementation inspection, or debugging.
 - Skills teach deliberate `.show()` inspection and no longer teach manual
   summary printing or display flags as the default exploration pattern.
 - Final-report guidance still prevents agents from using bounded inspection

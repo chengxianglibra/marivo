@@ -24,10 +24,10 @@ from marivo.preview import PreviewLimitError, PreviewResult
 from marivo.semantic.discovery import DiscoveryResult, SelectionError
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed, SemanticRuntimeError
 from marivo.semantic.ir import (
-    DatasetIR,
     DatasourceIR,
-    FieldIR,
-    FieldKind,
+    DimensionIR,
+    DimensionKind,
+    EntityIR,
     MetricIR,
     RelationshipIR,
     SymbolKind,
@@ -50,24 +50,24 @@ from marivo.semantic.validator import Registry
 # Model file templates
 # ---------------------------------------------------------------------------
 
-_MODEL_PY = textwrap.dedent("""\
+_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    ms.model(name="sales", default=True)
+    ms.domain(name="sales", default=True)
 """)
 
-_FULL_MODEL_PY = textwrap.dedent("""\
+_FULL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.field(dataset=orders)
+    @ms.dimension(dataset=orders)
     def amount(table):
         return table.amount
 
-    @ms.field(dataset=orders)
+    @ms.dimension(dataset=orders)
     def region(table):
         return table.region
 
-    @ms.time_field(dataset=orders, data_type="timestamp", granularity="day")
+    @ms.time_dimension(dataset=orders, data_type="timestamp", granularity="day")
     def created_at(table):
         return table.created_at
 
@@ -98,9 +98,9 @@ _FULL_MODEL_PY = textwrap.dedent("""\
 """)
 
 
-_DERIVED_METRIC_MODEL_PY = textwrap.dedent("""\
+_DERIVED_METRIC_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def revenue(table):
@@ -171,8 +171,8 @@ def _fake_inspect_source(datasource, *, source, include_partitions=True):
 def test_list_models(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     models = project.list_models()
@@ -193,8 +193,8 @@ def test_list_models(semantic_project_factory) -> None:
 def test_list_datasources(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     datasources = project.list_datasources()
@@ -212,8 +212,8 @@ def test_list_datasources(semantic_project_factory) -> None:
 def test_list_datasets(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     datasets = project.list_datasets()
@@ -229,8 +229,8 @@ def test_list_datasets(semantic_project_factory) -> None:
 def test_list_datasets_filter_by_model(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     datasets = project.list_datasets(model="sales")
@@ -250,8 +250,8 @@ def test_list_datasets_filter_by_model(semantic_project_factory) -> None:
 def test_list_fields(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     fields = project.list_fields()
@@ -260,14 +260,14 @@ def test_list_fields(semantic_project_factory) -> None:
     assert "region" in field_names
     assert all(isinstance(f, FieldSummary) for f in fields)
     assert all(not f.is_time_field for f in fields)
-    assert all(f.kind == FieldKind.DIMENSION for f in fields)
+    assert all(f.kind == DimensionKind.CATEGORICAL for f in fields)
 
 
 def test_list_fields_filter_by_dataset_keyword(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     fields = project.list_fields(dataset="sales.orders")
@@ -278,8 +278,8 @@ def test_list_fields_filter_by_dataset_keyword(semantic_project_factory) -> None
 def test_list_fields_filter_by_model(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     fields = project.list_fields(model="sales")
@@ -290,8 +290,8 @@ def test_list_fields_filter_by_model(semantic_project_factory) -> None:
 def test_list_fields_filter_by_model_and_dataset(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     fields = project.list_fields(model="sales", dataset="sales.orders")
@@ -303,8 +303,8 @@ def test_list_fields_filter_by_model_and_dataset(semantic_project_factory) -> No
 def test_list_fields_rejects_positional_dataset(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     with pytest.raises(TypeError):
@@ -314,22 +314,22 @@ def test_list_fields_rejects_positional_dataset(semantic_project_factory) -> Non
 def test_list_time_fields(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     time_fields = project.list_time_fields()
     assert len(time_fields) >= 1
     assert any(f.name == "created_at" for f in time_fields)
     assert all(f.is_time_field for f in time_fields)
-    assert all(f.kind == FieldKind.TIME for f in time_fields)
+    assert all(f.kind == DimensionKind.TIME for f in time_fields)
 
 
 def test_list_time_fields_filter_by_model(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     time_fields = project.list_time_fields(model="sales")
@@ -340,8 +340,8 @@ def test_list_time_fields_filter_by_model(semantic_project_factory) -> None:
 def test_list_time_fields_rejects_positional_dataset(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     with pytest.raises(TypeError):
@@ -351,38 +351,38 @@ def test_list_time_fields_rejects_positional_dataset(semantic_project_factory) -
 def test_list_fields_kind_measure(semantic_project_factory) -> None:
     model_with_measure = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.field(dataset=orders, kind="measure")
+        @ms.dimension(dataset=orders, kind="measure")
         def amount(table):
             return table.amount
 
-        @ms.field(dataset=orders)
+        @ms.dimension(dataset=orders)
         def region(table):
             return table.region
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/objects.py": model_with_measure,
         }
     )
     fields = project.list_fields()
     amount_field = next(f for f in fields if f.name == "amount")
     region_field = next(f for f in fields if f.name == "region")
-    assert amount_field.kind == FieldKind.MEASURE
-    assert region_field.kind == FieldKind.DIMENSION
+    assert amount_field.kind == DimensionKind.MEASURE
+    assert region_field.kind == DimensionKind.CATEGORICAL
 
 
 def test_kind_string_comparison(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     fields = project.list_fields()
-    dimension_fields = [f for f in fields if f.kind == "dimension"]
+    dimension_fields = [f for f in fields if f.kind == "categorical"]
     assert len(dimension_fields) >= 2
     time_fields = project.list_time_fields()
     assert all(f.kind == "time" for f in time_fields)
@@ -396,8 +396,8 @@ def test_kind_string_comparison(semantic_project_factory) -> None:
 def test_list_metrics(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     metrics = project.list_metrics()
@@ -411,8 +411,8 @@ def test_list_metrics(semantic_project_factory) -> None:
 def test_list_metrics_filter_by_dataset(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     metrics = project.list_metrics(dataset="sales.orders")
@@ -424,8 +424,8 @@ def test_list_metrics_filter_by_dataset(semantic_project_factory) -> None:
 def test_list_metrics_filter_by_decomposition(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     sum_metrics = project.list_metrics(decomposition="sum")
@@ -441,8 +441,8 @@ def test_list_metrics_filter_by_decomposition(semantic_project_factory) -> None:
 def test_list_relationships(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     rels = project.list_relationships()
@@ -454,8 +454,8 @@ def test_list_relationships(semantic_project_factory) -> None:
 def test_list_relationships_filter_by_model(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     rels = project.list_relationships(model="sales")
@@ -471,21 +471,21 @@ def test_list_relationships_filter_by_model(semantic_project_factory) -> None:
 def test_get_dataset(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     ds = project.get_dataset("sales.orders")
     assert ds is not None
     assert ds.name == "orders"
-    assert isinstance(ds, DatasetIR)
+    assert isinstance(ds, EntityIR)
 
 
-def test_get_dataset_not_found(semantic_project_factory) -> None:
+def test_get_entity_not_found(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     assert project.get_dataset("nonexistent") is None
@@ -494,8 +494,8 @@ def test_get_dataset_not_found(semantic_project_factory) -> None:
 def test_get_datasource(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     ds = project.get_datasource("warehouse")
@@ -507,8 +507,8 @@ def test_get_datasource(semantic_project_factory) -> None:
 def test_get_datasource_uses_global_name_not_model_qualified_id(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
 
@@ -518,21 +518,21 @@ def test_get_datasource_uses_global_name_not_model_qualified_id(semantic_project
 def test_get_field(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     f = project.get_field("sales.orders.amount")
     assert f is not None
     assert f.name == "amount"
-    assert isinstance(f, FieldIR)
+    assert isinstance(f, DimensionIR)
 
 
 def test_get_metric(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     m = project.get_metric("sales.total_revenue")
@@ -544,8 +544,8 @@ def test_get_metric(semantic_project_factory) -> None:
 def test_get_metric_not_found(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     assert project.get_metric("nonexistent") is None
@@ -554,8 +554,8 @@ def test_get_metric_not_found(semantic_project_factory) -> None:
 def test_get_relationship(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     rel = project.get_relationship("sales.orders_to_items")
@@ -567,8 +567,8 @@ def test_get_relationship(semantic_project_factory) -> None:
 def test_get_relationship_not_found(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     assert project.get_relationship("nonexistent") is None
@@ -582,8 +582,8 @@ def test_get_relationship_not_found(semantic_project_factory) -> None:
 def test_search_exact_semantic_id_match(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     results = project.search("sales.total_revenue")
@@ -600,8 +600,8 @@ def test_search_exact_semantic_id_match(semantic_project_factory) -> None:
 def test_search_name_match(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     results = project.search("total_revenue")
@@ -615,8 +615,8 @@ def test_search_name_match(semantic_project_factory) -> None:
 def test_search_description_match(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     results = project.search("average order")
@@ -630,8 +630,8 @@ def test_search_description_match(semantic_project_factory) -> None:
 def test_search_case_insensitive(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     results = project.search("TOTAL_REVENUE")
@@ -642,8 +642,8 @@ def test_search_case_insensitive(semantic_project_factory) -> None:
 def test_search_kind_filter(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     results = project.search("sales", kind=SymbolKind.METRIC)
@@ -653,8 +653,8 @@ def test_search_kind_filter(semantic_project_factory) -> None:
 def test_search_no_results(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     results = project.search("zzzznonexistent")
@@ -664,8 +664,8 @@ def test_search_no_results(semantic_project_factory) -> None:
 def test_search_results_sorted_by_field_priority(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     results = project.search("revenue")
@@ -693,8 +693,8 @@ def test_search_results_sorted_by_field_priority(semantic_project_factory) -> No
 def test_dependencies_metric(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     root = project.dependencies("sales.total_revenue")
@@ -709,13 +709,13 @@ def test_dependencies_metric(semantic_project_factory) -> None:
 def test_dependencies_dataset(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     root = project.dependencies("sales.orders")
     assert root.semantic_id == "sales.orders"
-    assert root.kind == SymbolKind.DATASET
+    assert root.kind == SymbolKind.ENTITY
     # Dataset depends on its datasource
     child_ids = [c.semantic_id for c in root.children]
     assert "warehouse" in child_ids
@@ -724,13 +724,13 @@ def test_dependencies_dataset(semantic_project_factory) -> None:
 def test_dependencies_field(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     root = project.dependencies("sales.orders.amount")
     assert root.semantic_id == "sales.orders.amount"
-    assert root.kind == SymbolKind.FIELD
+    assert root.kind == SymbolKind.DIMENSION
     # Field depends on its parent dataset
     child_ids = [c.semantic_id for c in root.children]
     assert "sales.orders" in child_ids
@@ -739,20 +739,20 @@ def test_dependencies_field(semantic_project_factory) -> None:
 def test_dependencies_time_field(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     root = project.dependencies("sales.orders.created_at")
     assert root.semantic_id == "sales.orders.created_at"
-    assert root.kind == SymbolKind.TIME_FIELD
+    assert root.kind == SymbolKind.TIME_DIMENSION
 
 
 def test_dependencies_derived_metric(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/derived.py": _DERIVED_METRIC_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/derived.py": _DERIVED_METRIC_DOMAIN_PY,
         }
     )
     root = project.dependencies("sales.aov")
@@ -771,8 +771,8 @@ def test_dependencies_derived_metric(semantic_project_factory) -> None:
 def test_dependencies_not_found(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     with pytest.raises(SemanticRuntimeError) as exc_info:
@@ -788,13 +788,13 @@ def test_dependencies_not_found(semantic_project_factory) -> None:
 def test_dependents_dataset(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     root = project.dependents("sales.orders")
     assert root.semantic_id == "sales.orders"
-    assert root.kind == SymbolKind.DATASET
+    assert root.kind == SymbolKind.ENTITY
     child_ids = [c.semantic_id for c in root.children]
     # Metrics that depend on this dataset
     assert "sales.total_revenue" in child_ids
@@ -806,8 +806,8 @@ def test_dependents_dataset(semantic_project_factory) -> None:
 def test_dependents_metric(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/derived.py": _DERIVED_METRIC_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/derived.py": _DERIVED_METRIC_DOMAIN_PY,
         }
     )
     # revenue is a component of aov
@@ -821,13 +821,13 @@ def test_dependents_metric(semantic_project_factory) -> None:
 def test_dependents_field(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     root = project.dependents("sales.orders.amount")
     assert root.semantic_id == "sales.orders.amount"
-    assert root.kind == SymbolKind.FIELD
+    assert root.kind == SymbolKind.DIMENSION
     # Fields have no dependents
     assert root.children == ()
 
@@ -835,8 +835,8 @@ def test_dependents_field(semantic_project_factory) -> None:
 def test_dependents_not_found(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     with pytest.raises(SemanticRuntimeError) as exc_info:
@@ -847,8 +847,8 @@ def test_dependents_not_found(semantic_project_factory) -> None:
 def test_dependencies_relationship(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     root = project.dependencies("sales.orders_to_items")
@@ -861,8 +861,8 @@ def test_dependencies_relationship(semantic_project_factory) -> None:
 def test_dependents_relationship(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     root = project.dependents("sales.orders_to_items")
@@ -874,8 +874,8 @@ def test_dependents_relationship(semantic_project_factory) -> None:
 def test_describe_dataset_deps_consistent(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe("sales.orders")
@@ -886,8 +886,8 @@ def test_describe_dataset_deps_consistent(semantic_project_factory) -> None:
 def test_describe_field_deps_consistent(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe("sales.orders.amount")
@@ -900,8 +900,8 @@ def test_describe_field_deps_consistent(semantic_project_factory) -> None:
 def test_blast_radius_dataset(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     br = project.blast_radius_of(("sales.orders",))
@@ -913,8 +913,8 @@ def test_blast_radius_dataset(semantic_project_factory) -> None:
 def test_blast_radius_field(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     br = project.blast_radius_of(("sales.orders.amount",))
@@ -930,8 +930,8 @@ def test_blast_radius_field(semantic_project_factory) -> None:
 def test_compile_sql_base_metric(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     sql = project.compile_sql("sales.total_revenue", backend_factory=backend_factory)
@@ -944,8 +944,8 @@ def test_compile_sql_base_metric(semantic_project_factory, backend_factory) -> N
 def test_compile_sql_derived_metric(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/derived.py": _DERIVED_METRIC_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/derived.py": _DERIVED_METRIC_DOMAIN_PY,
         }
     )
     sql = project.compile_sql("sales.aov", backend_factory=backend_factory)
@@ -956,8 +956,8 @@ def test_compile_sql_derived_metric(semantic_project_factory, backend_factory) -
 def test_compile_sql_metric_not_found(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     with pytest.raises(SemanticRuntimeError) as exc_info:
@@ -973,8 +973,8 @@ def test_compile_sql_metric_not_found(semantic_project_factory, backend_factory)
 def test_describe_returns_description(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe("sales.total_revenue")
@@ -987,8 +987,8 @@ def test_describe_returns_description(semantic_project_factory) -> None:
 def test_describe_to_text(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe("sales.total_revenue")
@@ -1002,8 +1002,8 @@ def test_describe_to_text(semantic_project_factory) -> None:
 def test_describe_not_found(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     with pytest.raises(SemanticRuntimeError) as exc_info:
@@ -1014,8 +1014,8 @@ def test_describe_not_found(semantic_project_factory) -> None:
 def test_describe_with_compile_sql(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe(
@@ -1032,13 +1032,13 @@ def test_describe_with_compile_sql(semantic_project_factory, backend_factory) ->
 def test_describe_dataset_has_provenance_none(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe("sales.orders")
     assert isinstance(desc, Description)
-    assert desc.kind == SymbolKind.DATASET
+    assert desc.kind == SymbolKind.ENTITY
     assert desc.dataset_provenance is None  # Not materialized yet
     assert desc.primary_key is not None  # Should be a tuple (possibly empty)
 
@@ -1046,38 +1046,38 @@ def test_describe_dataset_has_provenance_none(semantic_project_factory) -> None:
 def test_describe_field_has_granularity_none(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe("sales.orders.amount")
     assert isinstance(desc, Description)
-    assert desc.kind == SymbolKind.FIELD
+    assert desc.kind == SymbolKind.DIMENSION
     assert desc.granularity is None  # Not a time field
 
 
 def test_describe_time_field_has_granularity(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe("sales.orders.created_at")
     assert isinstance(desc, Description)
-    assert desc.kind == SymbolKind.TIME_FIELD
+    assert desc.kind == SymbolKind.TIME_DIMENSION
     assert desc.granularity == "day"
 
 
 def test_describe_time_field_has_format(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/objects.py": textwrap.dedent("""\
                 import marivo.semantic as ms
-                orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+                orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
-                @ms.time_field(
+                @ms.time_dimension(
                     dataset=orders,
                     data_type="string",
                     granularity="day",
@@ -1090,7 +1090,7 @@ def test_describe_time_field_has_format(semantic_project_factory) -> None:
     )
     desc = project.describe("sales.orders.log_date")
     assert isinstance(desc, Description)
-    assert desc.kind == SymbolKind.TIME_FIELD
+    assert desc.kind == SymbolKind.TIME_DIMENSION
     assert desc.format == "%Y%m%d"
 
 
@@ -1101,8 +1101,8 @@ def _make_ambiguous_registry() -> Registry:
     """
     from marivo.semantic.ir import (
         AiContextIR,
-        DatasetIR,
         DecompositionIR,
+        EntityIR,
         MetricIR,
         ProvenanceIR,
         SourceLocation,
@@ -1110,7 +1110,7 @@ def _make_ambiguous_registry() -> Registry:
     )
 
     shared_id = "sales.dau_7d_portrait"
-    ds = DatasetIR(
+    ds = EntityIR(
         semantic_id=shared_id,
         model="sales",
         name="dau_7d_portrait",
@@ -1158,25 +1158,25 @@ def test_find_ir_ambiguous_name_raises() -> None:
     candidates = exc_info.value.details["candidates"]
     assert len(candidates) == 2
     kind_strs = {c[0] for c in candidates}
-    assert "dataset" in kind_strs
+    assert "entity" in kind_strs
     assert "metric" in kind_strs
 
 
 def test_find_ir_with_kind_returns_single_match() -> None:
     """When kind is specified, _find_ir only searches the matching collection."""
-    from marivo.semantic.ir import DatasetIR, MetricIR, SymbolKind
+    from marivo.semantic.ir import EntityIR, MetricIR, SymbolKind
 
     reg = _make_ambiguous_registry()
     shared_id = "sales.dau_7d_portrait"
 
-    ds_result = SemanticProject._find_ir(shared_id, reg, kind=SymbolKind.DATASET)
-    assert isinstance(ds_result, DatasetIR)
+    ds_result = SemanticProject._find_ir(shared_id, reg, kind=SymbolKind.ENTITY)
+    assert isinstance(ds_result, EntityIR)
 
     metric_result = SemanticProject._find_ir(shared_id, reg, kind=SymbolKind.METRIC)
     assert isinstance(metric_result, MetricIR)
 
     # kind that has no match returns None
-    none_result = SemanticProject._find_ir(shared_id, reg, kind=SymbolKind.FIELD)
+    none_result = SemanticProject._find_ir(shared_id, reg, kind=SymbolKind.DIMENSION)
     assert none_result is None
 
 
@@ -1184,8 +1184,8 @@ def test_describe_with_kind_param(semantic_project_factory) -> None:
     """Passing kind= to describe narrows the search to the specified collection."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
 
@@ -1194,20 +1194,20 @@ def test_describe_with_kind_param(semantic_project_factory) -> None:
     assert desc.kind == SymbolKind.METRIC
 
     # describe with kind=DATASET should find the dataset
-    desc = project.describe("sales.orders", kind=SymbolKind.DATASET)
-    assert desc.kind == SymbolKind.DATASET
+    desc = project.describe("sales.orders", kind=SymbolKind.ENTITY)
+    assert desc.kind == SymbolKind.ENTITY
 
-    # describe with kind that doesn't match should raise DATASET_NOT_FOUND
+    # describe with kind that doesn't match should raise ENTITY_NOT_FOUND
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        project.describe("sales.total_revenue", kind=SymbolKind.DATASET)
-    assert exc_info.value.kind == ErrorKind.DATASET_NOT_FOUND
+        project.describe("sales.total_revenue", kind=SymbolKind.ENTITY)
+    assert exc_info.value.kind == ErrorKind.ENTITY_NOT_FOUND
 
 
 def test_describe_relationship(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe("sales.orders_to_items")
@@ -1224,8 +1224,8 @@ def test_describe_relationship(semantic_project_factory) -> None:
 def test_describe_relationship_to_text(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe("sales.orders_to_items")
@@ -1243,8 +1243,8 @@ def test_describe_relationship_to_text(semantic_project_factory) -> None:
 def test_reader_on_unloaded_project_raises(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         },
         load=False,
     )
@@ -1258,7 +1258,7 @@ def test_reader_on_errored_project_raises(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": bad_model,
+            "sales/_domain.py": bad_model,
         }
     )
     with pytest.raises(SemanticLoadFailed):
@@ -1268,8 +1268,8 @@ def test_reader_on_errored_project_raises(semantic_project_factory) -> None:
 def test_require_registry_uses_project_not_loaded_error_kind(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         },
         load=False,
     )
@@ -1286,8 +1286,8 @@ def test_require_registry_uses_project_not_loaded_error_kind(semantic_project_fa
 def test_load_single_model_string(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         },
         load=False,
     )
@@ -1299,8 +1299,8 @@ def test_load_single_model_string(semantic_project_factory) -> None:
 def test_load_single_model_string_on_already_loaded_project(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         },
     )
     project.load("sales")
@@ -1316,8 +1316,8 @@ def test_load_single_model_string_on_already_loaded_project(semantic_project_fac
 def test_returned_summary_objects_are_frozen(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     models = project.list_models()
@@ -1329,8 +1329,8 @@ def test_returned_summary_objects_are_frozen(semantic_project_factory) -> None:
 def test_description_is_frozen(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     desc = project.describe("sales.total_revenue")
@@ -1376,8 +1376,8 @@ def test_empty_project_search_is_silent(semantic_project_factory, capsys) -> Non
 def test_list_metrics_returns_discovery_result(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     result = project.list_metrics()
@@ -1387,8 +1387,8 @@ def test_list_metrics_returns_discovery_result(semantic_project_factory) -> None
 def test_list_metrics_is_silent(semantic_project_factory, capsys) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     project.list_metrics()
@@ -1399,8 +1399,8 @@ def test_list_metrics_is_silent(semantic_project_factory, capsys) -> None:
 def test_list_models_returns_discovery_result(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     assert isinstance(project.list_models(), DiscoveryResult)
@@ -1409,8 +1409,8 @@ def test_list_models_returns_discovery_result(semantic_project_factory) -> None:
 def test_list_datasources_returns_discovery_result(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     assert isinstance(project.list_datasources(), DiscoveryResult)
@@ -1419,8 +1419,8 @@ def test_list_datasources_returns_discovery_result(semantic_project_factory) -> 
 def test_list_datasets_returns_discovery_result(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     assert isinstance(project.list_datasets(), DiscoveryResult)
@@ -1429,8 +1429,8 @@ def test_list_datasets_returns_discovery_result(semantic_project_factory) -> Non
 def test_list_fields_returns_discovery_result(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     assert isinstance(project.list_fields(), DiscoveryResult)
@@ -1439,8 +1439,8 @@ def test_list_fields_returns_discovery_result(semantic_project_factory) -> None:
 def test_list_time_fields_returns_discovery_result(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     assert isinstance(project.list_time_fields(), DiscoveryResult)
@@ -1449,8 +1449,8 @@ def test_list_time_fields_returns_discovery_result(semantic_project_factory) -> 
 def test_list_relationships_returns_discovery_result(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     assert isinstance(project.list_relationships(), DiscoveryResult)
@@ -1459,8 +1459,8 @@ def test_list_relationships_returns_discovery_result(semantic_project_factory) -
 def test_search_returns_discovery_result(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     assert isinstance(project.search("revenue"), DiscoveryResult)
@@ -1469,8 +1469,8 @@ def test_search_returns_discovery_result(semantic_project_factory) -> None:
 def test_search_is_silent(semantic_project_factory, capsys) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     project.search("revenue")
@@ -1482,8 +1482,8 @@ def test_list_metrics_no_display_parameter(semantic_project_factory) -> None:
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     sig = inspect.signature(project.list_metrics)
@@ -1493,8 +1493,8 @@ def test_list_metrics_no_display_parameter(semantic_project_factory) -> None:
 def test_list_metrics_ids_returns_semantic_ids(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     result = project.list_metrics()
@@ -1506,8 +1506,8 @@ def test_list_metrics_ids_returns_semantic_ids(semantic_project_factory) -> None
 def test_list_metrics_require_one_with_single_result(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     result = project.list_metrics(dataset="sales.orders")
@@ -1519,8 +1519,8 @@ def test_list_metrics_require_one_with_single_result(semantic_project_factory) -
 def test_list_metrics_require_one_zero_raises_no_results(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     result = project.list_metrics(dataset="nonexistent.dataset")
@@ -1533,8 +1533,8 @@ def test_list_models_ids_raises_selection_error(semantic_project_factory) -> Non
     """ModelSummary has no semantic_id, so .ids() should raise SelectionError."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     result = project.list_models()
@@ -1550,8 +1550,8 @@ def test_list_models_ids_raises_selection_error(semantic_project_factory) -> Non
 def test_preview_dataset_returns_bounded_rows(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
 
@@ -1572,8 +1572,8 @@ def test_preview_field_returns_values_with_context(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
 
@@ -1589,8 +1589,8 @@ def test_preview_field_returns_values_with_context(
 def test_preview_metric_returns_scalar_value(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
 
@@ -1617,8 +1617,8 @@ def test_preview_metric_returns_scalar_value(semantic_project_factory, backend_f
 def test_preview_dataset_rejects_invalid_limit(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
 
@@ -1632,8 +1632,8 @@ def test_collect_source_preview_returns_datasource_preview_and_records_evidence(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
 
@@ -1659,8 +1659,8 @@ def test_collect_source_preview_persists_metadata_without_rows(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
 
@@ -1701,8 +1701,8 @@ def test_collect_source_preview_replaces_persisted_record_for_same_ref(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
 
@@ -1737,8 +1737,8 @@ def test_collect_source_preview_rejects_invalid_limit(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
 
@@ -1759,8 +1759,8 @@ def test_collect_source_preview_rejects_invalid_limit(
 def test_bind_datasource_access_materialize(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     project.bind_datasource_access(
@@ -1773,8 +1773,8 @@ def test_bind_datasource_access_materialize(semantic_project_factory, backend_fa
 def test_bind_datasource_access_preview(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     project.bind_datasource_access(
@@ -1787,8 +1787,8 @@ def test_bind_datasource_access_preview(semantic_project_factory, backend_factor
 def test_bind_datasource_access_missing_raises(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     with pytest.raises(SemanticRuntimeError) as exc_info:
@@ -1801,8 +1801,8 @@ def test_bind_datasource_access_explicit_override(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     project.bind_datasource_access(
@@ -1817,8 +1817,8 @@ def test_bind_datasource_access_preserved_across_reload(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     project.bind_datasource_access(
@@ -1832,8 +1832,8 @@ def test_bind_datasource_access_preserved_across_reload(
 def test_readiness_uses_bound_factory(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     project.bind_datasource_access(
@@ -1846,8 +1846,8 @@ def test_readiness_uses_bound_factory(semantic_project_factory, backend_factory)
 def test_readiness_without_bound_factory(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
-            "sales/objects.py": _FULL_MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
     report = project.readiness()

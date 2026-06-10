@@ -28,24 +28,24 @@ from marivo.semantic import typing as typing_mod
 from marivo.semantic.constraints import get_constraint, iter_constraints
 from marivo.semantic.ir import (
     AiContextIR,
-    DatasetIR,
-    DatasetProvenance,
-    DatasetRef,
     DatasourceIR,
     DecompositionIR,
-    FieldIR,
-    FieldKind,
-    FieldRef,
+    DimensionIR,
+    DimensionKind,
+    DimensionRef,
+    DomainIR,
+    EntityIR,
+    EntityProvenance,
+    EntityRef,
     MetricIR,
     MetricRef,
-    ModelIR,
     ParityStatus,
     ProvenanceIR,
     RelationshipIR,
     RelationshipRef,
     SourceLocation,
     SymbolKind,
-    TimeFieldRef,
+    TimeDimensionRef,
     VerificationMode,
 )
 
@@ -78,21 +78,21 @@ def test_all_list_matches_expected() -> None:
         "BoundedProfilePolicy",
         "ColumnEvidence",
         "ColumnProfile",
-        "DatasetDetails",
+        "EntityDetails",
         "DatasetSource",
         "DatasourceDetails",
         "DecisionKind",
         "DecisionRecord",
         "DemandSignal",
         "EvidenceFact",
-        "FieldDetails",
-        "FieldKind",
+        "DimensionDetails",
+        "DimensionKind",
         "FieldSummary",
         "FileSource",
         "MetadataOnlyPolicy",
         "MetricDetails",
-        "ModelDetails",
-        "ModelRef",
+        "DomainDetails",
+        "DomainRef",
         "ParitySummary",
         "PreviewSummary",
         "ReadinessIssue",
@@ -117,15 +117,15 @@ def test_all_list_matches_expected() -> None:
         "SnapshotVersioning",
         "SourceEvidencePack",
         "TableSource",
-        "TimeFieldDetails",
+        "TimeDimensionDetails",
         "ValidityVersioning",
         "find_project",
         "load",
-        "model",
-        "dataset",
+        "domain",
+        "entity",
         "file",
-        "field",
-        "time_field",
+        "dimension",
+        "time_dimension",
         "metric",
         "relationship",
         "sum",
@@ -275,7 +275,7 @@ def test_help_text_top_level_is_compact_directory(capsys: pytest.CaptureFixture[
     captured = capsys.readouterr()
     assert "marivo.semantic" in captured.out
     # Each line shows: name, kind tag in brackets, description
-    assert "ms.dataset" in captured.out
+    assert "ms.entity" in captured.out
     assert "ms.metric" in captured.out
     assert "ms.constraints" in captured.out
     # Kind tags appear as [kind] in output
@@ -308,7 +308,7 @@ def test_help_json_top_level_returns_compact_directory() -> None:
         assert entry["kind"] in {"callable", "class", "module", "topic", "surface", "unknown"}
     entry_names = {e["name"] for e in entries}
     assert entry_names == set(ms.__all__) | {"constraints", "decomposition"}
-    assert "dataset" in entry_names
+    assert "entity" in entry_names
     assert "metric" in entry_names
     assert "derived_metric" in entry_names
     assert "component" not in entry_names
@@ -335,19 +335,19 @@ def test_help_json_metric_includes_constraints_and_examples() -> None:
     assert "examples" in result
 
 
-def test_help_json_time_field_includes_partition_pushdown_advisory() -> None:
-    result = _ms_json_data("time_field")
+def test_help_json_time_dimension_includes_partition_pushdown_advisory() -> None:
+    result = _ms_json_data("time_dimension")
 
     assert isinstance(result, dict)
     constraints = cast("list[dict[str, Any]]", result["constraints"])
     assert isinstance(constraints, list)
     constraint_ids = {entry["id"] for entry in constraints}
-    assert "time_field_partition_pushdown" in constraint_ids
+    assert "time_dimension_partition_pushdown" in constraint_ids
     advisory = next(
-        entry for entry in constraints if entry["id"] == "time_field_partition_pushdown"
+        entry for entry in constraints if entry["id"] == "time_dimension_partition_pushdown"
     )
     assert set(advisory) <= {"id", "title", "hint", "example"}
-    assert "Partition time fields" in advisory["title"]
+    assert "Partition time dimensions" in advisory["title"]
     assert "date_format" in advisory["hint"]
 
 
@@ -465,7 +465,7 @@ def test_semantic_skill_constraint_table_matches_catalog() -> None:
 
 _EXPECTED_DECORATOR_KINDS = {
     "duplicate_name",
-    "missing_model",
+    "missing_domain",
     "missing_datasets",
     "invalid_ref",
     "invalid_decomposition",
@@ -477,15 +477,15 @@ _EXPECTED_DECORATOR_KINDS = {
 }
 
 _EXPECTED_ASSEMBLY_KINDS = {
-    "model_file_missing",
-    "model_file_mismatch",
-    "missing_dataset_ref",
-    "missing_field_ref",
+    "domain_file_missing",
+    "domain_file_mismatch",
+    "missing_entity_ref",
+    "missing_dimension_ref",
     "missing_metric_ref",
     "cross_model_cycle",
-    "hour_time_field_prefix_missing",
+    "hour_time_dimension_prefix_missing",
     "subday_granularity_without_time",
-    "duplicate_default_time_field",
+    "duplicate_default_time_dimension",
     "invalid_relationship_endpoint",
     "organization_error",
     "invalid_project",
@@ -493,7 +493,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "missing_metric_root_dataset",
     "invalid_metric_root_dataset",
     "invalid_verification_mode",
-    "invalid_dataset_versioning",
+    "invalid_entity_versioning",
     "non_root_metric_aggregate",
     "invalid_metric_fanout_policy",
     "derived_metric_fanout_policy",
@@ -501,8 +501,8 @@ _EXPECTED_ASSEMBLY_KINDS = {
 
 _EXPECTED_RUNTIME_KINDS = {
     "not_found",
-    "dataset_not_found",
-    "field_not_found",
+    "entity_not_found",
+    "dimension_not_found",
     "metric_not_found",
     "materialize_failed",
     "backend_mismatch",
@@ -569,10 +569,10 @@ _FROZEN_CLASSES = [
     SourceLocation,
     AiContextIR,
     ProvenanceIR,
-    ModelIR,
+    DomainIR,
     DatasourceIR,
-    DatasetIR,
-    FieldIR,
+    EntityIR,
+    DimensionIR,
     DecompositionIR,
     MetricIR,
     RelationshipIR,
@@ -592,7 +592,15 @@ def test_ir_frozen(cls: type) -> None:
 
 
 def test_symbol_kind_values() -> None:
-    expected = {"model", "datasource", "dataset", "field", "time_field", "metric", "relationship"}
+    expected = {
+        "domain",
+        "datasource",
+        "entity",
+        "dimension",
+        "time_dimension",
+        "metric",
+        "relationship",
+    }
     actual = {k.value for k in SymbolKind}
     assert actual == expected
 
@@ -611,13 +619,13 @@ def test_verification_mode_values() -> None:
 
 def test_dataset_provenance_values() -> None:
     expected = {"ibis_table", "sql_view"}
-    actual = {k.value for k in DatasetProvenance}
+    actual = {k.value for k in EntityProvenance}
     assert actual == expected
 
 
 def test_symbol_kind_is_str_enum() -> None:
-    assert isinstance(SymbolKind.MODEL, str)
-    assert SymbolKind.MODEL.value == "model"
+    assert isinstance(SymbolKind.DOMAIN, str)
+    assert SymbolKind.DOMAIN.value == "domain"
 
 
 def test_parity_status_is_str_enum() -> None:
@@ -626,15 +634,15 @@ def test_parity_status_is_str_enum() -> None:
 
 
 def test_field_kind_values() -> None:
-    expected = {"dimension", "measure", "time"}
-    actual = {k.value for k in FieldKind}
+    expected = {"categorical", "measure", "time"}
+    actual = {k.value for k in DimensionKind}
     assert actual == expected
 
 
 def test_field_kind_is_str_enum() -> None:
-    assert isinstance(FieldKind.DIMENSION, str)
-    assert FieldKind.DIMENSION.value == "dimension"
-    assert FieldKind.DIMENSION == "dimension"
+    assert isinstance(DimensionKind.CATEGORICAL, str)
+    assert DimensionKind.CATEGORICAL.value == "categorical"
+    assert DimensionKind.CATEGORICAL == "categorical"
 
 
 # ---------------------------------------------------------------------------
@@ -643,32 +651,32 @@ def test_field_kind_is_str_enum() -> None:
 
 
 def test_dataset_ref() -> None:
-    ref = DatasetRef("sales.orders")
+    ref = EntityRef("sales.orders")
     assert ref.semantic_id == "sales.orders"
-    assert ref.kind == SymbolKind.DATASET
-    assert "DatasetRef" in repr(ref)
+    assert ref.kind == SymbolKind.ENTITY
+    assert "EntityRef" in repr(ref)
 
 
 def test_field_ref() -> None:
-    ref = FieldRef("sales.orders.amount")
+    ref = DimensionRef("sales.orders.amount")
     assert ref.semantic_id == "sales.orders.amount"
-    assert ref.kind == SymbolKind.FIELD
+    assert ref.kind == SymbolKind.DIMENSION
 
 
 def test_field_ref_callable_without_resolver_raises() -> None:
-    ref = FieldRef("sales.orders.amount")
+    ref = DimensionRef("sales.orders.amount")
     with pytest.raises(RuntimeError, match="no resolver"):
         ref(None)
 
 
 def test_time_field_ref() -> None:
-    ref = TimeFieldRef("sales.orders.order_date")
+    ref = TimeDimensionRef("sales.orders.order_date")
     assert ref.semantic_id == "sales.orders.order_date"
-    assert ref.kind == SymbolKind.TIME_FIELD
+    assert ref.kind == SymbolKind.TIME_DIMENSION
 
 
 def test_time_field_ref_callable_without_resolver_raises() -> None:
-    ref = TimeFieldRef("sales.orders.order_date")
+    ref = TimeDimensionRef("sales.orders.order_date")
     with pytest.raises(RuntimeError, match="no resolver"):
         ref(None)
 
@@ -686,8 +694,8 @@ def test_relationship_ref() -> None:
 
 
 def test_base_ref_repr() -> None:
-    ref = DatasetRef("sales.orders")
-    assert repr(ref) == "DatasetRef('sales.orders')"
+    ref = EntityRef("sales.orders")
+    assert repr(ref) == "EntityRef('sales.orders')"
 
 
 # ---------------------------------------------------------------------------
