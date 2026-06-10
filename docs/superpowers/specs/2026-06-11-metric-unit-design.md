@@ -123,8 +123,9 @@ unit: str | None = None
 
 - `marivo/semantic/catalog.py` `MetricDetails` 增加 `unit: str | None`
   (与 `additivity` 并列;`SemanticObject` 顶层不加,遵循 additivity 先例)。
-- `project.describe(metric)` 结构化输出增加 `unit`,
-  `python-semantic-layer.md` 的 describe 最小字段清单同步。
+- 公开读取面以 catalog `details()` 与 `mv.help(ref)` 为准。实施核实:
+  `project.describe` 已在公开面收紧(`7f557499`)中移除,spec 里的 describe
+  字段清单属遗留描述,本特性不扩展它。
 - `mv.help(ref)` 语义对象帮助(`marivo/analysis/help.py` 打印器)在有值时输出
   `unit: <value>` 行——agent 消费单位的主路径。
 - richness 增加 `missing_unit` 建议项,照抄 `missing_guardrails` 模式:纯建议、
@@ -143,7 +144,9 @@ unit: str | None = None
    payload 统一加 `"unit"`(`str | None`),取值为**该 finding 的 subject 指标**
    对应 `MetricIR.unit`(decompose 的组件级 finding 取组件指标的 unit)。
    `seeding.py` 的 `payload.get("unit")` 即刻收到真值,seeding 侧零改动;
-   unit 为 `None` 时行为与现状完全一致。
+   unit 为 `None` 时行为与现状完全一致。实施核实:当前唯一的 delta finding
+   发射点是 compare 的 commit 路径(`extract_delta_findings`,scalar 与
+   segmented 两分支);契约覆盖全部四种 delta kind,未来新增发射点自动继承。
 2. **frame 渲染**:`MetricFrame.render()` identity 行在有值时显示 `unit=<value>`
    (`marivo/analysis/frames/base.py`),纯展示。
 3. **报告层零代码改动**:在 analysis 侧报告指引文档加一条
@@ -153,7 +156,7 @@ unit: str | None = None
 
 | 文件 | 更新 |
 |---|---|
-| `docs/specs/semantic/python-semantic-layer.md` | metric 声明字段表、UCUM 取值约定节、describe 字段清单 |
+| `docs/specs/semantic/python-semantic-layer.md` | metric 声明字段表、UCUM 取值约定节 |
 | `docs/specs/analysis/python-track-evidence-surface.md` | delta finding payload 的 `unit` 字段说明 |
 | `marivo-skills/marivo-semantic/references/authoring-patterns.md` | agent 填写策略(上节全文) |
 | `marivo-skills/marivo-analysis/references/final-report.md` | 报告 format 与单位后缀从 metric 的 unit 取材一句 |
@@ -165,7 +168,7 @@ unit: str | None = None
 (`make test TESTS='...'` → `make test`):
 
 1. authoring:接受合法 unit、默认 `None`、lint 拒绝(空串、含空白、非 ASCII)。
-2. catalog / describe / help:unit 透出;无值时不输出该行。
+2. catalog / help:unit 透出;无值时不输出该行。
 3. richness:缺 unit 的 metric 产生 `missing_unit` 建议。
 4. intents:observe / compare / decompose 三处 delta payload 携带 `unit`。
 5. seeding:change proposition payload 的 `unit` 不再恒 `None`。
