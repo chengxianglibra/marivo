@@ -19,11 +19,11 @@ from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricR
 
 def test_refs_are_exported_and_preserve_ids():
     assert mv.AlignmentKind is AlignmentKind
-    assert mv.MetricRef("sales.revenue").id == "sales.revenue"
-    assert mv.DimensionRef("region").id == "region"
+    assert mv.MetricRef("sales.revenue").semantic_id == "sales.revenue"
+    assert mv.DimensionRef("region").semantic_id == "region"
     assert mv.CalendarRef("cn_holidays").id == "cn_holidays"
-    assert MetricRef("sales.revenue").id == "sales.revenue"
-    assert DimensionRef("region").id == "region"
+    assert MetricRef("sales.revenue").semantic_id == "sales.revenue"
+    assert DimensionRef("region").semantic_id == "region"
     assert CalendarRef("cn_holidays").id == "cn_holidays"
 
 
@@ -34,7 +34,10 @@ def test_artifact_ref_is_exported_and_preserves_id():
 
 
 def test_refs_reject_empty_ids():
-    for ref_cls in (MetricRef, DimensionRef, CalendarRef, ArtifactRef):
+    for ref_cls in (MetricRef, DimensionRef):
+        with pytest.raises(ValueError):
+            ref_cls(" ")
+    for ref_cls in (CalendarRef, ArtifactRef):
         with pytest.raises(ValidationError):
             ref_cls(" ")
 
@@ -45,7 +48,7 @@ def test_refs_reject_extra_fields_with_validation_error():
 
 
 def test_metric_ref_requires_model_and_metric():
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValueError):
         MetricRef("revenue")
 
 

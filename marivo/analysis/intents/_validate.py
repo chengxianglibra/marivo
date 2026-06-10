@@ -147,7 +147,7 @@ def validate_decompose_columns(
     )
 
     available_columns = [str(column) for column in source_df.columns]
-    normalized_axis = axis.id.rsplit(".", 1)[-1]
+    normalized_axis = axis.semantic_id.rsplit(".", 1)[-1]
     axis_column = _effective_component_axis_column(frame, axis, available_columns)
     if axis_column is None:
         return [
@@ -158,7 +158,7 @@ def validate_decompose_columns(
                     "the DeltaFrame."
                 ),
                 details={
-                    "requested_axis": axis.id,
+                    "requested_axis": axis.semantic_id,
                     "normalized_axis": normalized_axis,
                     "available_columns": available_columns,
                 },

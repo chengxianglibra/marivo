@@ -31,7 +31,7 @@ session = mv.session.active()
 # Single-unit calendar grains use the legacy string form.
 # This works with the tiny fixture's day-granularity time field.
 series_day = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="day",
 )
@@ -41,7 +41,7 @@ print(f"day_series_kind={series_day.meta.semantic_kind!r}")
 # --- Grain object ----------------------------------------------------
 # The same day grain expressed as a typed Grain object.
 series_day_obj = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain=Grain(count=1, unit="day"),
 )
@@ -56,28 +56,28 @@ print(f"day_obj_kind={series_day_obj.meta.semantic_kind!r}")
 
 # (count, unit) tuple: 5-minute buckets (288 per day).
 # series_5min = session.observe(
-#     mv.MetricRef(id="ops.hits"),
+#     mv.MetricRef("ops.hits"),
 #     timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
 #     grain=(5, "minute"),
 # )
 
 # Grain object: same 5-minute grain with typed constructor.
 # series_5min_obj = session.observe(
-#     mv.MetricRef(id="ops.hits"),
+#     mv.MetricRef("ops.hits"),
 #     timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
 #     grain=Grain(count=5, unit="minute"),
 # )
 
 # Grain token string: shorthand form for sub-day multi-bucket grains.
 # series_5min_token = session.observe(
-#     mv.MetricRef(id="ops.hits"),
+#     mv.MetricRef("ops.hits"),
 #     timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
 #     grain="5minute",
 # )
 
 # Hourly grain on a timestamp-type time field.
 # series_hourly = session.observe(
-#     mv.MetricRef(id="ops.hits"),
+#     mv.MetricRef("ops.hits"),
 #     timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 06:00:00"},
 #     grain="hour",
 # )

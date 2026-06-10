@@ -214,7 +214,7 @@ def _require_registry(
         [
             SemanticRuntimeError(
                 kind=ErrorKind.PROJECT_NOT_LOADED,
-                message="Project is not loaded. Call project.load() first.",
+                message="Project is not loaded. Call ms.load() to load the semantic project.",
             )
         ]
     )
@@ -246,6 +246,10 @@ class _DepNode:
 
 class SemanticProject:
     """Primary reader for a loaded semantic project.
+
+    For agent-facing reading, use ms.load() which returns a SemanticCatalog.
+    The list_* methods are internal helpers for the authoring and
+    materialization workflow.
 
     Usage::
 
@@ -379,6 +383,8 @@ class SemanticProject:
     def list_domains(self) -> DiscoveryResult[DomainSummary]:
         """Return all domain summaries.
 
+        Internal helper — agents should use catalog.list() or catalog.get() instead.
+
         Returns:
             DiscoveryResult[DomainSummary] — iterate, call .ids(), .show(), etc.
         """
@@ -418,6 +424,8 @@ class SemanticProject:
     def list_datasources(self) -> DiscoveryResult[DatasourceSummary]:
         """Return all datasource summaries.
 
+        Internal helper — agents should use catalog.list() or catalog.get() instead.
+
         Returns:
             DiscoveryResult[DatasourceSummary] — iterate, call .ids(), .show(), etc.
         """
@@ -437,6 +445,8 @@ class SemanticProject:
 
     def list_entities(self, *, domain: str | None = None) -> DiscoveryResult[EntitySummary]:
         """Return entity summaries, optionally filtered by domain name.
+
+        Internal helper — agents should use catalog.list() or catalog.get() instead.
 
         Args:
             domain: Optional domain name to filter entities.
@@ -472,6 +482,8 @@ class SemanticProject:
         entity: str | None = None,
     ) -> DiscoveryResult[DimensionSummary]:
         """Return dimension summaries, optionally filtered by domain or entity.
+
+        Internal helper — agents should use catalog.list() or catalog.get() instead.
 
         Dimensions are all @ms.dimension declarations that are not time dimensions.
         For time dimensions, use list_time_dimensions().
@@ -517,6 +529,8 @@ class SemanticProject:
     ) -> DiscoveryResult[DimensionSummary]:
         """Return time dimension summaries, optionally filtered by domain or entity.
 
+        Internal helper — agents should use catalog.list() or catalog.get() instead.
+
         Args:
             domain: Optional domain name to filter time dimensions.
             entity: Optional entity semantic_id to filter time dimensions.
@@ -559,6 +573,8 @@ class SemanticProject:
     ) -> DiscoveryResult[MetricSummary]:
         """Return metric summaries, optionally filtered.
 
+        Internal helper — agents should use catalog.list() or catalog.get() instead.
+
         Args:
             entity: Optional entity semantic_id to filter metrics.
             decomposition: Optional decomposition kind to filter metrics.
@@ -598,6 +614,8 @@ class SemanticProject:
         self, *, domain: str | None = None
     ) -> DiscoveryResult[RelationshipSummary]:
         """Return relationship summaries, optionally filtered by domain.
+
+        Internal helper — agents should use catalog.list() or catalog.get() instead.
 
         Args:
             domain: Optional domain name to filter relationships.

@@ -17,14 +17,14 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
 metric = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
-    dimensions=[mv.DimensionRef(id="region")],
+    dimensions=[mv.DimensionRef("region")],
 )
 outliers = session.discover.cross_sectional_outliers(
     metric,
     threshold=3.0,
-    peer_scope=[mv.DimensionRef(id="region")],
+    peer_scope=[mv.DimensionRef("region")],
 )
 print(f"outliers.objective={outliers.meta.objective!r}")
 print(f"outliers.row_count={outliers.meta.row_count}")

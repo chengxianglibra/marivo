@@ -26,7 +26,7 @@ the project structure before authoring semantic objects.
   examples: `ms.help('metric')`,
   `ms.help('derived_metric')`,
   `ms.help('decomposition')`, and
-  `ms.help('SemanticProject')`. The descriptor exposes
+  `ms.help('SemanticCatalog')`. The descriptor exposes
   `signature`, `doc`, bounded `constraints`, runnable `examples`, `methods`,
   and drill-down ids. Consult it per object when the contract matters; do not
   turn help into a blanket ritual for each call.

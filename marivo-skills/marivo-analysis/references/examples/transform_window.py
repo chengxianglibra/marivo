@@ -15,7 +15,7 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
 time_series_frame = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-07-05"},
     grain="day",
 )

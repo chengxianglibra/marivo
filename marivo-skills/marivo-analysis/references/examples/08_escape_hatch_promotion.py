@@ -35,10 +35,10 @@ with tempfile.TemporaryDirectory(prefix="marivo-analysis-scratch-") as project_r
         # Optional typed re-entry: promote only when downstream intents require it.
         metric = session.promote_metric_frame(
             scratch,
-            metric=mv.MetricRef(id="sales.revenue"),
+            metric=mv.MetricRef("sales.revenue"),
             semantic_kind="segmented",
             measure_column="value",
-            axes={"country": mv.DimensionRef(id="country")},
+            axes={"country": mv.DimensionRef("country")},
             semantic_model="sales",
         )
 
@@ -54,10 +54,10 @@ with tempfile.TemporaryDirectory(prefix="marivo-analysis-scratch-") as project_r
         # More optional typed re-entry examples: manual delta and attribution frames.
         baseline_metric = session.promote_metric_frame(
             pd.DataFrame({"country": ["US", "CA"], "value": [7.0, 4.0]}),
-            metric=mv.MetricRef(id="sales.revenue"),
+            metric=mv.MetricRef("sales.revenue"),
             semantic_kind="segmented",
             measure_column="value",
-            axes={"country": mv.DimensionRef(id="country")},
+            axes={"country": mv.DimensionRef("country")},
             semantic_model="sales",
         )
         delta = session.promote_delta_frame(

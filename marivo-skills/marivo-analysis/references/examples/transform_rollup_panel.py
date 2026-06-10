@@ -40,7 +40,7 @@ panel_frame = mv.MetricFrame.from_dataframe(
     semantic_model="sales",
     session=session,
 )
-rolled = session.transform.rollup(panel_frame, drop_axes=[mv.DimensionRef(id="country")])
+rolled = session.transform.rollup(panel_frame, drop_axes=[mv.DimensionRef("country")])
 print(rolled.summary())
 
 # Expected output:

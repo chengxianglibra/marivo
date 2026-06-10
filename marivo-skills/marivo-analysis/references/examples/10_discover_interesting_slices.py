@@ -17,14 +17,14 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
 current = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
-    dimensions=[mv.DimensionRef(id="region")],
+    dimensions=[mv.DimensionRef("region")],
 )
 baseline = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(METRIC_ID),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
-    dimensions=[mv.DimensionRef(id="region")],
+    dimensions=[mv.DimensionRef("region")],
 )
 delta = session.compare(
     current,
@@ -34,13 +34,13 @@ delta = session.compare(
 slice_cands = session.discover.interesting_slices(
     delta,
     value="delta",
-    search_space=[mv.DimensionRef(id="region")],
+    search_space=[mv.DimensionRef("region")],
     threshold=0.5,
 )
 print(f"slices.row_count={slice_cands.meta.row_count}")
 if slice_cands.meta.row_count:
     selector = slice_cands.select(rank=1, attribute="selector")
-    rendered = {ref.id: value for ref, value in selector.items()}
+    rendered = {ref.semantic_id: value for ref, value in selector.items()}
     print(f"selector={rendered}")
     focus = session.transform.slice(delta, where=selector)
     print(f"focus.kind={focus.meta.kind!r}")

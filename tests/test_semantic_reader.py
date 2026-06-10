@@ -523,7 +523,7 @@ def test_require_registry_uses_project_not_loaded_error_kind(semantic_project_fa
     assert len(errors) == 1
     assert errors[0].kind == "project_not_loaded"
     assert errors[0].constraint_id == "project_loaded_required"
-    assert "project.load()" in (errors[0].hint or "")
+    assert "ms.load()" in (errors[0].hint or "")
     assert "list_metrics" not in (errors[0].hint or "")
 
 

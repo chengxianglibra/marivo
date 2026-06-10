@@ -29,7 +29,7 @@ revenue_by_country = mv.MetricFrame.from_dataframe(
     semantic_model="sales",
     session=session,
 )
-sliced = session.transform.slice(revenue_by_country, where={mv.DimensionRef(id="country"): "US"})
+sliced = session.transform.slice(revenue_by_country, where={mv.DimensionRef("country"): "US"})
 print(sliced.summary())
 
 # Expected output:

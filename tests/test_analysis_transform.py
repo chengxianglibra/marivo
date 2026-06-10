@@ -727,7 +727,7 @@ def test_persist_transform_frame_stores_json_safe_params(tmp_path):
     assert out.meta.produced_by_job is not None
     job_record = read_job_record(session.layout, out.meta.produced_by_job)
     json.dumps(job_record["params"])
-    assert job_record["params"]["drop_axes"] == [{"type": "DimensionRef", "id": "country"}]
+    assert job_record["params"]["drop_axes"] == [{"type": "DimensionRef", "semantic_id": "country"}]
     assert job_record["params"]["predicate"] == {
         "type": "callable",
         "name": f"{__name__}._positive_delta_predicate",
@@ -1217,7 +1217,7 @@ def test_transform_rollup_panel_drops_time_axis_to_segmented(tmp_path):
 
 def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
     frame = _make_panel(tmp_path)
-    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
+    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef("country")])
     assert rolled.meta.semantic_kind == "time_series"
     assert "country" not in rolled.meta.axes
     df = rolled.to_pandas()
@@ -1230,7 +1230,7 @@ def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
 
 def test_transform_rollup_delta_panel_drops_dim_and_recomputes_pct_change(tmp_path):
     frame = _make_delta_panel(tmp_path)
-    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
+    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef("country")])
     assert isinstance(rolled, DeltaFrame)
     assert rolled.meta.semantic_kind == "time_series"
     assert "country" not in rolled.meta.alignment["axes"]
@@ -1253,7 +1253,7 @@ def test_transform_rollup_delta_panel_drops_dim_and_recomputes_pct_change(tmp_pa
 
 def test_transform_rollup_delta_recomputes_delta_from_current_and_baseline(tmp_path):
     frame = _make_one_sided_delta_panel()
-    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
+    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef("country")])
     df = rolled.to_pandas()
 
     assert df["current"].tolist() == [10.0]
@@ -1264,7 +1264,7 @@ def test_transform_rollup_delta_recomputes_delta_from_current_and_baseline(tmp_p
 
 def test_transform_rollup_delta_preserves_all_missing_baseline(tmp_path):
     frame = _make_current_only_delta_panel()
-    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef(id="country")])
+    rolled = _active_transform(frame, op="rollup", drop_axes=[DimensionRef("country")])
     df = rolled.to_pandas()
 
     assert df["current"].tolist() == [17.0]
@@ -1286,7 +1286,7 @@ def test_transform_rollup_rejects_unknown_axis(tmp_path):
 
     frame = _make_panel(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError):
-        _active_transform(frame, op="rollup", drop_axes=[DimensionRef(id="platform")])
+        _active_transform(frame, op="rollup", drop_axes=[DimensionRef("platform")])
 
 
 def test_transform_slice_keeps_segmented_when_multi_value(tmp_path):
@@ -1294,7 +1294,7 @@ def test_transform_slice_keeps_segmented_when_multi_value(tmp_path):
     sliced = _active_transform(
         frame,
         op="slice",
-        where={DimensionRef(id="country"): ["US", "CA"]},
+        where={DimensionRef("country"): ["US", "CA"]},
     )
     assert isinstance(sliced, MetricFrame)
     assert sliced.meta.semantic_kind == "segmented"
@@ -1306,7 +1306,7 @@ def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
     sliced = _active_transform(
         frame,
         op="slice",
-        where={DimensionRef(id="country"): "US"},
+        where={DimensionRef("country"): "US"},
     )
     assert sliced.meta.semantic_kind == "scalar"
     assert "country" not in sliced.meta.axes
@@ -1324,7 +1324,7 @@ def test_transform_slice_string_dimension_key_demotes_on_single_value(tmp_path):
 
 def test_transform_slice_delta_dimension_selector_is_recorded_in_alignment(tmp_path):
     frame = _make_delta_panel(tmp_path)
-    sliced = _active_transform(frame, op="slice", where={DimensionRef(id="country"): "US"})
+    sliced = _active_transform(frame, op="slice", where={DimensionRef("country"): "US"})
     assert isinstance(sliced, DeltaFrame)
     assert sliced.meta.alignment["where"]["country"] == "US"
     assert "country" not in sliced.meta.alignment["axes"]
@@ -1336,7 +1336,7 @@ def test_transform_slice_rejects_unknown_dimension(tmp_path):
 
     frame = _make_segmented(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError) as excinfo:
-        _active_transform(frame, op="slice", where={DimensionRef(id="platform"): "mobile"})
+        _active_transform(frame, op="slice", where={DimensionRef("platform"): "mobile"})
     assert "platform" in str(excinfo.value)
 
 
@@ -1389,7 +1389,7 @@ def test_transform_slice_rejects_range_tuple_on_dimension(tmp_path):
 
     frame = _make_segmented(tmp_path)
     with pytest.raises(TransformArgError) as excinfo:
-        _active_transform(frame, op="slice", where={DimensionRef(id="country"): ("US", "CA")})
+        _active_transform(frame, op="slice", where={DimensionRef("country"): ("US", "CA")})
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
 

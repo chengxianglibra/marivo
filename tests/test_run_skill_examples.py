@@ -236,7 +236,7 @@ _VALID_TEMPLATE = textwrap.dedent(
         default_calendar="cn_holidays",
     )
     frame = session.observe(
-        mv.MetricRef(id=metric_id),
+        mv.MetricRef(metric_id),
         window={"start": "2026-05-01", "end": "2026-05-31"},
     )
     print(frame.summary())

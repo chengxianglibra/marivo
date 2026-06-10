@@ -114,7 +114,7 @@ def select(
         )
 
     if base_attr == "axis":
-        return DimensionRef(id=str(row["axis"]))
+        return DimensionRef(str(row["axis"]))
     if base_attr == "selector":
         raw = row["selector_json"]
         if not raw:
@@ -123,7 +123,7 @@ def select(
                 details={"shape": shape, "attribute": attribute},
             )
         decoded = json.loads(raw)
-        return {DimensionRef(id=name): value for name, value in decoded.items()}
+        return {DimensionRef(name): value for name, value in decoded.items()}
     if base_attr == "window":
         return _absolute_window(row["window_start"], row["window_end"])
     if base_attr == "baseline_window":
