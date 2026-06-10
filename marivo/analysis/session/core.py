@@ -18,6 +18,8 @@ from marivo.analysis.session.persistence import (
 from marivo.analysis.timezone import resolve_system_timezone
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from marivo.analysis.evidence import (
         Assessment,
         EvidenceTrace,
@@ -38,9 +40,11 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.intents._shape import SemanticShape
     from marivo.analysis.intents._types import SliceValue
-    from marivo.analysis.policies import AlignmentPolicy, LagPolicy, SamplingPolicy
-    from marivo.analysis.refs import DimensionRef, MetricRef
+    from marivo.analysis.policies import AlignmentPolicy, LagPolicy, PromotionPolicy, SamplingPolicy
+    from marivo.analysis.refs import ArtifactRef, DimensionRef, MetricRef
     from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
+
+SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
 SessionState = Literal["active", "archived"]
 BackendFactory = Callable[[str], Any]
@@ -510,16 +514,16 @@ class Session:
 
     def promote_metric_frame(
         self,
-        source: Any,
+        source: ExplorationResult | pd.DataFrame,
         *,
-        policy: Any = None,
-        metric: Any = None,
-        semantic_kind: str | None = None,
+        policy: PromotionPolicy | None = None,
+        metric: MetricRef | None = None,
+        semantic_kind: SemanticKind | None = None,
         measure_column: str | None = None,
-        axes: dict[str, Any] | None = None,
-        time_axis: str | Any | None = None,
+        axes: dict[str, DimensionRef] | None = None,
+        time_axis: str | DimensionRef | None = None,
         semantic_model: str | None = None,
-        window: Any = None,
+        window: object | None = None,
         where: dict[str, Any] | None = None,
     ) -> MetricFrame:
         from marivo.analysis.escape_hatch import promote_metric_frame
@@ -529,7 +533,7 @@ class Session:
             policy=policy,
             session=self,
             metric=metric,
-            semantic_kind=cast("Any", semantic_kind),
+            semantic_kind=semantic_kind,
             measure_column=measure_column,
             axes=axes,
             time_axis=time_axis,
@@ -540,18 +544,18 @@ class Session:
 
     def promote_delta_frame(
         self,
-        source: Any,
+        source: ExplorationResult | pd.DataFrame,
         *,
-        policy: Any = None,
-        current: Any = None,
-        baseline: Any = None,
-        metric: Any = None,
-        semantic_kind: str | None = None,
+        policy: PromotionPolicy | None = None,
+        current: ArtifactRef | None = None,
+        baseline: ArtifactRef | None = None,
+        metric: MetricRef | None = None,
+        semantic_kind: SemanticKind | None = None,
         semantic_model: str | None = None,
         delta_column: str | None = None,
         current_column: str | None = None,
         baseline_column: str | None = None,
-        alignment: Any = None,
+        alignment: AlignmentPolicy | None = None,
     ) -> DeltaFrame:
         from marivo.analysis.escape_hatch import promote_delta_frame
 
@@ -562,7 +566,7 @@ class Session:
             current=current,
             baseline=baseline,
             metric=metric,
-            semantic_kind=cast("Any", semantic_kind),
+            semantic_kind=semantic_kind,
             semantic_model=semantic_model,
             delta_column=delta_column,
             current_column=current_column,
@@ -572,10 +576,10 @@ class Session:
 
     def promote_attribution_frame(
         self,
-        source: Any,
+        source: ExplorationResult | pd.DataFrame,
         *,
-        policy: Any = None,
-        source_delta: Any = None,
+        policy: PromotionPolicy | None = None,
+        source_delta: ArtifactRef | None = None,
         driver_field: str | None = None,
         contribution_column: str | None = None,
         value_column: str | None = None,
