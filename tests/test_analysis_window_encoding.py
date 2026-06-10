@@ -209,7 +209,7 @@ def _compile_composite_window_filter(
     )
     expr = apply_window_to_dataset(
         table,
-        AbsoluteWindow(start=start, end=end, time_field="log_hour"),
+        AbsoluteWindow(start=start, end=end, time_dimension="log_hour"),
         dataset_ir=dataset,
     )
     return ibis.duckdb.connect(":memory:").compile(expr)

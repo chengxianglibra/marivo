@@ -83,7 +83,7 @@ from marivo.semantic.ledger import (
 )
 from marivo.semantic.loader import find_project
 from marivo.semantic.reader import (
-    FieldSummary,
+    DimensionSummary,
     RelationshipSummary,
     SemanticProject,
 )
@@ -120,11 +120,11 @@ __all__ = [
     "DemandSignal",
     "DimensionDetails",
     "DimensionKind",
+    "DimensionSummary",
     "DomainDetails",
     "DomainRef",
     "EntityDetails",
     "EvidenceFact",
-    "FieldSummary",
     "FileSource",
     "MetadataOnlyPolicy",
     "MetricDetails",

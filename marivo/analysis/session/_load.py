@@ -105,7 +105,7 @@ def _coerce_metric_window_meta(meta: dict[str, object], *, frame_ref: str) -> No
         return
 
     if "start" in window and "end" in window:
-        allowed_keys = {"start", "end", "grain", "tz", "time_field"}
+        allowed_keys = {"start", "end", "grain", "tz", "time_dimension"}
         normalized = {key: window[key] for key in allowed_keys if key in window}
         try:
             absolute = AbsoluteWindow.model_validate(normalized)

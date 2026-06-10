@@ -388,7 +388,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("relationship",),
         "Relationship endpoints must be registered entities.",
         "The compiler uses relationships to plan joins between known entities.",
-        "Pass EntityRef values or qualified entity ids to from_dataset and to_dataset.",
+        "Pass EntityRef values or qualified entity ids to from_entity and to_entity.",
     ),
     ConstraintId.PROJECT_ORGANIZATION: _constraint(
         ConstraintId.PROJECT_ORGANIZATION,

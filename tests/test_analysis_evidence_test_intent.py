@@ -27,7 +27,12 @@ def _metric(session, values: list[float]) -> MetricFrame:
         measure={"field": "value", "aggregation": "sum"},
         semantic_kind="time_series",
         semantic_model="sales",
-        window={"start": "2026-01-01", "end": "2026-01-06", "grain": "day", "time_field": "time"},
+        window={
+            "start": "2026-01-01",
+            "end": "2026-01-06",
+            "grain": "day",
+            "time_dimension": "time",
+        },
         session=session,
     )
 

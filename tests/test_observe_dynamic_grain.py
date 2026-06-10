@@ -33,10 +33,10 @@ def _bootstrap_events(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
-        "@ms.time_dimension(dataset=events, data_type='timestamp', granularity='minute')\n"
+        "@ms.time_dimension(entity=events, data_type='timestamp', granularity='minute')\n"
         "def ts(events):\n"
         "    return events.ts\n"
-        "@ms.metric(datasets=[events], additivity='additive', decomposition=ms.sum(), name='hits', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[events], additivity='additive', decomposition=ms.sum(), name='hits', verification_mode='python_native',)\n"
         "def hits(events):\n"
         "    return events.n.sum()\n"
     )

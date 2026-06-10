@@ -19,10 +19,10 @@ def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dimension(dataset='sales.user_history')\n"
+                "@ms.dimension(entity='sales.user_history')\n"
                 "def valid_from(t):\n"
                 "    return t.valid_from\n"
-                "@ms.dimension(dataset='sales.user_history')\n"
+                "@ms.dimension(entity='sales.user_history')\n"
                 "def valid_to(t):\n"
                 "    return t.valid_to\n"
                 "user_history = ms.entity(\n"
@@ -91,7 +91,7 @@ def _validity_versioning():
 @pytest.mark.parametrize("versioning_factory", [_snapshot_versioning, _validity_versioning])
 def test_derive_version_mode_picks_as_of_root_time(versioning_factory):
     mode, anchor_source, anchor_value = _derive_version_mode(
-        root_time_field=_date_time_field(),
+        root_time_dimension=_date_time_field(),
         target_versioning=versioning_factory(),
         resolved_window=None,
     )
@@ -103,7 +103,7 @@ def test_derive_version_mode_picks_as_of_root_time(versioning_factory):
 def test_derive_version_mode_falls_back_to_latest_with_timescope(monkeypatch):
     window = SimpleNamespace(end=dt.date(2026, 7, 3))
     mode, anchor_source, anchor_value = _derive_version_mode(
-        root_time_field=None,
+        root_time_dimension=None,
         target_versioning=_snapshot_versioning(),
         resolved_window=window,
     )
@@ -118,7 +118,7 @@ def test_derive_version_mode_falls_back_to_latest_with_plan_time(monkeypatch):
         lambda: dt.datetime(2026, 7, 5, 12, 0, tzinfo=dt.UTC),
     )
     mode, anchor_source, anchor_value = _derive_version_mode(
-        root_time_field=None,
+        root_time_dimension=None,
         target_versioning=_validity_versioning(),
         resolved_window=None,
     )
@@ -129,7 +129,7 @@ def test_derive_version_mode_falls_back_to_latest_with_plan_time(monkeypatch):
 
 def test_derive_version_mode_string_time_field_is_not_qualifying():
     mode, anchor_source, _anchor = _derive_version_mode(
-        root_time_field=_string_time_field(),
+        root_time_dimension=_string_time_field(),
         target_versioning=_snapshot_versioning(),
         resolved_window=SimpleNamespace(end=dt.date(2026, 1, 1)),
     )
@@ -144,7 +144,7 @@ def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factor
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),

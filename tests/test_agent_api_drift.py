@@ -41,19 +41,19 @@ _OBJECTS_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.dimension(dataset=orders)
+    @ms.dimension(entity=orders)
     def amount(table):
         return table.amount
 
-    @ms.dimension(dataset=orders)
+    @ms.dimension(entity=orders)
     def region(table):
         return table.region
 
-    @ms.time_dimension(dataset=orders, data_type="timestamp", granularity="day")
+    @ms.time_dimension(entity=orders, data_type="timestamp", granularity="day")
     def created_at(table):
         return table.created_at
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def total_revenue(table):
         return table.amount.sum()
 """)
@@ -176,7 +176,7 @@ def test_list_metrics_no_display_parameter(semantic_project_factory) -> None:
 
 def test_list_models_no_display_parameter(semantic_project_factory) -> None:
     project = _make_project(semantic_project_factory)
-    sig = inspect.signature(project.list_models)
+    sig = inspect.signature(project.list_domains)
     assert "display" not in sig.parameters
 
 

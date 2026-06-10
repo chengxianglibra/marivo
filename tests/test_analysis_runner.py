@@ -28,7 +28,7 @@ from marivo.semantic import SemanticProject
 def _bootstrap_project(
     tmp_path,
     *,
-    with_time_field: bool = True,
+    with_time_dimension: bool = True,
     model_name: str = "sales",
     dataset_name: str = "orders",
     datasource_name: str = "warehouse",
@@ -49,9 +49,9 @@ def _bootstrap_project(
     )
 
     time_field_block = ""
-    if with_time_field:
+    if with_time_dimension:
         time_field_block = (
-            f"\n@ms.time_dimension(dataset={dataset_name}, "
+            f"\n@ms.time_dimension(entity={dataset_name}, "
             f"data_type='{time_field_data_type}', granularity='day')\n"
             f"def created_at({dataset_name}):\n"
             f"    return {dataset_name}.created_at\n"
@@ -63,7 +63,7 @@ def _bootstrap_project(
         f"{dataset_name} = ms.entity(name='{dataset_name}', datasource='{datasource_name}', "
         f"source=ms.table('{dataset_name}'))\n"
         f"\n"
-        f"@ms.dimension(dataset={dataset_name})\n"
+        f"@ms.dimension(entity={dataset_name})\n"
         f"def region({dataset_name}):\n"
         f"    return {dataset_name}.region.upper()\n"
         f"{time_field_block}"
@@ -81,7 +81,7 @@ def _build_dataset_adapter(sp: SemanticProject, dataset_semantic_id: str) -> obj
     """
     from marivo.analysis.intents.observe import _build_dataset_adapter as _build
 
-    dataset_ir = sp.get_dataset(dataset_semantic_id)
+    dataset_ir = sp.get_entity(dataset_semantic_id)
     assert dataset_ir is not None, f"Dataset {dataset_semantic_id} not found"
     return _build(sp, dataset_ir)
 
@@ -138,7 +138,7 @@ def test_apply_slice_unknown_field_raises(tmp_path):
 
 def test_apply_window_dataset_without_time_field_raises(tmp_path):
     sp = _bootstrap_project(
-        tmp_path, with_time_field=False, model_name="x", dataset_name="t", datasource_name="w"
+        tmp_path, with_time_dimension=False, model_name="x", dataset_name="t", datasource_name="w"
     )
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE t (x INTEGER)")

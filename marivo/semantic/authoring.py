@@ -100,14 +100,14 @@ def _require_ctx() -> LoaderContext:
     return ctx
 
 
-def _resolve_model(explicit: DomainRef | None, ctx: LoaderContext) -> str:
-    """Resolve the model name: explicit ref > default_model > error."""
+def _resolve_domain(explicit: DomainRef | None, ctx: LoaderContext) -> str:
+    """Resolve the domain name: explicit ref > default_domain > error."""
     if isinstance(explicit, DomainRef):
         return explicit.semantic_id
     if explicit is not None:
         return explicit
-    if ctx.default_model is not None:
-        return ctx.default_model
+    if ctx.default_domain is not None:
+        return ctx.default_domain
     _raise(
         ErrorKind.MISSING_DOMAIN,
         "No domain name specified and no default domain is set. "
@@ -238,13 +238,13 @@ def _resolve_datasource_ref(ref: DatasourceRef | str) -> str:
     )
 
 
-def _resolve_field_refs(refs: list[DimensionRef | str]) -> tuple[str, ...]:
-    """Convert a list of field refs/strings to tuple of semantic_ids."""
+def _resolve_dimension_refs(refs: list[DimensionRef | str]) -> tuple[str, ...]:
+    """Convert a list of dimension refs/strings to tuple of semantic_ids."""
     return tuple(_resolve_ref_string(r) for r in refs)
 
 
-def _resolve_dataset_refs(refs: list[EntityRef | str] | None) -> tuple[str, ...]:
-    """Convert a list of dataset refs/strings to tuple of semantic_ids."""
+def _resolve_entity_refs(refs: list[EntityRef | str] | None) -> tuple[str, ...]:
+    """Convert a list of entity refs/strings to tuple of semantic_ids."""
     if refs is None:
         return ()
     return tuple(_resolve_ref_string(r) for r in refs)
@@ -276,13 +276,13 @@ def domain(
     Args:
         name: Domain namespace, e.g. ``"sales"``.
         default: If True, subsequent decorators in this file resolve to this
-            domain when no explicit ``model=`` kwarg is passed.
+            domain when no explicit ``domain=`` kwarg is passed.
         description: Free-text description; surfaced in agent/help output.
         ai_context: Optional ``AiContext`` (or compatible dict) with extra
             agent-facing hints.
 
     Returns:
-        A ``DomainRef`` that can be passed as the ``model=`` kwarg to other
+        A ``DomainRef`` that can be passed as the ``domain=`` kwarg to other
         decorators to override the default domain context.
 
     Raises:
@@ -307,7 +307,7 @@ def domain(
     _push_ir(ctx, ir, None)
 
     if default:
-        ctx.default_model = name
+        ctx.default_domain = name
 
     return DomainRef(semantic_id=name)
 
@@ -347,7 +347,7 @@ def entity(
     source: EntitySourceIR,
     primary_key: list[str] | None = None,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
-    model: DomainRef | None = None,
+    domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> EntityRef:
@@ -360,7 +360,7 @@ def entity(
         source: Structured physical source, usually ``ms.table(...)`` or
             ``ms.file(...)``.
         primary_key: Optional list of column names forming the primary key.
-        model: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         description: Free-text description; surfaced in agent/help output.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
@@ -380,8 +380,8 @@ def entity(
         ... )
     """
     ctx = _require_ctx()
-    resolved_model = _resolve_model(model, ctx)
-    semantic_id = f"{resolved_model}.{name}"
+    resolved_domain = _resolve_domain(domain, ctx)
+    semantic_id = f"{resolved_domain}.{name}"
     _check_duplicate(ctx, semantic_id, EntityIR)
     if not isinstance(source, (TableSourceIR, FileSourceIR)):
         _raise(
@@ -399,7 +399,7 @@ def entity(
 
     ir = EntityIR(
         semantic_id=semantic_id,
-        model=resolved_model,
+        domain=resolved_domain,
         name=name,
         datasource=ds_ref,
         source=source,
@@ -418,8 +418,8 @@ def entity(
 def dimension(
     *,
     name: str | None = None,
-    dataset: EntityRef | str,
-    model: DomainRef | None = None,
+    entity: EntityRef | str,
+    domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
     kind: Literal["categorical", "measure"] = "categorical",
@@ -432,9 +432,9 @@ def dimension(
 
     Args:
         name: Dimension name. Defaults to the function name.
-        dataset: Owning entity, either an ``EntityRef`` or a qualified
+        entity: Owning entity, either an ``EntityRef`` or a qualified
             ``"<domain>.<entity>"`` string.
-        model: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
@@ -445,16 +445,16 @@ def dimension(
         A decorator that returns a ``DimensionRef``.
 
     Raises:
-        SemanticDecoratorError: ``dataset`` is unknown, ``name`` collides, or the
+        SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, or the
             body violates the AST whitelist.
 
     Example:
-        >>> @ms.dimension(name="amount_cents", dataset=orders)
+        >>> @ms.dimension(name="amount_cents", entity=orders)
         ... def amount_cents(orders):
         ...     return orders.amount * 100
     """
     ctx = _require_ctx()
-    resolved_model = _resolve_model(model, ctx)
+    resolved_domain = _resolve_domain(domain, ctx)
     if kind not in ("categorical", "measure"):
         _raise(
             ErrorKind.INVALID_REF,
@@ -465,14 +465,14 @@ def dimension(
 
     def decorator(fn: Callable[..., Any]) -> DimensionRef:
         obj_name = name or fn.__name__
-        ds_ref = _resolve_ref_string(dataset)
+        ds_ref = _resolve_ref_string(entity)
         semantic_id = f"{ds_ref}.{obj_name}"
-        ds_model = ds_ref.split(".", 1)[0]
-        if ds_model != resolved_model:
+        ds_domain = ds_ref.split(".", 1)[0]
+        if ds_domain != resolved_domain:
             _raise(
                 ErrorKind.INVALID_REF,
-                f"Dimension {semantic_id!r} belongs to entity in domain {ds_model!r}, "
-                f"but the active domain is {resolved_model!r}.",
+                f"Dimension {semantic_id!r} belongs to entity in domain {ds_domain!r}, "
+                f"but the active domain is {resolved_domain!r}.",
                 cls=SemanticDecoratorError,
                 refs=(semantic_id,),
                 constraint_id=ConstraintId.REF_SHAPE,
@@ -485,12 +485,12 @@ def dimension(
 
         ir = DimensionIR(
             semantic_id=semantic_id,
-            model=resolved_model,
-            dataset=ds_ref,
+            domain=resolved_domain,
+            entity=ds_ref,
             name=obj_name,
             description=description,
             ai_context=ai_ctx,
-            is_time_field=False,
+            is_time_dimension=False,
             kind=DimensionKind(kind),
             data_type=None,
             granularity=None,
@@ -510,14 +510,14 @@ def dimension(
 def time_dimension(
     *,
     name: str | None = None,
-    dataset: EntityRef | str,
+    entity: EntityRef | str,
     data_type: Literal["date", "datetime", "timestamp", "string", "integer"],
     granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
     date_format: str | None = None,
     required_prefix: str | None = None,
     timezone: str | None = None,
     is_default: bool = False,
-    model: DomainRef | None = None,
+    domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], TimeDimensionRef]:
@@ -531,7 +531,7 @@ def time_dimension(
 
     Args:
         name: Dimension name. Defaults to the function name.
-        dataset: Owning entity (``EntityRef`` or qualified string).
+        entity: Owning entity (``EntityRef`` or qualified string).
         data_type: ``date | datetime | timestamp | string | integer``.
         granularity: ``year | quarter | month | week | day | hour | minute | second`` — the
             finest grain at which queries are meaningful.
@@ -553,7 +553,7 @@ def time_dimension(
             exist on the entity. At most one time dimension per entity may carry
             is_default=True. When observe() is called without time_dimension=, the default
             dimension is used automatically.
-        model: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
@@ -562,28 +562,28 @@ def time_dimension(
         A decorator that returns a ``TimeDimensionRef``.
 
     Raises:
-        SemanticDecoratorError: ``dataset`` is unknown, ``name`` collides, or the
+        SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, or the
             body violates the AST whitelist.
 
     Example:
-        >>> @ms.time_dimension(name="created_at", dataset=orders,
+        >>> @ms.time_dimension(name="created_at", entity=orders,
         ...                data_type="datetime", granularity="day")
         ... def created_at(orders):
         ...     return orders.created_at
     """
     ctx = _require_ctx()
-    resolved_model = _resolve_model(model, ctx)
+    resolved_domain = _resolve_domain(domain, ctx)
 
     def decorator(fn: Callable[..., Any]) -> TimeDimensionRef:
         obj_name = name or fn.__name__
-        ds_ref = _resolve_ref_string(dataset)
+        ds_ref = _resolve_ref_string(entity)
         semantic_id = f"{ds_ref}.{obj_name}"
-        ds_model = ds_ref.split(".", 1)[0]
-        if ds_model != resolved_model:
+        ds_domain = ds_ref.split(".", 1)[0]
+        if ds_domain != resolved_domain:
             _raise(
                 ErrorKind.INVALID_REF,
-                f"Time dimension {semantic_id!r} belongs to entity in domain {ds_model!r}, "
-                f"but the active domain is {resolved_model!r}.",
+                f"Time dimension {semantic_id!r} belongs to entity in domain {ds_domain!r}, "
+                f"but the active domain is {resolved_domain!r}.",
                 cls=SemanticDecoratorError,
                 refs=(semantic_id,),
                 constraint_id=ConstraintId.REF_SHAPE,
@@ -648,12 +648,12 @@ def time_dimension(
 
         ir = DimensionIR(
             semantic_id=semantic_id,
-            model=resolved_model,
-            dataset=ds_ref,
+            domain=resolved_domain,
+            entity=ds_ref,
             name=obj_name,
             description=description,
             ai_context=ai_ctx,
-            is_time_field=True,
+            is_time_dimension=True,
             kind=DimensionKind.TIME,
             data_type=data_type,
             granularity=granularity,
@@ -676,8 +676,8 @@ def time_dimension(
 def metric(
     *,
     name: str | None = None,
-    datasets: list[EntityRef | str] | None = None,
-    root_dataset: EntityRef | str | None = None,
+    entities: list[EntityRef | str] | None = None,
+    root_entity: EntityRef | str | None = None,
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None,
     fanout_policy: Literal["block", "aggregate_then_join"] = "block",
     decomposition: DecompositionBuilder,
@@ -686,7 +686,7 @@ def metric(
     source_document: str | None = None,
     source_notes: str | None = None,
     verification_mode: Literal["sql_parity", "python_native"] | None = None,
-    model: DomainRef | None = None,
+    domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], MetricRef]:
@@ -697,7 +697,7 @@ def metric(
 
     Args:
         name: Metric name. Defaults to the function name.
-        datasets: Non-empty list of ``EntityRef`` / qualified strings.
+        entities: Non-empty list of ``EntityRef`` / qualified strings.
         decomposition: ``ms.sum()`` / ``ms.ratio(numerator=..., denominator=...)``
             / ``ms.weighted_average(...)`` builder.
         source_sql: Original SQL definition, persisted to provenance.
@@ -707,7 +707,7 @@ def metric(
         verification_mode: ``"sql_parity"`` or ``"python_native"``. Required
             for loaded base metrics; ``"sql_parity"`` requires ``source_sql`` and
             ``source_dialect``.
-        model: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
@@ -716,27 +716,27 @@ def metric(
         A decorator that returns a ``MetricRef``.
 
     Raises:
-        SemanticDecoratorError: ``datasets`` is empty, name collides, or the body
+        SemanticDecoratorError: ``entities`` is empty, name collides, or the body
             violates the AST whitelist.
 
     Example:
-        >>> @ms.metric(name="revenue", datasets=[orders], decomposition=ms.sum())
+        >>> @ms.metric(name="revenue", entities=[orders], decomposition=ms.sum())
         ... def revenue(orders):
         ...     return orders.amount.sum()
     """
     ctx = _require_ctx()
-    resolved_model = _resolve_model(model, ctx)
+    resolved_domain = _resolve_domain(domain, ctx)
 
     def decorator(fn: Callable[..., Any]) -> MetricRef:
         obj_name = name or fn.__name__
-        semantic_id = f"{resolved_model}.{obj_name}"
+        semantic_id = f"{resolved_domain}.{obj_name}"
         _check_duplicate(ctx, semantic_id, MetricIR)
 
-        ds_refs = _resolve_dataset_refs(datasets)
+        ds_refs = _resolve_entity_refs(entities)
         if len(ds_refs) == 0:
             _raise(
                 ErrorKind.MISSING_DATASETS,
-                "@ms.metric(...) requires non-empty datasets. "
+                "@ms.metric(...) requires non-empty entities. "
                 "Use ms.derived_metric(...) for body-free derived metrics.",
                 refs=(semantic_id,),
                 cls=SemanticDecoratorError,
@@ -758,16 +758,16 @@ def metric(
             verification_mode=verification_mode,
         )
 
-        root_ref = _resolve_ref_string(root_dataset) if root_dataset is not None else None
+        root_ref = _resolve_ref_string(root_entity) if root_entity is not None else None
         resolved_root_ref = root_ref
         if resolved_root_ref is None and len(ds_refs) == 1:
             resolved_root_ref = ds_refs[0]
 
         ir = MetricIR(
             semantic_id=semantic_id,
-            model=resolved_model,
+            domain=resolved_domain,
             name=obj_name,
-            datasets=ds_refs,
+            entities=ds_refs,
             is_derived=False,
             decomposition=decomp_ir,
             provenance=prov_ir,
@@ -777,7 +777,7 @@ def metric(
             python_symbol=fn.__name__,
             location=location,
             additivity=additivity,
-            root_dataset=resolved_root_ref,
+            root_entity=resolved_root_ref,
             fanout_policy=fanout_policy,
         )
 
@@ -798,14 +798,14 @@ def derived_metric(
     source_document: str | None = None,
     source_notes: str | None = None,
     verification_mode: Literal["sql_parity", "python_native"] | None = None,
-    model: DomainRef | None = None,
+    domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> MetricRef:
     """Declare a body-free derived metric from canonical decomposition structure."""
     ctx = _require_ctx()
-    resolved_model = _resolve_model(model, ctx)
-    semantic_id = f"{resolved_model}.{name}"
+    resolved_domain = _resolve_domain(domain, ctx)
+    semantic_id = f"{resolved_domain}.{name}"
     _check_duplicate(ctx, semantic_id, MetricIR)
 
     if decomposition.kind not in ("ratio", "weighted_average") or not decomposition.components:
@@ -841,9 +841,9 @@ def derived_metric(
 
     ir = MetricIR(
         semantic_id=semantic_id,
-        model=resolved_model,
+        domain=resolved_domain,
         name=name,
-        datasets=(),
+        entities=(),
         is_derived=True,
         decomposition=decomp_ir,
         provenance=prov_ir,
@@ -853,7 +853,7 @@ def derived_metric(
         python_symbol=name,
         location=location,
         additivity=additivity,
-        root_dataset=None,
+        root_entity=None,
         fanout_policy="block",
     )
     _push_ir(ctx, ir, None)
@@ -864,11 +864,11 @@ def derived_metric(
 def relationship(
     *,
     name: str | None = None,
-    from_dataset: EntityRef | str,
-    to_dataset: EntityRef | str,
-    from_fields: list[DimensionRef | str],
-    to_fields: list[DimensionRef | str],
-    model: DomainRef | None = None,
+    from_entity: EntityRef | str,
+    to_entity: EntityRef | str,
+    from_dimensions: list[DimensionRef | str],
+    to_dimensions: list[DimensionRef | str],
+    domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> RelationshipRef:
@@ -879,11 +879,11 @@ def relationship(
 
     Args:
         name: Required relationship name (no default).
-        from_dataset: Source entity (``EntityRef`` or qualified string).
-        to_dataset: Target entity (``EntityRef`` or qualified string).
-        from_fields: Columns on ``from_dataset`` (``DimensionRef`` / qualified strings).
-        to_fields: Columns on ``to_dataset`` — must align positionally with ``from_fields``.
-        model: Override the active domain namespace with a ``DomainRef`` returned
+        from_entity: Source entity (``EntityRef`` or qualified string).
+        to_entity: Target entity (``EntityRef`` or qualified string).
+        from_dimensions: Columns on ``from_entity`` (``DimensionRef`` / qualified strings).
+        to_dimensions: Columns on ``to_entity`` — must align positionally with ``from_dimensions``.
+        domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
@@ -893,17 +893,17 @@ def relationship(
 
     Raises:
         SemanticDecoratorError: ``name`` is missing, the entities are unknown, or
-            ``from_fields`` / ``to_fields`` lengths disagree.
+            ``from_dimensions`` / ``to_dimensions`` lengths disagree.
 
     Example:
         >>> ms.relationship(
         ...     name="orders_to_customers",
-        ...     from_dataset=orders, to_dataset=customers,
-        ...     from_fields=["customer_id"], to_fields=["id"],
+        ...     from_entity=orders, to_entity=customers,
+        ...     from_dimensions=["customer_id"], to_dimensions=["id"],
         ... )
     """
     ctx = _require_ctx()
-    resolved_model = _resolve_model(model, ctx)
+    resolved_domain = _resolve_domain(domain, ctx)
 
     if name is None:
         _raise(
@@ -912,24 +912,24 @@ def relationship(
             cls=SemanticDecoratorError,
         )
 
-    semantic_id = f"{resolved_model}.{name}"
+    semantic_id = f"{resolved_domain}.{name}"
     _check_duplicate(ctx, semantic_id, RelationshipIR)
 
-    from_ds = _resolve_ref_string(from_dataset)
-    to_ds = _resolve_ref_string(to_dataset)
-    from_f = _resolve_field_refs(from_fields)
-    to_f = _resolve_field_refs(to_fields)
+    from_ds = _resolve_ref_string(from_entity)
+    to_ds = _resolve_ref_string(to_entity)
+    from_f = _resolve_dimension_refs(from_dimensions)
+    to_f = _resolve_dimension_refs(to_dimensions)
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
 
     ir = RelationshipIR(
         semantic_id=semantic_id,
-        model=resolved_model,
+        domain=resolved_domain,
         name=name,
-        from_dataset=from_ds,
-        to_dataset=to_ds,
-        from_fields=from_f,
-        to_fields=to_f,
+        from_entity=from_ds,
+        to_entity=to_ds,
+        from_dimensions=from_f,
+        to_dimensions=to_f,
         description=description,
         ai_context=ai_ctx,
         location=location,

@@ -418,7 +418,7 @@ def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: C
                 "warehouse = md.ref('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
                 "\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), "
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), "
                 "name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"

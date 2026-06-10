@@ -23,7 +23,7 @@ orders = ms.entity(
 )
 
 @ms.time_dimension(
-    dataset=orders,
+    entity=orders,
     name="log_date",
     data_type="string",
     granularity="day",
@@ -37,7 +37,7 @@ def log_date(table):
     return table.dt
 
 @ms.time_dimension(
-    dataset=orders,
+    entity=orders,
     name="log_hour",
     data_type="string",
     granularity="hour",
@@ -51,7 +51,7 @@ def log_hour(table):
     return table.hh
 
 @ms.dimension(
-    dataset=orders,
+    entity=orders,
     name="region",
     ai_context={
         "business_definition": "Sales reporting region.",
@@ -62,7 +62,7 @@ def region(table):
     return table.region
 
 @ms.metric(
-    datasets=[orders],
+    entities=[orders],
     additivity="additive",
     decomposition=ms.sum(),
     name="revenue",
@@ -89,7 +89,7 @@ Business meaning, usage constraints, and agent guidance belong in `ai_context`:
 
 ```python
 @ms.metric(
-    datasets=[orders],
+    entities=[orders],
     decomposition=ms.sum(),
     description="Gross revenue.",       # short summary for display
     ai_context={
@@ -130,7 +130,7 @@ sales_ref = ms.domain(name="sales", description="Sales analytics")
 # sales/shared_dimensions.py
 import marivo.semantic as ms
 
-@ms.dimension(model=sales_ref, dataset=orders, name="region")
+@ms.dimension(model=sales_ref, entity=orders, name="region")
 def region(table):
     return table.region
 ```
@@ -152,12 +152,12 @@ compile to simple partition comparisons for predicate pushdown. Do not add
 filtered as physical partition keys, not interpreted instants.
 
 ```python
-@ms.time_dimension(dataset=orders, name="log_date", data_type="string", granularity="day", date_format="%Y%m%d")
+@ms.time_dimension(entity=orders, name="log_date", data_type="string", granularity="day", date_format="%Y%m%d")
 def log_date(table):
     return table.dt
 
 @ms.time_dimension(
-    dataset=orders,
+    entity=orders,
     name="log_hour",
     data_type="string",
     granularity="hour",
@@ -172,7 +172,7 @@ business axis, but they are not the partition dimension default and may not pres
 predicate pushdown:
 
 ```python
-@ms.time_dimension(dataset=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, data_type="date", granularity="day")
 def event_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
@@ -184,7 +184,7 @@ and then applies sub-day bucketing:
 
 ```python
 @ms.time_dimension(
-    dataset=orders,
+    entity=orders,
     data_type="string",
     granularity="minute",
     date_format="%Y-%m-%d %H:%M:%S",
@@ -203,7 +203,7 @@ For Trino VARCHAR datetime columns storing values like `"2025-04-04 06:59:59"`,
 do not cast VARCHAR directly to DATE. Parse through timestamp first:
 
 ```python
-@ms.time_dimension(dataset=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
@@ -214,20 +214,20 @@ Relationship keys must use dimension or time-dimension refs, not physical column
 strings:
 
 ```python
-@ms.dimension(dataset=orders, name="customer_id")
+@ms.dimension(entity=orders, name="customer_id")
 def order_customer_id(table):
     return table.customer_id
 
-@ms.dimension(dataset=customers, name="customer_id")
+@ms.dimension(entity=customers, name="customer_id")
 def customer_id(table):
     return table.id
 
 ms.relationship(
     name="orders_to_customers",
-    from_dataset=orders,
-    to_dataset=customers,
-    from_fields=[order_customer_id],
-    to_fields=[customer_id],
+    from_entity=orders,
+    to_entity=customers,
+    from_dimensions=[order_customer_id],
+    to_dimensions=[customer_id],
 )
 ```
 
@@ -247,7 +247,7 @@ come from runtime help; do not invent `ms.count()` or `ms.mean()`.
 
 ```python
 @ms.metric(
-    datasets=[orders],
+    entities=[orders],
     additivity="additive",
     decomposition=ms.sum(),
     name="orders_count",
@@ -260,7 +260,7 @@ Mean/average metrics are body-free derived metrics, not `ms.mean()`:
 
 ```python
 @ms.metric(
-    datasets=[orders],
+    entities=[orders],
     additivity="additive",
     decomposition=ms.sum(),
     name="gross_revenue",

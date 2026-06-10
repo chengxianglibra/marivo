@@ -70,7 +70,7 @@ def _make_registry(**overrides: object) -> Registry:
     )
     registry.datasets["sales.orders"] = EntityIR(
         semantic_id="sales.orders",
-        model="sales",
+        domain="sales",
         name="orders",
         datasource="wh",
         source=TableSourceIR(table="orders"),
@@ -82,12 +82,12 @@ def _make_registry(**overrides: object) -> Registry:
     )
     registry.fields["sales.orders.amount"] = DimensionIR(
         semantic_id="sales.orders.amount",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="amount",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=False,
+        is_time_dimension=False,
         kind=DimensionKind.CATEGORICAL,
         data_type=None,
         granularity=None,
@@ -97,12 +97,12 @@ def _make_registry(**overrides: object) -> Registry:
     )
     registry.fields["sales.orders.order_date"] = DimensionIR(
         semantic_id="sales.orders.order_date",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_date",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
@@ -112,9 +112,9 @@ def _make_registry(**overrides: object) -> Registry:
     )
     registry.metrics["sales.revenue"] = MetricIR(
         semantic_id="sales.revenue",
-        model="sales",
+        domain="sales",
         name="revenue",
-        datasets=("sales.orders",),
+        entities=("sales.orders",),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
         provenance=ProvenanceIR(verification_mode="python_native"),
@@ -138,12 +138,12 @@ def test_missing_entity_ref_on_dimension() -> None:
     # Add a field referencing a non-existent dataset
     registry.fields["sales.nonexistent.bad_field"] = DimensionIR(
         semantic_id="sales.nonexistent.bad_field",
-        model="sales",
-        dataset="sales.nonexistent",
+        domain="sales",
+        entity="sales.nonexistent",
         name="bad_field",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=False,
+        is_time_dimension=False,
         kind=DimensionKind.CATEGORICAL,
         data_type=None,
         granularity=None,
@@ -159,9 +159,9 @@ def test_missing_entity_ref_on_metric() -> None:
     registry = _make_registry()
     registry.metrics["sales.bad_metric"] = MetricIR(
         semantic_id="sales.bad_metric",
-        model="sales",
+        domain="sales",
         name="bad_metric",
-        datasets=("sales.nonexistent",),
+        entities=("sales.nonexistent",),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
         provenance=ProvenanceIR(verification_mode="python_native"),
@@ -179,7 +179,7 @@ def test_missing_datasource_ref_on_dataset() -> None:
     registry = _make_registry()
     registry.datasets["sales.bad_ds"] = EntityIR(
         semantic_id="sales.bad_ds",
-        model="sales",
+        domain="sales",
         name="bad_ds",
         datasource="sales.nonexistent_wh",
         source=TableSourceIR(table="bad_ds"),
@@ -202,9 +202,9 @@ def test_missing_metric_ref_in_decomposition() -> None:
     registry = _make_registry()
     registry.metrics["sales.ratio_metric"] = MetricIR(
         semantic_id="sales.ratio_metric",
-        model="sales",
+        domain="sales",
         name="ratio_metric",
-        datasets=(),
+        entities=(),
         is_derived=True,
         decomposition=DecompositionIR(
             kind="ratio",
@@ -230,12 +230,12 @@ def test_timestamp_hour_time_field_without_required_prefix() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_hour",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="timestamp",
         granularity="hour",
@@ -251,12 +251,12 @@ def test_hour_only_string_time_field_without_required_prefix() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_hour",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
@@ -273,12 +273,12 @@ def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_hour",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="integer",
         granularity="hour",
@@ -295,12 +295,12 @@ def test_complete_hour_string_time_field_without_required_prefix() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_hour",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
@@ -318,12 +318,12 @@ def test_strptime_hour_only_without_required_prefix() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_hour",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
@@ -341,12 +341,12 @@ def test_strptime_hour_with_date_without_required_prefix() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_hour",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
@@ -363,12 +363,12 @@ def test_hour_time_field_with_required_prefix_ok() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_hour",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="timestamp",
         granularity="hour",
@@ -384,12 +384,12 @@ def test_hour_time_field_with_required_prefix_name_ok() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_hour",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
@@ -406,12 +406,12 @@ def test_hour_time_field_with_invalid_prefix() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_hour",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="timestamp",
         granularity="hour",
@@ -430,12 +430,12 @@ def test_hour_time_dimension_prefix_must_reference_time_dimension() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_hour",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
@@ -471,12 +471,12 @@ def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_date"] = DimensionIR(
         semantic_id="sales.orders.order_date",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_date",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
@@ -497,12 +497,12 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_date"] = DimensionIR(
         semantic_id="sales.orders.order_date",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_date",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="string",
         granularity="day",
@@ -529,12 +529,12 @@ def test_invalid_relationship_from_dataset() -> None:
     registry = _make_registry()
     registry.relationships["sales.bad_rel"] = RelationshipIR(
         semantic_id="sales.bad_rel",
-        model="sales",
+        domain="sales",
         name="bad_rel",
-        from_dataset="sales.nonexistent",
-        to_dataset="sales.orders",
-        from_fields=("sales.orders.amount",),
-        to_fields=("sales.orders.amount",),
+        from_entity="sales.nonexistent",
+        to_entity="sales.orders",
+        from_dimensions=("sales.orders.amount",),
+        to_dimensions=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -547,12 +547,12 @@ def test_invalid_relationship_to_dataset() -> None:
     registry = _make_registry()
     registry.relationships["sales.bad_rel"] = RelationshipIR(
         semantic_id="sales.bad_rel",
-        model="sales",
+        domain="sales",
         name="bad_rel",
-        from_dataset="sales.orders",
-        to_dataset="sales.nonexistent",
-        from_fields=("sales.orders.amount",),
-        to_fields=("sales.orders.amount",),
+        from_entity="sales.orders",
+        to_entity="sales.nonexistent",
+        from_dimensions=("sales.orders.amount",),
+        to_dimensions=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -565,12 +565,12 @@ def test_invalid_relationship_dimension_ref() -> None:
     registry = _make_registry()
     registry.relationships["sales.bad_rel"] = RelationshipIR(
         semantic_id="sales.bad_rel",
-        model="sales",
+        domain="sales",
         name="bad_rel",
-        from_dataset="sales.orders",
-        to_dataset="sales.orders",
-        from_fields=("sales.orders.nonexistent_field",),
-        to_fields=("sales.orders.amount",),
+        from_entity="sales.orders",
+        to_entity="sales.orders",
+        from_dimensions=("sales.orders.nonexistent_field",),
+        to_dimensions=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -583,12 +583,12 @@ def test_valid_relationship_no_errors() -> None:
     registry = _make_registry()
     registry.relationships["sales.self_rel"] = RelationshipIR(
         semantic_id="sales.self_rel",
-        model="sales",
+        domain="sales",
         name="self_rel",
-        from_dataset="sales.orders",
-        to_dataset="sales.orders",
-        from_fields=("sales.orders.amount",),
-        to_fields=("sales.orders.amount",),
+        from_entity="sales.orders",
+        to_entity="sales.orders",
+        from_dimensions=("sales.orders.amount",),
+        to_dimensions=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -603,12 +603,12 @@ def test_relationship_field_arity_mismatch() -> None:
     registry = _make_registry()
     registry.relationships["sales.bad_arity"] = RelationshipIR(
         semantic_id="sales.bad_arity",
-        model="sales",
+        domain="sales",
         name="bad_arity",
-        from_dataset="sales.orders",
-        to_dataset="sales.orders",
-        from_fields=("sales.orders.amount", "sales.orders.order_date"),
-        to_fields=("sales.orders.amount",),
+        from_entity="sales.orders",
+        to_entity="sales.orders",
+        from_dimensions=("sales.orders.amount", "sales.orders.order_date"),
+        to_dimensions=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -630,9 +630,9 @@ def test_metric_cycle_detected() -> None:
     # Create a cycle: a -> b -> a
     registry.metrics["sales.metric_a"] = MetricIR(
         semantic_id="sales.metric_a",
-        model="sales",
+        domain="sales",
         name="metric_a",
-        datasets=(),
+        entities=(),
         is_derived=True,
         decomposition=DecompositionIR(
             kind="sum",
@@ -647,9 +647,9 @@ def test_metric_cycle_detected() -> None:
     )
     registry.metrics["sales.metric_b"] = MetricIR(
         semantic_id="sales.metric_b",
-        model="sales",
+        domain="sales",
         name="metric_b",
-        datasets=(),
+        entities=(),
         is_derived=True,
         decomposition=DecompositionIR(
             kind="sum",
@@ -671,9 +671,9 @@ def test_no_cycle_when_valid() -> None:
     # sales.revenue exists; a derived metric referencing it is fine
     registry.metrics["sales.double_revenue"] = MetricIR(
         semantic_id="sales.double_revenue",
-        model="sales",
+        domain="sales",
         name="double_revenue",
-        datasets=(),
+        entities=(),
         is_derived=True,
         decomposition=DecompositionIR(
             kind="sum",
@@ -699,9 +699,9 @@ def test_sql_parity_metric_without_source_dialect_errors() -> None:
     registry = _make_registry()
     registry.metrics["sales.unverified_metric"] = MetricIR(
         semantic_id="sales.unverified_metric",
-        model="sales",
+        domain="sales",
         name="unverified_metric",
-        datasets=("sales.orders",),
+        entities=("sales.orders",),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
         provenance=ProvenanceIR(
@@ -726,9 +726,9 @@ def test_python_native_provenance_no_warning() -> None:
     registry = _make_registry()
     registry.metrics["sales.native_metric"] = MetricIR(
         semantic_id="sales.native_metric",
-        model="sales",
+        domain="sales",
         name="native_metric",
-        datasets=("sales.orders",),
+        entities=("sales.orders",),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
         provenance=ProvenanceIR(verification_mode="python_native"),
@@ -820,7 +820,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.orders"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=["sales.orders"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def revenue(table):
             return table.amount.sum()
     """)
@@ -843,12 +843,12 @@ def test_duplicate_default_time_dimension_raises() -> None:
     # Add a second time field with is_default=True on the same dataset
     registry.fields["sales.orders.order_date2"] = DimensionIR(
         semantic_id="sales.orders.order_date2",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="order_date2",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
@@ -875,7 +875,7 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.nonexistent"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=["sales.nonexistent"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def revenue(table):
             return table.amount.sum()
     """)
@@ -921,7 +921,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
         orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity='additive',
             decomposition=ms.sum(),
             verification_mode="python_native",
@@ -952,7 +952,7 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
         import marivo.semantic as ms
 
         @ms.time_dimension(
-            dataset="sales.orders",
+            entity="sales.orders",
             data_type="string",
             granularity="hour",
             date_format="%H",
@@ -983,10 +983,10 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
 
         ms.relationship(
             name="bad_rel",
-            from_dataset="sales.nonexistent",
-            to_dataset="sales.also_nonexistent",
-            from_fields=["sales.orders.f1"],
-            to_fields=["sales.orders.f2"],
+            from_entity="sales.nonexistent",
+            to_entity="sales.also_nonexistent",
+            from_dimensions=["sales.orders.f1"],
+            to_dimensions=["sales.orders.f2"],
         )
     """)
     project = semantic_project_factory(
@@ -1003,12 +1003,12 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
 def test_field_ir_accepts_is_default_flag() -> None:
     field = DimensionIR(
         semantic_id="sales.orders.log_date",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="log_date",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
@@ -1023,12 +1023,12 @@ def test_field_ir_accepts_is_default_flag() -> None:
 def test_field_ir_is_default_defaults_to_false() -> None:
     field = DimensionIR(
         semantic_id="sales.orders.log_date",
-        model="sales",
-        dataset="sales.orders",
+        domain="sales",
+        entity="sales.orders",
         name="log_date",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
@@ -1048,7 +1048,7 @@ def test_missing_datasource_ref_includes_did_you_mean() -> None:
     registry = _make_registry()
     registry.datasets["sales.bad_ds"] = EntityIR(
         semantic_id="sales.bad_ds",
-        model="sales",
+        domain="sales",
         name="bad_ds",
         datasource="w",  # close to "wh"
         source=TableSourceIR(table="bad_ds"),
@@ -1069,12 +1069,12 @@ def test_missing_entity_ref_on_dimension_includes_did_you_mean() -> None:
     registry = _make_registry()
     registry.fields["sales.ordrs.bad_field"] = DimensionIR(
         semantic_id="sales.ordrs.bad_field",
-        model="sales",
-        dataset="sales.ordrs",  # close to "sales.orders"
+        domain="sales",
+        entity="sales.ordrs",  # close to "sales.orders"
         name="bad_field",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=False,
+        is_time_dimension=False,
         kind=DimensionKind.CATEGORICAL,
         data_type=None,
         granularity=None,
@@ -1093,9 +1093,9 @@ def test_missing_metric_ref_includes_did_you_mean() -> None:
     registry = _make_registry()
     registry.metrics["sales.ratio_metric"] = MetricIR(
         semantic_id="sales.ratio_metric",
-        model="sales",
+        domain="sales",
         name="ratio_metric",
-        datasets=(),
+        entities=(),
         is_derived=True,
         decomposition=DecompositionIR(
             kind="ratio",
@@ -1119,12 +1119,12 @@ def test_missing_dimension_ref_includes_did_you_mean() -> None:
     registry = _make_registry()
     registry.relationships["rel"] = RelationshipIR(
         semantic_id="rel",
-        model="sales",
+        domain="sales",
         name="rel",
-        from_dataset="sales.orders",
-        to_dataset="sales.orders",
-        from_fields=("sales.orders.amoun",),  # close to "sales.orders.amount"
-        to_fields=("sales.orders.amount",),
+        from_entity="sales.orders",
+        to_entity="sales.orders",
+        from_dimensions=("sales.orders.amoun",),  # close to "sales.orders.amount"
+        to_dimensions=("sales.orders.amount",),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,

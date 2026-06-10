@@ -388,12 +388,12 @@ def test_time_dimension_dtype_advisory_cast_date_declared_datetime() -> None:
 
     field_ir = DimensionIR(
         semantic_id="model.order_date",
-        model="model",
-        dataset="orders",
+        domain="model",
+        entity="orders",
         name="order_date",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="datetime",
         granularity="day",
@@ -416,12 +416,12 @@ def test_time_dimension_dtype_advisory_cast_timestamp_declared_datetime_ok() -> 
 
     field_ir = DimensionIR(
         semantic_id="model.created_at",
-        model="model",
-        dataset="orders",
+        domain="model",
+        entity="orders",
         name="created_at",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="datetime",
         granularity="day",
@@ -444,12 +444,12 @@ def test_time_dimension_dtype_advisory_cast_date_declared_date_ok() -> None:
 
     field_ir = DimensionIR(
         semantic_id="model.order_date",
-        model="model",
-        dataset="orders",
+        domain="model",
+        entity="orders",
         name="order_date",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
@@ -472,12 +472,12 @@ def test_time_dimension_dtype_advisory_no_cast_no_advisory() -> None:
 
     field_ir = DimensionIR(
         semantic_id="model.order_date",
-        model="model",
-        dataset="orders",
+        domain="model",
+        entity="orders",
         name="order_date",
         description=None,
         ai_context=AiContextIR(),
-        is_time_field=True,
+        is_time_dimension=True,
         kind=DimensionKind.TIME,
         data_type="datetime",
         granularity="day",

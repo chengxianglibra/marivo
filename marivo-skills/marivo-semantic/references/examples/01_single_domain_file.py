@@ -26,7 +26,7 @@ orders = ms.entity(
 )
 
 @ms.time_dimension(
-    dataset=orders,
+    entity=orders,
     name="log_date",
     data_type="string",
     granularity="day",
@@ -41,7 +41,7 @@ def log_date(table):
     return table.dt
 
 @ms.time_dimension(
-    dataset=orders,
+    entity=orders,
     name="log_hour",
     data_type="string",
     granularity="hour",
@@ -55,7 +55,7 @@ def log_hour(table):
     return table.hh
 
 @ms.time_dimension(
-    dataset=orders,
+    entity=orders,
     name="event_ts",
     data_type="timestamp",
     granularity="minute",
@@ -68,7 +68,7 @@ def event_ts(table):
     return table.event_ts
 
 @ms.dimension(
-    dataset=orders,
+    entity=orders,
     name="region",
     ai_context={
         "business_definition": "Sales reporting region.",
@@ -79,7 +79,7 @@ def region(table):
     return table.region
 
 @ms.metric(
-    datasets=[orders],
+    entities=[orders],
     additivity="additive",
     decomposition=ms.sum(),
     name="revenue",

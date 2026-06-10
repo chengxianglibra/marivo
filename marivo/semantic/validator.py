@@ -62,7 +62,7 @@ class Registry:
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
 
 
-#: Maps semantic_id to the original callable (dataset/field/metric body fn).
+#: Maps semantic_id to the original callable (entity/dimension/metric body fn).
 Sidecar = dict[str, Callable[..., Any]]
 
 
@@ -81,7 +81,7 @@ _TIME_BEARING_FORMAT_HINTS: tuple[str, ...] = (
 
 def _subday_granularity_needs_time(field_ir: DimensionIR) -> bool:
     """True when a sub-day granularity is declared on a field that cannot carry time."""
-    if not field_ir.is_time_field or field_ir.granularity not in _SUBDAY_GRANULARITIES:
+    if not field_ir.is_time_dimension or field_ir.granularity not in _SUBDAY_GRANULARITIES:
         return False
     if field_ir.data_type in {"datetime", "timestamp"}:
         return False
@@ -103,7 +103,7 @@ def _requires_required_prefix(field_ir: DimensionIR) -> bool:
     format or an hour-only format like %H). Such dimensions require a separate
     day-level required_prefix to supply date context.
     """
-    if not field_ir.is_time_field or field_ir.granularity != "hour":
+    if not field_ir.is_time_dimension or field_ir.granularity != "hour":
         return False
     if field_ir.data_type not in {"string", "integer"}:
         return False
@@ -137,7 +137,7 @@ def _resolve_required_prefix_field(
     matches = [
         candidate
         for candidate in registry.fields.values()
-        if candidate.dataset == field_ir.dataset and candidate.name == field_ir.required_prefix
+        if candidate.entity == field_ir.entity and candidate.name == field_ir.required_prefix
     ]
     return matches[0] if len(matches) == 1 else None
 
@@ -202,7 +202,7 @@ def _return_expr(fn: Callable[..., Any]) -> ast.AST | None:
 
 
 def _time_dimension_pushdown_advisory(field_ir: DimensionIR, fn: Callable[..., Any] | None) -> bool:
-    if not field_ir.is_time_field or field_ir.data_type not in _TEMPORAL_DATA_TYPES:
+    if not field_ir.is_time_dimension or field_ir.data_type not in _TEMPORAL_DATA_TYPES:
         return False
     if fn is None:
         return False
@@ -250,7 +250,7 @@ def _time_dimension_dtype_advisory(
     field_ir: DimensionIR, fn: Callable[..., Any] | None
 ) -> str | None:
     """Return the inferred cast target if it conflicts with declared data_type, else None."""
-    if not field_ir.is_time_field or field_ir.data_type not in _TEMPORAL_DATA_TYPES:
+    if not field_ir.is_time_dimension or field_ir.data_type not in _TEMPORAL_DATA_TYPES:
         return None
     if fn is None:
         return None
@@ -548,13 +548,13 @@ def _validate_validity_versioning(
             SemanticLoadError(
                 kind=ErrorKind.INVALID_ENTITY_VERSIONING,
                 message=(
-                    f"Validity dataset {ds_id!r} valid_from field "
+                    f"Validity entity {ds_id!r} valid_from dimension "
                     f"{versioning.valid_from!r} must be part of primary_key."
                 ),
                 refs=(ds_id, versioning.valid_from),
                 details={
                     "entity": ds_id,
-                    "field": "valid_from",
+                    "dimension": "valid_from",
                     "reason": (
                         f"{versioning.valid_from!r} is not in primary_key {list(ds_ir.primary_key)}"
                     ),
@@ -562,24 +562,24 @@ def _validate_validity_versioning(
             )
         )
 
-    # field-existence check: valid_from and valid_to must resolve to known fields in this dataset
+    # dimension-existence check: valid_from and valid_to must resolve to known dimensions in this entity
     for label, field_id in (
         ("valid_from", versioning.valid_from),
         ("valid_to", versioning.valid_to),
     ):
         field = registry.fields.get(field_id)
-        if field is None or field.dataset != ds_id:
+        if field is None or field.entity != ds_id:
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.INVALID_ENTITY_VERSIONING,
                     message=(
-                        f"Validity dataset {ds_id!r} {label} field "
-                        f"{field_id!r} does not resolve to a known field on this dataset."
+                        f"Validity entity {ds_id!r} {label} dimension "
+                        f"{field_id!r} does not resolve to a known dimension on this entity."
                     ),
                     refs=(ds_id, field_id),
                     details={
                         "entity": ds_id,
-                        "field": label,
+                        "dimension": label,
                         "ref": field_id,
                     },
                 )
@@ -608,7 +608,7 @@ def _aggregate_receiver_param_name(call: ast.Call) -> str | None:
     return None
 
 
-def _non_root_aggregate_dataset(
+def _non_root_aggregate_entity(
     fn: Callable[..., Any],
     *,
     metric_ir: MetricIR,
@@ -622,16 +622,16 @@ def _non_root_aggregate_dataset(
     if func is None:
         return None
     param_names = [arg.arg for arg in func.args.args]
-    dataset_by_param = dict(zip(param_names, metric_ir.datasets, strict=False))
+    entity_by_param = dict(zip(param_names, metric_ir.entities, strict=False))
     for node in ast.walk(func):
         if not isinstance(node, ast.Call):
             continue
         param = _aggregate_receiver_param_name(node)
         if param is None:
             continue
-        dataset = dataset_by_param.get(param)
-        if dataset is not None and dataset != metric_ir.root_dataset:
-            return dataset
+        entity = entity_by_param.get(param)
+        if entity is not None and entity != metric_ir.root_entity:
+            return entity
     return None
 
 
@@ -648,25 +648,25 @@ def _validate_default_time_dimension_unique(
 ) -> None:
     from collections import defaultdict
 
-    defaults_by_dataset: dict[str, list[str]] = defaultdict(list)
+    defaults_by_entity: dict[str, list[str]] = defaultdict(list)
     for f_id, f_ir in registry.fields.items():
-        if f_ir.is_time_field and getattr(f_ir, "is_default", False):
-            defaults_by_dataset[f_ir.dataset].append(f_id)
+        if f_ir.is_time_dimension and getattr(f_ir, "is_default", False):
+            defaults_by_entity[f_ir.entity].append(f_id)
 
-    for dataset_id, field_ids in defaults_by_dataset.items():
+    for entity_id, field_ids in defaults_by_entity.items():
         if len(field_ids) > 1:
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.DUPLICATE_DEFAULT_TIME_DIMENSION,
                     message=(
-                        f"Entity {dataset_id!r} has {len(field_ids)} time dimensions "
+                        f"Entity {entity_id!r} has {len(field_ids)} time dimensions "
                         f"with is_default=True: {field_ids}. At most one is allowed."
                     ),
                     refs=tuple(field_ids),
                     constraint_id=ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE,
                     details={
-                        "entity": dataset_id,
-                        "default_time_fields": field_ids,
+                        "entity": entity_id,
+                        "default_time_dimensions": field_ids,
                     },
                 )
             )
@@ -705,14 +705,13 @@ def assembly_validate(
     errors: list[SemanticError] = []
     warnings: list[StructuredWarning] = []
 
-    # -- Validate datasource refs on datasets --------------------------------
+    # -- Validate datasource refs on entities --------------------------------
     for ds_id, ds_ir in registry.datasets.items():
         if ds_ir.datasource not in registry.datasources:
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.MISSING_ENTITY_REF,
-                    message=f"Dataset {ds_id!r} references unknown "
-                    f"datasource {ds_ir.datasource!r}.",
+                    message=f"Entity {ds_id!r} references unknown datasource {ds_ir.datasource!r}.",
                     refs=(ds_id, ds_ir.datasource),
                     details={
                         "missing_ref": ds_ir.datasource,
@@ -735,19 +734,19 @@ def assembly_validate(
 
     # -- Validate entity refs on dimensions ----------------------------------
     for f_id, f_ir in registry.fields.items():
-        if f_ir.dataset not in registry.datasets:
-            if _is_filtered_domain_ref(f_ir.dataset, loaded_models):
-                warnings.append(_filtered_domain_ref_warning(f_id, f_ir.dataset, "Field"))
+        if f_ir.entity not in registry.datasets:
+            if _is_filtered_domain_ref(f_ir.entity, loaded_models):
+                warnings.append(_filtered_domain_ref_warning(f_id, f_ir.entity, "Dimension"))
             else:
                 errors.append(
                     SemanticLoadError(
                         kind=ErrorKind.MISSING_ENTITY_REF,
-                        message=f"Field {f_id!r} references unknown dataset {f_ir.dataset!r}.",
-                        refs=(f_id, f_ir.dataset),
+                        message=f"Dimension {f_id!r} references unknown entity {f_ir.entity!r}.",
+                        refs=(f_id, f_ir.entity),
                         details={
-                            "missing_ref": f_ir.dataset,
+                            "missing_ref": f_ir.entity,
                             "did_you_mean": did_you_mean(
-                                f_ir.dataset, sorted(registry.datasets.keys())
+                                f_ir.entity, sorted(registry.datasets.keys())
                             ),
                         },
                     )
@@ -755,7 +754,7 @@ def assembly_validate(
 
     # -- Validate entity refs on metrics -------------------------------------
     for m_id, m_ir in registry.metrics.items():
-        for ds_ref in m_ir.datasets:
+        for ds_ref in m_ir.entities:
             if ds_ref not in registry.datasets:
                 if _is_filtered_domain_ref(ds_ref, loaded_models):
                     warnings.append(_filtered_domain_ref_warning(m_id, ds_ref, "Metric"))
@@ -763,7 +762,7 @@ def assembly_validate(
                     errors.append(
                         SemanticLoadError(
                             kind=ErrorKind.MISSING_ENTITY_REF,
-                            message=f"Metric {m_id!r} references unknown dataset {ds_ref!r}.",
+                            message=f"Metric {m_id!r} references unknown entity {ds_ref!r}.",
                             refs=(m_id, ds_ref),
                             details={
                                 "missing_ref": ds_ref,
@@ -774,7 +773,7 @@ def assembly_validate(
                         )
                     )
 
-    # -- Validate base metric additivity and root_dataset -------------------
+    # -- Validate base metric additivity and root_entity -------------------
     for m_id, m_ir in registry.metrics.items():
         if m_ir.is_derived:
             continue
@@ -787,33 +786,33 @@ def assembly_validate(
                     details={"metric": m_id},
                 )
             )
-        if len(m_ir.datasets) == 0:
+        if len(m_ir.entities) == 0:
             continue
-        if len(m_ir.datasets) == 1 and m_ir.root_dataset is None:
+        if len(m_ir.entities) == 1 and m_ir.root_entity is None:
             continue
-        if len(m_ir.datasets) > 1 and m_ir.root_dataset is None:
+        if len(m_ir.entities) > 1 and m_ir.root_entity is None:
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.MISSING_METRIC_ROOT_DATASET,
-                    message=f"Multi-dataset base metric {m_id!r} must declare root_dataset.",
+                    message=f"Multi-entity base metric {m_id!r} must declare root_entity.",
                     refs=(m_id,),
-                    details={"metric": m_id, "datasets": sorted(m_ir.datasets)},
+                    details={"metric": m_id, "entities": sorted(m_ir.entities)},
                 )
             )
             continue
-        if m_ir.root_dataset is not None and m_ir.root_dataset not in m_ir.datasets:
+        if m_ir.root_entity is not None and m_ir.root_entity not in m_ir.entities:
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.INVALID_METRIC_ROOT_DATASET,
                     message=(
-                        f"Metric {m_id!r} root_dataset {m_ir.root_dataset!r} "
-                        "must be one of its datasets."
+                        f"Metric {m_id!r} root_entity {m_ir.root_entity!r} "
+                        "must be one of its entities."
                     ),
-                    refs=(m_id, m_ir.root_dataset),
+                    refs=(m_id, m_ir.root_entity),
                     details={
                         "metric": m_id,
-                        "root_dataset": m_ir.root_dataset,
-                        "datasets": sorted(m_ir.datasets),
+                        "root_entity": m_ir.root_entity,
+                        "entities": sorted(m_ir.entities),
                     },
                 )
             )
@@ -868,27 +867,27 @@ def assembly_validate(
                 )
             )
 
-    # -- Validate root-only aggregates for multi-dataset base metrics ----------
+    # -- Validate root-only aggregates for multi-entity base metrics ----------
     for m_id, m_ir in registry.metrics.items():
         if m_ir.is_derived:
             continue
-        if sidecar is not None and len(m_ir.datasets) > 1 and m_ir.root_dataset is not None:
+        if sidecar is not None and len(m_ir.entities) > 1 and m_ir.root_entity is not None:
             fn = sidecar.get(m_id)
             if callable(fn):
-                offending_dataset = _non_root_aggregate_dataset(fn, metric_ir=m_ir)
-                if offending_dataset is not None:
+                offending_entity = _non_root_aggregate_entity(fn, metric_ir=m_ir)
+                if offending_entity is not None:
                     errors.append(
                         SemanticLoadError(
                             kind=ErrorKind.NON_ROOT_METRIC_AGGREGATE,
                             message=(
-                                f"Metric {m_id!r} aggregates a non-root dataset "
-                                f"{offending_dataset!r}."
+                                f"Metric {m_id!r} aggregates a non-root entity "
+                                f"{offending_entity!r}."
                             ),
-                            refs=(m_id, offending_dataset),
+                            refs=(m_id, offending_entity),
                             details={
                                 "metric": m_id,
-                                "root_dataset": m_ir.root_dataset,
-                                "offending_dataset": offending_dataset,
+                                "root_entity": m_ir.root_entity,
+                                "offending_entity": offending_entity,
                             },
                         )
                     )
@@ -920,45 +919,45 @@ def assembly_validate(
 
     # -- Validate dimension refs in relationships -----------------------------
     for r_id, r_ir in registry.relationships.items():
-        # Field arity check: from_fields and to_fields must have same length
-        if len(r_ir.from_fields) != len(r_ir.to_fields):
+        # Dimension arity check: from_dimensions and to_dimensions must have same length
+        if len(r_ir.from_dimensions) != len(r_ir.to_dimensions):
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.MISSING_DIMENSION_REF,
-                    message=f"Relationship {r_id!r} has {len(r_ir.from_fields)} from_fields "
-                    f"but {len(r_ir.to_fields)} to_fields. "
-                    f"Field counts must match.",
+                    message=f"Relationship {r_id!r} has {len(r_ir.from_dimensions)} from_dimensions "
+                    f"but {len(r_ir.to_dimensions)} to_dimensions. "
+                    f"Dimension counts must match.",
                     refs=(r_id,),
                 )
             )
-        if r_ir.from_dataset not in registry.datasets:
-            if _is_filtered_domain_ref(r_ir.from_dataset, loaded_models):
+        if r_ir.from_entity not in registry.datasets:
+            if _is_filtered_domain_ref(r_ir.from_entity, loaded_models):
                 warnings.append(
-                    _filtered_domain_ref_warning(r_id, r_ir.from_dataset, "Relationship")
+                    _filtered_domain_ref_warning(r_id, r_ir.from_entity, "Relationship")
                 )
             else:
                 errors.append(
                     SemanticLoadError(
                         kind=ErrorKind.INVALID_RELATIONSHIP_ENDPOINT,
                         message=f"Relationship {r_id!r} references unknown "
-                        f"from_dataset {r_ir.from_dataset!r}.",
-                        refs=(r_id, r_ir.from_dataset),
+                        f"from_entity {r_ir.from_entity!r}.",
+                        refs=(r_id, r_ir.from_entity),
                     )
                 )
-        if r_ir.to_dataset not in registry.datasets:
-            if _is_filtered_domain_ref(r_ir.to_dataset, loaded_models):
-                warnings.append(_filtered_domain_ref_warning(r_id, r_ir.to_dataset, "Relationship"))
+        if r_ir.to_entity not in registry.datasets:
+            if _is_filtered_domain_ref(r_ir.to_entity, loaded_models):
+                warnings.append(_filtered_domain_ref_warning(r_id, r_ir.to_entity, "Relationship"))
             else:
                 errors.append(
                     SemanticLoadError(
                         kind=ErrorKind.INVALID_RELATIONSHIP_ENDPOINT,
                         message=f"Relationship {r_id!r} references unknown "
-                        f"to_dataset {r_ir.to_dataset!r}.",
-                        refs=(r_id, r_ir.to_dataset),
+                        f"to_entity {r_ir.to_entity!r}.",
+                        refs=(r_id, r_ir.to_entity),
                     )
                 )
         # Validate dimension refs
-        for ff in r_ir.from_fields:
+        for ff in r_ir.from_dimensions:
             if ff not in registry.fields:
                 if _is_filtered_domain_ref(ff, loaded_models):
                     warnings.append(_filtered_domain_ref_warning(r_id, ff, "Relationship"))
@@ -966,7 +965,7 @@ def assembly_validate(
                     errors.append(
                         SemanticLoadError(
                             kind=ErrorKind.MISSING_DIMENSION_REF,
-                            message=f"Relationship {r_id!r} references unknown from_field {ff!r}.",
+                            message=f"Relationship {r_id!r} references unknown from_dimension {ff!r}.",
                             refs=(r_id, ff),
                             details={
                                 "missing_ref": ff,
@@ -974,7 +973,7 @@ def assembly_validate(
                             },
                         )
                     )
-        for tf in r_ir.to_fields:
+        for tf in r_ir.to_dimensions:
             if tf not in registry.fields:
                 if _is_filtered_domain_ref(tf, loaded_models):
                     warnings.append(_filtered_domain_ref_warning(r_id, tf, "Relationship"))
@@ -982,7 +981,7 @@ def assembly_validate(
                     errors.append(
                         SemanticLoadError(
                             kind=ErrorKind.MISSING_DIMENSION_REF,
-                            message=f"Relationship {r_id!r} references unknown to_field {tf!r}.",
+                            message=f"Relationship {r_id!r} references unknown to_dimension {tf!r}.",
                             refs=(r_id, tf),
                             details={
                                 "missing_ref": tf,
@@ -1022,22 +1021,22 @@ def assembly_validate(
                 )
             )
         if (
-            f_ir.is_time_field
+            f_ir.is_time_dimension
             and f_ir.required_prefix
             and (
                 (prefix_field := _resolve_required_prefix_field(registry, field_ir=f_ir)) is None
-                or not prefix_field.is_time_field
+                or not prefix_field.is_time_dimension
             )
         ):
             if _is_filtered_domain_ref(f_ir.required_prefix, loaded_models):
                 warnings.append(
-                    _filtered_domain_ref_warning(f_id, f_ir.required_prefix, "Time field")
+                    _filtered_domain_ref_warning(f_id, f_ir.required_prefix, "Time dimension")
                 )
             else:
                 errors.append(
                     SemanticLoadError(
                         kind=ErrorKind.MISSING_DIMENSION_REF,
-                        message=f"Time field {f_id!r} required_prefix "
+                        message=f"Time dimension {f_id!r} required_prefix "
                         f"{f_ir.required_prefix!r} is not a registered time dimension.",
                         refs=(f_id, f_ir.required_prefix),
                         details={

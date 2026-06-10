@@ -61,7 +61,7 @@ def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -80,13 +80,13 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-                "@ms.dimension(dataset=orders)\n"
+                "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
-                "@ms.dimension(dataset=users)\n"
+                "@ms.dimension(entity=users)\n"
                 "def tier(users):\n"
                 "    return users.tier\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -96,13 +96,13 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
     assert metric is not None
 
     resolved = resolve_observe_fields(
-        project, metric, dimensions=[DimensionRef("region")], where=None, time_field=None
+        project, metric, dimensions=[DimensionRef("region")], where=None, time_dimension=None
     )
     assert [field.semantic_id for field in resolved.dimensions] == ["sales.orders.region"]
 
     with pytest.raises(ObservePlanningError) as exc_info:
         resolve_observe_fields(
-            project, metric, dimensions=[DimensionRef("tier")], where=None, time_field=None
+            project, metric, dimensions=[DimensionRef("tier")], where=None, time_dimension=None
         )
     assert exc_info.value.details["code"] == "field-ref-not-found"
     assert "tier" in exc_info.value.details["candidates"].get("did_you_mean", [])
@@ -116,13 +116,13 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-                "@ms.dimension(dataset=orders)\n"
+                "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
-                "@ms.dimension(dataset=users)\n"
+                "@ms.dimension(entity=users)\n"
                 "def tier(users):\n"
                 "    return users.tier\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -133,7 +133,7 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
 
     with pytest.raises(ObservePlanningError) as exc_info:
         resolve_observe_fields(
-            project, metric, dimensions=[DimensionRef("regn")], where=None, time_field=None
+            project, metric, dimensions=[DimensionRef("regn")], where=None, time_dimension=None
         )
     details = exc_info.value.details
     assert details["code"] == "field-ref-not-found"
@@ -145,7 +145,11 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
     assert repair[0]["value"] == "region"
 
     resolved = resolve_observe_fields(
-        project, metric, dimensions=[DimensionRef("sales.users.tier")], where=None, time_field=None
+        project,
+        metric,
+        dimensions=[DimensionRef("sales.users.tier")],
+        where=None,
+        time_dimension=None,
     )
     assert [field.semantic_id for field in resolved.dimensions] == ["sales.users.tier"]
 
@@ -158,13 +162,13 @@ def test_unique_shortest_path_and_join_safety(semantic_project_factory):
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-                "@ms.dimension(dataset=orders)\n"
+                "@ms.dimension(entity=orders)\n"
                 "def order_user_id(orders):\n"
                 "    return orders.user_id\n"
-                "@ms.dimension(dataset=users)\n"
+                "@ms.dimension(entity=users)\n"
                 "def user_id(users):\n"
                 "    return users.user_id\n"
-                "@ms.metric(datasets=[orders, users], root_dataset=orders, additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders, users], root_entity=orders, additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders, users):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -173,10 +177,10 @@ def test_unique_shortest_path_and_join_safety(semantic_project_factory):
                 "from .datasets import orders, users, order_user_id, user_id\n"
                 "ms.relationship(\n"
                 "    name='orders_to_users',\n"
-                "    from_dataset=orders,\n"
-                "    to_dataset=users,\n"
-                "    from_fields=[order_user_id],\n"
-                "    to_fields=[user_id],\n"
+                "    from_entity=orders,\n"
+                "    to_entity=users,\n"
+                "    from_dimensions=[order_user_id],\n"
+                "    to_dimensions=[user_id],\n"
                 ")\n"
             ),
         }
@@ -185,9 +189,8 @@ def test_unique_shortest_path_and_join_safety(semantic_project_factory):
     path = unique_shortest_relationship_path(project, "sales.orders", "sales.users")
     assert [rel.semantic_id for rel in path] == ["sales.orders_to_users"]
     assert (
-        resolved_edge_safety(project, path[0], from_dataset="sales.orders")
-        == JoinSafety.MANY_TO_ONE
+        resolved_edge_safety(project, path[0], from_entity="sales.orders") == JoinSafety.MANY_TO_ONE
     )
     assert (
-        resolved_edge_safety(project, path[0], from_dataset="sales.users") == JoinSafety.ONE_TO_MANY
+        resolved_edge_safety(project, path[0], from_entity="sales.users") == JoinSafety.ONE_TO_MANY
     )

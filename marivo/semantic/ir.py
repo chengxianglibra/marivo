@@ -306,7 +306,7 @@ class EntityIR:
     """Entity declaration with physical grounding."""
 
     semantic_id: str
-    model: str
+    domain: str
     name: str
     datasource: str
     source: EntitySourceIR
@@ -323,12 +323,12 @@ class DimensionIR:
     """Dimension declaration (categorical or measure column)."""
 
     semantic_id: str
-    model: str
-    dataset: str
+    domain: str
+    entity: str
     name: str
     description: str | None
     ai_context: AiContextIR
-    is_time_field: bool
+    is_time_dimension: bool
     kind: DimensionKind
     data_type: str | None
     granularity: str | None
@@ -340,9 +340,9 @@ class DimensionIR:
     is_default: bool = False
 
     def __post_init__(self) -> None:
-        if self.is_time_field != (self.kind == DimensionKind.TIME):
+        if self.is_time_dimension != (self.kind == DimensionKind.TIME):
             raise ValueError(
-                f"DimensionIR {self.semantic_id!r}: is_time_field={self.is_time_field} "
+                f"DimensionIR {self.semantic_id!r}: is_time_dimension={self.is_time_dimension} "
                 f"inconsistent with kind={self.kind.value!r}"
             )
 
@@ -360,9 +360,9 @@ class MetricIR:
     """Metric declaration with decomposition and provenance."""
 
     semantic_id: str
-    model: str
+    domain: str
     name: str
-    datasets: tuple[str, ...]
+    entities: tuple[str, ...]
     is_derived: bool
     decomposition: DecompositionIR
     provenance: ProvenanceIR
@@ -372,21 +372,21 @@ class MetricIR:
     python_symbol: str
     location: SourceLocation
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
-    root_dataset: str | None = None
+    root_entity: str | None = None
     fanout_policy: Literal["block", "aggregate_then_join"] = "block"
 
 
 @dataclass(frozen=True)
 class RelationshipIR:
-    """Relationship between two datasets."""
+    """Relationship between two entities."""
 
     semantic_id: str
-    model: str
+    domain: str
     name: str
-    from_dataset: str
-    to_dataset: str
-    from_fields: tuple[str, ...]
-    to_fields: tuple[str, ...]
+    from_entity: str
+    to_entity: str
+    from_dimensions: tuple[str, ...]
+    to_dimensions: tuple[str, ...]
     description: str | None
     ai_context: AiContextIR
     location: SourceLocation

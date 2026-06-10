@@ -926,9 +926,9 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                 "import marivo.semantic as ms\n"
                 "project = ms.find_project()\n"
                 "project.load()\n"
-                "project.list_fields()  # confirm available fields per dataset\n"
+                "project.list_dimensions()  # confirm available dimensions per entity\n"
                 'session.observe(mv.MetricRef("sales.revenue"), '
-                'dimensions=[mv.DimensionRef("<existing_field>")])'
+                'dimensions=[mv.DimensionRef("<existing_dimension>")])'
             ),
             "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
         }

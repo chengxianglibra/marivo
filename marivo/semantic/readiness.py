@@ -318,7 +318,7 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
         kinds[dataset.semantic_id] = _SemanticKind.ENTITY
         objects[dataset.semantic_id] = dataset
     for field in reg.fields.values():
-        kind = _SemanticKind.TIME_DIMENSION if field.is_time_field else _SemanticKind.DIMENSION
+        kind = _SemanticKind.TIME_DIMENSION if field.is_time_dimension else _SemanticKind.DIMENSION
         kinds[field.semantic_id] = kind
         objects[field.semantic_id] = field
     for metric in reg.metrics.values():
@@ -339,7 +339,7 @@ _REQUIRED_DECISION_BY_KIND = {
 
 def _evidence_ledger_blockers(project: SemanticProject) -> list[ReadinessIssue]:
     """Dangerous-kind authored objects with no backing ledger decision -> blockers.
-    Mapping: time_field -> time_field_identity, metric -> metric_decomposition."""
+    Mapping: time_dimension -> time_dimension_identity, metric -> metric_decomposition."""
     from marivo.semantic.ledger import LedgerStore
 
     store = LedgerStore(project.root)
@@ -474,11 +474,11 @@ def _dependencies_for_ref(
     if obj is None:
         return ()
     if kind in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
-        dataset = getattr(obj, "dataset", None)
-        return (dataset,) if isinstance(dataset, str) else ()
+        entity = getattr(obj, "entity", None)
+        return (entity,) if isinstance(entity, str) else ()
     if kind == _SemanticKind.METRIC:
         deps: list[str] = []
-        deps.extend(getattr(obj, "datasets", ()))
+        deps.extend(getattr(obj, "entities", ()))
         decomposition = getattr(obj, "decomposition", None)
         components = getattr(decomposition, "components", {})
         if isinstance(components, Mapping):
@@ -486,10 +486,10 @@ def _dependencies_for_ref(
         return tuple(deps)
     if kind == _SemanticKind.RELATIONSHIP:
         relationship_deps = (
-            getattr(obj, "from_dataset", None),
-            getattr(obj, "to_dataset", None),
-            *getattr(obj, "from_fields", ()),
-            *getattr(obj, "to_fields", ()),
+            getattr(obj, "from_entity", None),
+            getattr(obj, "to_entity", None),
+            *getattr(obj, "from_dimensions", ()),
+            *getattr(obj, "to_dimensions", ()),
         )
         return tuple(dep for dep in relationship_deps if isinstance(dep, str))
     return ()
@@ -647,7 +647,7 @@ def _metadata_has_comment_for_ref(
             _dataset_has_metadata_comment(dataset_ref, metadata_by_dataset)
             for dataset_ref in dataset_refs
         )
-    dataset_ref = getattr(obj, "dataset", None)
+    dataset_ref = getattr(obj, "entity", None)
     if dataset_ref is None:
         dataset_ref = ref
     return _dataset_has_metadata_comment_for_field(str(dataset_ref), obj, metadata_by_dataset)
@@ -779,7 +779,7 @@ def _run_semantic_previews(
             dataset_groups.setdefault(ref, []).append(ref)
         elif kind in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
             field = objects.get(ref)
-            dataset_ref = getattr(field, "dataset", None)
+            dataset_ref = getattr(field, "entity", None)
             if isinstance(dataset_ref, str):
                 dataset_groups.setdefault(dataset_ref, []).append(ref)
             else:
@@ -865,7 +865,7 @@ def _run_dataset_group_preview(
     preview_limit: int,
     redact: bool,
 ) -> PreviewResult:
-    parent_table = materializer.dataset(dataset_ref)
+    parent_table = materializer.entity(dataset_ref)
     projections: list[Any] = []
     ref_tuple = tuple(refs)
 
@@ -875,7 +875,7 @@ def _run_dataset_group_preview(
     for ref in ref_tuple:
         if kinds.get(ref) not in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
             continue
-        field_value = materializer.field(ref)
+        field_value = materializer.dimension(ref)
         column_name = _preview_column_name(ref)
         projections.append(field_value.name(column_name))
 
@@ -1357,11 +1357,11 @@ def build_readiness_report(
                         "derived_source_grain_unverified",
                         "warning",
                         (dataset.semantic_id,),
-                        f"Dataset {dataset.semantic_id} is backed by a database view; "
+                        f"Entity {dataset.semantic_id} is backed by a database view; "
                         "its grain, primary key, and additivity are author-asserted and "
                         "cannot be physically verified, and the view may prevent partition "
                         "pruning on the time axis.",
-                        "Confirm the row grain and additivity, verify the time field still "
+                        "Confirm the row grain and additivity, verify the time dimension still "
                         "prunes (see time_dimension_pushdown_advisory), and set primary_key "
                         "deliberately rather than inheriting base-table assumptions.",
                     )
@@ -1375,7 +1375,7 @@ def build_readiness_report(
                 continue
             datasources = {
                 datasource_by_dataset[dataset_ref]
-                for dataset_ref in metric.datasets
+                for dataset_ref in metric.entities
                 if dataset_ref in datasource_by_dataset
             }
             if len(datasources) > 1 and not supports_federation:

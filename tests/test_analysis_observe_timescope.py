@@ -37,11 +37,11 @@ def _bootstrap_sales(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -81,17 +81,17 @@ def _bootstrap_multi_dataset(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
         "refunds = ms.entity(name='refunds', datasource='warehouse', source=ms.table('refunds'))\n"
         "\n"
-        "@ms.time_dimension(dataset=refunds, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=refunds, data_type='date', granularity='day')\n"
         "def refund_date(refunds):\n"
         "    return refunds.refund_date.cast('date')\n"
         "\n"
-        "@ms.metric(datasets=[orders, refunds], root_dataset=orders, additivity='additive', decomposition=ms.sum(), name='net', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders, refunds], root_entity=orders, additivity='additive', decomposition=ms.sum(), name='net', verification_mode='python_native',)\n"
         "def net(orders, refunds):\n"
         "    return orders.amount.sum()\n"
     )
@@ -122,11 +122,11 @@ def _bootstrap_date_field(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -189,7 +189,7 @@ def test_timescope_with_grain_returns_time_series(tmp_path):
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         }
     }
     assert list(frame.to_pandas().columns) == ["bucket_start", "revenue"]
@@ -244,7 +244,7 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
         "start": "2026-05-01",
         "end": "2026-05-25",
         "grain": "day",
-        "time_field": None,
+        "time_dimension": None,
     }
     assert frame.meta.window == window_params["resolved"]
 

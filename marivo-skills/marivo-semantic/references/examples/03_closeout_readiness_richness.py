@@ -33,7 +33,7 @@ orders = ms.entity(
 )
 
 @ms.time_dimension(
-    dataset=orders,
+    entity=orders,
     name="order_date",
     data_type="date",
     granularity="day",
@@ -46,7 +46,7 @@ def order_date(table):
     return table.dt.cast("date")
 
 @ms.metric(
-    datasets=[orders],
+    entities=[orders],
     additivity="additive",
     decomposition=ms.sum(),
     name="unverified_revenue",
@@ -59,7 +59,7 @@ def unverified_revenue(table):
     return table.amount.sum()
 
 @ms.metric(
-    datasets=[orders],
+    entities=[orders],
     additivity="additive",
     decomposition=ms.sum(),
     name="drifted_revenue",

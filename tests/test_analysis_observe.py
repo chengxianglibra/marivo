@@ -62,15 +62,15 @@ def _bootstrap_sales_with_two_time_fields(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
         "def create_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='timestamp', granularity='hour')\n"
+        "@ms.time_dimension(entity=orders, data_type='timestamp', granularity='hour')\n"
         "def create_time(orders):\n"
         "    return orders.created_ts\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -94,15 +94,15 @@ def _bootstrap_sales_with_default_time_field(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day', is_default=True)\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day', is_default=True)\n"
         "def create_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='timestamp', granularity='hour')\n"
+        "@ms.time_dimension(entity=orders, data_type='timestamp', granularity='hour')\n"
         "def create_time(orders):\n"
         "    return orders.created_ts\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -137,12 +137,12 @@ def _bootstrap_sales_with_string_partition_time_field(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='string', granularity='day', "
+        "@ms.time_dimension(entity=orders, data_type='string', granularity='day', "
         "date_format='%Y%m%d')\n"
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -177,12 +177,12 @@ def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='string', granularity='hour', "
+        "@ms.time_dimension(entity=orders, data_type='string', granularity='hour', "
         "date_format='%Y%m%d%H')\n"
         "def log_hour(orders):\n"
         "    return orders.log_hour\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -206,17 +206,17 @@ def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='string', granularity='day', "
+        "@ms.time_dimension(entity=orders, data_type='string', granularity='day', "
         "date_format='%Y%m%d')\n"
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='string', granularity='hour', "
+        "@ms.time_dimension(entity=orders, data_type='string', granularity='hour', "
         "required_prefix='log_date')\n"
         "def log_hour(orders):\n"
         "    return orders.log_hour\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -328,7 +328,7 @@ def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(t
     mf = observe(
         MetricRef("sales.revenue"),
         timescope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
-        time_field=DimensionRef("log_hour"),
+        time_dimension=DimensionRef("log_hour"),
         session=s,
     )
 
@@ -336,7 +336,7 @@ def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(t
     assert mf.meta.window is not None
     assert mf.meta.window["start"] == "2024-10-11T03:00:00"
     assert mf.meta.window["end"] == "2025-07-31T14:00:00"
-    assert mf.meta.window["time_field"] == "log_hour"
+    assert mf.meta.window["time_dimension"] == "log_hour"
 
 
 def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
@@ -353,10 +353,10 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
         )
 
     rendered = str(exc_info.value)
-    assert "multiple time_fields" in rendered
+    assert "multiple time_dimensions" in rendered
     assert "create_date" in rendered
     assert "create_time" in rendered
-    assert 'time_field=mv.DimensionRef("create_date")' in rendered
+    assert 'time_dimension=mv.DimensionRef("create_date")' in rendered
     assert "is_default=True" in rendered
 
 
@@ -369,7 +369,7 @@ def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
     mf = observe(
         MetricRef("sales.revenue"),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
-        time_field=DimensionRef("create_date"),
+        time_dimension=DimensionRef("create_date"),
         session=s,
     )
 
@@ -421,7 +421,7 @@ def test_observe_rejects_bare_string_time_field(tmp_path):
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        observe(MetricRef("sales.revenue"), time_field="created_at", session=s)
+        observe(MetricRef("sales.revenue"), time_dimension="created_at", session=s)
     assert exc_info.value.details["expected_kind"] == "DimensionRef"
 
 
@@ -541,15 +541,15 @@ def _bootstrap_failure_rate(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
         "def failed_count(orders):\n"
         "    return (orders.state == 'FAILED').cast('int64').sum()\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
         "def total_count(orders):\n"
         "    return orders.count()\n"
         "\n"
@@ -679,12 +679,12 @@ def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='string', granularity='day', "
+        "@ms.time_dimension(entity=orders, data_type='string', granularity='day', "
         "date_format='%Y/%m/%d')\n"
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -751,12 +751,12 @@ def _bootstrap_sales_with_string_timestamp_timezone(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='string', granularity='minute', "
+        "@ms.time_dimension(entity=orders, data_type='string', granularity='minute', "
         "date_format='%Y-%m-%d %H:%M:%S', timezone='UTC')\n"
         "def create_time(orders):\n"
         "    return orders.create_time\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -783,13 +783,13 @@ def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypa
         MetricRef("sales.revenue"),
         timescope={"start": "2026-05-01", "end": "2026-05-02"},
         grain=(30, "minute"),
-        time_field=DimensionRef("create_time"),
+        time_dimension=DimensionRef("create_time"),
         session=s,
     )
 
     assert frame.meta.semantic_kind == "time_series"
     assert frame.meta.axes["time"]["grain"] == "30minute"
-    assert frame.meta.axes["time"]["time_field"] == "create_time"
+    assert frame.meta.axes["time"]["time_dimension"] == "create_time"
     df = frame.to_pandas()
     assert [str(item) for item in df["bucket_start"]] == [
         "2026-05-01 00:00:00",
@@ -816,12 +816,12 @@ def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='integer', granularity='day', "
+        "@ms.time_dimension(entity=orders, data_type='integer', granularity='day', "
         "date_format='%Y%m%d')\n"
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )

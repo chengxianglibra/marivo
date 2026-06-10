@@ -12,7 +12,7 @@ def test_minute_granularity_timestamp_is_valid(semantic_project_factory):
             "ops/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
-                "@ms.time_dimension(dataset=events, data_type='timestamp', granularity='minute')\n"
+                "@ms.time_dimension(entity=events, data_type='timestamp', granularity='minute')\n"
                 "def ts(events):\n"
                 "    return events.ts\n"
             ),
@@ -27,7 +27,7 @@ def test_second_granularity_on_date_is_rejected(semantic_project_factory):
             "ops/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
-                "@ms.time_dimension(dataset=events, data_type='date', granularity='second')\n"
+                "@ms.time_dimension(entity=events, data_type='date', granularity='second')\n"
                 "def d(events):\n"
                 "    return events.d.cast('date')\n"
             ),
@@ -36,7 +36,7 @@ def test_second_granularity_on_date_is_rejected(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_dataset("ops.events")
+        project.get_entity("ops.events")
     errors = exc_info.value.errors
     kinds = [e.kind for e in errors]
     assert "subday_granularity_without_time" in kinds
@@ -49,7 +49,7 @@ def test_minute_granularity_on_date_is_rejected(semantic_project_factory):
             "ops/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
-                "@ms.time_dimension(dataset=events, data_type='date', granularity='minute')\n"
+                "@ms.time_dimension(entity=events, data_type='date', granularity='minute')\n"
                 "def d(events):\n"
                 "    return events.d.cast('date')\n"
             ),
@@ -58,7 +58,7 @@ def test_minute_granularity_on_date_is_rejected(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_dataset("ops.events")
+        project.get_entity("ops.events")
     errors = exc_info.value.errors
     kinds = [e.kind for e in errors]
     assert "subday_granularity_without_time" in kinds
@@ -72,7 +72,7 @@ def test_hour_granularity_on_date_is_rejected(semantic_project_factory):
             "ops/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
-                "@ms.time_dimension(dataset=events, data_type='date', granularity='hour')\n"
+                "@ms.time_dimension(entity=events, data_type='date', granularity='hour')\n"
                 "def d(events):\n"
                 "    return events.d.cast('date')\n"
             ),
@@ -81,7 +81,7 @@ def test_hour_granularity_on_date_is_rejected(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_dataset("ops.events")
+        project.get_entity("ops.events")
     errors = exc_info.value.errors
     kinds = [e.kind for e in errors]
     assert "subday_granularity_without_time" in kinds
@@ -94,7 +94,7 @@ def test_second_granularity_datetime_is_valid(semantic_project_factory):
             "ops/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
-                "@ms.time_dimension(dataset=events, data_type='datetime', granularity='second')\n"
+                "@ms.time_dimension(entity=events, data_type='datetime', granularity='second')\n"
                 "def ts(events):\n"
                 "    return events.ts\n"
             ),
@@ -110,7 +110,7 @@ def test_minute_granularity_string_with_time_format_is_valid(semantic_project_fa
             "ops/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
-                "@ms.time_dimension(dataset=events, data_type='string', granularity='minute', "
+                "@ms.time_dimension(entity=events, data_type='string', granularity='minute', "
                 "date_format='%Y%m%d%H%M')\n"
                 "def ts(events):\n"
                 "    return events.ts\n"
@@ -127,7 +127,7 @@ def test_minute_granularity_string_without_time_format_is_rejected(semantic_proj
             "ops/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
-                "@ms.time_dimension(dataset=events, data_type='string', granularity='minute', "
+                "@ms.time_dimension(entity=events, data_type='string', granularity='minute', "
                 "date_format='%Y%m%d')\n"
                 "def ts(events):\n"
                 "    return events.ts\n"
@@ -137,7 +137,7 @@ def test_minute_granularity_string_without_time_format_is_rejected(semantic_proj
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_dataset("ops.events")
+        project.get_entity("ops.events")
     errors = exc_info.value.errors
     kinds = [e.kind for e in errors]
     assert "subday_granularity_without_time" in kinds

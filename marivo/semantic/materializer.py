@@ -1,6 +1,6 @@
 """Materializer for marivo.semantic v1.1.
 
-Handles backend instantiation, dataset/field/metric materialization,
+Handles backend instantiation, entity/dimension/metric materialization,
 SQL view detection, and cross-datasource enforcement.
 """
 
@@ -21,7 +21,7 @@ from marivo.semantic.ir import EntityProvenance, FileSourceIR, MetricIR, TableSo
 from marivo.semantic.validator import Registry, Sidecar
 
 __all__ = [
-    "DatasetRuntimeMetadata",
+    "EntityRuntimeMetadata",
     "Materializer",
 ]
 
@@ -30,13 +30,13 @@ IbisBackend = Any  # ibis backends don't share a common typing protocol yet
 
 
 @dataclass(frozen=True)
-class DatasetRuntimeMetadata:
-    """Runtime metadata detected after materializing a dataset.
+class EntityRuntimeMetadata:
+    """Runtime metadata detected after materializing an entity.
 
     Stored on SemanticProject._runtime_metadata, not in frozen IR.
     """
 
-    dataset_provenance: EntityProvenance
+    entity_provenance: EntityProvenance
     raw_sql_snippet: str | None
     detected_at: datetime
 
@@ -59,8 +59,8 @@ class Materializer:
         self._backend_factory = backend_factory
         self._sample_size = sample_size
         self._backend_cache: dict[str, IbisBackend] = {}
-        self._dataset_cache: dict[str, ibis.Table] = {}
-        self._field_cache: dict[str, ir.Value] = {}
+        self._entity_cache: dict[str, ibis.Table] = {}
+        self._dimension_cache: dict[str, ir.Value] = {}
         self._metric_cache: dict[str, ir.Value] = {}
 
     # -- backend management ---------------------------------------------------
@@ -92,16 +92,16 @@ class Materializer:
             )
         return registry, sidecar
 
-    # -- dataset --------------------------------------------------------------
+    # -- entity --------------------------------------------------------------
 
-    def dataset(self, semantic_id: str) -> ibis.Table:
-        """Materialize a dataset, returning an ibis Table expression."""
-        if semantic_id in self._dataset_cache:
-            return self._dataset_cache[semantic_id]
+    def entity(self, semantic_id: str) -> ibis.Table:
+        """Materialize an entity, returning an ibis Table expression."""
+        if semantic_id in self._entity_cache:
+            return self._entity_cache[semantic_id]
 
         registry, _sidecar = self._get_registry_and_sidecar()
 
-        ds_ir = registry.datasets.get(semantic_id)
+        ds_ir = registry.datasets.get(semantic_id)  # Registry key still "datasets"
         if ds_ir is None:
             _raise(
                 ErrorKind.ENTITY_NOT_FOUND,
@@ -121,7 +121,7 @@ class Materializer:
         except Exception as exc:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
-                f"Dataset {semantic_id!r} source materialization raised: {exc}",
+                f"Entity {semantic_id!r} source materialization raised: {exc}",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
@@ -131,7 +131,7 @@ class Materializer:
             table = table.limit(self._sample_size)
 
         # Cache the result
-        self._dataset_cache[semantic_id] = table
+        self._entity_cache[semantic_id] = table
 
         # Detect SQL view provenance
         self._detect_and_store_provenance(semantic_id, table)
@@ -156,7 +156,7 @@ class Materializer:
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
                     (
-                        f"Dataset {semantic_id!r} datasource backend does not support "
+                        f"Entity {semantic_id!r} datasource backend does not support "
                         f"{source.format} file sources."
                     ),
                     cls=SemanticRuntimeError,
@@ -167,7 +167,7 @@ class Materializer:
 
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
-            f"Dataset {semantic_id!r} has unsupported source kind.",
+            f"Entity {semantic_id!r} has unsupported source kind.",
             cls=SemanticRuntimeError,
             refs=(semantic_id,),
         )
@@ -184,23 +184,23 @@ class Materializer:
             provenance = EntityProvenance.IBIS_TABLE
             raw_sql = None
 
-        meta = DatasetRuntimeMetadata(
-            dataset_provenance=provenance,
+        meta = EntityRuntimeMetadata(
+            entity_provenance=provenance,
             raw_sql_snippet=raw_sql,
             detected_at=datetime.now(tz=UTC),
         )
         self._project._runtime_metadata[semantic_id] = meta
 
-    # -- field ----------------------------------------------------------------
+    # -- dimension ---------------------------------------------------------------
 
-    def field(self, semantic_id: str) -> ir.Value:
-        """Materialize a field, returning an ibis Value expression."""
-        if semantic_id in self._field_cache:
-            return self._field_cache[semantic_id]
+    def dimension(self, semantic_id: str) -> ir.Value:
+        """Materialize a dimension, returning an ibis Value expression."""
+        if semantic_id in self._dimension_cache:
+            return self._dimension_cache[semantic_id]
 
         registry, sidecar = self._get_registry_and_sidecar()
 
-        field_ir = registry.fields.get(semantic_id)
+        field_ir = registry.fields.get(semantic_id)  # Registry key still "fields"
         if field_ir is None:
             _raise(
                 ErrorKind.DIMENSION_NOT_FOUND,
@@ -213,13 +213,13 @@ class Materializer:
         if callable_ is None:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
-                f"Field {semantic_id!r} has no sidecar callable.",
+                f"Dimension {semantic_id!r} has no sidecar callable.",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
 
-        # Materialize parent dataset first
-        parent_table = self.dataset(field_ir.dataset)
+        # Materialize parent entity first
+        parent_table = self.entity(field_ir.entity)
 
         # Call the sidecar callable with the parent table
         try:
@@ -227,12 +227,12 @@ class Materializer:
         except Exception as exc:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
-                f"Field {semantic_id!r} callable raised: {exc}",
+                f"Dimension {semantic_id!r} callable raised: {exc}",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
 
-        self._field_cache[semantic_id] = value
+        self._dimension_cache[semantic_id] = value
         return value
 
     # -- metric ---------------------------------------------------------------
@@ -281,16 +281,16 @@ class Materializer:
                 refs=(semantic_id,),
             )
 
-        # Cross-datasource check: all datasets must share the same datasource
+        # Cross-datasource check: all entities must share the same datasource
         self._check_single_datasource(metric_ir, registry)
 
-        # Materialize all datasets in order
+        # Materialize all entities in order
         tables: list[ibis.Table] = []
-        for ds_ref in metric_ir.datasets:
-            table = self.dataset(ds_ref)
+        for ds_ref in metric_ir.entities:
+            table = self.entity(ds_ref)
             tables.append(table)
 
-        # Call the sidecar callable with dataset tables as positional args
+        # Call the sidecar callable with entity tables as positional args
         try:
             value = callable_(*tables)
         except Exception as exc:
@@ -343,22 +343,22 @@ class Materializer:
         )
 
     def _check_single_datasource(self, metric_ir: MetricIR, registry: Any) -> None:
-        """All datasets in a base metric must share the same datasource."""
-        if not metric_ir.datasets:
+        """All entities in a base metric must share the same datasource."""
+        if not metric_ir.entities:
             return
 
         datasource_ids: set[str] = set()
-        for ds_ref in metric_ir.datasets:
-            ds_ir = registry.datasets.get(ds_ref)
+        for ds_ref in metric_ir.entities:
+            ds_ir = registry.datasets.get(ds_ref)  # Registry key still "datasets"
             if ds_ir is not None:
                 datasource_ids.add(ds_ir.datasource)
 
         if len(datasource_ids) > 1:
             _raise(
                 ErrorKind.CROSS_DATASOURCE_NOT_SUPPORTED,
-                f"Metric {metric_ir.semantic_id!r} references datasets from "
+                f"Metric {metric_ir.semantic_id!r} references entities from "
                 f"multiple datasources: {datasource_ids}. "
-                "All datasets in a metric must share the same datasource.",
+                "All entities in a metric must share the same datasource.",
                 cls=SemanticRuntimeError,
                 refs=(metric_ir.semantic_id,),
             )

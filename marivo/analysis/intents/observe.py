@@ -158,7 +158,7 @@ def _build_dataset_adapter(
 
     # Build field adapters for this dataset
     field_adapters: dict[str, _DimensionIRAdapter] = {}
-    for field_ir in sp.list_fields(dataset=dataset_ir.semantic_id):
+    for field_ir in sp.list_dimensions(entity=dataset_ir.semantic_id):
         field_fn = sidecar.get(field_ir.semantic_id) if sidecar else None
         _captured_field_sid = field_ir.semantic_id
 
@@ -175,12 +175,12 @@ def _build_dataset_adapter(
         field_adapters[field_ir.name] = adapter
 
     # Add time fields
-    for tf_ir in sp.list_time_fields(dataset=dataset_ir.semantic_id):
+    for tf_ir in sp.list_time_dimensions(entity=dataset_ir.semantic_id):
         tf_fn = sidecar.get(tf_ir.semantic_id) if sidecar else None
         _captured_tf_sid = tf_ir.semantic_id
 
         def _default_tf_fn(table: Any, *, _sid: str = _captured_tf_sid) -> Any:
-            raise RuntimeError(f"No sidecar callable for time_field {_sid!r}")
+            raise RuntimeError(f"No sidecar callable for time_dimension {_sid!r}")
 
         time_meta = _TimeFieldMetaAdapter(
             data_type=tf_ir.data_type or "date",
@@ -324,10 +324,10 @@ def _resolve_timescope(
     timescope: TimeScopeInput,
     *,
     grain: GrainInput,
-    time_field: str | None,
+    time_dimension: str | None,
 ) -> tuple[AbsoluteWindow | None, dict[str, Any] | None]:
     timescope_in = normalize_timescope_input(timescope)
-    resolved = make_absolute_window(timescope_in, grain=grain, time_field=time_field)
+    resolved = make_absolute_window(timescope_in, grain=grain, time_dimension=time_dimension)
     original = timescope_in.model_dump(mode="json") if timescope_in is not None else None
     return resolved, original
 
@@ -375,18 +375,18 @@ def _validate_dimension_refs(dimensions: list[Any] | None) -> list[DimensionRef]
     return validated
 
 
-def _normalize_time_field_ref(time_field: DimensionRef | None) -> str | None:
-    if time_field is None:
+def _normalize_time_dimension_ref(time_dimension: DimensionRef | None) -> str | None:
+    if time_dimension is None:
         return None
-    if not isinstance(time_field, DimensionRef):
+    if not isinstance(time_dimension, DimensionRef):
         raise SemanticKindMismatchError(
-            message="observe requires time_field=DimensionRef(...)",
+            message="observe requires time_dimension=DimensionRef(...)",
             details={
                 "expected_kind": "DimensionRef",
-                "got_kind": type(time_field).__name__,
+                "got_kind": type(time_dimension).__name__,
             },
         )
-    return time_field.id
+    return time_dimension.id
 
 
 def _normalize_where_refs(
@@ -497,11 +497,11 @@ def _execute_base(
             details={"metric": metric_ir.semantic_id},
         )
     metric_name = metric_ir.name
-    metric_datasets = tuple(metric_ir.datasets)
+    metric_datasets = tuple(metric_ir.entities)
     primary_datasource = plan.datasource_name
     dataset_tables = plan.dataset_tables
     resolved_dimensions = [
-        (dimension.field.dataset, dimension.field) for dimension in plan.dimensions
+        (dimension.field.entity, dimension.field) for dimension in plan.dimensions
     ]
     is_time_series = resolved_window is not None and resolved_window.grain is not None
 
@@ -509,17 +509,17 @@ def _execute_base(
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "scalar"
 
     if is_time_series and resolved_window is not None and resolved_dimensions:
-        root_ds_ir = sp.get_dataset(plan.root_dataset)
+        root_ds_ir = sp.get_entity(plan.root_entity)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
-        time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+        time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
         if resolved_window.grain is not None:
             base = (
-                time_field_ir.time_meta.granularity if time_field_ir.time_meta else None
+                time_dimension_ir.time_meta.granularity if time_dimension_ir.time_meta else None
             ) or "day"
             ensure_grain_supported(resolved_window.grain, base)
         bucketed_table = apply_time_series_bucket(
             plan.table,
-            field_ir=time_field_ir,
+            field_ir=time_dimension_ir,
             window=resolved_window,
             session_tz=cast("ZoneInfo", session.tz),
             dataset_ir=root_adapter,
@@ -552,7 +552,7 @@ def _execute_base(
         if "bucket_start" in result.df:
             result.df["bucket_start"] = ensure_bucket_start_timestamp(
                 result.df["bucket_start"],
-                time_meta=time_field_ir.time_meta,
+                time_meta=time_dimension_ir.time_meta,
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
                 session_tz=cast("ZoneInfo", session.tz),
@@ -571,7 +571,7 @@ def _execute_base(
                 "grain": resolved_window.grain.to_token()
                 if resolved_window.grain is not None
                 else None,
-                "time_field": time_field_ir.name,
+                "time_dimension": time_dimension_ir.name,
             },
             **{
                 field_ir.name: {"role": "dimension", "column": field_ir.name}
@@ -580,17 +580,17 @@ def _execute_base(
         }
         semantic_kind = "panel"
     elif is_time_series and resolved_window is not None:
-        root_ds_ir = sp.get_dataset(plan.root_dataset)
+        root_ds_ir = sp.get_entity(plan.root_entity)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
-        time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+        time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
         if resolved_window.grain is not None:
             base = (
-                time_field_ir.time_meta.granularity if time_field_ir.time_meta else None
+                time_dimension_ir.time_meta.granularity if time_dimension_ir.time_meta else None
             ) or "day"
             ensure_grain_supported(resolved_window.grain, base)
         bucketed_table = apply_time_series_bucket(
             plan.table,
-            field_ir=time_field_ir,
+            field_ir=time_dimension_ir,
             window=resolved_window,
             session_tz=cast("ZoneInfo", session.tz),
             dataset_ir=root_adapter,
@@ -616,7 +616,7 @@ def _execute_base(
         if "bucket_start" in result.df:
             result.df["bucket_start"] = ensure_bucket_start_timestamp(
                 result.df["bucket_start"],
-                time_meta=time_field_ir.time_meta,
+                time_meta=time_dimension_ir.time_meta,
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
                 session_tz=cast("ZoneInfo", session.tz),
@@ -628,7 +628,7 @@ def _execute_base(
                 "grain": resolved_window.grain.to_token()
                 if resolved_window.grain is not None
                 else None,
-                "time_field": time_field_ir.name,
+                "time_dimension": time_dimension_ir.name,
             }
         }
         semantic_kind = "time_series"
@@ -702,21 +702,21 @@ def _execute_derived(
                 details={"metric": cp.component_metric_ir.semantic_id},
             )
         component_name = cp.role
-        component_datasets = tuple(cp.component_metric_ir.datasets)
+        component_datasets = tuple(cp.component_metric_ir.entities)
         table = cp.base_plan.table
         if has_time:
             assert resolved_window is not None  # narrowing: has_time implies resolved_window is set
-            root_ds_ir = sp.get_dataset(cp.base_plan.root_dataset)
+            root_ds_ir = sp.get_entity(cp.base_plan.root_entity)
             root_adapter = _build_dataset_adapter(sp, root_ds_ir)
-            time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+            time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
             if resolved_window.grain is not None:
                 base = (
-                    time_field_ir.time_meta.granularity if time_field_ir.time_meta else None
+                    time_dimension_ir.time_meta.granularity if time_dimension_ir.time_meta else None
                 ) or "day"
                 ensure_grain_supported(resolved_window.grain, base)
             table = apply_time_series_bucket(
                 table,
-                field_ir=time_field_ir,
+                field_ir=time_dimension_ir,
                 window=resolved_window,
                 session_tz=cast("ZoneInfo", session.tz),
                 dataset_ir=root_adapter,
@@ -752,7 +752,7 @@ def _execute_derived(
         if has_time and "bucket_start" in df:
             df["bucket_start"] = ensure_bucket_start_timestamp(
                 df["bucket_start"],
-                time_meta=time_field_ir.time_meta,
+                time_meta=time_dimension_ir.time_meta,
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain if resolved_window else None,
                 session_tz=cast("ZoneInfo", session.tz),
@@ -808,16 +808,16 @@ def _execute_derived(
     axes: dict[str, Any] = {}
     if has_time and plan.component_plans and resolved_window is not None:
         first_cp = plan.component_plans[0]
-        root_ds_ir = sp.get_dataset(first_cp.base_plan.root_dataset)
+        root_ds_ir = sp.get_entity(first_cp.base_plan.root_entity)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
-        time_field_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+        time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
         axes["time"] = {
             "role": "time",
             "column": "bucket_start",
             "grain": resolved_window.grain.to_token()
             if resolved_window.grain is not None
             else None,
-            "time_field": time_field_ir.name,
+            "time_dimension": time_dimension_ir.name,
         }
     for col in dim_columns:
         axes[col] = {"role": "dimension", "column": col}
@@ -851,7 +851,7 @@ def observe(
     grain: GrainInput = None,
     dimensions: list[DimensionRef] | None = None,
     where: dict[DimensionRef, SliceValue] | None = None,
-    time_field: DimensionRef | None = None,
+    time_dimension: DimensionRef | None = None,
     expect_shape: SemanticShape | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
@@ -864,7 +864,7 @@ def observe(
     the session's backend, and persists the result as a MetricFrame on disk.
 
     Args:
-        metric: Wrap the registered metric id with ``mv.MetricRef("<model>.<metric>")``.
+        metric: Wrap the registered metric id with ``mv.MetricRef("<domain>.<metric>")``.
             Bare strings are rejected.
         timescope: Half-open time range ``{"start": ..., "end": ...}`` — start is
             inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
@@ -872,23 +872,23 @@ def observe(
         grain: Optional time bucket grain. When present, observe returns a time
             series or panel depending on ``dimensions``.
         dimensions: Segment axes. In v1 all dimensions must resolve to the same
-            dataset as ``metric``.
+            entity as ``metric``.
         where: Pre-aggregation row filter. Keys are ``mv.DimensionRef(...)`` for
             the filtered dimension; values are either a scalar (``==``), a list
             (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
             ``==, !=, in, >, >=, <, <=, between``.
-        time_field: Pick the dataset time axis as
-            ``mv.DimensionRef("<time_field>")`` when a dataset declares multiple
-            ``@ms.time_dimension`` columns. Omit when the dataset has a single (or
-            default) time field.
+        time_dimension: Pick the entity time axis as
+            ``mv.DimensionRef("<time_dimension>")`` when an entity declares multiple
+            ``@ms.time_dimension`` columns. Omit when the entity has a single (or
+            default) time dimension.
         expect_shape: Optional guard. If set, observe predicts the output shape
             from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
             before any backend work when the prediction differs.
         session: Defaults to the currently-attached session.
 
     Raises:
-        MetricNotFoundError: The metric id is unknown or not ``<model>.<metric>``.
-        SemanticKindMismatchError: ``metric`` is not a ``MetricRef``, ``time_field``
+        MetricNotFoundError: The metric id is unknown or not ``<domain>.<metric>``.
+        SemanticKindMismatchError: ``metric`` is not a ``MetricRef``, ``time_dimension``
             is not a ``DimensionRef``, or a ``where`` key is not a ``DimensionRef``.
         ObservePlanningError: Planning failed (e.g. cross-datasource plan, missing
             path, ambiguous dimension). Check ``details["code"]`` for the specific
@@ -918,12 +918,12 @@ def observe(
     if "." not in metric_id:
         raise MetricNotFoundError(message=f"metric '{metric_id}' is not '<model>.<metric>'")
     model_name, metric_name = metric_id.split(".", 1)
-    time_field_id = _normalize_time_field_ref(time_field)
+    time_dimension_id = _normalize_time_dimension_ref(time_dimension)
     where_by_id = _normalize_where_refs(where)
     resolved_window, original_timescope = _resolve_timescope(
         timescope,
         grain=grain,
-        time_field=time_field_id,
+        time_dimension=time_dimension_id,
     )
     is_time_series = resolved_window is not None and resolved_window.grain is not None
 
@@ -960,7 +960,7 @@ def observe(
     dataset_irs: dict[str, _EntityIRAdapter] = {}
     primary_datasource: str | None = None
     stored_where = normalize_slice_for_storage(where_by_id)
-    metric_datasets = tuple(metric_ir.datasets)
+    metric_datasets = tuple(metric_ir.entities)
     dimension_refs = _validate_dimension_refs(dimensions)
     if expect_shape is not None:
         predicted_shape = observe_output_shape(
@@ -979,11 +979,11 @@ def observe(
                 },
             )
     if metric_ir.is_derived:
-        # Build dataset adapters for all datasets in the project so the planner
-        # can resolve component metrics that span different datasets.
+        # Build dataset adapters for all entities in the project so the planner
+        # can resolve component metrics that span different entities.
         all_dataset_irs: dict[str, _EntityIRAdapter] = {}
-        for ds_summary in sp.list_datasets():
-            ds_ir = sp.get_dataset(ds_summary.semantic_id)
+        for ds_summary in sp.list_entities():
+            ds_ir = sp.get_entity(ds_summary.semantic_id)
             if ds_ir is None:
                 continue
             all_dataset_irs[ds_ir.semantic_id] = _build_dataset_adapter(sp, ds_ir)
@@ -998,7 +998,7 @@ def observe(
             dimensions=dimensions,
             where=where_by_id,
             resolved_window=resolved_window,
-            time_field=time_field_id,
+            time_dimension=time_dimension_id,
         )
         # plan_observe always returns DerivedObservePlan for derived metrics
         assert isinstance(derived_plan, DerivedObservePlan)
@@ -1126,31 +1126,31 @@ def observe(
         return frame
 
     # --- Base (non-derived) metric path: route through planner ---
-    # Build dataset adapters for all metric datasets
-    for dataset_name in metric_datasets:
-        dataset_ir = sp.get_dataset(dataset_name)
-        if dataset_ir is None:
+    # Build dataset adapters for all metric entities
+    for entity_name in metric_datasets:
+        entity_ir = sp.get_entity(entity_name)
+        if entity_ir is None:
             raise MetricNotFoundError(
-                message=f"dataset '{dataset_name}' not found for metric '{metric_id}'",
-                details={"dataset": dataset_name},
+                message=f"entity '{entity_name}' not found for metric '{metric_id}'",
+                details={"entity": entity_name},
             )
-        dataset_irs[dataset_name] = _build_dataset_adapter(sp, dataset_ir)
+        dataset_irs[entity_name] = _build_dataset_adapter(sp, entity_ir)
 
-    # Add datasets required by explicit dimensions/where
-    for field_ir in [*sp.list_fields(), *sp.list_time_fields()]:
+    # Add entities required by explicit dimensions/where
+    for dim_ir in [*sp.list_dimensions(), *sp.list_time_dimensions()]:
         if (
             dimensions
-            and any(dim.id == field_ir.semantic_id for dim in dimension_refs)
-            and field_ir.dataset not in dataset_irs
+            and any(dim.id == dim_ir.semantic_id for dim in dimension_refs)
+            and dim_ir.entity not in dataset_irs
         ):
-            ds_ir = sp.get_dataset(field_ir.dataset)
+            ds_ir = sp.get_entity(dim_ir.entity)
             if ds_ir is not None:
-                dataset_irs[field_ir.dataset] = _build_dataset_adapter(sp, ds_ir)
+                dataset_irs[dim_ir.entity] = _build_dataset_adapter(sp, ds_ir)
         for raw_key in where_by_id or {}:
-            if raw_key == field_ir.semantic_id and field_ir.dataset not in dataset_irs:
-                ds_ir = sp.get_dataset(field_ir.dataset)
+            if raw_key == dim_ir.semantic_id and dim_ir.entity not in dataset_irs:
+                ds_ir = sp.get_entity(dim_ir.entity)
                 if ds_ir is not None:
-                    dataset_irs[field_ir.dataset] = _build_dataset_adapter(sp, ds_ir)
+                    dataset_irs[dim_ir.entity] = _build_dataset_adapter(sp, ds_ir)
 
     dataset_fns = {dataset_id: adapter.fn for dataset_id, adapter in dataset_irs.items()}
 
@@ -1163,7 +1163,7 @@ def observe(
         dimensions=dimensions,
         where=where_by_id,
         resolved_window=resolved_window,
-        time_field=time_field_id,
+        time_dimension=time_dimension_id,
     )
     primary_datasource = plan.datasource_name
     session.known_datasources.add(primary_datasource)

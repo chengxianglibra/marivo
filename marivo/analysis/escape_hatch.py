@@ -741,8 +741,8 @@ def promote_metric_frame(
         if isinstance(resolved_window, AbsoluteWindow):
             if resolved_window.grain is not None:
                 time_meta["grain"] = resolved_window.grain.to_token()
-            if resolved_window.time_field is not None:
-                time_meta["time_field"] = resolved_window.time_field
+            if resolved_window.time_dimension is not None:
+                time_meta["time_dimension"] = resolved_window.time_dimension
         resolved_axes = {"time": time_meta, **resolved_axes}
     promotion_params = {
         "metric_id": metric_ref.id,

@@ -72,7 +72,7 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     time_dimension = (
-        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n\n"
         if with_time
@@ -87,11 +87,11 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
         "\n"
         f"{time_dimension}"
-        "@ms.dimension(dataset=orders)\n"
+        "@ms.dimension(entity=orders)\n"
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), "
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), "
         "name='revenue', verification_mode='python_native')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"

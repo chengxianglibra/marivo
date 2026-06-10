@@ -220,7 +220,7 @@ def test_component_frame_meta_accepts_time_series_semantic_kind():
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         semantic_kind="time_series",
@@ -253,7 +253,7 @@ def test_component_frame_meta_accepts_panel_semantic_kind():
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             },
             "region": {"role": "dimension", "column": "region"},
         },

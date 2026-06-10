@@ -63,15 +63,15 @@ def _bootstrap_sales(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.dimension(dataset=orders)\n"
+        "@ms.dimension(entity=orders)\n"
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -162,7 +162,7 @@ def _panel_metric(
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             },
             "region": {"role": "dimension", "column": "region"},
         },
@@ -184,7 +184,7 @@ def _component_panel_metric(session, *, ref, rows, component_rows):
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         },
         "region": {"role": "dimension", "column": "region"},
     }

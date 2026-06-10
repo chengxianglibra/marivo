@@ -21,7 +21,7 @@ def audit_project(project: SemanticProject) -> DatasourceAuditResult:
     present: list[str] = []
     missing: list[str] = []
     semantic_ids: dict[str, str] = {}
-    for dataset in project.list_datasets():
+    for dataset in project.list_entities():
         semantic_ids[dataset.datasource] = dataset.datasource
         if dataset.datasource in configured:
             present.append(dataset.datasource)

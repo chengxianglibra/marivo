@@ -435,7 +435,7 @@ def test_compare_time_series_ratio_window_bucket_persists_component_delta():
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         }
     }
     current = _component_aware_metric_with_axes(
@@ -520,7 +520,7 @@ def test_compare_panel_ratio_window_bucket_persists_component_delta():
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         },
         "region": {"role": "dimension", "column": "region"},
     }
@@ -600,7 +600,7 @@ def test_decompose_component_aware_time_series_ratio_delta_by_bucket():
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         }
     }
     current = _component_aware_metric_with_axes(
@@ -673,7 +673,7 @@ def test_decompose_component_aware_panel_ratio_delta_per_bucket():
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         },
         "region": {"role": "dimension", "column": "region"},
     }
@@ -766,7 +766,7 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         }
     }
     compared = DeltaFrame(

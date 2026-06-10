@@ -196,7 +196,7 @@ def inspect_authored_object(
     issues: list[AssessmentIssue] = []
 
     business_definition = getattr(getattr(obj, "ai_context", None), "business_definition", None)
-    is_time_field = isinstance(obj, DimensionIR) and obj.is_time_field
+    is_time_field = isinstance(obj, DimensionIR) and obj.is_time_dimension
     handoff = isinstance(obj, (MetricIR, DimensionIR))
     if handoff and not business_definition:
         issues.append(

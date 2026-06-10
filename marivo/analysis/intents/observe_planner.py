@@ -51,7 +51,7 @@ class PlannedWhere:
 
 @dataclass(frozen=True)
 class BaseObservePlan:
-    root_dataset: str
+    root_entity: str
     additivity: str
     table: Any
     dataset_tables: dict[str, Any]
@@ -87,33 +87,33 @@ class ResolvedObserveFields:
     dimensions: list[Any] = field(default_factory=list)
     where_fields: dict[str, Any] = field(default_factory=dict)
     raw_root_where_keys: tuple[str, ...] = ()
-    time_field: Any | None = None
+    time_dimension: Any | None = None
 
 
 def resolve_metric_root(metric_ir: Any) -> str:
-    root = getattr(metric_ir, "root_dataset", None)
+    root = getattr(metric_ir, "root_entity", None)
     if isinstance(root, str) and root:
         return root
-    datasets = tuple(getattr(metric_ir, "datasets", ()))
-    if len(datasets) == 1:
-        return datasets[0]  # type: ignore[no-any-return]
-    if not datasets:
+    entities = tuple(getattr(metric_ir, "entities", ()))
+    if len(entities) == 1:
+        return entities[0]  # type: ignore[no-any-return]
+    if not entities:
         raise_observe_planning_error(
-            code="empty-base-datasets",
-            message=f"Base metric {metric_ir.semantic_id!r} references no datasets.",
+            code="empty-base-entities",
+            message=f"Base metric {metric_ir.semantic_id!r} references no entities.",
             candidates={},
             repair=[],
         )
     raise_observe_planning_error(
         code="missing-root",
-        message=f"Multi-dataset base metric {metric_ir.semantic_id!r} must declare root_dataset.",
-        candidates={"datasets": sorted(datasets)},
+        message=f"Multi-entity base metric {metric_ir.semantic_id!r} must declare root_entity.",
+        candidates={"entities": sorted(entities)},
         repair=[
             RepairAction(
                 action="set_metric_root",
                 target=metric_ir.semantic_id,
-                arg="root_dataset",
-                value=datasets[0],
+                arg="root_entity",
+                value=entities[0],
                 safety=RepairSafety.MODELING_DECISION,
                 why="the root defines preserved rows and the observe time axis",
             )
@@ -122,11 +122,11 @@ def resolve_metric_root(metric_ir: Any) -> str:
 
 
 def _all_fields(project: Any) -> list[Any]:
-    return [*project.list_fields(), *project.list_time_fields()]
+    return [*project.list_dimensions(), *project.list_time_dimensions()]
 
 
 def _fields_for_datasets(project: Any, dataset_ids: set[str]) -> list[Any]:
-    return [f for f in _all_fields(project) if f.dataset in dataset_ids]
+    return [f for f in _all_fields(project) if f.entity in dataset_ids]
 
 
 def _resolve_field_ref(
@@ -140,7 +140,7 @@ def _resolve_field_ref(
     fields = _all_fields(project)
     if "." in ref_id:
         matches = [f for f in fields if f.semantic_id == ref_id]
-        if matches and (allow_qualified_outside_scope or matches[0].dataset in scoped_dataset_ids):
+        if matches and (allow_qualified_outside_scope or matches[0].entity in scoped_dataset_ids):
             return matches[0]
     else:
         scoped = _fields_for_datasets(project, scoped_dataset_ids)
@@ -191,11 +191,11 @@ def resolve_observe_fields(
     *,
     dimensions: list[DimensionRef] | None,
     where: dict[Any, Any] | None,
-    time_field: str | None,
+    time_dimension: str | None,
     allow_unqualified_outside_scope: bool = False,
 ) -> ResolvedObserveFields:
     root = resolve_metric_root(metric_ir)
-    scoped_dataset_ids = {root, *tuple(metric_ir.datasets)}
+    scoped_dataset_ids = {root, *tuple(metric_ir.entities)}
     resolved_dimensions = [
         _resolve_field_ref(
             project,
@@ -220,11 +220,11 @@ def resolve_observe_fields(
             )
             continue
         # Unqualified where key: prefer a semantic field declared on the
-        # root dataset; otherwise try non-root datasets in scope; otherwise
+        # root entity; otherwise try non-root entities in scope; otherwise
         # treat as a root-phase raw key forwarded to apply_slice_to_dataset
         # so the legacy physical-column fallback can resolve it.
         root_match = next(
-            (f for f in all_fields if f.dataset == root and f.name == key),
+            (f for f in all_fields if f.entity == root and f.name == key),
             None,
         )
         if root_match is not None:
@@ -233,7 +233,7 @@ def resolve_observe_fields(
         non_root_matches = [
             f
             for f in all_fields
-            if f.dataset in scoped_dataset_ids and f.dataset != root and f.name == key
+            if f.entity in scoped_dataset_ids and f.entity != root and f.name == key
         ]
         if len(non_root_matches) == 1:
             where_fields[key] = non_root_matches[0]
@@ -246,36 +246,36 @@ def resolve_observe_fields(
                 repair=[],
             )
         raw_root_where_keys.append(key)
-    resolved_time_field = None
-    if time_field is not None:
-        resolved_time_field = _resolve_field_ref(
+    resolved_time_dimension = None
+    if time_dimension is not None:
+        resolved_time_dimension = _resolve_field_ref(
             project,
-            time_field,
+            time_dimension,
             scoped_dataset_ids={root},
             allow_qualified_outside_scope=False,
         )
-        if resolved_time_field.dataset != root:
+        if resolved_time_dimension.entity != root:
             raise_observe_planning_error(
-                code="non-root-time-field",
-                message="observe time_field must belong to the metric root dataset.",
-                candidates={"root_dataset": root, "field": resolved_time_field.semantic_id},
+                code="non-root-time-dimension",
+                message="observe time_dimension must belong to the metric root entity.",
+                candidates={"root_entity": root, "field": resolved_time_dimension.semantic_id},
                 repair=[],
             )
     return ResolvedObserveFields(
         dimensions=resolved_dimensions,
         where_fields=where_fields,
         raw_root_where_keys=tuple(raw_root_where_keys),
-        time_field=resolved_time_field,
+        time_dimension=resolved_time_dimension,
     )
 
 
 def _relationship_neighbors(project: Any, dataset_id: str) -> list[tuple[str, Any]]:
     neighbors: list[tuple[str, Any]] = []
     for relationship in project.list_relationships():
-        if relationship.from_dataset == dataset_id:
-            neighbors.append((relationship.to_dataset, relationship))
-        elif relationship.to_dataset == dataset_id:
-            neighbors.append((relationship.from_dataset, relationship))
+        if relationship.from_entity == dataset_id:
+            neighbors.append((relationship.to_entity, relationship))
+        elif relationship.to_entity == dataset_id:
+            neighbors.append((relationship.from_entity, relationship))
     return neighbors
 
 
@@ -324,7 +324,7 @@ def _field_names(project: Any, field_ids: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _effective_key(project: Any, dataset_id: str) -> tuple[str, ...]:
-    dataset = project.get_dataset(dataset_id)
+    dataset = project.get_entity(dataset_id)
     if dataset is None:
         return ()
     versioning = getattr(dataset, "versioning", None)
@@ -355,7 +355,7 @@ def _effective_key_semantic_ids(project: Any, dataset_id: str) -> frozenset[str]
     col_names = set(_effective_key(project, dataset_id))
     if not col_names:
         return frozenset()
-    all_dataset_fields = [f for f in _all_fields(project) if f.dataset == dataset_id]
+    all_dataset_fields = [f for f in _all_fields(project) if f.entity == dataset_id]
     # Strategy 1: name match
     by_name = frozenset(f.semantic_id for f in all_dataset_fields if f.name in col_names)
     if len(by_name) == len(col_names):
@@ -366,7 +366,7 @@ def _effective_key_semantic_ids(project: Any, dataset_id: str) -> frozenset[str]
         return frozenset()
     # Build a dummy ibis table with the primary key columns so we can call
     # each field function and inspect the output column name.
-    dataset = project.get_dataset(dataset_id)
+    dataset = project.get_entity(dataset_id)
     if dataset is None:
         return frozenset()
     schema = dict.fromkeys(dataset.primary_key or [], "int64")
@@ -417,7 +417,7 @@ def _resolved_target_timezone(target_versioning: Any) -> str:
 
 def _derive_version_mode(
     *,
-    root_time_field: Any | None,
+    root_time_dimension: Any | None,
     target_versioning: Any,
     resolved_window: Any | None,
 ) -> tuple[
@@ -425,7 +425,9 @@ def _derive_version_mode(
     Literal["timescope_end", "as_of_current_time", "root"],
     date | None,
 ]:
-    qualifying = root_time_field is not None and getattr(root_time_field, "data_type", None) in {
+    qualifying = root_time_dimension is not None and getattr(
+        root_time_dimension, "data_type", None
+    ) in {
         "date",
         "timestamp",
     }
@@ -453,12 +455,12 @@ def _format_snapshot_partition(anchor: date, fmt: str | None) -> Any:
     return anchor.strftime(fmt)
 
 
-def _root_time_field(
-    project: Any, root_dataset_id: str, *, explicit_time_field: Any | None
+def _root_time_dimension(
+    project: Any, root_entity_id: str, *, explicit_time_dimension: Any | None
 ) -> Any | None:
-    if explicit_time_field is not None:
-        return explicit_time_field
-    candidates = [tf for tf in project.list_time_fields() if tf.dataset == root_dataset_id]
+    if explicit_time_dimension is not None:
+        return explicit_time_dimension
+    candidates = [tf for tf in project.list_time_dimensions() if tf.entity == root_entity_id]
     if not candidates:
         return None
     if len(candidates) == 1:
@@ -583,33 +585,33 @@ def _mapping_digest(mapping: dict[date, date]) -> str:
     return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
-def resolved_edge_safety(project: Any, relationship: Any, *, from_dataset: str) -> JoinSafety:
-    if from_dataset == relationship.from_dataset:
-        source_fields = relationship.from_fields
-        target_dataset = relationship.to_dataset
-        target_fields = relationship.to_fields
-        source_dataset = relationship.from_dataset
+def resolved_edge_safety(project: Any, relationship: Any, *, from_entity: str) -> JoinSafety:
+    if from_entity == relationship.from_entity:
+        source_fields = relationship.from_dimensions
+        target_entity = relationship.to_entity
+        target_fields = relationship.to_dimensions
+        source_entity = relationship.from_entity
     else:
-        source_fields = relationship.to_fields
-        target_dataset = relationship.from_dataset
-        target_fields = relationship.from_fields
-        source_dataset = relationship.to_dataset
+        source_fields = relationship.to_dimensions
+        target_entity = relationship.from_entity
+        target_fields = relationship.from_dimensions
+        source_entity = relationship.to_entity
     # Compare by field name first (fast path for the common case where field
     # names match primary key column names), then fall back to semantic_id
     # comparison to handle aliased fields (e.g. profile_user_id -> user_id).
     source_field_names = set(_field_names(project, tuple(source_fields)))
     target_field_names = set(_field_names(project, tuple(target_fields)))
-    source_key_names = set(_effective_key(project, source_dataset))
-    target_key_names = set(_effective_key(project, target_dataset))
+    source_key_names = set(_effective_key(project, source_entity))
+    target_key_names = set(_effective_key(project, target_entity))
     source_is_one = source_field_names == source_key_names
     target_is_one = target_field_names == target_key_names
     if not source_is_one:
         # Try semantic_id comparison
-        source_key_sids = _effective_key_semantic_ids(project, source_dataset)
+        source_key_sids = _effective_key_semantic_ids(project, source_entity)
         source_is_one = frozenset(source_fields) == source_key_sids
     if not target_is_one:
         # Try semantic_id comparison
-        target_key_sids = _effective_key_semantic_ids(project, target_dataset)
+        target_key_sids = _effective_key_semantic_ids(project, target_entity)
         target_is_one = frozenset(target_fields) == target_key_sids
     if source_is_one and target_is_one:
         return JoinSafety.ONE_TO_ONE
@@ -657,24 +659,24 @@ def _join_table(
     *,
     project: Any,
     relationship: Any,
-    current_dataset: str,
+    current_entity: str,
     extra_predicates: list[Any] | None = None,
 ) -> tuple[Any, str]:
-    if relationship.from_dataset == current_dataset:
-        next_dataset = relationship.to_dataset
-        left_fields = relationship.from_fields
-        right_fields = relationship.to_fields
+    if relationship.from_entity == current_entity:
+        next_entity = relationship.to_entity
+        left_fields = relationship.from_dimensions
+        right_fields = relationship.to_dimensions
     else:
-        next_dataset = relationship.from_dataset
-        left_fields = relationship.to_fields
-        right_fields = relationship.from_fields
+        next_entity = relationship.from_entity
+        left_fields = relationship.to_dimensions
+        right_fields = relationship.from_dimensions
     predicates = [
         _field_fn(project, left_field)(current_table) == _field_fn(project, right_field)(next_table)
         for left_field, right_field in zip(left_fields, right_fields, strict=True)
     ]
     if extra_predicates:
         predicates.extend(extra_predicates)
-    return current_table.left_join(next_table, predicates), next_dataset
+    return current_table.left_join(next_table, predicates), next_entity
 
 
 def _resolve_snapshot_as_of_root_time(
@@ -686,10 +688,10 @@ def _resolve_snapshot_as_of_root_time(
     snapshot_versioning: Any,
     snapshot_table: Any,
     root_table: Any,
-    root_time_field: Any | None,
+    root_time_dimension: Any | None,
     anchor_source: str,
 ) -> tuple[Any, dict[str, Any], dict[date, date]]:
-    if root_time_field is None:
+    if root_time_dimension is None:
         raise_observe_planning_error(
             code="unsupported-as-of-root-time",
             message=(
@@ -700,7 +702,7 @@ def _resolve_snapshot_as_of_root_time(
             repair=[],
         )
     target_tz = _resolved_target_timezone(snapshot_versioning)
-    time_field_fn = _field_fn(project, root_time_field.semantic_id)
+    time_field_fn = _field_fn(project, root_time_dimension.semantic_id)
     time_field_expr = time_field_fn(root_table)
     anchor_dates = _discover_anchor_dates(
         root_table=root_table,
@@ -766,11 +768,11 @@ def _resolve_snapshot_versioning(
     snapshot_table: Any,
     snapshot_dataset_ir: Any,
     root_table: Any,
-    root_time_field: Any,
+    root_time_dimension: Any,
     resolved_window: Any,
 ) -> tuple[Any, dict[str, Any], dict[date, date] | None]:
     mode, anchor_source, anchor_value = _derive_version_mode(
-        root_time_field=root_time_field,
+        root_time_dimension=root_time_dimension,
         target_versioning=snapshot_versioning,
         resolved_window=resolved_window,
     )
@@ -805,7 +807,7 @@ def _resolve_snapshot_versioning(
         snapshot_versioning=snapshot_versioning,
         snapshot_table=snapshot_table,
         root_table=root_table,
-        root_time_field=root_time_field,
+        root_time_dimension=root_time_dimension,
         anchor_source=anchor_source,
     )
 
@@ -828,7 +830,7 @@ def _resolve_validity_as_of_predicate(
     *,
     project: Any,
     current_table: Any,
-    root_time_field: Any | None,
+    root_time_dimension: Any | None,
     validity_table: Any,
     validity_versioning: ValidityVersioningIR,
     validity_dataset_id: str,
@@ -838,8 +840,8 @@ def _resolve_validity_as_of_predicate(
     The predicate checks that the root row's time field falls within the
     validity interval.  Key equalities are handled separately by _join_table.
     """
-    # Defense-in-depth: _derive_version_mode only picks as_of_root_time when root_time_field is qualifying. This guard is unreachable on the current call path.
-    if root_time_field is None:
+    # Defense-in-depth: _derive_version_mode only picks as_of_root_time when root_time_dimension is qualifying. This guard is unreachable on the current call path.
+    if root_time_dimension is None:
         raise_observe_planning_error(
             code="unsupported-as-of-root-time",
             message=(
@@ -851,7 +853,7 @@ def _resolve_validity_as_of_predicate(
         )
     valid_from_local = validity_versioning.valid_from.rsplit(".", 1)[-1]
     valid_to_local = validity_versioning.valid_to.rsplit(".", 1)[-1]
-    anchor = _field_fn(project, root_time_field.semantic_id)(current_table).cast("date")
+    anchor = _field_fn(project, root_time_dimension.semantic_id)(current_table).cast("date")
     valid_from = validity_table[valid_from_local]
     valid_to_raw = validity_table[valid_to_local]
     open_end = _validity_open_end_predicate(validity_table, validity_versioning)
@@ -866,7 +868,7 @@ def _resolve_validity_as_of_predicate(
 def _resolve_validity_versioning(
     *,
     root_table: Any,  # root_table is used in the as_of_root_time branch; the latest branch ignores it
-    root_time_field: Any | None,
+    root_time_dimension: Any | None,
     validity_table: Any,
     validity_versioning: ValidityVersioningIR,
     validity_dataset_id: str,
@@ -879,7 +881,7 @@ def _resolve_validity_versioning(
     unfiltered table for caller-side interval-predicate composition.
     """
     mode, anchor_source, anchor_value = _derive_version_mode(
-        root_time_field=root_time_field,
+        root_time_dimension=root_time_dimension,
         target_versioning=validity_versioning,
         resolved_window=resolved_window,
     )
@@ -935,10 +937,10 @@ def _aggregate_then_join_pre_aggregate(
     Each grain entry projects through ``_field_fn`` so the resulting table keeps
     the physical column names that downstream field bodies expect.
     """
-    if relationship.from_dataset == unsafe_dataset_id:
-        join_field_ids: tuple[str, ...] = tuple(relationship.from_fields)
+    if relationship.from_entity == unsafe_dataset_id:
+        join_field_ids: tuple[str, ...] = tuple(relationship.from_dimensions)
     else:
-        join_field_ids = tuple(relationship.to_fields)
+        join_field_ids = tuple(relationship.to_dimensions)
 
     grain_field_ids: list[str] = []
     seen_ids: set[str] = set()
@@ -946,8 +948,8 @@ def _aggregate_then_join_pre_aggregate(
         if fid not in seen_ids:
             grain_field_ids.append(fid)
             seen_ids.add(fid)
-    other_fields = [f for f in resolved_fields.dimensions if f.dataset == unsafe_dataset_id] + [
-        f for f in resolved_fields.where_fields.values() if f.dataset == unsafe_dataset_id
+    other_fields = [f for f in resolved_fields.dimensions if f.entity == unsafe_dataset_id] + [
+        f for f in resolved_fields.where_fields.values() if f.entity == unsafe_dataset_id
     ]
     for f in other_fields:
         if f.semantic_id not in seen_ids:
@@ -989,7 +991,7 @@ def plan_base_observe(
     dimensions: list[DimensionRef] | None,
     where: dict[Any, Any] | None,
     resolved_window: Any | None,
-    time_field: str | None,
+    time_dimension: str | None,
     allow_unqualified_outside_scope: bool = False,
 ) -> BaseObservePlan:
     root = resolve_metric_root(metric_ir)
@@ -1005,15 +1007,15 @@ def plan_base_observe(
         metric_ir,
         dimensions=dimensions,
         where=where,
-        time_field=time_field,
+        time_dimension=time_dimension,
         allow_unqualified_outside_scope=allow_unqualified_outside_scope,
     )
-    root_time_field = _root_time_field(
-        project, root, explicit_time_field=resolved_fields.time_field
+    root_time_dimension = _root_time_dimension(
+        project, root, explicit_time_dimension=resolved_fields.time_dimension
     )
-    required_datasets = {root, *metric_ir.datasets}
-    required_datasets.update(field.dataset for field in resolved_fields.dimensions)
-    required_datasets.update(field.dataset for field in resolved_fields.where_fields.values())
+    required_datasets = {root, *metric_ir.entities}
+    required_datasets.update(field.entity for field in resolved_fields.dimensions)
+    required_datasets.update(field.entity for field in resolved_fields.where_fields.values())
 
     datasource_names = {dataset_irs[dataset_id].datasource_name for dataset_id in required_datasets}
     if len(datasource_names) != 1:
@@ -1045,7 +1047,7 @@ def plan_base_observe(
             root_where[key] = value
             continue
         field = resolved_fields.where_fields[key]
-        phase: Literal["root", "joined"] = "root" if field.dataset == root else "joined"
+        phase: Literal["root", "joined"] = "root" if field.entity == root else "joined"
         planned_where.append(PlannedWhere(original_key=key, field=field, value=value, phase=phase))
         if phase == "root":
             root_where[field.name] = value
@@ -1065,14 +1067,14 @@ def plan_base_observe(
     for dataset_id in sorted(required_datasets - {root}):
         current_dataset = root
         for relationship in unique_shortest_relationship_path(project, root, dataset_id):
-            safety = resolved_edge_safety(project, relationship, from_dataset=current_dataset)
+            safety = resolved_edge_safety(project, relationship, from_entity=current_dataset)
             if safety == JoinSafety.ONE_TO_MANY:
                 policy = getattr(metric_ir, "fanout_policy", "block")
                 if policy == "aggregate_then_join":
                     unsafe_dataset_id = (
-                        relationship.to_dataset
-                        if relationship.from_dataset == current_dataset
-                        else relationship.from_dataset
+                        relationship.to_entity
+                        if relationship.from_entity == current_dataset
+                        else relationship.from_entity
                     )
                     pre_table, merge_grain_meta = _aggregate_then_join_pre_aggregate(
                         project=project,
@@ -1089,13 +1091,13 @@ def plan_base_observe(
                     safety = JoinSafety.MANY_TO_ONE
                 else:
                     candidate_safe_roots = sorted(
-                        {relationship.from_dataset, relationship.to_dataset} - {current_dataset}
+                        {relationship.from_entity, relationship.to_entity} - {current_dataset}
                     )
                     raise_observe_planning_error(
                         code="unsafe-fanout",
                         message=(
                             f"Traversal through {relationship.semantic_id!r} is one-to-many; "
-                            "the metric must re-root, remodel the dataset key, or opt into "
+                            "the metric must re-root, remodel the entity key, or opt into "
                             "fanout_policy='aggregate_then_join'."
                         ),
                         candidates={
@@ -1107,7 +1109,7 @@ def plan_base_observe(
                             RepairAction(
                                 action="set_metric_root",
                                 target=metric_ir.semantic_id,
-                                arg="root_dataset",
+                                arg="root_entity",
                                 value=candidate_safe_roots[0] if candidate_safe_roots else None,
                                 safety=RepairSafety.MODELING_DECISION,
                                 why=(
@@ -1140,15 +1142,15 @@ def plan_base_observe(
                     repair=[],
                 )
             next_dataset = (
-                relationship.to_dataset
-                if relationship.from_dataset == current_dataset
-                else relationship.from_dataset
+                relationship.to_entity
+                if relationship.from_entity == current_dataset
+                else relationship.from_entity
             )
             if next_dataset not in materialized:
                 next_table = pre_aggregated_tables.get(next_dataset)
                 if next_table is None:
                     next_table = dataset_fns[next_dataset](backend)
-                next_dataset_meta = project.get_dataset(next_dataset)
+                next_dataset_meta = project.get_entity(next_dataset)
                 versioning = (
                     getattr(next_dataset_meta, "versioning", None)
                     if next_dataset_meta is not None
@@ -1165,7 +1167,7 @@ def plan_base_observe(
                         snapshot_table=next_table,
                         snapshot_dataset_ir=dataset_irs[next_dataset],
                         root_table=root_table,
-                        root_time_field=root_time_field,
+                        root_time_dimension=root_time_dimension,
                         resolved_window=resolved_window,
                     )
                     snapshot_metadata.append(version_meta)
@@ -1173,7 +1175,7 @@ def plan_base_observe(
                 elif isinstance(versioning, ValidityVersioningIR):
                     next_table, version_meta, is_as_of = _resolve_validity_versioning(
                         root_table=root_table,
-                        root_time_field=root_time_field,
+                        root_time_dimension=root_time_dimension,
                         validity_table=next_table,
                         validity_versioning=versioning,
                         validity_dataset_id=next_dataset,
@@ -1187,7 +1189,7 @@ def plan_base_observe(
                         validity_predicate = _resolve_validity_as_of_predicate(
                             project=project,
                             current_table=widened_table,
-                            root_time_field=root_time_field,
+                            root_time_dimension=root_time_dimension,
                             validity_table=next_table,
                             validity_versioning=versioning,
                             validity_dataset_id=next_dataset,
@@ -1201,7 +1203,7 @@ def plan_base_observe(
                         next_table,
                         project=project,
                         relationship=relationship,
-                        current_dataset=current_dataset,
+                        current_entity=current_dataset,
                         extra_predicates=extra_predicates,
                     )
                     materialized[next_dataset] = widened_table
@@ -1218,9 +1220,9 @@ def plan_base_observe(
                 extra_predicates = None
                 if mapping is not None:
                     # mapping is non-None only in as_of_root_time mode, which
-                    # requires root_time_field to be non-None.
-                    assert root_time_field is not None
-                    anchor_expr = _field_fn(project, root_time_field.semantic_id)(
+                    # requires root_time_dimension to be non-None.
+                    assert root_time_dimension is not None
+                    anchor_expr = _field_fn(project, root_time_dimension.semantic_id)(
                         widened_table
                     ).cast("date")
                     extra_predicates = [anchor_expr == next_table.anchor_date]
@@ -1230,7 +1232,7 @@ def plan_base_observe(
                     next_table,
                     project=project,
                     relationship=relationship,
-                    current_dataset=current_dataset,
+                    current_entity=current_dataset,
                     extra_predicates=extra_predicates,
                 )
                 materialized[next_dataset] = widened_table
@@ -1262,12 +1264,12 @@ def plan_base_observe(
                 ).name(planned_dimension.column)
             }
         )
-    dataset_tables = dict.fromkeys(metric_ir.datasets, widened_table)
+    dataset_tables = dict.fromkeys(metric_ir.entities, widened_table)
     # Populate axes_metadata with a "time" entry when this plan will produce a
     # time-series bucket at execution time.  This lets _execute_derived detect
     # per-component time availability without re-running the planner.
     has_time_axis = (
-        root_time_field is not None
+        root_time_dimension is not None
         and resolved_window is not None
         and getattr(resolved_window, "grain", None) is not None
     )
@@ -1285,10 +1287,10 @@ def plan_base_observe(
             "role": "time",
             "column": "bucket_start",
             "grain": _grain_token,
-            "time_field": root_time_field.name,  # type: ignore[union-attr]
+            "time_dimension": root_time_dimension.name,  # type: ignore[union-attr]
         }
     return BaseObservePlan(
-        root_dataset=root,
+        root_entity=root,
         additivity=metric_ir.additivity,
         table=widened_table,
         dataset_tables=dataset_tables,
@@ -1296,7 +1298,7 @@ def plan_base_observe(
         where=planned_where,
         axes_metadata=axes_meta,
         lineage_metadata={
-            "root_dataset": root,
+            "root_entity": root,
             "additivity": metric_ir.additivity,
             "fanout_policy": metric_ir.fanout_policy,
             "fanouts": fanout_meta_collector,
@@ -1319,7 +1321,7 @@ def plan_observe(
     dimensions: Any,
     where: Any,
     resolved_window: Any,
-    time_field: Any,
+    time_dimension: Any,
 ) -> ObservePlan:
     if not metric_ir.is_derived:
         return plan_base_observe(
@@ -1331,7 +1333,7 @@ def plan_observe(
             dimensions=dimensions,
             where=where,
             resolved_window=resolved_window,
-            time_field=time_field,
+            time_dimension=time_dimension,
         )
     return _plan_derived_observe(
         project=project,
@@ -1342,7 +1344,7 @@ def plan_observe(
         dimensions=dimensions,
         where=where,
         resolved_window=resolved_window,
-        time_field=time_field,
+        time_dimension=time_dimension,
     )
 
 
@@ -1362,24 +1364,24 @@ def _component_dataset_adapters(
     """
     component_dataset_irs: dict[str, Any] = dict(parent_dataset_irs)
     component_dataset_fns: dict[str, Any] = dict(parent_dataset_fns)
-    for dataset_id in component_ir.datasets:
-        if dataset_id in component_dataset_irs:
+    for entity_id in component_ir.entities:
+        if entity_id in component_dataset_irs:
             continue
         # _build_dataset_adapter lives in observe.py; import lazily to avoid
         # circular import at module load time.
         from marivo.analysis.intents.observe import _build_dataset_adapter
 
-        ds_ir = project.get_dataset(dataset_id)
+        ds_ir = project.get_entity(entity_id)
         if ds_ir is None:
             raise_observe_planning_error(
                 code="derived-shared-planner-unsupported",
-                message=f"dataset {dataset_id!r} not found for component metric {component_ir.semantic_id!r}",
-                candidates={"dataset": dataset_id},
+                message=f"entity {entity_id!r} not found for component metric {component_ir.semantic_id!r}",
+                candidates={"entity": entity_id},
                 repair=[],
             )
         adapter = _build_dataset_adapter(project, ds_ir)
-        component_dataset_irs[dataset_id] = adapter
-        component_dataset_fns[dataset_id] = adapter.fn
+        component_dataset_irs[entity_id] = adapter
+        component_dataset_fns[entity_id] = adapter.fn
     return component_dataset_irs, component_dataset_fns
 
 
@@ -1614,7 +1616,7 @@ def _plan_derived_observe(
     dimensions: list[DimensionRef] | None,
     where: dict[Any, Any] | None,
     resolved_window: Any | None,
-    time_field: Any,
+    time_dimension: Any,
 ) -> DerivedObservePlan:
     component_plans: list[ComponentPlan] = []
     component_unreachable_axes: dict[str, list[str]] = {}
@@ -1653,7 +1655,7 @@ def _plan_derived_observe(
                 dimensions=dimensions,
                 where=where,
                 resolved_window=resolved_window,
-                time_field=time_field,
+                time_dimension=time_dimension,
                 allow_unqualified_outside_scope=True,
             )
         except WindowInvalidError as _win_exc:
@@ -1669,7 +1671,7 @@ def _plan_derived_observe(
                 dimensions=dimensions,
                 where=where,
                 resolved_window=None,
-                time_field=time_field,
+                time_dimension=time_dimension,
                 allow_unqualified_outside_scope=True,
             )
         except ObservePlanningError as exc:
