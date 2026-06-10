@@ -48,8 +48,8 @@ def _bootstrap_sales_with_two_time_fields(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     datasource_dir = tmp_path / ".marivo" / "datasource"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -60,13 +60,13 @@ def _bootstrap_sales_with_two_time_fields(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def create_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='timestamp', granularity='hour')\n"
+        "@ms.time_dimension(dataset=orders, data_type='timestamp', granularity='hour')\n"
         "def create_time(orders):\n"
         "    return orders.created_ts\n"
         "\n"
@@ -80,8 +80,8 @@ def _bootstrap_sales_with_default_time_field(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     datasource_dir = tmp_path / ".marivo" / "datasource"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -92,13 +92,13 @@ def _bootstrap_sales_with_default_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day', is_default=True)\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day', is_default=True)\n"
         "def create_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='timestamp', granularity='hour')\n"
+        "@ms.time_dimension(dataset=orders, data_type='timestamp', granularity='hour')\n"
         "def create_time(orders):\n"
         "    return orders.created_ts\n"
         "\n"
@@ -123,8 +123,8 @@ def _bootstrap_sales_with_string_partition_time_field(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     datasource_dir = tmp_path / ".marivo" / "datasource"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -135,9 +135,9 @@ def _bootstrap_sales_with_string_partition_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='string', granularity='day', "
+        "@ms.time_dimension(dataset=orders, data_type='string', granularity='day', "
         "date_format='%Y%m%d')\n"
         "def log_date(orders):\n"
         "    return orders.log_date\n"
@@ -163,8 +163,8 @@ def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     datasource_dir = tmp_path / ".marivo" / "datasource"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -175,9 +175,9 @@ def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='string', granularity='hour', "
+        "@ms.time_dimension(dataset=orders, data_type='string', granularity='hour', "
         "date_format='%Y%m%d%H')\n"
         "def log_hour(orders):\n"
         "    return orders.log_hour\n"
@@ -192,8 +192,8 @@ def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     datasource_dir = tmp_path / ".marivo" / "datasource"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -204,14 +204,14 @@ def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='string', granularity='day', "
+        "@ms.time_dimension(dataset=orders, data_type='string', granularity='day', "
         "date_format='%Y%m%d')\n"
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='string', granularity='hour', "
+        "@ms.time_dimension(dataset=orders, data_type='string', granularity='hour', "
         "required_prefix='log_date')\n"
         "def log_hour(orders):\n"
         "    return orders.log_hour\n"
@@ -533,15 +533,15 @@ def _bootstrap_failure_rate(tmp_path):
         "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
@@ -665,8 +665,8 @@ def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     datasource_dir = tmp_path / ".marivo" / "datasource"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -677,9 +677,9 @@ def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='string', granularity='day', "
+        "@ms.time_dimension(dataset=orders, data_type='string', granularity='day', "
         "date_format='%Y/%m/%d')\n"
         "def log_date(orders):\n"
         "    return orders.log_date\n"
@@ -737,8 +737,8 @@ def _bootstrap_sales_with_string_timestamp_timezone(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     datasource_dir = tmp_path / ".marivo" / "datasource"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -749,9 +749,9 @@ def _bootstrap_sales_with_string_timestamp_timezone(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='string', granularity='minute', "
+        "@ms.time_dimension(dataset=orders, data_type='string', granularity='minute', "
         "date_format='%Y-%m-%d %H:%M:%S', timezone='UTC')\n"
         "def create_time(orders):\n"
         "    return orders.create_time\n"
@@ -802,8 +802,8 @@ def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
     semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     datasource_dir = tmp_path / ".marivo" / "datasource"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -814,9 +814,9 @@ def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='integer', granularity='day', "
+        "@ms.time_dimension(dataset=orders, data_type='integer', granularity='day', "
         "date_format='%Y%m%d')\n"
         "def log_date(orders):\n"
         "    return orders.log_date\n"

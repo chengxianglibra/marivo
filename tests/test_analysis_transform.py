@@ -52,20 +52,20 @@ def _bootstrap_sales(tmp_path, *, with_country=False):
         "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     country_field = (
-        "@ms.field(dataset=orders)\ndef country(orders):\n    return orders.country\n\n"
+        "@ms.dimension(dataset=orders)\ndef country(orders):\n    return orders.country\n\n"
         if with_country
         else ""
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"

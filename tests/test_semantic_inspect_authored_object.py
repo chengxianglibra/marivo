@@ -3,7 +3,7 @@ from __future__ import annotations
 _DATASETS = (
     "import marivo.semantic as ms\n"
     "\n"
-    "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+    "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
     "\n"
     "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(),\n"
     "           name='revenue', verification_mode='python_native')\n"
@@ -12,7 +12,7 @@ _DATASETS = (
 )
 
 _FILES = {
-    "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+    "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
     "sales/datasets.py": _DATASETS,
 }
 

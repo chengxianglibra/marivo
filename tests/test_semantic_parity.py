@@ -64,16 +64,16 @@ def backend_factory(duckdb_backend):
 # ---------------------------------------------------------------------------
 
 
-_MODEL_PY = textwrap.dedent("""\
+_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    ms.model(name="sales", default=True)
+    ms.domain(name="sales", default=True)
 """)
 
 _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.field(dataset=orders)
+    @ms.dimension(dataset=orders)
     def amount(table):
         return table.amount
 
@@ -91,7 +91,7 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
 
 _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -107,7 +107,7 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
 
 _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -121,7 +121,7 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
 
 _DIALECT_MISMATCH_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -137,7 +137,7 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
 
 _DERIVED_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -169,7 +169,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 
 _PYTHON_NATIVE_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -183,7 +183,7 @@ _PYTHON_NATIVE_PY = textwrap.dedent("""\
 
 _MISSING_VERIFICATION_MODE_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
         datasets=[orders],
@@ -204,7 +204,7 @@ def test_base_metric_parity_ok(semantic_project_factory, backend_factory) -> Non
     """Parity check with matching values should return ok=True."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )
@@ -224,7 +224,7 @@ def test_base_metric_parity_fail(semantic_project_factory, backend_factory) -> N
     """Parity check with mismatched values should return ok=False."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_AND_MISMATCHED_METRIC_PY,
         }
     )
@@ -243,7 +243,7 @@ def test_base_metric_parity_rel_tol(semantic_project_factory, backend_factory) -
     """Parity check with rel_tol should pass within tolerance."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_AND_MISMATCHED_METRIC_PY,
         }
     )
@@ -265,7 +265,7 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
     # Create a project where expected and actual differ by a small amount
     small_mismatch_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -280,7 +280,7 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": small_mismatch_py,
         }
     )
@@ -300,7 +300,7 @@ def test_derived_metric_parity_raises(semantic_project_factory, backend_factory)
     """Parity check on a derived metric should raise SemanticParityError."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DERIVED_METRIC_PY,
         }
     )
@@ -317,7 +317,7 @@ def test_derived_metric_parity_raises(semantic_project_factory, backend_factory)
 def test_base_metric_without_verification_mode_fails_load(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _MISSING_VERIFICATION_MODE_PY,
         },
         load=False,
@@ -331,7 +331,7 @@ def test_base_metric_without_verification_mode_fails_load(semantic_project_facto
 def test_sql_parity_metric_without_source_sql_fails_load(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -344,7 +344,7 @@ def test_sql_parity_metric_without_source_sql_fails_load(semantic_project_factor
             return table.amount.sum()
     """)
     project = semantic_project_factory(
-        {"sales/_model.py": _MODEL_PY, "sales/metrics.py": metrics_py},
+        {"sales/_domain.py": _DOMAIN_PY, "sales/metrics.py": metrics_py},
         load=False,
     )
     result = project.load()
@@ -356,7 +356,7 @@ def test_sql_parity_metric_without_source_sql_fails_load(semantic_project_factor
 def test_python_native_metric_with_source_sql_fails_load(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -370,7 +370,7 @@ def test_python_native_metric_with_source_sql_fails_load(semantic_project_factor
             return table.amount.sum()
     """)
     project = semantic_project_factory(
-        {"sales/_model.py": _MODEL_PY, "sales/metrics.py": metrics_py},
+        {"sales/_domain.py": _DOMAIN_PY, "sales/metrics.py": metrics_py},
         load=False,
     )
     result = project.load()
@@ -384,7 +384,7 @@ def test_derived_metric_with_verification_provenance_fails_load(
 ) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -404,7 +404,7 @@ def test_derived_metric_with_verification_provenance_fails_load(
         )
     """)
     project = semantic_project_factory(
-        {"sales/_model.py": _MODEL_PY, "sales/metrics.py": metrics_py},
+        {"sales/_domain.py": _DOMAIN_PY, "sales/metrics.py": metrics_py},
         load=False,
     )
     result = project.load()
@@ -424,7 +424,7 @@ def test_source_dialect_does_not_require_semantic_datasource_backend_type(
     """Profiles own backend_type; semantic datasource refs no longer carry it."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DIALECT_MISMATCH_PY,
         }
     )
@@ -441,9 +441,9 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
     """Parity check on metric with cross-datasource datasets should raise."""
     cross_ds_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders_a = ms.dataset(name="orders_a", datasource="warehouse1", source=ms.table("orders"))
+        orders_a = ms.entity(name="orders_a", datasource="warehouse1", source=ms.table("orders"))
 
-        orders_b = ms.dataset(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
+        orders_b = ms.entity(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders_a, orders_b],
@@ -459,7 +459,7 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": cross_ds_py,
         }
     )
@@ -476,7 +476,7 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
 def test_status_python_native_mode_is_verified(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _PYTHON_NATIVE_PY,
         }
     )
@@ -492,7 +492,7 @@ def test_status_python_native_mode_is_verified(semantic_project_factory) -> None
 def test_status_python_native_without_source_sql(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_NO_SOURCE_SQL_PY,
         }
     )
@@ -508,7 +508,7 @@ def test_status_python_native_without_source_sql(semantic_project_factory) -> No
 def test_status_parity_check_ok(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )
@@ -532,7 +532,7 @@ def test_status_parity_check_ok(semantic_project_factory, backend_factory) -> No
 def test_status_parity_check_fail(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_AND_MISMATCHED_METRIC_PY,
         }
     )
@@ -551,7 +551,7 @@ def test_derived_propagation_all_verified(semantic_project_factory, backend_fact
     """When all component metrics are verified, derived should be VERIFIED."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DERIVED_METRIC_PY,
         }
     )
@@ -572,7 +572,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
     """When one component metric is drifted, derived should be DRIFTED."""
     drifted_component_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -603,7 +603,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": drifted_component_py,
         }
     )
@@ -623,7 +623,7 @@ def test_derived_propagation_one_unverified(semantic_project_factory, backend_fa
     """When one component metric is unverified, derived should be UNVERIFIED."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DERIVED_METRIC_PY,
         }
     )
@@ -645,7 +645,7 @@ def test_derived_propagation_verified_and_python_native(
     """When one component is SQL-verified and another is python_native, derived is VERIFIED."""
     mixed_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -674,7 +674,7 @@ def test_derived_propagation_verified_and_python_native(
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": mixed_py,
         }
     )
@@ -693,7 +693,7 @@ def test_parity_results_cached(semantic_project_factory, backend_factory) -> Non
     """Parity results should be cached on the project."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )
@@ -709,7 +709,7 @@ def test_parity_results_cleared_on_reload(semantic_project_factory, backend_fact
     """Parity cache should be cleared on reload."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )
@@ -732,7 +732,7 @@ def test_list_metrics_provenance_status_filter(semantic_project_factory, backend
     """list_metrics(provenance_status=...) should filter by propagated status."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )
@@ -764,7 +764,7 @@ def test_parity_check_metric_not_found(semantic_project_factory, backend_factory
     """Parity check on non-existent metric should raise."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )

@@ -677,7 +677,7 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
     ]
     if not time_fields:
         raise WindowInvalidError(
-            message=f"dataset '{dataset_ir.name}' has no @ms.time_field",
+            message=f"dataset '{dataset_ir.name}' has no @ms.time_dimension",
         )
     if len(time_fields) == 1:
         return time_fields[0]
@@ -713,7 +713,7 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
         message=f"dataset '{dataset_ir.name}' has multiple time_fields: {candidates}",
         hint=(
             "Pass observe(..., time_field=...) to choose the time axis, "
-            "or mark one time field as @ms.time_field(..., is_default=True) "
+            "or mark one time dimension as @ms.time_dimension(..., is_default=True) "
             "in the semantic definition."
         ),
         details={

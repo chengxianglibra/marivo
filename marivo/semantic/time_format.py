@@ -1,6 +1,6 @@
 """Canonical Python strptime validation for time field formats.
 
-The ``date_format`` parameter of ``@ms.time_field`` accepts only Python
+The ``date_format`` parameter of ``@ms.time_dimension`` accepts only Python
 strptime strings. This module owns the single validation function used
 by the decorator and the semantic validator. It performs NO format
 translation; the format string flows ibis -> backend SQL unchanged.

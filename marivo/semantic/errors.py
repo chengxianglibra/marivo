@@ -49,7 +49,7 @@ class ErrorKind(StrEnum):
 
     # decorator-time
     DUPLICATE_NAME = "duplicate_name"
-    MISSING_MODEL = "missing_model"
+    MISSING_DOMAIN = "missing_domain"
     MISSING_DATASETS = "missing_datasets"
     INVALID_REF = "invalid_ref"
     INVALID_DECOMPOSITION = "invalid_decomposition"
@@ -60,13 +60,13 @@ class ErrorKind(StrEnum):
     SQL_ESCAPE_HATCH = "sql_escape_hatch"
 
     # assembly-time
-    MODEL_FILE_MISSING = "model_file_missing"
-    MODEL_FILE_MISMATCH = "model_file_mismatch"
-    MISSING_DATASET_REF = "missing_dataset_ref"
-    MISSING_FIELD_REF = "missing_field_ref"
+    DOMAIN_FILE_MISSING = "domain_file_missing"
+    DOMAIN_FILE_MISMATCH = "domain_file_mismatch"
+    MISSING_ENTITY_REF = "missing_entity_ref"
+    MISSING_DIMENSION_REF = "missing_dimension_ref"
     MISSING_METRIC_REF = "missing_metric_ref"
     CROSS_MODEL_CYCLE = "cross_model_cycle"
-    HOUR_TIME_FIELD_PREFIX_MISSING = "hour_time_field_prefix_missing"
+    HOUR_TIME_DIMENSION_PREFIX_MISSING = "hour_time_dimension_prefix_missing"
     INVALID_RELATIONSHIP_ENDPOINT = "invalid_relationship_endpoint"
     ORGANIZATION_ERROR = "organization_error"
     INVALID_PROJECT = "invalid_project"
@@ -74,17 +74,17 @@ class ErrorKind(StrEnum):
     MISSING_METRIC_ROOT_DATASET = "missing_metric_root_dataset"
     INVALID_METRIC_ROOT_DATASET = "invalid_metric_root_dataset"
     INVALID_VERIFICATION_MODE = "invalid_verification_mode"
-    INVALID_DATASET_VERSIONING = "invalid_dataset_versioning"
+    INVALID_ENTITY_VERSIONING = "invalid_entity_versioning"
     NON_ROOT_METRIC_AGGREGATE = "non_root_metric_aggregate"
     INVALID_METRIC_FANOUT_POLICY = "invalid_metric_fanout_policy"
     DERIVED_METRIC_FANOUT_POLICY = "derived_metric_fanout_policy"
     SUBDAY_GRANULARITY_WITHOUT_TIME = "subday_granularity_without_time"
-    DUPLICATE_DEFAULT_TIME_FIELD = "duplicate_default_time_field"
+    DUPLICATE_DEFAULT_TIME_DIMENSION = "duplicate_default_time_dimension"
 
     # runtime
     NOT_FOUND = "not_found"
-    DATASET_NOT_FOUND = "dataset_not_found"
-    FIELD_NOT_FOUND = "field_not_found"
+    ENTITY_NOT_FOUND = "entity_not_found"
+    DIMENSION_NOT_FOUND = "dimension_not_found"
     METRIC_NOT_FOUND = "metric_not_found"
     MATERIALIZE_FAILED = "materialize_failed"
     BACKEND_MISMATCH = "backend_mismatch"
@@ -226,9 +226,9 @@ class WarningKind(StrEnum):
     STRING_REF = "string_ref"
     UNVERIFIED_PROVENANCE = "unverified_provenance"
     POTENTIALLY_FRAGILE_REFERENCE = "potentially_fragile_reference"
-    TIME_FIELD_PUSHDOWN_ADVISORY = "time_field_pushdown_advisory"
-    TIME_FIELD_DTYPE_ADVISORY = "time_field_dtype_advisory"
-    FILTERED_MODEL_REF = "filtered_model_ref"
+    TIME_DIMENSION_PUSHDOWN_ADVISORY = "time_dimension_pushdown_advisory"
+    TIME_DIMENSION_DTYPE_ADVISORY = "time_dimension_dtype_advisory"
+    FILTERED_DOMAIN_REF = "filtered_domain_ref"
 
 
 @dataclass(frozen=True)
@@ -242,9 +242,9 @@ class StructuredWarning:
         "string_ref",
         "unverified_provenance",
         "potentially_fragile_reference",
-        "time_field_pushdown_advisory",
-        "time_field_dtype_advisory",
-        "filtered_model_ref",
+        "time_dimension_pushdown_advisory",
+        "time_dimension_dtype_advisory",
+        "filtered_domain_ref",
     ]
     message: str
     refs: tuple[str, ...]

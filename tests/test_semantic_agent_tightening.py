@@ -230,14 +230,14 @@ def test_design_spec_marks_remaining_phases_implemented() -> None:
 def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     examples_dir = REPO_ROOT / "marivo-skills" / "marivo-semantic" / "references" / "examples"
     expected = {
-        "01_single_model_file.py",
+        "01_single_domain_file.py",
         "02_source_evidence_to_check.py",
         "03_closeout_readiness_richness.py",
     }
     names = {path.name for path in examples_dir.glob("*.py")}
     assert expected == names
 
-    single = _read("marivo-skills/marivo-semantic/references/examples/01_single_model_file.py")
+    single = _read("marivo-skills/marivo-semantic/references/examples/01_single_domain_file.py")
     evidence = _read(
         "marivo-skills/marivo-semantic/references/examples/02_source_evidence_to_check.py"
     )
@@ -247,7 +247,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
         "marivo-skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py"
     )
 
-    assert "partition time field" in single
+    assert "partition time dimension" in single
     assert 'data_type="string"' in single
     assert 'date_format="%Y%m%d"' in single
     assert 'date_format="HH"' not in single
@@ -315,7 +315,7 @@ def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
     assert "return table.dt.cast" not in authoring
     assert "predicate pushdown" in authoring
     assert "Complex event-time expressions are still valid" in authoring
-    assert "partition field default" in pitfalls
+    assert "partition dimension default" in pitfalls
 
 
 def test_skills_document_uniform_help_contract() -> None:

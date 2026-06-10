@@ -30,7 +30,7 @@ inputs. Assess the object with the source/role shape directly.
 After authoring `.marivo/semantic/<model>/*.py`, always call `project.load()`
 before `project.inspect_authored_object(ref)`. Without load, the registry is
 stale and the inspection reflects the pre-authoring state. This also ensures
-auto-recorded `metric_decomposition` and `time_field_identity` decisions are
+auto-recorded `metric_decomposition` and `time_dimension_identity` decisions are
 present in the ledger.
 
 ## Using readiness/richness to compensate for missing authoring evidence
@@ -49,14 +49,14 @@ metric meaning, filters, or dimensions.
 
 ## Wrong time axis
 
-Do not choose a time field only because its name looks common. Confirm the
+Do not choose a time dimension only because its name looks common. Confirm the
 business event represented by the column, such as order creation, payment,
 shipment, cancellation, or ledger posting. Preview values and cite metadata
-before making the field the default time axis for metrics or datasets.
+before making the dimension the default time axis for metrics or entities.
 
-## Parsed partition field default
+## Parsed partition dimension default
 
-Do not make cast/parse expressions the partition field default when a day/hour
+Do not make cast/parse expressions the partition dimension default when a day/hour
 partition column already stores a sortable encoded value. Prefer raw
 `data_type="string"` or `data_type="integer"` with `date_format`, and use
 `required_prefix` for hour-only fields such as `HH`. This preserves simple
@@ -69,7 +69,7 @@ partition value.
 Do not cast a Trino VARCHAR datetime directly to DATE:
 
 ```python
-@ms.time_field(dataset=orders, data_type="date", granularity="day")
+@ms.time_dimension(dataset=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("date")
 ```
@@ -77,7 +77,7 @@ def order_date(table):
 Parse through timestamp first:
 
 ```python
-@ms.time_field(dataset=orders, data_type="date", granularity="day")
+@ms.time_dimension(dataset=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
@@ -99,23 +99,23 @@ to the wrong code path and raises TypeError (e.g., DateColumn + interval).
 
 ```python
 # WRONG - data_type="datetime" with .cast("date") body
-@ms.time_field(dataset=orders, data_type="datetime", granularity="day")
+@ms.time_dimension(dataset=orders, data_type="datetime", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 
 # CORRECT - data_type="date" with .cast("date") body
-@ms.time_field(dataset=orders, data_type="date", granularity="day")
+@ms.time_dimension(dataset=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
 
 ## Trino fully qualified name mistake
 
-For Trino semantic datasets, keep schema selection in the structured source rather
+For Trino semantic entities, keep schema selection in the structured source rather
 than embedding a multi-part table string:
 
 ```python
-orders = ms.dataset(
+orders = ms.entity(
     name="orders",
     datasource=warehouse,
     source=ms.table("orders", database="sales_mart"),
@@ -136,8 +136,8 @@ federation.
 
 ## Multi-file sprawl
 
-Avoid spreading one model change across many small files when a focused dataset,
-field, metric, or relationship edit would do. Sprawl makes load, review, and
+Avoid spreading one domain change across many small files when a focused entity,
+dimension, metric, or relationship edit would do. Sprawl makes load, review, and
 readiness harder because related definitions become difficult to inspect
 together.
 
@@ -151,7 +151,7 @@ broken semantic declarations are blockers for affected objects.
 
 When a metric is intended to match existing source SQL or a known report,
 compare the semantic expression to the cited source and verify parity before
-closeout. A renamed field, changed filter, different time axis, or missing
+closeout. A renamed dimension, changed filter, different time axis, or missing
 status condition can silently drift from the source definition.
 
 ## Readiness warnings confused with blockers

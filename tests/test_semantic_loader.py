@@ -2,9 +2,9 @@
 
 Tests cover:
 - Single model directory loads successfully
-- _model.py validation (missing, name mismatch)
+- _domain.py validation (missing, name mismatch)
 - Sibling files loaded
-- Excluded files: _model.py, _exports.py, .prefixed, test_*.py, *_test.py
+- Excluded files: _domain.py, _exports.py, .prefixed, test_*.py, *_test.py
 - Empty project directory is valid
 - sys.path injection and cleanup
 - Load result status (ready/errored)
@@ -25,14 +25,14 @@ from marivo.semantic.reader import SemanticProject
 # Minimal model files
 # ---------------------------------------------------------------------------
 
-_MINIMAL_MODEL_PY = textwrap.dedent("""\
+_MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    ms.model(name="sales", default=True)
+    ms.domain(name="sales", default=True)
 """)
 
 _MINIMAL_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def revenue(table):
@@ -41,7 +41,7 @@ _MINIMAL_DATASET_PY = textwrap.dedent("""\
 
 _SHARED_DATASOURCE_MODEL_A = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def revenue(orders):
@@ -51,7 +51,7 @@ _SHARED_DATASOURCE_MODEL_A = textwrap.dedent("""\
 _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""\
     import marivo.semantic as ms
 
-    refunds = ms.dataset(name="refunds", datasource="warehouse", source=ms.table("refunds"))
+    refunds = ms.entity(name="refunds", datasource="warehouse", source=ms.table("refunds"))
 
     @ms.metric(datasets=[refunds], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def refunds_total(refunds):
@@ -67,7 +67,7 @@ _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""\
 def test_single_model_loads(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _MINIMAL_DATASET_PY,
         }
     )
@@ -77,9 +77,9 @@ def test_single_model_loads(semantic_project_factory) -> None:
 def test_global_datasource_can_be_reused_across_models(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _SHARED_DATASOURCE_MODEL_A,
-            "finance/_model.py": 'import marivo.semantic as ms\nms.model(name="finance")\n',
+            "finance/_domain.py": 'import marivo.semantic as ms\nms.domain(name="finance")\n',
             "finance/datasets.py": _SHARED_DATASOURCE_MODEL_B,
         }
     )
@@ -96,8 +96,8 @@ def test_duplicate_global_datasource_declaration_must_match(semantic_project_fac
         {
             "datasource/warehouse_a.py": 'import marivo.datasource as md\nmd.datasource(name="warehouse", backend_type="duckdb", path=":memory:")\n',
             "datasource/warehouse_b.py": 'import marivo.datasource as md\nmd.datasource(name="warehouse", backend_type="duckdb", path="/tmp/other.duckdb")\n',
-            "sales/_model.py": _MINIMAL_MODEL_PY,
-            "finance/_model.py": 'import marivo.semantic as ms\nms.model(name="finance")\n',
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "finance/_domain.py": 'import marivo.semantic as ms\nms.domain(name="finance")\n',
         }
     )
 
@@ -108,7 +108,7 @@ def test_duplicate_global_datasource_declaration_must_match(semantic_project_fac
 def test_single_model_load_result_ready(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _MINIMAL_DATASET_PY,
         }
     )
@@ -120,19 +120,19 @@ def test_single_model_load_result_ready(semantic_project_factory) -> None:
 def test_model_only_no_sibling_files(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
         }
     )
     assert project.is_ready()
 
 
 # ---------------------------------------------------------------------------
-# _model.py validation
+# _domain.py validation
 # ---------------------------------------------------------------------------
 
 
-def test_missing_model_py(semantic_project_factory) -> None:
-    """Directory without _model.py should produce an error for that model."""
+def test_missing_domain_py(semantic_project_factory) -> None:
+    """Directory without _domain.py should produce an error for that model."""
     project = semantic_project_factory(
         {
             "sales/datasets.py": _MINIMAL_DATASET_PY,
@@ -142,7 +142,7 @@ def test_missing_model_py(semantic_project_factory) -> None:
     errors = project.errors()
     assert len(errors) > 0
     kind_values = [e.kind for e in errors]
-    assert ErrorKind.MODEL_FILE_MISSING in kind_values
+    assert ErrorKind.DOMAIN_FILE_MISSING in kind_values
 
 
 def test_datasources_accessible_when_model_load_errors(semantic_project_factory) -> None:
@@ -153,7 +153,7 @@ def test_datasources_accessible_when_model_load_errors(semantic_project_factory)
         }
     )
     assert not project.is_ready()
-    assert any(e.kind == ErrorKind.MODEL_FILE_MISSING for e in project.errors())
+    assert any(e.kind == ErrorKind.DOMAIN_FILE_MISSING for e in project.errors())
 
     datasources = project.list_datasources()
     assert len(datasources) == 1
@@ -168,20 +168,20 @@ def test_datasources_accessible_when_model_load_errors(semantic_project_factory)
 
 
 def test_model_name_mismatch(semantic_project_factory) -> None:
-    """_model.py declares a different name than the directory name."""
+    """_domain.py declares a different name than the directory name."""
     bad_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        ms.model(name="not_sales", default=True)
+        ms.domain(name="not_sales", default=True)
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": bad_model,
+            "sales/_domain.py": bad_model,
         }
     )
     assert not project.is_ready()
     errors = project.errors()
     kind_values = [e.kind for e in errors]
-    assert ErrorKind.MODEL_FILE_MISMATCH in kind_values
+    assert ErrorKind.DOMAIN_FILE_MISMATCH in kind_values
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +197,7 @@ def test_exports_py_excluded(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/_exports.py": exports_content,
         }
     )
@@ -210,7 +210,7 @@ def test_dot_prefixed_files_excluded(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/.hidden.py": dot_content,
         }
     )
@@ -223,7 +223,7 @@ def test_test_files_excluded(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/test_orders.py": test_content,
             "sales/orders_test.py": test_content,
         }
@@ -260,7 +260,7 @@ def test_sys_path_injected_during_load(semantic_project_factory, tmp_path) -> No
     root = tmp_path / ".marivo" / "semantic"
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
         }
     )
     # After load, the injected path should be cleaned up
@@ -279,7 +279,7 @@ def test_errored_load_result(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": bad_model,
+            "sales/_domain.py": bad_model,
         },
         load=False,
     )
@@ -302,8 +302,8 @@ def test_errors_accumulate_across_models(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "model_a/_model.py": bad_model_a,
-            "model_b/_model.py": bad_model_b,
+            "model_a/_domain.py": bad_model_a,
+            "model_b/_domain.py": bad_model_b,
         },
         load=False,
     )
@@ -319,8 +319,8 @@ def test_one_bad_model_does_not_block_good_one(semantic_project_factory) -> None
     """)
     project = semantic_project_factory(
         {
-            "bad/_model.py": bad_model,
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "bad/_domain.py": bad_model,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
         },
         load=False,
     )
@@ -337,7 +337,7 @@ def test_one_bad_model_does_not_block_good_one(semantic_project_factory) -> None
 def test_load_on_already_loaded_project(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
         }
     )
     assert project.is_ready()
@@ -355,7 +355,7 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -366,7 +366,7 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": datasets_py,
             "sales/metrics.py": metrics_py,
         }
@@ -385,7 +385,7 @@ def test_subdirectories_not_scanned(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/subdir/extra.py": sub_content,
         }
     )
@@ -417,12 +417,12 @@ def test_semantic_project_nonexistent_root() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Model directory without _model.py but with other .py files
+# Model directory without _domain.py but with other .py files
 # ---------------------------------------------------------------------------
 
 
 def test_directory_with_py_but_no_model_file(semantic_project_factory) -> None:
-    """A directory that has .py files but no _model.py should not be treated as a model."""
+    """A directory that has .py files but no _domain.py should not be treated as a model."""
     content = textwrap.dedent("""\
         # Just a random Python file, not a model
         x = 42
@@ -432,7 +432,7 @@ def test_directory_with_py_but_no_model_file(semantic_project_factory) -> None:
             "notamodel/utils.py": content,
         }
     )
-    # notamodel has no _model.py, so it should produce MODEL_FILE_MISSING
+    # notamodel has no _domain.py, so it should produce DOMAIN_FILE_MISSING
     # but the project should still report errors
     assert not project.is_ready()
 
@@ -447,7 +447,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -458,7 +458,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": datasets_py,
             "sales/metrics.py": metrics_py,
         }
@@ -475,7 +475,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
     dataset_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        query_info = ms.dataset(name="query_info", datasource="wh", source=ms.table("query_info"))
+        query_info = ms.entity(name="query_info", datasource="wh", source=ms.table("query_info"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -487,7 +487,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/dataset.py": dataset_py,
             "sales/metrics.py": metrics_py,
         }
@@ -504,7 +504,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     dataset_v1 = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        query_info = ms.dataset(name="query_info", datasource="wh", source=ms.table("query_info"))
+        query_info = ms.entity(name="query_info", datasource="wh", source=ms.table("query_info"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -516,7 +516,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/dataset.py": dataset_v1,
             "sales/metrics.py": metrics_py,
         }
@@ -524,8 +524,8 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     assert project.is_ready()
 
     dataset_v2 = dataset_v1.replace(
-        'query_info = ms.dataset(name="query_info"',
-        'query_log = ms.dataset(name="query_log"',
+        'query_info = ms.entity(name="query_info"',
+        'query_log = ms.entity(name="query_log"',
     ).replace('ms.table("query_info")', 'ms.table("query_log")')
 
     root = project.semantic_root
@@ -537,7 +537,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     assert any("query_info" in err.message for err in result.errors)
 
 
-def test_cross_file_missing_dataset_ref(semantic_project_factory) -> None:
+def test_cross_file_missing_entity_ref(semantic_project_factory) -> None:
     """Metric referencing a dataset that doesn't exist should error."""
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -548,13 +548,13 @@ def test_cross_file_missing_dataset_ref(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/metrics.py": metrics_py,
         }
     )
     assert not project.is_ready()
     errors = project.errors()
-    assert any(e.kind == ErrorKind.MISSING_DATASET_REF for e in errors)
+    assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -566,7 +566,7 @@ def test_load_result_has_warnings_field(semantic_project_factory) -> None:
     """LoadResult should have a warnings tuple."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
         },
         load=False,
     )
@@ -580,7 +580,7 @@ def test_sql_parity_metric_missing_source_dialect_errors(semantic_project_factor
 
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -594,7 +594,7 @@ def test_sql_parity_metric_missing_source_dialect_errors(semantic_project_factor
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/metrics.py": metrics_py,
         },
         load=False,
@@ -609,7 +609,7 @@ def test_derived_metric_with_source_sql_errors(semantic_project_factory) -> None
 
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -632,7 +632,7 @@ def test_derived_metric_with_source_sql_errors(semantic_project_factory) -> None
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/metrics.py": metrics_py,
         },
         load=False,
@@ -652,7 +652,7 @@ def test_registry_accessible_after_load(semantic_project_factory) -> None:
     """SemanticProject should expose registry after successful load."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _MINIMAL_DATASET_PY,
         }
     )
@@ -668,7 +668,7 @@ def test_sidecar_accessible_after_load(semantic_project_factory) -> None:
     """SemanticProject should expose sidecar after successful load."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _MINIMAL_DATASET_PY,
         }
     )
@@ -687,7 +687,7 @@ def test_registry_none_on_errored_load(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": bad_model,
+            "sales/_domain.py": bad_model,
         }
     )
     assert not project.is_ready()
@@ -699,7 +699,7 @@ def test_warnings_accessible_after_load(semantic_project_factory) -> None:
     """SemanticProject should expose warnings after load."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
         }
     )
 
@@ -729,11 +729,11 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/b_metrics.py": metrics_py,
             "sales/c_datasets.py": datasets_py,
         }
@@ -755,18 +755,18 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
-        items = ms.dataset(name="items", datasource="wh", source=ms.table("items"))
+        items = ms.entity(name="items", datasource="wh", source=ms.table("items"))
     """)
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.field(dataset="sales.orders")
+        @ms.dimension(dataset="sales.orders")
         def order_id(table):
             return table.order_id
 
-        @ms.field(dataset="sales.items")
+        @ms.dimension(dataset="sales.items")
         def item_order_id(table):
             return table.order_id
     """)
@@ -783,7 +783,7 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": datasets_py,
             "sales/fields.py": fields_py,
             "sales/relationships.py": rels_py,
@@ -805,13 +805,13 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
     rels_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
-        @ms.field(dataset=orders)
+        @ms.dimension(dataset=orders)
         def order_id(table):
             return table.order_id
 
-        @ms.field(dataset=orders)
+        @ms.dimension(dataset=orders)
         def other_id(table):
             return table.other_id
 
@@ -825,32 +825,32 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/relationships.py": rels_py,
         }
     )
     assert not project.is_ready()
     errors = project.errors()
-    assert any(e.kind == ErrorKind.MISSING_FIELD_REF for e in errors)
+    assert any(e.kind == ErrorKind.MISSING_DIMENSION_REF for e in errors)
 
 
 # ---------------------------------------------------------------------------
-# FieldRef resolver wired up after load
+# DimensionRef resolver wired up after load
 # ---------------------------------------------------------------------------
 
 
 def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
-    """FieldRef objects should have their _resolver set after loading."""
+    """DimensionRef objects should have their _resolver set after loading."""
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     # The field ref is stored in a module-level variable
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.field(dataset="sales.orders")
+        @ms.dimension(dataset="sales.orders")
         def amount(table):
             return table.amount
 
@@ -859,7 +859,7 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": datasets_py,
             "sales/fields.py": fields_py,
         }
@@ -871,7 +871,7 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
 
 
 def test_field_ref_callable_after_load(semantic_project_factory) -> None:
-    """FieldRef returned by decorator should be callable after project load."""
+    """DimensionRef returned by decorator should be callable after project load."""
     import ibis
 
     con = ibis.duckdb.connect(":memory:")
@@ -882,7 +882,7 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.field(dataset="sales.orders")
+        @ms.dimension(dataset="sales.orders")
         def region(table):
             return table.region
 
@@ -891,11 +891,11 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": datasets_py,
             "sales/fields.py": fields_py,
         }
@@ -1043,12 +1043,12 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
                 "import marivo.datasource as md\n"
                 'md.datasource(name="warehouse", backend_type="trino", host="h", catalog="c")\n'
             ),
-            "sales/_model.py": (
-                'import marivo.semantic as ms\nms.model(name="sales", default=True)\n'
+            "sales/_domain.py": (
+                'import marivo.semantic as ms\nms.domain(name="sales", default=True)\n'
             ),
             "sales/objects.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
             ),
         }
     )
@@ -1086,12 +1086,12 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
                 "import marivo.datasource as md\n"
                 'md.datasource(name="warehouse", backend_type="trino", host="h", catalog="c")\n'
             ),
-            "sales/_model.py": (
-                'import marivo.semantic as ms\nms.model(name="sales", default=True)\n'
+            "sales/_domain.py": (
+                'import marivo.semantic as ms\nms.domain(name="sales", default=True)\n'
             ),
             "sales/objects.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders', database='sales'))\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders', database='sales'))\n"
             ),
         }
     )
@@ -1115,14 +1115,14 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
 # models parameter on load()
 # ---------------------------------------------------------------------------
 
-_FINANCE_MODEL_PY = textwrap.dedent("""\
+_FINANCE_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    ms.model(name="finance", default=True)
+    ms.domain(name="finance", default=True)
 """)
 
 _FINANCE_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    refunds = ms.dataset(name="refunds", datasource="warehouse", source=ms.table("refunds"))
+    refunds = ms.entity(name="refunds", datasource="warehouse", source=ms.table("refunds"))
 
     @ms.metric(datasets=[refunds], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def refunds_total(refunds):
@@ -1133,9 +1133,9 @@ _FINANCE_DATASET_PY = textwrap.dedent("""\
 def test_load_models_parameter_loads_only_specified(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _MINIMAL_DATASET_PY,
-            "finance/_model.py": _FINANCE_MODEL_PY,
+            "finance/_domain.py": _FINANCE_DOMAIN_PY,
             "finance/datasets.py": _FINANCE_DATASET_PY,
         },
         load=False,
@@ -1151,8 +1151,8 @@ def test_load_models_parameter_loads_only_specified(semantic_project_factory) ->
 def test_load_models_none_loads_all(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
-            "finance/_model.py": _FINANCE_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "finance/_domain.py": _FINANCE_DOMAIN_PY,
         },
         load=False,
     )
@@ -1166,14 +1166,14 @@ def test_load_models_none_loads_all(semantic_project_factory) -> None:
 def test_load_models_with_nonexistent_name(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
         },
         load=False,
     )
     result = project.load(models=["sales", "nonexistent"])
     assert project.is_ready()
     assert "sales" in project._registry.models
-    filtered_warnings = [w for w in result.warnings if w.kind == "filtered_model_ref"]
+    filtered_warnings = [w for w in result.warnings if w.kind == "filtered_domain_ref"]
     assert any("nonexistent" in w.message for w in filtered_warnings)
 
 
@@ -1183,8 +1183,8 @@ def test_load_models_skips_bad_model(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "bad/_model.py": bad_model,
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "bad/_domain.py": bad_model,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _MINIMAL_DATASET_PY,
         },
         load=False,
@@ -1201,7 +1201,7 @@ def test_load_models_intra_model_error_still_blocks(semantic_project_factory) ->
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": bad_model,
+            "sales/_domain.py": bad_model,
         },
         load=False,
     )
@@ -1211,12 +1211,12 @@ def test_load_models_intra_model_error_still_blocks(semantic_project_factory) ->
 
 
 def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) -> None:
-    """Cross-model relationship ref produces filtered_model_ref warning, not error."""
+    """Cross-domain relationship ref produces filtered_domain_ref warning, not error."""
     sales_with_relationship = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.field(dataset=orders)
+        @ms.dimension(dataset=orders)
         def amount(table):
             return table.amount
 
@@ -1230,9 +1230,9 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": sales_with_relationship,
-            "finance/_model.py": _FINANCE_MODEL_PY,
+            "finance/_domain.py": _FINANCE_DOMAIN_PY,
             "finance/datasets.py": _FINANCE_DATASET_PY,
         },
         load=False,
@@ -1240,15 +1240,15 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
     result = project.load(models=["sales"])
     assert project.is_ready()
     assert project._registry is not None
-    filtered_warnings = [w for w in result.warnings if w.kind == "filtered_model_ref"]
+    filtered_warnings = [w for w in result.warnings if w.kind == "filtered_domain_ref"]
     assert any("finance" in w.message for w in filtered_warnings)
 
 
 def test_load_without_models_loads_all(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
-            "finance/_model.py": _FINANCE_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "finance/_domain.py": _FINANCE_DOMAIN_PY,
         },
         load=False,
     )
@@ -1263,8 +1263,8 @@ def test_load_without_models_loads_all(semantic_project_factory) -> None:
 def test_load_can_change_filter(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
-            "finance/_model.py": _FINANCE_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "finance/_domain.py": _FINANCE_DOMAIN_PY,
         },
         load=False,
     )

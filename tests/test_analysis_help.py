@@ -411,12 +411,12 @@ def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: C
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "import marivo.datasource as md\n"
                 "warehouse = md.ref('warehouse')\n"
-                "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
                 "\n"
                 "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), "
                 "name='revenue', verification_mode='python_native')\n"

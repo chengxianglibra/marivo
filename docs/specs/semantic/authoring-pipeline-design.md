@@ -136,7 +136,7 @@ columns = project.inspect_column_context(
 ```
 
 4. The agent decides candidates: which tables enter the semantic model, and
-   what semantic objects (dataset, time_field, field, metric) each table
+   what semantic objects (entity, time_dimension, dimension, metric) each table
    should produce.
 
 The API provides information for the agent's judgment. It does not return a
@@ -145,20 +145,20 @@ candidate worklist or suggest what to author.
 ### Phase 2: Authoring
 
 The agent authors semantic objects iteratively in the model's single
-`_model.py` file. No reload occurs during this phase.
+`_domain.py` file. No reload occurs during this phase.
 
-#### 2.0 Create `_model.py`
+#### 2.0 Create `_domain.py`
 
 Every model has exactly one authoring file. It contains the model declaration,
 datasource references, datasets, fields, metrics, relationships, and derived
 metrics:
 
 ```python
-# .marivo/semantic/sales/_model.py
+# .marivo/semantic/sales/_domain.py
 import marivo.datasource as md
 import marivo.semantic as ms
 
-ms.model(name="sales", description="Sales analytics")
+ms.domain(name="sales", description="Sales analytics")
 warehouse = md.ref("warehouse")
 ```
 
@@ -202,11 +202,11 @@ asks the user or consults external project context, then writes the resolved
 semantic object content or an explicit decision-ledger record. The assessment
 call itself does not persist source, column, or authoring evidence.
 
-**2.1.2 Append confirmed objects to `_model.py`** — the agent writes all
+**2.1.2 Append confirmed objects to `_domain.py`** — the agent writes all
 confirmed objects for this source in dependency order:
 
 ```python
-orders = ms.dataset(
+orders = ms.entity(
     name="orders",
     datasource=warehouse,
     source=ms.table("orders"),
@@ -217,12 +217,12 @@ orders = ms.dataset(
     },
 )
 
-@ms.time_field(dataset=orders, name="log_date", data_type="string",
+@ms.time_dimension(dataset=orders, name="log_date", data_type="string",
                granularity="day", date_format="%Y%m%d")
 def log_date(table):
     return table.dt
 
-@ms.field(dataset=orders, name="region")
+@ms.dimension(dataset=orders, name="region")
 def region(table):
     return table.region
 
@@ -243,14 +243,14 @@ def revenue(table):
     return table.amount.sum()
 ```
 
-No reload is needed between writing different objects in `_model.py`. Python
+No reload is needed between writing different objects in `_domain.py`. Python
 variable references (`orders`, `revenue`) resolve when the file is loaded in
 Phase 3.
 
 #### 2.2 Cross-dataset objects (multi-dataset models)
 
 When the model contains multiple datasets, relationships, cross-dataset
-metrics, and derived metrics are also authored in `_model.py`.
+metrics, and derived metrics are also authored in `_domain.py`.
 
 **2.2.0 Assess each candidate** — use `assess_authoring` with one
 `AuthoringSourceInput` per physical source role. A relationship must have
@@ -313,7 +313,7 @@ assessment = project.assess_authoring(
 )
 ```
 
-**2.2.1 Append to `_model.py`** — use local decorated Python refs when the
+**2.2.1 Append to `_domain.py`** — use local decorated Python refs when the
 target was declared earlier in the file. Use `ms.ref(...)` only for forward
 references or generated tooling cases, and follow the current implementation's
 plain semantic-id format:
@@ -371,20 +371,20 @@ Validation closeout rules:
 Same-file variable references work without reload. Forward references or
 generated tooling refs use `ms.ref("sales.orders")` with the current
 semantic-id format. Auto-recorded decisions (`metric_decomposition`,
-`time_field_identity`) only affect validation, not authoring. Deferring reload
+`time_dimension_identity`) only affect validation, not authoring. Deferring reload
 to Phase 3 reduces N reloads (N = number of objects) to 1.
 
 ## File Organization Contract
 
 ```
 .marivo/semantic/<model>/
-  _model.py         # all semantic declarations for the model
+  _domain.py         # all semantic declarations for the model
 ```
 
 Rules:
 
-- `_model.py` always exists and is the only normal authoring file for a model.
-- The file starts with `ms.model(...)` and datasource refs, then declares
+- `_domain.py` always exists and is the only normal authoring file for a model.
+- The file starts with `ms.domain(...)` and datasource refs, then declares
   datasets, fields, time fields, metrics, relationships, and derived metrics in
   dependency order when possible.
 - Use local decorated Python refs for objects declared earlier in the file.
@@ -404,7 +404,7 @@ def assess_authoring(
     self,
     *,
     object_kind: Literal[
-        "dataset", "field", "time_field", "metric", "derived_metric", "relationship"
+        "entity", "dimension", "time_dimension", "metric", "derived_metric", "relationship"
     ],
     subject_ref: str,
     sources: Sequence[AuthoringSourceInput] = (),
@@ -456,7 +456,7 @@ Parameters:
 `assess_authoring(...)` does not accept `ai_context`, inline `evidence`, or
 explicit `evidence_refs`, and it does not read a persistent evidence store:
 
-- `ai_context` is authored content. The agent writes it into `_model.py` in
+- `ai_context` is authored content. The agent writes it into `_domain.py` in
   Phase 2.1.2, and Phase 3 checks the loaded object.
 - `source_sql`, BI definitions, and natural-language business definitions are
   authored content or user-facing context, not inputs to a Marivo assessment
@@ -703,9 +703,9 @@ but the skill does not direct agents to call them during normal authoring.
 | `skill-semantic-layer-authoring-design.md` | "Skill Workflow" (9 stages) | Three-phase flow in this document |
 | `skill-semantic-layer-authoring-design.md` | `NextCheck` type and `next_checks` semantics | Removed; `assess_authoring` composes internally |
 | `skill-semantic-layer-authoring-design.md` | "Light Authoring Input Check" as a standalone step | `assess_authoring` composes it |
-| `skill-semantic-layer-authoring-design.md` | Multi-file authoring examples | Single `_model.py` authoring file |
+| `skill-semantic-layer-authoring-design.md` | Multi-file authoring examples | Single `_domain.py` authoring file |
 | `agent-semantic-layer-authoring-design.md` | Phase 0 loop | Three-phase flow in this document |
-| `python-semantic-layer.md` | General multi-file organization recommendation for agent-authored models | Single `_model.py` authoring file for this pipeline |
+| `python-semantic-layer.md` | General multi-file organization recommendation for agent-authored models | Single `_domain.py` authoring file for this pipeline |
 
 Sections of those documents covering persisted evidence stores or evidence-ref
 choreography are superseded by this design. Sections covering provenance,

@@ -31,9 +31,9 @@ ReviewStatus = Literal[
 ]
 
 AuthoringObjectKind = Literal[
-    "dataset",
-    "field",
-    "time_field",
+    "entity",
+    "dimension",
+    "time_dimension",
     "metric",
     "derived_metric",
     "relationship",

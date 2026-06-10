@@ -1,10 +1,10 @@
 """Tests for marivo.semantic.validator — assembly-time validation.
 
 Tests cover:
-- Missing dataset ref -> MISSING_DATASET_REF
-- Missing field ref -> MISSING_FIELD_REF
+- Missing entity ref -> MISSING_ENTITY_REF
+- Missing dimension ref -> MISSING_DIMENSION_REF
 - Missing metric ref -> MISSING_METRIC_REF
-- Hour time field without required_prefix -> HOUR_TIME_FIELD_PREFIX_MISSING
+- Hour time dimension without required_prefix -> HOUR_TIME_DIMENSION_PREFIX_MISSING
 - Invalid relationship endpoint -> INVALID_RELATIONSHIP_ENDPOINT
 - String refs produce warnings
 - Cross-file refs resolve correctly
@@ -23,15 +23,15 @@ import pytest
 from marivo.semantic.errors import ErrorKind, WarningKind
 from marivo.semantic.ir import (
     AiContextIR,
-    DatasetIR,
     DatasourceAiContextIR,
     DatasourceIR,
     DatasourceSourceLocation,
     DecompositionIR,
-    FieldIR,
-    FieldKind,
+    DimensionIR,
+    DimensionKind,
+    DomainIR,
+    EntityIR,
     MetricIR,
-    ModelIR,
     ProvenanceIR,
     RelationshipIR,
     SourceLocation,
@@ -50,7 +50,7 @@ _LOC = SourceLocation(file="<test>", line=0)
 def _make_registry(**overrides: object) -> Registry:
     """Create a Registry with some standard test objects."""
     registry = Registry()
-    registry.models["sales"] = ModelIR(
+    registry.models["sales"] = DomainIR(
         name="sales",
         description=None,
         default=True,
@@ -68,7 +68,7 @@ def _make_registry(**overrides: object) -> Registry:
         python_symbol="wh",
         location=DatasourceSourceLocation(file="<test>", line=0),
     )
-    registry.datasets["sales.orders"] = DatasetIR(
+    registry.datasets["sales.orders"] = EntityIR(
         semantic_id="sales.orders",
         model="sales",
         name="orders",
@@ -80,7 +80,7 @@ def _make_registry(**overrides: object) -> Registry:
         python_symbol="orders",
         location=_LOC,
     )
-    registry.fields["sales.orders.amount"] = FieldIR(
+    registry.fields["sales.orders.amount"] = DimensionIR(
         semantic_id="sales.orders.amount",
         model="sales",
         dataset="sales.orders",
@@ -88,14 +88,14 @@ def _make_registry(**overrides: object) -> Registry:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=False,
-        kind=FieldKind.DIMENSION,
+        kind=DimensionKind.CATEGORICAL,
         data_type=None,
         granularity=None,
         required_prefix=None,
         python_symbol="amount",
         location=_LOC,
     )
-    registry.fields["sales.orders.order_date"] = FieldIR(
+    registry.fields["sales.orders.order_date"] = DimensionIR(
         semantic_id="sales.orders.order_date",
         model="sales",
         dataset="sales.orders",
@@ -103,7 +103,7 @@ def _make_registry(**overrides: object) -> Registry:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
         required_prefix=None,
@@ -133,10 +133,10 @@ def _make_registry(**overrides: object) -> Registry:
 # ---------------------------------------------------------------------------
 
 
-def test_missing_dataset_ref_on_field() -> None:
+def test_missing_entity_ref_on_dimension() -> None:
     registry = _make_registry()
     # Add a field referencing a non-existent dataset
-    registry.fields["sales.nonexistent.bad_field"] = FieldIR(
+    registry.fields["sales.nonexistent.bad_field"] = DimensionIR(
         semantic_id="sales.nonexistent.bad_field",
         model="sales",
         dataset="sales.nonexistent",
@@ -144,7 +144,7 @@ def test_missing_dataset_ref_on_field() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=False,
-        kind=FieldKind.DIMENSION,
+        kind=DimensionKind.CATEGORICAL,
         data_type=None,
         granularity=None,
         required_prefix=None,
@@ -152,10 +152,10 @@ def test_missing_dataset_ref_on_field() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.MISSING_DATASET_REF for e in errors)
+    assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
 
 
-def test_missing_dataset_ref_on_metric() -> None:
+def test_missing_entity_ref_on_metric() -> None:
     registry = _make_registry()
     registry.metrics["sales.bad_metric"] = MetricIR(
         semantic_id="sales.bad_metric",
@@ -172,12 +172,12 @@ def test_missing_dataset_ref_on_metric() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.MISSING_DATASET_REF for e in errors)
+    assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
 
 
 def test_missing_datasource_ref_on_dataset() -> None:
     registry = _make_registry()
-    registry.datasets["sales.bad_ds"] = DatasetIR(
+    registry.datasets["sales.bad_ds"] = EntityIR(
         semantic_id="sales.bad_ds",
         model="sales",
         name="bad_ds",
@@ -190,7 +190,7 @@ def test_missing_datasource_ref_on_dataset() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.MISSING_DATASET_REF for e in errors)
+    assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ def test_missing_metric_ref_in_decomposition() -> None:
 
 def test_timestamp_hour_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = FieldIR(
+    registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
@@ -236,7 +236,7 @@ def test_timestamp_hour_time_field_without_required_prefix() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="timestamp",
         granularity="hour",
         required_prefix=None,
@@ -244,12 +244,12 @@ def test_timestamp_hour_time_field_without_required_prefix() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+    assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def test_hour_only_string_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = FieldIR(
+    registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
@@ -257,7 +257,7 @@ def test_hour_only_string_time_field_without_required_prefix() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
         required_prefix=None,
@@ -266,12 +266,12 @@ def test_hour_only_string_time_field_without_required_prefix() -> None:
         format=None,
     )
     errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+    assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = FieldIR(
+    registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
@@ -279,7 +279,7 @@ def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="integer",
         granularity="hour",
         required_prefix=None,
@@ -288,12 +288,12 @@ def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
         format=None,
     )
     errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+    assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def test_complete_hour_string_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = FieldIR(
+    registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
@@ -301,7 +301,7 @@ def test_complete_hour_string_time_field_without_required_prefix() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
         required_prefix=None,
@@ -310,13 +310,13 @@ def test_complete_hour_string_time_field_without_required_prefix() -> None:
         format="%Y%m%d%H",
     )
     errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+    assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def test_strptime_hour_only_without_required_prefix() -> None:
     """format='%H' is an hour-only format and requires required_prefix."""
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = FieldIR(
+    registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
@@ -324,7 +324,7 @@ def test_strptime_hour_only_without_required_prefix() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
         required_prefix=None,
@@ -333,13 +333,13 @@ def test_strptime_hour_only_without_required_prefix() -> None:
         format="%H",
     )
     errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+    assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def test_strptime_hour_with_date_without_required_prefix() -> None:
     """format='%Y-%m-%d %H' includes date and does NOT require required_prefix."""
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = FieldIR(
+    registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
@@ -347,7 +347,7 @@ def test_strptime_hour_with_date_without_required_prefix() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
         required_prefix=None,
@@ -356,12 +356,12 @@ def test_strptime_hour_with_date_without_required_prefix() -> None:
         format="%Y-%m-%d %H",
     )
     errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+    assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def test_hour_time_field_with_required_prefix_ok() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = FieldIR(
+    registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
@@ -369,7 +369,7 @@ def test_hour_time_field_with_required_prefix_ok() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="timestamp",
         granularity="hour",
         required_prefix="order_date",  # Points to valid field
@@ -377,12 +377,12 @@ def test_hour_time_field_with_required_prefix_ok() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+    assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def test_hour_time_field_with_required_prefix_name_ok() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = FieldIR(
+    registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
@@ -390,7 +390,7 @@ def test_hour_time_field_with_required_prefix_name_ok() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
         required_prefix="order_date",
@@ -399,12 +399,12 @@ def test_hour_time_field_with_required_prefix_name_ok() -> None:
         format=None,
     )
     errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.MISSING_FIELD_REF for e in errors)
+    assert not any(e.kind == ErrorKind.MISSING_DIMENSION_REF for e in errors)
 
 
 def test_hour_time_field_with_invalid_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = FieldIR(
+    registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
@@ -412,7 +412,7 @@ def test_hour_time_field_with_invalid_prefix() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="timestamp",
         granularity="hour",
         required_prefix="sales.orders.nonexistent_date",  # Not in registry
@@ -421,14 +421,14 @@ def test_hour_time_field_with_invalid_prefix() -> None:
     )
     errors, _warnings = assembly_validate(registry)
     assert any(
-        e.kind == ErrorKind.MISSING_FIELD_REF and "sales.orders.order_hour" in e.semantic_refs
+        e.kind == ErrorKind.MISSING_DIMENSION_REF and "sales.orders.order_hour" in e.semantic_refs
         for e in errors
     )
 
 
-def test_hour_time_field_prefix_must_reference_time_field() -> None:
+def test_hour_time_dimension_prefix_must_reference_time_dimension() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = FieldIR(
+    registry.fields["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         model="sales",
         dataset="sales.orders",
@@ -436,7 +436,7 @@ def test_hour_time_field_prefix_must_reference_time_field() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="string",
         granularity="hour",
         required_prefix="amount",
@@ -446,7 +446,7 @@ def test_hour_time_field_prefix_must_reference_time_field() -> None:
     )
     errors, _warnings = assembly_validate(registry)
     assert any(
-        e.kind == ErrorKind.MISSING_FIELD_REF and "sales.orders.order_hour" in e.semantic_refs
+        e.kind == ErrorKind.MISSING_DIMENSION_REF and "sales.orders.order_hour" in e.semantic_refs
         for e in errors
     )
 
@@ -456,7 +456,7 @@ def test_day_time_field_no_prefix_required() -> None:
     registry = _make_registry()
     # sales.order_date is already day granularity with no prefix — should be fine
     errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+    assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def _cast_partition_time_field(table):
@@ -469,7 +469,7 @@ def _raw_partition_time_field(table):
 
 def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_date"] = FieldIR(
+    registry.fields["sales.orders.order_date"] = DimensionIR(
         semantic_id="sales.orders.order_date",
         model="sales",
         dataset="sales.orders",
@@ -477,7 +477,7 @@ def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
         required_prefix=None,
@@ -490,12 +490,12 @@ def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
     )
 
     assert errors == []
-    assert any(w.kind == WarningKind.TIME_FIELD_PUSHDOWN_ADVISORY for w in warnings)
+    assert any(w.kind == WarningKind.TIME_DIMENSION_PUSHDOWN_ADVISORY for w in warnings)
 
 
 def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_date"] = FieldIR(
+    registry.fields["sales.orders.order_date"] = DimensionIR(
         semantic_id="sales.orders.order_date",
         model="sales",
         dataset="sales.orders",
@@ -503,7 +503,7 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="string",
         granularity="day",
         required_prefix=None,
@@ -517,7 +517,7 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
     )
 
     assert errors == []
-    assert not any(w.kind == WarningKind.TIME_FIELD_PUSHDOWN_ADVISORY for w in warnings)
+    assert not any(w.kind == WarningKind.TIME_DIMENSION_PUSHDOWN_ADVISORY for w in warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -561,7 +561,7 @@ def test_invalid_relationship_to_dataset() -> None:
     assert any(e.kind == ErrorKind.INVALID_RELATIONSHIP_ENDPOINT for e in errors)
 
 
-def test_invalid_relationship_field_ref() -> None:
+def test_invalid_relationship_dimension_ref() -> None:
     registry = _make_registry()
     registry.relationships["sales.bad_rel"] = RelationshipIR(
         semantic_id="sales.bad_rel",
@@ -576,7 +576,7 @@ def test_invalid_relationship_field_ref() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.MISSING_FIELD_REF for e in errors)
+    assert any(e.kind == ErrorKind.MISSING_DIMENSION_REF for e in errors)
 
 
 def test_valid_relationship_no_errors() -> None:
@@ -615,7 +615,7 @@ def test_relationship_field_arity_mismatch() -> None:
     )
     errors, _warnings = assembly_validate(registry)
     assert any(
-        e.kind == ErrorKind.MISSING_FIELD_REF and "sales.bad_arity" in e.semantic_refs
+        e.kind == ErrorKind.MISSING_DIMENSION_REF and "sales.bad_arity" in e.semantic_refs
         for e in errors
     )
 
@@ -804,9 +804,9 @@ def semantic_project_factory(tmp_path):
     return _make
 
 
-_MINIMAL_MODEL_PY = textwrap.dedent("""\
+_MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    ms.model(name="sales", default=True)
+    ms.domain(name="sales", default=True)
 """)
 
 
@@ -815,7 +815,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -826,7 +826,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": datasets_py,
             "sales/metrics.py": metrics_py,
         }
@@ -838,10 +838,10 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     assert "sales.revenue" in reg.metrics
 
 
-def test_duplicate_default_time_field_raises() -> None:
+def test_duplicate_default_time_dimension_raises() -> None:
     registry = _make_registry()
     # Add a second time field with is_default=True on the same dataset
-    registry.fields["sales.orders.order_date2"] = FieldIR(
+    registry.fields["sales.orders.order_date2"] = DimensionIR(
         semantic_id="sales.orders.order_date2",
         model="sales",
         dataset="sales.orders",
@@ -849,7 +849,7 @@ def test_duplicate_default_time_field_raises() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
         required_prefix=None,
@@ -865,8 +865,8 @@ def test_duplicate_default_time_field_raises() -> None:
 
     errors, _warnings = assembly_validate(registry)
 
-    assert any(e.kind == ErrorKind.DUPLICATE_DEFAULT_TIME_FIELD for e in errors), (
-        f"Expected DUPLICATE_DEFAULT_TIME_FIELD, got: {[e.kind for e in errors]}"
+    assert any(e.kind == ErrorKind.DUPLICATE_DEFAULT_TIME_DIMENSION for e in errors), (
+        f"Expected DUPLICATE_DEFAULT_TIME_DIMENSION, got: {[e.kind for e in errors]}"
     )
 
 
@@ -881,13 +881,13 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/metrics.py": metrics_py,
         }
     )
     assert not project.is_ready()
     errors = project.errors()
-    assert any(e.kind == ErrorKind.MISSING_DATASET_REF for e in errors)
+    assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
 
 
 def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
@@ -895,11 +895,11 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": datasets_py,
         }
     )
@@ -918,7 +918,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
     """LoadResult should expose an empty warnings tuple when no warnings exist."""
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
         @ms.metric(
             datasets=[orders],
@@ -931,7 +931,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/metrics.py": metrics_py,
         },
         load=False,
@@ -951,7 +951,7 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.time_field(
+        @ms.time_dimension(
             dataset="sales.orders",
             data_type="string",
             granularity="hour",
@@ -962,18 +962,18 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
     """)
     datasource = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": datasource,
             "sales/fields.py": fields_py,
         }
     )
     assert not project.is_ready()
     errors = project.errors()
-    assert any(e.kind == ErrorKind.HOUR_TIME_FIELD_PREFIX_MISSING for e in errors)
+    assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
@@ -991,7 +991,7 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
     """)
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MINIMAL_MODEL_PY,
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/relationships.py": rels_py,
         }
     )
@@ -1001,7 +1001,7 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
 
 
 def test_field_ir_accepts_is_default_flag() -> None:
-    field = FieldIR(
+    field = DimensionIR(
         semantic_id="sales.orders.log_date",
         model="sales",
         dataset="sales.orders",
@@ -1009,7 +1009,7 @@ def test_field_ir_accepts_is_default_flag() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
         required_prefix=None,
@@ -1021,7 +1021,7 @@ def test_field_ir_accepts_is_default_flag() -> None:
 
 
 def test_field_ir_is_default_defaults_to_false() -> None:
-    field = FieldIR(
+    field = DimensionIR(
         semantic_id="sales.orders.log_date",
         model="sales",
         dataset="sales.orders",
@@ -1029,7 +1029,7 @@ def test_field_ir_is_default_defaults_to_false() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=True,
-        kind=FieldKind.TIME,
+        kind=DimensionKind.TIME,
         data_type="date",
         granularity="day",
         required_prefix=None,
@@ -1046,7 +1046,7 @@ def test_field_ir_is_default_defaults_to_false() -> None:
 
 def test_missing_datasource_ref_includes_did_you_mean() -> None:
     registry = _make_registry()
-    registry.datasets["sales.bad_ds"] = DatasetIR(
+    registry.datasets["sales.bad_ds"] = EntityIR(
         semantic_id="sales.bad_ds",
         model="sales",
         name="bad_ds",
@@ -1059,15 +1059,15 @@ def test_missing_datasource_ref_includes_did_you_mean() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_DATASET_REF]
+    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_ENTITY_REF]
     assert len(dym_errors) >= 1
     dym = dym_errors[0].details.get("did_you_mean", [])
     assert "wh" in dym
 
 
-def test_missing_dataset_ref_on_field_includes_did_you_mean() -> None:
+def test_missing_entity_ref_on_dimension_includes_did_you_mean() -> None:
     registry = _make_registry()
-    registry.fields["sales.ordrs.bad_field"] = FieldIR(
+    registry.fields["sales.ordrs.bad_field"] = DimensionIR(
         semantic_id="sales.ordrs.bad_field",
         model="sales",
         dataset="sales.ordrs",  # close to "sales.orders"
@@ -1075,7 +1075,7 @@ def test_missing_dataset_ref_on_field_includes_did_you_mean() -> None:
         description=None,
         ai_context=AiContextIR(),
         is_time_field=False,
-        kind=FieldKind.DIMENSION,
+        kind=DimensionKind.CATEGORICAL,
         data_type=None,
         granularity=None,
         required_prefix=None,
@@ -1083,7 +1083,7 @@ def test_missing_dataset_ref_on_field_includes_did_you_mean() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_DATASET_REF]
+    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_ENTITY_REF]
     assert len(dym_errors) >= 1
     dym = dym_errors[0].details.get("did_you_mean", [])
     assert "sales.orders" in dym
@@ -1115,7 +1115,7 @@ def test_missing_metric_ref_includes_did_you_mean() -> None:
     assert "sales.revenue" in dym
 
 
-def test_missing_field_ref_includes_did_you_mean() -> None:
+def test_missing_dimension_ref_includes_did_you_mean() -> None:
     registry = _make_registry()
     registry.relationships["rel"] = RelationshipIR(
         semantic_id="rel",
@@ -1130,7 +1130,7 @@ def test_missing_field_ref_includes_did_you_mean() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_FIELD_REF]
+    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_DIMENSION_REF]
     assert len(dym_errors) >= 1
     dym = dym_errors[0].details.get("did_you_mean", [])
     assert "sales.orders.amount" in dym
@@ -1140,7 +1140,7 @@ def test_semantic_error_str_renders_did_you_mean() -> None:
     from marivo.semantic.errors import SemanticLoadError
 
     err = SemanticLoadError(
-        kind="MISSING_DATASET_REF",
+        kind="MISSING_ENTITY_REF",
         message="references unknown datasource 'w'.",
         refs=("sales.bad_ds", "w"),
         details={"missing_ref": "w", "did_you_mean": ["wh"]},
@@ -1154,7 +1154,7 @@ def test_semantic_error_str_omits_did_you_mean_when_empty() -> None:
     from marivo.semantic.errors import SemanticLoadError
 
     err = SemanticLoadError(
-        kind="MISSING_DATASET_REF",
+        kind="MISSING_ENTITY_REF",
         message="references unknown datasource 'xyz'.",
         refs=("sales.bad_ds", "xyz"),
         details={"missing_ref": "xyz", "did_you_mean": []},

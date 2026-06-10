@@ -32,24 +32,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Minimal project files for tests that need a loaded SemanticProject
 # ---------------------------------------------------------------------------
 
-_MODEL_PY = textwrap.dedent("""\
+_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    ms.model(name="sales", default=True)
+    ms.domain(name="sales", default=True)
 """)
 
 _OBJECTS_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.field(dataset=orders)
+    @ms.dimension(dataset=orders)
     def amount(table):
         return table.amount
 
-    @ms.field(dataset=orders)
+    @ms.dimension(dataset=orders)
     def region(table):
         return table.region
 
-    @ms.time_field(dataset=orders, data_type="timestamp", granularity="day")
+    @ms.time_dimension(dataset=orders, data_type="timestamp", granularity="day")
     def created_at(table):
         return table.created_at
 
@@ -63,7 +63,7 @@ def _make_project(semantic_project_factory):
     """Create a minimal loaded project for drift tests."""
     return semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/objects.py": _OBJECTS_PY,
         }
     )

@@ -17,7 +17,7 @@ from ibis.expr.operations.relations import SQLQueryResult
 
 from marivo.datasource.errors import DatasourceConfigError
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
-from marivo.semantic.ir import DatasetProvenance, FileSourceIR, MetricIR, TableSourceIR
+from marivo.semantic.ir import EntityProvenance, FileSourceIR, MetricIR, TableSourceIR
 from marivo.semantic.validator import Registry, Sidecar
 
 __all__ = [
@@ -36,7 +36,7 @@ class DatasetRuntimeMetadata:
     Stored on SemanticProject._runtime_metadata, not in frozen IR.
     """
 
-    dataset_provenance: DatasetProvenance
+    dataset_provenance: EntityProvenance
     raw_sql_snippet: str | None
     detected_at: datetime
 
@@ -104,8 +104,8 @@ class Materializer:
         ds_ir = registry.datasets.get(semantic_id)
         if ds_ir is None:
             _raise(
-                ErrorKind.DATASET_NOT_FOUND,
-                f"Dataset {semantic_id!r} not found in registry.",
+                ErrorKind.ENTITY_NOT_FOUND,
+                f"Entity {semantic_id!r} not found in registry.",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
@@ -178,10 +178,10 @@ class Materializer:
         sql_nodes = op.find(lambda n: isinstance(n, SQLQueryResult))
 
         if sql_nodes:
-            provenance = DatasetProvenance.SQL_VIEW
+            provenance = EntityProvenance.SQL_VIEW
             raw_sql = sql_nodes[0].query
         else:
-            provenance = DatasetProvenance.IBIS_TABLE
+            provenance = EntityProvenance.IBIS_TABLE
             raw_sql = None
 
         meta = DatasetRuntimeMetadata(
@@ -203,8 +203,8 @@ class Materializer:
         field_ir = registry.fields.get(semantic_id)
         if field_ir is None:
             _raise(
-                ErrorKind.FIELD_NOT_FOUND,
-                f"Field {semantic_id!r} not found in registry.",
+                ErrorKind.DIMENSION_NOT_FOUND,
+                f"Dimension {semantic_id!r} not found in registry.",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )

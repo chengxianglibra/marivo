@@ -188,7 +188,7 @@ ordinal bucket 数不等会在 runtime 报错。
 | Ref | 用途 |
 | --- | --- |
 | `MetricRef` | 指标定义 |
-| `DatasetRef` | 事件表、事实表、entity table 等数据集 |
+| `EntityRef` | 事件表、事实表、entity table 等数据集 |
 | `DimensionRef` | 可切分维度或 semantic axis |
 | `CalendarRef` / `FiscalCalendarRef` | 日历和财务日历 |
 | `CampaignWindowRef` | 活动窗口 |
@@ -1368,8 +1368,8 @@ register_dynamic_axis(segment_assignment_frame, name, scope, ttl, refresh_policy
 
 ```python
 events = session.composites.enrich(
-    base=DatasetRef("user_events"),
-    joins=[DatasetRef("orders"), DatasetRef("campaign_membership")],
+    base=EntityRef("user_events"),
+    joins=[EntityRef("orders"), EntityRef("campaign_membership")],
     subject=EntityRef("user"),
     time="last_30d",
 )

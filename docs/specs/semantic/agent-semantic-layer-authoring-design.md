@@ -70,7 +70,7 @@ registry and validation pieces:
 - `ms.find_project()`
 - `project.load()`
 - `project.list_models()` / `list_datasources()` / `list_datasets()` /
-  `list_fields()` / `list_time_fields()` / `list_metrics()` /
+  `list_dimensions()` / `list_time_dimensions()` / `list_metrics()` /
   `list_relationships()`
 - `project.search(...)`
 - `project.describe(...)`
@@ -249,16 +249,16 @@ Python files remain the source of truth:
     warehouse.py
   semantic/
     sales/
-      _model.py
+      _domain.py
       revenue.py
 ```
 
 The agent should use `marivo.semantic` decorators and builders:
 
-- `ms.model(...)`
-- `ms.dataset(...)`
-- `@ms.field(...)`
-- `@ms.time_field(...)`
+- `ms.domain(...)`
+- `ms.entity(...)`
+- `@ms.dimension(...)`
+- `@ms.time_dimension(...)`
 - `@ms.metric(..., verification_mode="python_native",)`
 - `ms.derived_metric(...)`
 - `ms.relationship(...)`
@@ -557,7 +557,7 @@ existing model when it matches the business domain.
 ```python
 import marivo.semantic as ms
 
-ms.model(
+ms.domain(
     name="sales",
     description="Sales analytics semantic model.",
     ai_context={
@@ -727,7 +727,7 @@ support, or user confirmation.
 
 ### Field vs Metric
 
-- row-level per-record expression -> `field` or `time_field`
+- row-level per-record expression -> `dimension` or `time_dimension`
 - cross-row aggregate -> `metric`
 - reusable row-level expression -> field
 - complex cast, filter, or case expression -> usually field first
@@ -864,7 +864,7 @@ class ReadinessIssue:
         "field_preview_failed",
         "missing_knowledge_definition",
         "ambiguous_time_axis",
-        "time_field_preview_failed",
+        "time_dimension_preview_failed",
         "metric_materialize_failed",
         "metric_compile_failed",
         "unverified_metric",

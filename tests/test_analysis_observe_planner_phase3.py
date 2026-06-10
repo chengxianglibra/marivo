@@ -33,23 +33,23 @@ def _bootstrap_one_to_many(tmp_path: Path, *, fanout_policy: str = "block") -> N
         "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "order_items = ms.dataset(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "order_items = ms.entity(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def order_id(orders):\n"
         "    return orders.order_id\n"
-        "@ms.field(dataset=order_items)\n"
+        "@ms.dimension(dataset=order_items)\n"
         "def item_order_id(order_items):\n"
         "    return order_items.order_id\n"
-        "@ms.field(dataset=order_items)\n"
+        "@ms.dimension(dataset=order_items)\n"
         "def qty(order_items):\n"
         "    return order_items.qty\n"
         f"@ms.metric(\n"

@@ -69,7 +69,7 @@ UTC 的当系统时区会偏、存本地的当 UTC 会偏。`time_field.timezone
 
 - `session.start(...)` / `attach(...)` / `get_or_create(...)`：**移除 `timezone=` 形参**。
 - observe / compare 的 `window=`：**移除 `tz` 字段**。窗口只表达边界与粒度，不带时区。
-- `@ms.time_field(...)`：**新增可选 `timezone=` 字段**，且**只对无时区的
+- `@ms.time_dimension(...)`：**新增可选 `timezone=` 字段**，且**只对无时区的
   `datetime` / `timestamp` 列有意义**（见 §列时区声明）。这是全 public surface 上唯一
   的时区入口；缺省即系统时区。
 - `calendar`：见 §日历对齐，`Calendar` 模型**删除 `timezone` 字段**，节假日一律按
@@ -83,7 +83,7 @@ UTC 的当系统时区会偏、存本地的当 UTC 会偏。`time_field.timezone
 `time_field.timezone` 是本设计唯一的列级时区声明，专门解决 naive 列的固有歧义。
 
 ```python
-@ms.time_field(
+@ms.time_dimension(
     dataset=orders,
     data_type="timestamp",
     granularity="hour",
@@ -116,7 +116,7 @@ time_field 上声明一次，跨机器结果即可复现。
 
 - `Session.tz` 在 session 创建或加载时解析为系统时区，并写入 session meta 的 `tz`、`tz_resolution`、`tz_warning`。
 - `session.*(timezone=...`\) 已移除；窗口模型不接受 `tz`。
-- `@ms.time_field(timezone=...`\) 是唯一 public timezone 入口，仅适用于 naive `datetime` / `timestamp` 的物理列声明。
+- `@ms.time_dimension(timezone=...`\) 是唯一 public timezone 入口，仅适用于 naive `datetime` / `timestamp` 的物理列声明。
 - `Calendar` 不含 timezone 字段，`.marivo/calendar/*.json` 出现 `timezone` 会被未知字段校验拒绝。
 
 

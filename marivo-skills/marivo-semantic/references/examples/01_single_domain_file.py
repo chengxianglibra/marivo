@@ -1,4 +1,4 @@
-"""Single-file semantic model with partition time field preference."""
+"""Single-file semantic domain with partition time dimension preference."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from pathlib import Path
 
 import marivo.semantic as ms
 
-MODEL = """
+DOMAIN = """
 import marivo.datasource as md
 import marivo.semantic as ms
 
-ms.model(name="sales")
+ms.domain(name="sales")
 warehouse = md.ref("warehouse")
 
-orders = ms.dataset(
+orders = ms.entity(
     name="orders",
     datasource=warehouse,
     source=ms.table("orders"),
@@ -25,7 +25,7 @@ orders = ms.dataset(
     },
 )
 
-@ms.time_field(
+@ms.time_dimension(
     dataset=orders,
     name="log_date",
     data_type="string",
@@ -33,14 +33,14 @@ orders = ms.dataset(
     date_format="%Y%m%d",
     is_default=True,
     ai_context={
-        "business_definition": "Partition time field for order reporting windows.",
+        "business_definition": "Partition time dimension for order reporting windows.",
         "guardrails": ["Use event time only when source evidence defines it."],
     },
 )
 def log_date(table):
     return table.dt
 
-@ms.time_field(
+@ms.time_dimension(
     dataset=orders,
     name="log_hour",
     data_type="string",
@@ -54,7 +54,7 @@ def log_date(table):
 def log_hour(table):
     return table.hh
 
-@ms.time_field(
+@ms.time_dimension(
     dataset=orders,
     name="event_ts",
     data_type="timestamp",
@@ -67,12 +67,12 @@ def log_hour(table):
 def event_ts(table):
     return table.event_ts
 
-@ms.field(
+@ms.dimension(
     dataset=orders,
     name="region",
     ai_context={
         "business_definition": "Sales reporting region.",
-        "guardrails": ["Do not infer market ownership from this field alone."],
+        "guardrails": ["Do not infer market ownership from this dimension alone."],
     },
 )
 def region(table):
@@ -105,11 +105,11 @@ with tempfile.TemporaryDirectory() as tmp:
         "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
         "md.datasource(warehouse)\n"
     )
-    (semantic_dir / "_model.py").write_text(MODEL)
+    (semantic_dir / "_domain.py").write_text(DOMAIN)
 
     project = ms.SemanticProject(workspace_dir=root)
     project.load()
-    print("partition time field:", project.describe("sales.orders.log_date").semantic_id)
-    print("hour partition time field:", project.describe("sales.orders.log_hour").semantic_id)
-    print("minute time field:", project.describe("sales.orders.event_ts").semantic_id)
+    print("partition time dimension:", project.describe("sales.orders.log_date").semantic_id)
+    print("hour partition time dimension:", project.describe("sales.orders.log_hour").semantic_id)
+    print("minute time dimension:", project.describe("sales.orders.event_ts").semantic_id)
     print("metric:", project.describe("sales.revenue").semantic_id)

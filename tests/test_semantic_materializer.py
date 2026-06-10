@@ -22,7 +22,7 @@ import ibis
 import pytest
 
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.ir import DatasetProvenance
+from marivo.semantic.ir import EntityProvenance
 from marivo.semantic.materializer import DatasetRuntimeMetadata, Materializer
 
 # ---------------------------------------------------------------------------
@@ -58,16 +58,16 @@ def backend_factory(duckdb_backend):
 # ---------------------------------------------------------------------------
 
 
-_MODEL_PY = textwrap.dedent("""\
+_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    ms.model(name="sales", default=True)
+    ms.domain(name="sales", default=True)
 """)
 
 _DATASET_AND_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.field(dataset=orders)
+    @ms.dimension(dataset=orders)
     def amount(table):
         return table.amount
 
@@ -78,7 +78,7 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
 
 _SQL_VIEW_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    @ms.dataset(name="orders_view", datasource="warehouse", source=ms.table("orders"))
+    @ms.entity(name="orders_view", datasource="warehouse", source=ms.table("orders"))
     def orders_view(backend):
         return backend.sql("SELECT * FROM orders")
 """)
@@ -93,7 +93,7 @@ def test_dataset_materialize(semantic_project_factory, backend_factory) -> None:
     """Materializing a dataset should return an ibis Table."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -110,7 +110,7 @@ def test_dataset_materialize_returns_rows(semantic_project_factory, backend_fact
     """Materialized dataset should return actual data via to_pandas()."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -123,10 +123,10 @@ def test_dataset_materialize_returns_rows(semantic_project_factory, backend_fact
 def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(\n"
+                "orders = ms.entity(\n"
                 "    name='orders',\n"
                 "    datasource='warehouse',\n"
                 "    source=ms.table('orders', database='sales_mart'),\n"
@@ -148,10 +148,10 @@ def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
 def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(\n"
+                "orders = ms.entity(\n"
                 "    name='orders',\n"
                 "    datasource='warehouse',\n"
                 "    source=ms.file('/data/orders/*.parquet', format='parquet', hive_partitioning=True),\n"
@@ -173,10 +173,10 @@ def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
 def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "orders = ms.dataset(\n"
+                "orders = ms.entity(\n"
                 "    name='orders',\n"
                 "    datasource='warehouse',\n"
                 "    source=ms.file('/data/orders.csv', format='csv'),\n"
@@ -201,7 +201,7 @@ def test_field_materialize(semantic_project_factory, backend_factory) -> None:
     """Materializing a field should return an ibis Value expression."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -219,7 +219,7 @@ def test_metric_materialize_sum(semantic_project_factory, backend_factory) -> No
     """Materializing a sum metric should return a scalar ibis Value."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -239,7 +239,7 @@ def test_backend_cache_reuses_same_backend(semantic_project_factory) -> None:
     """Same datasource should reuse the same backend instance."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -276,7 +276,7 @@ def test_backend_cache_within_single_materializer(semantic_project_factory) -> N
     """Within one Materializer, the same datasource should only call factory once."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -319,7 +319,7 @@ def test_dataset_cache_reuses_table(semantic_project_factory) -> None:
     """Same dataset should return the same table object within a Materializer."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -350,7 +350,7 @@ def test_dataset_decorator_body_rejected(semantic_project_factory) -> None:
     """Dataset bodies are no longer the physical-source entrypoint."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _SQL_VIEW_DATASET_PY,
         },
         load=False,
@@ -372,7 +372,7 @@ def test_ibis_table_detection(semantic_project_factory, duckdb_backend) -> None:
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -380,7 +380,7 @@ def test_ibis_table_detection(semantic_project_factory, duckdb_backend) -> None:
 
     meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
-    assert meta.dataset_provenance == DatasetProvenance.IBIS_TABLE
+    assert meta.dataset_provenance == EntityProvenance.IBIS_TABLE
     assert meta.raw_sql_snippet is None
 
 
@@ -394,9 +394,9 @@ def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend)
 
     cross_ds_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders_a = ms.dataset(name="orders_a", datasource="warehouse1", source=ms.table("orders"))
+        orders_a = ms.entity(name="orders_a", datasource="warehouse1", source=ms.table("orders"))
 
-        orders_b = ms.dataset(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
+        orders_b = ms.entity(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders_a, orders_b], root_dataset=orders_a, additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def cross_metric(t1, t2):
@@ -408,7 +408,7 @@ def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend)
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": cross_ds_model,
         }
     )
@@ -428,7 +428,7 @@ def test_metric_not_found(semantic_project_factory, backend_factory) -> None:
     """Materializing a non-existent metric should raise SemanticRuntimeError."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -439,11 +439,11 @@ def test_metric_not_found(semantic_project_factory, backend_factory) -> None:
     assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
 
 
-def test_dataset_not_found(semantic_project_factory, backend_factory) -> None:
-    """Materializing a non-existent dataset should raise SemanticRuntimeError."""
+def test_entity_not_found(semantic_project_factory, backend_factory) -> None:
+    """Materializing a non-existent entity should raise SemanticRuntimeError."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -451,14 +451,14 @@ def test_dataset_not_found(semantic_project_factory, backend_factory) -> None:
     with pytest.raises(SemanticRuntimeError) as exc_info:
         project.materialize_dataset("sales.nonexistent", backend_factory=backend_factory)
 
-    assert exc_info.value.kind == ErrorKind.DATASET_NOT_FOUND
+    assert exc_info.value.kind == ErrorKind.ENTITY_NOT_FOUND
 
 
-def test_field_not_found(semantic_project_factory, backend_factory) -> None:
-    """Materializing a non-existent field should raise SemanticRuntimeError."""
+def test_dimension_not_found(semantic_project_factory, backend_factory) -> None:
+    """Materializing a non-existent dimension should raise SemanticRuntimeError."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -466,7 +466,7 @@ def test_field_not_found(semantic_project_factory, backend_factory) -> None:
     with pytest.raises(SemanticRuntimeError) as exc_info:
         project.materialize_field("sales.nonexistent", backend_factory=backend_factory)
 
-    assert exc_info.value.kind == ErrorKind.FIELD_NOT_FOUND
+    assert exc_info.value.kind == ErrorKind.DIMENSION_NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +479,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
@@ -496,7 +496,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": derived_model,
         }
     )
@@ -513,7 +513,7 @@ def test_derived_metric_has_no_materializer_sidecar_entry(
 ) -> None:
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
@@ -530,7 +530,7 @@ def test_derived_metric_has_no_materializer_sidecar_entry(
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": derived_model,
         }
     )
@@ -548,7 +548,7 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
@@ -569,7 +569,7 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": derived_model,
         }
     )
@@ -585,7 +585,7 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
 
     derived_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
@@ -610,7 +610,7 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": derived_model,
         }
     )
@@ -630,7 +630,7 @@ def test_fresh_materializer_per_call(semantic_project_factory) -> None:
     """Each project.materialize_*() call should create a new Materializer."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -671,7 +671,7 @@ def test_runtime_metadata_stored_on_project(semantic_project_factory, duckdb_bac
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -684,7 +684,7 @@ def test_runtime_metadata_stored_on_project(semantic_project_factory, duckdb_bac
     meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
     assert isinstance(meta, DatasetRuntimeMetadata)
-    assert meta.dataset_provenance == DatasetProvenance.IBIS_TABLE
+    assert meta.dataset_provenance == EntityProvenance.IBIS_TABLE
     assert meta.detected_at is not None
 
 
@@ -696,7 +696,7 @@ def test_runtime_metadata_cleared_on_reload(semantic_project_factory, duckdb_bac
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
@@ -718,9 +718,9 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
 
     multi_ds_model = textwrap.dedent("""\
         import marivo.semantic as ms
-        orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        orders_alias = ms.dataset(name="orders_alias", datasource="warehouse", source=ms.table("orders"))
+        orders_alias = ms.entity(name="orders_alias", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(datasets=[orders, orders_alias], root_dataset=orders, additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def combined(t1, t2):
@@ -732,7 +732,7 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
 
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_PY,
+            "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": multi_ds_model,
         }
     )
@@ -760,7 +760,7 @@ def test_materialize_on_unloaded_project_raises(semantic_project_factory) -> Non
         return con
 
     project = semantic_project_factory(
-        {"sales/_model.py": _MODEL_PY, "sales/datasets.py": _DATASET_AND_METRIC_PY},
+        {"sales/_domain.py": _DOMAIN_PY, "sales/datasets.py": _DATASET_AND_METRIC_PY},
         load=False,
     )
     # Not loaded yet
@@ -782,7 +782,7 @@ def test_dataset_materialize_with_sample_size(semantic_project_factory) -> None:
         return con
 
     project = semantic_project_factory(
-        {"sales/_model.py": _MODEL_PY, "sales/datasets.py": _DATASET_AND_METRIC_PY}
+        {"sales/_domain.py": _DOMAIN_PY, "sales/datasets.py": _DATASET_AND_METRIC_PY}
     )
 
     # Without sample_size — full table
@@ -814,7 +814,7 @@ def test_metric_materialize_with_sample_size(semantic_project_factory) -> None:
         return con
 
     project = semantic_project_factory(
-        {"sales/_model.py": _MODEL_PY, "sales/datasets.py": _DATASET_AND_METRIC_PY}
+        {"sales/_domain.py": _DOMAIN_PY, "sales/datasets.py": _DATASET_AND_METRIC_PY}
     )
 
     # Full metric — exact result

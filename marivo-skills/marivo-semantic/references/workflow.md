@@ -96,7 +96,7 @@ questions.
 
 ```python
 assessment = project.assess_authoring(
-    object_kind="dataset",
+    object_kind="entity",
     subject_ref="sales.orders",
     sources=(
         ms.AuthoringSourceInput(
@@ -114,19 +114,19 @@ if assessment.status == "blocked":
 Then author and load:
 
 ```python
-# write .marivo/semantic/sales/_model.py
+# write .marivo/semantic/sales/_domain.py
 project.load()
 project.inspect_authored_object("sales.orders")
 ```
 
-### Time Field Authoring
+### Time Dimension Authoring
 
-Author time fields only after temporal evidence. If partition vs event-time
+Author time dimensions only after temporal evidence. If partition vs event-time
 conflict, surface the `AuthoringQuestion`:
 
 ```python
 assessment = project.assess_authoring(
-    object_kind="time_field",
+    object_kind="time_dimension",
     subject_ref="sales.orders.dt",
     sources=(
         ms.AuthoringSourceInput(
@@ -140,13 +140,13 @@ assessment = project.assess_authoring(
 )
 ```
 
-Reload so Marivo can auto-record `time_field_identity` decisions.
+Reload so Marivo can auto-record `time_dimension_identity` decisions.
 
-### Field Authoring
+### Dimension Authoring
 
 ```python
 assessment = project.assess_authoring(
-    object_kind="field",
+    object_kind="dimension",
     subject_ref="sales.orders.amount",
     sources=(
         ms.AuthoringSourceInput(

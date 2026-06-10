@@ -14,19 +14,19 @@ def test_floor_table_covers_all_decision_kinds():
 
 
 def test_dangerous_is_high_floor():
-    assert clf.is_dangerous("time_field_identity") is True
+    assert clf.is_dangerous("time_dimension_identity") is True
     assert clf.is_dangerous("amount_unit") is True
     assert clf.is_dangerous("metric_decomposition") is True
-    assert clf.is_dangerous("dataset_identity") is False
-    assert clf.is_dangerous("time_field_format") is False
+    assert clf.is_dangerous("entity_identity") is False
+    assert clf.is_dangerous("time_dimension_format") is False
 
 
 def test_effective_materiality_is_raise_only():
     # Floor wins when it is higher; agent can raise but never lower.
     assert clf.effective_materiality("amount_unit", "low") == "high"  # floored
-    assert clf.effective_materiality("dataset_identity", "high") == "high"  # raised
-    assert clf.effective_materiality("dataset_identity", "low") == "low"
-    assert clf.effective_materiality("dataset_primary_key", "low") == "medium"
+    assert clf.effective_materiality("entity_identity", "high") == "high"  # raised
+    assert clf.effective_materiality("entity_identity", "low") == "low"
+    assert clf.effective_materiality("entity_primary_key", "low") == "medium"
 
 
 def test_authority_of_maps_every_evidence_type():
@@ -126,7 +126,7 @@ def _di(
 
 
 def test_conflict_is_top_priority_blocker():
-    q = clf._classify_one(_di("dataset_identity", mat="low", verdict="high", conflict=True))
+    q = clf._classify_one(_di("entity_identity", mat="low", verdict="high", conflict=True))
     assert q == ("blocker", "conflict", None)
 
 
@@ -137,7 +137,7 @@ def test_dangerous_low_confidence_is_blocker_with_no_default():
 
 
 def test_non_dangerous_low_confidence_is_assumption_with_default():
-    di = _di("dataset_identity", mat="low", verdict="low")
+    di = _di("entity_identity", mat="low", verdict="low")
     severity, reason, default = clf._classify_one(di)
     assert severity == "optional"
     assert reason is None
@@ -146,7 +146,7 @@ def test_non_dangerous_low_confidence_is_assumption_with_default():
 
 def test_high_confidence_auto_decides_with_no_default():
     di = _di(
-        "dataset_identity",
+        "entity_identity",
         mat="low",
         verdict="high",
         evidence=(clf.EvidenceRef("comment", "c"), clf.EvidenceRef("sample", "s")),
@@ -160,7 +160,7 @@ def test_high_confidence_auto_decides_with_no_default():
 
 def test_classify_dedups_by_id_and_ranks_blockers_first():
     danger = _di("amount_unit", mat="low", verdict="low")  # blocker
-    safe = _di("dataset_identity", mat="low", verdict="low")  # optional, low blast
+    safe = _di("entity_identity", mat="low", verdict="low")  # optional, low blast
     # duplicate of danger (same kind + subject + evidence) must coalesce to one
     out = clf.classify([safe, danger, danger], blast_radius_of=lambda refs: 3)
     assert len(out) == 2  # duplicate danger coalesced
@@ -174,20 +174,20 @@ def test_classify_ranks_optionals_by_materiality_times_blast_radius():
     # both optional, both low confidence; metric_additivity floors to medium (rank 2),
     # dataset_identity stays low (rank 1). Higher materiality*blast ranks first.
     a = _di("metric_additivity", mat="low", verdict="low")  # eff materiality medium
-    b = _di("dataset_identity", mat="low", verdict="low")  # eff materiality low
+    b = _di("entity_identity", mat="low", verdict="low")  # eff materiality low
     out = clf.classify([b, a], blast_radius_of=lambda refs: 10)
-    assert [q.decision_kind for q in out] == ["metric_additivity", "dataset_identity"]
+    assert [q.decision_kind for q in out] == ["metric_additivity", "entity_identity"]
 
 
 def test_classify_round_index_requires_gated_by():
-    di = _di("dataset_identity")  # gated_by is None
+    di = _di("entity_identity")  # gated_by is None
     with pytest.raises(ValueError, match="gated_by"):
         clf.classify([di], blast_radius_of=lambda refs: 0, round_index=1)
 
 
 def test_select_for_user_splits_blockers_optionals_assumptions():
     danger = _di("amount_unit", mat="low", verdict="low")  # blocker
-    opt1 = _di("dataset_identity", mat="low", verdict="low")  # optional w/ default (assumption)
+    opt1 = _di("entity_identity", mat="low", verdict="low")  # optional w/ default (assumption)
     opt2 = _di("metric_additivity", mat="low", verdict="low")  # optional w/ default (assumption)
     questions = clf.classify([danger, opt1, opt2], blast_radius_of=lambda refs: 2)
 
@@ -247,22 +247,24 @@ def test_to_decision_inputs_attaches_matching_enrichment():
 
 
 def test_to_decision_inputs_missing_enrichment_is_conservative():
-    [di] = clf.to_decision_inputs([_cand("dataset_identity", "sales.orders")], [])
+    [di] = clf.to_decision_inputs([_cand("entity_identity", "sales.orders")], [])
     assert di.agent_materiality == "low"
     assert di.agent_verdict == "low"
 
 
 def test_to_decision_inputs_groups_candidates_by_kind_and_subject():
-    a = _cand("field_meaning", "sales.status")
-    b = _cand("field_meaning", "sales.status")  # same slot -> one group
-    c = _cand("dataset_identity", "sales.orders")
+    a = _cand("dimension_meaning", "sales.status")
+    b = _cand("dimension_meaning", "sales.status")  # same slot -> one group
+    c = _cand("entity_identity", "sales.orders")
     out = clf.to_decision_inputs([a, b, c], [])
     assert len(out) == 2
-    statuses = next(di for di in out if di.decision_kind == "field_meaning")
+    statuses = next(di for di in out if di.decision_kind == "dimension_meaning")
     assert len(statuses.candidates) == 2
 
 
 def test_to_decision_inputs_sets_conflict_from_map():
-    cand = _cand("time_field_identity", "sales.dt")
-    out = clf.to_decision_inputs([cand], [], conflicts={("time_field_identity", "sales.dt"): True})
+    cand = _cand("time_dimension_identity", "sales.dt")
+    out = clf.to_decision_inputs(
+        [cand], [], conflicts={("time_dimension_identity", "sales.dt"): True}
+    )
     assert out[0].conflict is True

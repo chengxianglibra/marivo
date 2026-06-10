@@ -207,15 +207,15 @@ def _bootstrap_failure_rate(tmp_path):
         "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"

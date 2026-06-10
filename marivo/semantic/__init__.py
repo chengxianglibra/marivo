@@ -7,8 +7,8 @@ Public surface::
     catalog = ms.load()                # returns SemanticCatalog
     catalog.list().show()
 
-    ms.model(name="sales", default=True)
-    orders = ms.dataset(name="orders", datasource="warehouse", source=ms.table("orders"))
+    ms.domain(name="sales", default=True)
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
     ms.metric(name="revenue", datasets=[orders], decomposition=ms.sum())
 """
 
@@ -17,30 +17,30 @@ from __future__ import annotations
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
-    ModelRef,
-    dataset,
+    DomainRef,
     derived_metric,
-    field,
+    dimension,
+    domain,
+    entity,
     file,
     metric,
-    model,
     ratio,
     ref,
     relationship,
     snapshot,
     sum,
     table,
-    time_field,
+    time_dimension,
     validity,
     weighted_average,
 )
 from marivo.semantic.catalog import (
     AiContextView,
-    DatasetDetails,
     DatasourceDetails,
-    FieldDetails,
+    DimensionDetails,
+    DomainDetails,
+    EntityDetails,
     MetricDetails,
-    ModelDetails,
     RelationshipDetails,
     SemanticCatalog,
     SemanticKind,
@@ -50,7 +50,7 @@ from marivo.semantic.catalog import (
     SemanticRef,
     SemanticRefInput,
     SnapshotVersioning,
-    TimeFieldDetails,
+    TimeDimensionDetails,
     ValidityVersioning,
     load,
 )
@@ -76,7 +76,7 @@ from marivo.semantic.dtos import (
     TableSource,
 )
 from marivo.semantic.help import help
-from marivo.semantic.ir import FieldKind
+from marivo.semantic.ir import DimensionKind
 from marivo.semantic.ledger import (
     DecisionRecord,
     RejectedCandidate,
@@ -113,21 +113,21 @@ __all__ = [
     "BoundedProfilePolicy",
     "ColumnEvidence",
     "ColumnProfile",
-    "DatasetDetails",
     "DatasetSource",
     "DatasourceDetails",
     "DecisionKind",
     "DecisionRecord",
     "DemandSignal",
+    "DimensionDetails",
+    "DimensionKind",
+    "DomainDetails",
+    "DomainRef",
+    "EntityDetails",
     "EvidenceFact",
-    "FieldDetails",
-    "FieldKind",
     "FieldSummary",
     "FileSource",
     "MetadataOnlyPolicy",
     "MetricDetails",
-    "ModelDetails",
-    "ModelRef",
     "ParitySummary",
     "PreviewSummary",
     "ReadinessInputSummary",
@@ -152,25 +152,25 @@ __all__ = [
     "SnapshotVersioning",
     "SourceEvidencePack",
     "TableSource",
-    "TimeFieldDetails",
+    "TimeDimensionDetails",
     "ValidityVersioning",
-    "dataset",
     "derived_metric",
+    "dimension",
+    "domain",
+    "entity",
     "errors",
-    "field",
     "file",
     "find_project",
     "help",
     "load",
     "metric",
-    "model",
     "ratio",
     "ref",
     "relationship",
     "snapshot",
     "sum",
     "table",
-    "time_field",
+    "time_dimension",
     "typing",
     "validity",
     "weighted_average",

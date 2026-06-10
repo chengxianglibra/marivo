@@ -35,32 +35,32 @@ def _bootstrap_snapshot_as_of(tmp_path):
         "md.datasource(warehouse)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "user_profile_daily = ms.dataset(\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "user_profile_daily = ms.entity(\n"
         "    name='user_profile_daily',\n"
         "    datasource='warehouse',\n"
         "    source=ms.table('user_profile_daily'),\n"
         "    primary_key=['user_id', 'dt'],\n"
         "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='UTC', format='%Y%m%d'),\n"
         ")\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def user_id(user_profile_daily):\n"
         "    return user_profile_daily.user_id\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def dt(user_profile_daily):\n"
         "    return user_profile_daily.dt\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def tier(user_profile_daily):\n"
         "    return user_profile_daily.tier\n"
         "@ms.metric(\n"
@@ -157,30 +157,30 @@ def _bootstrap_snapshot_latest_no_root_time(tmp_path):
         "md.datasource(warehouse)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    # orders has NO @ms.time_field — forces latest mode in _derive_version_mode
+    # orders has NO @ms.time_dimension — forces latest mode in _derive_version_mode
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "user_profile_daily = ms.dataset(\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "user_profile_daily = ms.entity(\n"
         "    name='user_profile_daily',\n"
         "    datasource='warehouse',\n"
         "    source=ms.table('user_profile_daily'),\n"
         "    primary_key=['user_id', 'dt'],\n"
         "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='UTC', format='%Y%m%d'),\n"
         ")\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def user_id(user_profile_daily):\n"
         "    return user_profile_daily.user_id\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def dt(user_profile_daily):\n"
         "    return user_profile_daily.dt\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def tier(user_profile_daily):\n"
         "    return user_profile_daily.tier\n"
         "@ms.metric(\n"
@@ -263,11 +263,11 @@ def _bootstrap_validity(tmp_path, *, root_with_time: bool):
         "md.datasource(warehouse)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    time_field = (
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+    time_dimension = (
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         if root_with_time
@@ -275,26 +275,26 @@ def _bootstrap_validity(tmp_path, *, root_with_time: bool):
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "user_history = ms.dataset(\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "user_history = ms.entity(\n"
         "    name='user_history',\n"
         "    datasource='warehouse',\n"
         "    source=ms.table('user_history'),\n"
         "    primary_key=['user_id', 'valid_from'],\n"
         "    versioning=ms.validity(valid_from='sales.user_history.valid_from', valid_to='sales.user_history.valid_to', interval='closed_open', open_end=(None,)),\n"
-        ")\n" + time_field + "@ms.field(dataset=orders)\n"
+        ")\n" + time_dimension + "@ms.dimension(dataset=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
-        "@ms.field(dataset=user_history)\n"
+        "@ms.dimension(dataset=user_history)\n"
         "def user_id(user_history):\n"
         "    return user_history.user_id\n"
-        "@ms.field(dataset=user_history)\n"
+        "@ms.dimension(dataset=user_history)\n"
         "def valid_from(user_history):\n"
         "    return user_history.valid_from\n"
-        "@ms.field(dataset=user_history)\n"
+        "@ms.dimension(dataset=user_history)\n"
         "def valid_to(user_history):\n"
         "    return user_history.valid_to\n"
-        "@ms.field(dataset=user_history)\n"
+        "@ms.dimension(dataset=user_history)\n"
         "def tier(user_history):\n"
         "    return user_history.tier\n"
         "@ms.metric(\n"
@@ -395,35 +395,35 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
         "md.datasource(warehouse)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "user_history = ms.dataset(\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "user_history = ms.entity(\n"
         "    name='user_history',\n"
         "    datasource='warehouse',\n"
         "    source=ms.table('user_history'),\n"
         "    primary_key=['user_id', 'valid_from'],\n"
         "    versioning=ms.validity(valid_from='sales.user_history.valid_from', valid_to='sales.user_history.valid_to', interval='closed_closed', open_end=(None,)),\n"
         ")\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
-        "@ms.field(dataset=user_history)\n"
+        "@ms.dimension(dataset=user_history)\n"
         "def user_id(user_history):\n"
         "    return user_history.user_id\n"
-        "@ms.field(dataset=user_history)\n"
+        "@ms.dimension(dataset=user_history)\n"
         "def valid_from(user_history):\n"
         "    return user_history.valid_from\n"
-        "@ms.field(dataset=user_history)\n"
+        "@ms.dimension(dataset=user_history)\n"
         "def valid_to(user_history):\n"
         "    return user_history.valid_to\n"
-        "@ms.field(dataset=user_history)\n"
+        "@ms.dimension(dataset=user_history)\n"
         "def tier(user_history):\n"
         "    return user_history.tier\n"
         "@ms.metric(\n"
@@ -489,24 +489,24 @@ def _bootstrap_derived_ratio(tmp_path):
         "md.datasource(warehouse)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "sessions = ms.dataset(name='sessions', datasource='warehouse', primary_key=['session_id'], source=ms.table('sessions'))\n"
-        "users = ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-        "@ms.field(dataset=orders)\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "sessions = ms.entity(name='sessions', datasource='warehouse', primary_key=['session_id'], source=ms.table('sessions'))\n"
+        "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+        "@ms.dimension(dataset=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
-        "@ms.field(dataset=sessions)\n"
+        "@ms.dimension(dataset=sessions)\n"
         "def session_user_id(sessions):\n"
         "    return sessions.user_id\n"
-        "@ms.field(dataset=users)\n"
+        "@ms.dimension(dataset=users)\n"
         "def user_id(users):\n"
         "    return users.user_id\n"
-        "@ms.field(dataset=users)\n"
+        "@ms.dimension(dataset=users)\n"
         "def country(users):\n"
         "    return users.country\n"
         "@ms.metric(datasets=[orders, users], root_dataset=orders, additivity='additive', decomposition=ms.sum(), name='gmv', verification_mode='python_native',)\n"
@@ -563,21 +563,21 @@ def _bootstrap_axis_unreachable(tmp_path):
         "md.datasource(warehouse)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "sessions = ms.dataset(name='sessions', datasource='warehouse', primary_key=['session_id'], source=ms.table('sessions'))\n"
-        "users = ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-        "@ms.field(dataset=orders)\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "sessions = ms.entity(name='sessions', datasource='warehouse', primary_key=['session_id'], source=ms.table('sessions'))\n"
+        "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+        "@ms.dimension(dataset=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
-        "@ms.field(dataset=users)\n"
+        "@ms.dimension(dataset=users)\n"
         "def user_id(users):\n"
         "    return users.user_id\n"
-        "@ms.field(dataset=users)\n"
+        "@ms.dimension(dataset=users)\n"
         "def country(users):\n"
         "    return users.country\n"
         "@ms.metric(datasets=[orders, users], root_dataset=orders, additivity='additive', decomposition=ms.sum(), name='gmv', verification_mode='python_native',)\n"
@@ -651,36 +651,36 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
         "md.datasource(warehouse)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "sessions = ms.dataset(name='sessions', datasource='warehouse', primary_key=['session_id'], source=ms.table('sessions'))\n"
-        "user_profile_daily = ms.dataset(\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "sessions = ms.entity(name='sessions', datasource='warehouse', primary_key=['session_id'], source=ms.table('sessions'))\n"
+        "user_profile_daily = ms.entity(\n"
         "    name='user_profile_daily',\n"
         "    datasource='warehouse',\n"
         "    source=ms.table('user_profile_daily'),\n"
         "    primary_key=['user_id', 'dt'],\n"
         "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='UTC', format='%Y%m%d'),\n"
         ")\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
-        "@ms.field(dataset=sessions)\n"
+        "@ms.dimension(dataset=sessions)\n"
         "def session_user_id(sessions):\n"
         "    return sessions.user_id\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def profile_user_id(user_profile_daily):\n"
         "    return user_profile_daily.user_id\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def dt(user_profile_daily):\n"
         "    return user_profile_daily.dt\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def tier(user_profile_daily):\n"
         "    return user_profile_daily.tier\n"
         "@ms.metric(datasets=[orders, user_profile_daily], root_dataset=orders, additivity='additive', decomposition=ms.sum(), name='gmv_by_tier', verification_mode='python_native',)\n"
@@ -753,13 +753,13 @@ def test_derived_components_can_span_datasources(tmp_path):
         "md.datasource(analytics)\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "sessions = ms.dataset(name='sessions', datasource='analytics', primary_key=['session_id'], source=ms.table('sessions'))\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "sessions = ms.entity(name='sessions', datasource='analytics', primary_key=['session_id'], source=ms.table('sessions'))\n"
         "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='gmv', verification_mode='python_native',)\n"
         "def gmv(orders):\n"
         "    return orders.amount.sum()\n"

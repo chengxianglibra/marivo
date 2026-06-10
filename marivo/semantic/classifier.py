@@ -29,16 +29,16 @@ EvidenceType = Literal[
     "structural",
     "view_definition",
 ]
-ObjectKind = Literal["dataset", "field", "time_field", "metric", "relationship"]
+ObjectKind = Literal["entity", "dimension", "time_dimension", "metric", "relationship"]
 DecisionKind = Literal[
-    "dataset_identity",
-    "dataset_primary_key",
-    "time_field_identity",
-    "time_field_format",
-    "time_field_granularity",
-    "field_meaning",
+    "entity_identity",
+    "entity_primary_key",
+    "time_dimension_identity",
+    "time_dimension_format",
+    "time_dimension_granularity",
+    "dimension_meaning",
     "amount_unit",
-    "field_vs_metric",
+    "dimension_vs_metric",
     "metric_decomposition",
     "metric_additivity",
     "metric_exclusion_rule",
@@ -53,14 +53,14 @@ _MATERIALITY_RANK: dict[Materiality, int] = {"low": 1, "medium": 2, "high": 3}
 
 # decision_kind -> materiality floor. dangerous == (floor == "high").
 _FLOOR_TABLE: dict[DecisionKind, Materiality] = {
-    "dataset_identity": "low",
-    "dataset_primary_key": "medium",
-    "time_field_identity": "high",
-    "time_field_format": "medium",
-    "time_field_granularity": "medium",
-    "field_meaning": "high",
+    "entity_identity": "low",
+    "entity_primary_key": "medium",
+    "time_dimension_identity": "high",
+    "time_dimension_format": "medium",
+    "time_dimension_granularity": "medium",
+    "dimension_meaning": "high",
     "amount_unit": "high",
-    "field_vs_metric": "low",
+    "dimension_vs_metric": "low",
     "metric_decomposition": "high",
     "metric_additivity": "medium",
     "metric_exclusion_rule": "high",

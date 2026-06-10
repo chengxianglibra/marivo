@@ -18,20 +18,22 @@ from marivo.semantic.dtos import (
     SourceEvidencePack,
     derive_status,
 )
-from marivo.semantic.ir import DatasetIR, FieldIR, MetricIR, RelationshipIR, source_label
+from marivo.semantic.ir import DimensionIR, EntityIR, MetricIR, RelationshipIR, source_label
 from marivo.semantic.ledger import LedgerStore
 
 # decision kinds that are auto-recorded for dangerous authored objects
 _DANGEROUS_DECISION_BY_KIND = {
     "metric": "metric_decomposition",
-    "time_field": "time_field_identity",
+    "time_dimension": "time_dimension_identity",
 }
 
-_SOURCE_REQUIRED_KINDS = frozenset(("dataset", "field", "time_field", "metric", "relationship"))
+_SOURCE_REQUIRED_KINDS = frozenset(
+    ("entity", "dimension", "time_dimension", "metric", "relationship")
+)
 _REQUIRED_SOURCE_ROLES_BY_KIND = {
-    "dataset": ("primary",),
-    "field": ("primary",),
-    "time_field": ("primary",),
+    "entity": ("primary",),
+    "dimension": ("primary",),
+    "time_dimension": ("primary",),
     "metric": ("primary",),
     "relationship": ("from", "to"),
 }
@@ -194,8 +196,8 @@ def inspect_authored_object(
     issues: list[AssessmentIssue] = []
 
     business_definition = getattr(getattr(obj, "ai_context", None), "business_definition", None)
-    is_time_field = isinstance(obj, FieldIR) and obj.is_time_field
-    handoff = isinstance(obj, (MetricIR, FieldIR))
+    is_time_field = isinstance(obj, DimensionIR) and obj.is_time_field
+    handoff = isinstance(obj, (MetricIR, DimensionIR))
     if handoff and not business_definition:
         issues.append(
             AssessmentIssue(
@@ -207,7 +209,7 @@ def inspect_authored_object(
             )
         )
 
-    object_kind = "time_field" if is_time_field else _kind_of(obj)
+    object_kind = "time_dimension" if is_time_field else _kind_of(obj)
     dangerous_kind = _DANGEROUS_DECISION_BY_KIND.get(object_kind)
     if dangerous_kind is not None:
         recorded = ledger_store.read_object(ref)
@@ -245,10 +247,10 @@ def _find_loaded(registry: object, ref: str) -> object | None:
 
 
 def _kind_of(obj: object) -> str:
-    if isinstance(obj, DatasetIR):
-        return "dataset"
-    if isinstance(obj, FieldIR):
-        return "field"
+    if isinstance(obj, EntityIR):
+        return "entity"
+    if isinstance(obj, DimensionIR):
+        return "dimension"
     if isinstance(obj, MetricIR):
         return "metric"
     if isinstance(obj, RelationshipIR):

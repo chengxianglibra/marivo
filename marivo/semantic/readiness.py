@@ -36,11 +36,11 @@ ReadinessIssueKind = Literal[
     "missing_comments",
     "missing_raw_preview",
     "raw_preview_failed",
-    "dataset_preview_failed",
-    "field_preview_failed",
+    "entity_preview_failed",
+    "dimension_preview_failed",
     "missing_knowledge_definition",
     "ambiguous_time_axis",
-    "time_field_preview_failed",
+    "time_dimension_preview_failed",
     "metric_materialize_failed",
     "metric_compile_failed",
     "unverified_metric",
@@ -51,7 +51,7 @@ ReadinessIssueKind = Literal[
     "primary_key_unsampled",
     "derived_source_grain_unverified",
     "fragile_string_ref",
-    "time_field_pushdown_advisory",
+    "time_dimension_pushdown_advisory",
     "unresolved_clarification",
     "missing_business_definition",
     "missing_guardrails",
@@ -219,9 +219,9 @@ class ReadinessReport:
 
 
 class _SemanticKind(StrEnum):
-    DATASET = "dataset"
-    FIELD = "field"
-    TIME_FIELD = "time_field"
+    ENTITY = "entity"
+    DIMENSION = "dimension"
+    TIME_DIMENSION = "time_dimension"
     METRIC = "metric"
     RELATIONSHIP = "relationship"
 
@@ -291,7 +291,7 @@ def _derive_raw_sql_required_refs(
     """
     refs: list[str] = []
     for semantic_id, kind in kinds.items():
-        if kind not in {_SemanticKind.METRIC, _SemanticKind.DATASET}:
+        if kind not in {_SemanticKind.METRIC, _SemanticKind.ENTITY}:
             continue
         obj = objects.get(semantic_id)
         if obj is None:
@@ -315,10 +315,10 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
     objects: dict[str, object] = {}
 
     for dataset in reg.datasets.values():
-        kinds[dataset.semantic_id] = _SemanticKind.DATASET
+        kinds[dataset.semantic_id] = _SemanticKind.ENTITY
         objects[dataset.semantic_id] = dataset
     for field in reg.fields.values():
-        kind = _SemanticKind.TIME_FIELD if field.is_time_field else _SemanticKind.FIELD
+        kind = _SemanticKind.TIME_DIMENSION if field.is_time_field else _SemanticKind.DIMENSION
         kinds[field.semantic_id] = kind
         objects[field.semantic_id] = field
     for metric in reg.metrics.values():
@@ -332,7 +332,7 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
 
 
 _REQUIRED_DECISION_BY_KIND = {
-    _SemanticKind.TIME_FIELD: "time_field_identity",
+    _SemanticKind.TIME_DIMENSION: "time_dimension_identity",
     _SemanticKind.METRIC: "metric_decomposition",
 }
 
@@ -373,9 +373,9 @@ def _strict_enrichment_issues(
     business_definition (blocker) and guardrails (warning). Relationships are out
     of scope, matching semantic-preview scoping."""
     analyzable = {
-        _SemanticKind.DATASET,
-        _SemanticKind.FIELD,
-        _SemanticKind.TIME_FIELD,
+        _SemanticKind.ENTITY,
+        _SemanticKind.DIMENSION,
+        _SemanticKind.TIME_DIMENSION,
         _SemanticKind.METRIC,
     }
     blockers: list[ReadinessIssue] = []
@@ -424,16 +424,16 @@ def _semantic_preview_refs(
         for ref in refs
         if kinds.get(ref)
         in {
-            _SemanticKind.DATASET,
-            _SemanticKind.FIELD,
-            _SemanticKind.TIME_FIELD,
+            _SemanticKind.ENTITY,
+            _SemanticKind.DIMENSION,
+            _SemanticKind.TIME_DIMENSION,
             _SemanticKind.METRIC,
         }
     )
 
 
 def _dataset_refs(refs: Iterable[str], kinds: Mapping[str, _SemanticKind]) -> tuple[str, ...]:
-    return tuple(ref for ref in refs if kinds.get(ref) == _SemanticKind.DATASET)
+    return tuple(ref for ref in refs if kinds.get(ref) == _SemanticKind.ENTITY)
 
 
 def _raw_preview_ref(
@@ -454,7 +454,7 @@ def _dataset_raw_preview_refs(
 ) -> tuple[str, ...]:
     raw_refs: list[str] = []
     for ref in refs:
-        if kinds.get(ref) != _SemanticKind.DATASET:
+        if kinds.get(ref) != _SemanticKind.ENTITY:
             continue
         dataset = objects.get(ref)
         source = getattr(dataset, "source", None)
@@ -473,7 +473,7 @@ def _dependencies_for_ref(
     obj = objects.get(ref)
     if obj is None:
         return ()
-    if kind in {_SemanticKind.FIELD, _SemanticKind.TIME_FIELD}:
+    if kind in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
         dataset = getattr(obj, "dataset", None)
         return (dataset,) if isinstance(dataset, str) else ()
     if kind == _SemanticKind.METRIC:
@@ -525,7 +525,7 @@ def _raw_preview_datasets_by_ref(
 ) -> dict[str, tuple[str, ...]]:
     out: dict[str, list[str]] = {}
     for ref in refs:
-        if kinds.get(ref) != _SemanticKind.DATASET:
+        if kinds.get(ref) != _SemanticKind.ENTITY:
             continue
         dataset = objects.get(ref)
         source = getattr(dataset, "source", None)
@@ -543,7 +543,7 @@ def _raw_preview_specs_by_ref(
 ) -> dict[str, tuple[str, str, str | tuple[str, ...] | None]]:
     specs: dict[str, tuple[str, str, str | tuple[str, ...] | None]] = {}
     for ref in refs:
-        if kinds.get(ref) != _SemanticKind.DATASET:
+        if kinds.get(ref) != _SemanticKind.ENTITY:
             continue
         dataset = objects.get(ref)
         source = getattr(dataset, "source", None)
@@ -561,7 +561,7 @@ def _datasource_refs_for_checked_refs(
 ) -> tuple[str, ...]:
     datasources: list[str] = []
     for ref in refs:
-        if kinds.get(ref) != _SemanticKind.DATASET:
+        if kinds.get(ref) != _SemanticKind.ENTITY:
             continue
         datasource = getattr(objects.get(ref), "datasource", None)
         if isinstance(datasource, str):
@@ -678,12 +678,12 @@ def _dataset_has_metadata_comment_for_field(
 
 
 def _preview_issue_kind(kind: _SemanticKind) -> ReadinessIssueKind:
-    if kind == _SemanticKind.DATASET:
-        return "dataset_preview_failed"
-    if kind == _SemanticKind.TIME_FIELD:
-        return "time_field_preview_failed"
-    if kind == _SemanticKind.FIELD:
-        return "field_preview_failed"
+    if kind == _SemanticKind.ENTITY:
+        return "entity_preview_failed"
+    if kind == _SemanticKind.TIME_DIMENSION:
+        return "time_dimension_preview_failed"
+    if kind == _SemanticKind.DIMENSION:
+        return "dimension_preview_failed"
     return "metric_materialize_failed"
 
 
@@ -700,11 +700,11 @@ def _run_preview(
     limit: int,
     redact: bool,
 ) -> PreviewResult:
-    if kind == _SemanticKind.DATASET:
+    if kind == _SemanticKind.ENTITY:
         return project.preview_dataset(
             ref, backend_factory=backend_factory, limit=limit, redact=redact
         )
-    if kind in {_SemanticKind.FIELD, _SemanticKind.TIME_FIELD}:
+    if kind in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
         return project.preview_field(
             ref, backend_factory=backend_factory, limit=limit, redact=redact
         )
@@ -775,9 +775,9 @@ def _run_semantic_previews(
 
     for ref in required:
         kind = kinds.get(ref)
-        if kind == _SemanticKind.DATASET:
+        if kind == _SemanticKind.ENTITY:
             dataset_groups.setdefault(ref, []).append(ref)
-        elif kind in {_SemanticKind.FIELD, _SemanticKind.TIME_FIELD}:
+        elif kind in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
             field = objects.get(ref)
             dataset_ref = getattr(field, "dataset", None)
             if isinstance(dataset_ref, str):
@@ -873,7 +873,7 @@ def _run_dataset_group_preview(
         projections.extend(parent_table[column] for column in parent_table.columns)
 
     for ref in ref_tuple:
-        if kinds.get(ref) not in {_SemanticKind.FIELD, _SemanticKind.TIME_FIELD}:
+        if kinds.get(ref) not in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
             continue
         field_value = materializer.field(ref)
         column_name = _preview_column_name(ref)
@@ -1362,7 +1362,7 @@ def build_readiness_report(
                         "cannot be physically verified, and the view may prevent partition "
                         "pruning on the time axis.",
                         "Confirm the row grain and additivity, verify the time field still "
-                        "prunes (see time_field_pushdown_advisory), and set primary_key "
+                        "prunes (see time_dimension_pushdown_advisory), and set primary_key "
                         "deliberately rather than inheriting base-table assumptions.",
                     )
                 )
@@ -1417,10 +1417,10 @@ def build_readiness_report(
                     "Replace fragile string refs with stable object refs where possible.",
                 )
             )
-        if sw.kind == "time_field_pushdown_advisory":
+        if sw.kind == "time_dimension_pushdown_advisory":
             warnings.append(
                 _issue(
-                    "time_field_pushdown_advisory",
+                    "time_dimension_pushdown_advisory",
                     "warning",
                     sw.refs,
                     sw.message,

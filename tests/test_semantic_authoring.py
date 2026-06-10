@@ -29,13 +29,13 @@ from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
 from marivo.semantic.ir import (
     AiContextIR,
-    DatasetRef,
-    FieldIR,
-    FieldKind,
-    FieldRef,
+    DimensionIR,
+    DimensionKind,
+    DimensionRef,
+    EntityRef,
     MetricRef,
     RelationshipRef,
-    TimeFieldRef,
+    TimeDimensionRef,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 
@@ -71,13 +71,13 @@ def _clean_ctx():
 
 def test_model_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.model(name="sales")
+        ms.domain(name="sales")
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
 
 def test_dataset_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
@@ -85,7 +85,7 @@ def test_dataset_outside_context_raises() -> None:
 def test_field_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
 
-        @ms.field(dataset="orders")
+        @ms.dimension(dataset="orders")
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -95,7 +95,7 @@ def test_field_outside_context_raises() -> None:
 def test_time_field_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
 
-        @ms.time_field(dataset="orders", data_type="date", granularity="day")
+        @ms.time_dimension(dataset="orders", data_type="date", granularity="day")
         def order_date(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -124,14 +124,14 @@ def test_relationship_outside_context_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ms.model() call
+# ms.domain() call
 # ---------------------------------------------------------------------------
 
 
 def test_model_creates_model_ir() -> None:
     ctx = _enter_ctx()
     try:
-        ms.model(name="sales", default=True, description="Sales model")
+        ms.domain(name="sales", default=True, description="Sales model")
         # Should have one pending object
         assert len(ctx.pending_objects) == 1
         ir, callable_ = ctx.pending_objects[0]
@@ -148,7 +148,7 @@ def test_model_sets_default_model_on_context() -> None:
     ctx = _enter_ctx()
     try:
         assert ctx.default_model is None
-        ms.model(name="sales", default=True)
+        ms.domain(name="sales", default=True)
         assert ctx.default_model == "sales"
     finally:
         _exit_ctx()
@@ -157,7 +157,7 @@ def test_model_sets_default_model_on_context() -> None:
 def test_model_default_false_does_not_set_context() -> None:
     ctx = _enter_ctx(default_model="existing")
     try:
-        ms.model(name="other", default=False)
+        ms.domain(name="other", default=False)
         assert ctx.default_model == "existing"
     finally:
         _exit_ctx()
@@ -167,7 +167,7 @@ def test_model_requires_keyword_args() -> None:
     _enter_ctx()
     try:
         with pytest.raises(TypeError):
-            ms.model("sales")  # type: ignore[misc]
+            ms.domain("sales")  # type: ignore[misc]
     finally:
         _exit_ctx()
 
@@ -175,8 +175,8 @@ def test_model_requires_keyword_args() -> None:
 def test_model_returns_model_ref() -> None:
     _enter_ctx()
     try:
-        ref = ms.model(name="sales", default=True)
-        assert isinstance(ref, ms.ModelRef)
+        ref = ms.domain(name="sales", default=True)
+        assert isinstance(ref, ms.DomainRef)
         assert ref.semantic_id == "sales"
     finally:
         _exit_ctx()
@@ -185,14 +185,14 @@ def test_model_returns_model_ref() -> None:
 def test_field_accepts_model_ref() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-        sales_ref = ms.model(name="sales", default=True)
-        ds = ms.dataset(
+        sales_ref = ms.domain(name="sales", default=True)
+        ds = ms.entity(
             name="orders",
             datasource="warehouse",
             source=ms.table("orders"),
         )
 
-        @ms.field(dataset=ds, model=sales_ref)
+        @ms.dimension(dataset=ds, model=sales_ref)
         def region(table):
             return table.region
 
@@ -203,16 +203,16 @@ def test_field_accepts_model_ref() -> None:
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# ms.dataset() decorator
+# ms.entity() decorator
 # ---------------------------------------------------------------------------
 
 
 def test_dataset_returns_ref() -> None:
     _enter_ctx(default_model="sales")
     try:
-        orders = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
-        assert isinstance(orders, DatasetRef)
+        assert isinstance(orders, EntityRef)
         assert orders.semantic_id == "sales.orders"
     finally:
         _exit_ctx()
@@ -222,7 +222,7 @@ def test_dataset_requires_name_without_body() -> None:
     _enter_ctx(default_model="sales")
     try:
         with pytest.raises(TypeError):
-            ms.dataset(datasource="wh", source=ms.table("orders"))  # type: ignore[call-arg]
+            ms.entity(datasource="wh", source=ms.table("orders"))  # type: ignore[call-arg]
     finally:
         _exit_ctx()
 
@@ -230,13 +230,13 @@ def test_dataset_requires_name_without_body() -> None:
 def test_dataset_explicit_name() -> None:
     _enter_ctx(default_model="sales")
     try:
-        _orders_impl = ms.dataset(
+        _orders_impl = ms.entity(
             name="orders_tbl",
             datasource="wh",
             source=ms.table("orders"),
         )
 
-        assert isinstance(_orders_impl, DatasetRef)
+        assert isinstance(_orders_impl, EntityRef)
         assert _orders_impl.semantic_id == "sales.orders_tbl"
     finally:
         _exit_ctx()
@@ -245,7 +245,7 @@ def test_dataset_explicit_name() -> None:
 def test_dataset_pushes_ir_without_callable() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-        ref = ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        ref = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
         ir, callable_ = ctx.pending_objects[-1]
         assert ref.semantic_id == "sales.orders"
         assert ir.semantic_id == "sales.orders"
@@ -261,7 +261,7 @@ def test_dataset_pushes_ir_without_callable() -> None:
 def test_dataset_datasource_as_string() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-        ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
         ir, _ = ctx.pending_objects[-1]
         assert ir.datasource == "wh"
@@ -273,7 +273,7 @@ def test_dataset_datasource_as_datasource_ref() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
         warehouse = md.ref("wh")
-        ms.dataset(name="orders", datasource=warehouse, source=ms.table("orders"))
+        ms.entity(name="orders", datasource=warehouse, source=ms.table("orders"))
 
         ir, _ = ctx.pending_objects[-1]
         assert ir.datasource == "wh"
@@ -284,7 +284,7 @@ def test_dataset_datasource_as_datasource_ref() -> None:
 def test_dataset_primary_key() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-        ms.dataset(
+        ms.entity(
             name="orders",
             datasource="wh",
             source=ms.table("orders"),
@@ -300,7 +300,7 @@ def test_dataset_primary_key() -> None:
 def test_dataset_source_records_table_database() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-        ms.dataset(
+        ms.entity(
             name="orders",
             datasource="wh",
             source=ms.table("orders", database="sales_mart"),
@@ -317,7 +317,7 @@ def test_dataset_source_records_table_database() -> None:
 def test_dataset_source_records_file_source() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-        ms.dataset(
+        ms.entity(
             name="orders",
             datasource="wh",
             source=ms.file("/data/orders/*.parquet", format="parquet", hive_partitioning=True),
@@ -345,7 +345,7 @@ def test_dataset_decorator_body_is_rejected() -> None:
     try:
         with pytest.raises(TypeError):
 
-            @ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+            @ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
             def orders(backend: object) -> object:
                 return backend
     finally:
@@ -353,7 +353,7 @@ def test_dataset_decorator_body_is_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ms.field() decorator
+# ms.dimension() decorator
 # ---------------------------------------------------------------------------
 
 
@@ -361,11 +361,11 @@ def test_field_returns_ref() -> None:
     _enter_ctx(default_model="sales")
     try:
 
-        @ms.field(dataset="sales.orders")
+        @ms.dimension(dataset="sales.orders")
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        assert isinstance(amount, FieldRef)
+        assert isinstance(amount, DimensionRef)
         assert amount.semantic_id == "sales.orders.amount"
     finally:
         _exit_ctx()
@@ -375,7 +375,7 @@ def test_field_name_defaults_to_function_name() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.field(dataset="sales.orders")
+        @ms.dimension(dataset="sales.orders")
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -392,7 +392,7 @@ def test_field_explicit_name() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.field(name="order_amount", dataset="sales.orders")
+        @ms.dimension(name="order_amount", dataset="sales.orders")
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -406,13 +406,13 @@ def test_field_explicit_name() -> None:
 def test_field_with_dataset_ref() -> None:
     _enter_ctx(default_model="sales")
     try:
-        ds_ref = DatasetRef("sales.orders")
+        ds_ref = EntityRef("sales.orders")
 
-        @ms.field(dataset=ds_ref)
+        @ms.dimension(dataset=ds_ref)
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        assert isinstance(amount, FieldRef)
+        assert isinstance(amount, DimensionRef)
     finally:
         _exit_ctx()
 
@@ -424,7 +424,7 @@ def test_field_pushes_callable() -> None:
         def amount_fn(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ms.field(dataset="sales.orders")(amount_fn)
+        ms.dimension(dataset="sales.orders")(amount_fn)
         ir, callable_ = ctx.pending_objects[-1]
         assert callable_ is amount_fn
         assert ir.dataset == "sales.orders"
@@ -437,7 +437,7 @@ def test_field_body_rejects_lambda() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.field(dataset="sales.orders")
+            @ms.dimension(dataset="sales.orders")
             def amount(table: object) -> object:
                 fn = lambda value: value
                 return fn(table)
@@ -451,13 +451,13 @@ def test_field_kind_defaults_to_dimension() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.field(dataset="sales.orders")
+        @ms.dimension(dataset="sales.orders")
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        irs = [obj for obj, _ in ctx.pending_objects if isinstance(obj, FieldIR)]
+        irs = [obj for obj, _ in ctx.pending_objects if isinstance(obj, DimensionIR)]
         assert len(irs) == 1
-        assert irs[0].kind == FieldKind.DIMENSION
+        assert irs[0].kind == DimensionKind.CATEGORICAL
     finally:
         _exit_ctx()
 
@@ -466,19 +466,19 @@ def test_field_kind_measure() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.field(dataset="sales.orders", kind="measure")
+        @ms.dimension(dataset="sales.orders", kind="measure")
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        irs = [obj for obj, _ in ctx.pending_objects if isinstance(obj, FieldIR)]
+        irs = [obj for obj, _ in ctx.pending_objects if isinstance(obj, DimensionIR)]
         assert len(irs) == 1
-        assert irs[0].kind == FieldKind.MEASURE
+        assert irs[0].kind == DimensionKind.MEASURE
     finally:
         _exit_ctx()
 
 
 # ---------------------------------------------------------------------------
-# ms.time_field() decorator
+# ms.time_dimension() decorator
 # ---------------------------------------------------------------------------
 
 
@@ -486,11 +486,11 @@ def test_time_field_returns_ref() -> None:
     _enter_ctx(default_model="sales")
     try:
 
-        @ms.time_field(dataset="sales.orders", data_type="date", granularity="day")
+        @ms.time_dimension(dataset="sales.orders", data_type="date", granularity="day")
         def order_date(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        assert isinstance(order_date, TimeFieldRef)
+        assert isinstance(order_date, TimeDimensionRef)
         assert order_date.semantic_id == "sales.orders.order_date"
     finally:
         _exit_ctx()
@@ -500,7 +500,7 @@ def test_time_field_ir_has_time_metadata() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.time_field(
+        @ms.time_dimension(
             dataset="sales.orders",
             data_type="timestamp",
             granularity="hour",
@@ -514,7 +514,7 @@ def test_time_field_ir_has_time_metadata() -> None:
         assert ir.data_type == "timestamp"
         assert ir.granularity == "hour"
         assert ir.required_prefix == "order_date"
-        assert ir.kind == FieldKind.TIME
+        assert ir.kind == DimensionKind.TIME
     finally:
         _exit_ctx()
 
@@ -524,7 +524,7 @@ def test_time_field_requires_data_type_and_granularity() -> None:
     try:
         with pytest.raises(TypeError):
 
-            @ms.time_field(dataset="sales.orders")  # type: ignore[call-arg]
+            @ms.time_dimension(dataset="sales.orders")  # type: ignore[call-arg]
             def order_date(table: object) -> object:
                 return None  # type: ignore[unreachable]
     finally:
@@ -536,7 +536,7 @@ def test_time_field_body_rejects_sql_escape_hatch() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.time_field(dataset="sales.orders", data_type="date", granularity="day")
+            @ms.time_dimension(dataset="sales.orders", data_type="date", granularity="day")
             def order_date(backend: object) -> object:
                 return backend.sql("select current_date")
 
@@ -550,7 +550,7 @@ def test_time_field_accepts_timezone_metadata() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.time_field(
+        @ms.time_dimension(
             dataset="sales.orders",
             data_type="timestamp",
             granularity="hour",
@@ -571,7 +571,7 @@ def test_time_field_rejects_invalid_timezone() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_field(
+            @ms.time_dimension(
                 dataset="sales.orders",
                 data_type="timestamp",
                 granularity="hour",
@@ -591,7 +591,7 @@ def test_time_field_rejects_yyyymmdd_shorthand() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_field(
+            @ms.time_dimension(
                 dataset="sales.orders",
                 data_type="string",
                 granularity="day",
@@ -612,7 +612,7 @@ def test_time_field_rejects_hh_shorthand() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_field(
+            @ms.time_dimension(
                 dataset="sales.orders",
                 data_type="string",
                 granularity="hour",
@@ -632,7 +632,7 @@ def test_time_field_rejects_date_format_on_temporal_type() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_field(
+            @ms.time_dimension(
                 dataset="sales.orders",
                 data_type="datetime",
                 granularity="day",
@@ -654,7 +654,7 @@ def test_time_field_rejects_date_format_on_date_type() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_field(
+            @ms.time_dimension(
                 dataset="sales.orders",
                 data_type="date",
                 granularity="day",
@@ -675,7 +675,7 @@ def test_time_field_rejects_date_format_on_hour_only_field() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_field(
+            @ms.time_dimension(
                 dataset="sales.orders",
                 data_type="string",
                 granularity="hour",
@@ -697,7 +697,7 @@ def test_time_field_rejects_missing_date_format_on_string() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_field(
+            @ms.time_dimension(
                 dataset="sales.orders",
                 data_type="string",
                 granularity="day",
@@ -717,7 +717,7 @@ def test_time_field_accepts_canonical_strptime() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.time_field(
+        @ms.time_dimension(
             dataset="sales.orders",
             data_type="string",
             granularity="day",
@@ -737,7 +737,7 @@ def test_time_field_strips_whitespace_from_strptime() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
 
-        @ms.time_field(
+        @ms.time_dimension(
             dataset="sales.orders",
             data_type="string",
             granularity="day",
@@ -758,7 +758,7 @@ def test_time_field_rejects_invalid_strptime_directive() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_field(
+            @ms.time_dimension(
                 dataset="sales.orders",
                 data_type="string",
                 granularity="day",
@@ -810,7 +810,7 @@ def test_metric_base_with_datasets() -> None:
 def test_metric_with_dataset_ref() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-        orders_ref = DatasetRef("sales.orders")
+        orders_ref = EntityRef("sales.orders")
 
         @ms.metric(datasets=[orders_ref], decomposition=ms.sum())
         def revenue(table: object) -> object:
@@ -968,10 +968,10 @@ def test_relationship_pushes_ir() -> None:
 def test_relationship_with_ref_objects() -> None:
     ctx = _enter_ctx(default_model="sales")
     try:
-        orders_ref = DatasetRef("sales.orders")
-        items_ref = DatasetRef("sales.items")
-        id_ref = FieldRef("sales.orders.id")
-        oid_ref = FieldRef("sales.items.order_id")
+        orders_ref = EntityRef("sales.orders")
+        items_ref = EntityRef("sales.items")
+        id_ref = DimensionRef("sales.orders.id")
+        oid_ref = DimensionRef("sales.items.order_id")
 
         ms.relationship(
             name="orders_to_items",
@@ -1246,10 +1246,10 @@ def test_base_metric_sidecar_stores_callable() -> None:
 def test_duplicate_dataset_name_raises() -> None:
     _enter_ctx(default_model="sales")
     try:
-        ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+        ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.dataset(name="orders", datasource="wh", source=ms.table("orders"))
+            ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
         assert exc_info.value.kind == ErrorKind.DUPLICATE_NAME
     finally:
@@ -1279,7 +1279,7 @@ def test_dataset_and_metric_same_name_no_collision() -> None:
     """A dataset and a metric with the same model.name should coexist — kind-scoped uniqueness."""
     ctx = _enter_ctx(default_model="sales")
     try:
-        ds = ms.dataset(
+        ds = ms.entity(
             name="dau_7d_portrait",
             datasource="warehouse",
             source=ms.table("dau_7d_portrait"),
@@ -1304,19 +1304,19 @@ def test_field_and_time_field_same_name_same_dataset_collides() -> None:
     """A field and a time_field with the same name on the same dataset share the fields namespace."""
     ctx = _enter_ctx(default_model="sales")
     try:
-        ds = ms.dataset(
+        ds = ms.entity(
             name="orders",
             datasource="warehouse",
             source=ms.table("orders"),
         )
 
-        @ms.field(dataset=ds, name="log_date")
+        @ms.dimension(dataset=ds, name="log_date")
         def log_date_field(table):
             return table.log_date
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_field(dataset=ds, name="log_date", data_type="string", granularity="day")
+            @ms.time_dimension(dataset=ds, name="log_date", data_type="string", granularity="day")
             def log_date_tf(table):
                 return table.log_date
 
@@ -1334,7 +1334,7 @@ def test_model_keyword_only() -> None:
     _enter_ctx()
     try:
         with pytest.raises(TypeError):
-            ms.model("sales")  # type: ignore[misc]
+            ms.domain("sales")  # type: ignore[misc]
     finally:
         _exit_ctx()
 
@@ -1343,7 +1343,7 @@ def test_dataset_keyword_only() -> None:
     _enter_ctx(default_model="sales")
     try:
         with pytest.raises(TypeError):
-            ms.dataset("wh")  # type: ignore[misc]
+            ms.entity("wh")  # type: ignore[misc]
     finally:
         _exit_ctx()
 
@@ -1517,22 +1517,22 @@ def test_two_datasets_same_column_name_distinct_ids() -> None:
     """Two datasets sharing a column name produce distinct dataset-scoped field IDs."""
     ctx = _enter_ctx(default_model="sales")
     try:
-        orders_ds = ms.dataset(
+        orders_ds = ms.entity(
             name="orders",
             datasource="warehouse",
             source=ms.table("orders"),
         )
-        portrait_ds = ms.dataset(
+        portrait_ds = ms.entity(
             name="portrait",
             datasource="warehouse",
             source=ms.table("portrait"),
         )
 
-        @ms.field(dataset=orders_ds, name="region")
+        @ms.dimension(dataset=orders_ds, name="region")
         def orders_region(table):
             return table.region
 
-        @ms.field(dataset=portrait_ds, name="region")
+        @ms.dimension(dataset=portrait_ds, name="region")
         def portrait_region(table):
             return table.region
 
@@ -1546,16 +1546,16 @@ def test_field_model_mismatch_with_dataset_raises() -> None:
     """A field whose model disagrees with the dataset's model must raise."""
     ctx = _enter_ctx(default_model="sales")
     try:
-        ds = ms.dataset(
+        ds = ms.entity(
             name="orders",
             datasource="warehouse",
             source=ms.table("orders"),
         )
 
-        inventory_ref = ms.ModelRef(semantic_id="inventory")
+        inventory_ref = ms.DomainRef(semantic_id="inventory")
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.field(dataset=ds, name="region", model=inventory_ref)
+            @ms.dimension(dataset=ds, name="region", model=inventory_ref)
             def region(table):
                 return table.region
 

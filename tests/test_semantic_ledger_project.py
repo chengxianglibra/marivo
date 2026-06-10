@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from marivo.semantic import ledger as lg
 
-MODEL_PY = "import marivo.semantic as ms\nms.model(name='sales')\n"
+DOMAIN_PY = "import marivo.semantic as ms\nms.domain(name='sales')\n"
 DATASETS_PY = """
 import marivo.semantic as ms
 import marivo.datasource as md
 
 warehouse = md.ref('warehouse')
 
-orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))
+orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))
 
 @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
@@ -19,7 +19,9 @@ def revenue(orders):
 
 
 def _project(semantic_project_factory):
-    return semantic_project_factory({"sales/_model.py": MODEL_PY, "sales/datasets.py": DATASETS_PY})
+    return semantic_project_factory(
+        {"sales/_domain.py": DOMAIN_PY, "sales/datasets.py": DATASETS_PY}
+    )
 
 
 def test_record_decision_appends_to_object_ledger(semantic_project_factory):

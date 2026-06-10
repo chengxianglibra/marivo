@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from marivo.semantic.ir import FieldIR
+    from marivo.semantic.ir import DimensionIR
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.validator import Registry
 
@@ -112,7 +112,7 @@ def _detect_coverage(reg: Registry) -> list[tuple[str, tuple[str, ...]]]:
     for metric in reg.metrics.values():
         metric_datasets.update(metric.datasets)
 
-    fields_by_dataset: dict[str, list[FieldIR]] = {}
+    fields_by_dataset: dict[str, list[DimensionIR]] = {}
     for field_obj in reg.fields.values():
         fields_by_dataset.setdefault(field_obj.dataset, []).append(field_obj)
 
@@ -153,7 +153,7 @@ _W_PURPOSE = 0.5
 def _gap_terms(
     refs: tuple[str, ...],
     objects: Mapping[str, object],
-    fields_by_dataset: Mapping[str, Sequence[FieldIR]],
+    fields_by_dataset: Mapping[str, Sequence[DimensionIR]],
 ) -> set[str]:
     terms: set[str] = set()
     for ref in refs:
@@ -233,7 +233,7 @@ def build_richness_report(
         return RichnessReport(gaps=(), checked_at=_checked_at())
 
     objects: dict[str, object] = {**reg.datasets, **reg.fields, **reg.metrics}
-    fields_by_dataset: dict[str, list[FieldIR]] = {}
+    fields_by_dataset: dict[str, list[DimensionIR]] = {}
     for field_obj in reg.fields.values():
         fields_by_dataset.setdefault(field_obj.dataset, []).append(field_obj)
 

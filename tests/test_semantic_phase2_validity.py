@@ -18,23 +18,23 @@ from marivo.semantic.errors import SemanticLoadFailed
 # Helpers
 # ---------------------------------------------------------------------------
 
-_MODEL_FILE = "import marivo.semantic as ms\nms.model(name='sales')\n"
+_DOMAIN_FILE = "import marivo.semantic as ms\nms.domain(name='sales')\n"
 
-# Dataset with actual @ms.field declarations so FieldRef objects exist in the
+# Dataset with actual @ms.dimension declarations so DimensionRef objects exist in the
 # registry and the field-existence check in _validate_validity_versioning passes.
-# Fields are declared on the versioned dataset itself using a string dataset ref.
+# Dimensions are declared on the versioned dataset itself using a string dataset ref.
 _DATASET_WITH_VALIDITY = (
     "import marivo.semantic as ms\n"
     "\n"
-    "@ms.field(dataset='sales.user_history')\n"
+    "@ms.dimension(dataset='sales.user_history')\n"
     "def valid_from(t):\n"
     "    return t.valid_from\n"
     "\n"
-    "@ms.field(dataset='sales.user_history')\n"
+    "@ms.dimension(dataset='sales.user_history')\n"
     "def valid_to(t):\n"
     "    return t.valid_to\n"
     "\n"
-    "user_history = ms.dataset(\n"
+    "user_history = ms.entity(\n"
     "    name='user_history',\n"
     "    datasource='warehouse',\n"
     "    source=ms.table('user_history'),\n"
@@ -58,7 +58,7 @@ def test_validity_versioning_round_trip(semantic_project_factory):
     """ValidityVersioningIR is stored on the dataset and readable after load."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_FILE,
+            "sales/_domain.py": _DOMAIN_FILE,
             "sales/datasets.py": _DATASET_WITH_VALIDITY,
         }
     )
@@ -81,13 +81,13 @@ def test_validity_versioning_round_trip(semantic_project_factory):
 
 
 def test_validity_empty_open_end_rejected(semantic_project_factory):
-    """ms.validity() with open_end=() raises invalid_dataset_versioning at decorator time."""
+    """ms.validity() with open_end=() raises invalid_entity_versioning at decorator time."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_FILE,
+            "sales/_domain.py": _DOMAIN_FILE,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "user_history = ms.dataset(\n"
+                "user_history = ms.entity(\n"
                 "    name='user_history',\n"
                 "    datasource='warehouse',\n"
                 "    source=ms.table('user_history'),\n"
@@ -111,7 +111,7 @@ def test_validity_empty_open_end_rejected(semantic_project_factory):
     errors = exc_info.value.errors
     assert len(errors) >= 1
     error = errors[0]
-    assert error.kind == "invalid_dataset_versioning"
+    assert error.kind == "invalid_entity_versioning"
     assert error.details.get("field") == "open_end"
 
 
@@ -124,10 +124,10 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
     """ms.validity() with interval='open_closed' raises invalid_ref at decorator time."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_FILE,
+            "sales/_domain.py": _DOMAIN_FILE,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "user_history = ms.dataset(\n"
+                "user_history = ms.entity(\n"
                 "    name='user_history',\n"
                 "    datasource='warehouse',\n"
                 "    source=ms.table('user_history'),\n"
@@ -151,7 +151,7 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
     errors = exc_info.value.errors
     assert len(errors) >= 1
     error = errors[0]
-    assert error.kind == "invalid_dataset_versioning"
+    assert error.kind == "invalid_entity_versioning"
     assert error.details.get("field") == "interval"
 
 
@@ -161,13 +161,13 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
 
 
 def test_validity_valid_from_not_in_primary_key_rejected(semantic_project_factory):
-    """ms.validity() where valid_from is not in primary_key raises INVALID_DATASET_VERSIONING."""
+    """ms.validity() where valid_from is not in primary_key raises INVALID_ENTITY_VERSIONING."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": _MODEL_FILE,
+            "sales/_domain.py": _DOMAIN_FILE,
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "user_history = ms.dataset(\n"
+                "user_history = ms.entity(\n"
                 "    name='user_history',\n"
                 "    datasource='warehouse',\n"
                 "    source=ms.table('user_history'),\n"
@@ -191,7 +191,7 @@ def test_validity_valid_from_not_in_primary_key_rejected(semantic_project_factor
     errors = exc_info.value.errors
     assert len(errors) >= 1
     error = errors[0]
-    assert error.kind == "invalid_dataset_versioning"
+    assert error.kind == "invalid_entity_versioning"
     assert error.details.get("field") == "valid_from"
 
 
@@ -201,20 +201,20 @@ def test_validity_valid_from_not_in_primary_key_rejected(semantic_project_factor
 
 
 def test_validity_rejects_unknown_field_ref(semantic_project_factory):
-    """ms.validity() with a valid_to that does not exist raises INVALID_DATASET_VERSIONING."""
+    """ms.validity() with a valid_to that does not exist raises INVALID_ENTITY_VERSIONING."""
     project = semantic_project_factory(
         {
-            "sales/_model.py": "import marivo.semantic as ms\nms.model(name='sales')\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "\n"
                 "# Declare valid_from field on user_history (string dataset ref)\n"
-                "@ms.field(dataset='sales.user_history')\n"
+                "@ms.dimension(dataset='sales.user_history')\n"
                 "def valid_from(t):\n"
                 "    return t.valid_from\n"
                 "\n"
                 "# valid_to is intentionally NOT declared\n"
-                "user_history = ms.dataset(\n"
+                "user_history = ms.entity(\n"
                 "    name='user_history',\n"
                 "    datasource='warehouse',\n"
                 "    source=ms.table('user_history'),\n"
@@ -234,5 +234,5 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
     with pytest.raises(SemanticLoadFailed) as exc_info:
         project.get_dataset("sales.user_history")
     error = exc_info.value.errors[0]
-    assert error.kind == "invalid_dataset_versioning"
+    assert error.kind == "invalid_entity_versioning"
     assert error.details["field"] == "valid_to"

@@ -357,7 +357,7 @@ details.versioning          # None | SnapshotVersioning | ValidityVersioning
 Field:
 
 ```python
-details.dataset             # SemanticRef("sales.orders", kind="dataset")
+details.dataset             # SemanticRef("sales.orders", kind="entity")
 details.field_kind          # "dimension" | "measure"
 ```
 
@@ -424,8 +424,8 @@ it is a short display summary, while business meaning and usage constraints live
 in `ai_context`.
 
 ```python
-ms.model(name="sales", description="Sales analytics", ai_context={...})
-ms.dataset(
+ms.domain(name="sales", description="Sales analytics", ai_context={...})
+ms.entity(
     name="orders",
     datasource=warehouse,
     source=ms.table("orders"),
@@ -433,7 +433,7 @@ ms.dataset(
     ai_context={...},
 )
 
-@ms.field(dataset=orders, description="Sales region.", ai_context={...})
+@ms.dimension(dataset=orders, description="Sales region.", ai_context={...})
 def region(table):
     return table.region
 
@@ -554,7 +554,7 @@ Every loaded object returned by `catalog.get(...)` must point to the user
 semantic file that declared it:
 
 ```text
-.marivo/semantic/sales/_model.py:42
+.marivo/semantic/sales/_domain.py:42
 ```
 
 It must not point at `marivo/semantic/authoring.py`. This is a public contract

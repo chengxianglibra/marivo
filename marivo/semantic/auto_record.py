@@ -1,6 +1,6 @@
 """Auto-record authoring decisions in the evidence ledger.
 
-When a developer declares @ms.metric or @ms.time_field in _model.py,
+When a developer declares @ms.metric or @ms.time_dimension in _domain.py,
 the declaration itself constitutes a decision. This module records
 corresponding DecisionRecords in the evidence ledger so the readiness
 gate sees them without requiring the propose-answer loop."""
@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from marivo.semantic.classifier import DecisionKind, floor_for
-from marivo.semantic.ir import FieldIR, MetricIR
+from marivo.semantic.ir import DimensionIR, MetricIR
 from marivo.semantic.ledger import DecisionRecord, LedgerStore, ObjectEvidence
 
 _AUTHORING_QUALIFYING_SOURCE = "authoring_declaration"
@@ -34,10 +34,10 @@ def _authoring_fingerprint_for_metric(ir: MetricIR) -> str:
     return f"sha256:{digest}"
 
 
-def _authoring_fingerprint_for_time_field(ir: FieldIR) -> str:
+def _authoring_fingerprint_for_time_field(ir: DimensionIR) -> str:
     payload = {
         "semantic_id": ir.semantic_id,
-        "dataset": ir.dataset,
+        "entity": ir.dataset,
         "data_type": ir.data_type,
         "granularity": ir.granularity,
         "timezone": ir.timezone,
@@ -59,9 +59,9 @@ def _metric_chosen(ir: MetricIR) -> dict[str, object]:
     }
 
 
-def _time_field_chosen(ir: FieldIR) -> dict[str, object]:
+def _time_field_chosen(ir: DimensionIR) -> dict[str, object]:
     return {
-        "dataset": ir.dataset,
+        "entity": ir.dataset,
         "name": ir.name,
         "data_type": ir.data_type,
         "granularity": ir.granularity,
@@ -120,7 +120,7 @@ def auto_record_authoring_decisions(
     """Auto-record DecisionRecords for authored metrics and time fields.
 
     For each MetricIR, record a metric_decomposition decision. For each
-    time_field FieldIR, record a time_field_identity decision. Idempotent:
+    time_field DimensionIR, record a time_field_identity decision. Idempotent:
     existing decisions (from prior auto-record or manual write) are preserved.
     When a definition changes, the old authoring auto-record is replaced.
     """
@@ -146,7 +146,7 @@ def auto_record_authoring_decisions(
         _auto_record_if_missing(
             store=store,
             semantic_id=field_ir.semantic_id,
-            decision_kind="time_field_identity",
+            decision_kind="time_dimension_identity",
             chosen=_time_field_chosen(field_ir),
             evidence_fingerprint=_authoring_fingerprint_for_time_field(field_ir),
             decided_at=decided_at,

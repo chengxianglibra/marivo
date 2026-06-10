@@ -10,7 +10,7 @@ from typing import Any, Literal
 from marivo.analysis.datasources import backends as _backends
 from marivo.analysis.datasources import store as _store
 from marivo.analysis.errors import DatasourceMetadataError
-from marivo.semantic.ir import DatasetSourceIR, FileSourceIR, TableSourceIR, source_name
+from marivo.semantic.ir import EntitySourceIR, FileSourceIR, TableSourceIR, source_name
 
 MetadataWarningKind = Literal[
     "comments_unavailable",
@@ -1000,7 +1000,7 @@ def inspect_table(
 def inspect_source(
     datasource: str,
     *,
-    source: DatasetSourceIR,
+    source: EntitySourceIR,
     include_partitions: bool = True,
 ) -> TableMetadata:
     if isinstance(source, TableSourceIR):

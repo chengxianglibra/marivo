@@ -51,10 +51,10 @@ from marivo.semantic.errors import (
     _raise,
 )
 from marivo.semantic.ir import (
-    DatasetIR,
-    DatasetProvenance,
-    FieldIR,
-    FieldKind,
+    DimensionIR,
+    DimensionKind,
+    EntityIR,
+    EntityProvenance,
     MetricIR,
     ParityStatus,
     RelationshipIR,
@@ -136,7 +136,7 @@ class DatasetSummary:
     name: str
     datasource: str
     description: str | None
-    dataset_provenance: DatasetProvenance | None  # None = not yet materialized
+    dataset_provenance: EntityProvenance | None  # None = not yet materialized
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.semantic_id!r})"
@@ -169,7 +169,7 @@ class FieldSummary:
     name: str
     description: str | None
     is_time_field: bool
-    kind: FieldKind
+    kind: DimensionKind
     data_type: str | None
     granularity: str | None
     is_default: bool
@@ -307,7 +307,7 @@ class Description:
     dependencies: tuple[str, ...]
     dependents: tuple[str, ...]
     source_location: SourceLocation | DatasourceSourceLocation
-    dataset_provenance: DatasetProvenance | None
+    dataset_provenance: EntityProvenance | None
     primary_key: tuple[str, ...] | None
     granularity: str | None
     required_prefix: str | None
@@ -643,15 +643,13 @@ class SemanticProject:
         for model_ir in reg.models.values():
             # Compute object counts for this model
             obj_counts: dict[str, int] = {}
-            obj_counts["dataset"] = sum(
-                1 for d in reg.datasets.values() if d.model == model_ir.name
-            )
-            obj_counts["field"] = sum(
+            obj_counts["entity"] = sum(1 for d in reg.datasets.values() if d.model == model_ir.name)
+            obj_counts["dimension"] = sum(
                 1
                 for f in reg.fields.values()
                 if f.dataset.startswith(f"{model_ir.name}.") and not f.is_time_field
             )
-            obj_counts["time_field"] = sum(
+            obj_counts["time_dimension"] = sum(
                 1
                 for f in reg.fields.values()
                 if f.dataset.startswith(f"{model_ir.name}.") and f.is_time_field
@@ -729,7 +727,7 @@ class SemanticProject:
     ) -> DiscoveryResult[FieldSummary]:
         """Return field summaries, optionally filtered by model or dataset.
 
-        Fields are all @ms.field declarations that are not time fields.
+        Fields are all @ms.dimension declarations that are not time fields.
         For time fields, use list_time_fields().
 
         Args:
@@ -882,7 +880,7 @@ class SemanticProject:
 
     # -- single-object accessors -------------------------------------------
 
-    def get_dataset(self, name: str) -> DatasetIR | None:
+    def get_dataset(self, name: str) -> EntityIR | None:
         """Return a dataset IR by semantic_id, or None if not found."""
         reg = _require_registry(self._registry, project=self)
         return reg.datasets.get(name)
@@ -896,7 +894,7 @@ class SemanticProject:
             return self._registry.datasources.get(name)
         return None
 
-    def get_field(self, name: str) -> FieldIR | None:
+    def get_field(self, name: str) -> DimensionIR | None:
         """Return a field IR by semantic_id, or None if not found."""
         reg = _require_registry(self._registry, project=self)
         return reg.fields.get(name)
@@ -953,7 +951,7 @@ class SemanticProject:
                     )
 
         # Search datasets
-        if kind is None or kind == SymbolKind.DATASET:
+        if kind is None or kind == SymbolKind.ENTITY:
             for sid, dt_ir in reg.datasets.items():
                 match = _search_match(
                     query,
@@ -968,14 +966,14 @@ class SemanticProject:
                     results.append(
                         SearchHit(
                             semantic_id=sid,
-                            kind=SymbolKind.DATASET,
+                            kind=SymbolKind.ENTITY,
                             matched_field=match[0],
                             matched_snippet=match[1],
                         )
                     )
 
         # Search fields (non-time)
-        if kind is None or kind == SymbolKind.FIELD:
+        if kind is None or kind == SymbolKind.DIMENSION:
             for sid, f_ir in reg.fields.items():
                 if f_ir.is_time_field:
                     continue
@@ -992,14 +990,14 @@ class SemanticProject:
                     results.append(
                         SearchHit(
                             semantic_id=sid,
-                            kind=SymbolKind.FIELD,
+                            kind=SymbolKind.DIMENSION,
                             matched_field=match[0],
                             matched_snippet=match[1],
                         )
                     )
 
         # Search time fields
-        if kind is None or kind == SymbolKind.TIME_FIELD:
+        if kind is None or kind == SymbolKind.TIME_DIMENSION:
             for sid, f_ir in reg.fields.items():
                 if not f_ir.is_time_field:
                     continue
@@ -1016,7 +1014,7 @@ class SemanticProject:
                     results.append(
                         SearchHit(
                             semantic_id=sid,
-                            kind=SymbolKind.TIME_FIELD,
+                            kind=SymbolKind.TIME_DIMENSION,
                             matched_field=match[0],
                             matched_snippet=match[1],
                         )
@@ -1082,13 +1080,13 @@ class SemanticProject:
         # Check if it is a field
         field_ir = reg.fields.get(name)
         if field_ir is not None:
-            kind = SymbolKind.TIME_FIELD if field_ir.is_time_field else SymbolKind.FIELD
+            kind = SymbolKind.TIME_DIMENSION if field_ir.is_time_field else SymbolKind.DIMENSION
             ds_child: tuple[DependencyNode, ...] = ()
             if reg.datasets.get(field_ir.dataset) is not None:
                 ds_child = (
                     DependencyNode(
                         semantic_id=field_ir.dataset,
-                        kind=SymbolKind.DATASET,
+                        kind=SymbolKind.ENTITY,
                         children=(),
                     ),
                 )
@@ -1140,7 +1138,7 @@ class SemanticProject:
     def _build_deps_dataset(
         self,
         name: str,
-        dataset_ir: DatasetIR,
+        dataset_ir: EntityIR,
         reg: Registry,
         *,
         _visited: set[str] | None = None,
@@ -1148,7 +1146,7 @@ class SemanticProject:
         """Build dependency tree for a dataset."""
         visited = _visited if _visited is not None else set()
         if name in visited:
-            return DependencyNode(semantic_id=name, kind=SymbolKind.DATASET, children=())
+            return DependencyNode(semantic_id=name, kind=SymbolKind.ENTITY, children=())
         visited.add(name)
 
         children: list[DependencyNode] = []
@@ -1165,7 +1163,7 @@ class SemanticProject:
 
         return DependencyNode(
             semantic_id=name,
-            kind=SymbolKind.DATASET,
+            kind=SymbolKind.ENTITY,
             children=tuple(children),
         )
 
@@ -1180,7 +1178,7 @@ class SemanticProject:
         for ds_ref in (rel_ir.from_dataset, rel_ir.to_dataset):
             if reg.datasets.get(ds_ref) is not None:
                 children.append(
-                    DependencyNode(semantic_id=ds_ref, kind=SymbolKind.DATASET, children=())
+                    DependencyNode(semantic_id=ds_ref, kind=SymbolKind.ENTITY, children=())
                 )
         return DependencyNode(
             semantic_id=name,
@@ -1233,7 +1231,7 @@ class SemanticProject:
                 )
         for f_id, f_ir in reg.fields.items():
             if f_ir.dataset == name:
-                kind = SymbolKind.TIME_FIELD if f_ir.is_time_field else SymbolKind.FIELD
+                kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_field else SymbolKind.DIMENSION
                 ds_children.append(
                     DependencyNode(
                         semantic_id=f_id,
@@ -1243,14 +1241,14 @@ class SemanticProject:
                 )
         return DependencyNode(
             semantic_id=name,
-            kind=SymbolKind.DATASET,
+            kind=SymbolKind.ENTITY,
             children=tuple(ds_children),
         )
 
     def _dependents_field(self, name: str, reg: Registry) -> DependencyNode:
         """Build dependents tree for a field/time_field."""
         f_ir = reg.fields[name]
-        kind = SymbolKind.TIME_FIELD if f_ir.is_time_field else SymbolKind.FIELD
+        kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_field else SymbolKind.DIMENSION
         return DependencyNode(semantic_id=name, kind=kind, children=())
 
     def _dependents_metric(self, name: str, reg: Registry) -> DependencyNode:
@@ -1351,8 +1349,8 @@ class SemanticProject:
         dep_of_names = sorted(self._flatten_ids(self.dependents(name)))
 
         # Dataset provenance
-        ds_provenance: DatasetProvenance | None = None
-        if isinstance(obj, DatasetIR):
+        ds_provenance: EntityProvenance | None = None
+        if isinstance(obj, EntityIR):
             meta = self._runtime_metadata.get(obj.semantic_id)
             if meta is not None:
                 ds_provenance = meta.dataset_provenance
@@ -1383,10 +1381,10 @@ class SemanticProject:
             dependents=tuple(dep_of_names),
             source_location=obj.location,
             dataset_provenance=ds_provenance,
-            primary_key=obj.primary_key if isinstance(obj, DatasetIR) else None,
-            granularity=obj.granularity if isinstance(obj, FieldIR) else None,
-            required_prefix=obj.required_prefix if isinstance(obj, FieldIR) else None,
-            format=obj.format if isinstance(obj, FieldIR) else None,
+            primary_key=obj.primary_key if isinstance(obj, EntityIR) else None,
+            granularity=obj.granularity if isinstance(obj, DimensionIR) else None,
+            required_prefix=obj.required_prefix if isinstance(obj, DimensionIR) else None,
+            format=obj.format if isinstance(obj, DimensionIR) else None,
             from_dataset=obj.from_dataset if isinstance(obj, RelationshipIR) else None,
             to_dataset=obj.to_dataset if isinstance(obj, RelationshipIR) else None,
             from_fields=obj.from_fields if isinstance(obj, RelationshipIR) else None,
@@ -1632,8 +1630,8 @@ class SemanticProject:
         field_ir = reg.fields.get(name)
         if field_ir is None:
             _raise(
-                ErrorKind.FIELD_NOT_FOUND,
-                f"Field {name!r} not found in registry.",
+                ErrorKind.DIMENSION_NOT_FOUND,
+                f"Dimension {name!r} not found in registry.",
                 cls=SemanticRuntimeError,
                 refs=(name,),
             )
@@ -1880,7 +1878,7 @@ class SemanticProject:
 
     # -- authoring evidence -------------------------------------------------
 
-    def _datasets_by_source(self, datasource: str, source: DatasetSource) -> tuple[DatasetIR, ...]:
+    def _datasets_by_source(self, datasource: str, source: DatasetSource) -> tuple[EntityIR, ...]:
         reg = self._registry
         if reg is None:
             return ()
@@ -2069,7 +2067,7 @@ class SemanticProject:
         name: str,
         reg: Registry,
         kind: SymbolKind | None = None,
-    ) -> DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR | None:
+    ) -> EntityIR | DatasourceIR | DimensionIR | MetricIR | RelationshipIR | None:
         """Look up an IR object by semantic_id.
 
         When kind is given, search only the matching collection.
@@ -2080,16 +2078,16 @@ class SemanticProject:
         if kind is not None:
             collection_map: dict[SymbolKind, dict[str, Any]] = {
                 SymbolKind.DATASOURCE: reg.datasources,
-                SymbolKind.DATASET: reg.datasets,
-                SymbolKind.FIELD: reg.fields,
-                SymbolKind.TIME_FIELD: reg.fields,
+                SymbolKind.ENTITY: reg.datasets,
+                SymbolKind.DIMENSION: reg.fields,
+                SymbolKind.TIME_DIMENSION: reg.fields,
                 SymbolKind.METRIC: reg.metrics,
                 SymbolKind.RELATIONSHIP: reg.relationships,
             }
             collection = collection_map.get(kind)
             if collection is not None and name in collection:
                 return cast(
-                    "DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR",
+                    "EntityIR | DatasourceIR | DimensionIR | MetricIR | RelationshipIR",
                     collection[name],
                 )
             return None
@@ -2097,8 +2095,8 @@ class SemanticProject:
         matches: list[tuple[SymbolKind, Any]] = []
         search_order: list[tuple[SymbolKind, dict[str, Any]]] = [
             (SymbolKind.DATASOURCE, reg.datasources),
-            (SymbolKind.DATASET, reg.datasets),
-            (SymbolKind.FIELD, reg.fields),
+            (SymbolKind.ENTITY, reg.datasets),
+            (SymbolKind.DIMENSION, reg.fields),
             (SymbolKind.METRIC, reg.metrics),
             (SymbolKind.RELATIONSHIP, reg.relationships),
         ]
@@ -2106,8 +2104,8 @@ class SemanticProject:
             if name in collection:
                 obj = collection[name]
                 actual_kind = (
-                    SymbolKind.TIME_FIELD
-                    if isinstance(obj, FieldIR) and obj.is_time_field
+                    SymbolKind.TIME_DIMENSION
+                    if isinstance(obj, DimensionIR) and obj.is_time_field
                     else sym_kind
                 )
                 matches.append((actual_kind, obj))
@@ -2115,7 +2113,7 @@ class SemanticProject:
             return None
         if len(matches) == 1:
             return cast(
-                "DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR", matches[0][1]
+                "EntityIR | DatasourceIR | DimensionIR | MetricIR | RelationshipIR", matches[0][1]
             )
         candidates = [(mk, obj.semantic_id) for mk, obj in matches]
         _raise(
@@ -2128,26 +2126,28 @@ class SemanticProject:
         )
 
     @staticmethod
-    def _ir_kind(obj: DatasetIR | DatasourceIR | FieldIR | MetricIR | RelationshipIR) -> SymbolKind:
+    def _ir_kind(
+        obj: EntityIR | DatasourceIR | DimensionIR | MetricIR | RelationshipIR,
+    ) -> SymbolKind:
         """Return the SymbolKind for an IR object."""
         if isinstance(obj, DatasourceIR):
             return SymbolKind.DATASOURCE
-        if isinstance(obj, DatasetIR):
-            return SymbolKind.DATASET
-        if isinstance(obj, FieldIR):
-            return SymbolKind.TIME_FIELD if obj.is_time_field else SymbolKind.FIELD
+        if isinstance(obj, EntityIR):
+            return SymbolKind.ENTITY
+        if isinstance(obj, DimensionIR):
+            return SymbolKind.TIME_DIMENSION if obj.is_time_field else SymbolKind.DIMENSION
         if isinstance(obj, MetricIR):
             return SymbolKind.METRIC
         if isinstance(obj, RelationshipIR):
             return SymbolKind.RELATIONSHIP
-        return SymbolKind.MODEL  # fallback, should not happen
+        return SymbolKind.DOMAIN  # fallback, should not happen
 
     _KIND_TO_NOT_FOUND: ClassVar[dict[SymbolKind, ErrorKind]] = {
         SymbolKind.DATASOURCE: ErrorKind.NOT_FOUND,
-        SymbolKind.DATASET: ErrorKind.DATASET_NOT_FOUND,
-        SymbolKind.FIELD: ErrorKind.FIELD_NOT_FOUND,
-        SymbolKind.TIME_FIELD: ErrorKind.FIELD_NOT_FOUND,
+        SymbolKind.ENTITY: ErrorKind.ENTITY_NOT_FOUND,
+        SymbolKind.DIMENSION: ErrorKind.DIMENSION_NOT_FOUND,
+        SymbolKind.TIME_DIMENSION: ErrorKind.DIMENSION_NOT_FOUND,
         SymbolKind.METRIC: ErrorKind.METRIC_NOT_FOUND,
         SymbolKind.RELATIONSHIP: ErrorKind.NOT_FOUND,
-        SymbolKind.MODEL: ErrorKind.NOT_FOUND,
+        SymbolKind.DOMAIN: ErrorKind.NOT_FOUND,
     }

@@ -43,30 +43,30 @@ def _bootstrap(tmp_path, *, root: str = "orders"):
         "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     root_line = "root_dataset=orders" if root == "orders" else "root_dataset=users"
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "users = ms.dataset(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def channel(orders):\n"
         "    return orders.channel\n"
-        "@ms.field(dataset=users)\n"
+        "@ms.dimension(dataset=users)\n"
         "def user_id(users):\n"
         "    return users.user_id\n"
-        "@ms.field(dataset=users)\n"
+        "@ms.dimension(dataset=users)\n"
         "def tier(users):\n"
         "    return users.tier\n"
-        "@ms.field(dataset=users)\n"
+        "@ms.dimension(dataset=users)\n"
         "def country(users):\n"
         "    return users.country\n"
         "@ms.metric(\n"
@@ -164,8 +164,8 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
         "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     # Use field names that match primary_key columns for join safety detection:
     # orders.primary_key=['order_id'] -> need field.name='order_id'
@@ -173,18 +173,18 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
     #   order_items.order_id is NOT a key -> one-to-many from orders
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "order_items = ms.dataset(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "order_items = ms.entity(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def order_id(orders):\n"
         "    return orders.order_id\n"
-        "@ms.field(dataset=order_items)\n"
+        "@ms.dimension(dataset=order_items)\n"
         "def item_order_id(order_items):\n"
         "    return order_items.order_id\n"
-        "@ms.field(dataset=order_items)\n"
+        "@ms.dimension(dataset=order_items)\n"
         "def item_name(order_items):\n"
         "    return order_items.name\n"
         "@ms.metric(\n"
@@ -243,32 +243,32 @@ def _bootstrap_snapshot(tmp_path):
         "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
-        "orders = ms.dataset(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "user_profile_daily = ms.dataset(\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "user_profile_daily = ms.entity(\n"
         "    name='user_profile_daily',\n"
         "    datasource='warehouse',\n"
         "    source=ms.table('user_profile_daily'),\n"
         "    primary_key=['user_id', 'dt'],\n"
         "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='Asia/Shanghai', format='%Y%m%d'),\n"
         ")\n"
-        "@ms.time_field(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
-        "@ms.field(dataset=orders)\n"
+        "@ms.dimension(dataset=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def user_id(user_profile_daily):\n"
         "    return user_profile_daily.user_id\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def dt(user_profile_daily):\n"
         "    return user_profile_daily.dt\n"
-        "@ms.field(dataset=user_profile_daily)\n"
+        "@ms.dimension(dataset=user_profile_daily)\n"
         "def tier(user_profile_daily):\n"
         "    return user_profile_daily.tier\n"
         "@ms.metric(\n"

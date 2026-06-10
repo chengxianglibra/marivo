@@ -107,7 +107,7 @@ def test_ledger_store_read_object_reports_invalid_blast_radius_path(tmp_path) ->
 
 def test_rejected_candidate_round_trips_through_dict() -> None:
     rec = lg.RejectedCandidate(
-        decision_kind="time_field_identity",
+        decision_kind="time_dimension_identity",
         candidate="dt",
         reason="comment: partition load date",
         evidence_fingerprint="sha256:q",
@@ -190,7 +190,7 @@ def test_ledger_types_exported():
 
 def test_decision_record_persists_fingerprint_inputs():
     rec = lg.DecisionRecord(
-        decision_kind="time_field_identity",
+        decision_kind="time_dimension_identity",
         chosen="paid_at",
         agreement_confidence="high",
         qualifying_sources=("comment",),
@@ -259,7 +259,7 @@ def _decision(
             "source": {"kind": "table", "table": "orders", "database": None},
         }
     return lg.DecisionRecord(
-        decision_kind="field_meaning",
+        decision_kind="dimension_meaning",
         chosen="paid",
         agreement_confidence="high",
         qualifying_sources=("comment",),

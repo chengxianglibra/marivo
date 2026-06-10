@@ -115,7 +115,7 @@ md.datasource(warehouse)
 DuckDB database-file tables use table sources:
 
 ```python
-orders = ms.dataset(
+orders = ms.entity(
     name="orders",
     datasource=warehouse,
     source=ms.table("orders"),
@@ -125,7 +125,7 @@ orders = ms.dataset(
 DuckDB external files use file sources:
 
 ```python
-orders = ms.dataset(
+orders = ms.entity(
     name="orders",
     datasource=warehouse,
     source=ms.file("/data/orders/*.parquet", format="parquet"),
@@ -164,7 +164,7 @@ metadata = mv.datasources.inspect_source(
     "warehouse",
     source=ms.table("orders", database="sales_mart"),
 )
-orders = ms.dataset(
+orders = ms.entity(
     name="orders",
     datasource=warehouse,
     source=ms.table("orders", database="sales_mart"),
@@ -188,7 +188,7 @@ Do not cast a Trino VARCHAR datetime directly to date. Parse through timestamp
 first:
 
 ```python
-@ms.time_field(dataset=orders, data_type="date", granularity="day")
+@ms.time_dimension(dataset=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```

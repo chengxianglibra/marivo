@@ -29,7 +29,7 @@ class ConstraintId(StrEnum):
     """Stable identifiers for semantic constraints."""
 
     ACTIVE_LOADER_CONTEXT = "active_loader_context"
-    ACTIVE_MODEL_REQUIRED = "active_model_required"
+    ACTIVE_DOMAIN_REQUIRED = "active_domain_required"
     UNIQUE_SEMANTIC_NAME = "unique_semantic_name"
     REF_SHAPE = "ref_shape"
     DECOMPOSITION_SHAPE = "decomposition_shape"
@@ -39,23 +39,23 @@ class ConstraintId(StrEnum):
     AST_SINGLE_RETURN = "ast_single_return"
     AST_FORBIDDEN_STATEMENT = "ast_forbidden_statement"
     AST_SQL_ESCAPE_HATCH = "ast_sql_escape_hatch"
-    MODEL_FILE_PRESENT = "model_file_present"
-    MODEL_FILE_MATCHES_DIRECTORY = "model_file_matches_directory"
-    DATASET_REF_EXISTS = "dataset_ref_exists"
-    FIELD_REF_EXISTS = "field_ref_exists"
+    DOMAIN_FILE_PRESENT = "domain_file_present"
+    DOMAIN_FILE_MATCHES_DIRECTORY = "domain_file_matches_directory"
+    ENTITY_REF_EXISTS = "entity_ref_exists"
+    DIMENSION_REF_EXISTS = "dimension_ref_exists"
     METRIC_REF_EXISTS = "metric_ref_exists"
     METRIC_GRAPH_ACYCLIC = "metric_graph_acyclic"
-    HOUR_TIME_FIELD_PREFIX = "hour_time_field_prefix"
+    HOUR_TIME_DIMENSION_PREFIX = "hour_time_dimension_prefix"
     SUBDAY_GRANULARITY_WITHOUT_TIME = "subday_granularity_without_time"
-    TIME_FIELD_PARTITION_PUSHDOWN = "time_field_partition_pushdown"
-    TIME_FIELD_DTYPE_COMPAT = "time_field_dtype_compat"
-    TIME_FIELD_DEFAULT_UNIQUE = "time_field_default_unique"
+    TIME_DIMENSION_PARTITION_PUSHDOWN = "time_dimension_partition_pushdown"
+    TIME_DIMENSION_DTYPE_COMPAT = "time_dimension_dtype_compat"
+    TIME_DIMENSION_DEFAULT_UNIQUE = "time_dimension_default_unique"
     RELATIONSHIP_ENDPOINTS = "relationship_endpoints"
     PROJECT_ORGANIZATION = "project_organization"
     PROJECT_ROOT_VALID = "project_root_valid"
     METRIC_EXISTS = "metric_exists"
-    DATASET_EXISTS = "dataset_exists"
-    FIELD_EXISTS = "field_exists"
+    ENTITY_EXISTS = "entity_exists"
+    DIMENSION_EXISTS = "dimension_exists"
     SYMBOL_EXISTS = "symbol_exists"
     METRIC_ADDITIVITY_REQUIRED = "metric_additivity_required"
     METRIC_ROOT_DATASET_REQUIRED = "metric_root_dataset_required"
@@ -64,7 +64,7 @@ class ConstraintId(StrEnum):
     METRIC_ROOT_ONLY_AGGREGATE = "metric_root_only_aggregate"
     METRIC_FANOUT_POLICY_VALID = "metric_fanout_policy_valid"
     METRIC_FANOUT_POLICY_DERIVED = "metric_fanout_policy_derived"
-    DATASET_VERSIONING_VALID = "dataset_versioning_valid"
+    ENTITY_VERSIONING_VALID = "entity_versioning_valid"
     MATERIALIZE_EXECUTION = "materialize_execution"
     BACKEND_DIALECT_MATCH = "backend_dialect_match"
     COMPILE_EXPRESSION = "compile_expression"
@@ -151,10 +151,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "outside_loader_context",
         "decorator",
         (
-            "model",
-            "dataset",
-            "field",
-            "time_field",
+            "domain",
+            "entity",
+            "dimension",
+            "time_dimension",
             "metric",
             "derived_metric",
             "relationship",
@@ -162,37 +162,45 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Decorators require an active semantic loader context.",
         "Semantic declarations register into the project loader registry, not global process state.",
         "Put declarations under .marivo/semantic/<model>/ and load them with SemanticProject.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
-    ConstraintId.ACTIVE_MODEL_REQUIRED: _constraint(
-        ConstraintId.ACTIVE_MODEL_REQUIRED,
-        "missing_model",
+    ConstraintId.ACTIVE_DOMAIN_REQUIRED: _constraint(
+        ConstraintId.ACTIVE_DOMAIN_REQUIRED,
+        "missing_domain",
         "decorator",
-        ("dataset", "field", "time_field", "metric", "derived_metric", "relationship"),
-        "Declarations need a model namespace.",
-        "Every semantic object is stored as <model>.<name>.",
-        "Call ms.model(name=...) in _model.py or pass model=... explicitly.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        ("entity", "dimension", "time_dimension", "metric", "derived_metric", "relationship"),
+        "Declarations need a domain namespace.",
+        "Every semantic object is stored as <domain>.<name>.",
+        "Call ms.domain(name=...) in _domain.py or pass domain=... explicitly.",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.UNIQUE_SEMANTIC_NAME: _constraint(
         ConstraintId.UNIQUE_SEMANTIC_NAME,
         "duplicate_name",
         "decorator",
-        ("model", "dataset", "field", "time_field", "metric", "derived_metric", "relationship"),
-        "Names must be unique within their kind scope. Fields and time fields are scoped to their dataset.",
-        "Duplicate semantic ids within the same kind make registry lookups ambiguous. Fields are dataset-scoped; datasets and metrics are model-scoped within their own kind.",
-        "Rename one object, move it to a different dataset (for fields), or use a different model namespace.",
+        (
+            "domain",
+            "entity",
+            "dimension",
+            "time_dimension",
+            "metric",
+            "derived_metric",
+            "relationship",
+        ),
+        "Names must be unique within their kind scope. Dimensions and time dimensions are scoped to their entity.",
+        "Duplicate semantic ids within the same kind make registry lookups ambiguous. Dimensions are entity-scoped; entities and metrics are domain-scoped within their own kind.",
+        "Rename one object, move it to a different entity (for dimensions), or use a different domain namespace.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.REF_SHAPE: _constraint(
         ConstraintId.REF_SHAPE,
         "invalid_ref",
         "decorator",
-        ("dataset", "field", "time_field", "metric", "relationship", "ref"),
+        ("entity", "dimension", "time_dimension", "metric", "relationship", "ref"),
         "References must be strings or decorator-returned refs.",
         "The loader persists semantic ids, not arbitrary Python objects.",
-        "Use datasource names as strings and DatasetRef/FieldRef/MetricRef values returned by decorators.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        "Use datasource names as strings and EntityRef/DimensionRef/MetricRef values returned by decorators.",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.DECOMPOSITION_SHAPE: _constraint(
         ConstraintId.DECOMPOSITION_SHAPE,
@@ -202,7 +210,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metrics need a supported decomposition builder.",
         "Decomposition declares how metric values compose during drilldown and derived calculations.",
         "Run ms.help('decomposition') to inspect supported builders; SQL aggregation belongs in the metric body.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.METRIC_DATASETS_REQUIRED: _constraint(
         ConstraintId.METRIC_DATASETS_REQUIRED,
@@ -212,7 +220,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Base metrics must declare at least one dataset.",
         "Dataset-backed metrics read source rows from their declared dataset arguments.",
         "Base metrics need datasets=[...]; use ms.derived_metric(...) for metrics composed from other metrics.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.METRIC_COMPONENT_SCOPE: _constraint(
         ConstraintId.METRIC_COMPONENT_SCOPE,
@@ -222,13 +230,13 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ms.component() is no longer supported in metric bodies.",
         "Derived metrics are body-free and declare composition through ms.derived_metric(...).",
         "Remove ms.component() calls; use ms.derived_metric(...) with decomposition metadata instead.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.AI_CONTEXT_SCHEMA: _constraint(
         ConstraintId.AI_CONTEXT_SCHEMA,
         "invalid_ai_context",
         "decorator",
-        ("model", "dataset", "field", "time_field", "metric", "relationship"),
+        ("domain", "entity", "dimension", "time_dimension", "metric", "relationship"),
         "ai_context must use the supported schema.",
         "Agent-facing metadata is persisted in a stable IR shape.",
         "Use business_definition, guardrails, synonyms, examples, instructions, and owner_notes.",
@@ -238,72 +246,72 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.AST_SINGLE_RETURN,
         "metric_body_not_single_return",
         "ast",
-        ("dataset", "field", "time_field", "metric"),
+        ("entity", "dimension", "time_dimension", "metric"),
         "Decorator function bodies must be a single return expression.",
         "The body is captured as a restricted expression DSL, not arbitrary Python.",
         "Inline the expression directly as return <ibis expression>.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_FORBIDDEN_STATEMENT: _constraint(
         ConstraintId.AST_FORBIDDEN_STATEMENT,
         "invalid_component_body",
         "ast",
-        ("dataset", "field", "time_field", "metric"),
+        ("entity", "dimension", "time_dimension", "metric"),
         "Decorator bodies cannot contain statements, imports, assignments, lambdas, or nested definitions.",
         "Only deterministic expression bodies can be stored and recompiled safely.",
         "Move setup outside the decorator body and keep the body to one return expression.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_SQL_ESCAPE_HATCH: _constraint(
         ConstraintId.AST_SQL_ESCAPE_HATCH,
         "sql_escape_hatch",
         "ast",
-        ("dataset", "field", "time_field", "metric"),
+        ("entity", "dimension", "time_dimension", "metric"),
         "Raw SQL calls are not allowed in Python-track expression bodies.",
         "The Python semantic track stores ibis expressions; SQL text is provenance only.",
         "Use ibis expressions in the body and put the original SQL in source_sql= on metrics.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
-    ConstraintId.MODEL_FILE_PRESENT: _constraint(
-        ConstraintId.MODEL_FILE_PRESENT,
-        "model_file_missing",
+    ConstraintId.DOMAIN_FILE_PRESENT: _constraint(
+        ConstraintId.DOMAIN_FILE_PRESENT,
+        "domain_file_missing",
         "assembly",
-        ("model",),
-        "Each model directory needs a _model.py file that calls ms.model().",
-        "The loader uses _model.py to establish the model namespace.",
-        "Create .marivo/semantic/<model>/_model.py with ms.model(name='<model>').",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        ("domain",),
+        "Each domain directory needs a _domain.py file that calls ms.domain().",
+        "The loader uses _domain.py to establish the domain namespace.",
+        "Create .marivo/semantic/<domain>/_domain.py with ms.domain(name='<domain>').",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
-    ConstraintId.MODEL_FILE_MATCHES_DIRECTORY: _constraint(
-        ConstraintId.MODEL_FILE_MATCHES_DIRECTORY,
-        "model_file_mismatch",
+    ConstraintId.DOMAIN_FILE_MATCHES_DIRECTORY: _constraint(
+        ConstraintId.DOMAIN_FILE_MATCHES_DIRECTORY,
+        "domain_file_mismatch",
         "assembly",
-        ("model",),
-        "The model name must match its directory.",
-        "Directory names define stable model namespaces on disk.",
-        "Rename the directory or update ms.model(name=...) so they match.",
+        ("domain",),
+        "The domain name must match its directory.",
+        "Directory names define stable domain namespaces on disk.",
+        "Rename the directory or update ms.domain(name=...) so they match.",
     ),
-    ConstraintId.DATASET_REF_EXISTS: _constraint(
-        ConstraintId.DATASET_REF_EXISTS,
-        "missing_dataset_ref",
+    ConstraintId.ENTITY_REF_EXISTS: _constraint(
+        ConstraintId.ENTITY_REF_EXISTS,
+        "missing_entity_ref",
         "assembly",
-        ("dataset", "field", "time_field", "metric"),
-        "Dataset and datasource references must resolve.",
-        "Semantic objects compile through registered datasource and dataset ids.",
-        "Reference a declared datasource name or DatasetRef/qualified dataset id.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        ("entity", "dimension", "time_dimension", "metric"),
+        "Entity and datasource references must resolve.",
+        "Semantic objects compile through registered datasource and entity ids.",
+        "Reference a declared datasource name or EntityRef/qualified entity id.",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
-    ConstraintId.FIELD_REF_EXISTS: _constraint(
-        ConstraintId.FIELD_REF_EXISTS,
-        "missing_field_ref",
+    ConstraintId.DIMENSION_REF_EXISTS: _constraint(
+        ConstraintId.DIMENSION_REF_EXISTS,
+        "missing_dimension_ref",
         "assembly",
-        ("field", "time_field", "relationship"),
-        "Field references must resolve.",
-        "Relationships and time prefixes need registered field ids.",
-        "Reference a declared FieldRef/TimeFieldRef or qualified field id.",
+        ("dimension", "time_dimension", "relationship"),
+        "Dimension references must resolve.",
+        "Relationships and time prefixes need registered dimension ids.",
+        "Reference a declared DimensionRef/TimeDimensionRef or qualified dimension id.",
     ),
     ConstraintId.METRIC_REF_EXISTS: _constraint(
         ConstraintId.METRIC_REF_EXISTS,
@@ -313,7 +321,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metric component references must resolve.",
         "Derived metrics compose existing metrics.",
         "Reference a declared MetricRef or qualified metric id in decomposition components.",
-        example=f"{_EXAMPLE_BASE}/01_single_model_file.py",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.METRIC_GRAPH_ACYCLIC: _constraint(
         ConstraintId.METRIC_GRAPH_ACYCLIC,
@@ -324,63 +332,63 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Cycles cannot be compiled into a finite metric expression.",
         "Remove the circular component reference chain.",
     ),
-    ConstraintId.HOUR_TIME_FIELD_PREFIX: _constraint(
-        ConstraintId.HOUR_TIME_FIELD_PREFIX,
-        "hour_time_field_prefix_missing",
+    ConstraintId.HOUR_TIME_DIMENSION_PREFIX: _constraint(
+        ConstraintId.HOUR_TIME_DIMENSION_PREFIX,
+        "hour_time_dimension_prefix_missing",
         "assembly",
-        ("time_field",),
-        "Hour-only string/integer time fields need a day-level required_prefix.",
+        ("time_dimension",),
+        "Hour-only string/integer time dimensions need a day-level required_prefix.",
         "A standalone hour value is not a complete time axis.",
-        "Set required_prefix to a registered day-level time field.",
+        "Set required_prefix to a registered day-level time dimension.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME: _constraint(
         ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME,
         "subday_granularity_without_time",
         "assembly",
-        ("time_field",),
+        ("time_dimension",),
         "Sub-day granularity requires a time-bearing data_type.",
-        "A time field declaring hour/minute/second granularity on data_type='date' cannot carry time-of-day information; string/integer formats that lack hour/minute/second tokens likewise cannot.",
+        "A time dimension declaring hour/minute/second granularity on data_type='date' cannot carry time-of-day information; string/integer formats that lack hour/minute/second tokens likewise cannot.",
         "Use data_type='datetime'/'timestamp', or a time-bearing string/integer format like yyyymmddhhmm.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
-    ConstraintId.TIME_FIELD_PARTITION_PUSHDOWN: _constraint(
-        ConstraintId.TIME_FIELD_PARTITION_PUSHDOWN,
-        "time_field_pushdown_advisory",
+    ConstraintId.TIME_DIMENSION_PARTITION_PUSHDOWN: _constraint(
+        ConstraintId.TIME_DIMENSION_PARTITION_PUSHDOWN,
+        "time_dimension_pushdown_advisory",
         "assembly",
-        ("time_field",),
-        "Partition time fields should preserve raw sortable encodings when possible.",
+        ("time_dimension",),
+        "Partition time dimensions should preserve raw sortable encodings when possible.",
         "Raw day/hour partition comparisons are easier for SQL engines to push down than parsed or cast expressions.",
         "For day/hour partition columns such as dt, log_date, event_date, hh, or log_hour, prefer data_type='string' or 'integer' with date_format and a bare column body; keep cast/parse expressions only when business time semantics require them.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
-    ConstraintId.TIME_FIELD_DTYPE_COMPAT: _constraint(
-        ConstraintId.TIME_FIELD_DTYPE_COMPAT,
-        "time_field_dtype_advisory",
+    ConstraintId.TIME_DIMENSION_DTYPE_COMPAT: _constraint(
+        ConstraintId.TIME_DIMENSION_DTYPE_COMPAT,
+        "time_dimension_dtype_advisory",
         "assembly",
-        ("time_field",),
-        "Time field data_type declarations must be compatible with the body expression's ibis dtype.",
+        ("time_dimension",),
+        "Time dimension data_type declarations must be compatible with the body expression's ibis dtype.",
         "A mismatch between declared data_type and the actual ibis expression dtype causes TypeError at execution.",
         "Ensure the .cast() target in the body matches the declared data_type: .cast('date') → data_type='date'; .cast('timestamp') or raw timestamp column → data_type='datetime' or 'timestamp'.",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
-    ConstraintId.TIME_FIELD_DEFAULT_UNIQUE: _constraint(
-        ConstraintId.TIME_FIELD_DEFAULT_UNIQUE,
-        "duplicate_default_time_field",
+    ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE: _constraint(
+        ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE,
+        "duplicate_default_time_dimension",
         "assembly",
-        ("time_field",),
-        "At most one time field per dataset may carry is_default=True.",
-        "Multiple default time fields create ambiguity at observe() time.",
-        "Remove is_default=True from all but one time field on this dataset.",
+        ("time_dimension",),
+        "At most one time dimension per entity may carry is_default=True.",
+        "Multiple default time dimensions create ambiguity at observe() time.",
+        "Remove is_default=True from all but one time dimension on this entity.",
     ),
     ConstraintId.RELATIONSHIP_ENDPOINTS: _constraint(
         ConstraintId.RELATIONSHIP_ENDPOINTS,
         "invalid_relationship_endpoint",
         "assembly",
         ("relationship",),
-        "Relationship endpoints must be registered datasets.",
-        "The compiler uses relationships to plan joins between known datasets.",
-        "Pass DatasetRef values or qualified dataset ids to from_dataset and to_dataset.",
+        "Relationship endpoints must be registered entities.",
+        "The compiler uses relationships to plan joins between known entities.",
+        "Pass EntityRef values or qualified entity ids to from_dataset and to_dataset.",
     ),
     ConstraintId.PROJECT_ORGANIZATION: _constraint(
         ConstraintId.PROJECT_ORGANIZATION,
@@ -416,7 +424,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Multi-dataset base metrics must declare root_dataset.",
         "The root dataset determines join order and grain for cross-dataset metrics.",
-        "Pass root_dataset=<DatasetRef> when a metric references more than one dataset.",
+        "Pass root_dataset=<EntityRef> when a metric references more than one dataset.",
     ),
     ConstraintId.METRIC_ROOT_DATASET_VALID: _constraint(
         ConstraintId.METRIC_ROOT_DATASET_VALID,
@@ -425,7 +433,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "root_dataset must be one of the metric's datasets.",
         "The root dataset anchors the metric's aggregation grain.",
-        "Use a DatasetRef from the metric's datasets list as root_dataset.",
+        "Use an EntityRef from the metric's datasets list as root_dataset.",
     ),
     ConstraintId.METRIC_VERIFICATION_MODE_VALID: _constraint(
         ConstraintId.METRIC_VERIFICATION_MODE_VALID,
@@ -463,14 +471,14 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Derived metrics inherit fan-out behavior from their component metrics, which each declare their own policy.",
         "Use ms.derived_metric(...) without fanout_policy and set fanout_policy on the relevant base components instead.",
     ),
-    ConstraintId.DATASET_VERSIONING_VALID: _constraint(
-        ConstraintId.DATASET_VERSIONING_VALID,
-        "invalid_dataset_versioning",
+    ConstraintId.ENTITY_VERSIONING_VALID: _constraint(
+        ConstraintId.ENTITY_VERSIONING_VALID,
+        "invalid_entity_versioning",
         "assembly",
-        ("dataset",),
+        ("entity",),
         "Snapshot versioning partition field must be part of primary_key.",
         "The partition field determines which rows are used for latest snapshot joins.",
-        "Add the partition column to the dataset's primary_key list.",
+        "Add the partition column to the entity's primary_key list.",
     ),
     ConstraintId.METRIC_EXISTS: _constraint(
         ConstraintId.METRIC_EXISTS,
@@ -481,23 +489,23 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Runtime operations compile registered metric ids.",
         "Check project.list_metrics() and use the metric semantic_id.",
     ),
-    ConstraintId.DATASET_EXISTS: _constraint(
-        ConstraintId.DATASET_EXISTS,
-        "dataset_not_found",
+    ConstraintId.ENTITY_EXISTS: _constraint(
+        ConstraintId.ENTITY_EXISTS,
+        "entity_not_found",
         "runtime",
-        ("dataset", "SemanticProject"),
-        "Requested datasets must exist in the loaded project.",
-        "Runtime operations look up registered dataset ids.",
-        "Check project.list_datasets() and use the dataset semantic_id.",
+        ("entity", "SemanticProject"),
+        "Requested entities must exist in the loaded project.",
+        "Runtime operations look up registered entity ids.",
+        "Check project.list_entities() and use the entity semantic_id.",
     ),
-    ConstraintId.FIELD_EXISTS: _constraint(
-        ConstraintId.FIELD_EXISTS,
-        "field_not_found",
+    ConstraintId.DIMENSION_EXISTS: _constraint(
+        ConstraintId.DIMENSION_EXISTS,
+        "dimension_not_found",
         "runtime",
-        ("field", "SemanticProject"),
-        "Requested fields must exist in the loaded project.",
-        "Runtime operations look up registered field ids.",
-        "Check project.list_fields() and use the field semantic_id.",
+        ("dimension", "SemanticProject"),
+        "Requested dimensions must exist in the loaded project.",
+        "Runtime operations look up registered dimension ids.",
+        "Check project.list_dimensions() and use the dimension semantic_id.",
     ),
     ConstraintId.SYMBOL_EXISTS: _constraint(
         ConstraintId.SYMBOL_EXISTS,
@@ -506,7 +514,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SemanticProject",),
         "Requested semantic objects must exist in the loaded project.",
         "Lookup methods search across all registered symbol kinds.",
-        "Check project.list_metrics(), list_datasets(), list_fields() for available names.",
+        "Check project.list_metrics(), list_entities(), list_dimensions() for available names.",
     ),
     ConstraintId.MATERIALIZE_EXECUTION: _constraint(
         ConstraintId.MATERIALIZE_EXECUTION,
@@ -584,7 +592,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.AMBIGUOUS_REFERENCE,
         "ambiguous_reference",
         "runtime",
-        ("dataset", "field", "time_field", "metric", "relationship"),
+        ("entity", "dimension", "time_dimension", "metric", "relationship"),
         "Unqualified name lookups must resolve to a single object kind.",
         "Cross-kind name matches make registry lookups ambiguous.",
         "Pass kind= to describe() or search(kind=...) to disambiguate.",
@@ -615,7 +623,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SemanticProject",),
         "Project must be loaded before accessing semantic objects.",
         "Listing and lookup methods require a loaded registry.",
-        "Call project.load() first, then access metrics, datasets, or fields.",
+        "Call project.load() first, then access metrics, entities, or dimensions.",
     ),
     ConstraintId.CATALOG_KIND_VALID: _constraint(
         ConstraintId.CATALOG_KIND_VALID,
@@ -623,7 +631,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "runtime",
         ("SemanticCatalog",),
         "Kind filter must be a valid SemanticKind value.",
-        "The kind parameter accepts: model, datasource, dataset, field, time_field, metric, relationship.",
+        "The kind parameter accepts: model, datasource, entity, dimension, time_dimension, metric, relationship.",
         "Use catalog.list() without kind to browse all, or pass a valid kind string.",
     ),
     ConstraintId.CATALOG_PARENT_BROWSABLE: _constraint(
@@ -631,8 +639,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "unsupported_list_parent",
         "runtime",
         ("SemanticCatalog",),
-        "Only model, datasource, and dataset refs can be used as catalog.list() parents.",
-        "Metrics, fields, time fields, and relationships are leaf objects with no children to list.",
+        "Only domain, datasource, and entity refs can be used as catalog.list() parents.",
+        "Metrics, dimensions, time dimensions, and relationships are leaf objects with no children to list.",
         "Use catalog.get(ref).details() to inspect a leaf object's dependencies.",
     ),
 }

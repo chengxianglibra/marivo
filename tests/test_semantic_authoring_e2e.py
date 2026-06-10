@@ -61,7 +61,7 @@ def test_collect_check_author_reload_inspect(tmp_path):
 
     # 2. check dataset inputs
     dataset_check = project.assess_authoring(
-        object_kind="dataset",
+        object_kind="entity",
         subject_ref="sales.orders",
         sources=(
             AuthoringSourceInput(
@@ -74,14 +74,14 @@ def test_collect_check_author_reload_inspect(tmp_path):
     assert dataset_check.status == "supported"
 
     # 3. author + reload
-    (root / "sales" / "_model.py").write_text(
-        "import marivo.semantic as ms\nms.model(name='sales')\n"
+    (root / "sales" / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (root / "sales" / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "warehouse = md.ref('warehouse')\n"
-        "orders = ms.dataset(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
         "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(),"
         " name='revenue', verification_mode='python_native')\n"
         "def revenue(orders):\n"

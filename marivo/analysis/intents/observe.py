@@ -93,8 +93,8 @@ class _TimeFieldMetaAdapter:
         self.timezone = timezone
 
 
-class _FieldIRAdapter:
-    """Adapter that mimics the old FieldIR for runner.py."""
+class _DimensionIRAdapter:
+    """Adapter that mimics the old DimensionIR for runner.py."""
 
     def __init__(
         self,
@@ -116,15 +116,15 @@ class _FieldIRAdapter:
         self.time_meta = time_meta
 
 
-class _DatasetIRAdapter:
-    """Adapter that mimics the old DatasetIR for runner.py."""
+class _EntityIRAdapter:
+    """Adapter that mimics the old EntityIR for runner.py."""
 
     def __init__(
         self,
         name: str,
         fn: Callable[..., Any],
         datasource_name: str,
-        fields: dict[str, _FieldIRAdapter],
+        fields: dict[str, _DimensionIRAdapter],
     ) -> None:
         self.name = name
         self.fn = fn
@@ -135,8 +135,8 @@ class _DatasetIRAdapter:
 def _build_dataset_adapter(
     sp: Any,
     dataset_ir: Any,
-) -> _DatasetIRAdapter:
-    """Build a _DatasetIRAdapter from a v1.1 DatasetIR + sidecar."""
+) -> _EntityIRAdapter:
+    """Build a _EntityIRAdapter from a v1.1 EntityIR + sidecar."""
     sidecar = sp._sidecar
 
     def _source_fn(backend: Any) -> Any:
@@ -157,7 +157,7 @@ def _build_dataset_adapter(
         raise RuntimeError(f"Unsupported source kind for dataset {dataset_ir.semantic_id!r}")
 
     # Build field adapters for this dataset
-    field_adapters: dict[str, _FieldIRAdapter] = {}
+    field_adapters: dict[str, _DimensionIRAdapter] = {}
     for field_ir in sp.list_fields(dataset=dataset_ir.semantic_id):
         field_fn = sidecar.get(field_ir.semantic_id) if sidecar else None
         _captured_field_sid = field_ir.semantic_id
@@ -165,7 +165,7 @@ def _build_dataset_adapter(
         def _default_field_fn(table: Any, *, _sid: str = _captured_field_sid) -> Any:
             raise RuntimeError(f"No sidecar callable for field {_sid!r}")
 
-        adapter = _FieldIRAdapter(
+        adapter = _DimensionIRAdapter(
             semantic_id=field_ir.semantic_id,
             name=field_ir.name,
             dataset_name=dataset_ir.name,
@@ -189,7 +189,7 @@ def _build_dataset_adapter(
             required_prefix=tf_ir.required_prefix,
             timezone=tf_ir.timezone,
         )
-        adapter = _FieldIRAdapter(
+        adapter = _DimensionIRAdapter(
             semantic_id=tf_ir.semantic_id,
             name=tf_ir.name,
             dataset_name=dataset_ir.name,
@@ -200,7 +200,7 @@ def _build_dataset_adapter(
         )
         field_adapters[tf_ir.name] = adapter
 
-    return _DatasetIRAdapter(
+    return _EntityIRAdapter(
         name=dataset_ir.name,
         fn=_source_fn,
         datasource_name=dataset_ir.datasource,
@@ -879,7 +879,7 @@ def observe(
             ``==, !=, in, >, >=, <, <=, between``.
         time_field: Pick the dataset time axis as
             ``mv.DimensionRef("<time_field>")`` when a dataset declares multiple
-            ``@ms.time_field`` columns. Omit when the dataset has a single (or
+            ``@ms.time_dimension`` columns. Omit when the dataset has a single (or
             default) time field.
         expect_shape: Optional guard. If set, observe predicts the output shape
             from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
@@ -957,7 +957,7 @@ def observe(
     started_at = datetime.now(UTC)
     started = monotonic()
     session.backend_cache.begin_query_capture()
-    dataset_irs: dict[str, _DatasetIRAdapter] = {}
+    dataset_irs: dict[str, _EntityIRAdapter] = {}
     primary_datasource: str | None = None
     stored_where = normalize_slice_for_storage(where_by_id)
     metric_datasets = tuple(metric_ir.datasets)
@@ -981,7 +981,7 @@ def observe(
     if metric_ir.is_derived:
         # Build dataset adapters for all datasets in the project so the planner
         # can resolve component metrics that span different datasets.
-        all_dataset_irs: dict[str, _DatasetIRAdapter] = {}
+        all_dataset_irs: dict[str, _EntityIRAdapter] = {}
         for ds_summary in sp.list_datasets():
             ds_ir = sp.get_dataset(ds_summary.semantic_id)
             if ds_ir is None:

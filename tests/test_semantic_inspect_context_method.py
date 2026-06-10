@@ -59,41 +59,41 @@ def _backend_factory_compound(_name):
     return con
 
 
-_ORDERS_MODEL_PY = """\
+_ORDERS_DOMAIN_PY = """\
 import marivo.semantic as ms
-ms.model(name="sales", default=True)
+ms.domain(name="sales", default=True)
 
-orders = ms.dataset(
+orders = ms.entity(
     name="orders",
     datasource="warehouse",
     source=ms.table("orders"),
     primary_key=["order_id"],
 )
 
-@ms.field(dataset=orders)
+@ms.dimension(dataset=orders)
 def amount(table):
     return table.amount
 """
 
-_ORDER_LINES_MODEL_PY = """\
+_ORDER_LINES_DOMAIN_PY = """\
 import marivo.semantic as ms
-ms.model(name="sales", default=True)
+ms.domain(name="sales", default=True)
 
-lines = ms.dataset(
+lines = ms.entity(
     name="order_lines",
     datasource="warehouse",
     source=ms.table("order_lines"),
     primary_key=["order_id", "line_num"],
 )
 
-@ms.field(dataset=lines)
+@ms.dimension(dataset=lines)
 def amount(table):
     return table.amount
 """
 
 
 def _make_project(factory, model_py):
-    return factory({"sales/_model.py": model_py})
+    return factory({"sales/_domain.py": model_py})
 
 
 def test_inspect_source_context_returns_pack_and_persists(tmp_path):
@@ -149,7 +149,7 @@ def test_metadata_only_does_not_record_raw_preview(tmp_path):
 def test_inspect_source_context_auto_records_primary_key_sample(
     semantic_project_factory,
 ):
-    project = _make_project(semantic_project_factory, _ORDERS_MODEL_PY)
+    project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )
@@ -171,7 +171,7 @@ def test_inspect_source_context_auto_records_primary_key_sample(
 def test_inspect_source_context_metadata_only_skips_auto_record(
     semantic_project_factory,
 ):
-    project = _make_project(semantic_project_factory, _ORDERS_MODEL_PY)
+    project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )
@@ -190,7 +190,7 @@ def test_inspect_source_context_metadata_only_skips_auto_record(
 def test_inspect_column_context_covers_primary_key(
     semantic_project_factory,
 ):
-    project = _make_project(semantic_project_factory, _ORDERS_MODEL_PY)
+    project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )
@@ -213,7 +213,7 @@ def test_inspect_column_context_covers_primary_key(
 def test_inspect_column_context_does_not_cover_primary_key(
     semantic_project_factory,
 ):
-    project = _make_project(semantic_project_factory, _ORDERS_MODEL_PY)
+    project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )
@@ -233,7 +233,7 @@ def test_inspect_column_context_does_not_cover_primary_key(
 def test_inspect_column_context_compound_key_partial(
     semantic_project_factory,
 ):
-    project = _make_project(semantic_project_factory, _ORDER_LINES_MODEL_PY)
+    project = _make_project(semantic_project_factory, _ORDER_LINES_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source_compound,
         backend_factory=_backend_factory_compound,
@@ -256,7 +256,7 @@ def test_inspect_column_context_compound_key_partial(
 def test_inspect_column_context_compound_key_full(
     semantic_project_factory,
 ):
-    project = _make_project(semantic_project_factory, _ORDER_LINES_MODEL_PY)
+    project = _make_project(semantic_project_factory, _ORDER_LINES_DOMAIN_PY)
     project.bind_datasource_access(
         inspect_source=_fake_inspect_source_compound,
         backend_factory=_backend_factory_compound,
