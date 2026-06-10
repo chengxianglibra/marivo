@@ -538,6 +538,10 @@ def explore_ibis(
     Args:
         query_builder: A callable that receives an ibis backend connection
             and returns an ibis expression (table or column expression).
+            The callable runs in its own closure scope — you must
+            ``import ibis`` (or ``from ibis import _``) in your module
+            before using ibis top-level names like ``ibis.desc()`` or
+            ``_`` inside the callable.
         datasource: Name of the datasource registered in the session's
             backend cache.
         session: Target session. Uses the ambient session when None.
@@ -549,18 +553,30 @@ def explore_ibis(
 
     Raises:
         TypeError: If ``query_builder`` does not return a valid ibis expression.
+        NameError: If the callable references ibis names not in scope
+            (e.g. forgot ``import ibis``).
         SessionNotWritableError: If the resolved session is read-only.
 
     Example:
+        >>> import ibis
         >>> result = explore_ibis(
-        ...     lambda con: con.table("orders").filter(_.status == "shipped"),
+        ...     lambda con: con.table("orders").order_by(ibis.desc("amount")),
         ...     datasource="warehouse",
         ... )
     """
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
     backend = resolved_session.backend_cache.get_or_create(datasource)
-    expr = query_builder(backend)
+    try:
+        expr = query_builder(backend)
+    except NameError as exc:
+        raise NameError(
+            f"explore_ibis: {exc}. The query_builder callable must import its own "
+            f"dependencies. Add 'import ibis' in your module or capture ibis "
+            f"in a closure. Example: explore_ibis("
+            f"lambda con: con.table('orders').order_by(ibis.desc('amount')), "
+            f"datasource=...)"
+        ) from exc
     if not callable(getattr(expr, "compile", None)) and not callable(
         getattr(expr, "to_pandas", None)
     ):

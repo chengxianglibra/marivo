@@ -154,6 +154,35 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
     assert [field.semantic_id for field in resolved.dimensions] == ["sales.users.tier"]
 
 
+def test_field_ref_not_found_adds_ibis_hint_for_builtin_names(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "@ms.dimension(entity=orders)\n"
+                "def region(orders):\n"
+                "    return orders.region\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    metric = project.get_metric("sales.revenue")
+
+    with pytest.raises(ObservePlanningError) as exc_info:
+        resolve_observe_fields(
+            project, metric, dimensions=[DimensionRef("desc")], where=None, time_dimension=None
+        )
+    details = exc_info.value.details
+    assert details["code"] == "field-ref-not-found"
+    assert "ibis_builtin_hint" in details["candidates"]
+    assert "ibis.desc()" in details["candidates"]["ibis_builtin_hint"]
+    assert "ibis.desc()" in exc_info.value.message
+
+
 def test_unique_shortest_path_and_join_safety(semantic_project_factory):
     project = semantic_project_factory(
         {

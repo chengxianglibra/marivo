@@ -100,14 +100,18 @@ Marivo does not model directly.
 `session.explore_ibis(...)` calls the builder with the session backend
 connection and requires an Ibis expression. It executes immediately and returns
 an `ExplorationResult`, preserving source query and datasource metadata when
-available.
+available. The callable runs in its own closure scope — you must `import ibis`
+before using ibis top-level names like `ibis.desc()` or `_` inside it.
 
 ```python
+import ibis
+
 scratch = session.explore_ibis(
     lambda con: (
         con.table("orders")
         .filter(lambda t: t.country == "US")
         .aggregate(value=lambda t: t.revenue.sum())
+        .order_by(ibis.desc("value"))
     ),
     datasource="warehouse",
     description="US revenue raw scan",

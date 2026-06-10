@@ -232,6 +232,24 @@ def test_explore_ibis_rejects_plain_builder_return():
         )
 
 
+def test_explore_ibis_name_error_adds_context():
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE orders (amount DOUBLE)")
+    con.raw_sql("INSERT INTO orders VALUES (1.0)")
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    # Build a lambda whose globals lack 'ibis' so it raises NameError internally
+    ns: dict = {}
+    exec(
+        "def query_builder(backend): return backend.table('orders').order_by(ibis.desc('amount'))",
+        ns,
+    )
+    query_builder = ns["query_builder"]
+
+    with pytest.raises(NameError, match=r"explore_ibis.*import ibis"):
+        session.explore_ibis(query_builder, datasource="warehouse")
+
+
 def test_core_operators_reject_exploration_result_inputs():
     session = mv.session.get_or_create(name="demo")
     scratch = session.from_pandas(pd.DataFrame({"value": [1.0]}))
