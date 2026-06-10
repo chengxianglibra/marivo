@@ -120,7 +120,7 @@ def test_from_dataframe_persists_external_frame(tmp_path, monkeypatch):
 
     assert mf.meta.produced_by_job is None
     assert mf.ref in mf.meta.lineage.external_inputs
-    assert (s.layout.frames_dir / mf.ref / "data.parquet").is_file()
+    assert (s._layout.frames_dir / mf.ref / "data.parquet").is_file()
 
 
 def test_from_dataframe_rejects_archived_session(tmp_path, monkeypatch):

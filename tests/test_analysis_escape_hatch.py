@@ -65,7 +65,7 @@ def test_exploration_result_round_trips_through_load_frame():
             promotion_refs=[],
         ),
     )
-    scratch.meta = write_frame_to_disk(session.layout, scratch)
+    scratch.meta = write_frame_to_disk(session._layout, scratch)
 
     loaded = mv.load_frame("frame_scratch", session=session)
 
@@ -111,7 +111,7 @@ def test_from_pandas_creates_persisted_scratch_result():
     assert scratch.meta.source_artifact_refs == []
     assert scratch.meta.promotion_refs == []
     assert scratch.lineage.steps[-1].intent == "from_pandas"
-    assert (session.layout.frames_dir / scratch.ref / "data.parquet").is_file()
+    assert (session._layout.frames_dir / scratch.ref / "data.parquet").is_file()
 
     df.loc[0, "value"] = 999.0
     assert scratch.to_pandas().iloc[0]["value"] == 10.0
@@ -303,7 +303,7 @@ def test_promote_metric_frame_creates_canonical_metric_frame():
     }
     assert metric.lineage.steps[-1].intent == "promote_metric_frame"
     assert scratch.ref in metric.lineage.steps[-1].inputs
-    assert (session.layout.frames_dir / metric.ref / "data.parquet").is_file()
+    assert (session._layout.frames_dir / metric.ref / "data.parquet").is_file()
 
 
 def test_promote_metric_frame_accepts_direct_dataframe():
@@ -1192,7 +1192,7 @@ def _stored_metric_frame(session, *, ref, metric_id, value):
             semantic_model="sales",
         ),
     )
-    frame.meta = write_frame_to_disk(session.layout, frame)
+    frame.meta = write_frame_to_disk(session._layout, frame)
     return frame
 
 

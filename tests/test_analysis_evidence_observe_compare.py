@@ -43,7 +43,7 @@ def test_observe_writes_artifact_metadata(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = mv.session.attach.create(name="t", backends=_backends(con), use_datasources=False)
+    session = mv.session.create(name="t", backends=_backends(con), use_datasources=False)
 
     frame = observe(
         mv.MetricRef("sales.revenue"),
@@ -53,7 +53,7 @@ def test_observe_writes_artifact_metadata(tmp_path) -> None:
     assert frame.meta.artifact_id is not None
     assert frame.meta.evidence_status == "complete"
     assert frame.meta.ref == frame.meta.artifact_id
-    db_path = session.layout.session_dir / "judgment.db"
+    db_path = session._layout.session_dir / "judgment.db"
     assert db_path.exists()
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute("SELECT step_type, evidence_status FROM artifacts").fetchall()
@@ -64,7 +64,7 @@ def test_compare_seeds_change_proposition_and_emits_followups(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = mv.session.attach.create(name="t", backends=_backends(con), use_datasources=False)
+    session = mv.session.create(name="t", backends=_backends(con), use_datasources=False)
 
     current = observe(
         mv.MetricRef("sales.revenue"),
@@ -81,7 +81,7 @@ def test_compare_seeds_change_proposition_and_emits_followups(tmp_path) -> None:
     assert delta.meta.evidence_status == "complete"
     operators = sorted(a.operator for a in delta.meta.recommended_followups)
     assert "assess_quality" in operators
-    db_path = session.layout.session_dir / "judgment.db"
+    db_path = session._layout.session_dir / "judgment.db"
     with sqlite3.connect(db_path) as conn:
         prop_count = conn.execute(
             "SELECT count(*) FROM propositions WHERE proposition_type='change'"
@@ -93,7 +93,7 @@ def test_session_knowledge_returns_change_fact(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = mv.session.attach.create(name="t", backends=_backends(con), use_datasources=False)
+    session = mv.session.create(name="t", backends=_backends(con), use_datasources=False)
     current = observe(
         mv.MetricRef("sales.revenue"),
         timescope={"start": "2026-05-01", "end": "2026-05-07"},

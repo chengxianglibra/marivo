@@ -147,7 +147,7 @@ def _validate_metric_in_catalog(
     available_columns: list[str],
     source_refs: list[str],
 ) -> None:
-    sp = getattr(session, "semantic_project", None)
+    sp = getattr(session, "_semantic_project", None)
     if sp is None or not sp.is_ready():
         return
     available_metric_ids = sorted(ir.semantic_id for ir in sp.list_metrics())
@@ -546,7 +546,7 @@ def from_pandas(
     scratch = ExplorationResult(_df=copied, meta=meta)
     scratch.meta = cast(
         "ExplorationResultMeta",
-        write_frame_to_disk(resolved_session.layout, scratch),
+        write_frame_to_disk(resolved_session._layout, scratch),
     )
     return scratch
 
@@ -597,7 +597,7 @@ def explore_ibis(
     """
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
-    backend = resolved_session.backend_cache.get_or_create(datasource)
+    backend = resolved_session._backend_cache.get_or_create(datasource)
     try:
         expr = query_builder(backend)
     except NameError as exc:
@@ -615,7 +615,7 @@ def explore_ibis(
     result = execute(
         expr,
         datasource_name=datasource,
-        cache=resolved_session.backend_cache,
+        cache=resolved_session._backend_cache,
         session_id=resolved_session.id,
     )
     source_refs = [ref.id for ref in sources or []]
@@ -652,7 +652,7 @@ def explore_ibis(
     scratch = ExplorationResult(_df=copied, meta=meta)
     scratch.meta = cast(
         "ExplorationResultMeta",
-        write_frame_to_disk(resolved_session.layout, scratch),
+        write_frame_to_disk(resolved_session._layout, scratch),
     )
     return scratch
 
@@ -850,7 +850,7 @@ def promote_metric_frame(
     frame = MetricFrame(_df=df, meta=meta)
     frame.meta = cast(
         "MetricFrameMeta",
-        write_frame_to_disk(resolved_session.layout, frame),
+        write_frame_to_disk(resolved_session._layout, frame),
     )
     return frame
 
@@ -1125,7 +1125,7 @@ def promote_delta_frame(
     frame = DeltaFrame(_df=df, meta=meta)
     frame.meta = cast(
         "DeltaFrameMeta",
-        write_frame_to_disk(resolved_session.layout, frame),
+        write_frame_to_disk(resolved_session._layout, frame),
     )
     return frame
 
@@ -1272,6 +1272,6 @@ def promote_attribution_frame(
     frame = AttributionFrame(_df=df, meta=meta)
     frame.meta = cast(
         "AttributionFrameMeta",
-        write_frame_to_disk(resolved_session.layout, frame),
+        write_frame_to_disk(resolved_session._layout, frame),
     )
     return frame

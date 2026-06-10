@@ -220,7 +220,7 @@ def test_discover_writes_job_and_frame():
     jobs = [job for job in session.jobs() if job.intent == "discover"]
     assert len(jobs) == 1
     assert jobs[0].output_frame_ref == out.ref
-    assert (session.layout.frames_dir / out.ref / "data.parquet").is_file()
+    assert (session._layout.frames_dir / out.ref / "data.parquet").is_file()
     record = session.job(jobs[0].id)
     assert record["params"]["objective"] == "point_anomalies"
     assert record["params"]["strategy"] == "zscore"

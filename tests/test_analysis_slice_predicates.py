@@ -120,5 +120,5 @@ def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
             session=session,
         )
 
-    assert session.known_datasources == set()
-    assert read_session_meta(session.layout)["known_datasources"] == []
+    assert session._known_datasources == set()
+    assert read_session_meta(session._layout)["known_datasources"] == []

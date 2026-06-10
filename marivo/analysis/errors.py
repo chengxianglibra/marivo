@@ -695,7 +695,7 @@ class NoBackendFactoryError(AnalysisError):
                     "\n"
                     "# Or pass an explicit factory (no datasource lookup):\n"
                     "import ibis\n"
-                    "session = mv.session.attach("
+                    "session = mv.session.get_or_create("
                     'name="analysis", '
                     'backend_factory=lambda name: ibis.duckdb.connect(":memory:"), '
                     "use_datasources=False)"

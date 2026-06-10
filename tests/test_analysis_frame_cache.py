@@ -168,7 +168,7 @@ def test_get_frame_corrupted(tmp_path):
     ref = original.ref
 
     # Corrupt the parquet file.
-    parquet_path = s.layout.frames_dir / ref / "data.parquet"
+    parquet_path = s._layout.frames_dir / ref / "data.parquet"
     parquet_path.write_bytes(b"not a parquet file")
 
     with pytest.raises(FrameCacheCorruptedError):

@@ -22,9 +22,7 @@ def _chdir(tmp_path, monkeypatch):
 def test_e2e_change_fact_walkthrough(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
-    session = mv.session.attach.create(
-        name="t", backends=sales_backends(con), use_datasources=False
-    )
+    session = mv.session.create(name="t", backends=sales_backends(con), use_datasources=False)
 
     cur = observe(
         mv.MetricRef("sales.revenue"),
@@ -65,9 +63,7 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
 def test_e2e_replay_artifact_id_stability(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
-    session = mv.session.attach.create(
-        name="t", backends=sales_backends(con), use_datasources=False
-    )
+    session = mv.session.create(name="t", backends=sales_backends(con), use_datasources=False)
     cur = observe(
         mv.MetricRef("sales.revenue"),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
@@ -84,9 +80,7 @@ def test_e2e_replay_artifact_id_stability(tmp_path) -> None:
 def test_e2e_observe_populates_quality_and_confidence_scope(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
-    session = mv.session.attach.create(
-        name="t", backends=sales_backends(con), use_datasources=False
-    )
+    session = mv.session.create(name="t", backends=sales_backends(con), use_datasources=False)
 
     cur = observe(
         mv.MetricRef("sales.revenue"),
@@ -109,9 +103,7 @@ def test_e2e_observe_populates_quality_and_confidence_scope(tmp_path) -> None:
 def test_e2e_compare_populates_quality_and_confidence_scope(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
-    session = mv.session.attach.create(
-        name="t", backends=sales_backends(con), use_datasources=False
-    )
+    session = mv.session.create(name="t", backends=sales_backends(con), use_datasources=False)
 
     cur = observe(
         mv.MetricRef("sales.revenue"),
@@ -134,9 +126,7 @@ def test_e2e_compare_populates_quality_and_confidence_scope(tmp_path) -> None:
 def test_e2e_observe_time_series_coverage(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
-    session = mv.session.attach.create(
-        name="t", backends=sales_backends(con), use_datasources=False
-    )
+    session = mv.session.create(name="t", backends=sales_backends(con), use_datasources=False)
 
     series = observe(
         mv.MetricRef("sales.revenue"),

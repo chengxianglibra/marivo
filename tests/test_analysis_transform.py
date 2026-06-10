@@ -410,11 +410,11 @@ def _make_current_only_delta_panel() -> DeltaFrame:
 
 def _assert_persisted_metric_frame(frame: MetricFrame) -> None:
     session = session_attach.active()
-    stored_df, stored_meta = read_frame_from_disk(session.layout, frame.ref)
+    stored_df, stored_meta = read_frame_from_disk(session._layout, frame.ref)
     assert isinstance(stored_df, pd.DataFrame)
     assert stored_meta["ref"] == frame.ref
     assert frame.meta.produced_by_job is not None
-    job_record = read_job_record(session.layout, frame.meta.produced_by_job)
+    job_record = read_job_record(session._layout, frame.meta.produced_by_job)
     assert job_record["output_frame_ref"] == frame.ref
 
 
@@ -461,10 +461,10 @@ def test_transform_lineage_and_job_record_persist(tmp_path):
     assert out.lineage.steps[-1].intent == "transform"
     assert out.lineage.steps[-1].inputs == [frame.ref]
     assert out.meta.produced_by_job is not None
-    _, meta_dict = read_frame_from_disk(session.layout, out.ref)
+    _, meta_dict = read_frame_from_disk(session._layout, out.ref)
     assert meta_dict["lineage"]["steps"][-1]["intent"] == "transform"
     assert meta_dict["lineage"]["steps"][-1]["inputs"] == [frame.ref]
-    job_record = read_job_record(session.layout, out.meta.produced_by_job)
+    job_record = read_job_record(session._layout, out.meta.produced_by_job)
     assert job_record["intent"] == "transform"
     assert job_record["input_frame_refs"] == [frame.ref]
     assert job_record["output_frame_ref"] == out.ref
@@ -701,7 +701,7 @@ def test_persist_transform_frame_updates_delta_alignment_axes(tmp_path):
 
     assert isinstance(out, DeltaFrame)
     assert out.meta.alignment["axes"] == axes
-    _, stored_meta = read_frame_from_disk(session.layout, out.ref)
+    _, stored_meta = read_frame_from_disk(session._layout, out.ref)
     assert stored_meta["alignment"]["axes"] == axes
 
 
@@ -725,7 +725,7 @@ def test_persist_transform_frame_stores_json_safe_params(tmp_path):
     )
 
     assert out.meta.produced_by_job is not None
-    job_record = read_job_record(session.layout, out.meta.produced_by_job)
+    job_record = read_job_record(session._layout, out.meta.produced_by_job)
     json.dumps(job_record["params"])
     assert job_record["params"]["drop_axes"] == [{"type": "DimensionRef", "semantic_id": "country"}]
     assert job_record["params"]["predicate"] == {
@@ -986,7 +986,7 @@ def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
 
     assert sliced.meta.row_count == 1
     assert sliced.meta.produced_by_job is not None
-    job_record = read_job_record(session_attach.active().layout, sliced.meta.produced_by_job)
+    job_record = read_job_record(session_attach.active()._layout, sliced.meta.produced_by_job)
     json.dumps(job_record["params"])
     assert job_record["params"]["where"]["bucket_start"] == "2026-07-01"
 
@@ -1013,7 +1013,7 @@ def test_transform_dispatcher_persists_handler_result(tmp_path, monkeypatch):
     assert out.ref != parent.ref
     assert out.meta.produced_by_job is not None
     assert out.meta.lineage.steps[-1].intent == "transform"
-    job_record = read_job_record(session.layout, out.meta.produced_by_job)
+    job_record = read_job_record(session._layout, out.meta.produced_by_job)
     assert job_record["intent"] == "transform"
     assert job_record["input_frame_refs"] == [parent.ref]
     assert job_record["output_frame_ref"] == out.ref

@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
 from marivo.analysis.calendar.loader import CalendarCache
 from marivo.analysis.session.core import FrameRecord, JobSummary, Session, SessionState
 from marivo.analysis.session.persistence import PersistenceLayout, write_job_record
@@ -40,7 +42,7 @@ def test_session_is_not_read_only_with_factory(tmp_path):
 def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
     s = _session(tmp_path)
     write_job_record(
-        s.layout,
+        s._layout,
         {
             "id": "job_two",
             "session_id": "sess_t01",
@@ -58,7 +60,7 @@ def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
         },
     )
     write_job_record(
-        s.layout,
+        s._layout,
         {
             "id": "job_one",
             "session_id": "sess_t01",
@@ -82,7 +84,7 @@ def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
 
 def test_session_frames_returns_frame_records(tmp_path):
     s = _session(tmp_path)
-    frame_dir = s.layout.frames_dir / "frame_001"
+    frame_dir = s._layout.frames_dir / "frame_001"
     frame_dir.mkdir(parents=True)
     (frame_dir / "meta.json").write_text('{"ref": "frame_001", "kind": "metric"}')
 
@@ -95,13 +97,39 @@ def test_session_state_literal_values():
     assert SessionState.__args__ == ("active", "archived")  # type: ignore[attr-defined]
 
 
+def test_session_state_setter_validates(tmp_path):
+    s = _session(tmp_path)
+    s.state = "archived"
+    assert s.state == "archived"
+    with pytest.raises(ValueError, match="Invalid session state"):
+        s.state = "unknown"
+
+
 def test_session_close_clears_backend_cache(tmp_path):
     s = _session(tmp_path)
-    s.backend_cache._cache["fake"] = object()
+    s._backend_cache._cache["fake"] = object()
     s.close()
-    assert s.backend_cache._cache == {}
+    assert s._backend_cache._cache == {}
 
 
 def test_session_initializes_calendar_cache(tmp_path):
     s = _session(tmp_path)
-    assert isinstance(s.calendars, CalendarCache)
+    assert isinstance(s._calendars, CalendarCache)
+
+
+def test_session_public_fields_are_read_only(tmp_path):
+    s = _session(tmp_path)
+    with pytest.raises(AttributeError):
+        s.id = "other"
+    with pytest.raises(AttributeError):
+        s.name = "other"
+    with pytest.raises(AttributeError):
+        s.created_at = _now()
+
+
+def test_session_internal_fields_not_in_dir(tmp_path):
+    s = _session(tmp_path)
+    names = dir(s)
+    assert "layout" not in names
+    assert "backend_cache" not in names
+    assert "evidence_store" not in names

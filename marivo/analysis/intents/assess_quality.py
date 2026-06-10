@@ -124,8 +124,8 @@ def assess_quality(
     result = cast(
         "QualityReport",
         commit_result(
-            store=session.evidence_store(),
-            frames_dir=session.layout.frames_dir,
+            store=session._evidence_store(),
+            frames_dir=session._layout.frames_dir,
             frame=result,
             step_type="assess_quality",
             inputs=CommitInputs(input_refs=[frame.meta.artifact_id or frame.ref]),
@@ -141,7 +141,7 @@ def assess_quality(
         ),
     )
     write_job_record(
-        session.layout,
+        session._layout,
         {
             "id": job_ref,
             "session_id": session.id,
@@ -154,7 +154,7 @@ def assess_quality(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session.semantic_project.semantic_root),
+            "semantic_project_root": str(session._semantic_project.semantic_root),
             "semantic_model": frame.meta.semantic_model,
         },
     )

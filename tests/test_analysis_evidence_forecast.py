@@ -32,7 +32,7 @@ def test_forecast_populates_surface1_and_forecast_findings() -> None:
     assert forecast.meta.evidence_status == "complete"
     assert isinstance(forecast.meta.recommended_followups, list)
 
-    with sqlite3.connect(session.layout.session_dir / "judgment.db") as conn:
+    with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
         artifact_rows = conn.execute(
             "SELECT step_type, artifact_type, evidence_status FROM artifacts WHERE artifact_id=?",
             (forecast.meta.artifact_id,),

@@ -209,7 +209,7 @@ def _component_panel_metric(session, *, ref, rows, component_rows):
             },
         }
     )
-    metric.meta = write_frame_to_disk(session.layout, metric)
+    metric.meta = write_frame_to_disk(session._layout, metric)
     component = ComponentFrame(
         _df=pd.DataFrame(component_rows),
         meta=ComponentFrameMeta(
@@ -234,9 +234,9 @@ def _component_panel_metric(session, *, ref, rows, component_rows):
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session.layout, component)
+    component.meta = write_frame_to_disk(session._layout, component)
     metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
-    metric.meta = write_frame_to_disk(session.layout, metric)
+    metric.meta = write_frame_to_disk(session._layout, metric)
     return metric
 
 

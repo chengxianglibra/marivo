@@ -288,7 +288,7 @@ def create(
         except sqlite3.IntegrityError as exc:
             raise DuplicateSessionNameError(
                 message=f"session name '{name}' already exists in this project",
-                hint="Use mv.session.get_or_create(name=...) for rerunnable scripts, or mv.session.attach(name=...) to open the existing session.",
+                hint="Use mv.session.get_or_create(name=...) for rerunnable scripts, or mv.session.get_or_create(name=...) to open the existing session.",
             ) from exc
 
     layout = PersistenceLayout(project_root=project_root, session_id=sid)
@@ -356,7 +356,7 @@ def attach(
         NoActiveSessionError: No session with this name exists in the project.
 
     Example:
-        >>> session = mv.session.attach("q4-revenue")
+        >>> session = mv.session.get_or_create("q4-revenue")
     """
     project_root = resolve_project_root()
     row = _lookup_session_by_name(project_root, name)
@@ -505,7 +505,7 @@ def active() -> Session:
     if active_name is None:
         raise NoActiveSessionError(
             message="no active session and none set via attach()",
-            hint="Use mv.session.get_or_create(name=...) or mv.session.attach(name=...).",
+            hint="Use mv.session.get_or_create(name=...) to create or attach to a session.",
         )
     return attach(name=active_name)
 

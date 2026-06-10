@@ -191,7 +191,7 @@ def test_decompose_writes_job_and_frame():
     jobs = [job for job in session.jobs() if job.intent == "decompose"]
     assert len(jobs) == 1
     assert jobs[0].output_frame_ref == out.ref
-    assert (session.layout.frames_dir / out.ref / "data.parquet").is_file()
+    assert (session._layout.frames_dir / out.ref / "data.parquet").is_file()
 
 
 def test_decompose_rejects_metric_frame():

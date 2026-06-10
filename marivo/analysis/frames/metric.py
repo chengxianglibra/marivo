@@ -141,7 +141,7 @@ class MetricFrame(BaseFrame):
             semantic_model=semantic_model,
         )
         frame = cls(_df=df.copy(), meta=meta)
-        frame.meta = cast("MetricFrameMeta", write_frame_to_disk(session.layout, frame))
+        frame.meta = cast("MetricFrameMeta", write_frame_to_disk(session._layout, frame))
         return frame
 
     def components(self) -> ComponentFrame:

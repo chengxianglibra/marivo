@@ -526,7 +526,7 @@ def _discover_anchor_dates(
     df = execute(
         root_table.select(expr).distinct(),
         datasource_name=datasource_name,
-        cache=session.backend_cache,
+        cache=session._backend_cache,
         session_id=session.id,
     ).df
     result: list[date] = []
@@ -554,7 +554,7 @@ def _discover_available_partitions(
     df = execute(
         snapshot_table.select(snapshot_table[partition_field_local].name("p")).distinct(),
         datasource_name=datasource_name,
-        cache=session.backend_cache,
+        cache=session._backend_cache,
         session_id=session.id,
     ).df
     return sorted({_parse_partition_value(p, fmt=fmt) for p in df["p"].tolist() if p is not None})
@@ -1075,8 +1075,8 @@ def plan_base_observe(
         )
     datasource_name = next(iter(datasource_names))
     _, backend = (
-        session.backend_cache.get_or_create(datasource_name),
-        session.backend_cache.get_or_create(datasource_name),
+        session._backend_cache.get_or_create(datasource_name),
+        session._backend_cache.get_or_create(datasource_name),
     )
     root_table = dataset_fns[root](backend)
     root_table = apply_window_to_dataset(

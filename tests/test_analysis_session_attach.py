@@ -33,7 +33,7 @@ def test_create_session_writes_index_and_meta(tmp_path):
     s = attach.create(name="demo", question="q", backends=_backends())
     assert s.name == "demo"
     assert (tmp_path / ".marivo" / "analysis" / "index.db").is_file()
-    assert s.layout.meta_file.is_file()
+    assert s._layout.meta_file.is_file()
 
 
 def test_create_session_sets_active(tmp_path):
@@ -74,7 +74,7 @@ def test_get_or_create_rebinds_backend_factory_on_attach(tmp_path):
 
     s = attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
-    assert s.backend_cache.get_or_create("warehouse") is con
+    assert s._backend_cache.get_or_create("warehouse") is con
 
 
 def test_attach_returns_existing(tmp_path):
@@ -135,7 +135,7 @@ def test_archive_marks_cached_session_read_only_for_jobs(tmp_path):
 
 def test_delete_removes_session_dir_and_index_row(tmp_path):
     s = attach.create(name="demo", backends=_backends())
-    session_dir = s.layout.session_dir
+    session_dir = s._layout.session_dir
     assert session_dir.is_dir()
     attach.delete("demo")
     assert not session_dir.is_dir()

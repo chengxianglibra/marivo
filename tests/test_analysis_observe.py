@@ -462,8 +462,8 @@ def test_observe_errored_project_raises(tmp_path, monkeypatch):
         self._sidecar = result.sidecar
         return result
 
-    monkeypatch.setattr(type(s.semantic_project), "load", fail_load)
-    s.semantic_project._status = "unloaded"
+    monkeypatch.setattr(type(s._semantic_project), "load", fail_load)
+    s._semantic_project._status = "unloaded"
 
     with pytest.raises(SemanticLoadFailed):
         observe(MetricRef("sales.revenue"), session=s)
@@ -485,7 +485,7 @@ def test_observe_persists_job_and_frame(tmp_path):
     assert len(summaries) == 1
     assert summaries[0].intent == "observe"
     assert summaries[0].output_frame_ref == mf.ref
-    assert (s.layout.frames_dir / mf.ref / "data.parquet").is_file()
+    assert (s._layout.frames_dir / mf.ref / "data.parquet").is_file()
 
 
 def test_observe_archived_session_raises(tmp_path):
@@ -515,7 +515,7 @@ def test_observe_persists_known_datasources(tmp_path):
     observe(MetricRef("sales.revenue"), session=s)
     session_attach._reset_process_state()
     reattached = session_attach.get_or_create(name="demo")
-    assert reattached.known_datasources == {"warehouse"}
+    assert reattached._known_datasources == {"warehouse"}
 
 
 # ---------------------------------------------------------------------------

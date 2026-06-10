@@ -326,7 +326,7 @@ def test_panel_time_coverage_with_timezone(tmp_path):
     # Force the session timezone to Asia/Shanghai (UTC+8)
     from zoneinfo import ZoneInfo
 
-    session.tz = ZoneInfo("Asia/Shanghai")
+    session._tz = ZoneInfo("Asia/Shanghai")
 
     report = session.assess_quality(frame)
     coverage = report.to_pandas().set_index("check_kind").loc["time_coverage"]
