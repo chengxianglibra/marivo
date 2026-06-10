@@ -63,7 +63,7 @@ class JobSummary:
 
 
 @dataclass(frozen=True)
-class FrameRef:
+class FrameRecord:
     ref: str
     kind: str
 
@@ -182,19 +182,19 @@ class Session:
         """
         return read_job_record(self.layout, job_id)
 
-    def frames(self) -> list[FrameRef]:
-        """Return a :class:`FrameRef` for each persisted frame in this session.
+    def frames(self) -> list[FrameRecord]:
+        """Return a :class:`FrameRecord` for each persisted frame in this session.
 
         Returns an empty list when no frames have been persisted yet.
         """
         if not self.layout.frames_dir.is_dir():
             return []
-        refs: list[FrameRef] = []
+        refs: list[FrameRecord] = []
         for frame_dir in sorted(self.layout.frames_dir.iterdir()):
             meta_file = frame_dir / "meta.json"
             if meta_file.is_file():
                 meta = json.loads(meta_file.read_text())
-                refs.append(FrameRef(ref=meta["ref"], kind=meta["kind"]))
+                refs.append(FrameRecord(ref=meta["ref"], kind=meta["kind"]))
         return refs
 
     def get_frame(self, ref: str) -> BaseFrame:

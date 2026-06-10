@@ -48,28 +48,25 @@ def test_analysis_does_not_export_execution_operators():
     for name in removed:
         assert name not in mv.__all__
         assert not hasattr(mv, name)
-    assert mv.DiscoverInsufficientDataError is mv.errors.DiscoverInsufficientDataError
 
 
 def test_session_class_exposes_execution_surface():
     import marivo.analysis as mv
-    from marivo.analysis.session.core import Session
 
-    assert callable(Session.observe)
-    assert callable(Session.compare)
-    assert callable(Session.decompose)
-    assert callable(Session.correlate)
-    assert callable(Session.forecast)
-    assert callable(Session.assess_quality)
-    assert callable(Session.hypothesis_test)
-    assert isinstance(Session.discover, property)
-    assert isinstance(Session.transform, property)
-    assert callable(Session.from_pandas)
-    assert callable(Session.explore_ibis)
-    assert callable(Session.promote_metric_frame)
-    assert callable(Session.promote_delta_frame)
-    assert callable(Session.promote_attribution_frame)
-    assert mv.PromotionFailedError is mv.errors.PromotionFailedError
+    assert callable(mv.Session.observe)
+    assert callable(mv.Session.compare)
+    assert callable(mv.Session.decompose)
+    assert callable(mv.Session.correlate)
+    assert callable(mv.Session.forecast)
+    assert callable(mv.Session.assess_quality)
+    assert callable(mv.Session.hypothesis_test)
+    assert isinstance(mv.Session.discover, property)
+    assert isinstance(mv.Session.transform, property)
+    assert callable(mv.Session.from_pandas)
+    assert callable(mv.Session.explore_ibis)
+    assert callable(mv.Session.promote_metric_frame)
+    assert callable(mv.Session.promote_delta_frame)
+    assert callable(mv.Session.promote_attribution_frame)
     assert mv.ExplorationResult is not None
 
 
@@ -81,13 +78,85 @@ def test_analysis_exports_non_execution_escape_hatch_types():
     assert hasattr(mv.errors, "PromotionFailedError")
 
 
-def test_analysis_exports_metadata_dtos() -> None:
+def test_analysis_exports_public_surface_by_layer() -> None:
     import marivo.analysis as mv
 
-    assert mv.TableMetadata is not None
-    assert mv.ColumnMetadata is not None
-    assert mv.PartitionMetadata is not None
-    assert mv.MetadataWarning is not None
+    construction_types = {
+        "MetricRef",
+        "DimensionRef",
+        "CalendarRef",
+        "ArtifactRef",
+        "TimeScope",
+        "AlignmentPolicy",
+        "PromotionPolicy",
+        "SamplingPolicy",
+    }
+    core_runtime_result_types = {
+        "Session",
+        "SessionSummary",
+        "JobSummary",
+        "BaseFrame",
+        "BaseFrameMeta",
+        "FrameSummary",
+        "FramePreview",
+        "FrameRecord",
+        "FrameSummaryEntry",
+        "Lineage",
+        "LineageStep",
+    }
+    namespaces = {"session", "datasources", "evidence", "frames", "errors", "publish"}
+
+    for name in construction_types | core_runtime_result_types | namespaces:
+        assert name in mv.__all__, name
+        assert hasattr(mv, name), name
+
+
+def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
+    import marivo.analysis as mv
+
+    subdomain_only = {
+        # Evidence DTOs live under mv.evidence.
+        "Assessment",
+        "AssociationSummary",
+        "AttributedDriver",
+        "BlockedFollowup",
+        "ChangeFact",
+        "EvidenceTrace",
+        "Finding",
+        "ForecastSummary",
+        "OpenAnomaly",
+        "OpenQuestion",
+        "Proposition",
+        "QualitySummary",
+        "SessionKnowledge",
+        "Subject",
+        "TestedHypothesis",
+        "TimeWindow",
+        "TriggeredByFollowup",
+        # Datasource metadata DTOs live under mv.datasources.
+        "ColumnMetadata",
+        "MetadataWarning",
+        "PartitionMetadata",
+        "TableMetadata",
+        "PreviewResult",
+        "PreviewSamplePolicy",
+        "PreviewWarning",
+        # Error classes live under mv.errors.
+        "DiscoverInsufficientDataError",
+        "PromotionFailedError",
+        # The old persisted-frame listing name conflicts with constructor refs.
+        "FrameRef",
+    }
+
+    for name in subdomain_only:
+        assert name not in mv.__all__, f"{name} should not be in mv.__all__"
+        assert not hasattr(mv, name), f"{name} should not be a mv attribute"
+
+    assert mv.evidence.Subject is not None
+    assert mv.datasources.TableMetadata is not None
+    assert mv.datasources.PreviewResult is not None
+    assert mv.errors.PromotionFailedError is not None
+    assert mv.errors.DiscoverInsufficientDataError is not None
 
 
 def test_analysis_exports_report_artifact_surface() -> None:
@@ -173,8 +242,6 @@ def test_analysis_does_not_export_publish_or_meta_types() -> None:
         "to_mcp_artifact_payload",
         "validate_report_artifact",
         "write_report_artifact",
-        # Frame Meta types
-        "BaseFrameMeta",
         "MetricFrameMeta",
         "DeltaFrameMeta",
         "AttributionFrameMeta",
@@ -187,7 +254,6 @@ def test_analysis_does_not_export_publish_or_meta_types() -> None:
         "QualityReportMeta",
         # Internal-only types
         "CandidateShape",
-        "FramePreview",
         "ValidationIssue",
     ]
     for name in removed:

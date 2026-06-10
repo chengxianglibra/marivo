@@ -5,32 +5,6 @@ from typing import Any
 from marivo.analysis import errors as errors
 from marivo.analysis import session
 from marivo.analysis.calendar.model import CalendarPolicy
-from marivo.analysis.datasources.metadata import (
-    ColumnMetadata,
-    MetadataWarning,
-    PartitionMetadata,
-    TableMetadata,
-)
-from marivo.analysis.errors import DiscoverInsufficientDataError, PromotionFailedError
-from marivo.analysis.evidence import (
-    Assessment,
-    AssociationSummary,
-    AttributedDriver,
-    BlockedFollowup,
-    ChangeFact,
-    EvidenceTrace,
-    Finding,
-    ForecastSummary,
-    OpenAnomaly,
-    OpenQuestion,
-    Proposition,
-    QualitySummary,
-    SessionKnowledge,
-    Subject,
-    TestedHypothesis,
-    TimeWindow,
-    TriggeredByFollowup,
-)
 from marivo.analysis.followups import (
     BlockingIssue,
     ConfidenceScope,
@@ -38,7 +12,7 @@ from marivo.analysis.followups import (
 )
 from marivo.analysis.frames.association import AssociationResult
 from marivo.analysis.frames.attribution import AttributionFrame
-from marivo.analysis.frames.base import BaseFrame
+from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, FramePreview, FrameSummary
 from marivo.analysis.frames.candidate import (
     CandidateObjective,
     CandidateSet,
@@ -49,11 +23,7 @@ from marivo.analysis.frames.exploration import ExplorationResult
 from marivo.analysis.frames.forecast import ForecastFrame
 from marivo.analysis.frames.hypothesis import HypothesisTestResult
 from marivo.analysis.frames.metric import MetricFrame
-from marivo.analysis.frames.quality import (
-    CheckResult,
-    QualityReport,
-    QualityReportSummary,
-)
+from marivo.analysis.frames.quality import QualityReport
 from marivo.analysis.help import help, help_text
 from marivo.analysis.intents._types import (
     DiscoverSensitivity,
@@ -62,6 +32,7 @@ from marivo.analysis.intents._types import (
     SliceScalar,
     SliceValue,
 )
+from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import (
     AlignmentKind,
     AlignmentPolicy,
@@ -73,7 +44,8 @@ from marivo.analysis.policies import (
 from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
 from marivo.analysis.session._introspection import install_intent_docstrings
 from marivo.analysis.session._load import load_frame
-from marivo.analysis.session.core import FrameRef, FrameSummaryEntry
+from marivo.analysis.session.attach import SessionSummary
+from marivo.analysis.session.core import FrameRecord, FrameSummaryEntry, JobSummary, Session
 from marivo.analysis.windows import GrainUnit, ensure_grain_supported
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
@@ -83,7 +55,6 @@ from marivo.analysis.windows.spec import (
     TimeScope,
     TimeScopeInput,
 )
-from marivo.preview import PreviewResult, PreviewSamplePolicy, PreviewWarning
 
 
 def __getattr__(name: str) -> Any:
@@ -91,6 +62,14 @@ def __getattr__(name: str) -> Any:
         from importlib import import_module
 
         return import_module("marivo.analysis.datasources")
+    if name == "evidence":
+        from importlib import import_module
+
+        return import_module("marivo.analysis.evidence")
+    if name == "frames":
+        from importlib import import_module
+
+        return import_module("marivo.analysis.frames")
     if name == "publish":
         from importlib import import_module
 
@@ -103,73 +82,55 @@ __all__ = [
     "AlignmentKind",
     "AlignmentPolicy",
     "ArtifactRef",
-    "Assessment",
     "AssociationResult",
-    "AssociationSummary",
-    "AttributedDriver",
     "AttributionFrame",
     "BaseFrame",
-    "BlockedFollowup",
+    "BaseFrameMeta",
     "BlockingIssue",
     "CalendarPolicy",
     "CalendarRef",
     "CandidateObjective",
     "CandidateSet",
-    "ChangeFact",
-    "CheckResult",
-    "ColumnMetadata",
     "ComponentFrame",
     "ConfidenceScope",
     "DeltaFrame",
     "DimensionRef",
-    "DiscoverInsufficientDataError",
     "DiscoverSensitivity",
-    "EvidenceTrace",
     "ExplorationResult",
-    "Finding",
     "FollowupAction",
     "ForecastFrame",
-    "ForecastSummary",
-    "FrameRef",
+    "FramePreview",
+    "FrameRecord",
+    "FrameSummary",
     "FrameSummaryEntry",
     "Grain",
     "GrainInput",
     "GrainUnit",
     "HypothesisTestResult",
+    "JobSummary",
     "LagPolicy",
-    "MetadataWarning",
+    "Lineage",
+    "LineageStep",
     "MetricFrame",
     "MetricRef",
-    "OpenAnomaly",
-    "OpenQuestion",
-    "PartitionMetadata",
-    "PreviewResult",
-    "PreviewSamplePolicy",
-    "PreviewWarning",
-    "PromotionFailedError",
     "PromotionPolicy",
     "PromotionSemanticAnchors",
-    "Proposition",
     "QualityReport",
-    "QualityReportSummary",
-    "QualitySummary",
     "SamplingPolicy",
-    "SessionKnowledge",
+    "Session",
+    "SessionSummary",
     "SlicePredicate",
     "SlicePredicateOp",
     "SliceScalar",
     "SliceValue",
-    "Subject",
-    "TableMetadata",
-    "TestedHypothesis",
     "TimeGrain",
     "TimeScope",
     "TimeScopeInput",
-    "TimeWindow",
-    "TriggeredByFollowup",
     "datasources",
     "ensure_grain_supported",
     "errors",
+    "evidence",
+    "frames",
     "help",
     "help_text",
     "load_frame",

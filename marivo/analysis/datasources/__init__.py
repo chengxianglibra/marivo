@@ -23,6 +23,7 @@ from marivo.analysis.datasources.registry import (
     remove,
     test,
 )
+from marivo.preview import PreviewResult, PreviewSamplePolicy, PreviewWarning
 
 __all__ = [
     "ColumnMetadata",
@@ -32,6 +33,9 @@ __all__ = [
     "DatasourceTestResult",
     "MetadataWarning",
     "PartitionMetadata",
+    "PreviewResult",
+    "PreviewSamplePolicy",
+    "PreviewWarning",
     "TableMetadata",
     "all",
     "audit_project",

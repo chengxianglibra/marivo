@@ -233,6 +233,26 @@ def test_help_json_load_frame_uses_own_docstring_only() -> None:
     assert "Load persisted analysis frames." not in doc
 
 
+def test_help_resolves_core_runtime_and_result_types() -> None:
+    expected_kinds = {
+        "Session": "class",
+        "BaseFrameMeta": "class",
+        "FrameSummary": "class",
+        "FramePreview": "class",
+        "FrameRecord": "class",
+        "SessionSummary": "class",
+        "JobSummary": "class",
+        "Lineage": "class",
+        "LineageStep": "class",
+    }
+
+    for symbol, expected_kind in expected_kinds.items():
+        result = _json_data(symbol)
+        assert result["kind"] == expected_kind, symbol
+        assert result["symbol"] == symbol
+        assert result["summary"], symbol
+
+
 def test_help_topics_json_have_structured_content() -> None:
     expected_keys = {
         "discover": "objectives",
