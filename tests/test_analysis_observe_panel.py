@@ -217,16 +217,16 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
     assert list(component_df.columns) == [
         "bucket_start",
         "region",
-        "numerator",
-        "denominator",
+        "failed_count",
+        "total_count",
         "failure_rate",
     ]
     by_key = {(str(row.bucket_start), row.region): row for row in component_df.itertuples()}
-    assert by_key[("2026-07-01", "NORTH")].numerator == pytest.approx(1.0)
-    assert by_key[("2026-07-01", "NORTH")].denominator == pytest.approx(2.0)
+    assert by_key[("2026-07-01", "NORTH")].failed_count == pytest.approx(1.0)
+    assert by_key[("2026-07-01", "NORTH")].total_count == pytest.approx(2.0)
     assert by_key[("2026-07-01", "NORTH")].failure_rate == pytest.approx(0.5)
-    assert by_key[("2026-07-02", "SOUTH")].numerator == pytest.approx(1.0)
-    assert by_key[("2026-07-02", "SOUTH")].denominator == pytest.approx(1.0)
+    assert by_key[("2026-07-02", "SOUTH")].failed_count == pytest.approx(1.0)
+    assert by_key[("2026-07-02", "SOUTH")].total_count == pytest.approx(1.0)
 
 
 def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
@@ -251,9 +251,9 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
         "weighted_failure_rate",
     }
     component_df = components.to_pandas()
-    assert "weight" in component_df.columns
-    assert "denominator" not in component_df.columns
+    assert "total_weight" in component_df.columns
+    assert "total_count" not in component_df.columns
     by_key = {(str(row.bucket_start), row.region): row for row in component_df.itertuples()}
-    assert by_key[("2026-07-01", "NORTH")].numerator == pytest.approx(2.0)
-    assert by_key[("2026-07-01", "NORTH")].weight == pytest.approx(3.0)
+    assert by_key[("2026-07-01", "NORTH")].weighted_failed == pytest.approx(2.0)
+    assert by_key[("2026-07-01", "NORTH")].total_weight == pytest.approx(3.0)
     assert by_key[("2026-07-01", "NORTH")].weighted_failure_rate == pytest.approx(2.0 / 3.0)

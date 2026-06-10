@@ -35,7 +35,11 @@ from marivo.analysis.evidence.pipeline import (
     frame_exists_on_disk,
 )
 from marivo.analysis.evidence.types import Subject
-from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
+from marivo.analysis.frames.component import (
+    ComponentFrame,
+    ComponentFrameMeta,
+    resolve_role_columns,
+)
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._validate import raise_first, validate_compare
@@ -209,7 +213,7 @@ def _component_axis_columns(component: ComponentFrame) -> list[str]:
 
 
 def _component_role_columns(component: ComponentFrame) -> list[str]:
-    return list(component.meta.components.keys())
+    return resolve_role_columns(component.meta.components)
 
 
 def _component_value_column(component: ComponentFrame, parent: MetricFrame) -> str | None:

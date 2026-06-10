@@ -50,8 +50,8 @@ def test_component_frame_meta_kind_and_next_intents():
         _df=pd.DataFrame(
             {
                 "region": ["NORTH"],
-                "numerator": [1.0],
-                "denominator": [3.0],
+                "failed_count": [1.0],
+                "total_count": [3.0],
                 "failure_rate": [1.0 / 3.0],
             }
         ),
@@ -69,8 +69,8 @@ def test_load_frame_round_trips_component_frame():
         _df=pd.DataFrame(
             {
                 "region": ["NORTH"],
-                "numerator": [1.0],
-                "denominator": [3.0],
+                "failed_count": [1.0],
+                "total_count": [3.0],
                 "failure_rate": [1.0 / 3.0],
             }
         ),
@@ -102,13 +102,13 @@ def test_load_frame_round_trips_component_frame():
 
     assert isinstance(loaded, ComponentFrame)
     assert loaded.meta.parent_kind == "metric_frame"
-    assert loaded.to_pandas().iloc[0]["denominator"] == pytest.approx(3.0)
+    assert loaded.to_pandas().iloc[0]["total_count"] == pytest.approx(3.0)
 
 
 def test_metric_frame_components_loads_linked_component_frame():
     session = session_attach.get_or_create(name="demo")
     component = ComponentFrame(
-        _df=pd.DataFrame({"numerator": [1.0], "denominator": [2.0], "failure_rate": [0.5]}),
+        _df=pd.DataFrame({"failed_count": [1.0], "total_count": [2.0], "failure_rate": [0.5]}),
         meta=ComponentFrameMeta(
             ref="frame_component",
             session_id=session.id,
@@ -300,7 +300,7 @@ def test_metric_frame_components_fallback_to_deterministic_ref():
     # Create the ComponentFrame at the deterministic ref
     det_ref = make_component_artifact_id(parent_artifact_id)
     component = ComponentFrame(
-        _df=pd.DataFrame({"numerator": [1.0], "denominator": [2.0], "failure_rate": [0.5]}),
+        _df=pd.DataFrame({"a": [1.0], "b": [2.0], "failure_rate": [0.5]}),
         meta=ComponentFrameMeta(
             ref=det_ref,
             session_id=session.id,

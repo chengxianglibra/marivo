@@ -220,11 +220,11 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
 
     assert windowed.meta.component_ref is not None
     component_df = windowed.components().to_pandas().set_index("region")
-    assert component_df.loc["NORTH", "numerator"] == pytest.approx(0.0)
-    assert component_df.loc["NORTH", "denominator"] == pytest.approx(1.0)
+    assert component_df.loc["NORTH", "failed_count"] == pytest.approx(0.0)
+    assert component_df.loc["NORTH", "total_count"] == pytest.approx(1.0)
     assert component_df.loc["NORTH", "failure_rate"] == pytest.approx(0.0)
-    assert component_df.loc["SOUTH", "numerator"] == pytest.approx(1.0)
-    assert component_df.loc["SOUTH", "denominator"] == pytest.approx(1.0)
+    assert component_df.loc["SOUTH", "failed_count"] == pytest.approx(1.0)
+    assert component_df.loc["SOUTH", "total_count"] == pytest.approx(1.0)
     assert component_df.loc["SOUTH", "failure_rate"] == pytest.approx(1.0)
 
 
@@ -416,11 +416,11 @@ def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path)
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
     component_df = components.to_pandas()
-    assert list(component_df.columns) == ["region", "numerator", "denominator", "failure_rate"]
+    assert list(component_df.columns) == ["region", "failed_count", "total_count", "failure_rate"]
     by_region = component_df.set_index("region")
-    assert by_region.loc["NORTH", "numerator"] == pytest.approx(1.0)
-    assert by_region.loc["NORTH", "denominator"] == pytest.approx(3.0)
+    assert by_region.loc["NORTH", "failed_count"] == pytest.approx(1.0)
+    assert by_region.loc["NORTH", "total_count"] == pytest.approx(3.0)
     assert by_region.loc["NORTH", "failure_rate"] == pytest.approx(1.0 / 3.0)
-    assert by_region.loc["SOUTH", "numerator"] == pytest.approx(1.0)
-    assert by_region.loc["SOUTH", "denominator"] == pytest.approx(1.0)
+    assert by_region.loc["SOUTH", "failed_count"] == pytest.approx(1.0)
+    assert by_region.loc["SOUTH", "total_count"] == pytest.approx(1.0)
     assert by_region.loc["SOUTH", "failure_rate"] == pytest.approx(1.0)

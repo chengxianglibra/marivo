@@ -10,6 +10,24 @@ from pydantic import ConfigDict
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 
 
+def resolve_role_column_name(components: dict[str, str], role: str) -> str:
+    """Resolve a decomposition role to its DataFrame column name.
+
+    Uses the component metric's short name (part after the last dot). Falls
+    back to the role name when two components share the same short name.
+    """
+    short_name: str = components[role].rsplit(".", 1)[-1]
+    short_names: list[str] = [mid.rsplit(".", 1)[-1] for mid in components.values()]
+    if len(short_names) != len(set(short_names)):
+        return role
+    return short_name
+
+
+def resolve_role_columns(components: dict[str, str]) -> list[str]:
+    """Resolve all decomposition roles to their DataFrame column names."""
+    return [resolve_role_column_name(components, role) for role in components]
+
+
 class ComponentFrameMeta(BaseFrameMeta):
     model_config = ConfigDict(extra="forbid")
 
