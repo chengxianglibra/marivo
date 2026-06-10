@@ -232,6 +232,19 @@ class Materializer:
                 refs=(semantic_id,),
             )
 
+        if not isinstance(value, (ir.Value, ibis.Table)):
+            col_name = field_ir.name
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Dimension {semantic_id!r} callable returned "
+                f"{type(value).__name__!r} instead of an ibis expression. "
+                f"This usually happens when a dimension name shadows an ibis "
+                f"Table method. Use bracket notation: "
+                f'table["{col_name}"] instead of table.{col_name}.',
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+
         self._dimension_cache[semantic_id] = value
         return value
 
@@ -297,6 +310,19 @@ class Materializer:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
                 f"Metric {semantic_id!r} callable raised: {exc}",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+
+        if not isinstance(value, (ir.Value, ibis.Table)):
+            col_name = semantic_id.rsplit(".", 1)[-1]
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Metric {semantic_id!r} callable returned "
+                f"{type(value).__name__!r} instead of an ibis expression. "
+                f"This usually happens when a column name shadows an ibis "
+                f"Table method. Use bracket notation: "
+                f'table["{col_name}"] instead of table.{col_name}.',
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )

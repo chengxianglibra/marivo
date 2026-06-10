@@ -21,6 +21,7 @@ class ASTSpec:
     allowed_binops: tuple[str, ...] = ()
     allowed_unary_ops: tuple[str, ...] = ()
     component_call_only: bool = False
+    shadowed_attributes: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -33,6 +34,7 @@ class ASTSpec:
             "allowed_binops": list(self.allowed_binops),
             "allowed_unary_ops": list(self.allowed_unary_ops),
             "component_call_only": self.component_call_only,
+            "shadowed_attributes": list(self.shadowed_attributes),
         }
 
 

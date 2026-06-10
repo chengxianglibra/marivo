@@ -96,6 +96,7 @@ def test_constraint_to_dict_accepts_plain_string_id() -> None:
             "allowed_binops": [],
             "allowed_unary_ops": [],
             "component_call_only": False,
+            "shadowed_attributes": [],
         },
     }
 

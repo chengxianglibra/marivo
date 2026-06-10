@@ -16,6 +16,7 @@ ObserveErrorCode = Literal[
     "root-only-measure-violation",
     "field-ref-not-found",
     "field-ref-ambiguous",
+    "field-expr-type-error",
     "non-root-time-dimension",
     "path-missing",
     "path-ambiguous",
