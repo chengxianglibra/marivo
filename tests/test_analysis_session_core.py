@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 from marivo.analysis.calendar.loader import CalendarCache
-from marivo.analysis.session.core import JobSummary, Session, SessionState
+from marivo.analysis.session.core import FrameRecord, JobSummary, Session, SessionState
 from marivo.analysis.session.persistence import PersistenceLayout, write_job_record
 
 
@@ -78,6 +78,17 @@ def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
     summaries = s.jobs()
     assert [j.id for j in summaries] == ["job_one", "job_two"]
     assert isinstance(summaries[0], JobSummary)
+
+
+def test_session_frames_returns_frame_records(tmp_path):
+    s = _session(tmp_path)
+    frame_dir = s.layout.frames_dir / "frame_001"
+    frame_dir.mkdir(parents=True)
+    (frame_dir / "meta.json").write_text('{"ref": "frame_001", "kind": "metric"}')
+
+    records = s.frames()
+
+    assert records == [FrameRecord(ref="frame_001", kind="metric")]
 
 
 def test_session_state_literal_values():

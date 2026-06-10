@@ -433,9 +433,14 @@ import marivo.analysis as mv
 
 ms.help()            # list all semantic symbols
 ms.help("metric")    # metric authoring details
-mv.help()            # list all analysis symbols
+mv.help()            # list core analysis surface entries
 mv.help("observe")   # observe intent details
 ```
+
+The `marivo.analysis as mv` top level is the agent-facing core surface:
+constructor inputs, sessions, frames, frame metadata, lineage, and namespace
+entrypoints. Domain DTOs stay in their namespaces, such as `mv.evidence`,
+`mv.datasources`, and `mv.errors`.
 
 ## Development
 

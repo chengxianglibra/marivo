@@ -242,22 +242,22 @@ def test_blocked_followup_construction() -> None:
     assert blocked.reason == "missing_input_artifact"
 
 
-def test_top_level_reexports_typed_facts() -> None:
+def test_evidence_namespace_reexports_typed_facts() -> None:
     import marivo.analysis as ap
 
-    assert hasattr(ap, "ChangeFact")
-    assert hasattr(ap, "AttributedDriver")
-    assert hasattr(ap, "TestedHypothesis")
-    assert hasattr(ap, "ForecastSummary")
-    assert hasattr(ap, "AssociationSummary")
-    assert hasattr(ap, "OpenAnomaly")
-    assert hasattr(ap, "OpenQuestion")
-    assert hasattr(ap, "BlockedFollowup")
-    assert hasattr(ap, "EvidenceTrace")
-    assert hasattr(ap, "Finding")
-    assert hasattr(ap, "Proposition")
-    assert hasattr(ap, "Assessment")
-    assert hasattr(ap, "Subject")
-    assert hasattr(ap, "TimeWindow")
+    assert hasattr(ap.evidence, "ChangeFact")
+    assert hasattr(ap.evidence, "AttributedDriver")
+    assert hasattr(ap.evidence, "TestedHypothesis")
+    assert hasattr(ap.evidence, "ForecastSummary")
+    assert hasattr(ap.evidence, "AssociationSummary")
+    assert hasattr(ap.evidence, "OpenAnomaly")
+    assert hasattr(ap.evidence, "OpenQuestion")
+    assert hasattr(ap.evidence, "BlockedFollowup")
+    assert hasattr(ap.evidence, "EvidenceTrace")
+    assert hasattr(ap.evidence, "Finding")
+    assert hasattr(ap.evidence, "Proposition")
+    assert hasattr(ap.evidence, "Assessment")
+    assert hasattr(ap.evidence, "Subject")
+    assert hasattr(ap.evidence, "TimeWindow")
     assert hasattr(ap, "FollowupAction")
     assert hasattr(ap, "BlockingIssue")

@@ -297,5 +297,5 @@ def test_preview_table_rejects_raw_sql_filter(project_root: Path) -> None:
     assert "structured preview filter" in str(exc_info.value)
 
 
-def test_preview_exports_from_analysis_namespace() -> None:
-    assert mv.PreviewResult is PreviewResult
+def test_preview_exports_from_datasources_namespace() -> None:
+    assert mv.datasources.PreviewResult is PreviewResult

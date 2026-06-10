@@ -8,6 +8,11 @@ description: Use for any Marivo metric-centered analysis task: observe, compare,
 Use this skill when writing or running metric-centered workflows with
 `marivo.analysis` (imported as `mv`).
 
+The `mv` top level is the core agent surface: constructor refs and policies,
+sessions, frames, frame metadata, lineage, and namespace entrypoints. Use
+submodules for domain DTOs and errors: `mv.evidence.*`, `mv.datasources.*`,
+and `mv.errors.*`.
+
 Use `marivo-semantic` instead when the task is authoring semantic models.
 
 ## Python Environment

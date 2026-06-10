@@ -720,7 +720,7 @@ def test_promote_delta_frame_rejects_nullable_formula_values():
         ),
     )
 
-    with pytest.raises(mv.PromotionFailedError) as exc_info:
+    with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_delta_frame(
             scratch,
             current=mv.ArtifactRef(current.ref),
