@@ -10,8 +10,10 @@ from marivo.analysis.frames.exploration import (
     ExplorationResult,
     ExplorationResultMeta,
 )
+from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session.persistence import write_frame_to_disk
+from tests.conftest import bootstrap_sales_project
 
 
 @pytest.fixture(autouse=True)
@@ -1174,3 +1176,81 @@ def test_promote_attribution_frame_lineage_digest_includes_method_and_params():
     )
 
     assert manual.lineage.steps[-1].params_digest != model.lineage.steps[-1].params_digest
+
+
+def _stored_metric_frame(session, *, ref, metric_id, value):
+    frame = MetricFrame(
+        _df=pd.DataFrame({"value": [value]}),
+        meta=MetricFrameMeta(
+            **_base_meta(session, kind="metric_frame", ref=ref),
+            metric_id=metric_id,
+            axes={},
+            measure={"name": "value"},
+            window=None,
+            where={},
+            semantic_kind="scalar",
+            semantic_model="sales",
+        ),
+    )
+    frame.meta = write_frame_to_disk(session.layout, frame)
+    return frame
+
+
+def test_promote_metric_frame_rejects_metric_missing_from_ready_catalog(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    session = mv.session.get_or_create(name="demo")
+    scratch = session.from_pandas(pd.DataFrame({"value": [1.0]}))
+
+    with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
+        session.promote_metric_frame(
+            scratch,
+            metric=mv.MetricRef("sales.ghost"),
+            semantic_kind="scalar",
+            measure_column="value",
+            axes={},
+            semantic_model="sales",
+        )
+
+    assert exc_info.value.details["target_kind"] == "metric_frame"
+    assert "metric_not_in_catalog:sales.ghost" in exc_info.value.details["ambiguous"]
+    assert exc_info.value.details["available_metric_ids"] == ["sales.revenue"]
+
+
+def test_promote_metric_frame_accepts_metric_defined_in_ready_catalog(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    session = mv.session.get_or_create(name="demo")
+
+    metric = session.promote_metric_frame(
+        pd.DataFrame({"value": [42.0]}),
+        metric=mv.MetricRef("sales.revenue"),
+        semantic_kind="scalar",
+        measure_column="value",
+        axes={},
+        semantic_model="sales",
+    )
+
+    assert metric.meta.metric_id == "sales.revenue"
+
+
+def test_promote_delta_frame_rejects_inherited_metric_missing_from_ready_catalog(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    session = mv.session.get_or_create(name="demo")
+    current = _stored_metric_frame(
+        session, ref="frame_cur_ghost", metric_id="sales.ghost", value=30.0
+    )
+    baseline = _stored_metric_frame(
+        session, ref="frame_base_ghost", metric_id="sales.ghost", value=20.0
+    )
+
+    with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
+        session.promote_delta_frame(
+            pd.DataFrame({"current": [30.0], "baseline": [20.0], "delta": [10.0]}),
+            current=mv.ArtifactRef(current.ref),
+            baseline=mv.ArtifactRef(baseline.ref),
+            delta_column="delta",
+            current_column="current",
+            baseline_column="baseline",
+        )
+
+    assert exc_info.value.details["target_kind"] == "delta_frame"
+    assert "metric_not_in_catalog:sales.ghost" in exc_info.value.details["ambiguous"]
