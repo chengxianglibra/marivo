@@ -107,9 +107,12 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     (semantic_dir / "_domain.py").write_text(DOMAIN)
 
-    project = ms.SemanticProject(workspace_dir=root)
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject(workspace_dir=root)
     project.load()
-    print("partition time dimension:", project.describe("sales.orders.log_date").semantic_id)
-    print("hour partition time dimension:", project.describe("sales.orders.log_hour").semantic_id)
-    print("minute time dimension:", project.describe("sales.orders.event_ts").semantic_id)
-    print("metric:", project.describe("sales.revenue").semantic_id)
+    catalog = ms.load(workspace_dir=root)
+    print("partition time dimension:", catalog.get("sales.orders.log_date").details().ref)
+    print("hour partition time dimension:", catalog.get("sales.orders.log_hour").details().ref)
+    print("minute time dimension:", catalog.get("sales.orders.event_ts").details().ref)
+    print("metric:", catalog.get("sales.revenue").details().ref)

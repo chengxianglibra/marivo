@@ -50,7 +50,9 @@ def backend_factory(_name: str) -> ibis.backends.duckdb.Backend:
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp) / ".marivo" / "semantic"
     root.mkdir(parents=True)
-    project = ms.SemanticProject(root=root)
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject(root=root)
     project.bind_datasource_access(
         inspect_source=fake_inspect_source, backend_factory=backend_factory
     )

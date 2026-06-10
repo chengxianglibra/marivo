@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from marivo.semantic.ir import SymbolKind
-from marivo.semantic.reader import DependencyNode
 from marivo.semantic.readiness import ReadinessReport
 from marivo.semantic.richness import RichnessReport
 
@@ -40,14 +38,6 @@ def _make_readiness_report() -> ReadinessReport:
 
 def _make_richness_report() -> RichnessReport:
     return RichnessReport(gaps=(), checked_at="2026-06-09T00:00:00Z")
-
-
-def _make_dependency_node() -> DependencyNode:
-    return DependencyNode(
-        semantic_id="sales.revenue",
-        kind=SymbolKind.METRIC,
-        children=(DependencyNode("sales.orders", SymbolKind.ENTITY, ()),),
-    )
 
 
 # --- ReadinessReport ---
@@ -129,37 +119,3 @@ def test_richness_report_show_returns_none(capsys):
 
 def test_richness_report_render_contains_available():
     assert "available:" in _make_richness_report().render()
-
-
-# --- DependencyNode ---
-
-
-def test_dependency_node_repr_is_one_line():
-    r = repr(_make_dependency_node())
-    assert r.count("\n") == 0
-    assert "DependencyNode" in r
-    assert "sales.revenue" in r
-    assert "call .show() to inspect" in r
-
-
-def test_dependency_node_render_no_stdout(capsys):
-    _make_dependency_node().render()
-    assert capsys.readouterr().out == ""
-
-
-def test_dependency_node_render_does_not_end_with_newline():
-    assert not _make_dependency_node().render().endswith("\n")
-
-
-def test_dependency_node_show_returns_none(capsys):
-    result = _make_dependency_node().show()
-    assert result is None
-
-
-def test_dependency_node_render_contains_children():
-    rendered = _make_dependency_node().render()
-    assert "sales.orders" in rendered
-
-
-def test_dependency_node_render_contains_available():
-    assert "available:" in _make_dependency_node().render()

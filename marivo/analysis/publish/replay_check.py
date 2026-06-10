@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from marivo.semantic import SemanticProject
+from marivo.semantic.reader import SemanticProject
 
 ALLOWED_IMPORT_ROOTS: frozenset[str] = frozenset({"marivo", "os"})
 

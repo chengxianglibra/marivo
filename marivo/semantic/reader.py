@@ -10,12 +10,12 @@ import os
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, Literal
 
 import ibis
 import ibis.expr.types as ir
 
-from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.ir import DatasourceIR
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
@@ -27,7 +27,6 @@ from marivo.preview import (
     preview_ibis_value,
     validate_preview_limit,
 )
-from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.discovery import DiscoveryResult
 from marivo.semantic.dtos import (
     AssessmentIssue,
@@ -51,14 +50,11 @@ from marivo.semantic.errors import (
     _raise,
 )
 from marivo.semantic.ir import (
-    DimensionIR,
     DimensionKind,
     EntityIR,
     EntityProvenance,
     MetricIR,
     ParityStatus,
-    RelationshipIR,
-    SourceLocation,
     SymbolKind,
 )
 from marivo.semantic.loader import LoadResult, load_project
@@ -83,8 +79,6 @@ from marivo.semantic.validator import Registry, Sidecar
 
 __all__ = [
     "DatasourceSummary",
-    "DependencyNode",
-    "Description",
     "DimensionSummary",
     "DomainSummary",
     "EntitySummary",
@@ -95,7 +89,6 @@ __all__ = [
     "ReadinessIssue",
     "ReadinessReport",
     "RichnessSummary",
-    "SearchHit",
     "SemanticProject",
 ]
 
@@ -201,179 +194,6 @@ class RelationshipSummary:
 
 # Deprecated aliases
 
-# ---------------------------------------------------------------------------
-# SearchHit
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class SearchHit:
-    """A single search hit from ``project.search()``."""
-
-    semantic_id: str
-    kind: SymbolKind
-    matched_field: Literal[
-        "semantic_id",
-        "name",
-        "description",
-        "business_definition",
-        "synonyms",
-        "examples",
-    ]
-    matched_snippet: str  # matched substring with short context
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.semantic_id!r})"
-
-
-# ---------------------------------------------------------------------------
-# DependencyNode
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class DependencyNode:
-    """Recursive dependency node for ``project.dependencies()`` / ``project.dependents()``."""
-
-    semantic_id: str
-    kind: SymbolKind
-    children: tuple[DependencyNode, ...]  # upstream or downstream
-
-    def __repr__(self) -> str:
-        return (
-            f"<DependencyNode id={self.semantic_id} kind={self.kind} "
-            f"children={len(self.children)}; call .show() to inspect>"
-        )
-
-    def _render_tree(self, prefix: str = "", depth: int = 0, max_depth: int = 4) -> list[str]:
-        lines: list[str] = []
-        indent = "  " * depth
-        lines.append(f"{indent}{prefix}{self.semantic_id} [{self.kind}]")
-        if depth >= max_depth:
-            if self.children:
-                lines.append(f"{indent}  ... (deeper tree omitted; call .to_dict() for full tree)")
-            return lines
-        for child in self.children:
-            lines.extend(child._render_tree(prefix="", depth=depth + 1, max_depth=max_depth))
-        return lines
-
-    def render(self) -> str:
-        """Return bounded plain-text tree card without a trailing newline."""
-        lines: list[str] = [f"DependencyNode id={self.semantic_id} kind={self.kind}"]
-        tree_lines = self._render_tree(depth=1, max_depth=4)
-        lines.extend(tree_lines[:70])
-        if len(tree_lines) > 70:
-            lines.append("  ... (tree truncated; call .to_dict() for full tree)")
-        lines.append("available:")
-        lines.append("- .render()")
-        lines.append("- .to_dict()")
-        return "\n".join(lines)
-
-    def to_dict(self) -> dict[str, object]:
-        """Return structured recursive tree as a plain dict."""
-        return {
-            "semantic_id": self.semantic_id,
-            "kind": str(self.kind),
-            "children": [child.to_dict() for child in self.children],
-        }
-
-    def show(self) -> None:
-        """Print render() output followed by a trailing newline and return None."""
-        print(self.render())
-
-
-# ---------------------------------------------------------------------------
-# Description
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Description:
-    """Full description of a semantic object returned by ``project.describe()``."""
-
-    semantic_id: str
-    kind: SymbolKind
-    domain: str
-    name: str
-    python_symbol: str
-    description: str | None
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    parity_status: ParityStatus | None  # metric only
-    source_sql: str | None
-    source_dialect: str | None
-    source_document: str | None
-    compiled_sql: str | None
-    compile_error: dict[str, Any] | None  # {kind, message, refs}
-    dependencies: tuple[str, ...]
-    dependents: tuple[str, ...]
-    source_location: SourceLocation | DatasourceSourceLocation
-    entity_provenance: EntityProvenance | None
-    primary_key: tuple[str, ...] | None
-    granularity: str | None
-    required_prefix: str | None
-    format: str | None
-    from_entity: str | None = None
-    to_entity: str | None = None
-    from_dimensions: tuple[str, ...] | None = None
-    to_dimensions: tuple[str, ...] | None = None
-
-    def to_text(self) -> str:
-        """Render this description as human-readable text."""
-        lines: list[str] = [f"[{self.kind}] {self.semantic_id}"]
-
-        if self.name and self.name != self.semantic_id.split(".")[-1]:
-            lines.append(f"  name: {self.name!r}")
-        if self.description is not None:
-            lines.append(f"  description: {self.description!r}")
-        if self.business_definition is not None:
-            lines.append(f"  business_definition: {self.business_definition!r}")
-        if self.guardrails:
-            lines.append(f"  guardrails: {self.guardrails!r}")
-        if self.synonyms:
-            lines.append(f"  synonyms: {self.synonyms!r}")
-        if self.examples:
-            lines.append(f"  examples: {self.examples!r}")
-        if self.parity_status is not None:
-            lines.append(f"  parity_status: {self.parity_status!r}")
-        if self.source_sql is not None:
-            lines.append(f"  source_sql: {self.source_sql!r}")
-        if self.source_dialect is not None:
-            lines.append(f"  source_dialect: {self.source_dialect!r}")
-        if self.source_document is not None:
-            lines.append(f"  source_document: {self.source_document!r}")
-        if self.compiled_sql is not None:
-            lines.append(f"  compiled_sql: {self.compiled_sql!r}")
-        if self.compile_error is not None:
-            lines.append(f"  compile_error: {self.compile_error!r}")
-        if self.dependencies:
-            lines.append(f"  dependencies: {self.dependencies!r}")
-        if self.dependents:
-            lines.append(f"  dependents: {self.dependents!r}")
-        if self.entity_provenance is not None:
-            lines.append(f"  entity_provenance: {self.entity_provenance!r}")
-        if self.primary_key is not None:
-            lines.append(f"  primary_key: {self.primary_key!r}")
-        if self.granularity is not None:
-            lines.append(f"  granularity: {self.granularity!r}")
-        if self.format is not None:
-            lines.append(f"  format: {self.format!r}")
-        if self.required_prefix is not None:
-            lines.append(f"  required_prefix: {self.required_prefix!r}")
-        if self.from_entity is not None:
-            lines.append(f"  from_entity: {self.from_entity!r}")
-        if self.to_entity is not None:
-            lines.append(f"  to_entity: {self.to_entity!r}")
-        if self.from_dimensions is not None:
-            lines.append(f"  from_dimensions: {self.from_dimensions!r}")
-        if self.to_dimensions is not None:
-            lines.append(f"  to_dimensions: {self.to_dimensions!r}")
-
-        lines.append(f"  source_location: {self.source_location.file}:{self.source_location.line}")
-        return "\n".join(lines)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -415,82 +235,13 @@ def _raw_preview_ref(
     return f"{datasource}.{namespace}.{table}"
 
 
-def _search_match(
-    query: str,
-    semantic_id: str,
-    name: str,
-    description: str | None,
-    business_definition: str | None,
-    synonyms: tuple[str, ...],
-    examples: tuple[str, ...],
-) -> (
-    tuple[
-        Literal[
-            "semantic_id",
-            "name",
-            "description",
-            "business_definition",
-            "synonyms",
-            "examples",
-        ],
-        str,
-    ]
-    | None
-):
-    """Try to match query against fields in priority order.
+@dataclass(frozen=True)
+class _DepNode:
+    """Lightweight internal node for dependency traversal."""
 
-    Returns (matched_field, matched_snippet) on first hit, or None.
-    Priority: semantic_id > name > description > business_definition > synonyms > examples.
-    """
-    q = query.lower()
-
-    # semantic_id
-    if q in semantic_id.lower():
-        idx = semantic_id.lower().index(q)
-        start = max(0, idx - 10)
-        end = min(len(semantic_id), idx + len(q) + 10)
-        snippet = semantic_id[start:end]
-        return ("semantic_id", snippet)
-
-    # name
-    if q in name.lower():
-        idx = name.lower().index(q)
-        start = max(0, idx - 10)
-        end = min(len(name), idx + len(q) + 10)
-        snippet = name[start:end]
-        return ("name", snippet)
-
-    # description
-    if description and q in description.lower():
-        idx = description.lower().index(q)
-        start = max(0, idx - 10)
-        end = min(len(description), idx + len(q) + 10)
-        snippet = description[start:end]
-        return ("description", snippet)
-
-    # business_definition
-    if business_definition and q in business_definition.lower():
-        idx = business_definition.lower().index(q)
-        start = max(0, idx - 10)
-        end = min(len(business_definition), idx + len(q) + 10)
-        snippet = business_definition[start:end]
-        return ("business_definition", snippet)
-
-    # synonyms
-    for syn in synonyms:
-        if q in syn.lower():
-            return ("synonyms", syn)
-
-    # examples
-    for ex in examples:
-        if q in ex.lower():
-            idx = ex.lower().index(q)
-            start = max(0, idx - 10)
-            end = min(len(ex), idx + len(q) + 10)
-            snippet = ex[start:end]
-            return ("examples", snippet)
-
-    return None
+    semantic_id: str
+    kind: SymbolKind
+    children: tuple[_DepNode, ...]
 
 
 class SemanticProject:
@@ -533,7 +284,6 @@ class SemanticProject:
         self._filtered_domains: tuple[str, ...] = ()
         self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
-        self._raw_preview_evidence: tuple[str, ...] = ()
         self._bound_inspect_source: Callable[..., Any] | None = None
         self._bound_backend_factory: Callable[[str], Any] | None = None
         self._datasource_irs: tuple[DatasourceIR, ...] = ()
@@ -552,15 +302,6 @@ class SemanticProject:
     def root(self) -> Path:
         """Return the semantic root path for compatibility."""
         return self._semantic_root
-
-    def _record_raw_preview_evidence(self, *refs: str) -> None:
-        self._raw_preview_evidence = tuple(dict.fromkeys((*self._raw_preview_evidence, *refs)))
-
-    def _persisted_raw_preview_evidence(self) -> tuple[str, ...]:
-        from marivo.semantic.ledger import LedgerStore
-
-        store = LedgerStore(self._semantic_root)
-        return tuple(record.ref for record in store.read_raw_previews())
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -890,331 +631,31 @@ class SemanticProject:
         reg = _require_registry(self._registry, project=self)
         return reg.datasets.get(name)
 
-    def get_datasource(self, name: str) -> DatasourceIR | None:
-        """Return a datasource IR by semantic_id, or None if not found."""
-        for ds_ir in self._datasource_irs:
-            if ds_ir.semantic_id == name:
-                return ds_ir
-        if self._registry is not None:
-            return self._registry.datasources.get(name)
-        return None
-
-    def get_dimension(self, name: str) -> DimensionIR | None:
-        """Return a dimension IR by semantic_id, or None if not found."""
-        reg = _require_registry(self._registry, project=self)
-        return reg.fields.get(name)
-
     def get_metric(self, name: str) -> MetricIR | None:
         """Return a metric IR by semantic_id, or None if not found."""
         reg = _require_registry(self._registry, project=self)
         return reg.metrics.get(name)
 
-    def get_relationship(self, name: str) -> RelationshipIR | None:
-        """Return a relationship IR by semantic_id, or None if not found."""
-        reg = _require_registry(self._registry, project=self)
-        return reg.relationships.get(name)
+    # -- dependency graph (internal) -----------------------------------------
 
-    # -- discovery ---------------------------------------------------------
-
-    def search(self, query: str, *, kind: SymbolKind | None = None) -> DiscoveryResult[SearchHit]:
-        """Search across all IR objects by name, description, ai_context.
-
-        Case-insensitive substring match.  Field priority:
-        semantic_id > name > description > business_definition > synonyms > examples.
-        Within priority, sort by semantic_id lexicographically.
-
-        Args:
-            query: Search string (case-insensitive substring match).
-            kind: Optional SymbolKind to restrict search scope.
-
-        Returns:
-            DiscoveryResult[SearchHit] — iterate, call .ids(), .show(), etc.
-        """
-        reg = _require_registry(self._registry, project=self)
-        results: list[SearchHit] = []
-
-        # Search datasources
-        if kind is None or kind == SymbolKind.DATASOURCE:
-            for sid, ds_ir in reg.datasources.items():
-                match = _search_match(
-                    query,
-                    sid,
-                    ds_ir.name,
-                    ds_ir.description,
-                    ds_ir.ai_context.business_definition,
-                    ds_ir.ai_context.synonyms,
-                    ds_ir.ai_context.examples,
-                )
-                if match is not None:
-                    results.append(
-                        SearchHit(
-                            semantic_id=sid,
-                            kind=SymbolKind.DATASOURCE,
-                            matched_field=match[0],
-                            matched_snippet=match[1],
-                        )
-                    )
-
-        # Search datasets
-        if kind is None or kind == SymbolKind.ENTITY:
-            for sid, dt_ir in reg.datasets.items():
-                match = _search_match(
-                    query,
-                    sid,
-                    dt_ir.name,
-                    dt_ir.description,
-                    dt_ir.ai_context.business_definition,
-                    dt_ir.ai_context.synonyms,
-                    dt_ir.ai_context.examples,
-                )
-                if match is not None:
-                    results.append(
-                        SearchHit(
-                            semantic_id=sid,
-                            kind=SymbolKind.ENTITY,
-                            matched_field=match[0],
-                            matched_snippet=match[1],
-                        )
-                    )
-
-        # Search fields (non-time)
-        if kind is None or kind == SymbolKind.DIMENSION:
-            for sid, f_ir in reg.fields.items():
-                if f_ir.is_time_dimension:
-                    continue
-                match = _search_match(
-                    query,
-                    sid,
-                    f_ir.name,
-                    f_ir.description,
-                    f_ir.ai_context.business_definition,
-                    f_ir.ai_context.synonyms,
-                    f_ir.ai_context.examples,
-                )
-                if match is not None:
-                    results.append(
-                        SearchHit(
-                            semantic_id=sid,
-                            kind=SymbolKind.DIMENSION,
-                            matched_field=match[0],
-                            matched_snippet=match[1],
-                        )
-                    )
-
-        # Search time fields
-        if kind is None or kind == SymbolKind.TIME_DIMENSION:
-            for sid, f_ir in reg.fields.items():
-                if not f_ir.is_time_dimension:
-                    continue
-                match = _search_match(
-                    query,
-                    sid,
-                    f_ir.name,
-                    f_ir.description,
-                    f_ir.ai_context.business_definition,
-                    f_ir.ai_context.synonyms,
-                    f_ir.ai_context.examples,
-                )
-                if match is not None:
-                    results.append(
-                        SearchHit(
-                            semantic_id=sid,
-                            kind=SymbolKind.TIME_DIMENSION,
-                            matched_field=match[0],
-                            matched_snippet=match[1],
-                        )
-                    )
-
-        # Search metrics
-        if kind is None or kind == SymbolKind.METRIC:
-            for sid, m_ir in reg.metrics.items():
-                match = _search_match(
-                    query,
-                    sid,
-                    m_ir.name,
-                    m_ir.description,
-                    m_ir.ai_context.business_definition,
-                    m_ir.ai_context.synonyms,
-                    m_ir.ai_context.examples,
-                )
-                if match is not None:
-                    results.append(
-                        SearchHit(
-                            semantic_id=sid,
-                            kind=SymbolKind.METRIC,
-                            matched_field=match[0],
-                            matched_snippet=match[1],
-                        )
-                    )
-
-        # Sort: by matched_field priority, then by semantic_id lexicographically
-        _field_priority = {
-            "semantic_id": 0,
-            "name": 1,
-            "description": 2,
-            "business_definition": 3,
-            "synonyms": 4,
-            "examples": 5,
-        }
-        results.sort(key=lambda h: (_field_priority.get(h.matched_field, 99), h.semantic_id))
-        return DiscoveryResult(results, item_type_name="SearchHit")
-
-    # -- dependency graph ---------------------------------------------------
-
-    def dependencies(self, name: str) -> DependencyNode:
-        """Return the dependency tree for a named object.
-
-        For metrics: walks dataset refs, component metric refs, and
-        their transitive dependencies (datasources).
-        For entities: includes the datasource.
-        For dimensions: includes the parent entity.
-        For relationships: includes from_entity and to_entity.
-        """
+    def _dependents(self, name: str) -> _DepNode:
+        """Internal: return objects that depend on the named object."""
         reg = _require_registry(self._registry, project=self)
 
-        # Check if it is a metric
-        metric_ir = reg.metrics.get(name)
-        if metric_ir is not None:
-            return self._build_deps_metric(name, metric_ir, reg)
-
-        # Check if it is a dataset
-        dataset_ir = reg.datasets.get(name)
-        if dataset_ir is not None:
-            return self._build_deps_dataset(name, dataset_ir, reg)
-
-        # Check if it is a field
-        field_ir = reg.fields.get(name)
-        if field_ir is not None:
-            kind = SymbolKind.TIME_DIMENSION if field_ir.is_time_dimension else SymbolKind.DIMENSION
-            ds_child: tuple[DependencyNode, ...] = ()
-            if reg.datasets.get(field_ir.entity) is not None:
-                ds_child = (
-                    DependencyNode(
-                        semantic_id=field_ir.entity,
-                        kind=SymbolKind.ENTITY,
-                        children=(),
-                    ),
-                )
-            return DependencyNode(semantic_id=name, kind=kind, children=ds_child)
-
-        # Check if it is a relationship
-        rel_ir = reg.relationships.get(name)
-        if rel_ir is not None:
-            return self._deps_relationship(name, rel_ir, reg)
-
-        # Not found
-        _raise(
-            ErrorKind.NOT_FOUND,
-            f"Object {name!r} not found in registry.",
-            cls=SemanticRuntimeError,
-            refs=(name,),
-        )
-
-    def _build_deps_metric(
-        self,
-        name: str,
-        metric_ir: MetricIR,
-        reg: Registry,
-    ) -> DependencyNode:
-        """Build dependency tree for a metric."""
-        children: list[DependencyNode] = []
-        visited: set[str] = set()
-
-        # Dataset dependencies
-        for ds_ref in metric_ir.entities:
-            ds_ir = reg.datasets.get(ds_ref)
-            if ds_ir is not None and ds_ref not in visited:
-                children.append(self._build_deps_dataset(ds_ref, ds_ir, reg, _visited=visited))
-                visited.add(ds_ref)
-
-        # Component metric dependencies (for derived metrics)
-        for _comp_key, comp_ref in metric_ir.decomposition.components.items():
-            comp_metric = reg.metrics.get(comp_ref)
-            if comp_metric is not None and comp_ref not in visited:
-                children.append(self._build_deps_metric(comp_ref, comp_metric, reg))
-                visited.add(comp_ref)
-
-        return DependencyNode(
-            semantic_id=name,
-            kind=SymbolKind.METRIC,
-            children=tuple(children),
-        )
-
-    def _build_deps_dataset(
-        self,
-        name: str,
-        dataset_ir: EntityIR,
-        reg: Registry,
-        *,
-        _visited: set[str] | None = None,
-    ) -> DependencyNode:
-        """Build dependency tree for a dataset."""
-        visited = _visited if _visited is not None else set()
-        if name in visited:
-            return DependencyNode(semantic_id=name, kind=SymbolKind.ENTITY, children=())
-        visited.add(name)
-
-        children: list[DependencyNode] = []
-        ds_ir = reg.datasources.get(dataset_ir.datasource)
-        if ds_ir is not None and dataset_ir.datasource not in visited:
-            children.append(
-                DependencyNode(
-                    semantic_id=dataset_ir.datasource,
-                    kind=SymbolKind.DATASOURCE,
-                    children=(),
-                )
-            )
-            visited.add(dataset_ir.datasource)
-
-        return DependencyNode(
-            semantic_id=name,
-            kind=SymbolKind.ENTITY,
-            children=tuple(children),
-        )
-
-    def _deps_relationship(
-        self,
-        name: str,
-        rel_ir: RelationshipIR,
-        reg: Registry,
-    ) -> DependencyNode:
-        """Build dependency tree for a relationship."""
-        children: list[DependencyNode] = []
-        for ds_ref in (rel_ir.from_entity, rel_ir.to_entity):
-            if reg.datasets.get(ds_ref) is not None:
-                children.append(
-                    DependencyNode(semantic_id=ds_ref, kind=SymbolKind.ENTITY, children=())
-                )
-        return DependencyNode(
-            semantic_id=name,
-            kind=SymbolKind.RELATIONSHIP,
-            children=tuple(children),
-        )
-
-    def dependents(self, name: str) -> DependencyNode:
-        """Return objects that depend on the named object.
-
-        Reverse of ``dependencies()``.
-        """
-        reg = _require_registry(self._registry, project=self)
-
-        # For a dataset: find metrics and fields that depend on it
         if name in reg.datasets:
             return self._dependents_dataset(name, reg)
 
-        # For a field/time_field: find the parent dataset
         if name in reg.fields:
-            return self._dependents_field(name, reg)
+            f_ir = reg.fields[name]
+            kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
+            return _DepNode(semantic_id=name, kind=kind, children=())
 
-        # For a metric: find derived metrics that reference it as a component
         if name in reg.metrics:
             return self._dependents_metric(name, reg)
 
-        # For a relationship: nothing depends on a relationship
         if name in reg.relationships:
-            return DependencyNode(semantic_id=name, kind=SymbolKind.RELATIONSHIP, children=())
+            return _DepNode(semantic_id=name, kind=SymbolKind.RELATIONSHIP, children=())
 
-        # Not found
         _raise(
             ErrorKind.NOT_FOUND,
             f"Object {name!r} not found in registry.",
@@ -1222,62 +663,38 @@ class SemanticProject:
             refs=(name,),
         )
 
-    def _dependents_dataset(self, name: str, reg: Registry) -> DependencyNode:
-        """Build dependents tree for a dataset."""
-        ds_children: list[DependencyNode] = []
+    def _dependents_dataset(self, name: str, reg: Registry) -> _DepNode:
+        ds_children: list[_DepNode] = []
         for m_id, m_ir in reg.metrics.items():
             if name in m_ir.entities:
-                ds_children.append(
-                    DependencyNode(
-                        semantic_id=m_id,
-                        kind=SymbolKind.METRIC,
-                        children=(),
-                    )
-                )
+                ds_children.append(_DepNode(semantic_id=m_id, kind=SymbolKind.METRIC, children=()))
         for f_id, f_ir in reg.fields.items():
             if f_ir.entity == name:
                 kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
-                ds_children.append(
-                    DependencyNode(
-                        semantic_id=f_id,
-                        kind=kind,
-                        children=(),
-                    )
-                )
-        return DependencyNode(
+                ds_children.append(_DepNode(semantic_id=f_id, kind=kind, children=()))
+        return _DepNode(
             semantic_id=name,
             kind=SymbolKind.ENTITY,
             children=tuple(ds_children),
         )
 
-    def _dependents_field(self, name: str, reg: Registry) -> DependencyNode:
-        """Build dependents tree for a field/time_field."""
-        f_ir = reg.fields[name]
-        kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
-        return DependencyNode(semantic_id=name, kind=kind, children=())
-
-    def _dependents_metric(self, name: str, reg: Registry) -> DependencyNode:
-        """Build dependents tree for a metric."""
-        metric_children: list[DependencyNode] = []
+    def _dependents_metric(self, name: str, reg: Registry) -> _DepNode:
+        metric_children: list[_DepNode] = []
         for m_id, m_ir in reg.metrics.items():
             if m_id == name:
                 continue
             for comp_ref in m_ir.decomposition.components.values():
                 if comp_ref == name:
                     metric_children.append(
-                        DependencyNode(
-                            semantic_id=m_id,
-                            kind=SymbolKind.METRIC,
-                            children=(),
-                        )
+                        _DepNode(semantic_id=m_id, kind=SymbolKind.METRIC, children=())
                     )
-        return DependencyNode(
+        return _DepNode(
             semantic_id=name,
             kind=SymbolKind.METRIC,
             children=tuple(metric_children),
         )
 
-    def _flatten_ids(self, node: DependencyNode) -> set[str]:
+    def _flatten_ids(self, node: _DepNode) -> set[str]:
         ids: set[str] = set()
         for child in node.children:
             ids.add(child.semantic_id)
@@ -1293,151 +710,11 @@ class SemanticProject:
         seen: set[str] = set()
         for ref in refs:
             try:
-                node = self.dependents(ref)
+                node = self._dependents(ref)
             except SemanticRuntimeError:
                 continue
             seen |= self._flatten_ids(node)
         return len(seen - set(refs))
-
-    # -- describe -----------------------------------------------------------
-
-    def describe(
-        self,
-        name: str,
-        *,
-        kind: SymbolKind | None = None,
-        compile_sql: bool = False,
-        backend_factory: Callable[..., Any] | None = None,
-    ) -> Description:
-        """Describe a semantic object by name.
-
-        Returns a ``Description`` frozen dataclass.  When ``compile_sql``
-        is True and the object is a metric, the ``compiled_sql`` field is
-        populated.  Requires ``backend_factory`` when ``compile_sql=True``.
-
-        When ``kind`` is given, the search is narrowed to the matching
-        collection (e.g., ``kind=SymbolKind.METRIC``).  This resolves
-        ambiguity when a name appears in multiple kind-scoped dicts.
-        """
-        reg = _require_registry(self._registry, project=self)
-        obj = self._find_ir(name, reg, kind=kind)
-        if obj is None:
-            not_found_kind = (
-                self._KIND_TO_NOT_FOUND.get(kind, ErrorKind.NOT_FOUND)
-                if kind is not None
-                else ErrorKind.NOT_FOUND
-            )
-            _raise(
-                not_found_kind,
-                f"Object {name!r} not found.",
-                cls=SemanticRuntimeError,
-                refs=(name,),
-            )
-
-        kind = self._ir_kind(obj)
-        compiled_sql: str | None = None
-        compile_error: dict[str, Any] | None = None
-
-        factory = backend_factory if backend_factory is not None else self._backend_factory
-        if compile_sql and isinstance(obj, MetricIR) and factory is not None:
-            try:
-                compiled_sql = self.compile_sql(obj.semantic_id, backend_factory=factory)
-            except SemanticRuntimeError as exc:
-                compile_error = {
-                    "kind": exc.kind,
-                    "message": exc.message,
-                    "refs": list(exc.semantic_refs),
-                }
-
-        # Compute dependencies and dependents from tree API
-        dep_names = sorted(self._flatten_ids(self.dependencies(name)))
-        dep_of_names = sorted(self._flatten_ids(self.dependents(name)))
-
-        # Dataset provenance
-        ds_provenance: EntityProvenance | None = None
-        if isinstance(obj, EntityIR):
-            meta = self._runtime_metadata.get(obj.semantic_id)
-            if meta is not None:
-                ds_provenance = meta.entity_provenance
-
-        # Parity status (metric only)
-        parity_status: ParityStatus | None = None
-        if isinstance(obj, MetricIR):
-            parity_status = propagated_parity_status(self, obj.semantic_id)
-
-        desc = Description(
-            semantic_id=obj.semantic_id,
-            kind=kind,
-            domain=obj.domain if hasattr(obj, "domain") else "",
-            name=obj.name,
-            python_symbol=getattr(obj, "python_symbol", ""),
-            description=obj.description,
-            business_definition=obj.ai_context.business_definition,
-            guardrails=obj.ai_context.guardrails,
-            synonyms=obj.ai_context.synonyms,
-            examples=obj.ai_context.examples,
-            parity_status=parity_status,
-            source_sql=obj.provenance.source_sql if isinstance(obj, MetricIR) else None,
-            source_dialect=obj.provenance.source_dialect if isinstance(obj, MetricIR) else None,
-            source_document=obj.provenance.source_document if isinstance(obj, MetricIR) else None,
-            compiled_sql=compiled_sql,
-            compile_error=compile_error,
-            dependencies=tuple(dep_names),
-            dependents=tuple(dep_of_names),
-            source_location=obj.location,
-            entity_provenance=ds_provenance,
-            primary_key=obj.primary_key if isinstance(obj, EntityIR) else None,
-            granularity=obj.granularity if isinstance(obj, DimensionIR) else None,
-            required_prefix=obj.required_prefix if isinstance(obj, DimensionIR) else None,
-            format=obj.format if isinstance(obj, DimensionIR) else None,
-            from_entity=obj.from_entity if isinstance(obj, RelationshipIR) else None,
-            to_entity=obj.to_entity if isinstance(obj, RelationshipIR) else None,
-            from_dimensions=obj.from_dimensions if isinstance(obj, RelationshipIR) else None,
-            to_dimensions=obj.to_dimensions if isinstance(obj, RelationshipIR) else None,
-        )
-
-        return desc
-
-    # -- compile_sql --------------------------------------------------------
-
-    def compile_sql(
-        self,
-        metric: str,
-        *,
-        backend_factory: Callable[[str], Any] | None = None,
-    ) -> str:
-        """Compile a metric expression to SQL.
-
-        Materializes the metric ibis expression, then compiles it
-        using ``ibis.to_sql()``.
-
-        Raises SemanticRuntimeError (COMPILE_ERROR) if the metric
-        is not found or if ibis compilation fails.
-        """
-        factory = self._resolve_backend_factory(backend_factory)
-        reg = _require_registry(self._registry, project=self)
-        metric_ir = reg.metrics.get(metric)
-        if metric_ir is None:
-            _raise(
-                ErrorKind.COMPILE_ERROR,
-                f"Metric {metric!r} not found in registry.",
-                cls=SemanticRuntimeError,
-                refs=(metric,),
-            )
-
-        try:
-            mat = Materializer(self, factory)
-            expr = mat.metric(metric)
-            return str(ibis.to_sql(expr))
-        except SemanticRuntimeError:
-            raise
-        except Exception as exc:
-            _raise(
-                ErrorKind.COMPILE_ERROR,
-                f"Failed to compile metric {metric!r}: {exc}",
-                cls=SemanticRuntimeError,
-                refs=(metric,),
-            )
 
     # -- materialize --------------------------------------------------------
 
@@ -1481,12 +758,6 @@ class SemanticProject:
         return mat.metric(name)
 
     # -- preview ---------------------------------------------------------------
-
-    def raw_preview_evidence(self) -> tuple[str, ...]:
-        """Return raw preview evidence collected for this project."""
-        return tuple(
-            dict.fromkeys((*self._persisted_raw_preview_evidence(), *self._raw_preview_evidence))
-        )
 
     def collect_source_preview(
         self,
@@ -1557,37 +828,7 @@ class SemanticProject:
                 status="success",
             )
         )
-        self._record_raw_preview_evidence(preview.ref)
         return preview
-
-    def record_failed_preview(
-        self,
-        *,
-        datasource: str,
-        table: str,
-        database: str | tuple[str, ...] | None = None,
-    ) -> None:
-        """Record that a raw preview attempt failed for this datasource.table."""
-        from datetime import UTC, datetime
-
-        from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
-
-        ref = _raw_preview_ref(datasource, table, database)
-        LedgerStore(self._semantic_root).write_raw_preview(
-            RawPreviewEvidence(
-                ref=ref,
-                datasource=datasource,
-                table=table,
-                database=database,
-                columns=(),
-                types={},
-                requested_limit=0,
-                returned_row_count=0,
-                sample_policy={},
-                collected_at=datetime.now(UTC).isoformat(),
-                status="failed",
-            )
-        )
 
     def record_primary_key_sample(self, dataset: str) -> None:
         """Record that primary key uniqueness was sampled for a dataset."""
@@ -1763,9 +1004,6 @@ class SemanticProject:
         raw_preview_records = store.read_raw_previews()
         raw_previews = tuple(r.ref for r in raw_preview_records if r.status == "success")
         failed_raw_previews = tuple(r.ref for r in raw_preview_records if r.status == "failed")
-
-        # Merge with in-memory evidence
-        raw_previews = tuple(dict.fromkeys((*raw_previews, *self._raw_preview_evidence)))
 
         # Required previews are scoped inside readiness() after requested refs
         # and dependencies have been resolved.
@@ -2064,95 +1302,3 @@ class SemanticProject:
 
         reg = _require_registry(self._registry, project=self)
         return _inspect(registry=reg, ledger_store=LedgerStore(self._semantic_root), ref=ref)
-
-    # -- internal helpers ---------------------------------------------------
-
-    @staticmethod
-    def _find_ir(
-        name: str,
-        reg: Registry,
-        kind: SymbolKind | None = None,
-    ) -> EntityIR | DatasourceIR | DimensionIR | MetricIR | RelationshipIR | None:
-        """Look up an IR object by semantic_id.
-
-        When kind is given, search only the matching collection.
-        When kind is None, search all collections. If exactly one match is
-        found, return it. If zero matches, return None. If multiple matches
-        across different kinds, raise AMBIGUOUS_REFERENCE.
-        """
-        if kind is not None:
-            collection_map: dict[SymbolKind, dict[str, Any]] = {
-                SymbolKind.DATASOURCE: reg.datasources,
-                SymbolKind.ENTITY: reg.datasets,
-                SymbolKind.DIMENSION: reg.fields,
-                SymbolKind.TIME_DIMENSION: reg.fields,
-                SymbolKind.METRIC: reg.metrics,
-                SymbolKind.RELATIONSHIP: reg.relationships,
-            }
-            collection = collection_map.get(kind)
-            if collection is not None and name in collection:
-                return cast(
-                    "EntityIR | DatasourceIR | DimensionIR | MetricIR | RelationshipIR",
-                    collection[name],
-                )
-            return None
-        # kind=None: collect matches across all collections
-        matches: list[tuple[SymbolKind, Any]] = []
-        search_order: list[tuple[SymbolKind, dict[str, Any]]] = [
-            (SymbolKind.DATASOURCE, reg.datasources),
-            (SymbolKind.ENTITY, reg.datasets),
-            (SymbolKind.DIMENSION, reg.fields),
-            (SymbolKind.METRIC, reg.metrics),
-            (SymbolKind.RELATIONSHIP, reg.relationships),
-        ]
-        for sym_kind, collection in search_order:
-            if name in collection:
-                obj = collection[name]
-                actual_kind = (
-                    SymbolKind.TIME_DIMENSION
-                    if isinstance(obj, DimensionIR) and obj.is_time_dimension
-                    else sym_kind
-                )
-                matches.append((actual_kind, obj))
-        if len(matches) == 0:
-            return None
-        if len(matches) == 1:
-            return cast(
-                "EntityIR | DatasourceIR | DimensionIR | MetricIR | RelationshipIR", matches[0][1]
-            )
-        candidates = [(mk, obj.semantic_id) for mk, obj in matches]
-        _raise(
-            ErrorKind.AMBIGUOUS_REFERENCE,
-            f"Name {name!r} matches multiple object kinds.",
-            cls=SemanticRuntimeError,
-            refs=(name,),
-            details={"candidates": [(str(mk), sid) for mk, sid in candidates]},
-            constraint_id=ConstraintId.AMBIGUOUS_REFERENCE,
-        )
-
-    @staticmethod
-    def _ir_kind(
-        obj: EntityIR | DatasourceIR | DimensionIR | MetricIR | RelationshipIR,
-    ) -> SymbolKind:
-        """Return the SymbolKind for an IR object."""
-        if isinstance(obj, DatasourceIR):
-            return SymbolKind.DATASOURCE
-        if isinstance(obj, EntityIR):
-            return SymbolKind.ENTITY
-        if isinstance(obj, DimensionIR):
-            return SymbolKind.TIME_DIMENSION if obj.is_time_dimension else SymbolKind.DIMENSION
-        if isinstance(obj, MetricIR):
-            return SymbolKind.METRIC
-        if isinstance(obj, RelationshipIR):
-            return SymbolKind.RELATIONSHIP
-        return SymbolKind.DOMAIN  # fallback, should not happen
-
-    _KIND_TO_NOT_FOUND: ClassVar[dict[SymbolKind, ErrorKind]] = {
-        SymbolKind.DATASOURCE: ErrorKind.NOT_FOUND,
-        SymbolKind.ENTITY: ErrorKind.ENTITY_NOT_FOUND,
-        SymbolKind.DIMENSION: ErrorKind.DIMENSION_NOT_FOUND,
-        SymbolKind.TIME_DIMENSION: ErrorKind.DIMENSION_NOT_FOUND,
-        SymbolKind.METRIC: ErrorKind.METRIC_NOT_FOUND,
-        SymbolKind.RELATIONSHIP: ErrorKind.NOT_FOUND,
-        SymbolKind.DOMAIN: ErrorKind.NOT_FOUND,
-    }

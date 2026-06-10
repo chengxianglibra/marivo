@@ -18,7 +18,7 @@ from marivo.analysis.executor.runner import (
     execute,
 )
 from marivo.analysis.windows.spec import AbsoluteWindow
-from marivo.semantic import SemanticProject
+from marivo.semantic.reader import SemanticProject
 
 # ---------------------------------------------------------------------------
 # Helper: build a SemanticProject with files on disk so the loader works

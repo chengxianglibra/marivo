@@ -125,7 +125,11 @@ def test_inspect_source_context_records_raw_preview_for_readiness(tmp_path):
         sample_policy=BoundedProfilePolicy(limit=50),
     )
     # the dataset-level raw preview ref is now visible to readiness plumbing
-    assert any("orders" in ref for ref in project.raw_preview_evidence())
+    from marivo.semantic.ledger import LedgerStore
+
+    store = LedgerStore(project.semantic_root)
+    records = store.read_raw_previews()
+    assert any("orders" in record.ref for record in records)
 
 
 def test_metadata_only_does_not_record_raw_preview(tmp_path):
@@ -140,7 +144,12 @@ def test_metadata_only_does_not_record_raw_preview(tmp_path):
         source=TableSource(table="orders"),
         sample_policy=MetadataOnlyPolicy(),
     )
-    assert project.raw_preview_evidence() == ()
+    # MetadataOnlyPolicy does not record raw preview evidence
+    from marivo.semantic.ledger import LedgerStore
+
+    store = LedgerStore(project.semantic_root)
+    records = store.read_raw_previews()
+    assert len(records) == 0
 
 
 # -- auto-bridge: inspect → record_primary_key_sample -------------------------
