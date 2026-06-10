@@ -9,7 +9,9 @@ Public surface::
 
     ms.domain(name="sales", default=True)
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
-    ms.metric(name="revenue", datasets=[orders], decomposition=ms.sum())
+    @ms.metric(name="revenue", entities=[orders], decomposition=ms.sum())
+    def revenue(orders):
+        return orders.amount.sum()
 """
 
 from __future__ import annotations
