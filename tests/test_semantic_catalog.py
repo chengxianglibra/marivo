@@ -133,7 +133,7 @@ def test_datasource_details_fields():
         ref=_make_ref("warehouse", SemanticKind.DATASOURCE),
         kind=SemanticKind.DATASOURCE,
         name="warehouse",
-        model=None,
+        domain=None,
         description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
@@ -143,7 +143,7 @@ def test_datasource_details_fields():
         backend_type="duckdb",
     )
     assert d.backend_type == "duckdb"
-    assert d.model is None
+    assert d.domain is None
 
 
 def test_domain_details_fields():
@@ -151,7 +151,7 @@ def test_domain_details_fields():
         ref=_make_ref("sales", SemanticKind.DOMAIN),
         kind=SemanticKind.DOMAIN,
         name="sales",
-        model="sales",
+        domain="sales",
         description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
@@ -169,7 +169,7 @@ def test_entity_details_fields():
         ref=_make_ref("sales.orders", SemanticKind.ENTITY),
         kind=SemanticKind.ENTITY,
         name="orders",
-        model="sales",
+        domain="sales",
         description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
@@ -216,18 +216,18 @@ def test_dimension_details_fields():
         ref=_make_ref("sales.orders.region", SemanticKind.DIMENSION),
         kind=SemanticKind.DIMENSION,
         name="region",
-        model="sales",
+        domain="sales",
         description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
-        dataset=_make_ref("sales.orders", SemanticKind.ENTITY),
-        field_kind="categorical",
+        entity=_make_ref("sales.orders", SemanticKind.ENTITY),
+        dimension_kind="categorical",
     )
-    assert d.field_kind == "categorical"
-    assert d.dataset.ref == "sales.orders"
+    assert d.dimension_kind == "categorical"
+    assert d.entity.ref == "sales.orders"
 
 
 def test_time_dimension_details_fields():
@@ -235,14 +235,14 @@ def test_time_dimension_details_fields():
         ref=_make_ref("sales.orders.created_at", SemanticKind.TIME_DIMENSION),
         kind=SemanticKind.TIME_DIMENSION,
         name="created_at",
-        model="sales",
+        domain="sales",
         description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
-        dataset=_make_ref("sales.orders", SemanticKind.ENTITY),
+        entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         data_type="timestamp",
         granularity="day",
         format=None,
@@ -259,15 +259,15 @@ def test_metric_details_fields():
         ref=_make_ref("sales.revenue", SemanticKind.METRIC),
         kind=SemanticKind.METRIC,
         name="revenue",
-        model="sales",
+        domain="sales",
         description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
-        datasets=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        root_dataset=_make_ref("sales.orders", SemanticKind.ENTITY),
+        entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
+        root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         is_derived=False,
         component_metrics=(),
         required_relationships=(),
@@ -291,7 +291,7 @@ def test_relationship_details_fields():
         ref=_make_ref("sales.orders_customers", SemanticKind.RELATIONSHIP),
         kind=SemanticKind.RELATIONSHIP,
         name="orders_customers",
-        model="sales",
+        domain="sales",
         description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
@@ -301,13 +301,13 @@ def test_relationship_details_fields():
         ),
         children=(),
         dependents=(),
-        from_dataset=_make_ref("sales.orders", SemanticKind.ENTITY),
-        to_dataset=_make_ref("sales.customers", SemanticKind.ENTITY),
-        from_fields=("customer_id",),
-        to_fields=("id",),
+        from_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
+        to_entity=_make_ref("sales.customers", SemanticKind.ENTITY),
+        from_dimensions=("customer_id",),
+        to_dimensions=("id",),
     )
-    assert d.from_fields == ("customer_id",)
-    assert d.to_fields == ("id",)
+    assert d.from_dimensions == ("customer_id",)
+    assert d.to_dimensions == ("id",)
 
 
 def _make_metric_obj() -> SemanticObject:
@@ -316,15 +316,15 @@ def _make_metric_obj() -> SemanticObject:
         ref=ref,
         kind=SemanticKind.METRIC,
         name="revenue",
-        model="sales",
+        domain="sales",
         description="Gross revenue.",
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
-        datasets=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        root_dataset=_make_ref("sales.orders", SemanticKind.ENTITY),
+        entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
+        root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         is_derived=False,
         component_metrics=(),
         required_relationships=(),
@@ -342,7 +342,7 @@ def _make_metric_obj() -> SemanticObject:
         ref=ref,
         kind=SemanticKind.METRIC,
         name="revenue",
-        model="sales",
+        domain="sales",
         description="Gross revenue.",
         context=_make_ctx(),
         source_location=_make_loc(),
@@ -358,7 +358,7 @@ def test_semantic_object_fields():
     assert obj.ref.ref == "sales.revenue"
     assert obj.kind == SemanticKind.METRIC
     assert obj.name == "revenue"
-    assert obj.model == "sales"
+    assert obj.domain == "sales"
     assert obj.description == "Gross revenue."
 
 
@@ -440,16 +440,16 @@ _DATASETS_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.dimension(dataset=orders, description="Sales region.")
+    @ms.dimension(entity=orders, description="Sales region.")
     def region(table):
         return table.region
 
-    @ms.time_dimension(dataset=orders, data_type="timestamp", granularity="day")
+    @ms.time_dimension(entity=orders, data_type="timestamp", granularity="day")
     def created_at(table):
         return table.created_at
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="python_native",
@@ -691,7 +691,7 @@ def test_catalog_get_returns_semantic_object_for_entity(semantic_project_factory
     obj = catalog.get("sales.orders")
     assert obj.ref.ref == "sales.orders"
     assert str(obj.kind) == "entity"
-    assert obj.model == "sales"
+    assert obj.domain == "sales"
 
 
 def test_catalog_get_returns_semantic_object_for_dimension(semantic_project_factory):
@@ -751,7 +751,7 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
                 orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
                 @ms.metric(
-                    datasets=[orders],
+                    entities=[orders],
                     additivity="additive",
                     decomposition=ms.sum(),
                     verification_mode="python_native",
@@ -795,7 +795,7 @@ def test_catalog_get_metric_details_correct_dataset_ref(semantic_project_factory
     obj = catalog.get("sales.revenue")
     d = obj.details()
     assert isinstance(d, MetricDetails)
-    assert any(r.ref == "sales.orders" for r in d.datasets)
+    assert any(r.ref == "sales.orders" for r in d.entities)
 
 
 def test_catalog_get_model_details_children_include_metrics(semantic_project_factory):
@@ -873,7 +873,7 @@ def _write_minimal_project(tmp_path) -> None:
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )

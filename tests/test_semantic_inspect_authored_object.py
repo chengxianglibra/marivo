@@ -5,7 +5,7 @@ _DATASETS = (
     "\n"
     "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
     "\n"
-    "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(),\n"
+    "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(),\n"
     "           name='revenue', verification_mode='python_native')\n"
     "def revenue(orders):\n"
     "    return orders.amount.sum()\n"

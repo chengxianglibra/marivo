@@ -87,7 +87,7 @@ def test_all_list_matches_expected() -> None:
         "EvidenceFact",
         "DimensionDetails",
         "DimensionKind",
-        "FieldSummary",
+        "DimensionSummary",
         "FileSource",
         "MetadataOnlyPolicy",
         "MetricDetails",
@@ -750,7 +750,7 @@ def test_loader_context_dataclass() -> None:
 
     ctx = LoaderContext()
     assert ctx.current_model_file is None
-    assert ctx.default_model is None
+    assert ctx.default_domain is None
     assert ctx.pending_objects == []
 
 
@@ -830,9 +830,9 @@ def test_materializer_class_exists() -> None:
 
     m = Materializer(project=None, backend_factory=lambda x: None)
     with pytest.raises(SemanticRuntimeError):
-        m.dataset("test")
+        m.entity("test")
     with pytest.raises(SemanticRuntimeError):
-        m.field("test")
+        m.dimension("test")
     with pytest.raises(SemanticRuntimeError):
         m.metric("test")
 

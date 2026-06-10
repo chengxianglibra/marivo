@@ -365,7 +365,7 @@ class Session:
         grain: GrainInput = None,
         dimensions: list[DimensionRef] | None = None,
         where: dict[DimensionRef, SliceValue] | None = None,
-        time_field: DimensionRef | None = None,
+        time_dimension: DimensionRef | None = None,
         expect_shape: SemanticShape | None = None,
     ) -> MetricFrame:
         from marivo.analysis.intents.observe import observe
@@ -376,7 +376,7 @@ class Session:
             grain=grain,
             dimensions=dimensions,
             where=where,
-            time_field=time_field,
+            time_dimension=time_dimension,
             expect_shape=expect_shape,
             session=self,
         )

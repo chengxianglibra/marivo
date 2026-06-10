@@ -74,7 +74,7 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
     )
 
     @ms.dimension(
-        dataset=orders,
+        entity=orders,
         description="Order amount",
         ai_context={"business_definition": "Gross order amount in USD."},
     )
@@ -82,7 +82,7 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
         return table.amount
 
     @ms.time_dimension(
-        dataset=orders,
+        entity=orders,
         data_type="timestamp",
         granularity="day",
         description="Order creation time",
@@ -92,7 +92,7 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
         return table.created_at
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="sql_parity",
@@ -290,7 +290,7 @@ def test_readiness_scoped_metric_ignores_unrelated_dataset_previews(
                 )
 
                 @ms.metric(
-                    datasets=[orders],
+                    entities=[orders],
                     additivity="additive",
                     decomposition=ms.sum(),
                     verification_mode="python_native",
@@ -349,7 +349,7 @@ def test_readiness_scoped_metric_ignores_unrelated_datasource_reachability(
                 )
 
                 @ms.metric(
-                    datasets=[orders],
+                    entities=[orders],
                     additivity="additive",
                     decomposition=ms.sum(),
                     verification_mode="python_native",
@@ -424,7 +424,7 @@ def test_readiness_maps_time_dimension_pushdown_advisory(semantic_project_factor
 
                 orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-                @ms.time_dimension(dataset=orders, data_type="date", granularity="day")
+                @ms.time_dimension(entity=orders, data_type="date", granularity="day")
                 def order_date(table):
                     return table.dt.cast("date")
             """)
@@ -444,7 +444,7 @@ _UNVERIFIED_DOMAIN_PY = textwrap.dedent("""\
     orders = ms.entity(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity='additive',
         decomposition=ms.sum(),
         verification_mode="sql_parity",
@@ -463,7 +463,7 @@ _DRIFTED_DOMAIN_PY = textwrap.dedent("""\
     orders = ms.entity(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="sql_parity",
@@ -482,7 +482,7 @@ _PYTHON_NATIVE_DOMAIN_PY = textwrap.dedent("""\
     orders = ms.entity(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="python_native",
@@ -499,7 +499,7 @@ _DERIVED_WITH_PYTHON_NATIVE_COMPONENT_DOMAIN_PY = textwrap.dedent("""\
     orders = ms.entity(name="orders", datasource="warehouse", description="Orders", source=ms.table("orders"))
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="python_native",
@@ -637,7 +637,7 @@ def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
                 )
 
                 @ms.dimension(
-                    dataset=orders,
+                    entity=orders,
                     description="Order amount",
                     ai_context={"business_definition": "Gross order amount in USD."},
                 )
@@ -645,7 +645,7 @@ def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
                     return table.amount
 
                 @ms.dimension(
-                    dataset=orders,
+                    entity=orders,
                     description="Missing field",
                     ai_context={"business_definition": "A field with a broken expression."},
                 )
@@ -908,12 +908,12 @@ _COMMENTLESS_DOMAIN_PY = textwrap.dedent("""\
 
     orders = ms.entity(name="orders", datasource="warehouse", primary_key=["order_id"], source=ms.table("orders"))
 
-    @ms.dimension(dataset=orders)
+    @ms.dimension(entity=orders)
     def amount(table):
         return table.amount
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity='additive',
         decomposition=ms.sum(),
         verification_mode="python_native",
@@ -1196,7 +1196,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -1225,7 +1225,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -1263,7 +1263,7 @@ def test_readiness_require_evidence_ledger_blocks_unaudited_metric(semantic_proj
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -1295,7 +1295,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -1379,11 +1379,11 @@ def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
                 "    ai_context={'business_definition': 'One row per order.',\n"
                 "               'guardrails': ['Exclude test orders.']})\n"
-                "@ms.dimension(dataset=orders, name='amount',\n"
+                "@ms.dimension(entity=orders, name='amount',\n"
                 "    ai_context={'business_definition': 'Gross amount.',\n"
                 "               'guardrails': ['USD only.']})\n"
                 "def amount(table):\n    return table.amount\n"
-                "@ms.dimension(dataset=orders, name='region')\n"
+                "@ms.dimension(entity=orders, name='region')\n"
                 "def region(table):\n    return table.region\n"
             ),
         }
@@ -1591,7 +1591,7 @@ def test_readiness_auto_evidence_end_to_end(
                     primary_key=("order_id",),
                 )
                 @ms.metric(
-                    datasets=[orders],
+                    entities=[orders],
                     additivity="additive",
                     decomposition=ms.sum(),
                     verification_mode="python_native",

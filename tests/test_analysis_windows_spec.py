@@ -27,7 +27,7 @@ def test_normalize_timescope_input_accepts_start_end_dict():
     [
         {"expr": "mtd"},
         {"start": "2026-05-01", "end": "2026-05-24", "grain": "day"},
-        {"start": "2026-05-01", "end": "2026-05-24", "time_field": "created_at"},
+        {"start": "2026-05-01", "end": "2026-05-24", "time_dimension": "created_at"},
         {"start": "2026-05-01", "end": "2026-05-24", "extra": "nope"},
     ],
 )

@@ -40,21 +40,21 @@ def _bootstrap_one_to_many(tmp_path: Path, *, fanout_policy: str = "block") -> N
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
         "order_items = ms.entity(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
-        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
-        "@ms.dimension(dataset=orders)\n"
+        "@ms.dimension(entity=orders)\n"
         "def order_id(orders):\n"
         "    return orders.order_id\n"
-        "@ms.dimension(dataset=order_items)\n"
+        "@ms.dimension(entity=order_items)\n"
         "def item_order_id(order_items):\n"
         "    return order_items.order_id\n"
-        "@ms.dimension(dataset=order_items)\n"
+        "@ms.dimension(entity=order_items)\n"
         "def qty(order_items):\n"
         "    return order_items.qty\n"
         f"@ms.metric(\n"
-        "    datasets=[orders, order_items],\n"
-        "    root_dataset=orders,\n"
+        "    entities=[orders, order_items],\n"
+        "    root_entity=orders,\n"
         "    additivity='additive',\n"
         "    decomposition=ms.sum(),\n"
         f"    fanout_policy='{fanout_policy}',\n"
@@ -69,10 +69,10 @@ def _bootstrap_one_to_many(tmp_path: Path, *, fanout_policy: str = "block") -> N
         "from .datasets import orders, order_items, order_id, item_order_id\n"
         "ms.relationship(\n"
         "    name='orders_to_order_items',\n"
-        "    from_dataset=orders,\n"
-        "    to_dataset=order_items,\n"
-        "    from_fields=[order_id],\n"
-        "    to_fields=[item_order_id],\n"
+        "    from_entity=orders,\n"
+        "    to_entity=order_items,\n"
+        "    from_dimensions=[order_id],\n"
+        "    to_dimensions=[item_order_id],\n"
         ")\n"
     )
 
@@ -179,10 +179,10 @@ def test_relationship_does_not_accept_fanout_kwargs():
     with pytest.raises(TypeError):
         ms.relationship(  # type: ignore[call-arg]
             name="orders_to_order_items",
-            from_dataset="sales.orders",
-            to_dataset="sales.order_items",
-            from_fields=[],
-            to_fields=[],
+            from_entity="sales.orders",
+            to_entity="sales.order_items",
+            from_dimensions=[],
+            to_dimensions=[],
             fanout_policy="aggregate_then_join",
         )
 

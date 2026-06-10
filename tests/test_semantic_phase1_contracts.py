@@ -14,7 +14,7 @@ def test_base_metric_requires_additivity(semantic_project_factory):
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "@ms.metric(datasets=[orders], decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders], decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -37,7 +37,7 @@ def test_single_dataset_metric_defaults_root_dataset(semantic_project_factory):
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "@ms.metric(\n"
-                "    datasets=[orders],\n"
+                "    entities=[orders],\n"
                 "    additivity='additive',\n"
                 "    decomposition=ms.sum(),\n"
                 "    name='revenue',\n"
@@ -52,7 +52,7 @@ def test_single_dataset_metric_defaults_root_dataset(semantic_project_factory):
     metric = project.get_metric("sales.revenue")
     assert metric is not None
     assert metric.additivity == "additive"
-    assert metric.root_dataset == "sales.orders"
+    assert metric.root_entity == "sales.orders"
 
 
 def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_factory):
@@ -64,7 +64,7 @@ def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_fa
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
                 "@ms.metric(\n"
-                "    datasets=[orders, users],\n"
+                "    entities=[orders, users],\n"
                 "    additivity='additive',\n"
                 "    decomposition=ms.sum(),\n"
                 "    name='revenue',\n"
@@ -81,7 +81,7 @@ def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_fa
 
     error = exc_info.value.errors[0]
     assert error.kind == "missing_metric_root_dataset"
-    assert error.details == {"metric": "sales.revenue", "datasets": ["sales.orders", "sales.users"]}
+    assert error.details == {"metric": "sales.revenue", "entities": ["sales.orders", "sales.users"]}
 
 
 def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory):
@@ -93,8 +93,8 @@ def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory)
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
                 "@ms.metric(\n"
-                "    datasets=[orders, users],\n"
-                "    root_dataset=orders,\n"
+                "    entities=[orders, users],\n"
+                "    root_entity=orders,\n"
                 "    additivity='additive',\n"
                 "    decomposition=ms.sum(),\n"
                 "    name='revenue',\n"
@@ -108,7 +108,7 @@ def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory)
 
     metric = project.get_metric("sales.revenue")
     assert metric is not None
-    assert metric.root_dataset == "sales.orders"
+    assert metric.root_entity == "sales.orders"
 
 
 def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_project_factory):
@@ -120,8 +120,8 @@ def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_proje
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
                 "@ms.metric(\n"
-                "    datasets=[orders, users],\n"
-                "    root_dataset=orders,\n"
+                "    entities=[orders, users],\n"
+                "    root_entity=orders,\n"
                 "    additivity='additive',\n"
                 "    decomposition=ms.sum(),\n"
                 "    name='bad_user_sum',\n"
@@ -141,8 +141,8 @@ def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_proje
     error = exc_info.value.errors[0]
     assert error.kind == "non_root_metric_aggregate"
     assert error.details["metric"] == "sales.bad_user_sum"
-    assert error.details["root_dataset"] == "sales.orders"
-    assert error.details["offending_dataset"] == "sales.users"
+    assert error.details["root_entity"] == "sales.orders"
+    assert error.details["offending_entity"] == "sales.users"
 
 
 def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
@@ -167,7 +167,7 @@ def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
         }
     )
 
-    dataset = project.get_dataset("sales.user_profile_daily")
+    dataset = project.get_entity("sales.user_profile_daily")
     assert dataset is not None
     assert dataset.versioning is not None
     assert dataset.versioning.kind == "snapshot"

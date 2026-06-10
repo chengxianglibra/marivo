@@ -110,25 +110,25 @@ def _detect_coverage(reg: Registry) -> list[tuple[str, tuple[str, ...]]]:
 
     metric_datasets: set[str] = set()
     for metric in reg.metrics.values():
-        metric_datasets.update(metric.datasets)
+        metric_datasets.update(metric.entities)
 
     fields_by_dataset: dict[str, list[DimensionIR]] = {}
     for field_obj in reg.fields.values():
-        fields_by_dataset.setdefault(field_obj.dataset, []).append(field_obj)
+        fields_by_dataset.setdefault(field_obj.entity, []).append(field_obj)
 
     for dataset in reg.datasets.values():
         if dataset.semantic_id in metric_datasets:
             continue
         primary_key = set(dataset.primary_key)
         has_measure_like = any(
-            (not field_obj.is_time_field) and (field_obj.name not in primary_key)
+            (not field_obj.is_time_dimension) and (field_obj.name not in primary_key)
             for field_obj in fields_by_dataset.get(dataset.semantic_id, [])
         )
         if has_measure_like:
             gaps.append(("fact_table_no_metric", (dataset.semantic_id,)))
 
     related_pairs = {
-        frozenset((rel.from_dataset, rel.to_dataset)) for rel in reg.relationships.values()
+        frozenset((rel.from_entity, rel.to_entity)) for rel in reg.relationships.values()
     }
     datasets = list(reg.datasets.values())
     for i in range(len(datasets)):
@@ -235,7 +235,7 @@ def build_richness_report(
     objects: dict[str, object] = {**reg.datasets, **reg.fields, **reg.metrics}
     fields_by_dataset: dict[str, list[DimensionIR]] = {}
     for field_obj in reg.fields.values():
-        fields_by_dataset.setdefault(field_obj.dataset, []).append(field_obj)
+        fields_by_dataset.setdefault(field_obj.entity, []).append(field_obj)
 
     gaps: list[RichnessGap] = []
 

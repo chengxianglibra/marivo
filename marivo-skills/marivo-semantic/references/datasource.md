@@ -188,7 +188,7 @@ Do not cast a Trino VARCHAR datetime directly to date. Parse through timestamp
 first:
 
 ```python
-@ms.time_dimension(dataset=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```

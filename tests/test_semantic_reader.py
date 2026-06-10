@@ -33,13 +33,13 @@ from marivo.semantic.ir import (
     SymbolKind,
 )
 from marivo.semantic.reader import (
-    DatasetSummary,
     DatasourceSummary,
     DependencyNode,
     Description,
-    FieldSummary,
+    DimensionSummary,
+    DomainSummary,
+    EntitySummary,
     MetricSummary,
-    ModelSummary,
     RelationshipSummary,
     SearchHit,
     SemanticProject,
@@ -59,28 +59,28 @@ _FULL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.dimension(dataset=orders)
+    @ms.dimension(entity=orders)
     def amount(table):
         return table.amount
 
-    @ms.dimension(dataset=orders)
+    @ms.dimension(entity=orders)
     def region(table):
         return table.region
 
-    @ms.time_dimension(dataset=orders, data_type="timestamp", granularity="day")
+    @ms.time_dimension(entity=orders, data_type="timestamp", granularity="day")
     def created_at(table):
         return table.created_at
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def total_revenue(table):
         return table.amount.sum()
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def order_count(table):
         return table.count()
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity='additive',
         decomposition=ms.sum(),
         description="Average order value",
@@ -90,10 +90,10 @@ _FULL_DOMAIN_PY = textwrap.dedent("""\
 
     ms.relationship(
         name="orders_to_items",
-        from_dataset=orders,
-        to_dataset=orders,
-        from_fields=[amount],
-        to_fields=[amount],
+        from_entity=orders,
+        to_entity=orders,
+        from_dimensions=[amount],
+        to_dimensions=[amount],
     )
 """)
 
@@ -102,11 +102,11 @@ _DERIVED_METRIC_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def revenue(table):
         return table.amount.sum()
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def count_metric(table):
         return table.count()
 
@@ -175,11 +175,11 @@ def test_list_models(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    models = project.list_models()
+    models = project.list_domains()
     assert isinstance(models, DiscoveryResult)
     assert len(models) >= 1
     assert any(m.name == "sales" for m in models)
-    assert all(isinstance(m, ModelSummary) for m in models)
+    assert all(isinstance(m, DomainSummary) for m in models)
     # Verify object_counts is present
     for m in models:
         assert isinstance(m.object_counts, dict)
@@ -216,14 +216,14 @@ def test_list_datasets(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    datasets = project.list_datasets()
+    datasets = project.list_entities()
     assert isinstance(datasets, DiscoveryResult)
     assert len(datasets) >= 1
     assert any(d.name == "orders" for d in datasets)
-    assert all(isinstance(d, DatasetSummary) for d in datasets)
-    # dataset_provenance should be None when not materialized
+    assert all(isinstance(d, EntitySummary) for d in datasets)
+    # entity_provenance should be None when not materialized
     for d in datasets:
-        assert d.dataset_provenance is None
+        assert d.entity_provenance is None
 
 
 def test_list_datasets_filter_by_model(semantic_project_factory) -> None:
@@ -233,12 +233,12 @@ def test_list_datasets_filter_by_model(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    datasets = project.list_datasets(model="sales")
+    datasets = project.list_entities(domain="sales")
     assert len(datasets) >= 1
-    assert all(d.model == "sales" for d in datasets)
+    assert all(d.domain == "sales" for d in datasets)
 
     # Non-existent model should return empty
-    datasets_other = project.list_datasets(model="nonexistent")
+    datasets_other = project.list_entities(domain="nonexistent")
     assert len(datasets_other) == 0
 
 
@@ -254,12 +254,12 @@ def test_list_fields(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    fields = project.list_fields()
+    fields = project.list_dimensions()
     field_names = [f.name for f in fields]
     assert "amount" in field_names
     assert "region" in field_names
-    assert all(isinstance(f, FieldSummary) for f in fields)
-    assert all(not f.is_time_field for f in fields)
+    assert all(isinstance(f, DimensionSummary) for f in fields)
+    assert all(not f.is_time_dimension for f in fields)
     assert all(f.kind == DimensionKind.CATEGORICAL for f in fields)
 
 
@@ -270,9 +270,9 @@ def test_list_fields_filter_by_dataset_keyword(semantic_project_factory) -> None
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    fields = project.list_fields(dataset="sales.orders")
+    fields = project.list_dimensions(entity="sales.orders")
     assert len(fields) >= 2
-    assert all(f.dataset == "sales.orders" for f in fields)
+    assert all(f.entity == "sales.orders" for f in fields)
 
 
 def test_list_fields_filter_by_model(semantic_project_factory) -> None:
@@ -282,9 +282,9 @@ def test_list_fields_filter_by_model(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    fields = project.list_fields(model="sales")
+    fields = project.list_dimensions(domain="sales")
     assert len(fields) >= 1
-    assert all(f.model == "sales" for f in fields)
+    assert all(f.domain == "sales" for f in fields)
 
 
 def test_list_fields_filter_by_model_and_dataset(semantic_project_factory) -> None:
@@ -294,10 +294,10 @@ def test_list_fields_filter_by_model_and_dataset(semantic_project_factory) -> No
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    fields = project.list_fields(model="sales", dataset="sales.orders")
+    fields = project.list_dimensions(domain="sales", entity="sales.orders")
     assert len(fields) >= 1
-    assert all(f.model == "sales" for f in fields)
-    assert all(f.dataset == "sales.orders" for f in fields)
+    assert all(f.domain == "sales" for f in fields)
+    assert all(f.entity == "sales.orders" for f in fields)
 
 
 def test_list_fields_rejects_positional_dataset(semantic_project_factory) -> None:
@@ -308,7 +308,7 @@ def test_list_fields_rejects_positional_dataset(semantic_project_factory) -> Non
         }
     )
     with pytest.raises(TypeError):
-        project.list_fields("sales.orders")
+        project.list_dimensions("sales.orders")
 
 
 def test_list_time_fields(semantic_project_factory) -> None:
@@ -318,10 +318,10 @@ def test_list_time_fields(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    time_fields = project.list_time_fields()
+    time_fields = project.list_time_dimensions()
     assert len(time_fields) >= 1
     assert any(f.name == "created_at" for f in time_fields)
-    assert all(f.is_time_field for f in time_fields)
+    assert all(f.is_time_dimension for f in time_fields)
     assert all(f.kind == DimensionKind.TIME for f in time_fields)
 
 
@@ -332,9 +332,9 @@ def test_list_time_fields_filter_by_model(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    time_fields = project.list_time_fields(model="sales")
+    time_fields = project.list_time_dimensions(domain="sales")
     assert len(time_fields) >= 1
-    assert all(f.model == "sales" for f in time_fields)
+    assert all(f.domain == "sales" for f in time_fields)
 
 
 def test_list_time_fields_rejects_positional_dataset(semantic_project_factory) -> None:
@@ -345,7 +345,7 @@ def test_list_time_fields_rejects_positional_dataset(semantic_project_factory) -
         }
     )
     with pytest.raises(TypeError):
-        project.list_time_fields("sales.orders")
+        project.list_time_dimensions("sales.orders")
 
 
 def test_list_fields_kind_measure(semantic_project_factory) -> None:
@@ -353,11 +353,11 @@ def test_list_fields_kind_measure(semantic_project_factory) -> None:
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.dimension(dataset=orders, kind="measure")
+        @ms.dimension(entity=orders, kind="measure")
         def amount(table):
             return table.amount
 
-        @ms.dimension(dataset=orders)
+        @ms.dimension(entity=orders)
         def region(table):
             return table.region
     """)
@@ -367,7 +367,7 @@ def test_list_fields_kind_measure(semantic_project_factory) -> None:
             "sales/objects.py": model_with_measure,
         }
     )
-    fields = project.list_fields()
+    fields = project.list_dimensions()
     amount_field = next(f for f in fields if f.name == "amount")
     region_field = next(f for f in fields if f.name == "region")
     assert amount_field.kind == DimensionKind.MEASURE
@@ -381,10 +381,10 @@ def test_kind_string_comparison(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    fields = project.list_fields()
+    fields = project.list_dimensions()
     dimension_fields = [f for f in fields if f.kind == "categorical"]
     assert len(dimension_fields) >= 2
-    time_fields = project.list_time_fields()
+    time_fields = project.list_time_dimensions()
     assert all(f.kind == "time" for f in time_fields)
 
 
@@ -415,7 +415,7 @@ def test_list_metrics_filter_by_dataset(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    metrics = project.list_metrics(dataset="sales.orders")
+    metrics = project.list_metrics(entity="sales.orders")
     assert len(metrics) >= 1
     # MetricSummary doesn't have .datasets; just check we got results
     assert all(isinstance(m, MetricSummary) for m in metrics)
@@ -458,9 +458,9 @@ def test_list_relationships_filter_by_model(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    rels = project.list_relationships(model="sales")
+    rels = project.list_relationships(domain="sales")
     assert len(rels) >= 1
-    assert all(r.model == "sales" for r in rels)
+    assert all(r.domain == "sales" for r in rels)
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +475,7 @@ def test_get_dataset(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    ds = project.get_dataset("sales.orders")
+    ds = project.get_entity("sales.orders")
     assert ds is not None
     assert ds.name == "orders"
     assert isinstance(ds, EntityIR)
@@ -488,7 +488,7 @@ def test_get_entity_not_found(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    assert project.get_dataset("nonexistent") is None
+    assert project.get_entity("nonexistent") is None
 
 
 def test_get_datasource(semantic_project_factory) -> None:
@@ -522,7 +522,7 @@ def test_get_field(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    f = project.get_field("sales.orders.amount")
+    f = project.get_dimension("sales.orders.amount")
     assert f is not None
     assert f.name == "amount"
     assert isinstance(f, DimensionIR)
@@ -1039,7 +1039,7 @@ def test_describe_dataset_has_provenance_none(semantic_project_factory) -> None:
     desc = project.describe("sales.orders")
     assert isinstance(desc, Description)
     assert desc.kind == SymbolKind.ENTITY
-    assert desc.dataset_provenance is None  # Not materialized yet
+    assert desc.entity_provenance is None  # Not materialized yet
     assert desc.primary_key is not None  # Should be a tuple (possibly empty)
 
 
@@ -1078,7 +1078,7 @@ def test_describe_time_field_has_format(semantic_project_factory) -> None:
                 orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
                 @ms.time_dimension(
-                    dataset=orders,
+                    entity=orders,
                     data_type="string",
                     granularity="day",
                     date_format="%Y%m%d",
@@ -1112,7 +1112,7 @@ def _make_ambiguous_registry() -> Registry:
     shared_id = "sales.dau_7d_portrait"
     ds = EntityIR(
         semantic_id=shared_id,
-        model="sales",
+        domain="sales",
         name="dau_7d_portrait",
         datasource="warehouse",
         source=TableSourceIR(table="dau_7d_portrait"),
@@ -1124,9 +1124,9 @@ def _make_ambiguous_registry() -> Registry:
     )
     metric = MetricIR(
         semantic_id=shared_id,
-        model="sales",
+        domain="sales",
         name="dau_7d_portrait",
-        datasets=(shared_id,),
+        entities=(shared_id,),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
         provenance=ProvenanceIR(),
@@ -1214,10 +1214,10 @@ def test_describe_relationship(semantic_project_factory) -> None:
     assert isinstance(desc, Description)
     assert desc.kind == SymbolKind.RELATIONSHIP
     assert desc.name == "orders_to_items"
-    assert desc.from_dataset == "sales.orders"
-    assert desc.to_dataset == "sales.orders"
-    assert desc.from_fields == ("sales.orders.amount",)
-    assert desc.to_fields == ("sales.orders.amount",)
+    assert desc.from_entity == "sales.orders"
+    assert desc.to_entity == "sales.orders"
+    assert desc.from_dimensions == ("sales.orders.amount",)
+    assert desc.to_dimensions == ("sales.orders.amount",)
     assert "sales.orders" in desc.dependencies
 
 
@@ -1231,8 +1231,8 @@ def test_describe_relationship_to_text(semantic_project_factory) -> None:
     desc = project.describe("sales.orders_to_items")
     text = desc.to_text()
     assert "[relationship]" in text
-    assert "from_dataset" in text
-    assert "to_dataset" in text
+    assert "from_entity" in text
+    assert "to_entity" in text
 
 
 # ---------------------------------------------------------------------------
@@ -1249,7 +1249,7 @@ def test_reader_on_unloaded_project_raises(semantic_project_factory) -> None:
         load=False,
     )
     with pytest.raises(SemanticLoadFailed):
-        project.list_models()
+        project.list_domains()
 
 
 def test_reader_on_errored_project_raises(semantic_project_factory) -> None:
@@ -1262,7 +1262,7 @@ def test_reader_on_errored_project_raises(semantic_project_factory) -> None:
         }
     )
     with pytest.raises(SemanticLoadFailed):
-        project.list_models()
+        project.list_domains()
 
 
 def test_require_registry_uses_project_not_loaded_error_kind(semantic_project_factory) -> None:
@@ -1293,7 +1293,7 @@ def test_load_single_model_string(semantic_project_factory) -> None:
     )
     result = project.load("sales")
     assert result.status == "ready"
-    assert project._filtered_models == ("sales",)
+    assert project._filtered_domains == ("sales",)
 
 
 def test_load_single_model_string_on_already_loaded_project(semantic_project_factory) -> None:
@@ -1304,7 +1304,7 @@ def test_load_single_model_string_on_already_loaded_project(semantic_project_fac
         },
     )
     project.load("sales")
-    assert project._filtered_models == ("sales",)
+    assert project._filtered_domains == ("sales",)
     assert project.is_ready()
 
 
@@ -1320,7 +1320,7 @@ def test_returned_summary_objects_are_frozen(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    models = project.list_models()
+    models = project.list_domains()
     if models:
         with pytest.raises(AttributeError):
             models[0].name = "mutated"  # type: ignore[misc]
@@ -1345,11 +1345,11 @@ def test_description_is_frozen(semantic_project_factory) -> None:
 
 def test_empty_project_list_methods(semantic_project_factory) -> None:
     project = semantic_project_factory({})
-    assert len(project.list_models()) == 0
+    assert len(project.list_domains()) == 0
     assert len(project.list_datasources()) == 0
-    assert len(project.list_datasets()) == 0
-    assert len(project.list_fields()) == 0
-    assert len(project.list_time_fields()) == 0
+    assert len(project.list_entities()) == 0
+    assert len(project.list_dimensions()) == 0
+    assert len(project.list_time_dimensions()) == 0
     assert len(project.list_metrics()) == 0
     assert len(project.list_relationships()) == 0
 
@@ -1403,7 +1403,7 @@ def test_list_models_returns_discovery_result(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    assert isinstance(project.list_models(), DiscoveryResult)
+    assert isinstance(project.list_domains(), DiscoveryResult)
 
 
 def test_list_datasources_returns_discovery_result(semantic_project_factory) -> None:
@@ -1423,7 +1423,7 @@ def test_list_datasets_returns_discovery_result(semantic_project_factory) -> Non
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    assert isinstance(project.list_datasets(), DiscoveryResult)
+    assert isinstance(project.list_entities(), DiscoveryResult)
 
 
 def test_list_fields_returns_discovery_result(semantic_project_factory) -> None:
@@ -1433,7 +1433,7 @@ def test_list_fields_returns_discovery_result(semantic_project_factory) -> None:
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    assert isinstance(project.list_fields(), DiscoveryResult)
+    assert isinstance(project.list_dimensions(), DiscoveryResult)
 
 
 def test_list_time_fields_returns_discovery_result(semantic_project_factory) -> None:
@@ -1443,7 +1443,7 @@ def test_list_time_fields_returns_discovery_result(semantic_project_factory) -> 
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    assert isinstance(project.list_time_fields(), DiscoveryResult)
+    assert isinstance(project.list_time_dimensions(), DiscoveryResult)
 
 
 def test_list_relationships_returns_discovery_result(semantic_project_factory) -> None:
@@ -1510,7 +1510,7 @@ def test_list_metrics_require_one_with_single_result(semantic_project_factory) -
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    result = project.list_metrics(dataset="sales.orders")
+    result = project.list_metrics(entity="sales.orders")
     if len(result) == 1:
         item = result.require_one()
         assert item.semantic_id in result.ids()
@@ -1523,21 +1523,21 @@ def test_list_metrics_require_one_zero_raises_no_results(semantic_project_factor
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    result = project.list_metrics(dataset="nonexistent.dataset")
+    result = project.list_metrics(entity="nonexistent.dataset")
     with pytest.raises(SelectionError) as exc_info:
         result.require_one()
     assert "no results" in str(exc_info.value.message).lower()
 
 
 def test_list_models_ids_raises_selection_error(semantic_project_factory) -> None:
-    """ModelSummary has no semantic_id, so .ids() should raise SelectionError."""
+    """DomainSummary has no semantic_id, so .ids() should raise SelectionError."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
     )
-    result = project.list_models()
+    result = project.list_domains()
     with pytest.raises(SelectionError):
         result.ids()
 

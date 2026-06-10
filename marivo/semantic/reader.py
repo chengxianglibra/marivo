@@ -62,7 +62,7 @@ from marivo.semantic.ir import (
     SymbolKind,
 )
 from marivo.semantic.loader import LoadResult, load_project
-from marivo.semantic.materializer import DatasetRuntimeMetadata, Materializer
+from marivo.semantic.materializer import EntityRuntimeMetadata, Materializer
 from marivo.semantic.parity import ParityResult, parity_check, propagated_parity_status
 from marivo.semantic.readiness import (
     ParitySummary,
@@ -82,12 +82,13 @@ from marivo.semantic.richness import (
 from marivo.semantic.validator import Registry, Sidecar
 
 __all__ = [
-    "DatasetSummary",
     "DatasourceSummary",
     "DependencyNode",
     "Description",
+    "DimensionSummary",
+    "DomainSummary",
+    "EntitySummary",
     "MetricSummary",
-    "ModelSummary",
     "ParitySummary",
     "PreviewSummary",
     "ReadinessInputSummary",
@@ -108,8 +109,8 @@ _FIELD_PREVIEW_CONTEXT_COLUMNS = 3
 
 
 @dataclass(frozen=True)
-class ModelSummary:
-    """Summary of a model returned by ``project.list_models()``."""
+class DomainSummary:
+    """Summary of a domain returned by ``project.list_domains()``."""
 
     name: str
     description: str | None
@@ -128,15 +129,15 @@ class DatasourceSummary:
 
 
 @dataclass(frozen=True)
-class DatasetSummary:
-    """Summary of a dataset returned by ``project.list_datasets()``."""
+class EntitySummary:
+    """Summary of an entity returned by ``project.list_entities()``."""
 
     semantic_id: str
-    model: str
+    domain: str
     name: str
     datasource: str
     description: str | None
-    dataset_provenance: EntityProvenance | None  # None = not yet materialized
+    entity_provenance: EntityProvenance | None  # None = not yet materialized
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.semantic_id!r})"
@@ -147,7 +148,7 @@ class MetricSummary:
     """Summary of a metric returned by ``project.list_metrics()``."""
 
     semantic_id: str
-    model: str
+    domain: str
     name: str
     description: str | None
     decomposition_kind: Literal["sum", "ratio", "weighted_average"]
@@ -160,15 +161,15 @@ class MetricSummary:
 
 
 @dataclass(frozen=True)
-class FieldSummary:
-    """Summary of a field returned by ``project.list_fields()`` / ``project.list_time_fields()``."""
+class DimensionSummary:
+    """Summary of a dimension returned by ``project.list_dimensions()`` / ``project.list_time_dimensions()``."""
 
     semantic_id: str
-    model: str
-    dataset: str
+    domain: str
+    entity: str
     name: str
     description: str | None
-    is_time_field: bool
+    is_time_dimension: bool
     kind: DimensionKind
     data_type: str | None
     granularity: str | None
@@ -186,17 +187,19 @@ class RelationshipSummary:
     """Summary of a relationship returned by ``project.list_relationships()``."""
 
     semantic_id: str
-    model: str
+    domain: str
     name: str
-    from_dataset: str
-    to_dataset: str
-    from_fields: tuple[str, ...]
-    to_fields: tuple[str, ...]
+    from_entity: str
+    to_entity: str
+    from_dimensions: tuple[str, ...]
+    to_dimensions: tuple[str, ...]
     description: str | None
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.semantic_id!r})"
 
+
+# Deprecated aliases
 
 # ---------------------------------------------------------------------------
 # SearchHit
@@ -290,7 +293,7 @@ class Description:
 
     semantic_id: str
     kind: SymbolKind
-    model: str
+    domain: str
     name: str
     python_symbol: str
     description: str | None
@@ -307,15 +310,15 @@ class Description:
     dependencies: tuple[str, ...]
     dependents: tuple[str, ...]
     source_location: SourceLocation | DatasourceSourceLocation
-    dataset_provenance: EntityProvenance | None
+    entity_provenance: EntityProvenance | None
     primary_key: tuple[str, ...] | None
     granularity: str | None
     required_prefix: str | None
     format: str | None
-    from_dataset: str | None = None
-    to_dataset: str | None = None
-    from_fields: tuple[str, ...] | None = None
-    to_fields: tuple[str, ...] | None = None
+    from_entity: str | None = None
+    to_entity: str | None = None
+    from_dimensions: tuple[str, ...] | None = None
+    to_dimensions: tuple[str, ...] | None = None
 
     def to_text(self) -> str:
         """Render this description as human-readable text."""
@@ -349,8 +352,8 @@ class Description:
             lines.append(f"  dependencies: {self.dependencies!r}")
         if self.dependents:
             lines.append(f"  dependents: {self.dependents!r}")
-        if self.dataset_provenance is not None:
-            lines.append(f"  dataset_provenance: {self.dataset_provenance!r}")
+        if self.entity_provenance is not None:
+            lines.append(f"  entity_provenance: {self.entity_provenance!r}")
         if self.primary_key is not None:
             lines.append(f"  primary_key: {self.primary_key!r}")
         if self.granularity is not None:
@@ -359,14 +362,14 @@ class Description:
             lines.append(f"  format: {self.format!r}")
         if self.required_prefix is not None:
             lines.append(f"  required_prefix: {self.required_prefix!r}")
-        if self.from_dataset is not None:
-            lines.append(f"  from_dataset: {self.from_dataset!r}")
-        if self.to_dataset is not None:
-            lines.append(f"  to_dataset: {self.to_dataset!r}")
-        if self.from_fields is not None:
-            lines.append(f"  from_fields: {self.from_fields!r}")
-        if self.to_fields is not None:
-            lines.append(f"  to_fields: {self.to_fields!r}")
+        if self.from_entity is not None:
+            lines.append(f"  from_entity: {self.from_entity!r}")
+        if self.to_entity is not None:
+            lines.append(f"  to_entity: {self.to_entity!r}")
+        if self.from_dimensions is not None:
+            lines.append(f"  from_dimensions: {self.from_dimensions!r}")
+        if self.to_dimensions is not None:
+            lines.append(f"  to_dimensions: {self.to_dimensions!r}")
 
         lines.append(f"  source_location: {self.source_location.file}:{self.source_location.line}")
         return "\n".join(lines)
@@ -500,9 +503,9 @@ class SemanticProject:
         project = SemanticProject(workspace_dir="/path/to/project")
         result = project.load()
         if project.is_ready():
-            models = project.list_models()
-            models.show()   # print bounded preview
-            for m in models:
+            domains = project.list_domains()
+            domains.show()   # print bounded preview
+            for d in domains:
                 ...
     """
 
@@ -527,8 +530,8 @@ class SemanticProject:
         self._load_result: LoadResult | None = None
         self._registry: Registry | None = None
         self._sidecar: Sidecar | None = None
-        self._filtered_models: tuple[str, ...] = ()
-        self._runtime_metadata: dict[str, DatasetRuntimeMetadata] = {}
+        self._filtered_domains: tuple[str, ...] = ()
+        self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
         self._raw_preview_evidence: tuple[str, ...] = ()
         self._bound_inspect_source: Callable[..., Any] | None = None
@@ -588,11 +591,11 @@ class SemanticProject:
                 refs=(str(self._semantic_root),),
             )
         if models is not None and len(models) > 0:
-            self._filtered_models = tuple(models)
+            self._filtered_domains = tuple(models)
         else:
-            self._filtered_models = ()
+            self._filtered_domains = ()
         result = load_project(
-            self._semantic_root, models=self._filtered_models if self._filtered_models else None
+            self._semantic_root, models=self._filtered_domains if self._filtered_domains else None
         )
         self._load_result = result
         self._status = result.status
@@ -632,42 +635,44 @@ class SemanticProject:
 
     # -- listings -----------------------------------------------------------
 
-    def list_models(self) -> DiscoveryResult[ModelSummary]:
-        """Return all model summaries.
+    def list_domains(self) -> DiscoveryResult[DomainSummary]:
+        """Return all domain summaries.
 
         Returns:
-            DiscoveryResult[ModelSummary] — iterate, call .ids(), .show(), etc.
+            DiscoveryResult[DomainSummary] — iterate, call .ids(), .show(), etc.
         """
         reg = _require_registry(self._registry, project=self)
-        results: list[ModelSummary] = []
+        results: list[DomainSummary] = []
         for model_ir in reg.models.values():
             # Compute object counts for this model
             obj_counts: dict[str, int] = {}
-            obj_counts["entity"] = sum(1 for d in reg.datasets.values() if d.model == model_ir.name)
+            obj_counts["entity"] = sum(
+                1 for d in reg.datasets.values() if d.domain == model_ir.name
+            )
             obj_counts["dimension"] = sum(
                 1
                 for f in reg.fields.values()
-                if f.dataset.startswith(f"{model_ir.name}.") and not f.is_time_field
+                if f.entity.startswith(f"{model_ir.name}.") and not f.is_time_dimension
             )
             obj_counts["time_dimension"] = sum(
                 1
                 for f in reg.fields.values()
-                if f.dataset.startswith(f"{model_ir.name}.") and f.is_time_field
+                if f.entity.startswith(f"{model_ir.name}.") and f.is_time_dimension
             )
-            obj_counts["metric"] = sum(1 for m in reg.metrics.values() if m.model == model_ir.name)
+            obj_counts["metric"] = sum(1 for m in reg.metrics.values() if m.domain == model_ir.name)
             obj_counts["datasource"] = 0
             obj_counts["relationship"] = sum(
-                1 for r in reg.relationships.values() if r.model == model_ir.name
+                1 for r in reg.relationships.values() if r.domain == model_ir.name
             )
             results.append(
-                ModelSummary(
+                DomainSummary(
                     name=model_ir.name,
                     description=model_ir.description,
                     default=model_ir.default,
                     object_counts=obj_counts,
                 )
             )
-        return DiscoveryResult(results, item_type_name="ModelSummary", has_ids=False)
+        return DiscoveryResult(results, item_type_name="DomainSummary", has_ids=False)
 
     def list_datasources(self) -> DiscoveryResult[DatasourceSummary]:
         """Return all datasource summaries.
@@ -689,68 +694,68 @@ class SemanticProject:
         ]
         return DiscoveryResult(results, item_type_name="DatasourceSummary")
 
-    def list_datasets(self, *, model: str | None = None) -> DiscoveryResult[DatasetSummary]:
-        """Return dataset summaries, optionally filtered by model name.
+    def list_entities(self, *, domain: str | None = None) -> DiscoveryResult[EntitySummary]:
+        """Return entity summaries, optionally filtered by domain name.
 
         Args:
-            model: Optional model name to filter datasets.
+            domain: Optional domain name to filter entities.
 
         Returns:
-            DiscoveryResult[DatasetSummary] — iterate, call .ids(), .show(), etc.
+            DiscoveryResult[EntitySummary] — iterate, call .ids(), .show(), etc.
         """
         reg = _require_registry(self._registry, project=self)
         datasets = list(reg.datasets.values())
-        if model is not None:
-            datasets = [d for d in datasets if d.model == model]
+        if domain is not None:
+            datasets = [d for d in datasets if d.domain == domain]
         results = [
-            DatasetSummary(
+            EntitySummary(
                 semantic_id=d.semantic_id,
-                model=d.model,
+                domain=d.domain,
                 name=d.name,
                 datasource=d.datasource,
                 description=d.description,
-                dataset_provenance=(
-                    self._runtime_metadata[d.semantic_id].dataset_provenance
+                entity_provenance=(
+                    self._runtime_metadata[d.semantic_id].entity_provenance
                     if d.semantic_id in self._runtime_metadata
                     else None
                 ),
             )
             for d in datasets
         ]
-        return DiscoveryResult(results, item_type_name="DatasetSummary")
+        return DiscoveryResult(results, item_type_name="EntitySummary")
 
-    def list_fields(
+    def list_dimensions(
         self,
         *,
-        model: str | None = None,
-        dataset: str | None = None,
-    ) -> DiscoveryResult[FieldSummary]:
-        """Return field summaries, optionally filtered by model or dataset.
+        domain: str | None = None,
+        entity: str | None = None,
+    ) -> DiscoveryResult[DimensionSummary]:
+        """Return dimension summaries, optionally filtered by domain or entity.
 
-        Fields are all @ms.dimension declarations that are not time fields.
-        For time fields, use list_time_fields().
+        Dimensions are all @ms.dimension declarations that are not time dimensions.
+        For time dimensions, use list_time_dimensions().
 
         Args:
-            model: Optional model name to filter fields.
-            dataset: Optional dataset semantic_id to filter fields.
+            domain: Optional domain name to filter dimensions.
+            entity: Optional entity semantic_id to filter dimensions.
 
         Returns:
-            DiscoveryResult[FieldSummary] — iterate, call .ids(), .show(), etc.
+            DiscoveryResult[DimensionSummary] — iterate, call .ids(), .show(), etc.
         """
         reg = _require_registry(self._registry, project=self)
-        irs = [f for f in reg.fields.values() if not f.is_time_field]
-        if model is not None:
-            irs = [f for f in irs if f.model == model]
-        if dataset is not None:
-            irs = [f for f in irs if f.dataset == dataset]
+        irs = [f for f in reg.fields.values() if not f.is_time_dimension]
+        if domain is not None:
+            irs = [f for f in irs if f.domain == domain]
+        if entity is not None:
+            irs = [f for f in irs if f.entity == entity]
         results = [
-            FieldSummary(
+            DimensionSummary(
                 semantic_id=f.semantic_id,
-                model=f.model,
-                dataset=f.dataset,
+                domain=f.domain,
+                entity=f.entity,
                 name=f.name,
                 description=f.description,
-                is_time_field=f.is_time_field,
+                is_time_dimension=f.is_time_dimension,
                 kind=f.kind,
                 data_type=f.data_type,
                 granularity=f.granularity,
@@ -761,37 +766,37 @@ class SemanticProject:
             )
             for f in irs
         ]
-        return DiscoveryResult(results, item_type_name="FieldSummary")
+        return DiscoveryResult(results, item_type_name="DimensionSummary")
 
-    def list_time_fields(
+    def list_time_dimensions(
         self,
         *,
-        model: str | None = None,
-        dataset: str | None = None,
-    ) -> DiscoveryResult[FieldSummary]:
-        """Return time field summaries, optionally filtered by model or dataset.
+        domain: str | None = None,
+        entity: str | None = None,
+    ) -> DiscoveryResult[DimensionSummary]:
+        """Return time dimension summaries, optionally filtered by domain or entity.
 
         Args:
-            model: Optional model name to filter time fields.
-            dataset: Optional dataset semantic_id to filter time fields.
+            domain: Optional domain name to filter time dimensions.
+            entity: Optional entity semantic_id to filter time dimensions.
 
         Returns:
-            DiscoveryResult[FieldSummary] — iterate, call .ids(), .show(), etc.
+            DiscoveryResult[DimensionSummary] — iterate, call .ids(), .show(), etc.
         """
         reg = _require_registry(self._registry, project=self)
-        irs = [f for f in reg.fields.values() if f.is_time_field]
-        if model is not None:
-            irs = [f for f in irs if f.model == model]
-        if dataset is not None:
-            irs = [f for f in irs if f.dataset == dataset]
+        irs = [f for f in reg.fields.values() if f.is_time_dimension]
+        if domain is not None:
+            irs = [f for f in irs if f.domain == domain]
+        if entity is not None:
+            irs = [f for f in irs if f.entity == entity]
         results = [
-            FieldSummary(
+            DimensionSummary(
                 semantic_id=f.semantic_id,
-                model=f.model,
-                dataset=f.dataset,
+                domain=f.domain,
+                entity=f.entity,
                 name=f.name,
                 description=f.description,
-                is_time_field=f.is_time_field,
+                is_time_dimension=f.is_time_dimension,
                 kind=f.kind,
                 data_type=f.data_type,
                 granularity=f.granularity,
@@ -802,19 +807,19 @@ class SemanticProject:
             )
             for f in irs
         ]
-        return DiscoveryResult(results, item_type_name="FieldSummary")
+        return DiscoveryResult(results, item_type_name="DimensionSummary")
 
     def list_metrics(
         self,
         *,
-        dataset: str | None = None,
+        entity: str | None = None,
         decomposition: Literal["sum", "ratio", "weighted_average"] | None = None,
         provenance_status: ParityStatus | None = None,
     ) -> DiscoveryResult[MetricSummary]:
         """Return metric summaries, optionally filtered.
 
         Args:
-            dataset: Optional dataset semantic_id to filter metrics.
+            entity: Optional entity semantic_id to filter metrics.
             decomposition: Optional decomposition kind to filter metrics.
             provenance_status: Optional parity status to filter metrics.
 
@@ -823,8 +828,8 @@ class SemanticProject:
         """
         reg = _require_registry(self._registry, project=self)
         metrics = list(reg.metrics.values())
-        if dataset is not None:
-            metrics = [m for m in metrics if dataset in m.datasets]
+        if entity is not None:
+            metrics = [m for m in metrics if entity in m.entities]
         if decomposition is not None:
             metrics = [m for m in metrics if m.decomposition.kind == decomposition]
         if provenance_status is not None:
@@ -836,7 +841,7 @@ class SemanticProject:
         results = [
             MetricSummary(
                 semantic_id=m.semantic_id,
-                model=m.model,
+                domain=m.domain,
                 name=m.name,
                 description=m.description,
                 decomposition_kind=m.decomposition.kind,
@@ -849,29 +854,29 @@ class SemanticProject:
         return DiscoveryResult(results, item_type_name="MetricSummary")
 
     def list_relationships(
-        self, *, model: str | None = None
+        self, *, domain: str | None = None
     ) -> DiscoveryResult[RelationshipSummary]:
-        """Return relationship summaries, optionally filtered by model.
+        """Return relationship summaries, optionally filtered by domain.
 
         Args:
-            model: Optional model name to filter relationships.
+            domain: Optional domain name to filter relationships.
 
         Returns:
             DiscoveryResult[RelationshipSummary] — iterate, call .ids(), .show(), etc.
         """
         reg = _require_registry(self._registry, project=self)
         rel_irs = list(reg.relationships.values())
-        if model is not None:
-            rel_irs = [r for r in rel_irs if r.model == model]
+        if domain is not None:
+            rel_irs = [r for r in rel_irs if r.domain == domain]
         results = [
             RelationshipSummary(
                 semantic_id=r.semantic_id,
-                model=r.model,
+                domain=r.domain,
                 name=r.name,
-                from_dataset=r.from_dataset,
-                to_dataset=r.to_dataset,
-                from_fields=r.from_fields,
-                to_fields=r.to_fields,
+                from_entity=r.from_entity,
+                to_entity=r.to_entity,
+                from_dimensions=r.from_dimensions,
+                to_dimensions=r.to_dimensions,
                 description=r.description,
             )
             for r in rel_irs
@@ -880,8 +885,8 @@ class SemanticProject:
 
     # -- single-object accessors -------------------------------------------
 
-    def get_dataset(self, name: str) -> EntityIR | None:
-        """Return a dataset IR by semantic_id, or None if not found."""
+    def get_entity(self, name: str) -> EntityIR | None:
+        """Return an entity IR by semantic_id, or None if not found."""
         reg = _require_registry(self._registry, project=self)
         return reg.datasets.get(name)
 
@@ -894,8 +899,8 @@ class SemanticProject:
             return self._registry.datasources.get(name)
         return None
 
-    def get_field(self, name: str) -> DimensionIR | None:
-        """Return a field IR by semantic_id, or None if not found."""
+    def get_dimension(self, name: str) -> DimensionIR | None:
+        """Return a dimension IR by semantic_id, or None if not found."""
         reg = _require_registry(self._registry, project=self)
         return reg.fields.get(name)
 
@@ -975,7 +980,7 @@ class SemanticProject:
         # Search fields (non-time)
         if kind is None or kind == SymbolKind.DIMENSION:
             for sid, f_ir in reg.fields.items():
-                if f_ir.is_time_field:
+                if f_ir.is_time_dimension:
                     continue
                 match = _search_match(
                     query,
@@ -999,7 +1004,7 @@ class SemanticProject:
         # Search time fields
         if kind is None or kind == SymbolKind.TIME_DIMENSION:
             for sid, f_ir in reg.fields.items():
-                if not f_ir.is_time_field:
+                if not f_ir.is_time_dimension:
                     continue
                 match = _search_match(
                     query,
@@ -1061,9 +1066,9 @@ class SemanticProject:
 
         For metrics: walks dataset refs, component metric refs, and
         their transitive dependencies (datasources).
-        For datasets: includes the datasource.
-        For fields: includes the parent dataset.
-        For relationships: includes from_dataset and to_dataset.
+        For entities: includes the datasource.
+        For dimensions: includes the parent entity.
+        For relationships: includes from_entity and to_entity.
         """
         reg = _require_registry(self._registry, project=self)
 
@@ -1080,12 +1085,12 @@ class SemanticProject:
         # Check if it is a field
         field_ir = reg.fields.get(name)
         if field_ir is not None:
-            kind = SymbolKind.TIME_DIMENSION if field_ir.is_time_field else SymbolKind.DIMENSION
+            kind = SymbolKind.TIME_DIMENSION if field_ir.is_time_dimension else SymbolKind.DIMENSION
             ds_child: tuple[DependencyNode, ...] = ()
-            if reg.datasets.get(field_ir.dataset) is not None:
+            if reg.datasets.get(field_ir.entity) is not None:
                 ds_child = (
                     DependencyNode(
-                        semantic_id=field_ir.dataset,
+                        semantic_id=field_ir.entity,
                         kind=SymbolKind.ENTITY,
                         children=(),
                     ),
@@ -1116,7 +1121,7 @@ class SemanticProject:
         visited: set[str] = set()
 
         # Dataset dependencies
-        for ds_ref in metric_ir.datasets:
+        for ds_ref in metric_ir.entities:
             ds_ir = reg.datasets.get(ds_ref)
             if ds_ir is not None and ds_ref not in visited:
                 children.append(self._build_deps_dataset(ds_ref, ds_ir, reg, _visited=visited))
@@ -1175,7 +1180,7 @@ class SemanticProject:
     ) -> DependencyNode:
         """Build dependency tree for a relationship."""
         children: list[DependencyNode] = []
-        for ds_ref in (rel_ir.from_dataset, rel_ir.to_dataset):
+        for ds_ref in (rel_ir.from_entity, rel_ir.to_entity):
             if reg.datasets.get(ds_ref) is not None:
                 children.append(
                     DependencyNode(semantic_id=ds_ref, kind=SymbolKind.ENTITY, children=())
@@ -1221,7 +1226,7 @@ class SemanticProject:
         """Build dependents tree for a dataset."""
         ds_children: list[DependencyNode] = []
         for m_id, m_ir in reg.metrics.items():
-            if name in m_ir.datasets:
+            if name in m_ir.entities:
                 ds_children.append(
                     DependencyNode(
                         semantic_id=m_id,
@@ -1230,8 +1235,8 @@ class SemanticProject:
                     )
                 )
         for f_id, f_ir in reg.fields.items():
-            if f_ir.dataset == name:
-                kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_field else SymbolKind.DIMENSION
+            if f_ir.entity == name:
+                kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
                 ds_children.append(
                     DependencyNode(
                         semantic_id=f_id,
@@ -1248,7 +1253,7 @@ class SemanticProject:
     def _dependents_field(self, name: str, reg: Registry) -> DependencyNode:
         """Build dependents tree for a field/time_field."""
         f_ir = reg.fields[name]
-        kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_field else SymbolKind.DIMENSION
+        kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
         return DependencyNode(semantic_id=name, kind=kind, children=())
 
     def _dependents_metric(self, name: str, reg: Registry) -> DependencyNode:
@@ -1353,7 +1358,7 @@ class SemanticProject:
         if isinstance(obj, EntityIR):
             meta = self._runtime_metadata.get(obj.semantic_id)
             if meta is not None:
-                ds_provenance = meta.dataset_provenance
+                ds_provenance = meta.entity_provenance
 
         # Parity status (metric only)
         parity_status: ParityStatus | None = None
@@ -1363,7 +1368,7 @@ class SemanticProject:
         desc = Description(
             semantic_id=obj.semantic_id,
             kind=kind,
-            model=obj.model if hasattr(obj, "model") else "",
+            domain=obj.domain if hasattr(obj, "domain") else "",
             name=obj.name,
             python_symbol=getattr(obj, "python_symbol", ""),
             description=obj.description,
@@ -1380,15 +1385,15 @@ class SemanticProject:
             dependencies=tuple(dep_names),
             dependents=tuple(dep_of_names),
             source_location=obj.location,
-            dataset_provenance=ds_provenance,
+            entity_provenance=ds_provenance,
             primary_key=obj.primary_key if isinstance(obj, EntityIR) else None,
             granularity=obj.granularity if isinstance(obj, DimensionIR) else None,
             required_prefix=obj.required_prefix if isinstance(obj, DimensionIR) else None,
             format=obj.format if isinstance(obj, DimensionIR) else None,
-            from_dataset=obj.from_dataset if isinstance(obj, RelationshipIR) else None,
-            to_dataset=obj.to_dataset if isinstance(obj, RelationshipIR) else None,
-            from_fields=obj.from_fields if isinstance(obj, RelationshipIR) else None,
-            to_fields=obj.to_fields if isinstance(obj, RelationshipIR) else None,
+            from_entity=obj.from_entity if isinstance(obj, RelationshipIR) else None,
+            to_entity=obj.to_entity if isinstance(obj, RelationshipIR) else None,
+            from_dimensions=obj.from_dimensions if isinstance(obj, RelationshipIR) else None,
+            to_dimensions=obj.to_dimensions if isinstance(obj, RelationshipIR) else None,
         )
 
         return desc
@@ -1447,7 +1452,7 @@ class SemanticProject:
         Each call creates a fresh Materializer instance.
         """
         mat = Materializer(self, self._resolve_backend_factory(backend_factory))
-        return mat.dataset(name)
+        return mat.entity(name)
 
     def materialize_field(
         self,
@@ -1460,7 +1465,7 @@ class SemanticProject:
         Each call creates a fresh Materializer instance.
         """
         mat = Materializer(self, self._resolve_backend_factory(backend_factory))
-        return mat.field(name)
+        return mat.dimension(name)
 
     def materialize_metric(
         self,
@@ -1637,8 +1642,8 @@ class SemanticProject:
             )
 
         mat = Materializer(self, factory)
-        parent_table = mat.dataset(field_ir.dataset)
-        field_value = mat.field(name)
+        parent_table = mat.entity(field_ir.entity)
+        field_value = mat.dimension(name)
         field_column_name = _semantic_leaf_name(name)
 
         if context_columns is None:
@@ -1846,7 +1851,7 @@ class SemanticProject:
         which semantic objects to check; by default all loaded objects are
         checked.
         """
-        self.load(models=list(self._filtered_models) if self._filtered_models else None)
+        self.load(models=list(self._filtered_domains) if self._filtered_domains else None)
         evidence = self._auto_collect_evidence()
         factory = self._backend_factory
         return build_readiness_report(
@@ -2105,7 +2110,7 @@ class SemanticProject:
                 obj = collection[name]
                 actual_kind = (
                     SymbolKind.TIME_DIMENSION
-                    if isinstance(obj, DimensionIR) and obj.is_time_field
+                    if isinstance(obj, DimensionIR) and obj.is_time_dimension
                     else sym_kind
                 )
                 matches.append((actual_kind, obj))
@@ -2135,7 +2140,7 @@ class SemanticProject:
         if isinstance(obj, EntityIR):
             return SymbolKind.ENTITY
         if isinstance(obj, DimensionIR):
-            return SymbolKind.TIME_DIMENSION if obj.is_time_field else SymbolKind.DIMENSION
+            return SymbolKind.TIME_DIMENSION if obj.is_time_dimension else SymbolKind.DIMENSION
         if isinstance(obj, MetricIR):
             return SymbolKind.METRIC
         if isinstance(obj, RelationshipIR):

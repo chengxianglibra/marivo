@@ -175,7 +175,7 @@ class DatasourceDetails:
     ref: SemanticRef
     kind: SemanticKind
     name: str
-    model: None
+    domain: None
     description: str | None
     context: AiContextView
     source_location: SourceLocation
@@ -192,7 +192,7 @@ class DomainDetails:
     ref: SemanticRef
     kind: SemanticKind
     name: str
-    model: str
+    domain: str
     description: str | None
     context: AiContextView
     source_location: SourceLocation
@@ -208,7 +208,7 @@ class EntityDetails:
     ref: SemanticRef
     kind: SemanticKind
     name: str
-    model: str
+    domain: str
     description: str | None
     context: AiContextView
     source_location: SourceLocation
@@ -228,15 +228,15 @@ class DimensionDetails:
     ref: SemanticRef
     kind: SemanticKind
     name: str
-    model: str
+    domain: str
     description: str | None
     context: AiContextView
     source_location: SourceLocation
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
-    dataset: SemanticRef
-    field_kind: Literal["categorical", "measure"]
+    entity: SemanticRef
+    dimension_kind: Literal["categorical", "measure"]
 
 
 @dataclass(frozen=True)
@@ -246,14 +246,14 @@ class TimeDimensionDetails:
     ref: SemanticRef
     kind: SemanticKind
     name: str
-    model: str
+    domain: str
     description: str | None
     context: AiContextView
     source_location: SourceLocation
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
-    dataset: SemanticRef
+    entity: SemanticRef
     data_type: str | None
     granularity: str | None
     format: str | None
@@ -264,20 +264,20 @@ class TimeDimensionDetails:
 
 @dataclass(frozen=True)
 class MetricDetails:
-    """Details for a metric (dataset-backed, derived, or cross-dataset)."""
+    """Details for a metric (entity-backed, derived, or cross-entity)."""
 
     ref: SemanticRef
     kind: SemanticKind
     name: str
-    model: str
+    domain: str
     description: str | None
     context: AiContextView
     source_location: SourceLocation
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
-    datasets: tuple[SemanticRef, ...]
-    root_dataset: SemanticRef | None
+    entities: tuple[SemanticRef, ...]
+    root_entity: SemanticRef | None
     is_derived: bool
     component_metrics: tuple[SemanticRef, ...]
     required_relationships: tuple[SemanticRef, ...]
@@ -294,22 +294,22 @@ class MetricDetails:
 
 @dataclass(frozen=True)
 class RelationshipDetails:
-    """Details for a relationship between datasets."""
+    """Details for a relationship between entities."""
 
     ref: SemanticRef
     kind: SemanticKind
     name: str
-    model: str
+    domain: str
     description: str | None
     context: AiContextView
     source_location: SourceLocation
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
-    from_dataset: SemanticRef
-    to_dataset: SemanticRef
-    from_fields: tuple[str, ...]
-    to_fields: tuple[str, ...]
+    from_entity: SemanticRef
+    to_entity: SemanticRef
+    from_dimensions: tuple[str, ...]
+    to_dimensions: tuple[str, ...]
 
 
 SemanticObjectDetails = (
@@ -330,8 +330,8 @@ class SemanticObject:
     Args:
         ref: Stable semantic identifier, passable directly to analysis APIs.
         kind: Semantic kind of this object.
-        name: Short leaf name (no model prefix).
-        model: Owning model name, or None for datasources.
+        name: Short leaf name (no domain prefix).
+        domain: Owning domain name, or None for datasources.
         description: Short display summary (not business meaning).
         context: Business meaning, guardrails, and usage guidance from ai_context.
         source_location: Location in the user-authored semantic file.
@@ -355,7 +355,7 @@ class SemanticObject:
     ref: SemanticRef
     kind: SemanticKind
     name: str
-    model: str | None
+    domain: str | None
     description: str | None
     context: AiContextView
     source_location: SourceLocation
@@ -434,7 +434,7 @@ class SemanticObjectList:
             lines.append(f"  (no objects found under {parent_note!r}{filter_note})")
             lines.append("next steps:")
             lines.append(
-                "  catalog.list().show()           # browse top-level models and datasources"
+                "  catalog.list().show()           # browse top-level domains and datasources"
             )
             return "\n".join(lines)
 
@@ -551,7 +551,7 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
         ref=ref,
         kind=SemanticKind.DATASOURCE,
         name=ds_ir.name,
-        model=None,
+        domain=None,
         description=ds_ir.description,
         context=_ai_context_from_ir(ds_ir.ai_context),
         source_location=_normalize_location(ds_ir.location),
@@ -564,7 +564,7 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
         ref=ref,
         kind=SemanticKind.DATASOURCE,
         name=ds_ir.name,
-        model=None,
+        domain=None,
         description=ds_ir.description,
         context=_ai_context_from_ir(ds_ir.ai_context),
         source_location=_normalize_location(ds_ir.location),
@@ -577,19 +577,19 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
     datasets_refs = tuple(
         SemanticRef(ref=d.semantic_id, kind=SemanticKind.ENTITY)
         for d in reg.datasets.values()
-        if d.model == model_ir.name
+        if d.domain == model_ir.name
     )
     metrics_refs = tuple(
         SemanticRef(ref=m.semantic_id, kind=SemanticKind.METRIC)
         for m in reg.metrics.values()
-        if m.model == model_ir.name
+        if m.domain == model_ir.name
     )
     children = datasets_refs + metrics_refs
     details = DomainDetails(
         ref=ref,
         kind=SemanticKind.DOMAIN,
         name=model_ir.name,
-        model=model_ir.name,
+        domain=model_ir.name,
         description=model_ir.description,
         context=_ai_context_from_ir(model_ir.ai_context),
         source_location=model_ir.location,
@@ -601,7 +601,7 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
         ref=ref,
         kind=SemanticKind.DOMAIN,
         name=model_ir.name,
-        model=model_ir.name,
+        domain=model_ir.name,
         description=model_ir.description,
         context=_ai_context_from_ir(model_ir.ai_context),
         source_location=model_ir.location,
@@ -615,28 +615,28 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
     fields_refs = tuple(
         SemanticRef(
             ref=f.semantic_id,
-            kind=SemanticKind.TIME_DIMENSION if f.is_time_field else SemanticKind.DIMENSION,
+            kind=SemanticKind.TIME_DIMENSION if f.is_time_dimension else SemanticKind.DIMENSION,
         )
         for f in reg.fields.values()
-        if f.dataset == ds_ir.semantic_id
+        if f.entity == ds_ir.semantic_id
     )
     rels_refs = tuple(
         SemanticRef(ref=r.semantic_id, kind=SemanticKind.RELATIONSHIP)
         for r in reg.relationships.values()
-        if r.from_dataset == ds_ir.semantic_id or r.to_dataset == ds_ir.semantic_id
+        if r.from_entity == ds_ir.semantic_id or r.to_entity == ds_ir.semantic_id
     )
     children = fields_refs + rels_refs
     metric_dependents = tuple(
         SemanticRef(ref=m.semantic_id, kind=SemanticKind.METRIC)
         for m in reg.metrics.values()
-        if ds_ir.semantic_id in m.datasets
+        if ds_ir.semantic_id in m.entities
     )
     source = _source_from_ir(ds_ir.source)
     details = EntityDetails(
         ref=ref,
         kind=SemanticKind.ENTITY,
         name=ds_ir.name,
-        model=ds_ir.model,
+        domain=ds_ir.domain,
         description=ds_ir.description,
         context=_ai_context_from_ir(ds_ir.ai_context),
         source_location=ds_ir.location,
@@ -652,7 +652,7 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
         ref=ref,
         kind=SemanticKind.ENTITY,
         name=ds_ir.name,
-        model=ds_ir.model,
+        domain=ds_ir.domain,
         description=ds_ir.description,
         context=_ai_context_from_ir(ds_ir.ai_context),
         source_location=ds_ir.location,
@@ -661,23 +661,23 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
 
 
 def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
-    is_time = f_ir.is_time_field
+    is_time = f_ir.is_time_dimension
     kind = SemanticKind.TIME_DIMENSION if is_time else SemanticKind.DIMENSION
     ref = SemanticRef(ref=f_ir.semantic_id, kind=kind)
-    ds_ref = SemanticRef(ref=f_ir.dataset, kind=SemanticKind.ENTITY)
+    ds_ref = SemanticRef(ref=f_ir.entity, kind=SemanticKind.ENTITY)
     if is_time:
         details: SemanticObjectDetails = TimeDimensionDetails(
             ref=ref,
             kind=kind,
             name=f_ir.name,
-            model=f_ir.model,
+            domain=f_ir.domain,
             description=f_ir.description,
             context=_ai_context_from_ir(f_ir.ai_context),
             source_location=f_ir.location,
             parents=(ds_ref,),
             children=(),
             dependents=(),
-            dataset=ds_ref,
+            entity=ds_ref,
             data_type=f_ir.data_type,
             granularity=f_ir.granularity,
             format=f_ir.format,
@@ -686,28 +686,28 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             is_default=f_ir.is_default,
         )
     else:
-        field_kind: Literal["categorical", "measure"] = (
+        dimension_kind: Literal["categorical", "measure"] = (
             "measure" if f_ir.kind == DimensionKind.MEASURE else "categorical"
         )
         details = DimensionDetails(
             ref=ref,
             kind=kind,
             name=f_ir.name,
-            model=f_ir.model,
+            domain=f_ir.domain,
             description=f_ir.description,
             context=_ai_context_from_ir(f_ir.ai_context),
             source_location=f_ir.location,
             parents=(ds_ref,),
             children=(),
             dependents=(),
-            dataset=ds_ref,
-            field_kind=field_kind,
+            entity=ds_ref,
+            dimension_kind=dimension_kind,
         )
     return SemanticObject(
         ref=ref,
         kind=kind,
         name=f_ir.name,
-        model=f_ir.model,
+        domain=f_ir.domain,
         description=f_ir.description,
         context=_ai_context_from_ir(f_ir.ai_context),
         source_location=f_ir.location,
@@ -717,24 +717,24 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
 
 def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject) -> SemanticObject:
     ref = SemanticRef(ref=m_ir.semantic_id, kind=SemanticKind.METRIC)
-    datasets_refs = tuple(SemanticRef(ref=ds, kind=SemanticKind.ENTITY) for ds in m_ir.datasets)
-    root_ds_ref = (
-        SemanticRef(ref=m_ir.root_dataset, kind=SemanticKind.ENTITY) if m_ir.root_dataset else None
+    entity_refs = tuple(SemanticRef(ref=ds, kind=SemanticKind.ENTITY) for ds in m_ir.entities)
+    root_entity_ref = (
+        SemanticRef(ref=m_ir.root_entity, kind=SemanticKind.ENTITY) if m_ir.root_entity else None
     )
     component_refs = tuple(
         SemanticRef(ref=comp_ref, kind=SemanticKind.METRIC)
         for comp_ref in m_ir.decomposition.components.values()
     )
     required_rels: tuple[SemanticRef, ...] = ()
-    if len(m_ir.datasets) > 1:
+    if len(m_ir.entities) > 1:
         required_rels = tuple(
             SemanticRef(ref=r.semantic_id, kind=SemanticKind.RELATIONSHIP)
             for r in reg.relationships.values()
-            if r.model == m_ir.model
-            and r.from_dataset in m_ir.datasets
-            and r.to_dataset in m_ir.datasets
+            if r.domain == m_ir.domain
+            and r.from_entity in m_ir.entities
+            and r.to_entity in m_ir.entities
         )
-    parents = datasets_refs + component_refs + required_rels
+    parents = entity_refs + component_refs + required_rels
     dependents = tuple(
         SemanticRef(ref=m2.semantic_id, kind=SemanticKind.METRIC)
         for m2 in reg.metrics.values()
@@ -745,15 +745,15 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         ref=ref,
         kind=SemanticKind.METRIC,
         name=m_ir.name,
-        model=m_ir.model,
+        domain=m_ir.domain,
         description=m_ir.description,
         context=_ai_context_from_ir(m_ir.ai_context),
         source_location=m_ir.location,
         parents=parents,
         children=(),
         dependents=dependents,
-        datasets=datasets_refs,
-        root_dataset=root_ds_ref,
+        entities=entity_refs,
+        root_entity=root_entity_ref,
         is_derived=m_ir.is_derived,
         component_metrics=component_refs,
         required_relationships=required_rels,
@@ -771,7 +771,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         ref=ref,
         kind=SemanticKind.METRIC,
         name=m_ir.name,
-        model=m_ir.model,
+        domain=m_ir.domain,
         description=m_ir.description,
         context=_ai_context_from_ir(m_ir.ai_context),
         source_location=m_ir.location,
@@ -781,29 +781,29 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
 
 def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticObject:
     ref = SemanticRef(ref=r_ir.semantic_id, kind=SemanticKind.RELATIONSHIP)
-    from_ref = SemanticRef(ref=r_ir.from_dataset, kind=SemanticKind.ENTITY)
-    to_ref = SemanticRef(ref=r_ir.to_dataset, kind=SemanticKind.ENTITY)
+    from_ref = SemanticRef(ref=r_ir.from_entity, kind=SemanticKind.ENTITY)
+    to_ref = SemanticRef(ref=r_ir.to_entity, kind=SemanticKind.ENTITY)
     details = RelationshipDetails(
         ref=ref,
         kind=SemanticKind.RELATIONSHIP,
         name=r_ir.name,
-        model=r_ir.model,
+        domain=r_ir.domain,
         description=r_ir.description,
         context=_ai_context_from_ir(r_ir.ai_context),
         source_location=r_ir.location,
         parents=(from_ref, to_ref),
         children=(),
         dependents=(),
-        from_dataset=from_ref,
-        to_dataset=to_ref,
-        from_fields=r_ir.from_fields,
-        to_fields=r_ir.to_fields,
+        from_entity=from_ref,
+        to_entity=to_ref,
+        from_dimensions=r_ir.from_dimensions,
+        to_dimensions=r_ir.to_dimensions,
     )
     return SemanticObject(
         ref=ref,
         kind=SemanticKind.RELATIONSHIP,
         name=r_ir.name,
-        model=r_ir.model,
+        domain=r_ir.domain,
         description=r_ir.description,
         context=_ai_context_from_ir(r_ir.ai_context),
         source_location=r_ir.location,
@@ -851,8 +851,8 @@ class SemanticCatalog:
 
         Args:
             parent: Full semantic ref of the parent to browse under.
-                None returns top-level models and datasources.
-                A model ref (e.g. "sales") returns datasets and metrics.
+                None returns top-level domains and datasources.
+                A domain ref (e.g. "sales") returns entities and metrics.
                 A dataset ref (e.g. "sales.orders") returns fields, time fields,
                 relationships, and a filtered metric view.
             kind: Optional kind filter. Accepts SemanticKind values or strings
@@ -937,11 +937,11 @@ class SemanticCatalog:
         items: list[SemanticObject] = []
         if kind_filter is None or kind_filter == SemanticKind.ENTITY:
             for ds_ir in reg.datasets.values():
-                if ds_ir.model == model_name:
+                if ds_ir.domain == model_name:
                     items.append(_build_entity_object(ds_ir, reg))
         if kind_filter is None or kind_filter == SemanticKind.METRIC:
             for m_ir in reg.metrics.values():
-                if m_ir.model == model_name:
+                if m_ir.domain == model_name:
                     items.append(_build_metric_object(m_ir, reg, self._project))
         return items
 
@@ -967,20 +967,20 @@ class SemanticCatalog:
         items: list[SemanticObject] = []
         if kind_filter is None or kind_filter == SemanticKind.DIMENSION:
             for f_ir in reg.fields.values():
-                if f_ir.dataset == dataset_ref and not f_ir.is_time_field:
+                if f_ir.entity == dataset_ref and not f_ir.is_time_dimension:
                     items.append(_build_dimension_object(f_ir, reg))
         if kind_filter is None or kind_filter == SemanticKind.TIME_DIMENSION:
             for f_ir in reg.fields.values():
-                if f_ir.dataset == dataset_ref and f_ir.is_time_field:
+                if f_ir.entity == dataset_ref and f_ir.is_time_dimension:
                     items.append(_build_dimension_object(f_ir, reg))
         if kind_filter is None or kind_filter == SemanticKind.RELATIONSHIP:
             for r_ir in reg.relationships.values():
-                if r_ir.from_dataset == dataset_ref or r_ir.to_dataset == dataset_ref:
+                if r_ir.from_entity == dataset_ref or r_ir.to_entity == dataset_ref:
                     items.append(_build_relationship_object(r_ir, reg))
         if kind_filter is None or kind_filter == SemanticKind.METRIC:
             seen: set[str] = set()
             for m_ir in reg.metrics.values():
-                if dataset_ref in m_ir.datasets and m_ir.semantic_id not in seen:
+                if dataset_ref in m_ir.entities and m_ir.semantic_id not in seen:
                     seen.add(m_ir.semantic_id)
                     items.append(_build_metric_object(m_ir, reg, self._project))
         return items
@@ -996,7 +996,7 @@ class SemanticCatalog:
             return SemanticKind.ENTITY
         if ref_str in reg.fields:
             f = reg.fields[ref_str]
-            return SemanticKind.TIME_DIMENSION if f.is_time_field else SemanticKind.DIMENSION
+            return SemanticKind.TIME_DIMENSION if f.is_time_dimension else SemanticKind.DIMENSION
         if ref_str in reg.metrics:
             return SemanticKind.METRIC
         if ref_str in reg.relationships:
@@ -1008,8 +1008,8 @@ class SemanticCatalog:
             ErrorKind.NOT_FOUND,
             f"Semantic object {ref_str!r} was not found. "
             f"`catalog.get(...)` requires a full semantic ref such as 'sales.revenue'.\n"
-            f"Use catalog.list().show(), catalog.list('<model>').show(), and then\n"
-            f"catalog.list('<model.dataset>').show() to browse object refs.",
+            f"Use catalog.list().show(), catalog.list('<domain>').show(), and then\n"
+            f"catalog.list('<domain.entity>').show() to browse object refs.",
             cls=SemanticRuntimeError,
             refs=(ref_str,),
         )

@@ -49,7 +49,7 @@ class LoaderContext:
     """
 
     current_model_file: str | None = None
-    default_model: str | None = None
+    default_domain: str | None = None
     pending_objects: list[Any] = field(default_factory=list)
     #: DimensionRef/TimeDimensionRef instances returned by decorators, to have
     #: their _resolver wired up after the two-pass load completes.
@@ -288,10 +288,10 @@ def _load_model_dir(
         )
         return None
 
-    # Set default_model from the model declaration
+    # Set default_domain from the model declaration
     for ir, _ in ctx.pending_objects:
         if isinstance(ir, DomainIR) and ir.default:
-            ctx.default_model = ir.name
+            ctx.default_domain = ir.name
             break
 
     # Execute sibling .py files (exclude _domain.py, _exports.py, etc.)

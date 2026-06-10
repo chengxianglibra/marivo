@@ -59,7 +59,7 @@ def _metric_frame(
         semantic_model="sales",
         # end=01-07 gives 6 day-buckets, matching the 6-row test data
         window=window
-        or {"start": "2026-01-01", "end": "2026-01-07", "grain": "day", "time_field": "time"},
+        or {"start": "2026-01-01", "end": "2026-01-07", "grain": "day", "time_dimension": "time"},
         session=session,
     )
 
@@ -158,8 +158,18 @@ def test_time_series_cross_window_ordinal_pairing(tmp_path):
     (cur[i] - base[i] for each i in 0..6), not a TestAlignmentError.
     """
     session = session_attach.get_or_create(name="demo")
-    cur_window = {"start": "2026-01-08", "end": "2026-01-15", "grain": "day", "time_field": "time"}
-    base_window = {"start": "2026-01-01", "end": "2026-01-08", "grain": "day", "time_field": "time"}
+    cur_window = {
+        "start": "2026-01-08",
+        "end": "2026-01-15",
+        "grain": "day",
+        "time_dimension": "time",
+    }
+    base_window = {
+        "start": "2026-01-01",
+        "end": "2026-01-08",
+        "grain": "day",
+        "time_dimension": "time",
+    }
     cur_times = pd.date_range("2026-01-08", periods=7, freq="D")
     base_times = pd.date_range("2026-01-01", periods=7, freq="D")
     a = _metric_frame(
@@ -194,8 +204,18 @@ def test_panel_cross_window_ordinal_pairing(tmp_path):
         "time": {"role": "time", "field": "time", "grain": "day"},
         "dimensions": [{"field": "segment"}],
     }
-    cur_window = {"start": "2026-01-08", "end": "2026-01-15", "grain": "day", "time_field": "time"}
-    base_window = {"start": "2026-01-01", "end": "2026-01-08", "grain": "day", "time_field": "time"}
+    cur_window = {
+        "start": "2026-01-08",
+        "end": "2026-01-15",
+        "grain": "day",
+        "time_dimension": "time",
+    }
+    base_window = {
+        "start": "2026-01-01",
+        "end": "2026-01-08",
+        "grain": "day",
+        "time_dimension": "time",
+    }
     cur_times = pd.date_range("2026-01-08", periods=7, freq="D")
     base_times = pd.date_range("2026-01-01", periods=7, freq="D")
     a_rows = [
@@ -231,8 +251,18 @@ def test_time_series_partial_overlap_uses_ordinal_pairing(tmp_path):
     pairs and a mean diff that only matches the ordinal interpretation.
     """
     session = session_attach.get_or_create(name="demo")
-    cur_window = {"start": "2026-01-02", "end": "2026-01-06", "grain": "day", "time_field": "time"}
-    base_window = {"start": "2026-01-01", "end": "2026-01-05", "grain": "day", "time_field": "time"}
+    cur_window = {
+        "start": "2026-01-02",
+        "end": "2026-01-06",
+        "grain": "day",
+        "time_dimension": "time",
+    }
+    base_window = {
+        "start": "2026-01-01",
+        "end": "2026-01-05",
+        "grain": "day",
+        "time_dimension": "time",
+    }
     cur_times = pd.date_range("2026-01-02", periods=4, freq="D")
     base_times = pd.date_range("2026-01-01", periods=4, freq="D")
     cur_values = [10.0, 20.0, 30.0, 40.0]

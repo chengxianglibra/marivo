@@ -15,7 +15,7 @@ warehouse = md.ref('warehouse')
 
 orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))
 
-@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
+@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
     return orders.amount.sum()
 """
@@ -28,11 +28,11 @@ warehouse = md.ref('warehouse')
 
 orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))
 
-@ms.time_dimension(dataset=orders, data_type='date', granularity='day')
+@ms.time_dimension(entity=orders, data_type='date', granularity='day')
 def order_date(orders):
     return orders.created_at.cast('date')
 
-@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
+@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
     return orders.amount.sum()
 """
@@ -190,7 +190,7 @@ warehouse = md.ref('warehouse')
 
 orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))
 
-@ms.metric(datasets=[orders], additivity='non_additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
+@ms.metric(entities=[orders], additivity='non_additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)
 def revenue(orders):
     return orders.amount.sum()
 """

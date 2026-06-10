@@ -82,7 +82,7 @@ def test_collect_check_author_reload_inspect(tmp_path):
         "import marivo.datasource as md\n"
         "warehouse = md.ref('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(),"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(),"
         " name='revenue', verification_mode='python_native')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"

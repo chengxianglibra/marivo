@@ -55,7 +55,7 @@ def _metric(session, rows, semantic_kind="time_series"):
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"name": "value"},
@@ -94,7 +94,7 @@ def _component_time_series_metric(session, *, ref, rows, component_rows):
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         }
     }
     metric = MetricFrame.from_dataframe(
@@ -789,7 +789,7 @@ def test_compare_calendar_rejects_missing_required_columns_on_baseline(calendar_
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"name": "value"},
@@ -822,7 +822,7 @@ def test_compare_calendar_rejects_ambiguous_value_column(calendar_project):
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"name": "value"},
@@ -835,7 +835,7 @@ def test_compare_calendar_rejects_ambiguous_value_column(calendar_project):
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"name": "value"},
@@ -866,7 +866,7 @@ def test_compare_calendar_rejects_missing_value_column(calendar_project):
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"name": "value"},

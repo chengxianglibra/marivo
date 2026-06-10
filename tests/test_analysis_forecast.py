@@ -105,7 +105,12 @@ def test_panel_per_segment_and_insufficient_history(tmp_path):
         measure={"field": "value", "aggregation": "sum"},
         semantic_kind="panel",
         semantic_model="sales",
-        window={"start": "2026-01-01", "end": "2026-01-04", "grain": "day", "time_field": "time"},
+        window={
+            "start": "2026-01-01",
+            "end": "2026-01-04",
+            "grain": "day",
+            "time_dimension": "time",
+        },
         session=session,
     )
 

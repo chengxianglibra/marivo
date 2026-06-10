@@ -34,7 +34,7 @@ _MINIMAL_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def revenue(table):
         return table.amount.sum()
 """)
@@ -43,7 +43,7 @@ _SHARED_DATASOURCE_MODEL_A = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def revenue(orders):
         return orders.amount.sum()
 """)
@@ -53,7 +53,7 @@ _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""\
 
     refunds = ms.entity(name="refunds", datasource="warehouse", source=ms.table("refunds"))
 
-    @ms.metric(datasets=[refunds], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[refunds], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def refunds_total(refunds):
         return refunds.amount.sum()
 """)
@@ -87,8 +87,8 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
     assert project.is_ready()
     datasources = project.list_datasources()
     assert [ds.semantic_id for ds in datasources] == ["warehouse"]
-    assert project.get_dataset("sales.orders").datasource == "warehouse"
-    assert project.get_dataset("finance.refunds").datasource == "warehouse"
+    assert project.get_entity("sales.orders").datasource == "warehouse"
+    assert project.get_entity("finance.refunds").datasource == "warehouse"
 
 
 def test_duplicate_global_datasource_declaration_must_match(semantic_project_factory) -> None:
@@ -164,7 +164,7 @@ def test_datasources_accessible_when_model_load_errors(semantic_project_factory)
     assert ds.backend_type == "duckdb"
 
     with pytest.raises(Exception):
-        project.list_models()
+        project.list_domains()
 
 
 def test_model_name_mismatch(semantic_project_factory) -> None:
@@ -360,7 +360,7 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.orders"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=["sales.orders"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def revenue(table):
             return table.amount.sum()
     """)
@@ -452,7 +452,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.orders"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=["sales.orders"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def revenue(table):
             return table.amount.sum()
     """)
@@ -481,7 +481,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
         import marivo.semantic as ms
         from .dataset import query_info
 
-        @ms.metric(datasets=[query_info], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=[query_info], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def total_query_count(table):
             return table.query_count.sum()
     """)
@@ -510,7 +510,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
         import marivo.semantic as ms
         from .dataset import query_info
 
-        @ms.metric(datasets=[query_info], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=[query_info], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def total_query_count(table):
             return table.query_count.sum()
     """)
@@ -542,7 +542,7 @@ def test_cross_file_missing_entity_ref(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.nonexistent"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=["sales.nonexistent"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def revenue(table):
             return table.amount.sum()
     """)
@@ -583,7 +583,7 @@ def test_sql_parity_metric_missing_source_dialect_errors(semantic_project_factor
         orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="sql_parity",
@@ -612,7 +612,7 @@ def test_derived_metric_with_source_sql_errors(semantic_project_factory) -> None
         orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="python_native",
@@ -722,7 +722,7 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(datasets=["sales.orders"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=["sales.orders"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def revenue(table):
             return table.amount.sum()
     """)
@@ -762,11 +762,11 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dimension(dataset="sales.orders")
+        @ms.dimension(entity="sales.orders")
         def order_id(table):
             return table.order_id
 
-        @ms.dimension(dataset="sales.items")
+        @ms.dimension(entity="sales.items")
         def item_order_id(table):
             return table.order_id
     """)
@@ -775,10 +775,10 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
 
         ms.relationship(
             name="orders_to_items",
-            from_dataset="sales.orders",
-            to_dataset="sales.items",
-            from_fields=["sales.orders.order_id"],
-            to_fields=["sales.items.item_order_id"],
+            from_entity="sales.orders",
+            to_entity="sales.items",
+            from_dimensions=["sales.orders.order_id"],
+            to_dimensions=["sales.items.item_order_id"],
         )
     """)
     project = semantic_project_factory(
@@ -794,10 +794,10 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     assert reg is not None
     assert "sales.orders_to_items" in reg.relationships
     rel = reg.relationships["sales.orders_to_items"]
-    assert rel.from_dataset == "sales.orders"
-    assert rel.to_dataset == "sales.items"
-    assert rel.from_fields == ("sales.orders.order_id",)
-    assert rel.to_fields == ("sales.items.item_order_id",)
+    assert rel.from_entity == "sales.orders"
+    assert rel.to_entity == "sales.items"
+    assert rel.from_dimensions == ("sales.orders.order_id",)
+    assert rel.to_dimensions == ("sales.items.item_order_id",)
 
 
 def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) -> None:
@@ -807,20 +807,20 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
 
         orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
-        @ms.dimension(dataset=orders)
+        @ms.dimension(entity=orders)
         def order_id(table):
             return table.order_id
 
-        @ms.dimension(dataset=orders)
+        @ms.dimension(entity=orders)
         def other_id(table):
             return table.other_id
 
         ms.relationship(
             name="bad_arity",
-            from_dataset="sales.orders",
-            to_dataset="sales.orders",
-            from_fields=["sales.order_id", "sales.other_id"],
-            to_fields=["sales.order_id"],
+            from_entity="sales.orders",
+            to_entity="sales.orders",
+            from_dimensions=["sales.order_id", "sales.other_id"],
+            to_dimensions=["sales.order_id"],
         )
     """)
     project = semantic_project_factory(
@@ -850,7 +850,7 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dimension(dataset="sales.orders")
+        @ms.dimension(entity="sales.orders")
         def amount(table):
             return table.amount
 
@@ -882,7 +882,7 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dimension(dataset="sales.orders")
+        @ms.dimension(entity="sales.orders")
         def region(table):
             return table.region
 
@@ -1024,7 +1024,7 @@ def test_semantic_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) 
     result = project.load()
     # scripts/ should NOT appear as a model dir — only .marivo/semantic/ is scanned
     assert result.status == "ready"
-    assert len(project.list_models()) == 0
+    assert len(project.list_domains()) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1124,7 +1124,7 @@ _FINANCE_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     refunds = ms.entity(name="refunds", datasource="warehouse", source=ms.table("refunds"))
 
-    @ms.metric(datasets=[refunds], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[refunds], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def refunds_total(refunds):
         return refunds.amount.sum()
 """)
@@ -1216,16 +1216,16 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.dimension(dataset=orders)
+        @ms.dimension(entity=orders)
         def amount(table):
             return table.amount
 
         ms.relationship(
             name="orders_to_refunds",
-            from_dataset=orders,
-            to_dataset="finance.refunds",
-            from_fields=["sales.orders.amount"],
-            to_fields=["finance.refunds.refunds_total"],
+            from_entity=orders,
+            to_entity="finance.refunds",
+            from_dimensions=["sales.orders.amount"],
+            to_dimensions=["finance.refunds.refunds_total"],
         )
     """)
     project = semantic_project_factory(

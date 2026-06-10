@@ -11,7 +11,7 @@ Tests cover:
 - Metric not found -> error
 - Dataset not found -> error
 - Materializer creates fresh instance per project.materialize_*() call
-- DatasetRuntimeMetadata stored on project after materialize
+- EntityRuntimeMetadata stored on project after materialize
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import pytest
 
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
-from marivo.semantic.materializer import DatasetRuntimeMetadata, Materializer
+from marivo.semantic.materializer import EntityRuntimeMetadata, Materializer
 
 # ---------------------------------------------------------------------------
 # DuckDB backend fixture
@@ -67,11 +67,11 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.dimension(dataset=orders)
+    @ms.dimension(entity=orders)
     def amount(table):
         return table.amount
 
-    @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
     def total_amount(table):
         return table.amount.sum()
 """)
@@ -298,11 +298,11 @@ def test_backend_cache_within_single_materializer(semantic_project_factory) -> N
 
     # Use the Materializer directly to test internal caching
     mat = Materializer(project, counting_factory)
-    mat.dataset("sales.orders")
+    mat.entity("sales.orders")
     assert call_count == 1
 
     # Calling again should use cache
-    mat.dataset("sales.orders")
+    mat.entity("sales.orders")
     assert call_count == 1
 
     # Materialize a metric on the same datasource — should still be cached
@@ -336,8 +336,8 @@ def test_dataset_cache_reuses_table(semantic_project_factory) -> None:
         return con
 
     mat = Materializer(project, factory)
-    table1 = mat.dataset("sales.orders")
-    table2 = mat.dataset("sales.orders")
+    table1 = mat.entity("sales.orders")
+    table2 = mat.entity("sales.orders")
     assert table1 is table2
 
 
@@ -380,7 +380,7 @@ def test_ibis_table_detection(semantic_project_factory, duckdb_backend) -> None:
 
     meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
-    assert meta.dataset_provenance == EntityProvenance.IBIS_TABLE
+    assert meta.entity_provenance == EntityProvenance.IBIS_TABLE
     assert meta.raw_sql_snippet is None
 
 
@@ -398,7 +398,7 @@ def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend)
 
         orders_b = ms.entity(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders_a, orders_b], root_dataset=orders_a, additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=[orders_a, orders_b], root_entity=orders_a, additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def cross_metric(t1, t2):
             return t1.amount.sum()
     """)
@@ -481,7 +481,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+        @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
             return table.amount.sum()
 
@@ -515,7 +515,7 @@ def test_derived_metric_has_no_materializer_sidecar_entry(
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+        @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
             return table.amount.sum()
 
@@ -550,11 +550,11 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+        @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+        @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def count_metric(table):
             return table.count()
 
@@ -587,7 +587,7 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+        @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
         def revenue(table):
             return table.amount.sum()
 
@@ -659,12 +659,12 @@ def test_fresh_materializer_per_call(semantic_project_factory) -> None:
 
 
 # ---------------------------------------------------------------------------
-# DatasetRuntimeMetadata on project
+# EntityRuntimeMetadata on project
 # ---------------------------------------------------------------------------
 
 
 def test_runtime_metadata_stored_on_project(semantic_project_factory, duckdb_backend) -> None:
-    """After materialization, DatasetRuntimeMetadata should be on the project."""
+    """After materialization, EntityRuntimeMetadata should be on the project."""
 
     def factory(ds_id: str):
         return duckdb_backend
@@ -683,8 +683,8 @@ def test_runtime_metadata_stored_on_project(semantic_project_factory, duckdb_bac
     project.materialize_dataset("sales.orders", backend_factory=factory)
     meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
-    assert isinstance(meta, DatasetRuntimeMetadata)
-    assert meta.dataset_provenance == EntityProvenance.IBIS_TABLE
+    assert isinstance(meta, EntityRuntimeMetadata)
+    assert meta.entity_provenance == EntityProvenance.IBIS_TABLE
     assert meta.detected_at is not None
 
 
@@ -722,7 +722,7 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
 
         orders_alias = ms.entity(name="orders_alias", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(datasets=[orders, orders_alias], root_dataset=orders, additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=[orders, orders_alias], root_entity=orders, additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
         def combined(t1, t2):
             return t1.amount.sum()
     """)
@@ -787,16 +787,16 @@ def test_dataset_materialize_with_sample_size(semantic_project_factory) -> None:
 
     # Without sample_size — full table
     mat_full = Materializer(project, factory)
-    table_full = mat_full.dataset("sales.orders")
+    table_full = mat_full.entity("sales.orders")
     assert len(table_full.to_pandas()) == 50
 
     # With sample_size=5 — bounded table
     mat_sampled = Materializer(project, factory, sample_size=5)
-    table_sampled = mat_sampled.dataset("sales.orders")
+    table_sampled = mat_sampled.entity("sales.orders")
     assert len(table_sampled.to_pandas()) == 5
 
     # Sampled table is cached — subsequent calls return same bounded result
-    table_cached = mat_sampled.dataset("sales.orders")
+    table_cached = mat_sampled.entity("sales.orders")
     assert table_cached.to_pandas().equals(table_sampled.to_pandas())
 
 

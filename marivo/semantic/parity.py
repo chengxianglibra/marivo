@@ -162,7 +162,7 @@ def parity_check(
     assert reg is not None  # Already validated above
 
     datasource_ids: set[str] = set()
-    for ds_ref in metric_ir.datasets:
+    for ds_ref in metric_ir.entities:
         ds_ir = reg.datasets.get(ds_ref)
         if ds_ir is not None:
             datasource_ids.add(ds_ir.datasource)
@@ -170,9 +170,9 @@ def parity_check(
     if len(datasource_ids) > 1:
         _raise(
             ErrorKind.CROSS_DATASOURCE_NOT_SUPPORTED,
-            f"Metric {metric_id!r} references datasets from "
+            f"Metric {metric_id!r} references entities from "
             f"multiple datasources: {datasource_ids}. "
-            f"All datasets in a metric must share the same datasource.",
+            f"All entities in a metric must share the same datasource.",
             cls=SemanticParityError,
             refs=(metric_id,),
         )
@@ -181,7 +181,7 @@ def parity_check(
     if not datasource_ids:
         _raise(
             ErrorKind.SOURCE_SQL_MISSING,
-            f"Metric {metric_id!r} has no datasets; cannot determine datasource.",
+            f"Metric {metric_id!r} has no entities; cannot determine datasource.",
             cls=SemanticParityError,
             refs=(metric_id,),
         )

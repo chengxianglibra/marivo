@@ -73,12 +73,12 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.dimension(dataset=orders)
+    @ms.dimension(entity=orders)
     def amount(table):
         return table.amount
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="sql_parity",
@@ -94,7 +94,7 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="sql_parity",
@@ -110,7 +110,7 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity='additive',
         decomposition=ms.sum(),
         verification_mode="python_native",
@@ -124,7 +124,7 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="sql_parity",
@@ -140,7 +140,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="sql_parity",
@@ -151,7 +151,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
         return table.amount.sum()
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="sql_parity",
@@ -172,7 +172,7 @@ _PYTHON_NATIVE_PY = textwrap.dedent("""\
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
         verification_mode="python_native",
@@ -186,7 +186,7 @@ _MISSING_VERIFICATION_MODE_PY = textwrap.dedent("""\
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
     @ms.metric(
-        datasets=[orders],
+        entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
     )
@@ -268,7 +268,7 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="sql_parity",
@@ -334,7 +334,7 @@ def test_sql_parity_metric_without_source_sql_fails_load(semantic_project_factor
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="sql_parity",
@@ -359,7 +359,7 @@ def test_python_native_metric_with_source_sql_fails_load(semantic_project_factor
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="python_native",
@@ -387,7 +387,7 @@ def test_derived_metric_with_verification_provenance_fails_load(
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="python_native",
@@ -446,8 +446,8 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
         orders_b = ms.entity(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
 
         @ms.metric(
-            datasets=[orders_a, orders_b],
-            root_dataset=orders_a,
+            entities=[orders_a, orders_b],
+            root_entity=orders_a,
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="sql_parity",
@@ -575,7 +575,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="sql_parity",
@@ -586,7 +586,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
             return table.amount.sum()
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="sql_parity",
@@ -648,7 +648,7 @@ def test_derived_propagation_verified_and_python_native(
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="sql_parity",
@@ -659,7 +659,7 @@ def test_derived_propagation_verified_and_python_native(
             return table.amount.sum()
 
         @ms.metric(
-            datasets=[orders],
+            entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
             verification_mode="python_native",

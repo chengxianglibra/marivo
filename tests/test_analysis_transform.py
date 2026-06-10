@@ -56,7 +56,7 @@ def _bootstrap_sales(tmp_path, *, with_country=False):
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     country_field = (
-        "@ms.dimension(dataset=orders)\ndef country(orders):\n    return orders.country\n\n"
+        "@ms.dimension(entity=orders)\ndef country(orders):\n    return orders.country\n\n"
         if with_country
         else ""
     )
@@ -65,12 +65,12 @@ def _bootstrap_sales(tmp_path, *, with_country=False):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(dataset=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
         f"{country_field}"
-        "@ms.metric(datasets=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
         "def revenue(orders):\n"
         "    return orders.revenue.sum()\n"
     )
@@ -211,7 +211,7 @@ def _make_topk_delta_time_series() -> DeltaFrame:
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         },
     }
     return DeltaFrame(
@@ -343,7 +343,7 @@ def _make_one_sided_delta_panel() -> DeltaFrame:
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         },
         "country": {"role": "dimension", "column": "country"},
     }
@@ -384,7 +384,7 @@ def _make_current_only_delta_panel() -> DeltaFrame:
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         },
         "country": {"role": "dimension", "column": "country"},
     }
@@ -496,7 +496,7 @@ def test_transform_window_scans_role_based_time_axis_and_excludes_end():
                 "role": "time",
                 "column": "order_day",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"column": "revenue"},
@@ -584,7 +584,7 @@ def test_transform_window_rejects_relative_window_with_as_of(monkeypatch):
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"column": "revenue"},
@@ -635,7 +635,7 @@ def test_transform_window_absolute_timezone_clips_tz_aware_axis():
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"column": "revenue"},
@@ -685,7 +685,7 @@ def test_persist_transform_frame_updates_delta_alignment_axes(tmp_path):
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "order_date",
+            "time_dimension": "order_date",
         }
     }
 
@@ -774,7 +774,7 @@ def test_transform_normalize_prefers_declared_metric_measure_column():
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"column": "revenue"},
@@ -807,7 +807,7 @@ def test_transform_normalize_prefers_metric_measure_name_when_column_absent():
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"name": "revenue"},
@@ -862,7 +862,7 @@ def test_transform_normalize_pct_change_on_unsorted_panel_uses_time_order_per_di
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             },
             "country": {"role": "dimension", "column": "country"},
         },
@@ -922,7 +922,7 @@ def test_transform_normalize_pct_change_rejects_zero_denominator():
                 "role": "time",
                 "column": "bucket_start",
                 "grain": "day",
-                "time_field": "order_date",
+                "time_dimension": "order_date",
             }
         },
         measure={"column": "revenue"},

@@ -26,11 +26,11 @@ _DOMAIN_FILE = "import marivo.semantic as ms\nms.domain(name='sales')\n"
 _DATASET_WITH_VALIDITY = (
     "import marivo.semantic as ms\n"
     "\n"
-    "@ms.dimension(dataset='sales.user_history')\n"
+    "@ms.dimension(entity='sales.user_history')\n"
     "def valid_from(t):\n"
     "    return t.valid_from\n"
     "\n"
-    "@ms.dimension(dataset='sales.user_history')\n"
+    "@ms.dimension(entity='sales.user_history')\n"
     "def valid_to(t):\n"
     "    return t.valid_to\n"
     "\n"
@@ -63,7 +63,7 @@ def test_validity_versioning_round_trip(semantic_project_factory):
         }
     )
 
-    dataset = project.get_dataset("sales.user_history")
+    dataset = project.get_entity("sales.user_history")
     assert dataset is not None
     versioning = dataset.versioning
     assert versioning is not None
@@ -106,7 +106,7 @@ def test_validity_empty_open_end_rejected(semantic_project_factory):
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_dataset("sales.user_history")
+        project.get_entity("sales.user_history")
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -146,7 +146,7 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_dataset("sales.user_history")
+        project.get_entity("sales.user_history")
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -186,13 +186,13 @@ def test_validity_valid_from_not_in_primary_key_rejected(semantic_project_factor
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_dataset("sales.user_history")
+        project.get_entity("sales.user_history")
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
     error = errors[0]
     assert error.kind == "invalid_entity_versioning"
-    assert error.details.get("field") == "valid_from"
+    assert error.details.get("dimension") == "valid_from"
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +209,7 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
                 "import marivo.semantic as ms\n"
                 "\n"
                 "# Declare valid_from field on user_history (string dataset ref)\n"
-                "@ms.dimension(dataset='sales.user_history')\n"
+                "@ms.dimension(entity='sales.user_history')\n"
                 "def valid_from(t):\n"
                 "    return t.valid_from\n"
                 "\n"
@@ -232,7 +232,7 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_dataset("sales.user_history")
+        project.get_entity("sales.user_history")
     error = exc_info.value.errors[0]
     assert error.kind == "invalid_entity_versioning"
-    assert error.details["field"] == "valid_to"
+    assert error.details["dimension"] == "valid_to"

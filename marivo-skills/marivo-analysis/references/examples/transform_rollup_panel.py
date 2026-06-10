@@ -31,7 +31,7 @@ panel_frame = mv.MetricFrame.from_dataframe(
             "role": "time",
             "column": "bucket_start",
             "grain": "day",
-            "time_field": "created_at",
+            "time_dimension": "created_at",
         },
         "country": {"role": "dimension", "column": "country"},
     },

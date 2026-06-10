@@ -340,7 +340,7 @@ to `observe`; fix the semantic declaration instead. Common fixes:
 
 - Add `additivity="additive"` (or another explicit additivity) on the base
   metric.
-- Add `root_dataset=<dataset>` on a multi-dataset base metric.
+- Add `root_entity=<dataset>` on a multi-dataset base metric.
 - Add a unique `ms.relationship(...)` between the joined datasets, or remove
   ambiguous duplicates.
 - Use a dimension or filter field that the planner can reach from the root

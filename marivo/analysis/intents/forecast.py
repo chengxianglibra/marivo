@@ -194,7 +194,7 @@ def forecast(
             "start": future_times[0].isoformat(),
             "end": (future_times[-1] + pd.tseries.frequencies.to_offset(_FREQ[grain])).isoformat(),
             "grain": grain,
-            "time_field": time_col,
+            "time_dimension": time_col,
         },
         horizon=horizon,
         horizon_unit=cast("Literal['day', 'week', 'month', 'quarter']", grain),

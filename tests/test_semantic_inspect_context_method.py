@@ -70,7 +70,7 @@ orders = ms.entity(
     primary_key=["order_id"],
 )
 
-@ms.dimension(dataset=orders)
+@ms.dimension(entity=orders)
 def amount(table):
     return table.amount
 """
@@ -86,7 +86,7 @@ lines = ms.entity(
     primary_key=["order_id", "line_num"],
 )
 
-@ms.dimension(dataset=lines)
+@ms.dimension(entity=lines)
 def amount(table):
     return table.amount
 """

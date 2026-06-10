@@ -31,7 +31,7 @@ def _metric(session, rows, *, semantic_kind="time_series", axes=None, window=Non
         semantic_kind=semantic_kind,
         semantic_model="sales",
         window=window
-        or {"start": "2026-01-01", "end": "2026-01-05", "grain": "day", "time_field": "time"},
+        or {"start": "2026-01-01", "end": "2026-01-05", "grain": "day", "time_dimension": "time"},
         session=session,
     )
 
@@ -55,7 +55,12 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
     warning = _metric(
         session,
         rows,
-        window={"start": "2026-01-01", "end": "2026-01-11", "grain": "day", "time_field": "time"},
+        window={
+            "start": "2026-01-01",
+            "end": "2026-01-11",
+            "grain": "day",
+            "time_dimension": "time",
+        },
     )
     warning_report = session.assess_quality(warning)
     assert warning_report.meta.overall_status == "warning"
@@ -63,7 +68,12 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
     blocking = _metric(
         session,
         rows[:6],
-        window={"start": "2026-01-01", "end": "2026-01-11", "grain": "day", "time_field": "time"},
+        window={
+            "start": "2026-01-01",
+            "end": "2026-01-11",
+            "grain": "day",
+            "time_dimension": "time",
+        },
     )
     blocking_report = session.assess_quality(blocking)
     assert blocking_report.meta.overall_status == "blocking"
@@ -201,7 +211,12 @@ def test_summary_reflects_warning(tmp_path):
     warning = _metric(
         session,
         rows,
-        window={"start": "2026-01-01", "end": "2026-01-11", "grain": "day", "time_field": "time"},
+        window={
+            "start": "2026-01-01",
+            "end": "2026-01-11",
+            "grain": "day",
+            "time_dimension": "time",
+        },
     )
     report = session.assess_quality(warning)
 
@@ -247,7 +262,7 @@ def test_panel_duplicate_keys_no_false_positive(tmp_path):
             "start": "2026-01-01",
             "end": "2026-01-03",
             "grain": "day",
-            "time_field": "bucket_start",
+            "time_dimension": "bucket_start",
         },
     )
 
@@ -305,7 +320,7 @@ def test_panel_time_coverage_with_timezone(tmp_path):
             "start": "2026-05-18",
             "end": "2026-06-01",
             "grain": "week",
-            "time_field": "bucket_start",
+            "time_dimension": "bucket_start",
         },
     )
     # Force the session timezone to Asia/Shanghai (UTC+8)

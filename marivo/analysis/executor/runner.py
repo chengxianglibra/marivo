@@ -387,7 +387,7 @@ def _validate_time_field_dtype(field_expr: Any, time_meta: Any) -> None:
     compatible = _IBIS_DTYPE_TO_DECLARED.get(normalized)
     if compatible is not None and declared not in compatible:
         raise DataTypeMismatchError(
-            message=f"time_field declared data_type={declared!r} but the expression "
+            message=f"time_dimension declared data_type={declared!r} but the expression "
             f"produces ibis dtype {dtype_name!r}; this mismatch causes "
             f"TypeError at execution.",
             hint=f"Change data_type to {sorted(compatible)[0]!r} or adjust "
@@ -401,9 +401,9 @@ def _validate_time_field_dtype(field_expr: Any, time_meta: Any) -> None:
         )
     if compatible is None and declared in _TEMPORAL_DECLARED_DATA_TYPES:
         raise DataTypeMismatchError(
-            message=f"time_field declared data_type={declared!r} but the expression "
+            message=f"time_dimension declared data_type={declared!r} but the expression "
             f"produces unexpected ibis dtype {dtype_name!r}; "
-            f"temporal time fields require date or timestamp dtype.",
+            f"temporal time dimensions require date or timestamp dtype.",
             hint="Adjust the body to produce a date or timestamp expression, "
             "or change data_type to match the column's actual dtype.",
             details={
@@ -681,25 +681,25 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
         )
     if len(time_fields) == 1:
         return time_fields[0]
-    requested = window.get("time_field")
+    requested = window.get("time_dimension")
     if requested:
         for field in time_fields:
             if field.name == requested:
                 return field
         candidates = [field.name for field in time_fields]
-        first_candidate = candidates[0] if candidates else "<time_field>"
+        first_candidate = candidates[0] if candidates else "<time_dimension>"
         raise WindowInvalidError(
             message=(
-                f"time_field={requested!r} is not on dataset '{dataset_ir.name}'; "
+                f"time_dimension={requested!r} is not on dataset '{dataset_ir.name}'; "
                 f"candidates: {candidates}"
             ),
-            hint="Pass one of the dataset time fields as observe(..., time_field=...).",
+            hint="Pass one of the dataset time dimensions as observe(..., time_dimension=...).",
             details={
                 "candidates": candidates,
                 "fix_snippet": (
                     'session.observe(mv.MetricRef("sales.revenue"), '
                     'timescope={"start": "2026-07-01", "end": "2026-08-01"}, '
-                    f'time_field=mv.DimensionRef("{first_candidate}"))'
+                    f'time_dimension=mv.DimensionRef("{first_candidate}"))'
                 ),
             },
         )
@@ -710,9 +710,9 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
     candidates = [field.name for field in time_fields]
     first_candidate = candidates[0]
     raise WindowInvalidError(
-        message=f"dataset '{dataset_ir.name}' has multiple time_fields: {candidates}",
+        message=f"dataset '{dataset_ir.name}' has multiple time_dimensions: {candidates}",
         hint=(
-            "Pass observe(..., time_field=...) to choose the time axis, "
+            "Pass observe(..., time_dimension=...) to choose the time axis, "
             "or mark one time dimension as @ms.time_dimension(..., is_default=True) "
             "in the semantic definition."
         ),
@@ -721,15 +721,15 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
             "fix_snippet": (
                 'session.observe(mv.MetricRef("sales.revenue"), '
                 'timescope={"start": "2026-07-01", "end": "2026-08-01"}, '
-                f'time_field=mv.DimensionRef("{first_candidate}"))'
+                f'time_dimension=mv.DimensionRef("{first_candidate}"))'
             ),
         },
     )
 
 
 def resolve_window_time_field(dataset_ir: Any, *, window: AbsoluteWindow) -> Any:
-    time_field = {"time_field": window.time_field} if window.time_field else {}
-    return _resolve_time_field(dataset_ir, time_field)
+    time_dimension = {"time_dimension": window.time_dimension} if window.time_dimension else {}
+    return _resolve_time_field(dataset_ir, time_dimension)
 
 
 def _resolve_required_prefix_time_field(dataset_ir: Any, hour_field_ir: Any) -> Any | None:
@@ -832,7 +832,7 @@ def apply_window_to_dataset(
             start=str(window["start"]),
             end=str(window["end"]),
             grain=window.get("grain"),
-            time_field=window.get("time_field"),
+            time_dimension=window.get("time_dimension"),
         )
     time_field_ir = resolve_window_time_field(dataset_ir, window=normalized_window)
     if time_field_ir.time_meta is None:

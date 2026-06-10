@@ -59,7 +59,7 @@ class AbsoluteWindow(BaseModel):
     start: str
     end: str
     grain: Grain | None = None
-    time_field: str | None = None
+    time_dimension: str | None = None
 
     @field_validator("grain", mode="before")
     @classmethod
@@ -88,12 +88,12 @@ def _raise_timescope_model_invalid(
     raw: dict[str, Any],
     error: ValidationError,
 ) -> None:
-    misplaced = [key for key in ("grain", "time_field") if key in raw]
+    misplaced = [key for key in ("grain", "time_dimension") if key in raw]
     hint = None
     if misplaced:
         hint = (
             f"timescope holds only start/end; pass {', '.join(misplaced)} as "
-            "observe(..., grain=..., time_field=...) arguments, not inside timescope."
+            "observe(..., grain=..., time_dimension=...) arguments, not inside timescope."
         )
     raise WindowInvalidError(
         message="timescope form is invalid",
@@ -115,7 +115,7 @@ def normalize_timescope_input(raw: object) -> TimeScope | None:
         # Internal callers (e.g. discover window candidates fed to
         # transform.window) still pass a resolved AbsoluteWindow; reduce it to
         # its period. AbsoluteWindow is intentionally absent from the public
-        # TimeScopeInput type so observe callers use timescope + grain/time_field.
+        # TimeScopeInput type so observe callers use timescope + grain/time_dimension.
         return TimeScope(start=raw.start, end=raw.end)
     if isinstance(raw, dict):
         try:
@@ -157,13 +157,13 @@ def make_absolute_window(
     timescope: TimeScope | None,
     *,
     grain: GrainInput = None,
-    time_field: str | None = None,
+    time_dimension: str | None = None,
 ) -> AbsoluteWindow | None:
     if timescope is None:
-        if grain is None and time_field is None:
+        if grain is None and time_dimension is None:
             return None
         raise WindowInvalidError(
-            message="timescope is required when grain or time_field is provided",
+            message="timescope is required when grain or time_dimension is provided",
             hint='Pass timescope={"start": "2026-07-01", "end": "2026-08-01"}.',
             details={"kind": "TimeScopeRequired"},
         )
@@ -172,7 +172,7 @@ def make_absolute_window(
         start=timescope.start,
         end=timescope.end,
         grain=resolved_grain,
-        time_field=time_field,
+        time_dimension=time_dimension,
     )
 
 

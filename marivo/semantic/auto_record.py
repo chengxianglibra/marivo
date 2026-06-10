@@ -37,7 +37,7 @@ def _authoring_fingerprint_for_metric(ir: MetricIR) -> str:
 def _authoring_fingerprint_for_time_field(ir: DimensionIR) -> str:
     payload = {
         "semantic_id": ir.semantic_id,
-        "entity": ir.dataset,
+        "entity": ir.entity,
         "data_type": ir.data_type,
         "granularity": ir.granularity,
         "timezone": ir.timezone,
@@ -61,7 +61,7 @@ def _metric_chosen(ir: MetricIR) -> dict[str, object]:
 
 def _time_field_chosen(ir: DimensionIR) -> dict[str, object]:
     return {
-        "entity": ir.dataset,
+        "entity": ir.entity,
         "name": ir.name,
         "data_type": ir.data_type,
         "granularity": ir.granularity,
@@ -141,7 +141,7 @@ def auto_record_authoring_decisions(
         )
 
     for field_ir in registry.fields.values():  # type: ignore[attr-defined]
-        if not field_ir.is_time_field:
+        if not field_ir.is_time_dimension:
             continue
         _auto_record_if_missing(
             store=store,

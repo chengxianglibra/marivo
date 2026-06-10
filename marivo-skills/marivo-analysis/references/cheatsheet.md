@@ -243,7 +243,7 @@ When a dataset has multiple time dimensions, choose one with top-level `time_dim
 session.observe(
     mv.MetricRef("sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-08-01"},
-    time_field=mv.DimensionRef("create_date"),
+    time_dimension=mv.DimensionRef("create_date"),
 )
 ```
 

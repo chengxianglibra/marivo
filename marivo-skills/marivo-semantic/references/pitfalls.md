@@ -69,7 +69,7 @@ partition value.
 Do not cast a Trino VARCHAR datetime directly to DATE:
 
 ```python
-@ms.time_dimension(dataset=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("date")
 ```
@@ -77,7 +77,7 @@ def order_date(table):
 Parse through timestamp first:
 
 ```python
-@ms.time_dimension(dataset=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
@@ -99,12 +99,12 @@ to the wrong code path and raises TypeError (e.g., DateColumn + interval).
 
 ```python
 # WRONG - data_type="datetime" with .cast("date") body
-@ms.time_dimension(dataset=orders, data_type="datetime", granularity="day")
+@ms.time_dimension(entity=orders, data_type="datetime", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 
 # CORRECT - data_type="date" with .cast("date") body
-@ms.time_dimension(dataset=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, data_type="date", granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
