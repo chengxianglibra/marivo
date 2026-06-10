@@ -830,7 +830,7 @@ class SemanticCatalog:
         >>> catalog.list().show()
         >>> catalog.list("sales").show()
         >>> revenue = catalog.get("sales.revenue")
-        >>> revenue.details().show()
+        >>> revenue.details().additivity
 
     Constraints:
         catalog is obtained via ms.load(), not constructed directly.
@@ -1025,7 +1025,7 @@ class SemanticCatalog:
 
         Example:
             >>> revenue = catalog.get("sales.revenue")
-            >>> revenue.details().show()
+            >>> revenue.details().additivity
 
         Constraints:
             Raises a typed not-found error when no object exists. Does not return None.
