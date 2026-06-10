@@ -269,7 +269,7 @@ def test_preview_table_supports_structured_filter_and_order(project_root: Path) 
     assert preview.is_truncated is False
 
 
-def test_preview_table_redacts_by_default(project_root: Path) -> None:
+def test_preview_table_returns_values_without_redaction(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_preview_duckdb(db_path)
     mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
@@ -281,27 +281,8 @@ def test_preview_table_redacts_by_default(project_root: Path) -> None:
         limit=1,
     )
 
-    assert preview.rows == ({"order_id": 1, "customer_email": "[redacted]"},)
-    assert [(warning.kind, warning.columns) for warning in preview.warnings] == [
-        ("redacted_column", ("customer_email",))
-    ]
-
-
-def test_preview_table_can_disable_redaction(project_root: Path) -> None:
-    db_path = project_root / "warehouse.duckdb"
-    _create_preview_duckdb(db_path)
-    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
-
-    preview = mv.datasources.preview(
-        "wh",
-        table="orders",
-        columns=["customer_email"],
-        limit=1,
-        redact=False,
-    )
-
-    assert preview.rows == ({"customer_email": "alice@example.com"},)
-    assert preview.warnings == ()
+    assert preview.rows == ({"order_id": 1, "customer_email": "alice@example.com"},)
+    assert [warning.kind for warning in preview.warnings] == []
 
 
 def test_preview_table_rejects_raw_sql_filter(project_root: Path) -> None:

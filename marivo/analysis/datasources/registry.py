@@ -87,7 +87,7 @@ def all() -> builtins.list[DatasourceSummary]:
 
 
 def describe(name: str) -> DatasourceDescription:
-    """Return the redacted shape of the named datasource."""
+    """Return the shape of the named datasource."""
     datasource = _store.load_one(name)
     if datasource is None:
         raise DatasourceMissingError(
@@ -237,9 +237,8 @@ def preview(
     where: Iterable[PreviewFilter] | None = None,
     order_by: Iterable[PreviewOrder] | None = None,
     include_types: bool = True,
-    redact: bool = True,
 ) -> PreviewResult:
-    """Return a bounded, redacted preview of a datasource table."""
+    """Return a bounded preview of a datasource table."""
     backend = build_backend(datasource)
     try:
         expr = backend.table(table) if database is None else backend.table(table, database=database)
@@ -273,7 +272,6 @@ def preview(
             limit=limit,
             sample_policy=sample_policy,
             include_types=include_types,
-            redact=redact,
         )
     except DatasourcePreviewError:
         raise
