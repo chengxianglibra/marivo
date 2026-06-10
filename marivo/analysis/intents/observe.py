@@ -41,6 +41,7 @@ from marivo.analysis.intents._types import SliceValue
 from marivo.analysis.intents.observe_planner import (
     BaseObservePlan,
     DerivedObservePlan,
+    _validate_field_expr,
     plan_base_observe,
     plan_observe,
 )
@@ -526,7 +527,10 @@ def _execute_base(
         )
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
         dimension_exprs = {
-            field_ir.name: _field_fn(sp, field_ir.semantic_id)(bucketed_table).name(field_ir.name)
+            field_ir.name: _validate_field_expr(
+                _field_fn(sp, field_ir.semantic_id)(bucketed_table),
+                field_id=field_ir.semantic_id,
+            ).name(field_ir.name)
             for _, field_ir in resolved_dimensions
         }
         bucketed_table = bucketed_table.mutate(**dimension_exprs)

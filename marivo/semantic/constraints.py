@@ -39,6 +39,7 @@ class ConstraintId(StrEnum):
     AST_SINGLE_RETURN = "ast_single_return"
     AST_FORBIDDEN_STATEMENT = "ast_forbidden_statement"
     AST_SQL_ESCAPE_HATCH = "ast_sql_escape_hatch"
+    AST_IBIS_ATTR_SHADOW = "ast_ibis_attr_shadow"
     DOMAIN_FILE_PRESENT = "domain_file_present"
     DOMAIN_FILE_MATCHES_DIRECTORY = "domain_file_matches_directory"
     ENTITY_REF_EXISTS = "entity_ref_exists"
@@ -272,6 +273,17 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Raw SQL calls are not allowed in Python-track expression bodies.",
         "The Python semantic track stores ibis expressions; SQL text is provenance only.",
         "Use ibis expressions in the body and put the original SQL in source_sql= on metrics.",
+        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
+        ast_spec=_EXPR_BODY_AST_SPEC,
+    ),
+    ConstraintId.AST_IBIS_ATTR_SHADOW: _constraint(
+        ConstraintId.AST_IBIS_ATTR_SHADOW,
+        "ibis_attr_shadow",
+        "ast",
+        ("entity", "dimension", "time_dimension", "metric"),
+        "Attribute accesses on entity table parameters must not shadow ibis Table methods/properties.",
+        "Dot notation (e.g. table.schema) resolves to the ibis Table method instead of the column when the name conflicts. The planner then fails with an unhelpful AttributeError.",
+        'Use bracket notation for column names that conflict with ibis Table attributes: table["schema"] instead of table.schema.',
         example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),

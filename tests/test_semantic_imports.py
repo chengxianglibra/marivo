@@ -485,6 +485,7 @@ _EXPECTED_DECORATOR_KINDS = {
     "metric_body_not_single_return",
     "invalid_ai_context",
     "sql_escape_hatch",
+    "ibis_attr_shadow",
 }
 
 _EXPECTED_ASSEMBLY_KINDS = {

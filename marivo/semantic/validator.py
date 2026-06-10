@@ -298,6 +298,17 @@ _EXPR_BODY_AST_SPEC = _ast_spec_for(ConstraintId.AST_SINGLE_RETURN)
 # Names that indicate a raw SQL escape hatch when used as an attribute.
 _SQL_ESCAPE_ATTRS = frozenset(_EXPR_BODY_AST_SPEC.forbidden_attributes)
 
+# ibis Table method/property names that shadow column access via dot notation.
+try:
+    import ibis as _ibis
+
+    _IBIS_TABLE_ATTRS: frozenset[str] = frozenset(
+        name for name in dir(_ibis.Table) if not name.startswith("_")
+    )
+    del _ibis
+except ImportError:
+    _IBIS_TABLE_ATTRS = frozenset()
+
 # AST node types that are FORBIDDEN as statements in metric bodies.
 _FORBIDDEN_STMT_TYPES: frozenset[type[ast.stmt]] = frozenset(
     {
@@ -335,6 +346,8 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
     def __init__(self, fn_name: str) -> None:
         self.fn_name = fn_name
         self.errors: list[SemanticError] = []
+        self._param_names: set[str] = set()
+        self._parent_map: dict[ast.AST, ast.AST] = {}
 
     def _add_error(
         self,
@@ -353,6 +366,12 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         )
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        # Extract parameter names and build parent map for context-sensitive checks.
+        self._param_names = {arg.arg for arg in node.args.args}
+        self._parent_map = {
+            child: parent for parent in ast.walk(node) for child in ast.iter_child_nodes(parent)
+        }
+
         # Validate the function body structure
 
         # Must have exactly one top-level Return (no nested returns in if/else/etc.)
@@ -417,6 +436,25 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 f"which is not allowed. Use source_sql on the decorator instead.",
                 constraint_id=ConstraintId.AST_SQL_ESCAPE_HATCH,
             )
+        # Check for ibis Table attribute shadowing (e.g. orders.schema instead of orders["schema"])
+        if (
+            _IBIS_TABLE_ATTRS
+            and isinstance(node.value, ast.Name)
+            and node.value.id in self._param_names
+            and node.attr in _IBIS_TABLE_ATTRS
+        ):
+            # Method calls like orders.filter(...) are valid ibis; only flag
+            # bare attribute access (return orders.schema), not call-site func.
+            parent = self._parent_map.get(node)
+            if not (isinstance(parent, ast.Call) and parent.func is node):
+                self._add_error(
+                    ErrorKind.IBIS_ATTR_SHADOW,
+                    f"Metric body of {self.fn_name!r} accesses .{node.attr} on the "
+                    f"entity table parameter '{node.value.id}', which shadows an ibis "
+                    f"Table method/property. Use bracket notation instead: "
+                    f'{node.value.id}["{node.attr}"].',
+                    constraint_id=ConstraintId.AST_IBIS_ATTR_SHADOW,
+                )
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:

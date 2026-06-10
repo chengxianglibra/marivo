@@ -58,6 +58,7 @@ class ErrorKind(StrEnum):
     METRIC_BODY_NOT_SINGLE_RETURN = "metric_body_not_single_return"
     INVALID_AI_CONTEXT = "invalid_ai_context"
     SQL_ESCAPE_HATCH = "sql_escape_hatch"
+    IBIS_ATTR_SHADOW = "ibis_attr_shadow"
 
     # assembly-time
     DOMAIN_FILE_MISSING = "domain_file_missing"

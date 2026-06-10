@@ -486,3 +486,62 @@ def test_time_dimension_dtype_advisory_no_cast_no_advisory() -> None:
         location=SourceLocation(file="test.py", line=1),
     )
     assert _time_dimension_dtype_advisory(field_ir, order_date) is None
+
+
+# ---------------------------------------------------------------------------
+# ibis Table attribute shadowing
+# ---------------------------------------------------------------------------
+
+
+def test_base_ibis_attr_shadow_schema() -> None:
+    """Accessing .schema on a param named 'orders' shadows ibis Table.schema."""
+
+    def schema(orders):  # type: ignore[no-untyped-def]
+        return orders.schema
+
+    with pytest.raises(SemanticLoadError) as exc_info:
+        validate_metric_body_ast(schema, "base")
+    assert exc_info.value.kind == ErrorKind.IBIS_ATTR_SHADOW
+    assert "bracket notation" in str(exc_info.value)
+    assert 'orders["schema"]' in str(exc_info.value)
+
+
+def test_base_ibis_attr_shadow_count() -> None:
+    """Accessing .count on a param shadows ibis Table.count method."""
+
+    def bad(orders):  # type: ignore[no-untyped-def]
+        return orders.count
+
+    with pytest.raises(SemanticLoadError) as exc_info:
+        validate_metric_body_ast(bad, "base")
+    assert exc_info.value.kind == ErrorKind.IBIS_ATTR_SHADOW
+
+
+def test_base_ibis_attr_shadow_method_call_allowed() -> None:
+    """Calling a method like orders.filter(...) is valid ibis, not a column access."""
+
+    def revenue(orders):  # type: ignore[no-untyped-def]
+        return orders.filter(orders.status == "active").amount.sum()
+
+    result = validate_metric_body_ast(revenue, "base")
+    assert isinstance(result, str)
+
+
+def test_base_ibis_attr_no_shadow_non_param() -> None:
+    """Attribute access on a non-parameter name is not flagged."""
+
+    def metric(table):  # type: ignore[no-untyped-def]
+        return other.schema  # noqa: F821
+
+    result = validate_metric_body_ast(metric, "base")
+    assert isinstance(result, str)
+
+
+def test_base_ibis_attr_no_shadow_safe_name() -> None:
+    """Accessing a non-shadowing attribute like .amount is fine."""
+
+    def metric(orders):  # type: ignore[no-untyped-def]
+        return orders.amount.sum()
+
+    result = validate_metric_body_ast(metric, "base")
+    assert isinstance(result, str)

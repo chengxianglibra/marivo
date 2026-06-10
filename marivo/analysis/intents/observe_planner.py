@@ -13,6 +13,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import ibis
+import ibis.expr.types as ir_types
 
 from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.executor.runner import apply_slice_to_dataset, apply_window_to_dataset, execute
@@ -653,6 +654,26 @@ def _field_fn(project: Any, field_id: str) -> Any:
     return fn
 
 
+def _validate_field_expr(value: Any, *, field_id: str) -> Any:
+    """Validate that a sidecar callable returned an ibis expression, not a method/function."""
+    if isinstance(value, (ir_types.Value, ir_types.Table)):
+        return value
+    col_name = field_id.rsplit(".", 1)[-1]
+    actual_type = type(value).__name__
+    raise_observe_planning_error(
+        code="field-expr-type-error",
+        message=(
+            f"Field callable for {field_id!r} returned {actual_type!r} "
+            f"instead of an ibis expression. This usually happens when a "
+            f"dimension name shadows an ibis Table method (e.g., 'schema', "
+            f"'count', 'select'). Use bracket notation in the function body: "
+            f'table["{col_name}"] instead of table.{col_name}.'
+        ),
+        candidates={"field_id": field_id, "actual_type": actual_type},
+        repair=[],
+    )
+
+
 def _join_table(
     current_table: Any,
     next_table: Any,
@@ -1259,8 +1280,9 @@ def plan_base_observe(
     for planned_dimension in planned_dimensions:
         widened_table = widened_table.mutate(
             **{
-                planned_dimension.column: _field_fn(project, planned_dimension.field.semantic_id)(
-                    widened_table
+                planned_dimension.column: _validate_field_expr(
+                    _field_fn(project, planned_dimension.field.semantic_id)(widened_table),
+                    field_id=planned_dimension.field.semantic_id,
                 ).name(planned_dimension.column)
             }
         )
