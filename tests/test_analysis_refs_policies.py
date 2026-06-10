@@ -122,7 +122,6 @@ def test_sampling_policy_defaults_and_forbids_extra():
 def test_promotion_policy_defaults_and_forbids_extra_fields():
     policy = PromotionPolicy()
 
-    assert policy.auto_infer is True
     assert policy.on_missing == "fail_closed"
     assert policy.required_fields == []
     assert policy.semantic_anchors == PromotionSemanticAnchors()
@@ -132,6 +131,9 @@ def test_promotion_policy_defaults_and_forbids_extra_fields():
 
     with pytest.raises(ValidationError):
         PromotionPolicy(extra_field=True)  # type: ignore[call-arg]
+
+    with pytest.raises(ValidationError):
+        PromotionPolicy(auto_infer=True)  # type: ignore[call-arg]
 
 
 def test_promotion_policy_accepts_typed_anchors_only():

@@ -518,6 +518,26 @@ class PromotionFailedError(AnalysisError):
                 else "Pass the missing typed ref or column name shown in error details.",
                 "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
             }
+        ambiguous = self.details.get("ambiguous")
+        catalog_misses = [
+            str(item).removeprefix("metric_not_in_catalog:")
+            for item in (ambiguous if isinstance(ambiguous, list) else [])
+            if str(item).startswith("metric_not_in_catalog:")
+        ]
+        if catalog_misses:
+            return {
+                "location": f"session.promote_{target}",
+                "cause": (
+                    f"metric '{catalog_misses[0]}' is not defined in the loaded "
+                    "semantic catalog; see available_metric_ids in error details."
+                ),
+                "fix_snippet": (
+                    "import marivo.semantic as ms\n"
+                    "catalog = ms.load()\n"
+                    'catalog.list(kind="metric").show()  # pick a defined metric id, then re-promote'
+                ),
+                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            }
         return {
             "location": f"session.promote_{target}",
             "cause": "promotion metadata is incomplete or ambiguous.",

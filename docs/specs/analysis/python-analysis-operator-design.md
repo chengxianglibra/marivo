@@ -148,7 +148,7 @@ shape 是封闭枚举。新增 shape 必须同时更新 family registry、produc
 | `AlignmentPolicy` | compare / correlate / hypothesis_test 的跨输入对齐，以及 transform 的单 frame 时间对齐 | `kind`, `mode`, `strict_lengths`, `calendar`, `fiscal_calendar`, `campaign_window`, `forecast_origin`, `horizon_index`, `submission_time_policy`, `timezone` |
 | `LagPolicy` | correlate 单 lag 或 lag sweep | `mode`, `offset`, `range`, `step`, `max_lag`, `selection_metric` |
 | `SamplingPolicy` | hypothesis_test 内部 sampling / pairing / null handling | `unit`, `method`, `pairing`, `null_handling`, `min_n` |
-| `PromotionPolicy` | escape hatch promotion 的自动推断和 fail-closed 校验 | `auto_infer`, `semantic_anchors`, `required_fields`, `on_missing` |
+| `PromotionPolicy` | escape hatch promotion 的 anchors 回退和 fail-closed 校验 | `semantic_anchors`, `required_fields`, `on_missing` |
 
 plan compile 阶段应尽量检查 family + shape + policy compatibility。只有依赖真实数据统计量的错误才应留到 runtime。
 
@@ -1175,19 +1175,20 @@ Escape hatch 必须同时支持“一进一出”两条边界。
 - `exploration_result` 不能直接喂给 `compare`、`decompose`、`discover`、`hypothesis_test` 等核心算子。
 - 若探索结果需要衔接 Marivo analysis 链路，必须通过显式 promotion step，例如 `promote_metric_frame`、`promote_delta_frame`、`promote_attribution_frame`。
 - Promotion 必须完成 schema、lineage、semantic subject、axes、measures、units、quality metadata 和 source query provenance 校验。
-- Promotion 支持 `PromotionPolicy(auto_infer=True)`，runtime 应从 semantic catalog、Ibis schema、dataframe columns、source artifact refs 和已有 lineage 推断大部分元数据。
+- Promotion 不做自动推断。元数据来自显式参数，或由 `PromotionPolicy.semantic_anchors` 提供回退值；缺失即 fail closed。
+- 当 session 的 semantic 项目处于 ready 状态且定义了 metric 时，promotion 校验 metric id 必须存在于 semantic catalog；无 catalog 的 session 跳过该校验。
 - Promotion 成功后，下游只看 promoted canonical `*_frame` artifact，不看原始 Ibis expression 或临时结果表。
 - Promotion 失败时必须返回结构化缺口，例如 missing subject、ambiguous time axis、unknown unit、unlinked lineage；结果只能作为 scratch evidence 或 analyst note，不能 seed canonical findings。
 
 Promotion step 是 escape-hatch bridge，不是核心分析算子。它的最小校验集合如下：
 
-| Promotion | 最小必填元数据 | Runtime 可推断 / 校验内容 |
+| Promotion | 最小必填元数据 | Runtime 校验内容 |
 | --- | --- | --- |
-| `promote_metric_frame` | 至少一个 semantic anchor：`metric`、`subject` 或 `time_axis`；以及无法推断的 measure / axis 补充 | dataframe schema、semantic catalog、time axis、measure 类型、axis 唯一性、unit compatibility、row/window provenance |
-| `promote_delta_frame` | current/baseline anchor、delta measure columns 或 comparison semantics 中无法推断的部分 | delta 公式一致性、左右 side provenance、comparability metadata、unit compatibility |
-| `promote_attribution_frame` | source delta ref 或 attribution axis 中无法推断的部分 | contribution 对账、rank order、residual / coverage metadata、source delta provenance |
+| `promote_metric_frame` | `semantic_kind`、`measure_column`、`semantic_model` 显式必填；`metric`、`time_axis` 可由 `semantic_anchors` 回退 | dataframe schema、semantic catalog（条件式）、time axis、measure 类型、axis 唯一性、row/window provenance |
+| `promote_delta_frame` | current/baseline anchor、`delta_column`、`current_column`、`baseline_column` | delta 公式一致性、左右 side provenance、comparability metadata、semantic catalog（条件式） |
+| `promote_attribution_frame` | source delta ref（可由 `semantic_anchors` 回退）、`driver_field`、`contribution_column` | contribution 对账、source delta provenance |
 
-Agent 可以显式提供完整元数据，也可以只提供 1-2 个 semantic anchor，让 runtime 自动推断其余字段。但 promotion 必须 fail closed：缺少 subject、axis、measure 或 lineage 时，不得生成 canonical `*_frame`。
+Agent 可以显式提供完整元数据，也可以把部分字段（如 `metric`、`time_axis`、`current`、`baseline`、`source_delta`）放进 `PromotionPolicy.semantic_anchors` 作为回退值。promotion 必须 fail closed：缺少 subject、axis、measure 或 lineage 时，不得生成 canonical `*_frame`。
 
 示例：
 
@@ -1199,7 +1200,6 @@ scratch = analysis.explore_ibis(
 metric = analysis.promote_metric_frame(
     scratch,
     policy=PromotionPolicy(
-        auto_infer=True,
         semantic_anchors={
             "metric": MetricRef("revenue"),
             "time_axis": DimensionRef("event_date"),
@@ -1230,7 +1230,6 @@ interesting = df[df["delta_pct"] < -0.2].sort_values("delta_pct").head(10)
 focused_delta = analysis.promote_delta_frame(
     interesting,
     policy=PromotionPolicy(
-        auto_infer=True,
         semantic_anchors={
             "source_delta": ArtifactRef(delta.meta.artifact_id),
         },

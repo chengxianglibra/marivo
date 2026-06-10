@@ -121,7 +121,6 @@ class PromotionSemanticAnchors(BaseModel):
 class PromotionPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    auto_infer: bool = True
     semantic_anchors: PromotionSemanticAnchors = Field(default_factory=PromotionSemanticAnchors)
     required_fields: list[str] = Field(default_factory=list)
     on_missing: Literal["fail_closed"] = "fail_closed"

@@ -139,6 +139,37 @@ def _validate_columns(
         )
 
 
+def _validate_metric_in_catalog(
+    metric_id: str,
+    *,
+    session: Session,
+    target_kind: str,
+    available_columns: list[str],
+    source_refs: list[str],
+) -> None:
+    sp = getattr(session, "semantic_project", None)
+    if sp is None or not sp.is_ready():
+        return
+    available_metric_ids = sorted(ir.semantic_id for ir in sp.list_metrics())
+    # An empty workspace loads as "ready" with zero metrics; promotion in
+    # catalog-less sessions stays unvalidated.
+    if not available_metric_ids:
+        return
+    if sp.get_metric(metric_id) is not None:
+        return
+    raise PromotionFailedError(
+        message=f"cannot promote scratch result to {target_kind}",
+        details={
+            "target_kind": target_kind,
+            "missing": [],
+            "ambiguous": [f"metric_not_in_catalog:{metric_id}"],
+            "available_columns": available_columns,
+            "source_refs": source_refs,
+            "available_metric_ids": available_metric_ids,
+        },
+    )
+
+
 def _load_metric_ref(ref: ArtifactRef | None, *, session: Session) -> MetricFrame | None:
     if ref is None:
         return None
@@ -646,21 +677,24 @@ def promote_metric_frame(
     observation and you need to feed it into typed intents (``compare``,
     ``decompose``, etc.) that require a MetricFrame.
 
-    Required parameters (must be supplied explicitly; not auto-inferred):
-        metric, semantic_kind, measure_column, semantic_model.
-
-    Auto-inferred parameters (when ``policy.auto_infer=True``):
-        axes, time_axis, window.
+    No metadata is auto-inferred. ``semantic_kind``, ``measure_column``, and
+    ``semantic_model`` must be supplied explicitly. ``metric`` and
+    ``time_axis`` may instead fall back to ``policy.semantic_anchors``.
+    ``axes``, ``window``, and ``where`` are only read from explicit arguments.
 
     Args:
         source: An ExplorationResult or raw pandas DataFrame to promote.
-        policy: Controls auto-inference behavior. Defaults to auto_infer=True.
+        policy: Supplies ``semantic_anchors`` fallback values and extra
+            ``required_fields`` checks. Promotion always fails closed on
+            missing metadata.
         session: Target session. Uses the ambient session when None.
         metric: Reference to the semantic metric this frame measures.
+            Falls back to ``policy.semantic_anchors.metric``.
         semantic_kind: One of "scalar", "time_series", "segmented", "panel".
         measure_column: Column name holding the numeric measure values.
         axes: Mapping of column name to DimensionRef for dimension axes.
         time_axis: Column name or DimensionRef for the time dimension.
+            Falls back to ``policy.semantic_anchors.time_axis``.
         semantic_model: Name of the semantic model this metric belongs to.
         window: Absolute time window specification.
         where: Filter predicates applied to the observation.
@@ -669,7 +703,9 @@ def promote_metric_frame(
         A MetricFrame persisted to the session's frame store.
 
     Raises:
-        PromotionError: If required fields are missing or columns are invalid.
+        PromotionFailedError: If required fields are missing, columns are
+            invalid, or the session's semantic project is ready with metrics
+            defined and the metric id is not in the catalog.
         SessionNotWritableError: If the resolved session is read-only.
 
     Example:
@@ -718,6 +754,13 @@ def promote_metric_frame(
     time_axis_meta = _time_axis_column_and_ref(time_axis_ref)
     available_columns = list(map(str, df.columns))
     source_refs = [scratch.ref]
+    _validate_metric_in_catalog(
+        metric_ref.semantic_id,
+        session=resolved_session,
+        target_kind="metric_frame",
+        available_columns=available_columns,
+        source_refs=source_refs,
+    )
     _validate_semantic_shape(
         semantic_kind=semantic_kind,
         axes=axes,
@@ -833,26 +876,29 @@ def promote_delta_frame(
     observations and need a typed frame for downstream intents like
     ``decompose`` (attribution analysis).
 
-    Required parameters (must be supplied explicitly):
-        current, baseline, delta_column. Additionally metric, semantic_kind,
-        and semantic_model are required but can be inherited from the
-        referenced current/baseline MetricFrames.
-
-    Auto-inherited from source MetricFrames:
-        metric, semantic_kind, semantic_model (from the ``current`` frame).
+    Required parameters: current, baseline, delta_column, current_column,
+    baseline_column. ``current`` and ``baseline`` may instead fall back to
+    ``policy.semantic_anchors``. Additionally metric, semantic_kind, and
+    semantic_model are required but inherited from the referenced current
+    MetricFrame when not supplied. No metadata is auto-inferred.
 
     Args:
         source: An ExplorationResult or raw DataFrame containing delta data.
-        policy: Controls auto-inference behavior. Defaults to auto_infer=True.
+        policy: Supplies ``semantic_anchors`` fallback values. Promotion
+            always fails closed on missing metadata.
         session: Target session. Uses the ambient session when None.
         current: ArtifactRef pointing to the "current" MetricFrame.
+            Falls back to ``policy.semantic_anchors.current``.
         baseline: ArtifactRef pointing to the "baseline" MetricFrame.
+            Falls back to ``policy.semantic_anchors.baseline``.
         metric: Override metric reference (must match source frames if given).
         semantic_kind: Override semantic kind (must match source frames).
         semantic_model: Override semantic model name (must match source frames).
         delta_column: Column name holding the numeric delta values.
-        current_column: Column with current-period raw values (optional).
-        baseline_column: Column with baseline-period raw values (optional).
+        current_column: Column with current-period raw values. Required for
+            the delta formula consistency check.
+        baseline_column: Column with baseline-period raw values. Required for
+            the delta formula consistency check.
         alignment: How current and baseline periods are aligned.
             Defaults to window_bucket alignment.
 
@@ -860,8 +906,10 @@ def promote_delta_frame(
         A DeltaFrame persisted to the session's frame store.
 
     Raises:
-        PromotionError: If required fields are missing, columns are invalid,
-            or current/baseline metadata is inconsistent.
+        PromotionFailedError: If required fields are missing, columns are
+            invalid, current/baseline metadata is inconsistent, or the
+            session's semantic project is ready with metrics defined and the
+            metric id is not in the catalog.
         SessionNotWritableError: If the resolved session is read-only.
 
     Example:
@@ -993,6 +1041,13 @@ def promote_delta_frame(
     assert final_model is not None
     assert delta_column is not None
     source_refs = [current_ref.id, baseline_ref.id] if current_ref and baseline_ref else []
+    _validate_metric_in_catalog(
+        metric_id,
+        session=resolved_session,
+        target_kind="delta_frame",
+        available_columns=list(map(str, df.columns)),
+        source_refs=source_refs,
+    )
     alignment_axes = (
         current_frame.meta.axes
         if current_frame is not None and final_kind in {"time_series", "segmented", "panel"}
@@ -1093,17 +1148,18 @@ def promote_attribution_frame(
     explains which drivers contributed to a delta, and you need a typed frame
     that the analysis pipeline can consume as evidence.
 
-    Required parameters (must be supplied explicitly):
-        source_delta, driver_field, contribution_column.
-
-    Auto-inherited from the source DeltaFrame:
-        metric, semantic_kind, semantic_model.
+    Required parameters: source_delta, driver_field, contribution_column.
+    ``source_delta`` may instead fall back to ``policy.semantic_anchors``.
+    metric, semantic_kind, and semantic_model are inherited from the source
+    DeltaFrame. No metadata is auto-inferred.
 
     Args:
         source: An ExplorationResult or raw DataFrame with attribution rows.
-        policy: Controls auto-inference behavior. Defaults to auto_infer=True.
+        policy: Supplies ``semantic_anchors`` fallback values. Promotion
+            always fails closed on missing metadata.
         session: Target session. Uses the ambient session when None.
         source_delta: ArtifactRef pointing to the DeltaFrame being explained.
+            Falls back to ``policy.semantic_anchors.source_delta``.
         driver_field: Column name identifying the dimension driver
             (e.g., "region", "product_category").
         contribution_column: Numeric column holding each driver's contribution
@@ -1116,8 +1172,8 @@ def promote_attribution_frame(
         An AttributionFrame persisted to the session's frame store.
 
     Raises:
-        PromotionError: If required fields are missing, columns are invalid,
-            or contribution_column contains null values.
+        PromotionFailedError: If required fields are missing, columns are
+            invalid, or contribution_column contains null values.
         SessionNotWritableError: If the resolved session is read-only.
 
     Example:
