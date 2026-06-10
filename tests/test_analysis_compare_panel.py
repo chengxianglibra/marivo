@@ -547,15 +547,15 @@ def test_compare_calendar_panel_ratio_persists_component_delta(tmp_path):
             {
                 "bucket_start": "2026-05-05",
                 "region": "WEB",
-                "numerator": 25.0,
-                "denominator": 100.0,
+                "failed_count": 25.0,
+                "total_count": 100.0,
                 "failure_rate": 0.25,
             },
             {
                 "bucket_start": "2026-05-05",
                 "region": "APP",
-                "numerator": 50.0,
-                "denominator": 100.0,
+                "failed_count": 50.0,
+                "total_count": 100.0,
                 "failure_rate": 0.50,
             },
         ],
@@ -570,8 +570,8 @@ def test_compare_calendar_panel_ratio_persists_component_delta(tmp_path):
             {
                 "bucket_start": "2026-04-07",
                 "region": "WEB",
-                "numerator": 10.0,
-                "denominator": 100.0,
+                "failed_count": 10.0,
+                "total_count": 100.0,
                 "failure_rate": 0.10,
             },
         ],
@@ -594,8 +594,8 @@ def test_compare_calendar_panel_ratio_persists_component_delta(tmp_path):
     )
     by_region = component_df.set_index("region")
     assert by_region.loc["WEB", "align_quality"] == "exact"
-    assert by_region.loc["WEB", "current_numerator"] == pytest.approx(25.0)
-    assert by_region.loc["WEB", "baseline_numerator"] == pytest.approx(10.0)
+    assert by_region.loc["WEB", "current_failed_count"] == pytest.approx(25.0)
+    assert by_region.loc["WEB", "baseline_failed_count"] == pytest.approx(10.0)
     assert by_region.loc["APP", "align_quality"] == "unmatched"
-    assert by_region.loc["APP", "baseline_numerator"] == pytest.approx(0.0)
-    assert by_region.loc["APP", "delta_numerator"] == pytest.approx(50.0)
+    assert by_region.loc["APP", "baseline_failed_count"] == pytest.approx(0.0)
+    assert by_region.loc["APP", "delta_failed_count"] == pytest.approx(50.0)

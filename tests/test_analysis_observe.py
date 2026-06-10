@@ -599,7 +599,7 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
         },
     }
     assert set(frame.to_pandas().columns) == {"failure_rate"}
-    assert "numerator" not in frame.summary().columns
+    assert "failed_count" not in frame.summary().columns
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
     assert components.meta.parent_kind == "metric_frame"
@@ -609,9 +609,9 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
         "denominator": "sales.total_count",
     }
     component_df = components.to_pandas()
-    assert list(component_df.columns) == ["numerator", "denominator", "failure_rate"]
-    assert component_df.iloc[0]["numerator"] == pytest.approx(2.0)
-    assert component_df.iloc[0]["denominator"] == pytest.approx(4.0)
+    assert list(component_df.columns) == ["failed_count", "total_count", "failure_rate"]
+    assert component_df.iloc[0]["failed_count"] == pytest.approx(2.0)
+    assert component_df.iloc[0]["total_count"] == pytest.approx(4.0)
     assert component_df.iloc[0]["failure_rate"] == pytest.approx(0.5)
 
     self_ratio = observe(MetricRef("sales.failed_count_ratio"), session=session)
@@ -648,16 +648,16 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
     component_df = components.to_pandas()
     assert list(component_df.columns) == [
         "bucket_start",
-        "numerator",
-        "denominator",
+        "failed_count",
+        "total_count",
         "failure_rate",
     ]
     by_bucket = {str(row.bucket_start): row for row in component_df.itertuples()}
-    assert by_bucket["2026-07-01"].numerator == pytest.approx(1.0)
-    assert by_bucket["2026-07-01"].denominator == pytest.approx(1.0)
+    assert by_bucket["2026-07-01"].failed_count == pytest.approx(1.0)
+    assert by_bucket["2026-07-01"].total_count == pytest.approx(1.0)
     assert by_bucket["2026-07-01"].failure_rate == pytest.approx(1.0)
-    assert by_bucket["2026-07-02"].numerator == pytest.approx(0.0)
-    assert by_bucket["2026-07-02"].denominator == pytest.approx(1.0)
+    assert by_bucket["2026-07-02"].failed_count == pytest.approx(0.0)
+    assert by_bucket["2026-07-02"].total_count == pytest.approx(1.0)
     assert by_bucket["2026-07-02"].failure_rate == pytest.approx(0.0)
 
 

@@ -14,7 +14,11 @@ from marivo.analysis.errors import (
     SemanticKindMismatchError,
 )
 from marivo.analysis.frames.attribution import AttributionFrame
-from marivo.analysis.frames.component import ComponentFrame
+from marivo.analysis.frames.component import (
+    ComponentFrame,
+    resolve_role_column_name,
+    resolve_role_columns,
+)
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.intents._derived import (
     ensure_frame_in_session,
@@ -119,11 +123,15 @@ def _load_delta_component_frame(frame: DeltaFrame, *, session: Session) -> Compo
     return loaded
 
 
+def _component_role_column_name(component: ComponentFrame, role: str) -> str:
+    return resolve_role_column_name(component.meta.components, role)
+
+
 def _component_measure_role(component: ComponentFrame) -> str:
     if component.meta.decomposition_kind == "ratio":
-        return "denominator"
+        return _component_role_column_name(component, "denominator")
     if component.meta.decomposition_kind == "weighted_average":
-        return "weight"
+        return _component_role_column_name(component, "weight")
     raise ComponentDecompositionError(
         message="unsupported component decomposition kind",
         details={"decomposition_kind": component.meta.decomposition_kind},
@@ -154,13 +162,13 @@ def _infer_delta_value_column_name(component: ComponentFrame) -> str:
     """Infer the metric-name value column from the component delta frame columns.
 
     Looks for a ``current_<name>`` column whose ``<name>`` is not a declared
-    decomposition role in ``component.meta.components``.
+    decomposition component metric name.
     """
-    known_roles = set(component.meta.components.keys())
+    known_component_names = set(resolve_role_columns(component.meta.components))
     for column in component._df.columns:
         if column.startswith("current_"):
             name = column[len("current_") :]
-            if name not in known_roles:
+            if name not in known_component_names:
                 return name
     raise ComponentDecompositionError(
         message="component delta frame has no metric value column",
@@ -175,11 +183,12 @@ def _component_mix_output_for_df(
     axis_column: str,
 ) -> pd.DataFrame:
     share_role = _component_measure_role(component)
+    numerator_name = _component_role_column_name(component, "numerator")
     value_name = _infer_delta_value_column_name(component)
     required = [
         axis_column,
-        "current_numerator",
-        "baseline_numerator",
+        f"current_{numerator_name}",
+        f"baseline_{numerator_name}",
         f"current_{share_role}",
         f"baseline_{share_role}",
         f"current_{value_name}",
@@ -204,8 +213,8 @@ def _component_mix_output_for_df(
         baseline_share = pd.Series(np.nan, index=output.index)
     else:
         baseline_share = baseline_basis / baseline_total
-    current_value = _safe_divide(output["current_numerator"], current_basis)
-    baseline_value = _safe_divide(output["baseline_numerator"], baseline_basis)
+    current_value = _safe_divide(output[f"current_{numerator_name}"], current_basis)
+    baseline_value = _safe_divide(output[f"baseline_{numerator_name}"], baseline_basis)
     output["contribution"] = current_share * current_value - baseline_share * baseline_value
     output["value_effect"] = current_share * (current_value - baseline_value)
     output["mix_effect"] = (current_share - baseline_share) * baseline_value
@@ -236,8 +245,8 @@ def _component_mix_output_for_df(
             "value_effect",
             "mix_effect",
             "residual",
-            "current_numerator",
-            "baseline_numerator",
+            f"current_{numerator_name}",
+            f"baseline_{numerator_name}",
             f"current_{share_role}",
             f"baseline_{share_role}",
             f"current_{value_name}",

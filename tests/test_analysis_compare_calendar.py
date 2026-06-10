@@ -899,8 +899,8 @@ def test_compare_calendar_time_series_ratio_persists_component_delta(calendar_pr
         component_rows=[
             {
                 "bucket_start": "2026-05-05",
-                "numerator": 25.0,
-                "denominator": 100.0,
+                "failed_count": 25.0,
+                "total_count": 100.0,
                 "failure_rate": 0.25,
             }
         ],
@@ -912,8 +912,8 @@ def test_compare_calendar_time_series_ratio_persists_component_delta(calendar_pr
         component_rows=[
             {
                 "bucket_start": "2026-04-07",
-                "numerator": 10.0,
-                "denominator": 100.0,
+                "failed_count": 10.0,
+                "total_count": 100.0,
                 "failure_rate": 0.10,
             }
         ],
@@ -934,8 +934,8 @@ def test_compare_calendar_time_series_ratio_persists_component_delta(calendar_pr
     assert list(component_df["align_quality"]) == ["exact"]
     assert component_df.iloc[0]["bucket_start_a"] == "2026-05-05"
     assert component_df.iloc[0]["bucket_start_b"] == "2026-04-07"
-    assert component_df.iloc[0]["current_numerator"] == pytest.approx(25.0)
-    assert component_df.iloc[0]["baseline_numerator"] == pytest.approx(10.0)
+    assert component_df.iloc[0]["current_failed_count"] == pytest.approx(25.0)
+    assert component_df.iloc[0]["baseline_failed_count"] == pytest.approx(10.0)
     assert component_df.iloc[0]["delta_failure_rate"] == pytest.approx(0.15)
 
 

@@ -101,8 +101,8 @@ Final reports must still be answer-first and source-backed.
 
 Derived ratio and weighted-average observations keep parent frames clean:
 `frame.to_pandas()` shows only axis columns plus the final metric value. Use
-`frame.components()` when you need numerator/denominator or numerator/weight
-state.
+`frame.components()` when you need the underlying component metric values
+(e.g., `failed_count`, `total_count` for a ratio).
 
 ```python
 rate = session.observe(mv.MetricRef("sales.failure_rate"))

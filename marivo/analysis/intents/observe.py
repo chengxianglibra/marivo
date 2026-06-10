@@ -34,7 +34,12 @@ from marivo.analysis.executor.runner import (
     normalize_slice_for_storage,
     resolve_window_time_field,
 )
-from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
+from marivo.analysis.frames.component import (
+    ComponentFrame,
+    ComponentFrameMeta,
+    resolve_role_column_name,
+    resolve_role_columns,
+)
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._shape import SemanticShape, observe_output_shape
 from marivo.analysis.intents._types import SliceValue
@@ -245,13 +250,12 @@ def _decomposition_payload(metric_ir: Any) -> dict[str, Any] | None:
     }
 
 
+def _role_to_column_name(metric_ir: Any, role: str) -> str:
+    return resolve_role_column_name(metric_ir.decomposition.components, role)
+
+
 def _component_parent_columns(metric_ir: Any) -> list[str]:
-    kind = metric_ir.decomposition.kind
-    if kind == "ratio":
-        return ["numerator", "denominator"]
-    if kind == "weighted_average":
-        return ["numerator", "weight"]
-    return []
+    return resolve_role_columns(metric_ir.decomposition.components)
 
 
 def _component_frame_df(
@@ -262,8 +266,8 @@ def _component_frame_df(
     metric_value_column: str,
 ) -> Any:
     role_columns = _component_parent_columns(metric_ir)
-    for role in role_columns:
-        _require_component_role_column(metric_ir, role, raw_df)
+    for role, col in zip(metric_ir.decomposition.components, role_columns, strict=True):
+        _require_component_role_column(metric_ir, role, col, raw_df)
     selected = [*axes_columns, *role_columns, metric_value_column]
     return raw_df[selected][[*axes_columns, *role_columns, metric_value_column]]
 
@@ -423,13 +427,13 @@ def _field_fn(sp: Any, field_id: str) -> Callable[..., Any]:
 def _evaluate_decomposition_on_frame(metric_ir: Any, frame: Any) -> Any:
     kind = metric_ir.decomposition.kind
     if kind == "ratio":
-        numerator = _require_component_role_column(metric_ir, "numerator", frame)
-        denominator = _require_component_role_column(metric_ir, "denominator", frame)
-        return numerator / denominator
+        num_col = _role_to_column_name(metric_ir, "numerator")
+        den_col = _role_to_column_name(metric_ir, "denominator")
+        return frame[num_col] / frame[den_col]
     if kind == "weighted_average":
-        numerator = _require_component_role_column(metric_ir, "numerator", frame)
-        weight = _require_component_role_column(metric_ir, "weight", frame)
-        return numerator / weight
+        num_col = _role_to_column_name(metric_ir, "numerator")
+        weight_col = _role_to_column_name(metric_ir, "weight")
+        return frame[num_col] / frame[weight_col]
     raise MetricShapeUnsupportedError(
         message=f"unsupported derived metric decomposition kind {kind!r}",
         details={
@@ -443,6 +447,7 @@ def _evaluate_decomposition_on_frame(metric_ir: Any, frame: Any) -> Any:
 def _require_component_role_column(
     metric_ir: Any,
     role: str,
+    column_name: str,
     frame: Any,
 ) -> Any:
     component_id = metric_ir.decomposition.components.get(role)
@@ -455,21 +460,21 @@ def _require_component_role_column(
                 "role": role,
             },
         )
-    if role not in frame:
+    if column_name not in frame:
         raise MetricShapeUnsupportedError(
             message=(
                 f"derived metric {metric_ir.semantic_id!r} component role column "
-                f"{role!r} is missing"
+                f"{column_name!r} (role {role!r}) is missing"
             ),
             details={
                 "kind": "DerivedMetricComponentColumnMissing",
                 "metric": metric_ir.semantic_id,
                 "role": role,
                 "component_metric": component_id,
-                "column": role,
+                "column": column_name,
             },
         )
-    return frame[role]
+    return frame[column_name]
 
 
 class _Result:
@@ -705,7 +710,7 @@ def _execute_derived(
                 message=f"metric callable for {cp.component_metric_ir.semantic_id!r} not found",
                 details={"metric": cp.component_metric_ir.semantic_id},
             )
-        component_name = cp.role
+        component_name = _role_to_column_name(metric_ir, cp.role)
         component_datasets = tuple(cp.component_metric_ir.entities)
         table = cp.base_plan.table
         if has_time:
