@@ -4,7 +4,6 @@ from pydantic import ValidationError
 import marivo.analysis as mv
 from marivo.analysis.errors import (
     AlignmentPolicyValidationError,
-    LagPolicyValidationError,
     PromotionFailedError,
 )
 from marivo.analysis.policies import (
@@ -88,21 +87,14 @@ def test_alignment_policy_validation_error_renders_fix_snippet():
     assert 'mv.AlignmentPolicy(kind="window_bucket")' in rendered_unexpected
 
 
-def test_lag_policy_supports_only_single_zero_offset_for_now():
+def test_lag_policy_supports_only_single_zero_offset():
     assert LagPolicy(mode="single", offset=0).offset == 0
 
-    with pytest.raises(LagPolicyValidationError):
+    with pytest.raises(ValidationError):
         LagPolicy(mode="single", offset=1)
 
     with pytest.raises(ValidationError):
         LagPolicy(mode="sweep", offset=0)
-
-
-def test_lag_policy_validation_error_renders_fix_snippet():
-    with pytest.raises(LagPolicyValidationError) as nonzero:
-        LagPolicy(mode="single", offset=2)
-    rendered = str(nonzero.value)
-    assert 'mv.LagPolicy(mode="single", offset=0)' in rendered
 
 
 def test_sampling_policy_defaults_and_forbids_extra():
