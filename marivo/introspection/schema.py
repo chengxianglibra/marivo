@@ -9,7 +9,7 @@ from marivo.introspection.constraints import Constraint
 
 SCHEMA_VERSION = "1"
 
-Kind = Literal["callable", "class", "frame", "module", "topic", "surface", "unknown"]
+Kind = Literal["callable", "class", "frame", "module", "topic", "surface", "type-alias", "unknown"]
 
 
 @dataclass(frozen=True)

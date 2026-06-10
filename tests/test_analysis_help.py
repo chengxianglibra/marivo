@@ -439,3 +439,26 @@ def test_mv_help_semantic_prefix_routes_to_semantic_surface(capsys: CaptureFixtu
     captured = capsys.readouterr()
     assert "metric" in captured.out.lower()
     assert len(captured.out) > 0
+
+
+# --- type-alias kind labels ---
+
+
+def test_help_type_aliases_have_correct_kind() -> None:
+    from marivo.analysis.help import _TYPE_ALIASES
+
+    for name in _TYPE_ALIASES:
+        result = _json_data(name)
+        assert result["kind"] == "type-alias", f"{name}: expected type-alias, got {result['kind']}"
+
+
+def test_help_type_alias_descriptor_has_signature() -> None:
+    result = _json_data("AlignmentKind")
+    assert "window_bucket" in cast("str", result["signature"])
+
+
+def test_help_top_level_all_entries_have_summaries() -> None:
+    result = _json_data()
+    entries = cast("list[dict[str, Any]]", result["entries"])
+    empty = [e["name"] for e in entries if not e["summary"]]
+    assert not empty, f"entries with empty summary: {empty}"

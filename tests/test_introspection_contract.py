@@ -110,6 +110,17 @@ REQUIRED_BY_KIND = {
         "content",
     },
     "unknown": {"schema_version", "surface", "kind", "symbol", "summary", "did_you_mean"},
+    "type-alias": {
+        "schema_version",
+        "surface",
+        "kind",
+        "symbol",
+        "summary",
+        "signature",
+        "constraints",
+        "examples",
+        "see_also",
+    },
 }
 
 

@@ -31,6 +31,7 @@ class Surface:
     catalog: Mapping[str, Constraint]
     topics: Mapping[str, Descriptor | Mapping[str, Any]]
     frame_symbols: set[str] = field(default_factory=set)
+    type_aliases: set[str] = field(default_factory=set)
     constructed_by: Mapping[str, str] = field(default_factory=dict)
     see_also: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
@@ -42,6 +43,8 @@ def _catalog_by_id(surface: Surface) -> dict[str, Constraint]:
 def _entry_kind(surface: Surface, name: str) -> Kind:
     if name in surface.topics:
         return "topic"
+    if name in surface.type_aliases:
+        return "type-alias"
     obj = surface.resolve(name)
     if inspect.isclass(obj):
         if name in surface.frame_symbols:
@@ -165,6 +168,18 @@ def _unknown_descriptor(surface: Surface, symbol: str) -> Descriptor:
     )
 
 
+def _type_alias_descriptor(surface: Surface, symbol: str) -> Descriptor:
+    obj = surface.resolve(symbol)
+    signature = repr(obj) if obj is not None else symbol
+    return Descriptor(
+        surface=surface.name,
+        kind="type-alias",
+        symbol=symbol,
+        summary=surface.summaries.get(symbol, ""),
+        signature=signature,
+    )
+
+
 def _resolve_descriptor(surface: Surface, symbol: str | None) -> Descriptor:
     if symbol is None:
         return _top_level_descriptor(surface)
@@ -179,6 +194,9 @@ def _resolve_descriptor(surface: Surface, symbol: str | None) -> Descriptor:
         method_descriptor = _method_descriptor(surface, symbol)
         if method_descriptor is not None:
             return method_descriptor
+
+    if symbol in surface.type_aliases:
+        return _type_alias_descriptor(surface, symbol)
 
     obj = surface.resolve(symbol)
     if obj is not None:
