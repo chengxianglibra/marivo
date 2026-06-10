@@ -224,6 +224,14 @@ class Materializer:
         # Call the sidecar callable with the parent table
         try:
             value = callable_(parent_table)
+        except NameError as exc:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Dimension {semantic_id!r} callable raised NameError: {exc}. "
+                f"Ensure 'import ibis' is in the module where the decorator body is defined.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
         except Exception as exc:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
@@ -306,6 +314,14 @@ class Materializer:
         # Call the sidecar callable with entity tables as positional args
         try:
             value = callable_(*tables)
+        except NameError as exc:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Metric {semantic_id!r} callable raised NameError: {exc}. "
+                f"Ensure 'import ibis' is in the module where the decorator body is defined.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
         except Exception as exc:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,

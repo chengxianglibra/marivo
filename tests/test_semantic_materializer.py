@@ -826,3 +826,25 @@ def test_metric_materialize_with_sample_size(semantic_project_factory) -> None:
     mat_sampled = Materializer(project, factory, sample_size=10)
     value_sampled = mat_sampled.metric("sales.total_amount")
     assert value_sampled.to_pandas() == 55.0
+
+
+def test_metric_callable_name_error_adds_import_hint(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum() + ibis.literal(0)\n"
+            ),
+        }
+    )
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        project.materialize_metric("sales.revenue", backend_factory=backend_factory)
+    assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
+    assert "NameError" in exc_info.value.message
+    assert "import ibis" in exc_info.value.message

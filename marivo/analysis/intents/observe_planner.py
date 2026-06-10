@@ -126,6 +126,21 @@ def _all_fields(project: Any) -> list[Any]:
     return [*project.list_dimensions(), *project.list_time_dimensions()]
 
 
+_IBIS_BUILTIN_NAMES = frozenset(
+    {
+        "desc",
+        "asc",
+        "greatest",
+        "least",
+        "ifelse",
+        "coalesce",
+        "negate",
+        "where",
+        "nullif",
+    }
+)
+
+
 def _fields_for_datasets(project: Any, dataset_ids: set[str]) -> list[Any]:
     return [f for f in _all_fields(project) if f.entity in dataset_ids]
 
@@ -166,14 +181,26 @@ def _resolve_field_ref(
                     why=f"closest match for {ref_id!r}",
                 )
             )
+        message = f"Field reference {ref_id!r} was not found in observe plan scope."
+        candidates: dict[str, Any] = {
+            "searched_datasets": sorted(scoped_dataset_ids),
+            "available_field_ids": all_field_ids,
+            "did_you_mean": suggestions,
+        }
+        if ref_id in _IBIS_BUILTIN_NAMES:
+            ibis_hint = (
+                f"{ref_id!r} is also an ibis expression function (ibis.{ref_id}()). "
+                f"If you meant to use it inside a decorator body, ensure 'import ibis' "
+                f"is in the module where the body is defined. If you meant a semantic "
+                f"dimension, use its qualified name (e.g. 'entity.{ref_id}') or rename "
+                f"the dimension to avoid the collision with the ibis builtin."
+            )
+            message = f"{message} {ibis_hint}"
+            candidates["ibis_builtin_hint"] = ibis_hint
         raise_observe_planning_error(
             code="field-ref-not-found",
-            message=f"Field reference {ref_id!r} was not found in observe plan scope.",
-            candidates={
-                "searched_datasets": sorted(scoped_dataset_ids),
-                "available_field_ids": all_field_ids,
-                "did_you_mean": suggestions,
-            },
+            message=message,
+            candidates=candidates,
             repair=repair_actions,
         )
     if len(matches) > 1:
