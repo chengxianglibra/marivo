@@ -131,7 +131,7 @@ scripts_dir.mkdir(parents=True, exist_ok=True)
 
 reports_dir = session.layout.reports_dir
 reports_dir.mkdir(parents=True, exist_ok=True)
-html = mv.render_report_html(artifact, language="zh-Hans")
+html = mv.publish.render_report_html(artifact, language="zh-Hans")
 (reports_dir / "trino_anomaly_weekly.html").write_text(html, encoding="utf-8")
 ```
 

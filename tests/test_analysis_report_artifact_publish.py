@@ -309,8 +309,8 @@ def test_publish_public_api_is_exported() -> None:
     assert callable(resolve_publish_config)
     assert callable(resolve_publish_prefix)
     assert SecretScanIssue is not None
-    assert mv.publish_report_package is publish_report_package
-    assert mv.PublishReportResult is PublishReportResult
-    assert mv.PublishConfig is PublishConfig
-    assert mv.PublishTarget is PublishTarget
-    assert mv.LocalFilesystemTarget is LocalFilesystemTarget
+    assert mv.publish.publish_report_package is publish_report_package
+    assert mv.publish.PublishReportResult is PublishReportResult
+    assert mv.publish.PublishConfig is PublishConfig
+    assert mv.publish.PublishTarget is PublishTarget
+    assert mv.publish.LocalFilesystemTarget is LocalFilesystemTarget

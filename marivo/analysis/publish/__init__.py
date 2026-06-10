@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from marivo.analysis.publish.help import help, help_text
 from marivo.analysis.publish.publish_config import (
     PublishConfig,
     resolve_publish_config,
@@ -79,6 +80,8 @@ __all__ = [
     "SourceProvenance",
     "compute_package_hash",
     "export_report_json_schema",
+    "help",
+    "help_text",
     "load_report_artifact",
     "materialize_html_adapter",
     "materialize_mcp_adapter",

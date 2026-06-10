@@ -15,13 +15,13 @@ import marivo.analysis.session.attach as session_attach
 from marivo.analysis import (
     AlignmentPolicy,
     AttributionFrame,
-    AttributionFrameMeta,
     DeltaFrame,
-    DeltaFrameMeta,
     DimensionRef,
     MetricFrame,
     MetricRef,
 )
+from marivo.analysis.frames.attribution import AttributionFrameMeta
+from marivo.analysis.frames.delta import DeltaFrameMeta
 from marivo.analysis.session.persistence import read_frame_from_disk, read_job_record
 
 
