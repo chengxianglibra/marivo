@@ -15,24 +15,28 @@ and ``active`` functions are not part of the public surface; new code
 should reach for ``get_or_create`` / ``current`` / ``list``.
 """
 
-from importlib import import_module
+from importlib import import_module as _import_module
 
-attach = import_module("marivo.analysis.session.attach")
+_attach_module = _import_module("marivo.analysis.session.attach")
 
-archive = attach.archive
-current = attach.current
-delete = attach.delete
-get_or_create = attach.get_or_create
-list = attach.list_sessions
+# Python auto-registers the submodule as a package attribute on import;
+# remove it so mv.session.attach is not publicly reachable.
+if "attach" in globals():
+    del globals()["attach"]
+
+archive = _attach_module.archive
+current = _attach_module.current
+delete = _attach_module.delete
+get_or_create = _attach_module.get_or_create
+list = _attach_module.list_sessions
 
 # Kept for internal/fixture use but not advertised in __all__:
-active = attach.active
-create = attach.create
-switch = attach.switch
+active = _attach_module.active
+create = _attach_module.create
+switch = _attach_module.switch
 
 __all__ = [
     "archive",
-    "attach",
     "current",
     "delete",
     "get_or_create",

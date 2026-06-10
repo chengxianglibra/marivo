@@ -1937,8 +1937,8 @@ def _persist_transform_frame(
         frame = cast(
             "MetricFrame",
             commit_result(
-                store=session.evidence_store(),
-                frames_dir=session.layout.frames_dir,
+                store=session._evidence_store(),
+                frames_dir=session._layout.frames_dir,
                 frame=frame,
                 step_type="transform",
                 inputs=CommitInputs(input_refs=[parent.meta.artifact_id or parent.ref]),
@@ -1960,8 +1960,8 @@ def _persist_transform_frame(
         frame = cast(
             "DeltaFrame",
             commit_result(
-                store=session.evidence_store(),
-                frames_dir=session.layout.frames_dir,
+                store=session._evidence_store(),
+                frames_dir=session._layout.frames_dir,
                 frame=frame,
                 step_type="transform",
                 inputs=CommitInputs(input_refs=[parent.meta.artifact_id or parent.ref]),
@@ -1974,7 +1974,7 @@ def _persist_transform_frame(
         )
 
     write_job_record(
-        session.layout,
+        session._layout,
         {
             "id": job_ref,
             "session_id": session.id,
@@ -1987,7 +1987,7 @@ def _persist_transform_frame(
             "duration_ms": int((monotonic() - started_monotonic) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session.semantic_project.semantic_root),
+            "semantic_project_root": str(session._semantic_project.semantic_root),
             "semantic_model": parent.meta.semantic_model,
         },
     )

@@ -65,7 +65,7 @@ def test_end_to_end_sales_observe_compare_load(tmp_path):
     assert reloaded.meta.session_id == s.id
 
     session_attach._reset_process_state()
-    s_ro = mv.session.attach(name="qoq-investigation", use_datasources=False)
+    s_ro = mv.session.get_or_create(name="qoq-investigation", use_datasources=False)
     assert s_ro.is_read_only
     q3_again = mv.load_frame(q3.ref, session=s_ro)
     q2_again = mv.load_frame(q2.ref, session=s_ro)

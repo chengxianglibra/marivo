@@ -47,10 +47,6 @@ def test_evidence_namespace_exposes_audit_iterators(tmp_path, monkeypatch) -> No
     ):
         assert callable(getattr(session.evidence, name))
 
-    assert callable(session.findings)
-    assert callable(session.propositions)
-    assert callable(session.assessments)
-
 
 def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
     session = _session(tmp_path, monkeypatch)
@@ -79,7 +75,6 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
     ):
         assert advertised in names, f"missing advertised member: {advertised}"
     for hidden in (
-        "_HIDDEN_FROM_DIR",
         "layout",
         "semantic_project",
         "backend_factory",
@@ -93,16 +88,34 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "findings",
         "propositions",
         "assessments",
+        "_layout",
+        "_backend_cache",
+        "_semantic_project",
+        "_backend_factory",
+        "_calendars",
+        "_known_calendars",
+        "_known_datasources",
+        "_judgment_store",
+        "_judgment_store_unavailable",
+        "_evidence_store",
     ):
         assert hidden not in names, f"plumbing leaked into dir(): {hidden}"
     assert "validate" not in names
     assert "run_followup" not in names
 
 
-def test_hidden_members_are_still_callable(tmp_path, monkeypatch):
+def test_internal_fields_not_publicly_accessible(tmp_path, monkeypatch):
     session = _session(tmp_path, monkeypatch)
-    assert session.layout is not None
-    assert callable(session.evidence_store)
+    import pytest
+
+    # Old public names that no longer exist
+    with pytest.raises(AttributeError):
+        _ = session.layout
+    with pytest.raises(AttributeError):
+        _ = session.evidence_store
+    # Underscore-prefixed storage is reachable for internal code
+    assert session._layout is not None
+    assert callable(session._evidence_store)
 
 
 def test_help_session_lists_object_methods():

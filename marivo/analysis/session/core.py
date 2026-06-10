@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.analysis.session.persistence import (
     PersistenceLayout,
@@ -78,59 +78,136 @@ class FrameSummaryEntry:
     created_at: str | None
 
 
-@dataclass
 class Session:
-    id: str
-    name: str
-    question: str | None
-    cwd: Path
-    project_root: Path
-    state: SessionState
-    created_at: datetime
-    updated_at: datetime
-    backend_factory: BackendFactory | None
-    layout: PersistenceLayout
-    semantic_project: SemanticProject
-    tz: tzinfo = field(default_factory=lambda: resolve_system_timezone().tz)
-    default_calendar: str | None = None
-    known_calendars: set[str] = field(default_factory=set)
-    calendars: Any = None
-    known_datasources: set[str] = field(default_factory=set)
-    backend_cache: Any = None
-    judgment_store: JudgmentStore | None = None
-    judgment_store_unavailable: bool = False
-
-    _HIDDEN_FROM_DIR: ClassVar[frozenset[str]] = frozenset(
-        {
-            "_HIDDEN_FROM_DIR",
-            "layout",
-            "semantic_project",
-            "backend_factory",
-            "backend_cache",
-            "calendars",
-            "known_calendars",
-            "known_datasources",
-            "judgment_store",
-            "judgment_store_unavailable",
-            "evidence_store",
-            "findings",
-            "propositions",
-            "assessments",
-        }
+    __slots__ = (
+        "_backend_cache",
+        "_backend_factory",
+        "_calendars",
+        "_created_at",
+        "_cwd",
+        "_default_calendar",
+        "_id",
+        "_judgment_store",
+        "_judgment_store_unavailable",
+        "_known_calendars",
+        "_known_datasources",
+        "_layout",
+        "_name",
+        "_project_root",
+        "_question",
+        "_semantic_project",
+        "_state",
+        "_tz",
+        "_updated_at",
     )
 
-    def __dir__(self) -> list[str]:
-        return sorted(name for name in super().__dir__() if name not in self._HIDDEN_FROM_DIR)
-
-    def __post_init__(self) -> None:
-        if self.backend_cache is None:
+    def __init__(
+        self,
+        id: str,
+        name: str,
+        question: str | None,
+        cwd: Path,
+        project_root: Path,
+        state: SessionState,
+        created_at: datetime,
+        updated_at: datetime,
+        backend_factory: BackendFactory | None,
+        layout: PersistenceLayout,
+        semantic_project: SemanticProject,
+        tz: tzinfo | None = None,
+        default_calendar: str | None = None,
+        known_calendars: set[str] | None = None,
+        calendars: Any = None,
+        known_datasources: set[str] | None = None,
+        backend_cache: Any = None,
+        judgment_store: JudgmentStore | None = None,
+        judgment_store_unavailable: bool = False,
+    ) -> None:
+        self._id = id
+        self._name = name
+        self._question = question
+        self._cwd = cwd
+        self._project_root = project_root
+        self._state = state
+        self._created_at = created_at
+        self._updated_at = updated_at
+        self._backend_factory = backend_factory
+        self._layout = layout
+        self._semantic_project = semantic_project
+        self._tz = tz if tz is not None else resolve_system_timezone().tz
+        self._default_calendar = default_calendar
+        self._known_calendars = known_calendars if known_calendars is not None else set()
+        self._calendars = calendars
+        self._known_datasources = known_datasources if known_datasources is not None else set()
+        self._backend_cache = backend_cache
+        self._judgment_store = judgment_store
+        self._judgment_store_unavailable = judgment_store_unavailable
+        if self._backend_cache is None:
             from marivo.analysis.executor.backend import BackendCache
 
-            self.backend_cache = BackendCache(self.backend_factory)
-        if self.calendars is None:
+            self._backend_cache = BackendCache(self._backend_factory)
+        if self._calendars is None:
             from marivo.analysis.calendar.loader import CalendarCache
 
-            self.calendars = CalendarCache(self.project_root)
+            self._calendars = CalendarCache(self._project_root)
+
+    def __repr__(self) -> str:
+        return f"Session(name={self._name!r}, id={self._id!r})"
+
+    def __dir__(self) -> list[str]:
+        return sorted(
+            name
+            for name in super().__dir__()
+            if not (name.startswith("_") and not name.startswith("__"))
+        )
+
+    # -- Public identity properties (read-only) --
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def question(self) -> str | None:
+        return self._question
+
+    @property
+    def cwd(self) -> Path:
+        return self._cwd
+
+    @property
+    def project_root(self) -> Path:
+        return self._project_root
+
+    @property
+    def created_at(self) -> datetime:
+        return self._created_at
+
+    @property
+    def updated_at(self) -> datetime:
+        return self._updated_at
+
+    @property
+    def tz(self) -> tzinfo:
+        return self._tz
+
+    @property
+    def default_calendar(self) -> str | None:
+        return self._default_calendar
+
+    @property
+    def state(self) -> SessionState:
+        return self._state
+
+    @state.setter
+    def state(self, value: SessionState) -> None:
+        if value not in ("active", "archived"):
+            raise ValueError(f"Invalid session state: {value!r}")
+        self._state = value
 
     @property
     def is_read_only(self) -> bool:
@@ -140,7 +217,7 @@ class Session:
         session can read persisted artifacts but cannot run new analysis that
         touches a datasource.
         """
-        return self.backend_factory is None
+        return self._backend_factory is None
 
     def jobs(self) -> list[JobSummary]:
         """Return lightweight summaries for every recorded job, oldest first.
@@ -149,8 +226,8 @@ class Session:
         frame ref). For the full record of a single job, use :meth:`job`.
         """
         summaries: list[JobSummary] = []
-        for job_id in list_job_ids(self.layout):
-            record = read_job_record(self.layout, job_id)
+        for job_id in list_job_ids(self._layout):
+            record = read_job_record(self._layout, job_id)
             summaries.append(
                 JobSummary(
                     id=record["id"],
@@ -180,17 +257,17 @@ class Session:
         objects, this returns the complete persisted record including fields
         such as ``params``. Raises if no job with ``job_id`` exists.
         """
-        return read_job_record(self.layout, job_id)
+        return read_job_record(self._layout, job_id)
 
     def frames(self) -> list[FrameRecord]:
         """Return a :class:`FrameRecord` for each persisted frame in this session.
 
         Returns an empty list when no frames have been persisted yet.
         """
-        if not self.layout.frames_dir.is_dir():
+        if not self._layout.frames_dir.is_dir():
             return []
         refs: list[FrameRecord] = []
-        for frame_dir in sorted(self.layout.frames_dir.iterdir()):
+        for frame_dir in sorted(self._layout.frames_dir.iterdir()):
             meta_file = frame_dir / "meta.json"
             if meta_file.is_file():
                 meta = json.loads(meta_file.read_text())
@@ -226,10 +303,10 @@ class Session:
         this method includes metric_id, semantic_kind, and other fields
         needed for semantic lookup across script boundaries.
         """
-        if not self.layout.frames_dir.is_dir():
+        if not self._layout.frames_dir.is_dir():
             return []
         entries: list[FrameSummaryEntry] = []
-        for frame_dir in sorted(self.layout.frames_dir.iterdir()):
+        for frame_dir in sorted(self._layout.frames_dir.iterdir()):
             meta_file = frame_dir / "meta.json"
             if meta_file.is_file():
                 meta = json.loads(meta_file.read_text())
@@ -249,38 +326,38 @@ class Session:
         """Release session resources: the evidence store and cached backends.
 
         Safe to call more than once. After closing, the evidence store is
-        reopened lazily on next access via :meth:`evidence_store`.
+        reopened lazily on next access via :meth:`_evidence_store`.
         """
-        if self.judgment_store is not None:
-            self.judgment_store.close()
-            self.judgment_store = None
-        if self.backend_cache is not None:
-            self.backend_cache.close_all()
+        if self._judgment_store is not None:
+            self._judgment_store.close()
+            self._judgment_store = None
+        if self._backend_cache is not None:
+            self._backend_cache.close_all()
 
-    def evidence_store(self) -> JudgmentStore | None:
+    def _evidence_store(self) -> JudgmentStore | None:
         """Return the lazily-opened JudgmentStore, or None if unavailable."""
-        if self.judgment_store is not None:
-            return self.judgment_store
-        if self.judgment_store_unavailable:
+        if self._judgment_store is not None:
+            return self._judgment_store
+        if self._judgment_store_unavailable:
             return None
         from marivo.analysis.errors import EvidenceStoreUnavailableError
         from marivo.analysis.evidence.store import open_judgment_store, run_startup_gc
 
-        db_path = self.layout.session_dir / "judgment.db"
+        db_path = self._layout.session_dir / "judgment.db"
         try:
             store = open_judgment_store(db_path)
         except EvidenceStoreUnavailableError:
-            self.judgment_store_unavailable = True
+            self._judgment_store_unavailable = True
             return None
-        run_startup_gc(store, self.layout.frames_dir)
-        self.judgment_store = store
+        run_startup_gc(store, self._layout.frames_dir)
+        self._judgment_store = store
         return store
 
     def knowledge(self) -> SessionKnowledge:
         """Return a SessionKnowledge projection for this session."""
         from marivo.analysis.evidence.knowledge import build_session_knowledge
 
-        db_path = self.layout.session_dir / "judgment.db"
+        db_path = self._layout.session_dir / "judgment.db"
         if not db_path.exists():
             from datetime import UTC
             from datetime import datetime as _dt
@@ -295,58 +372,6 @@ class Session:
                 evidence_completeness="unavailable",
             )
         return build_session_knowledge(db_path=db_path, session_id=self.id)
-
-    def findings(
-        self,
-        *,
-        artifact_id: str | None = None,
-        finding_type: str | None = None,
-        subject: Any = None,
-    ) -> Iterator[Finding]:
-        """Return Surface 3 findings for this session.
-
-        Prefer ``session.evidence.findings(...)``. This top-level alias is kept
-        for backward compatibility.
-        """
-        return self.evidence.findings(
-            artifact_id=artifact_id,
-            finding_type=finding_type,
-            subject=subject,
-        )
-
-    def propositions(
-        self,
-        *,
-        proposition_type: str | None = None,
-        subject: Any = None,
-        status: str | None = None,
-    ) -> Iterator[Proposition]:
-        """Return Surface 3 propositions for this session.
-
-        Prefer ``session.evidence.propositions(...)``. This top-level alias is
-        kept for backward compatibility.
-        """
-        return self.evidence.propositions(
-            proposition_type=proposition_type,
-            subject=subject,
-            status=status,
-        )
-
-    def assessments(
-        self,
-        *,
-        proposition_id: str | None = None,
-        latest_only: bool = True,
-    ) -> Iterator[Assessment]:
-        """Return Surface 3 assessments for this session.
-
-        Prefer ``session.evidence.assessments(...)``. This top-level alias is
-        kept for backward compatibility.
-        """
-        return self.evidence.assessments(
-            proposition_id=proposition_id,
-            latest_only=latest_only,
-        )
 
     @property
     def evidence(self) -> EvidenceNamespace:
@@ -607,8 +632,8 @@ def ensure_session_writable(session: Session) -> None:
     from marivo.analysis.errors import SessionStateError
 
     state = session.state
-    if session.layout.meta_file.is_file():
-        state = read_session_meta(session.layout).get("state", state)
+    if session._layout.meta_file.is_file():
+        state = read_session_meta(session._layout).get("state", state)
     if state == "archived":
         session.state = "archived"
         raise SessionStateError(message=f"session '{session.name}' is archived")
@@ -890,7 +915,7 @@ class EvidenceNamespace:
         from marivo.analysis.evidence.audit import query_findings
 
         return query_findings(
-            db_path=self._session.layout.session_dir / "judgment.db",
+            db_path=self._session._layout.session_dir / "judgment.db",
             session_id=self._session.id,
             artifact_id=artifact_id,
             finding_type=finding_type,
@@ -908,7 +933,7 @@ class EvidenceNamespace:
         from marivo.analysis.evidence.audit import query_propositions
 
         return query_propositions(
-            db_path=self._session.layout.session_dir / "judgment.db",
+            db_path=self._session._layout.session_dir / "judgment.db",
             session_id=self._session.id,
             proposition_type=proposition_type,
             subject=subject,
@@ -925,7 +950,7 @@ class EvidenceNamespace:
         from marivo.analysis.evidence.audit import query_assessments
 
         return query_assessments(
-            db_path=self._session.layout.session_dir / "judgment.db",
+            db_path=self._session._layout.session_dir / "judgment.db",
             session_id=self._session.id,
             proposition_id=proposition_id,
             latest_only=latest_only,
@@ -936,7 +961,7 @@ class EvidenceNamespace:
         from marivo.analysis.evidence.audit import get_proposition
 
         return get_proposition(
-            db_path=self._session.layout.session_dir / "judgment.db",
+            db_path=self._session._layout.session_dir / "judgment.db",
             proposition_id=proposition_id,
         )
 
@@ -948,7 +973,7 @@ class EvidenceNamespace:
         from marivo.analysis.evidence.audit import get_latest_assessment
 
         return get_latest_assessment(
-            db_path=self._session.layout.session_dir / "judgment.db",
+            db_path=self._session._layout.session_dir / "judgment.db",
             proposition_id=proposition_id,
         )
 
@@ -961,6 +986,6 @@ class EvidenceNamespace:
         from marivo.analysis.evidence.audit import build_evidence_trace
 
         return build_evidence_trace(
-            db_path=self._session.layout.session_dir / "judgment.db",
+            db_path=self._session._layout.session_dir / "judgment.db",
             proposition_id=proposition_id,
         )

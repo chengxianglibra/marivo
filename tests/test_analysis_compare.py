@@ -675,7 +675,7 @@ def test_compare_persists_job_and_frame(tmp_path):
     compare_jobs = [j for j in s.jobs() if j.intent == "compare"]
     assert len(compare_jobs) == 1
     assert compare_jobs[0].output_frame_ref == d.ref
-    assert (s.layout.frames_dir / d.ref / "data.parquet").is_file()
+    assert (s._layout.frames_dir / d.ref / "data.parquet").is_file()
     job_record = s.job(compare_jobs[0].id)
     assert job_record["params"]["alignment"]["kind"] == "window_bucket"
 
@@ -691,8 +691,8 @@ def test_compare_works_in_read_only_session(tmp_path):
     session_attach._reset_process_state()
     s_read = session_attach.get_or_create(name="demo", use_datasources=False)
     assert s_read.is_read_only
-    df_a, meta_a = read_frame_from_disk(s_read.layout, a.ref)
-    df_b, meta_b = read_frame_from_disk(s_read.layout, b.ref)
+    df_a, meta_a = read_frame_from_disk(s_read._layout, a.ref)
+    df_b, meta_b = read_frame_from_disk(s_read._layout, b.ref)
     d = compare(
         MetricFrame(_df=df_a, meta=MetricFrameMeta(**meta_a)),
         MetricFrame(_df=df_b, meta=MetricFrameMeta(**meta_b)),

@@ -49,7 +49,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     if isinstance(ref, ArtifactRef):
         ref = ref.id
 
-    frame_dir = session.layout.frames_dir / ref
+    frame_dir = session._layout.frames_dir / ref
     if not (frame_dir / "meta.json").is_file():
         owner = _find_frame_owner(ref, session=session)
         if owner is not None and owner != session.id:
@@ -64,7 +64,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             details={"session_id": session.id, "ref": ref},
         )
     try:
-        df, meta = read_frame_from_disk(session.layout, ref)
+        df, meta = read_frame_from_disk(session._layout, ref)
     except Exception as exc:
         raise FrameCacheCorruptedError(
             message=f"frame '{ref}' exists on disk but cannot be loaded",
@@ -86,7 +86,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
 
 
 def _find_frame_owner(ref: str, *, session: Session) -> str | None:
-    sessions_dir = session.layout.sessions_dir
+    sessions_dir = session._layout.sessions_dir
     if not sessions_dir.is_dir():
         return None
     for candidate in sessions_dir.iterdir():

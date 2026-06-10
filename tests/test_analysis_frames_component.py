@@ -96,7 +96,7 @@ def test_load_frame_round_trips_component_frame():
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session.layout, component)
+    component.meta = write_frame_to_disk(session._layout, component)
 
     loaded = mv.load_frame(component.ref, session=session)
 
@@ -131,7 +131,7 @@ def test_metric_frame_components_loads_linked_component_frame():
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session.layout, component)
+    component.meta = write_frame_to_disk(session._layout, component)
     parent = MetricFrame(
         _df=pd.DataFrame({"failure_rate": [0.5]}),
         meta=MetricFrameMeta(
@@ -295,7 +295,7 @@ def test_metric_frame_components_fallback_to_deterministic_ref():
             decomposition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
         ),
     )
-    parent.meta = write_frame_to_disk(session.layout, parent)
+    parent.meta = write_frame_to_disk(session._layout, parent)
 
     # Create the ComponentFrame at the deterministic ref
     det_ref = make_component_artifact_id(parent_artifact_id)
@@ -320,7 +320,7 @@ def test_metric_frame_components_fallback_to_deterministic_ref():
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session.layout, component)
+    component.meta = write_frame_to_disk(session._layout, component)
 
     # components() should fall back to the deterministic ref
     loaded = parent.components()

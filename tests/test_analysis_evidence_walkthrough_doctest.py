@@ -54,7 +54,7 @@ def _create_walkthrough_session(project_root: Path) -> ap.session.attach.Session
     bootstrap_sales_project(project_root)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    return ap.session.attach.create(
+    return ap.session.create(
         name="walkthrough",
         backends={"warehouse": lambda: con},
         use_datasources=False,

@@ -330,7 +330,7 @@ def test_no_backend_factory_without_details_uses_session_backend_template() -> N
     assert "returned None or a non-ibis object" not in rendered
     assert "session has no backend factory configured" in rendered
     assert "Fix:" in rendered
-    assert "mv.session.attach" in rendered
+    assert "mv.session.get_or_create" in rendered
     assert "mv.datasources.register" in rendered
     assert "backend_factory=" in rendered
     assert "Docs: marivo-skills/marivo-semantic/references/datasource.md" in rendered

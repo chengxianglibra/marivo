@@ -66,7 +66,7 @@ def _component_aware_metric(
             decomposition={"kind": decomposition_kind, "components": component_map},
         ),
     )
-    metric.meta = write_frame_to_disk(session.layout, metric)
+    metric.meta = write_frame_to_disk(session._layout, metric)
     component = ComponentFrame(
         _df=pd.DataFrame(component_rows),
         meta=ComponentFrameMeta(
@@ -88,9 +88,9 @@ def _component_aware_metric(
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session.layout, component)
+    component.meta = write_frame_to_disk(session._layout, component)
     metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
-    metric.meta = write_frame_to_disk(session.layout, metric)
+    metric.meta = write_frame_to_disk(session._layout, metric)
     return metric
 
 
@@ -131,7 +131,7 @@ def _component_aware_metric_with_axes(
             decomposition={"kind": decomposition_kind, "components": component_map},
         ),
     )
-    metric.meta = write_frame_to_disk(session.layout, metric)
+    metric.meta = write_frame_to_disk(session._layout, metric)
     component = ComponentFrame(
         _df=pd.DataFrame(component_rows),
         meta=ComponentFrameMeta(
@@ -153,9 +153,9 @@ def _component_aware_metric_with_axes(
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session.layout, component)
+    component.meta = write_frame_to_disk(session._layout, component)
     metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
-    metric.meta = write_frame_to_disk(session.layout, metric)
+    metric.meta = write_frame_to_disk(session._layout, metric)
     return metric
 
 
@@ -267,7 +267,7 @@ def test_compare_component_aware_metric_missing_component_frame_fails_closed():
             },
         ),
     )
-    baseline.meta = write_frame_to_disk(session.layout, baseline)
+    baseline.meta = write_frame_to_disk(session._layout, baseline)
 
     with pytest.raises(ComponentFrameUnavailableError):
         session.compare(current, baseline)
@@ -808,7 +808,7 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             },
         ),
     )
-    compared.meta = write_frame_to_disk(session.layout, compared)
+    compared.meta = write_frame_to_disk(session._layout, compared)
     component = ComponentFrame(
         _df=pd.DataFrame(
             [
@@ -851,9 +851,9 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session.layout, component)
+    component.meta = write_frame_to_disk(session._layout, component)
     compared.meta = compared.meta.model_copy(update={"component_ref": component.ref})
-    compared.meta = write_frame_to_disk(session.layout, compared)
+    compared.meta = write_frame_to_disk(session._layout, compared)
 
     attribution = session.decompose(compared, axis=DimensionRef("bucket_start"))
 

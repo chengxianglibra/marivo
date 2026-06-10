@@ -278,7 +278,7 @@ def _align_component_role(
                     "alignment": alignment.model_dump(mode="json"),
                 },
             )
-        loaded_calendar = session.calendars.get(calendar_ref.id)
+        loaded_calendar = session._calendars.get(calendar_ref.id)
         session_tz = str(session.tz)
         policy = CalendarPolicy(
             mode=alignment.kind,
@@ -427,7 +427,7 @@ def _persist_delta_component_frame(
         semantic_model=source_component.meta.semantic_model,
     )
     comp_frame = ComponentFrame(_df=df, meta=meta)
-    comp_frame.meta = cast("ComponentFrameMeta", write_frame_to_disk(session.layout, comp_frame))
+    comp_frame.meta = cast("ComponentFrameMeta", write_frame_to_disk(session._layout, comp_frame))
     return comp_frame
 
 
@@ -546,7 +546,7 @@ def compare(
                     "alignment": alignment.model_dump(mode="json"),
                 },
             )
-        loaded_calendar = session.calendars.get(calendar_ref.id)
+        loaded_calendar = session._calendars.get(calendar_ref.id)
         session_tz = str(session.tz)
         policy = CalendarPolicy(
             mode=alignment.kind,
@@ -615,7 +615,7 @@ def compare(
             values={"metric_id": current.meta.metric_id, "model": current.meta.semantic_model}
         ),
     )
-    if frame_exists_on_disk(session.layout.frames_dir, prospective_id):
+    if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
         return cast("DeltaFrame", load_frame(prospective_id, session=session))
 
     digest = f"sha256:{hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()}"
@@ -657,8 +657,8 @@ def compare(
     )
     comparison_window_dict = _scope_for_window(current)
     commit_result(
-        store=session.evidence_store(),
-        frames_dir=session.layout.frames_dir,
+        store=session._evidence_store(),
+        frames_dir=session._layout.frames_dir,
         frame=output_frame,
         step_type="compare",
         inputs=CommitInputs(input_refs=[current.ref, baseline.ref]),
@@ -691,10 +691,10 @@ def compare(
         )
         output_frame.meta = output_frame.meta.model_copy(update={"component_ref": delta_comp.ref})
         # Re-persist the output frame meta with the component_ref
-        write_frame_to_disk(session.layout, output_frame)
+        write_frame_to_disk(session._layout, output_frame)
 
     write_job_record(
-        session.layout,
+        session._layout,
         {
             "id": job_ref,
             "session_id": session.id,
@@ -707,7 +707,7 @@ def compare(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session.semantic_project.semantic_root),
+            "semantic_project_root": str(session._semantic_project.semantic_root),
             "semantic_model": current.meta.semantic_model,
         },
     )
@@ -1388,7 +1388,7 @@ def _calendar_context(
                 "alignment": alignment.model_dump(mode="json"),
             },
         )
-    loaded_calendar = session.calendars.get(calendar_ref.id)
+    loaded_calendar = session._calendars.get(calendar_ref.id)
     session_tz = str(session.tz)
     policy = CalendarPolicy(
         mode=alignment.kind,

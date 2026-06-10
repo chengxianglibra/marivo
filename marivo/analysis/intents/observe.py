@@ -300,7 +300,7 @@ def _persist_metric_component_frame(
             semantic_model=parent.meta.semantic_model,
         ),
     )
-    component.meta = cast("ComponentFrameMeta", write_frame_to_disk(session.layout, component))
+    component.meta = cast("ComponentFrameMeta", write_frame_to_disk(session._layout, component))
     return component
 
 
@@ -317,7 +317,7 @@ def _attach_metric_component_ref(
             "decomposition": _decomposition_payload(metric_ir),
         }
     )
-    parent.meta = cast("MetricFrameMeta", write_frame_to_disk(session.layout, parent))
+    parent.meta = cast("MetricFrameMeta", write_frame_to_disk(session._layout, parent))
     return parent
 
 
@@ -550,7 +550,7 @@ def _execute_base(
         result = execute(
             grouped_expr,
             datasource_name=primary_datasource,
-            cache=session.backend_cache,
+            cache=session._backend_cache,
             session_id=session.id,
         )
         if "bucket_start" in result.df:
@@ -614,7 +614,7 @@ def _execute_base(
         result = execute(
             grouped_expr,
             datasource_name=primary_datasource,
-            cache=session.backend_cache,
+            cache=session._backend_cache,
             session_id=session.id,
         )
         if "bucket_start" in result.df:
@@ -653,7 +653,7 @@ def _execute_base(
         result = execute(
             grouped_expr,
             datasource_name=primary_datasource,
-            cache=session.backend_cache,
+            cache=session._backend_cache,
             session_id=session.id,
         )
         axes = {
@@ -671,7 +671,7 @@ def _execute_base(
         result = execute(
             grouped_expr,
             datasource_name=primary_datasource,
-            cache=session.backend_cache,
+            cache=session._backend_cache,
             session_id=session.id,
         )
     return result, axes, semantic_kind
@@ -749,10 +749,10 @@ def _execute_derived(
         df = execute(
             grouped_expr,
             datasource_name=cp.base_plan.datasource_name,
-            cache=session.backend_cache,
+            cache=session._backend_cache,
             session_id=session.id,
         ).df
-        session.known_datasources.add(cp.base_plan.datasource_name)
+        session._known_datasources.add(cp.base_plan.datasource_name)
         if has_time and "bucket_start" in df:
             df["bucket_start"] = ensure_bucket_start_timestamp(
                 df["bucket_start"],
@@ -836,7 +836,7 @@ def _dump_dimensions(dimensions: list[DimensionRef] | None) -> list[dict[str, An
 
 
 def _backend_for_datasource(session: Session, datasource_name: str) -> tuple[str, Any]:
-    return datasource_name, session.backend_cache.get_or_create(datasource_name)
+    return datasource_name, session._backend_cache.get_or_create(datasource_name)
 
 
 def _call_metric(
@@ -931,8 +931,8 @@ def observe(
     )
     is_time_series = resolved_window is not None and resolved_window.grain is not None
 
-    # Access semantic layer through session.semantic_project (SemanticProject instance)
-    sp = session.semantic_project
+    # Access semantic layer through session._semantic_project (SemanticProject instance)
+    sp = session._semantic_project
     if not sp.is_ready():
         sp.load()
     metric_semantic_id = f"{model_name}.{metric_name}"
@@ -960,7 +960,7 @@ def observe(
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    session.backend_cache.begin_query_capture()
+    session._backend_cache.begin_query_capture()
     dataset_irs: dict[str, _EntityIRAdapter] = {}
     primary_datasource: str | None = None
     stored_where = normalize_slice_for_storage(where_by_id)
@@ -1036,7 +1036,7 @@ def observe(
                 values={"metric_id": metric_id, "model": model_name}
             ),
         )
-        if frame_exists_on_disk(session.layout.frames_dir, prospective_id):
+        if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
             return cast("MetricFrame", load_frame(prospective_id, session=session))
 
         result, component_df, derived_axes, derived_kind = _execute_derived(
@@ -1104,10 +1104,10 @@ def observe(
                 component=component,
                 metric_ir=metric_ir,
             )
-        _captured_queries = session.backend_cache.take_captured_queries()
+        _captured_queries = session._backend_cache.take_captured_queries()
         _output_ref = frame.meta.artifact_id or frame.ref
         write_job_record(
-            session.layout,
+            session._layout,
             {
                 "id": job_ref,
                 "session_id": session.id,
@@ -1120,7 +1120,7 @@ def observe(
                 "duration_ms": int((monotonic() - started) * 1000),
                 "status": "succeeded",
                 "error": None,
-                "semantic_project_root": str(session.semantic_project.semantic_root),
+                "semantic_project_root": str(session._semantic_project.semantic_root),
                 "semantic_model": model_name,
                 "queries": [
                     {**qe.to_dict(), "output_ref": _output_ref} for qe in _captured_queries
@@ -1170,7 +1170,7 @@ def observe(
         time_dimension=time_dimension_id,
     )
     primary_datasource = plan.datasource_name
-    session.known_datasources.add(primary_datasource)
+    session._known_datasources.add(primary_datasource)
     _persist_known_datasources(session)
 
     if primary_datasource is None:
@@ -1203,7 +1203,7 @@ def observe(
             values={"metric_id": metric_id, "model": model_name}
         ),
     )
-    if frame_exists_on_disk(session.layout.frames_dir, prospective_id):
+    if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
         return cast("MetricFrame", load_frame(prospective_id, session=session))
 
     result, axes, semantic_kind = _execute_base(
@@ -1265,10 +1265,10 @@ def observe(
         subject_grain=_grain_token,
     )
 
-    _captured_queries = session.backend_cache.take_captured_queries()
+    _captured_queries = session._backend_cache.take_captured_queries()
     _output_ref = frame.meta.artifact_id or frame.ref
     write_job_record(
-        session.layout,
+        session._layout,
         {
             "id": job_ref,
             "session_id": session.id,
@@ -1281,7 +1281,7 @@ def observe(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session.semantic_project.semantic_root),
+            "semantic_project_root": str(session._semantic_project.semantic_root),
             "semantic_model": model_name,
             "queries": [{**qe.to_dict(), "output_ref": _output_ref} for qe in _captured_queries],
         },
@@ -1290,10 +1290,10 @@ def observe(
 
 
 def _persist_known_datasources(session: Session) -> None:
-    meta = read_session_meta(session.layout)
-    meta["known_datasources"] = sorted(session.known_datasources)
+    meta = read_session_meta(session._layout)
+    meta["known_datasources"] = sorted(session._known_datasources)
     meta["updated_at"] = datetime.now(UTC).isoformat()
-    write_session_meta(session.layout, meta)
+    write_session_meta(session._layout, meta)
 
 
 def _commit_observe_metric_frame(
@@ -1311,8 +1311,8 @@ def _commit_observe_metric_frame(
     return cast(
         "MetricFrame",
         commit_result(
-            store=session.evidence_store(),
-            frames_dir=session.layout.frames_dir,
+            store=session._evidence_store(),
+            frames_dir=session._layout.frames_dir,
             frame=frame,
             step_type="observe",
             inputs=CommitInputs(input_refs=[]),

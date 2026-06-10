@@ -56,7 +56,7 @@ def test_session_findings_returns_iterable_of_finding(tmp_path: Path) -> None:
     session = _session(tmp_path)
     delta = _compare(session)
 
-    findings = list(session.findings(artifact_id=delta.meta.artifact_id))
+    findings = list(session.evidence.findings(artifact_id=delta.meta.artifact_id))
 
     assert len(findings) >= 1
     assert all(isinstance(f, Finding) for f in findings)
@@ -67,7 +67,7 @@ def test_session_findings_filter_by_type(tmp_path: Path) -> None:
     session = _session(tmp_path)
     _compare(session)
 
-    deltas = list(session.findings(finding_type="delta"))
+    deltas = list(session.evidence.findings(finding_type="delta"))
 
     assert deltas
     assert all(f.finding_type == "delta" for f in deltas)
@@ -78,7 +78,9 @@ def test_session_findings_filter_by_subject(tmp_path: Path) -> None:
     _compare(session)
 
     findings = list(
-        session.findings(subject=Subject(metric="sales.revenue", slice={}, analysis_axis="change"))
+        session.evidence.findings(
+            subject=Subject(metric="sales.revenue", slice={}, analysis_axis="change")
+        )
     )
 
     assert findings
@@ -89,7 +91,7 @@ def test_session_propositions_returns_iterable_of_proposition(tmp_path: Path) ->
     session = _session(tmp_path)
     _compare(session)
 
-    props = list(session.propositions(proposition_type="change"))
+    props = list(session.evidence.propositions(proposition_type="change"))
 
     assert len(props) >= 1
     assert all(isinstance(p, Proposition) for p in props)
@@ -99,7 +101,7 @@ def test_session_propositions_filter_by_status(tmp_path: Path) -> None:
     session = _session(tmp_path)
     _compare(session)
 
-    props = list(session.propositions(status="validated"))
+    props = list(session.evidence.propositions(status="validated"))
 
     assert props
     assert all(isinstance(p, Proposition) for p in props)
@@ -109,7 +111,7 @@ def test_session_assessments_latest_only_default(tmp_path: Path) -> None:
     session = _session(tmp_path)
     _compare(session)
 
-    assessments = list(session.assessments())
+    assessments = list(session.evidence.assessments())
 
     assert assessments
     assert all(isinstance(a, Assessment) for a in assessments)
@@ -119,7 +121,7 @@ def test_session_assessments_latest_only_default(tmp_path: Path) -> None:
 def test_session_evidence_proposition_lookup(tmp_path: Path) -> None:
     session = _session(tmp_path)
     _compare(session)
-    props = list(session.propositions(proposition_type="change"))
+    props = list(session.evidence.propositions(proposition_type="change"))
 
     prop = session.evidence.proposition(props[0].proposition_id)
 
@@ -136,7 +138,7 @@ def test_session_evidence_proposition_not_found_raises(tmp_path: Path) -> None:
 def test_session_evidence_latest_assessment(tmp_path: Path) -> None:
     session = _session(tmp_path)
     _compare(session)
-    props = list(session.propositions(proposition_type="change"))
+    props = list(session.evidence.propositions(proposition_type="change"))
 
     assessment = session.evidence.latest_assessment(props[0].proposition_id)
 

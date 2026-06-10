@@ -304,8 +304,8 @@ def _discover_dispatch(
     frame = cast(
         "CandidateSet",
         commit_result(
-            store=session.evidence_store(),
-            frames_dir=session.layout.frames_dir,
+            store=session._evidence_store(),
+            frames_dir=session._layout.frames_dir,
             frame=frame,
             step_type="discover",
             inputs=CommitInputs(input_refs=[source_ref]),
@@ -324,7 +324,7 @@ def _discover_dispatch(
         ),
     )
     write_job_record(
-        session.layout,
+        session._layout,
         {
             "id": job_ref,
             "session_id": session.id,
@@ -337,7 +337,7 @@ def _discover_dispatch(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session.semantic_project.semantic_root),
+            "semantic_project_root": str(session._semantic_project.semantic_root),
             "semantic_model": source.meta.semantic_model,
         },
     )

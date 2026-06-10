@@ -733,7 +733,7 @@ def test_derived_observe_populates_known_datasources(tmp_path):
     observe(MetricRef("sales.gmv_per_session"), session=session)
     # Both component metrics (gmv -> orders/users, session_count -> sessions/users)
     # share the same "warehouse" datasource in this fixture.
-    assert "warehouse" in session.known_datasources
+    assert "warehouse" in session._known_datasources
 
 
 def test_derived_components_can_span_datasources(tmp_path):

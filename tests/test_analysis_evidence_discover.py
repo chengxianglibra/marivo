@@ -50,7 +50,7 @@ def test_discover_point_anomalies_populates_surface1_and_anomaly_findings() -> N
     assert candidates.meta.evidence_status == "complete"
     assert isinstance(candidates.meta.recommended_followups, list)
 
-    with sqlite3.connect(session.layout.session_dir / "judgment.db") as conn:
+    with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
         artifact_rows = conn.execute(
             "SELECT step_type, artifact_type, evidence_status FROM artifacts WHERE artifact_id=?",
             (candidates.meta.artifact_id,),
@@ -82,7 +82,7 @@ def test_discover_non_anomaly_objective_commits_without_seeding() -> None:
     assert candidates.meta.artifact_id is not None
     assert candidates.meta.evidence_status == "complete"
 
-    with sqlite3.connect(session.layout.session_dir / "judgment.db") as conn:
+    with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
         finding_count = conn.execute(
             "SELECT count(*) FROM findings WHERE artifact_id=?",
             (candidates.meta.artifact_id,),

@@ -108,7 +108,7 @@ def persist_attribution_frame(
     started_at: datetime,
     started_monotonic: float,
 ) -> AttributionFrame:
-    session.backend_cache.begin_query_capture()
+    session._backend_cache.begin_query_capture()
     frame_ref = gen_ref("frame")
     job_ref = gen_ref("job")
     source_refs = [source.meta.artifact_id or source.ref for source in sources]
@@ -149,8 +149,8 @@ def persist_attribution_frame(
     frame = cast(
         "AttributionFrame",
         commit_result(
-            store=session.evidence_store(),
-            frames_dir=session.layout.frames_dir,
+            store=session._evidence_store(),
+            frames_dir=session._layout.frames_dir,
             frame=frame,
             step_type=intent,
             inputs=CommitInputs(input_refs=source_ref_values),
@@ -161,9 +161,9 @@ def persist_attribution_frame(
             seeding_context={"observed_window": None},
         ),
     )
-    _captured_queries = session.backend_cache.take_captured_queries()
+    _captured_queries = session._backend_cache.take_captured_queries()
     write_job_record(
-        session.layout,
+        session._layout,
         {
             "id": job_ref,
             "session_id": session.id,
@@ -176,7 +176,7 @@ def persist_attribution_frame(
             "duration_ms": int((monotonic() - started_monotonic) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session.semantic_project.semantic_root),
+            "semantic_project_root": str(session._semantic_project.semantic_root),
             "semantic_model": semantic_model,
             "queries": [qe.to_dict() for qe in _captured_queries],
         },

@@ -1,6 +1,6 @@
 """Marivo Python-native analysis runtime (analysis)."""
 
-from typing import Any
+from typing import Any as _Any
 
 from marivo.analysis import errors as errors
 from marivo.analysis import session
@@ -42,7 +42,9 @@ from marivo.analysis.policies import (
     SamplingPolicy,
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
-from marivo.analysis.session._introspection import install_intent_docstrings
+from marivo.analysis.session._introspection import (
+    install_intent_docstrings as _install_intent_docstrings,
+)
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.attach import SessionSummary
 from marivo.analysis.session.core import FrameRecord, FrameSummaryEntry, JobSummary, Session
@@ -57,7 +59,7 @@ from marivo.analysis.windows.spec import (
 )
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> _Any:
     if name == "datasources":
         from importlib import import_module
 
@@ -142,4 +144,4 @@ __all__ = [
 # Mirror intent docstrings onto Session.observe/compare/... so help() and IPython
 # `?` surface them. Real type annotations live in core.py source; only the
 # docstring text is copied here (authored once on the intent functions).
-install_intent_docstrings()
+_install_intent_docstrings()

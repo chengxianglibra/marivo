@@ -55,7 +55,7 @@ def test_load_frame_coerces_legacy_window_dict():
         semantic_model="custom",
         session=session,
     )
-    meta_file = session.layout.frames_dir / frame.ref / "meta.json"
+    meta_file = session._layout.frames_dir / frame.ref / "meta.json"
     meta = json.loads(meta_file.read_text())
     meta["window"] = {
         "start": "2026-05-01",
@@ -84,7 +84,7 @@ def test_load_frame_rejects_unparseable_legacy_window():
         semantic_model="custom",
         session=session,
     )
-    meta_file = session.layout.frames_dir / frame.ref / "meta.json"
+    meta_file = session._layout.frames_dir / frame.ref / "meta.json"
     meta = json.loads(meta_file.read_text())
     meta["window"] = {"foo": "bar"}
     meta_file.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
@@ -106,7 +106,7 @@ def test_load_frame_wraps_legacy_window_validation_error():
         semantic_model="custom",
         session=session,
     )
-    meta_file = session.layout.frames_dir / frame.ref / "meta.json"
+    meta_file = session._layout.frames_dir / frame.ref / "meta.json"
     meta = json.loads(meta_file.read_text())
     meta["window"] = {
         "start": "2026-05-01",
@@ -147,7 +147,7 @@ def test_load_frame_round_trips_hypothesis_test_result():
             not_enough_data_count=0,
         ),
     )
-    frame.meta = write_frame_to_disk(session.layout, frame)
+    frame.meta = write_frame_to_disk(session._layout, frame)
 
     loaded = mv.load_frame("frame_test", session=session)
 
@@ -183,7 +183,7 @@ def test_load_frame_round_trips_forecast_frame():
             segment_dimensions=[],
         ),
     )
-    frame.meta = write_frame_to_disk(session.layout, frame)
+    frame.meta = write_frame_to_disk(session._layout, frame)
 
     loaded = mv.load_frame("frame_forecast", session=session)
 
@@ -213,7 +213,7 @@ def test_load_frame_round_trips_quality_report():
             warning_count=0,
         ),
     )
-    frame.meta = write_frame_to_disk(session.layout, frame)
+    frame.meta = write_frame_to_disk(session._layout, frame)
 
     loaded = mv.load_frame("frame_quality", session=session)
 

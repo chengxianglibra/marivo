@@ -222,8 +222,8 @@ def correlate(
     result = cast(
         "AssociationResult",
         commit_result(
-            store=session.evidence_store(),
-            frames_dir=session.layout.frames_dir,
+            store=session._evidence_store(),
+            frames_dir=session._layout.frames_dir,
             frame=result,
             step_type="correlate",
             inputs=CommitInputs(
@@ -243,7 +243,7 @@ def correlate(
         ),
     )
     write_job_record(
-        session.layout,
+        session._layout,
         {
             "id": job_ref,
             "session_id": session.id,
@@ -256,7 +256,7 @@ def correlate(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session.semantic_project.semantic_root),
+            "semantic_project_root": str(session._semantic_project.semantic_root),
             "semantic_model": a.meta.semantic_model,
             "semantic_models": [a.meta.semantic_model, b.meta.semantic_model],
         },

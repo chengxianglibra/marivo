@@ -240,8 +240,8 @@ def hypothesis_test(
     frame = cast(
         "HypothesisTestResult",
         commit_result(
-            store=session.evidence_store(),
-            frames_dir=session.layout.frames_dir,
+            store=session._evidence_store(),
+            frames_dir=session._layout.frames_dir,
             frame=frame,
             step_type="test",
             inputs=CommitInputs(
@@ -259,7 +259,7 @@ def hypothesis_test(
         ),
     )
     write_job_record(
-        session.layout,
+        session._layout,
         {
             "id": job_ref,
             "session_id": session.id,
@@ -272,7 +272,7 @@ def hypothesis_test(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session.semantic_project.semantic_root),
+            "semantic_project_root": str(session._semantic_project.semantic_root),
             "semantic_model": a.meta.semantic_model,
             "semantic_models": [a.meta.semantic_model, b.meta.semantic_model],
         },
