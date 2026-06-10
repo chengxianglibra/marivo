@@ -46,7 +46,7 @@ _FRAME_SYMBOLS: set[str] = {
 _CONSTRUCTED_BY: dict[str, str] = {
     "MetricFrame": "session.observe(...), MetricFrame.from_dataframe(...)",
     "DeltaFrame": "session.compare(...)",
-    "AttributionFrame": "session.decompose(...), session.correlate(...)",
+    "AttributionFrame": "session.decompose(...)",
     "ForecastFrame": "session.forecast(...)",
     "QualityReport": "session.assess_quality(...)",
     "CandidateSet": "session.discover(...)",
@@ -77,7 +77,7 @@ _SUMMARIES: dict[str, str] = {
     "select": "read typed fields from a CandidateSet row",
     "MetricFrame": "observed metric values with scalar, time_series, segmented, or panel shape",
     "DeltaFrame": "comparison output with aligned current and baseline values",
-    "AttributionFrame": "decomposition, correlation, or anomaly attribution output",
+    "AttributionFrame": "decomposition attribution output",
     "ForecastFrame": "forecast output for a time_series or panel metric history",
     "QualityReport": "quality assessment output for an observed metric frame",
     "QualityReportSummary": "aggregated quality summary returned by QualityReport.summary()",
@@ -200,7 +200,7 @@ def _transform_content() -> dict[str, object]:
         "topk": ("by", "limit"),
         "bottomk": ("by", "limit"),
         "rank": ("by",),
-        "normalize": ("kind",),
+        "normalize": ("mode",),
         "window": ("window",),
     }
     return {

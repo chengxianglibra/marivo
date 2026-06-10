@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.association import AssociationResult
     from marivo.analysis.frames.attribution import AttributionFrame
     from marivo.analysis.frames.base import BaseFrame
-    from marivo.analysis.frames.candidate import CandidateSet
+    from marivo.analysis.frames.candidate import CandidateObjective, CandidateSet, CandidateStrategy
     from marivo.analysis.frames.delta import DeltaFrame
     from marivo.analysis.frames.exploration import ExplorationResult
     from marivo.analysis.frames.forecast import ForecastFrame
@@ -39,10 +39,12 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.intents._shape import SemanticShape
-    from marivo.analysis.intents._types import SliceValue
+    from marivo.analysis.intents._types import DiscoverSensitivity, SliceValue
+    from marivo.analysis.intents.transform import NormalizeKind, TransformOp
     from marivo.analysis.policies import AlignmentPolicy, LagPolicy, PromotionPolicy, SamplingPolicy
     from marivo.analysis.refs import ArtifactRef, DimensionRef, MetricRef
     from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
+    from marivo.semantic.reader import SemanticProject
 
 SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
@@ -88,7 +90,7 @@ class Session:
     updated_at: datetime
     backend_factory: BackendFactory | None
     layout: PersistenceLayout
-    semantic_project: Any  # SemanticProject from marivo.semantic
+    semantic_project: SemanticProject
     tz: tzinfo = field(default_factory=lambda: resolve_system_timezone().tz)
     default_calendar: str | None = None
     known_calendars: set[str] = field(default_factory=set)
@@ -622,14 +624,14 @@ class SessionDiscoverNamespace:
         self,
         source: object,
         *,
-        objective: Any,
-        strategy: Any = None,
+        objective: CandidateObjective | str,
+        strategy: CandidateStrategy | None = None,
         value: str | None = None,
         threshold: float | None = None,
-        sensitivity: str = "balanced",
+        sensitivity: DiscoverSensitivity = "balanced",
         limit: int | None = None,
-        search_space: list[Any] | None = None,
-        peer_scope: list[Any] | None = None,
+        search_space: list[DimensionRef] | None = None,
+        peer_scope: list[DimensionRef] | None = None,
     ) -> CandidateSet:
         from marivo.analysis.intents.discover import discover
 
@@ -639,7 +641,7 @@ class SessionDiscoverNamespace:
             strategy=strategy,
             value=value,
             threshold=threshold,
-            sensitivity=cast("Any", sensitivity),
+            sensitivity=sensitivity,
             limit=limit,
             search_space=search_space,
             peer_scope=peer_scope,
@@ -648,7 +650,7 @@ class SessionDiscoverNamespace:
 
     def point_anomalies(
         self,
-        source: Any,
+        source: MetricFrame,
         *,
         value: str | None = None,
         threshold: float | None = None,
@@ -664,7 +666,7 @@ class SessionDiscoverNamespace:
 
     def period_shifts(
         self,
-        source: Any,
+        source: DeltaFrame,
         *,
         value: str | None = None,
         threshold: float | None = None,
@@ -680,9 +682,9 @@ class SessionDiscoverNamespace:
 
     def driver_axes(
         self,
-        source: Any,
+        source: DeltaFrame,
         *,
-        search_space: list[Any],
+        search_space: list[DimensionRef],
         value: str | None = None,
         limit: int | None = None,
     ) -> CandidateSet:
@@ -698,9 +700,9 @@ class SessionDiscoverNamespace:
 
     def interesting_slices(
         self,
-        source: Any,
+        source: MetricFrame | DeltaFrame,
         *,
-        search_space: list[Any] | None = None,
+        search_space: list[DimensionRef] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = None,
@@ -718,7 +720,7 @@ class SessionDiscoverNamespace:
 
     def interesting_windows(
         self,
-        source: Any,
+        source: MetricFrame | DeltaFrame,
         *,
         value: str | None = None,
         threshold: float | None = None,
@@ -734,9 +736,9 @@ class SessionDiscoverNamespace:
 
     def cross_sectional_outliers(
         self,
-        source: Any,
+        source: MetricFrame,
         *,
-        peer_scope: list[Any] | None = None,
+        peer_scope: list[DimensionRef] | None = None,
         value: str | None = None,
         threshold: float | None = None,
     ) -> CandidateSet:
@@ -761,18 +763,18 @@ class SessionTransformNamespace:
         self,
         frame: object,
         *,
-        op: Any,
-        where: Any = None,
-        predicate: Any = None,
-        drop_axes: Any = None,
-        by: Any = None,
+        op: TransformOp,
+        where: dict[DimensionRef, SliceValue] | None = None,
+        predicate: Callable[..., Any] | None = None,
+        drop_axes: list[DimensionRef] | None = None,
+        by: str | None = None,
         limit: int | None = None,
         order: str | None = None,
         method: str = "ordinal",
         rank_column: str = "rank",
         mode: str | None = None,
-        baseline: Any = None,
-        window: Any = None,
+        baseline: object | None = None,
+        window: object | None = None,
     ) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
@@ -851,21 +853,21 @@ class SessionTransformNamespace:
 
     def normalize(
         self,
-        frame: Any,
+        frame: MetricFrame,
         *,
-        mode: str,
-        baseline: Any = None,
+        mode: NormalizeKind,
+        baseline: object | None = None,
     ) -> MetricFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.normalize(
             frame,
-            mode=cast("Any", mode),
+            mode=mode,
             baseline=baseline,
             session=self._session,
         )
 
-    def window(self, frame: object, *, window: Any) -> MetricFrame | DeltaFrame:
+    def window(self, frame: object, *, window: object) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform
 
         return transform.window(frame, window=window, session=self._session)

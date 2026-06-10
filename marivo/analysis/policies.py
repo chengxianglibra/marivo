@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from marivo.analysis.calendar.model import AlignPeriod, CalendarFallback
 from marivo.analysis.errors import (
     AlignmentPolicyValidationError,
-    LagPolicyValidationError,
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
 
@@ -78,21 +77,7 @@ class LagPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     mode: Literal["single"] = "single"
-    offset: int = Field(default=0)
-
-    @model_validator(mode="after")
-    def validate_supported_policy(self) -> LagPolicy:
-        if self.mode != "single":
-            raise LagPolicyValidationError(
-                message="only LagPolicy(mode='single', offset=0) is supported",
-                details={"case": "unsupported_mode", "mode": self.mode},
-            )
-        if self.offset != 0:
-            raise LagPolicyValidationError(
-                message="only zero-lag correlation is supported",
-                details={"case": "nonzero_offset", "offset": self.offset},
-            )
-        return self
+    offset: Literal[0] = 0
 
 
 class SamplingPolicy(BaseModel):

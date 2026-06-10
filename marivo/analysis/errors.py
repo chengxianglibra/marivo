@@ -465,35 +465,6 @@ class AlignmentPolicyValidationError(AnalysisError):
         }
 
 
-class LagPolicyValidationError(AnalysisError):
-    def _template_fields(self) -> dict[str, str]:
-        case = self.details.get("case")
-        if case == "unsupported_mode":
-            mode = self.details.get("mode")
-            mode_str = mode if isinstance(mode, str) and mode else "<mode>"
-            return {
-                "location": "mv.LagPolicy(...)",
-                "cause": f"lag mode {mode_str!r} is not supported; only mode='single' is implemented in v1.",
-                "fix_snippet": 'mv.LagPolicy(mode="single", offset=0)',
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
-            }
-        if case == "nonzero_offset":
-            offset = self.details.get("offset")
-            offset_str = str(offset) if isinstance(offset, int) else "<offset>"
-            return {
-                "location": "mv.LagPolicy(...)",
-                "cause": (
-                    f"offset={offset_str} is not supported in v1; only zero-lag correlation is implemented."
-                ),
-                "fix_snippet": 'mv.LagPolicy(mode="single", offset=0)',
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
-            }
-        return {
-            "location": "mv.LagPolicy(...)",
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
-        }
-
-
 class PromotionFailedError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         target_kind = self.details.get("target_kind")
