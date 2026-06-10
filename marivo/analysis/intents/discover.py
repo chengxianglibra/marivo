@@ -642,7 +642,7 @@ def _run_scorer(
             value,
             purpose="discover",
         )
-        axes = [ref.id for ref in search_space]
+        axes = [ref.semantic_id for ref in search_space]
         rows = score_driver_axes(
             df,
             source_ref=source.ref,
@@ -678,7 +678,7 @@ def _run_scorer(
             value,
             purpose="discover",
         )
-        axes = [ref.id for ref in (search_space or [])] or dim_columns
+        axes = [ref.semantic_id for ref in (search_space or [])] or dim_columns
         rows = score_interesting_slices(
             df,
             source_ref=source.ref,
@@ -745,7 +745,7 @@ def _run_scorer(
             value,
             purpose="discover",
         )
-        peer_axes = [ref.id for ref in (peer_scope or [])]
+        peer_axes = [ref.semantic_id for ref in (peer_scope or [])]
         rows = score_cross_sectional_outliers(
             df,
             source_ref=source.ref,

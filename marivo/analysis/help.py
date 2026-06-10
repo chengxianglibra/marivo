@@ -790,7 +790,7 @@ def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None
     if reg is None:
         _raise(
             ErrorKind.INVALID_REF,
-            f"Project not loaded. Call project.load() before mv.help({ref.semantic_id!r}).",
+            f"Call ms.load() to load the semantic project before mv.help({ref.semantic_id!r}).",
             cls=SemanticRuntimeError,
         )
 
@@ -807,7 +807,7 @@ def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None
             ErrorKind.INVALID_REF,
             (
                 f"{ref.kind} {ref.semantic_id!r} not found in loaded project. "
-                "Call project.list_metrics().ids() to see available ids."
+                "Call catalog.list(kind='metric').ids() to see available ids."
             ),
             cls=SemanticRuntimeError,
         )
@@ -831,7 +831,7 @@ def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None
                 lines.append(f"  - {ex}")
     lines.append("")
     lines.append(
-        f"use: project.list_metrics().ids() to enumerate; "
+        f"use: catalog.list(kind='metric').ids() to enumerate; "
         f"pass {ir.semantic_id!r} to session.observe(mv.MetricRef(...))"
     )
     print("\n".join(lines))

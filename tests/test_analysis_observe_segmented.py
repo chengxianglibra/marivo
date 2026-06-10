@@ -354,8 +354,8 @@ def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
     region_job = s.job(region_job_summary.id)
     channel_job = s.job(channel_job_summary.id)
 
-    assert region_job["params"]["dimensions"] == [{"id": "region"}]
-    assert channel_job["params"]["dimensions"] == [{"id": "channel"}]
+    assert region_job["params"]["dimensions"] == [{"semantic_id": "region"}]
+    assert channel_job["params"]["dimensions"] == [{"semantic_id": "channel"}]
     assert (
         by_region.meta.lineage.steps[0].params_digest
         != by_channel.meta.lineage.steps[0].params_digest

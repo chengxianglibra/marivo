@@ -15,14 +15,14 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
 current = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
-    dimensions=[mv.DimensionRef(id="region")],
+    dimensions=[mv.DimensionRef("region")],
 )
 baseline = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(METRIC_ID),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
-    dimensions=[mv.DimensionRef(id="region")],
+    dimensions=[mv.DimensionRef("region")],
 )
 delta = session.compare(
     current,
@@ -33,11 +33,11 @@ delta = session.compare(
 axis_candidates = session.discover.driver_axes(
     delta,
     value="delta",
-    search_space=[mv.DimensionRef(id="region")],
+    search_space=[mv.DimensionRef("region")],
 )
 top_axis = axis_candidates.select(rank=1, attribute="axis")
 assert isinstance(top_axis, mv.DimensionRef)
-print(f"top_axis={top_axis.id}")
+print(f"top_axis={top_axis.semantic_id}")
 
 drivers = session.decompose(delta, axis=top_axis)
 print(f"drivers.kind={drivers.meta.kind!r}")

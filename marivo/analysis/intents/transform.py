@@ -442,7 +442,7 @@ def _params_digest(params: dict[str, Any]) -> str:
 
 def _normalize_param_value(value: Any) -> Any:
     if isinstance(value, DimensionRef):
-        return {"type": "DimensionRef", "id": value.id}
+        return {"type": "DimensionRef", "semantic_id": value.semantic_id}
     if isinstance(value, pd.Timestamp):
         return value.isoformat()
     if isinstance(value, (datetime, date)):
@@ -471,7 +471,7 @@ def _axis_names(value: Any) -> set[str]:
     if value is None:
         return set()
     if isinstance(value, DimensionRef):
-        return {value.id}
+        return {value.semantic_id}
     if isinstance(value, str):
         return {value}
     if isinstance(value, (list, tuple, set)):
@@ -561,14 +561,14 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
     drop_ids: set[str] = set()
     for item in drop_axes:
         if isinstance(item, DimensionRef):
-            axis = axes.get(item.id)
+            axis = axes.get(item.semantic_id)
             if not isinstance(axis, dict) or axis.get("role") != "dimension":
                 raise TransformDimensionNotFoundError(
-                    message=f"transform(op='rollup') dimension {item.id!r} is not present",
+                    message=f"transform(op='rollup') dimension {item.semantic_id!r} is not present",
                     hint="Rollup DimensionRef targets must reference existing dimension axes.",
-                    details={"op": "rollup", "dimension": item.id, "axes": axes},
+                    details={"op": "rollup", "dimension": item.semantic_id, "axes": axes},
                 )
-            drop_ids.add(item.id)
+            drop_ids.add(item.semantic_id)
             continue
         if isinstance(item, str):
             if item not in axes:
@@ -1306,21 +1306,21 @@ def _resolve_slice_column(
     frame: TransformFrame, df: pd.DataFrame, key: Any
 ) -> tuple[str, str | None]:
     if isinstance(key, DimensionRef):
-        axis = _frame_axes(frame).get(key.id)
+        axis = _frame_axes(frame).get(key.semantic_id)
         if not isinstance(axis, dict) or axis.get("role") != "dimension":
             raise TransformDimensionNotFoundError(
-                message=f"transform(op='slice') dimension {key.id!r} is not present",
+                message=f"transform(op='slice') dimension {key.semantic_id!r} is not present",
                 hint="Slice DimensionRef keys must reference existing dimension axes.",
-                details={"op": "slice", "dimension": key.id},
+                details={"op": "slice", "dimension": key.semantic_id},
             )
         column = axis.get("column")
         if not isinstance(column, str) or column not in df.columns:
             raise TransformDimensionNotFoundError(
-                message=f"transform(op='slice') dimension {key.id!r} column is not present",
+                message=f"transform(op='slice') dimension {key.semantic_id!r} column is not present",
                 hint="Slice DimensionRef keys must reference persisted frame columns.",
-                details={"op": "slice", "dimension": key.id, "column": column},
+                details={"op": "slice", "dimension": key.semantic_id, "column": column},
             )
-        return column, key.id
+        return column, key.semantic_id
     if isinstance(key, str):
         axes = _frame_axes(frame)
         dimension_id: str | None = None
@@ -1820,7 +1820,7 @@ def _op_slice(
             if dimension_id is not None:
                 selector_value = _normalize_param_value(value)
                 locked_single_value_dims.append(
-                    (DimensionRef(id=dimension_id), column, selector_value)
+                    (DimensionRef(dimension_id), column, selector_value)
                 )
         mask &= clause
 
@@ -1834,7 +1834,9 @@ def _op_slice(
         ]
         if drop_columns:
             new_df = new_df.drop(columns=drop_columns)
-        selector = {dimension.id: value for dimension, _, value in locked_single_value_dims}
+        selector = {
+            dimension.semantic_id: value for dimension, _, value in locked_single_value_dims
+        }
         meta_overrides = {
             "axes": new_axes,
             "semantic_kind": _semantic_kind_from_axes(new_axes),

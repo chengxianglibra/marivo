@@ -28,12 +28,12 @@ consistently for every install, check, and script run.
 
 1. For a real project, start from
    `references/examples/00_real_project_template.py`; it shows
-   `ms.find_project()` -> `project.load()` -> `mv.session.get_or_create(...)`
+   `ms.load()` -> `mv.session.get_or_create(...)`
    with `default_calendar`.
 2. For a specific intent pattern, adapt the closest runnable
    `references/examples/NN_*.py`; those examples use a tiny fixture so they
    can run in CI.
-3. Confirm metric ids: `import marivo.semantic as ms; project = ms.find_project(); assert project is not None; project.load(); project.list_metrics().show()`.
+3. Confirm metric ids: `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind="metric").show()`.
 4. Use runtime help as the authoritative per-object contract. For the intent,
    frame, policy, or topic you are about to use, inspect
    `mv.help('<name>')`; examples:

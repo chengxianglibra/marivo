@@ -408,11 +408,50 @@ class _BaseRef:
     __slots__ = ("kind", "semantic_id")
 
     def __init__(self, semantic_id: str, kind: SymbolKind) -> None:
-        self.semantic_id = semantic_id
+        normalized = semantic_id.strip()
+        if not normalized:
+            raise ValueError("ref semantic_id must be non-empty")
+        self.semantic_id = normalized
         self.kind = kind
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.semantic_id!r})"
+
+    def __str__(self) -> str:
+        return self.semantic_id
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _BaseRef):
+            return NotImplemented
+        return type(self) is type(other) and self.semantic_id == other.semantic_id
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.semantic_id))
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _source_type: Any, _handler: Any) -> Any:
+        """Allow ref types to be used as Pydantic field types (e.g. PromotionSemanticAnchors)."""
+        from pydantic_core import core_schema
+
+        # _source_type is the concrete ref subclass (DimensionRef, MetricRef, …)
+        # which only requires semantic_id. Fall back to cls when Pydantic
+        # resolves the schema directly on _BaseRef.
+        ref_cls: type[_BaseRef] = _source_type if _source_type is not _BaseRef else cls
+
+        def validate(value: Any) -> _BaseRef:
+            if isinstance(value, ref_cls):
+                return value
+            if isinstance(value, str):
+                return ref_cls(value)  # type: ignore[call-arg]
+            raise ValueError(f"expected str or {ref_cls.__name__}, got {type(value).__name__}")
+
+        return core_schema.no_info_plain_validator_function(
+            validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda v: v.semantic_id,
+                info_arg=False,
+            ),
+        )
 
 
 class EntityRef(_BaseRef):
@@ -470,7 +509,11 @@ class MetricRef(_BaseRef):
     """
 
     def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.METRIC)
+        normalized = semantic_id.strip()
+        model, separator, metric = normalized.partition(".")
+        if not separator or not model or not metric:
+            raise ValueError(f"metric ref must be '<model>.<metric>', got {semantic_id!r}")
+        super().__init__(normalized, SymbolKind.METRIC)
 
 
 class RelationshipRef(_BaseRef):

@@ -27,7 +27,7 @@ inputs. Assess the object with the source/role shape directly.
 
 ## Forgetting to load before inspect_authored_object
 
-After authoring `.marivo/semantic/<model>/*.py`, always call `project.load()`
+After authoring `.marivo/semantic/<model>/*.py`, always call `ms.load()`
 before `project.inspect_authored_object(ref)`. Without load, the registry is
 stale and the inspection reflects the pre-authoring state. This also ensures
 auto-recorded `metric_decomposition` and `time_dimension_identity` decisions are

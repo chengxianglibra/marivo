@@ -25,7 +25,7 @@ from marivo.semantic.catalog import (
     ValidityVersioning,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.ir import SourceLocation, SymbolKind
+from marivo.semantic.ir import ParityStatus, SourceLocation, SymbolKind
 
 # --- SemanticKind ---
 
@@ -275,11 +275,12 @@ def test_metric_details_fields():
         additivity="additive",
         fanout_policy="block",
         verification_mode="python_native",
-        parity_status="unverified",
+        parity_status=ParityStatus.UNVERIFIED,
         source_sql=None,
         source_dialect=None,
         source_document=None,
         source_notes=None,
+        python_symbol="revenue",
     )
     assert d.decomposition == "sum"
     assert d.is_derived is False
@@ -332,11 +333,12 @@ def _make_metric_obj() -> SemanticObject:
         additivity="additive",
         fanout_policy="block",
         verification_mode="python_native",
-        parity_status="unverified",
+        parity_status=ParityStatus.UNVERIFIED,
         source_sql=None,
         source_dialect=None,
         source_document=None,
         source_notes=None,
+        python_symbol="revenue",
     )
     return SemanticObject(
         ref=ref,
@@ -346,6 +348,7 @@ def _make_metric_obj() -> SemanticObject:
         description="Gross revenue.",
         context=_make_ctx(),
         source_location=_make_loc(),
+        python_symbol="revenue",
         _details=details,
     )
 

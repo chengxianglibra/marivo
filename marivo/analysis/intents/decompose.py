@@ -54,7 +54,7 @@ def _panel_dimension_columns(frame: DeltaFrame) -> list[str]:
 
 
 def _resolve_axis_column(frame: DeltaFrame, axis: DimensionRef, columns: list[str]) -> str | None:
-    requested = axis.id
+    requested = axis.semantic_id
     if requested in columns:
         return requested
 
@@ -87,7 +87,7 @@ def _effective_component_axis_column(
     resolved = _resolve_axis_column(frame, axis, columns)
     if resolved is not None:
         return resolved
-    normalized = axis.id.rsplit(".", 1)[-1]
+    normalized = axis.semantic_id.rsplit(".", 1)[-1]
     if normalized == "bucket_start" and "bucket_start_a" in columns:
         return "bucket_start_a"
     return None
@@ -372,7 +372,7 @@ def decompose(
         params = {
             "source_ref": frame.ref,
             "component_ref": component.ref,
-            "axis": axis.model_dump(mode="json"),
+            "axis": {"semantic_id": str(axis)},
             "measure_column": "delta",
             "driver_field": axis_column,
             "value_column": "delta",
@@ -422,7 +422,7 @@ def decompose(
         output = grouped[[bucket_column, axis_column, "contribution", "pct_contribution", "rank"]]
         params = {
             "source_ref": frame.ref,
-            "axis": axis.model_dump(mode="json"),
+            "axis": {"semantic_id": str(axis)},
             "measure_column": value_column,
             "bucket_column": bucket_column,
             "driver_field": axis_column,
@@ -465,7 +465,7 @@ def decompose(
 
     params = {
         "source_ref": frame.ref,
-        "axis": axis.model_dump(mode="json"),
+        "axis": {"semantic_id": str(axis)},
         "measure_column": value_column,
     }
     return persist_attribution_frame(

@@ -36,6 +36,7 @@ project.bind_datasource_access(
     inspect_source=mv.datasources.inspect_source,
     backend_factory=mv.datasources.build_backend,
 )
+catalog = ms.load()
 pack = project.inspect_source_context(
     datasource="warehouse",
     source=ms.TableSource(table="orders", database="sales_mart"),
@@ -115,7 +116,7 @@ Then author and load:
 
 ```python
 # write .marivo/semantic/sales/_domain.py
-project.load()
+catalog = ms.load()
 project.inspect_authored_object("sales.orders")
 ```
 

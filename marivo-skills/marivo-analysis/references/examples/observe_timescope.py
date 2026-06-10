@@ -19,11 +19,11 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
 scalar = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(METRIC_ID),
     timescope={"start": "2026-09-01", "end": "2026-09-16"},
 )
 series = session.observe(
-    mv.MetricRef(id=METRIC_ID),
+    mv.MetricRef(METRIC_ID),
     timescope={"start": "2026-09-01", "end": "2026-09-16"},
     grain="day",
 )

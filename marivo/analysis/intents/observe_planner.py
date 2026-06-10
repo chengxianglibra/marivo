@@ -199,7 +199,7 @@ def resolve_observe_fields(
     resolved_dimensions = [
         _resolve_field_ref(
             project,
-            dimension.id,
+            dimension.semantic_id,
             scoped_dataset_ids=scoped_dataset_ids,
             allow_qualified_outside_scope=True,
             allow_unqualified_outside_scope=allow_unqualified_outside_scope,
@@ -210,7 +210,7 @@ def resolve_observe_fields(
     raw_root_where_keys: list[str] = []
     all_fields = _all_fields(project)
     for raw_key in where or {}:
-        key = raw_key.id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        key = raw_key.semantic_id if isinstance(raw_key, DimensionRef) else str(raw_key)
         if "." in key:
             where_fields[key] = _resolve_field_ref(
                 project,
@@ -1040,7 +1040,7 @@ def plan_base_observe(
     joined_where: dict[str, Any] = {}
     raw_root_keys = set(resolved_fields.raw_root_where_keys)
     for raw_key, value in (where or {}).items():
-        key = raw_key.id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        key = raw_key.semantic_id if isinstance(raw_key, DimensionRef) else str(raw_key)
         if key in raw_root_keys:
             # Root-phase raw key: forwarded as-is so apply_slice_to_dataset
             # resolves it via the dataset_ir physical-column fallback.
@@ -1397,11 +1397,11 @@ def _accumulate_unreachable_ref(
     """Classify a field-ref-not-found/ambiguous error as a missing axis or missing filter."""
     msg = exc.message or ""
     for dim in dimensions or []:
-        if f"{dim.id!r}" in msg:
-            axes_acc.setdefault(dim.id, []).append(component_id)
+        if f"{dim.semantic_id!r}" in msg:
+            axes_acc.setdefault(dim.semantic_id, []).append(component_id)
             return
     for raw_key in where or {}:
-        key = raw_key.id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        key = raw_key.semantic_id if isinstance(raw_key, DimensionRef) else str(raw_key)
         if f"{key!r}" in msg:
             where_acc.setdefault(key, []).append(component_id)
             return
@@ -1430,17 +1430,17 @@ def _accumulate_path_unreachable(
     for dim in dimensions or []:
         # The dimension id may be qualified (e.g. 'sales.country') or unqualified.
         # We match on the local name part.
-        local_name = dim.id.rsplit(".", 1)[-1]
+        local_name = dim.semantic_id.rsplit(".", 1)[-1]
         if to_dataset is not None and local_name in to_dataset:
-            axes_acc.setdefault(dim.id, []).append(component_id)
+            axes_acc.setdefault(dim.semantic_id, []).append(component_id)
             return
     # Fallback: attribute to the first dimension if any
     for dim in dimensions or []:
-        axes_acc.setdefault(dim.id, []).append(component_id)
+        axes_acc.setdefault(dim.semantic_id, []).append(component_id)
         return
     # Try to match to a where filter
     for raw_key in where or {}:
-        key = raw_key.id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        key = raw_key.semantic_id if isinstance(raw_key, DimensionRef) else str(raw_key)
         where_acc.setdefault(key, []).append(component_id)
         return
     raise exc
@@ -1453,10 +1453,10 @@ def _raise_component_axis_unreachable(
 ) -> None:
     dim_id, components_missing = next(iter(missing_map.items()))
     resolved = []
-    target = next((p for p in (parent_dimensions or []) if p.id == dim_id), None)
+    target = next((p for p in (parent_dimensions or []) if p.semantic_id == dim_id), None)
     for cp in component_plans:
         for d in cp.base_plan.dimensions:
-            if target is not None and d.column == target.id.rsplit(".", 1)[-1]:
+            if target is not None and d.column == target.semantic_id.rsplit(".", 1)[-1]:
                 resolved.append(
                     {
                         "metric": cp.component_metric_ir.semantic_id,
@@ -1508,7 +1508,7 @@ def _check_axis_comparability(
     parent_dimensions: list[DimensionRef] | None,
 ) -> None:
     for dim in parent_dimensions or []:
-        col = dim.id.rsplit(".", 1)[-1]
+        col = dim.semantic_id.rsplit(".", 1)[-1]
         per_component: dict[str, list[Any]] = {
             cp.component_metric_ir.semantic_id: [
                 d.field for d in cp.base_plan.dimensions if d.column == col
@@ -1519,9 +1519,9 @@ def _check_axis_comparability(
         if len(ids) > 1:
             raise_observe_planning_error(
                 code="component-axis-field-mismatch",
-                message=f"Dimension {dim.id!r} resolves to different field ids across components.",
+                message=f"Dimension {dim.semantic_id!r} resolves to different field ids across components.",
                 candidates={
-                    "dimension": dim.id,
+                    "dimension": dim.semantic_id,
                     "components": [
                         {"metric": cid, "resolved_field_id": fields[0].semantic_id}
                         for cid, fields in per_component.items()
@@ -1537,7 +1537,7 @@ def _check_filter_comparability(
     parent_where: dict[Any, Any] | None,
 ) -> None:
     for raw_key in parent_where or {}:
-        key = raw_key.id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        key = raw_key.semantic_id if isinstance(raw_key, DimensionRef) else str(raw_key)
         applied: dict[str, list[PlannedWhere]] = {
             cp.component_metric_ir.semantic_id: [
                 pw for pw in cp.base_plan.where if pw.original_key == key

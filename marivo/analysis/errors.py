@@ -125,9 +125,8 @@ class MetricNotFoundError(AnalysisError):
             "cause": cause,
             "fix_snippet": (
                 "import marivo.semantic as ms\n"
-                "project = ms.find_project()\n"
-                "project.load()\n"
-                "project.list_metrics()  # confirm the exact id\n"
+                "catalog = ms.load()\n"
+                "catalog.list(kind='metric')  # confirm the exact id\n"
                 'session.observe(mv.MetricRef("<registered_metric_id>"), '
                 'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
             ),
@@ -924,9 +923,8 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
             "cause": cause,
             "fix_snippet": (
                 "import marivo.semantic as ms\n"
-                "project = ms.find_project()\n"
-                "project.load()\n"
-                "project.list_dimensions()  # confirm available dimensions per entity\n"
+                "catalog = ms.load()\n"
+                "catalog.list(kind='dimension')  # confirm available dimensions per entity\n"
                 'session.observe(mv.MetricRef("sales.revenue"), '
                 'dimensions=[mv.DimensionRef("<existing_dimension>")])'
             ),

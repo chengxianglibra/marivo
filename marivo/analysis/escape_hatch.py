@@ -264,7 +264,7 @@ def _raise_delta_metadata_mismatch(
 
 def _axis_meta(axes: dict[str, DimensionRef] | None) -> dict[str, dict[str, str]]:
     return {
-        column: {"role": "dimension", "column": column, "ref": ref.id}
+        column: {"role": "dimension", "column": column, "ref": ref.semantic_id}
         for column, ref in (axes or {}).items()
     }
 
@@ -273,7 +273,7 @@ def _time_axis_column_and_ref(time_axis: str | DimensionRef | None) -> tuple[str
     if time_axis is None:
         return None
     if isinstance(time_axis, DimensionRef):
-        return time_axis.id, time_axis.id
+        return time_axis.semantic_id, time_axis.semantic_id
     return time_axis, time_axis
 
 
@@ -285,7 +285,7 @@ def _axis_identifiers(
     identifiers: set[str] = set()
     for column, ref in (axes or {}).items():
         identifiers.add(column)
-        identifiers.add(ref.id)
+        identifiers.add(ref.semantic_id)
     if time_axis_meta is not None:
         time_column, time_ref = time_axis_meta
         identifiers.update({"time", time_column, time_ref})
@@ -436,8 +436,8 @@ def _validate_axis_collisions(
         seen.add(column)
         if column in reserved_axis_ids:
             collisions.append(column)
-        if ref.id in reserved_axis_ids:
-            collisions.append(ref.id)
+        if ref.semantic_id in reserved_axis_ids:
+            collisions.append(ref.semantic_id)
     if collisions:
         _raise_promotion_failed(
             target_kind="metric_frame",
@@ -745,7 +745,7 @@ def promote_metric_frame(
                 time_meta["time_dimension"] = resolved_window.time_dimension
         resolved_axes = {"time": time_meta, **resolved_axes}
     promotion_params = {
-        "metric_id": metric_ref.id,
+        "metric_id": metric_ref.semantic_id,
         "semantic_kind": semantic_kind,
         "semantic_model": semantic_model,
         "measure_column": measure_column,
@@ -780,7 +780,7 @@ def promote_metric_frame(
             ],
             external_inputs=sorted({*scratch.lineage.external_inputs, scratch.ref}),
         ),
-        metric_id=metric_ref.id,
+        metric_id=metric_ref.semantic_id,
         axes=resolved_axes,
         measure={"name": measure_column},
         window=dump_window(resolved_window),
@@ -868,7 +868,7 @@ def promote_delta_frame(
     inherited_metric = current_frame.meta.metric_id if current_frame is not None else None
     inherited_kind = current_frame.meta.semantic_kind if current_frame is not None else None
     inherited_model = current_frame.meta.semantic_model if current_frame is not None else None
-    metric_id = metric.id if metric is not None else inherited_metric
+    metric_id = metric.semantic_id if metric is not None else inherited_metric
     final_kind = semantic_kind or inherited_kind
     final_model = semantic_model or inherited_model
     missing: list[str] = []
@@ -922,7 +922,7 @@ def promote_delta_frame(
     override_mismatches = [
         frame.ref
         for frame in [current_frame, baseline_frame]
-        if frame is not None and metric is not None and frame.meta.metric_id != metric.id
+        if frame is not None and metric is not None and frame.meta.metric_id != metric.semantic_id
     ]
     if override_mismatches:
         _raise_delta_metadata_mismatch(

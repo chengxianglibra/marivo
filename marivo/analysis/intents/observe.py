@@ -359,9 +359,9 @@ def _validate_dimension_refs(dimensions: list[Any] | None) -> list[DimensionRef]
                     "got_kind": type(dimension).__name__,
                 },
             )
-        if dimension.id in seen:
-            duplicate_ids.add(dimension.id)
-        seen.add(dimension.id)
+        if dimension.semantic_id in seen:
+            duplicate_ids.add(dimension.semantic_id)
+        seen.add(dimension.semantic_id)
         validated.append(dimension)
     if duplicate_ids:
         raise SemanticKindMismatchError(
@@ -386,7 +386,7 @@ def _normalize_time_dimension_ref(time_dimension: DimensionRef | None) -> str | 
                 "got_kind": type(time_dimension).__name__,
             },
         )
-    return time_dimension.id
+    return time_dimension.semantic_id
 
 
 def _normalize_where_refs(
@@ -404,7 +404,7 @@ def _normalize_where_refs(
                     "got_kind": type(key).__name__,
                 },
             )
-        normalized[key.id] = value
+        normalized[key.semantic_id] = value
     return normalized
 
 
@@ -828,7 +828,7 @@ def _execute_derived(
 def _dump_dimensions(dimensions: list[DimensionRef] | None) -> list[dict[str, Any]] | None:
     if dimensions is None:
         return None
-    return [dimension.model_dump(mode="json") for dimension in dimensions]
+    return [{"semantic_id": str(dimension)} for dimension in dimensions]
 
 
 def _backend_for_datasource(session: Session, datasource_name: str) -> tuple[str, Any]:
@@ -914,7 +914,7 @@ def observe(
                 "got_kind": type(metric).__name__,
             },
         )
-    metric_id = metric.id
+    metric_id = metric.semantic_id
     if "." not in metric_id:
         raise MetricNotFoundError(message=f"metric '{metric_id}' is not '<model>.<metric>'")
     model_name, metric_name = metric_id.split(".", 1)
@@ -1140,7 +1140,7 @@ def observe(
     for dim_ir in [*sp.list_dimensions(), *sp.list_time_dimensions()]:
         if (
             dimensions
-            and any(dim.id == dim_ir.semantic_id for dim in dimension_refs)
+            and any(dim.semantic_id == dim_ir.semantic_id for dim in dimension_refs)
             and dim_ir.entity not in dataset_irs
         ):
             ds_ir = sp.get_entity(dim_ir.entity)

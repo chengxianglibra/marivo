@@ -37,7 +37,7 @@ session = mv.session.get_or_create(
 )
 
 frame = session.observe(
-    mv.MetricRef(id=metric_id),
+    mv.MetricRef(metric_id),
     timescope=timescope,
     grain=grain,
 )

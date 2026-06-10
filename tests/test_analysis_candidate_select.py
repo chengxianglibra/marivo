@@ -125,7 +125,7 @@ def test_select_axis_returns_dimension_ref():
     )
     selected = cs.select(rank=1, attribute="axis")
     assert isinstance(selected, mv.DimensionRef)
-    assert selected.id == "country"
+    assert selected.semantic_id == "country"
 
 
 def test_select_window_returns_absolute_window():

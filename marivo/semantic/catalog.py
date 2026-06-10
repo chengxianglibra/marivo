@@ -5,7 +5,7 @@ Public entrypoint: ms.load() -> SemanticCatalog
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NoReturn
@@ -20,6 +20,7 @@ from marivo.semantic.ir import (
     EntityIR,
     EntityVersioningIR,
     MetricIR,
+    ParityStatus,
     RelationshipIR,
     SnapshotVersioningIR,
     SourceLocation,
@@ -285,11 +286,12 @@ class MetricDetails:
     additivity: Literal["additive", "semi_additive", "non_additive"] | None
     fanout_policy: Literal["block", "aggregate_then_join"]
     verification_mode: Literal["sql_parity", "python_native"] | None
-    parity_status: str
+    parity_status: ParityStatus
     source_sql: str | None
     source_dialect: str | None
     source_document: str | None
     source_notes: str | None
+    python_symbol: str
 
 
 @dataclass(frozen=True)
@@ -359,6 +361,7 @@ class SemanticObject:
     description: str | None
     context: AiContextView
     source_location: SourceLocation
+    python_symbol: str
     _details: SemanticObjectDetails
 
     def details(self) -> SemanticObjectDetails:
@@ -422,6 +425,19 @@ class SemanticObjectList:
     def refs(self) -> tuple[SemanticRef, ...]:
         """Return the SemanticRef for every object in this list."""
         return tuple(obj.ref for obj in self._items)
+
+    def ids(self) -> list[str]:
+        """Return plain-string refs for every object in this list."""
+        return [obj.ref.ref for obj in self._items]
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __iter__(self) -> Iterator[SemanticObject]:
+        return iter(self._items)
+
+    def __getitem__(self, index: int) -> SemanticObject:
+        return self._items[index]
 
     def render(self) -> str:
         """Return bounded plain-text browsing card without a trailing newline."""
@@ -568,6 +584,7 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
         description=ds_ir.description,
         context=_ai_context_from_ir(ds_ir.ai_context),
         source_location=_normalize_location(ds_ir.location),
+        python_symbol=ds_ir.python_symbol,
         _details=details,
     )
 
@@ -605,6 +622,7 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
         description=model_ir.description,
         context=_ai_context_from_ir(model_ir.ai_context),
         source_location=model_ir.location,
+        python_symbol="",
         _details=details,
     )
 
@@ -656,6 +674,7 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
         description=ds_ir.description,
         context=_ai_context_from_ir(ds_ir.ai_context),
         source_location=ds_ir.location,
+        python_symbol=ds_ir.python_symbol,
         _details=details,
     )
 
@@ -711,6 +730,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
         description=f_ir.description,
         context=_ai_context_from_ir(f_ir.ai_context),
         source_location=f_ir.location,
+        python_symbol=f_ir.python_symbol,
         _details=details,
     )
 
@@ -740,7 +760,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         for m2 in reg.metrics.values()
         if m_ir.semantic_id in m2.decomposition.components.values()
     )
-    parity_status = str(propagated_parity_status(project, m_ir.semantic_id))
+    parity_status = propagated_parity_status(project, m_ir.semantic_id)
     details = MetricDetails(
         ref=ref,
         kind=SemanticKind.METRIC,
@@ -766,6 +786,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         source_dialect=m_ir.provenance.source_dialect,
         source_document=m_ir.provenance.source_document,
         source_notes=m_ir.provenance.source_notes,
+        python_symbol=m_ir.python_symbol,
     )
     return SemanticObject(
         ref=ref,
@@ -775,6 +796,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         description=m_ir.description,
         context=_ai_context_from_ir(m_ir.ai_context),
         source_location=m_ir.location,
+        python_symbol=m_ir.python_symbol,
         _details=details,
     )
 
@@ -807,6 +829,7 @@ def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticO
         description=r_ir.description,
         context=_ai_context_from_ir(r_ir.ai_context),
         source_location=r_ir.location,
+        python_symbol="",
         _details=details,
     )
 
