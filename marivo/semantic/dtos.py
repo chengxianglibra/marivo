@@ -41,7 +41,6 @@ AuthoringObjectKind = Literal[
 
 AuthoringSourceRole = Literal["primary", "from", "to", "component"]
 
-RedactionStatus = Literal["redacted", "not_redacted"]
 ReadinessEffect = Literal["blocks", "warns", "advisory"]
 SampleScope = Literal["none", "bounded_sample"]
 FileFormat = Literal["parquet", "csv", "json"]
@@ -96,17 +95,15 @@ class AuthoringSourceInput:
 @dataclass(frozen=True)
 class MetadataOnlyPolicy:
     timeout_seconds: int | None = None
-    redact: bool = True
 
     def to_dict(self) -> dict[str, object]:
         return {
             "mode": "metadata_only",
             "timeout_seconds": self.timeout_seconds,
-            "redact": self.redact,
         }
 
     def to_ir(self) -> MetadataOnlyPolicyIR:
-        return MetadataOnlyPolicyIR(timeout_seconds=self.timeout_seconds, redact=self.redact)
+        return MetadataOnlyPolicyIR(timeout_seconds=self.timeout_seconds)
 
 
 @dataclass(frozen=True)
@@ -114,7 +111,6 @@ class BoundedProfilePolicy:
     limit: int
     timeout_seconds: int | None = None
     max_profiled_columns: int | None = None
-    redact: bool = True
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -122,7 +118,6 @@ class BoundedProfilePolicy:
             "limit": self.limit,
             "timeout_seconds": self.timeout_seconds,
             "max_profiled_columns": self.max_profiled_columns,
-            "redact": self.redact,
         }
 
     def to_ir(self) -> BoundedProfilePolicyIR:
@@ -130,7 +125,6 @@ class BoundedProfilePolicy:
             limit=self.limit,
             timeout_seconds=self.timeout_seconds,
             max_profiled_columns=self.max_profiled_columns,
-            redact=self.redact,
         )
 
 
@@ -140,7 +134,6 @@ class SelectedColumnsPolicy:
     columns: tuple[str, ...]
     timeout_seconds: int | None = None
     max_profiled_columns: int | None = None
-    redact: bool = True
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -149,7 +142,6 @@ class SelectedColumnsPolicy:
             "columns": list(self.columns),
             "timeout_seconds": self.timeout_seconds,
             "max_profiled_columns": self.max_profiled_columns,
-            "redact": self.redact,
         }
 
     def to_ir(self) -> SelectedColumnsPolicyIR:
@@ -158,7 +150,6 @@ class SelectedColumnsPolicy:
             columns=self.columns,
             timeout_seconds=self.timeout_seconds,
             max_profiled_columns=self.max_profiled_columns,
-            redact=self.redact,
         )
 
 
@@ -221,7 +212,6 @@ class SourceEvidencePack:
     column_profiles: tuple[ColumnProfile, ...]
     metadata_warnings: tuple[str, ...]
     sample_policy: SamplePolicy
-    redaction_status: RedactionStatus
     truncated: bool
 
     @property
@@ -253,7 +243,6 @@ class SourceEvidencePack:
             "column_profiles": [profile.to_dict() for profile in self.column_profiles],
             "metadata_warnings": list(self.metadata_warnings),
             "sample_policy": self.sample_policy.to_dict(),
-            "redaction_status": self.redaction_status,
             "truncated": self.truncated,
         }
 

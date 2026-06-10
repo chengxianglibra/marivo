@@ -45,7 +45,6 @@ ReadinessIssueKind = Literal[
     "metric_compile_failed",
     "unverified_metric",
     "parity_drifted",
-    "sensitive_preview_column",
     "cross_datasource_unfederated",
     "requires_raw_sql",
     "primary_key_unsampled",
@@ -698,20 +697,13 @@ def _run_preview(
     backend_factory: Callable[[str], Any],
     *,
     limit: int,
-    redact: bool,
 ) -> PreviewResult:
     if kind == _SemanticKind.ENTITY:
-        return project.preview_dataset(
-            ref, backend_factory=backend_factory, limit=limit, redact=redact
-        )
+        return project.preview_dataset(ref, backend_factory=backend_factory, limit=limit)
     if kind in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
-        return project.preview_field(
-            ref, backend_factory=backend_factory, limit=limit, redact=redact
-        )
+        return project.preview_field(ref, backend_factory=backend_factory, limit=limit)
     if kind == _SemanticKind.METRIC:
-        return project.preview_metric(
-            ref, backend_factory=backend_factory, limit=limit, redact=redact
-        )
+        return project.preview_metric(ref, backend_factory=backend_factory, limit=limit)
     raise ValueError(f"cannot preview semantic kind {kind}")
 
 
@@ -723,7 +715,6 @@ def _run_raw_preview(
     database: str | tuple[str, ...] | None,
     backend_factory: Callable[[str], Any],
     preview_limit: int,
-    redact: bool,
 ) -> PreviewResult:
     backend = backend_factory(datasource)
     preview_table = (
@@ -735,7 +726,6 @@ def _run_raw_preview(
         ref=ref,
         limit=preview_limit,
         sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
-        redact=redact,
     )
 
 
@@ -756,7 +746,6 @@ def _run_semantic_previews(
     backend_factory: Callable[[str], Any],
     *,
     preview_limit: int,
-    redact: bool,
 ) -> _SemanticPreviewRun:
     completed: list[str] = []
     failed: list[str] = []
@@ -795,7 +784,6 @@ def _run_semantic_previews(
                 kinds,
                 materializer,
                 preview_limit=preview_limit,
-                redact=redact,
             )
         except Exception:
             fallback = _run_serial_semantic_previews(
@@ -804,7 +792,6 @@ def _run_semantic_previews(
                 kinds,
                 backend_factory,
                 preview_limit=preview_limit,
-                redact=redact,
             )
             completed.extend(fallback.completed)
             failed.extend(fallback.failed)
@@ -814,23 +801,19 @@ def _run_semantic_previews(
         else:
             completed.extend(refs)
             preview_warnings.extend(preview.warnings)
-            warnings.extend(_sensitive_preview_warnings(refs, preview.warnings))
 
     for ref in metric_refs:
         kind = kinds.get(ref)
         if kind is None:
             continue
         try:
-            preview = _run_metric_preview(
-                ref, metric_materializer, preview_limit=preview_limit, redact=redact
-            )
+            preview = _run_metric_preview(ref, metric_materializer, preview_limit=preview_limit)
         except Exception as exc:
             blockers.append(_semantic_preview_blocker(ref, kind, exc))
             failed.append(ref)
         else:
             completed.append(ref)
             preview_warnings.extend(preview.warnings)
-            warnings.extend(_sensitive_preview_warnings((ref,), preview.warnings))
 
     if serial_refs:
         fallback = _run_serial_semantic_previews(
@@ -839,7 +822,6 @@ def _run_semantic_previews(
             kinds,
             backend_factory,
             preview_limit=preview_limit,
-            redact=redact,
         )
         completed.extend(fallback.completed)
         failed.extend(fallback.failed)
@@ -863,7 +845,6 @@ def _run_dataset_group_preview(
     materializer: Materializer,
     *,
     preview_limit: int,
-    redact: bool,
 ) -> PreviewResult:
     parent_table = materializer.entity(dataset_ref)
     projections: list[Any] = []
@@ -888,7 +869,6 @@ def _run_dataset_group_preview(
         kind="semantic_dataset",
         ref=dataset_ref,
         limit=preview_limit,
-        redact=redact,
         sample_policy=PreviewSamplePolicy(
             method="bounded_limit",
             limit=preview_limit,
@@ -901,7 +881,6 @@ def _run_metric_preview(
     materializer: Materializer,
     *,
     preview_limit: int,
-    redact: bool,
 ) -> PreviewResult:
     metric_value = materializer.metric(ref)
     result = preview_ibis_value(
@@ -910,7 +889,6 @@ def _run_metric_preview(
         ref=ref,
         limit=preview_limit,
         column_name="value",
-        redact=redact,
         sample_policy=PreviewSamplePolicy(
             method="pre_aggregate_limit",
             limit=preview_limit,
@@ -945,7 +923,6 @@ def _run_serial_semantic_previews(
     backend_factory: Callable[[str], Any],
     *,
     preview_limit: int,
-    redact: bool,
 ) -> _SemanticPreviewRun:
     completed: list[str] = []
     failed: list[str] = []
@@ -964,7 +941,6 @@ def _run_serial_semantic_previews(
                 kind,
                 backend_factory,
                 limit=preview_limit,
-                redact=redact,
             )
         except Exception as exc:
             blockers.append(_semantic_preview_blocker(ref, kind, exc))
@@ -972,7 +948,6 @@ def _run_serial_semantic_previews(
         else:
             completed.append(ref)
             preview_warnings.extend(preview.warnings)
-            warnings.extend(_sensitive_preview_warnings((ref,), preview.warnings))
 
     return _SemanticPreviewRun(
         completed=tuple(completed),
@@ -995,27 +970,6 @@ def _semantic_preview_blocker(
         f"Semantic preview failed for {ref}: {exc}",
         "Fix the semantic object and rerun the bounded preview.",
     )
-
-
-def _sensitive_preview_warnings(
-    refs: Iterable[str],
-    preview_warnings: Iterable[PreviewWarning],
-) -> tuple[ReadinessIssue, ...]:
-    warnings: list[ReadinessIssue] = []
-    for warning in preview_warnings:
-        if warning.kind != "redacted_column":
-            continue
-        for ref in refs:
-            warnings.append(
-                _issue(
-                    "sensitive_preview_column",
-                    "warning",
-                    (ref,),
-                    f"Preview for {ref} redacted sensitive columns: {', '.join(warning.columns)}.",
-                    "Keep preview rows out of semantic definitions and avoid exposing sensitive values in handoff notes.",
-                )
-            )
-    return tuple(warnings)
 
 
 def _decision_record_refs(project: SemanticProject) -> tuple[str, ...]:
@@ -1064,7 +1018,6 @@ def build_readiness_report(
     preview_limit: int = 20,
     parity_rel_tol: float | None = None,
     parity_abs_tol: float | None = None,
-    redact: bool = True,
 ) -> ReadinessReport:
     preview_limit = validate_preview_limit(preview_limit)
     # Unpack evidence into local variables used throughout the function body.
@@ -1192,7 +1145,6 @@ def build_readiness_report(
                     database=database,
                     backend_factory=backend_factory,
                     preview_limit=preview_limit,
-                    redact=redact,
                 )
             except Exception as exc:
                 blockers.append(
@@ -1208,7 +1160,6 @@ def build_readiness_report(
             else:
                 completed_previews.append(ref)
                 preview_warnings.extend(preview.warnings)
-                warnings.extend(_sensitive_preview_warnings(issue_refs, preview.warnings))
 
         semantic_preview_run = _run_semantic_previews(
             project,
@@ -1217,7 +1168,6 @@ def build_readiness_report(
             objects,
             backend_factory,
             preview_limit=preview_limit,
-            redact=redact,
         )
         completed_previews.extend(semantic_preview_run.completed)
         failed_previews.extend(semantic_preview_run.failed)

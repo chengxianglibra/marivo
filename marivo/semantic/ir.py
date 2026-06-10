@@ -183,7 +183,6 @@ EntitySourceIR = TableSourceIR | FileSourceIR
 @dataclass(frozen=True)
 class MetadataOnlyPolicyIR:
     timeout_seconds: int | None = None
-    redact: bool = True
     kind: Literal["metadata_only"] = "metadata_only"
 
 
@@ -192,7 +191,6 @@ class BoundedProfilePolicyIR:
     limit: int
     timeout_seconds: int | None = None
     max_profiled_columns: int | None = None
-    redact: bool = True
     kind: Literal["bounded_profile"] = "bounded_profile"
 
 
@@ -202,7 +200,6 @@ class SelectedColumnsPolicyIR:
     columns: tuple[str, ...]
     timeout_seconds: int | None = None
     max_profiled_columns: int | None = None
-    redact: bool = True
     kind: Literal["selected_columns_profile"] = "selected_columns_profile"
 
 

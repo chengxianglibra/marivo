@@ -787,7 +787,6 @@ class SemanticProject:
         columns: Iterable[str] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
-        redact: bool = True,
     ) -> PreviewResult:
         """Collect a bounded raw preview for a datasource table source.
 
@@ -819,7 +818,6 @@ class SemanticProject:
             limit=limit,
             sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
             include_types=include_types,
-            redact=redact,
         )
         from datetime import UTC, datetime
 
@@ -861,7 +859,6 @@ class SemanticProject:
         backend_factory: Callable[[str], Any] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
-        redact: bool = True,
     ) -> PreviewResult:
         """Return a bounded preview of a semantic dataset."""
         factory = self._resolve_backend_factory(backend_factory)
@@ -874,7 +871,6 @@ class SemanticProject:
             limit=limit,
             sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
             include_types=include_types,
-            redact=redact,
         )
 
     def preview_field(
@@ -885,7 +881,6 @@ class SemanticProject:
         limit: int = PREVIEW_DEFAULT_LIMIT,
         context_columns: Iterable[str] | None = None,
         include_types: bool = True,
-        redact: bool = True,
     ) -> PreviewResult:
         """Return a bounded preview of a semantic field with parent dataset context."""
         factory = self._resolve_backend_factory(backend_factory)
@@ -933,7 +928,6 @@ class SemanticProject:
             limit=limit,
             sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
             include_types=include_types,
-            redact=redact,
         )
 
     def preview_metric(
@@ -943,7 +937,6 @@ class SemanticProject:
         backend_factory: Callable[[str], Any] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
-        redact: bool = True,
     ) -> PreviewResult:
         """Return a bounded preview of a semantic metric.
 
@@ -964,7 +957,6 @@ class SemanticProject:
             column_name="value",
             sample_policy=PreviewSamplePolicy(method="pre_aggregate_limit", limit=limit),
             include_types=include_types,
-            redact=redact,
         )
         result_with_warning = PreviewResult(
             kind=result.kind,
@@ -1096,7 +1088,6 @@ class SemanticProject:
         preview_limit: int = 20,
         parity_rel_tol: float | None = None,
         parity_abs_tol: float | None = None,
-        redact: bool = True,
     ) -> ReadinessReport:
         """Return a structured semantic readiness report.
 
@@ -1119,7 +1110,6 @@ class SemanticProject:
             preview_limit=preview_limit,
             parity_rel_tol=parity_rel_tol,
             parity_abs_tol=parity_abs_tol,
-            redact=redact,
         )
 
     # -- richness -----------------------------------------------------------
@@ -1189,7 +1179,6 @@ class SemanticProject:
                 database=source.database,
                 backend_factory=factory,
                 limit=min(sample_policy.limit, PREVIEW_MAX_LIMIT),
-                redact=sample_policy.redact,
             )
         if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)):
             for ds in self._datasets_by_source(datasource, source):

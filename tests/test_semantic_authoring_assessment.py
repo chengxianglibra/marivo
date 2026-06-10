@@ -44,7 +44,6 @@ def _source_pack(
         ),
         metadata_warnings=(),
         sample_policy=MetadataOnlyPolicy(),
-        redaction_status="redacted",
         truncated=False,
     )
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
@@ -19,7 +18,6 @@ PreviewKind = Literal[
 ]
 
 PreviewWarningKind = Literal[
-    "redacted_column",
     "wide_table",
     "null_heavy_column",
     "constant_column",
@@ -36,22 +34,6 @@ PREVIEW_MAX_LIMIT = 100
 METRIC_PREVIEW_SAMPLE_SIZE = 10_000
 _PREVIEW_MIN_LIMIT = 1
 _WIDE_TABLE_THRESHOLD = 50
-
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_PHONE_RE = re.compile(r"^\+?[0-9][0-9 .()/-]{6,}[0-9]$")
-_SENSITIVE_COLUMN_TOKENS = (
-    "api_key",
-    "auth",
-    "credential",
-    "email",
-    "mobile",
-    "passwd",
-    "password",
-    "phone",
-    "secret",
-    "ssn",
-    "token",
-)
 
 
 class PreviewFilter(TypedDict, total=False):
@@ -172,25 +154,6 @@ def normalize_preview_cell(value: Any) -> object:
     return value
 
 
-def _is_sensitive_column(column: str) -> bool:
-    lowered = column.lower()
-    return any(token in lowered for token in _SENSITIVE_COLUMN_TOKENS)
-
-
-def _looks_sensitive_value(value: object) -> bool:
-    if not isinstance(value, str):
-        return False
-    return bool(_EMAIL_RE.match(value) or _PHONE_RE.match(value))
-
-
-def _redact_cell(column: str, value: object) -> tuple[object, bool]:
-    if value is None:
-        return None, False
-    if _is_sensitive_column(column) or _looks_sensitive_value(value):
-        return "[redacted]", True
-    return value, False
-
-
 def _types_from_dataframe(
     dataframe: pd.DataFrame,
     display_columns: Sequence[str],
@@ -213,23 +176,16 @@ def preview_from_pandas(
     sample_policy: PreviewSamplePolicy,
     types: Mapping[str, str] | None = None,
     warnings: Iterable[PreviewWarning] = (),
-    redact: bool = True,
 ) -> PreviewResult:
     limit = validate_preview_limit(requested_limit)
     display_columns = display_column_names(dataframe.columns)
     source = dataframe.head(limit)
-    redacted_columns: set[str] = set()
     rows: list[dict[str, object]] = []
 
     for row in source.itertuples(index=False, name=None):
         out_row: dict[str, object] = {}
         for column, value in zip(display_columns, row, strict=True):
-            normalized = normalize_preview_cell(value)
-            if redact:
-                normalized, was_redacted = _redact_cell(column, normalized)
-                if was_redacted:
-                    redacted_columns.add(column)
-            out_row[column] = normalized
+            out_row[column] = normalize_preview_cell(value)
         rows.append(out_row)
 
     result_warnings = list(warnings)
@@ -245,15 +201,6 @@ def preview_from_pandas(
         result_warnings.append(
             PreviewWarning(kind="empty_preview", message="preview returned no rows")
         )
-    for column in display_columns:
-        if column in redacted_columns:
-            result_warnings.append(
-                PreviewWarning(
-                    kind="redacted_column",
-                    message=f"values in column {column!r} were redacted",
-                    columns=(column,),
-                )
-            )
 
     return PreviewResult(
         kind=kind,
@@ -277,7 +224,6 @@ def preview_ibis_table(
     limit: int,
     sample_policy: PreviewSamplePolicy,
     include_types: bool = True,
-    redact: bool = True,
 ) -> PreviewResult:
     limit = validate_preview_limit(limit)
     dataframe = table.limit(limit + 1).execute()
@@ -291,7 +237,6 @@ def preview_ibis_table(
         requested_limit=limit,
         sample_policy=sample_policy,
         types=schema_types,
-        redact=redact,
     )
 
 
@@ -304,7 +249,6 @@ def preview_ibis_value(
     column_name: str,
     sample_policy: PreviewSamplePolicy,
     include_types: bool = True,
-    redact: bool = True,
 ) -> PreviewResult:
     named_value = value.name(column_name) if callable(getattr(value, "name", None)) else value
     table = named_value.as_table()
@@ -315,5 +259,4 @@ def preview_ibis_value(
         limit=limit,
         sample_policy=sample_policy,
         include_types=include_types,
-        redact=redact,
     )

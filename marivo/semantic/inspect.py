@@ -199,7 +199,6 @@ def collect_source_evidence(
         column_profiles=column_profiles,
         metadata_warnings=tuple(metadata_warnings),
         sample_policy=sample_policy,
-        redaction_status="redacted" if sample_policy.redact else "not_redacted",
         truncated=truncated,
     )
 

@@ -100,11 +100,10 @@ def test_authoring_source_role_is_finite_public_vocabulary():
 
 
 def test_metadata_only_policy_round_trips_through_ir():
-    policy = MetadataOnlyPolicy(timeout_seconds=30, redact=False)
+    policy = MetadataOnlyPolicy(timeout_seconds=30)
     ir = policy.to_ir()
     assert isinstance(ir, MetadataOnlyPolicyIR)
     assert ir.timeout_seconds == 30
-    assert ir.redact is False
 
 
 def test_bounded_profile_policy_round_trips_through_ir():

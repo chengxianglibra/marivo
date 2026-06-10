@@ -132,8 +132,8 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
             failed_previews=(),
             warnings=(
                 PreviewWarning(
-                    kind="redacted_column",
-                    message="values were redacted",
+                    kind="empty_preview",
+                    message="preview returned no rows",
                     columns=("email",),
                 ),
             ),
@@ -184,8 +184,8 @@ def test_readiness_report_target_fields_are_json_safe() -> None:
             failed_previews=(),
             warnings=(
                 PreviewWarning(
-                    kind="redacted_column",
-                    message="values were redacted",
+                    kind="empty_preview",
+                    message="preview returned no rows",
                     columns=("email",),
                 ),
             ),
@@ -240,7 +240,6 @@ def test_project_readiness_accepts_target_closeout_arguments(
         demand=None,
         preview_limit=20,
         parity_rel_tol=1e-6,
-        redact=True,
     )
 
     assert report.input_summary.refs == ("sales.orders",)
