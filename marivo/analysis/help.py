@@ -89,25 +89,6 @@ _SUMMARIES: dict[str, str] = {
     "FrameSummaryEntry": "summary metadata for a persisted analysis frame",
     "ExplorationResult": "exploration result frame",
     "HypothesisTestResult": "statistical test result frame",
-    "DataPolicy": "row-level data inclusion policy for a report package",
-    "Dataset": "a named dataset with metadata, rows, and optional provenance",
-    "DatasetMetadata": "metadata for a report dataset (grain, row count, provenance)",
-    "Flow": "ordered list of analysis steps that produced a report artifact",
-    "FlowStep": "a single step in the analysis flow of a report artifact",
-    "GroundedClaim": "a claim in a report grounded to evidence, steps, or datasets",
-    "Grounding": "collection of grounded claims for a report artifact",
-    "MarivoReportArtifact": "top-level report artifact with manifest, spec, flow, grounding, and datasets",
-    "McpAdapterMetadata": "MCP adapter materialization metadata for a report package",
-    "ReportBlock": "a content block within a report section",
-    "ReportChartSpec": "chart specification within a report block",
-    "ReportColumn": "column definition for a table or dataset within a report",
-    "ReportManifest": "report package manifest (id, version, title, hashes)",
-    "ReportMetric": "a metric value reference within a report block",
-    "ReportPackageValidationIssue": "a single validation issue found in a report package",
-    "ReportPackageValidationResult": "result of validating a report package",
-    "ReportSection": "a section within a report spec",
-    "ReportSpec": "report structure specification (title and sections)",
-    "SourceProvenance": "source provenance metadata for a dataset or artifact",
 }
 
 _SEE_ALSO: dict[str, tuple[str, ...]] = {
@@ -115,12 +96,6 @@ _SEE_ALSO: dict[str, tuple[str, ...]] = {
     "DeltaFrame": ("mv.help('compare')", "mv.help('decompose')"),
     "CandidateSet": ("mv.help('discover')", "mv.help('select')"),
     "AlignmentPolicy": ("mv.help('alignment')", "mv.help('calendar')"),
-    "MarivoReportArtifact": (
-        "mv.help('ReportManifest')",
-        "mv.help('ReportSpec')",
-    ),
-    "ReportManifest": ("mv.help('MarivoReportArtifact')",),
-    "ReportSpec": ("mv.help('MarivoReportArtifact')",),
 }
 
 

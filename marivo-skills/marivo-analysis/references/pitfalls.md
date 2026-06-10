@@ -84,6 +84,22 @@ become a canonical frame.
 `semantic_model="sales"`. For delta and attribution promotion, include source
 artifact refs such as `mv.ArtifactRef("frame_delta")`.
 
+No metadata is auto-inferred: every required field comes from an explicit
+argument or a `mv.PromotionPolicy(semantic_anchors=...)` fallback.
+
+**Cause (catalog miss):** The error details contain
+`metric_not_in_catalog:<id>`. The session has a ready semantic catalog with
+metrics defined, and the promoted metric id is not one of them.
+
+**Action:** Read `available_metric_ids` from the error details, or list the
+catalog and re-promote with a defined metric id:
+
+```python
+import marivo.semantic as ms
+catalog = ms.load()
+catalog.list(kind="metric").show()
+```
+
 ## No active session
 
 **Symptom:**

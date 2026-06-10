@@ -262,5 +262,7 @@ def test_candidate_set_meta_accepts_all_six_shapes() -> None:
         assert meta.strategy == strategy
 
 
-def test_candidate_shape_alias_exported() -> None:
-    assert hasattr(mv, "CandidateShape")
+def test_candidate_shape_importable_from_submodule() -> None:
+    from marivo.analysis.frames.candidate import CandidateShape
+
+    assert CandidateShape is not None
