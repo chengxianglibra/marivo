@@ -41,9 +41,6 @@ from marivo.analysis.policies import (
     SamplingPolicy,
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
-from marivo.analysis.session._introspection import (
-    install_intent_docstrings as _install_intent_docstrings,
-)
 from marivo.analysis.session.attach import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary, Session
 from marivo.analysis.windows.spec import (
@@ -125,9 +122,3 @@ __all__ = [
     "publish",
     "session",
 ]
-
-
-# Mirror intent docstrings onto Session.observe/compare/... so help() and IPython
-# `?` surface them. Real type annotations live in core.py source; only the
-# docstring text is copied here (authored once on the intent functions).
-_install_intent_docstrings()

@@ -11,7 +11,7 @@ from pytest import CaptureFixture
 
 import marivo.analysis as mv
 from marivo.analysis.errors import SemanticKindMismatchError
-from marivo.analysis.intents.compare import compare as compare_fn
+from marivo.analysis.session.core import Session
 from marivo.introspection.surface import render
 
 
@@ -87,8 +87,8 @@ def test_execution_operators_remain_help_only() -> None:
 def test_help_for_intent_includes_signature_and_docstring() -> None:
     out = _capture("compare")
     assert "compare(" in out
-    first_doc_line = (inspect.getdoc(compare_fn) or "").strip().splitlines()[0]
-    assert first_doc_line, "compare should have a non-empty docstring"
+    first_doc_line = (inspect.getdoc(Session.compare) or "").strip().splitlines()[0]
+    assert first_doc_line, "Session.compare should have a non-empty docstring"
     assert first_doc_line in out
 
 
@@ -105,19 +105,19 @@ def test_help_for_transform_and_discover_lists_namespace_methods() -> None:
 
 
 def test_help_for_intent_does_not_mutate_callable_docstring() -> None:
-    original_doc = compare_fn.__doc__
-    compare_fn.__doc__ = None
+    original_doc = Session.compare.__doc__
+    Session.compare.__doc__ = None
 
     try:
         out = _capture("compare")
 
-        assert compare_fn.__doc__ is None
-        module = inspect.getmodule(compare_fn)
+        assert Session.compare.__doc__ is None
+        module = inspect.getmodule(Session.compare)
         assert module is not None
         first_doc_line = (inspect.getdoc(module) or "").strip().splitlines()[0]
         assert first_doc_line not in out
     finally:
-        compare_fn.__doc__ = original_doc
+        Session.compare.__doc__ = original_doc
 
 
 def test_help_for_exception_class_resolves_by_name() -> None:

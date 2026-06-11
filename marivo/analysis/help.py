@@ -596,17 +596,17 @@ def _resolve(symbol: str) -> object | None:
     if hasattr(errors_mod, symbol):
         return cast("object", getattr(errors_mod, symbol))
     if symbol == "observe":
-        from marivo.analysis.intents.observe import observe
+        from marivo.analysis.session.core import Session
 
-        return observe
+        return Session.observe
     if symbol == "compare":
-        from marivo.analysis.intents.compare import compare
+        from marivo.analysis.session.core import Session
 
-        return compare
+        return Session.compare
     if symbol == "decompose":
-        from marivo.analysis.intents.decompose import decompose
+        from marivo.analysis.session.core import Session
 
-        return decompose
+        return Session.decompose
     if symbol == "discover":
         from marivo.analysis.intents.discover import discover
 
@@ -620,21 +620,21 @@ def _resolve(symbol: str) -> object | None:
 
         return select
     if symbol == "correlate":
-        from marivo.analysis.intents.correlate import correlate
+        from marivo.analysis.session.core import Session
 
-        return correlate
+        return Session.correlate
     if symbol == "forecast":
-        from marivo.analysis.intents.forecast import forecast
+        from marivo.analysis.session.core import Session
 
-        return forecast
+        return Session.forecast
     if symbol == "assess_quality":
-        from marivo.analysis.intents.assess_quality import assess_quality
+        from marivo.analysis.session.core import Session
 
-        return assess_quality
+        return Session.assess_quality
     if symbol == "hypothesis_test":
-        from marivo.analysis.intents.test import hypothesis_test
+        from marivo.analysis.session.core import Session
 
-        return hypothesis_test
+        return Session.hypothesis_test
     return None
 
 

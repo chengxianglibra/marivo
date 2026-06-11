@@ -1104,6 +1104,13 @@ class SessionDiscoverNamespace:
         threshold: float | None = None,
         limit: int | None = None,
     ) -> CandidateSet:
+        """Find dimension slices with notable values.
+
+        Accepts a MetricFrame or DeltaFrame. Optionally narrow the search
+        with ``search_space``; otherwise all available dimensions are probed.
+        ``threshold`` is an absolute z-score for MetricFrame (|z| >= threshold)
+        or absolute delta value for DeltaFrame; default 2.0.
+        """
         from marivo.analysis.intents.discover import discover
 
         return discover.interesting_slices(
@@ -1122,6 +1129,12 @@ class SessionDiscoverNamespace:
         value: str | None = None,
         threshold: float | None = None,
     ) -> CandidateSet:
+        """Find time windows with notable behavior.
+
+        Source must have time_series or panel shape. Returns windows where
+        the metric exhibits significant trends, level shifts, or volatility.
+        ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 2.0.
+        """
         from marivo.analysis.intents.discover import discover
 
         return discover.interesting_windows(
@@ -1139,6 +1152,14 @@ class SessionDiscoverNamespace:
         value: str | None = None,
         threshold: float | None = None,
     ) -> CandidateSet:
+        """Find segments that are outliers compared to their peers.
+
+        Source must be a MetricFrame with segmented or panel shape.
+        ``peer_scope`` defines the grouping for peer comparison; defaults to
+        all non-time axes.
+        ``threshold`` is a robust z-score cutoff using MAD
+        (|robust_z| >= threshold); default 3.0.
+        """
         from marivo.analysis.intents.discover import discover
 
         return discover.cross_sectional_outliers(
@@ -1157,16 +1178,31 @@ class SessionTransformNamespace:
     _session: Session
 
     def filter(self, frame: object, *, predicate: Callable[[Any], Any]) -> MetricFrame | DeltaFrame:
+        """Filter rows using a predicate function.
+
+        The predicate receives the underlying DataFrame and must return a
+        boolean Series of the same length.
+        """
         from marivo.analysis.intents.transform import transform
 
         return transform.filter(frame, predicate=predicate, session=self._session)
 
     def slice(self, frame: object, *, where: dict[DimensionRef, Any]) -> MetricFrame | DeltaFrame:
+        """Filter rows by exact axis values.
+
+        ``where`` maps ``mv.DimensionRef(...)`` axes to the value(s) to keep.
+        Unlike ``filter``, operates on raw axis values without a callable.
+        """
         from marivo.analysis.intents.transform import transform
 
         return transform.slice(frame, where=where, session=self._session)
 
     def rollup(self, frame: object, *, drop_axes: list[DimensionRef]) -> MetricFrame | DeltaFrame:
+        """Aggregate to coarser segments by dropping axes.
+
+        Removes the listed ``mv.DimensionRef(...)`` dimensions and re-aggregates
+        measures over the remaining axes.
+        """
         from marivo.analysis.intents.transform import transform
 
         return transform.rollup(frame, drop_axes=drop_axes, session=self._session)
@@ -1179,6 +1215,11 @@ class SessionTransformNamespace:
         limit: int,
         order: str | None = None,
     ) -> MetricFrame | DeltaFrame:
+        """Keep the top N rows ranked by a measure column.
+
+        ``order`` defaults to ``"decrease"`` (largest first). Use
+        ``"increase"`` to select the smallest values instead.
+        """
         from marivo.analysis.intents.transform import transform
 
         return transform.topk(
@@ -1190,6 +1231,11 @@ class SessionTransformNamespace:
         )
 
     def bottomk(self, frame: object, *, by: str, limit: int) -> MetricFrame | DeltaFrame:
+        """Keep the bottom N rows ranked by a measure column.
+
+        Equivalent to ``topk(..., order="increase")``. Returns the rows with
+        the smallest values in the ``by`` column.
+        """
         from marivo.analysis.intents.transform import transform
 
         return transform.bottomk(frame, by=by, limit=limit, session=self._session)
@@ -1202,6 +1248,11 @@ class SessionTransformNamespace:
         method: str = "ordinal",
         rank_column: str = "rank",
     ) -> MetricFrame | DeltaFrame:
+        """Add a rank column ordered by a measure.
+
+        ``method`` controls tie-breaking: ``"ordinal"``, ``"dense"``,
+        ``"min"``, or ``"max"``. The new column is named ``rank_column``.
+        """
         from marivo.analysis.intents.transform import transform
 
         return transform.rank(
@@ -1219,6 +1270,12 @@ class SessionTransformNamespace:
         mode: NormalizeKind,
         baseline: object | None = None,
     ) -> MetricFrame:
+        """Convert measure values to a normalized form (MetricFrame only).
+
+        Supported modes: ``"index"``, ``"share"``, ``"pct_change"``,
+        ``"per_unit"``, ``"z_score"``. ``baseline`` sets the reference point
+        when required by the mode.
+        """
         from marivo.analysis.intents.transform import transform
 
         return transform.normalize(
@@ -1229,6 +1286,12 @@ class SessionTransformNamespace:
         )
 
     def window(self, frame: object, *, window: object) -> MetricFrame | DeltaFrame:
+        """Restrict a frame to a time window.
+
+        ``window`` is an ``AbsoluteWindow`` or compatible specification that
+        defines the start/end bounds. The returned frame contains only rows
+        within those bounds, preserving the original frame kind.
+        """
         from marivo.analysis.intents.transform import transform
 
         return transform.window(frame, window=window, session=self._session)

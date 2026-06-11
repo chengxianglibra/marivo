@@ -59,39 +59,6 @@ def hypothesis_test(
     alpha: float = 0.05,
     session: Session | None = None,
 ) -> HypothesisTestResult:
-    """Run a paired hypothesis test over two compatible MetricFrames.
-
-    When to use: statistically validate whether a metric changed between two periods.
-
-    v1 only supports ``hypothesis="mean_changed"`` under ``window_bucket``
-    alignment. Scalar MetricFrames are not testable. ``a`` and ``b`` must share
-    ``semantic_kind`` and ``semantic_model``; ``sampling.pairing`` must match
-    the frame shape (``segment_key`` for segmented, ``window_bucket`` for
-    time_series / panel).
-
-    Args:
-        a: Current MetricFrame.
-        b: Baseline MetricFrame.
-        hypothesis: Only ``"mean_changed"`` in v1.
-        value_a: Numeric column on ``a``. Defaults to the frame's measure column.
-        value_b: Numeric column on ``b``. Defaults to the frame's measure column.
-        alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``.
-        sampling: Defaults to ``SamplingPolicy()`` (pairing inferred from shape).
-        alpha: Significance level in (0, 0.5].
-        session: Defaults to the currently-attached session.
-
-    Raises:
-        SemanticKindMismatchError: Inputs are not MetricFrames, or differ in
-            ``semantic_kind`` / ``semantic_model``.
-        TestPolicyError: ``hypothesis`` / ``alpha`` / ``alignment.kind`` is unsupported.
-        TestAlignmentError: Frames cannot be paired under the alignment.
-        TestShapeNotTestableError: Frame shape is scalar or otherwise untestable.
-        CrossSessionFrameError: A frame belongs to a different session.
-
-    Example:
-        >>> result = session.hypothesis_test(cur, base)
-        >>> result.summary()
-    """
     session = resolve_session(session)
     ensure_session_writable(session)
     if not isinstance(a, MetricFrame) or not isinstance(b, MetricFrame):
