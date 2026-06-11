@@ -1,12 +1,11 @@
-"""Session intent methods mirror their intent function's doc and public signature.
+"""Session intent methods carry real docstrings and match intent public signatures.
 
 The agent-facing execution surface is ``session.observe`` / ``compare`` / ... .
-Those methods delegate to the intent functions in ``marivo.analysis.intents.*``,
-which own the canonical docstring and typed signature. This guards that the
-methods stay self-documenting (real types written in ``core.py`` source plus the
-docstring mirrored at import time) and never drift from the intent functions they
-forward to. The methods intentionally hide the plumbing parameters ``session`` and
-``_triggered_by``.
+Those methods delegate to the intent functions in ``marivo.analysis.intents.*``.
+Docstrings are authored directly on the Session methods in ``core.py``; this
+guards that they exist and that the method signatures stay aligned with the
+intent functions they forward to. The methods intentionally hide the plumbing
+parameters ``session`` and ``_triggered_by``.
 """
 
 from __future__ import annotations
@@ -17,21 +16,34 @@ from typing import Any
 import pytest
 
 import marivo.analysis.intents as intents
-from marivo.analysis.session._introspection import intent_method_bindings
-from marivo.analysis.session.core import Session
+from marivo.analysis.session.core import (
+    Session,
+    SessionDiscoverNamespace,
+    SessionTransformNamespace,
+)
 
 _HIDDEN = {"self", "session", "_triggered_by"}
 
-# Single registry shared with the installer; pairing the method object with its
-# intent function keeps this test and ``install_intent_docstrings`` in lockstep.
-_CASES = [
-    pytest.param(getattr(Session, method_name), intent, id=method_name)
-    for method_name, intent in intent_method_bindings().items()
-]
-
-# ``intents.__all__`` exports the hypothesis test as ``test``; Session exposes it
-# as ``hypothesis_test``. Everything else maps to a method by identity.
 _INTENT_TO_METHOD = {"test": "hypothesis_test"}
+
+# Discover and transform are exposed as namespace properties, not plain methods.
+_NAMESPACE_CLASSES = (SessionDiscoverNamespace, SessionTransformNamespace)
+
+
+def _delegating_methods() -> list[tuple[str, Any, Any]]:
+    """Return (method_name, session_method, intent_function) for each delegating surface method."""
+    results: list[tuple[str, Any, Any]] = []
+    for intent_name in intents.__all__:
+        intent_func = getattr(intents, intent_name)
+        method_name = _INTENT_TO_METHOD.get(intent_name, intent_name)
+        member = inspect.getattr_static(Session, method_name, None)
+        if not inspect.isfunction(member):
+            continue
+        results.append((method_name, member, intent_func))
+    return results
+
+
+_CASES = [pytest.param(method, intent, id=name) for name, method, intent in _delegating_methods()]
 
 
 def _public_params(func: Any) -> dict[str, inspect.Parameter]:
@@ -43,10 +55,9 @@ def _public_params(func: Any) -> dict[str, inspect.Parameter]:
 
 
 @pytest.mark.parametrize(("method", "intent"), _CASES)
-def test_doc_mirrors_intent(method: Any, intent: Any) -> None:
+def test_method_has_docstring(method: Any, intent: Any) -> None:
     method_doc = inspect.getdoc(method)
     assert method_doc, f"{method.__name__} has no docstring"
-    assert method_doc == inspect.getdoc(intent)
 
 
 @pytest.mark.parametrize(("method", "intent"), _CASES)
@@ -71,22 +82,29 @@ def test_signature_matches_intent_public_params(method: Any, intent: Any) -> Non
     assert method_return != "Any"
 
 
-def test_every_method_backed_intent_is_registered() -> None:
-    """A new intent exposed as a plain Session method must be registered for mirroring.
+def test_discover_namespace_methods_have_docstrings() -> None:
+    for name in (
+        "point_anomalies",
+        "period_shifts",
+        "driver_axes",
+        "interesting_slices",
+        "interesting_windows",
+        "cross_sectional_outliers",
+    ):
+        method = getattr(SessionDiscoverNamespace, name)
+        assert inspect.getdoc(method), f"SessionDiscoverNamespace.{name} has no docstring"
 
-    Guards the drift where someone adds an intent plus its delegating method but
-    forgets ``intent_method_bindings``; without this the method would ship a blank
-    docstring and nothing else would fail.
-    """
 
-    registered = set(intent_method_bindings())
-    for intent_name in intents.__all__:
-        method_name = _INTENT_TO_METHOD.get(intent_name, intent_name)
-        member = inspect.getattr_static(Session, method_name, None)
-        # discover / transform surface as namespace properties, not delegators.
-        if not inspect.isfunction(member):
-            continue
-        assert method_name in registered, (
-            f"Session.{method_name} delegates to intent {intent_name!r} but is missing "
-            f"from intent_method_bindings(); its docstring will not be mirrored."
-        )
+def test_transform_namespace_methods_have_docstrings() -> None:
+    for name in (
+        "filter",
+        "slice",
+        "rollup",
+        "topk",
+        "bottomk",
+        "rank",
+        "normalize",
+        "window",
+    ):
+        method = getattr(SessionTransformNamespace, name)
+        assert inspect.getdoc(method), f"SessionTransformNamespace.{name} has no docstring"

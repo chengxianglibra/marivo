@@ -864,54 +864,6 @@ def observe(
     expect_shape: SemanticShape | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
-    """Materialize a metric into a typed MetricFrame.
-
-    When to use: starting point for any metric analysis workflow.
-
-    Resolves ``metric`` against the active semantic project, applies the
-    optional ``timescope`` / ``grain`` / ``dimensions`` / ``where`` filters, executes against
-    the session's backend, and persists the result as a MetricFrame on disk.
-
-    Args:
-        metric: Wrap the registered metric id with ``mv.MetricRef("<domain>.<metric>")``.
-            Bare strings are rejected.
-        timescope: Half-open time range ``{"start": ..., "end": ...}`` — start is
-            inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
-            means data from August 1 is **not** included.
-        grain: Optional time bucket grain. When present, observe returns a time
-            series or panel depending on ``dimensions``.
-        dimensions: Segment axes. In v1 all dimensions must resolve to the same
-            entity as ``metric``.
-        where: Pre-aggregation row filter. Keys are ``mv.DimensionRef(...)`` for
-            the filtered dimension; values are either a scalar (``==``), a list
-            (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
-            ``==, !=, in, >, >=, <, <=, between``.
-        time_dimension: Pick the entity time axis as
-            ``mv.DimensionRef("<time_dimension>")`` when an entity declares multiple
-            ``@ms.time_dimension`` columns. Omit when the entity has a single (or
-            default) time dimension.
-        expect_shape: Optional guard. If set, observe predicts the output shape
-            from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
-            before any backend work when the prediction differs.
-        session: Defaults to the currently-attached session.
-
-    Raises:
-        MetricNotFoundError: The metric id is unknown or not ``<domain>.<metric>``.
-        SemanticKindMismatchError: ``metric`` is not a ``MetricRef``, ``time_dimension``
-            is not a ``DimensionRef``, or a ``where`` key is not a ``DimensionRef``.
-        ObservePlanningError: Planning failed (e.g. cross-datasource plan, missing
-            path, ambiguous dimension). Check ``details["code"]`` for the specific
-            error code.
-
-    Example:
-        >>> frame = session.observe(
-        ...     mv.MetricRef("sales.revenue"),
-        ...     timescope={"start": "2026-07-01", "end": "2026-10-01"},
-        ...     grain="day",
-        ...     dimensions=[mv.DimensionRef("country")],
-        ... )
-        >>> frame.summary()
-    """
     if session is None:
         session = session_active()
     ensure_session_writable(session)

@@ -442,34 +442,6 @@ def compare(
     alignment: AlignmentPolicy | None = None,
     session: Session | None = None,
 ) -> DeltaFrame:
-    """Compute the typed delta between two MetricFrames (current minus baseline).
-
-    When to use: quantify change between two periods; produces a DeltaFrame for decompose or discover.
-
-    The two frames must share ``metric_id`` and ``semantic_kind``. ``segmented``
-    frames must share segment columns; ``panel`` frames must share grain.
-
-    Args:
-        current: Current-period MetricFrame.
-        baseline: Baseline-period MetricFrame.
-        alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``. For
-            ``segmented`` frames, only ``window_bucket`` is supported in v1.
-        session: Defaults to the currently-attached session. Both frames must
-            belong to it.
-
-    Raises:
-        SemanticKindMismatchError: Different ``metric_id``, ``semantic_kind``, or
-            ``current``/``baseline`` is not a MetricFrame.
-        SegmentDimensionMismatchError: ``segmented`` frames disagree on segment columns.
-        PanelGrainMismatchError: ``panel`` frames disagree on time grain.
-        AlignmentPolicyNotApplicableError: Alignment kind incompatible with the frame shape.
-        CrossSessionFrameError: A frame belongs to a different session.
-
-    Example:
-        >>> cur  = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
-        >>> base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
-        >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
-    """
     if session is None:
         session = session_active()
     ensure_session_writable(session)

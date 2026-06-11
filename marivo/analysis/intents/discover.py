@@ -351,12 +351,6 @@ class DiscoverAPI:
         threshold: float | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
-        """Find time-series points with unusual values.
-
-        Source must be a MetricFrame with time_series or panel shape.
-        ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 3.0.
-        Lower values flag more candidates.
-        """
         return _discover_dispatch(
             source,
             objective="point_anomalies",
@@ -373,13 +367,6 @@ class DiscoverAPI:
         threshold: float | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
-        """Find period-shift candidates from a DeltaFrame.
-
-        Requires at least four time buckets in a time-series delta, or at least
-        one panel series with four time buckets.
-        ``threshold`` is an absolute z-score cutoff on rolling window means
-        (|z| >= threshold); default 2.0.
-        """
 
         return _discover_dispatch(
             source,
@@ -398,11 +385,6 @@ class DiscoverAPI:
         limit: int | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
-        """Find dimensions that explain a delta.
-
-        Source must be a DeltaFrame. ``search_space`` is required and lists
-        the candidate dimensions to evaluate for explanatory power.
-        """
         return _discover_dispatch(
             source,
             objective="driver_axes",
@@ -422,13 +404,6 @@ class DiscoverAPI:
         limit: int | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
-        """Find dimension slices with notable values.
-
-        Accepts a MetricFrame or DeltaFrame. Optionally narrow the search
-        with ``search_space``; otherwise all available dimensions are probed.
-        ``threshold`` is an absolute z-score for MetricFrame (|z| >= threshold)
-        or absolute delta value for DeltaFrame; default 2.0.
-        """
         return _discover_dispatch(
             source,
             objective="interesting_slices",
@@ -447,12 +422,6 @@ class DiscoverAPI:
         threshold: float | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
-        """Find time windows with notable behavior.
-
-        Source must have time_series or panel shape. Returns windows where
-        the metric exhibits significant trends, level shifts, or volatility.
-        ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 2.0.
-        """
         return _discover_dispatch(
             source,
             objective="interesting_windows",
@@ -470,14 +439,6 @@ class DiscoverAPI:
         threshold: float | None = None,
         session: Session | None = None,
     ) -> CandidateSet:
-        """Find segments that are outliers compared to their peers.
-
-        Source must be a MetricFrame with segmented or panel shape.
-        ``peer_scope`` defines the grouping for peer comparison; defaults to
-        all non-time axes.
-        ``threshold`` is a robust z-score cutoff using MAD
-        (|robust_z| >= threshold); default 3.0.
-        """
         return _discover_dispatch(
             source,
             objective="cross_sectional_outliers",

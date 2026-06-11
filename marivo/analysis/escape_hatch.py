@@ -486,31 +486,6 @@ def from_pandas(
     description: str | None = None,
     sources: list[ArtifactRef] | None = None,
 ) -> ExplorationResult:
-    """Import a pandas DataFrame into the session as an ExplorationResult.
-
-    Use this when you have data from an external source (CSV, API response,
-    manual construction) that you want to bring into the Marivo analysis
-    pipeline. The returned ExplorationResult is an untyped scratch frame;
-    promote it with ``promote_metric_frame`` or similar before passing to
-    typed intents like ``compare`` or ``decompose``.
-
-    Args:
-        df: Source DataFrame. A defensive copy is made internally.
-        session: Target session. Uses the ambient session when None.
-        description: Human-readable note stored in frame metadata.
-        sources: Optional lineage references to upstream artifacts that
-            produced this data.
-
-    Returns:
-        An ExplorationResult persisted to the session's frame store.
-
-    Raises:
-        SessionNotWritableError: If the resolved session is read-only.
-
-    Example:
-        >>> result = from_pandas(my_df, description="daily sales extract")
-        >>> mf = promote_metric_frame(result, metric=metric_ref, ...)
-    """
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
     source_refs = [ref.id for ref in sources or []]
@@ -559,42 +534,6 @@ def explore_ibis(
     description: str | None = None,
     sources: list[ArtifactRef] | None = None,
 ) -> ExplorationResult:
-    """Run an ibis query against a datasource and return an ExplorationResult.
-
-    Use this when you need to query a registered datasource with custom ibis
-    logic that goes beyond what the semantic model exposes. The query is
-    executed immediately and the result is persisted as an untyped scratch
-    frame. Promote the result before passing to typed intents.
-
-    Args:
-        query_builder: A callable that receives an ibis backend connection
-            and returns an ibis expression (table or column expression).
-            The callable runs in its own closure scope — you must
-            ``import ibis`` (or ``from ibis import _``) in your module
-            before using ibis top-level names like ``ibis.desc()`` or
-            ``_`` inside the callable.
-        datasource: Name of the datasource registered in the session's
-            backend cache.
-        session: Target session. Uses the ambient session when None.
-        description: Human-readable note stored in frame metadata.
-        sources: Optional lineage references to upstream artifacts.
-
-    Returns:
-        An ExplorationResult containing the query result, persisted to disk.
-
-    Raises:
-        TypeError: If ``query_builder`` does not return a valid ibis expression.
-        NameError: If the callable references ibis names not in scope
-            (e.g. forgot ``import ibis``).
-        SessionNotWritableError: If the resolved session is read-only.
-
-    Example:
-        >>> import ibis
-        >>> result = explore_ibis(
-        ...     lambda con: con.table("orders").order_by(ibis.desc("amount")),
-        ...     datasource="warehouse",
-        ... )
-    """
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
     backend = resolved_session._backend_cache.get_or_create(datasource)
@@ -671,53 +610,6 @@ def promote_metric_frame(
     window: object | None = None,
     where: dict[str, Any] | None = None,
 ) -> MetricFrame:
-    """Upgrade an ExplorationResult or DataFrame into a typed MetricFrame.
-
-    Use this when you have raw tabular data that represents a metric
-    observation and you need to feed it into typed intents (``compare``,
-    ``decompose``, etc.) that require a MetricFrame.
-
-    No metadata is auto-inferred. ``semantic_kind``, ``measure_column``, and
-    ``semantic_model`` must be supplied explicitly. ``metric`` and
-    ``time_axis`` may instead fall back to ``policy.semantic_anchors``.
-    ``axes``, ``window``, and ``where`` are only read from explicit arguments.
-
-    Args:
-        source: An ExplorationResult or raw pandas DataFrame to promote.
-        policy: Supplies ``semantic_anchors`` fallback values and extra
-            ``required_fields`` checks. Promotion always fails closed on
-            missing metadata.
-        session: Target session. Uses the ambient session when None.
-        metric: Reference to the semantic metric this frame measures.
-            Falls back to ``policy.semantic_anchors.metric``.
-        semantic_kind: One of "scalar", "time_series", "segmented", "panel".
-        measure_column: Column name holding the numeric measure values.
-        axes: Mapping of column name to DimensionRef for dimension axes.
-        time_axis: Column name or DimensionRef for the time dimension.
-            Falls back to ``policy.semantic_anchors.time_axis``.
-        semantic_model: Name of the semantic model this metric belongs to.
-        window: Absolute time window specification.
-        where: Filter predicates applied to the observation.
-
-    Returns:
-        A MetricFrame persisted to the session's frame store.
-
-    Raises:
-        PromotionFailedError: If required fields are missing, columns are
-            invalid, or the session's semantic project is ready with metrics
-            defined and the metric id is not in the catalog.
-        SessionNotWritableError: If the resolved session is read-only.
-
-    Example:
-        >>> mf = promote_metric_frame(
-        ...     exploration_result,
-        ...     metric=MetricRef("revenue"),
-        ...     semantic_kind="time_series",
-        ...     measure_column="total_revenue",
-        ...     semantic_model="sales",
-        ...     time_axis="order_date",
-        ... )
-    """
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
     resolved_policy = _policy_or_default(policy)
@@ -870,56 +762,6 @@ def promote_delta_frame(
     baseline_column: str | None = None,
     alignment: AlignmentPolicy | None = None,
 ) -> DeltaFrame:
-    """Upgrade an ExplorationResult or DataFrame into a typed DeltaFrame.
-
-    Use this when you have pre-computed difference data between two metric
-    observations and need a typed frame for downstream intents like
-    ``decompose`` (attribution analysis).
-
-    Required parameters: current, baseline, delta_column, current_column,
-    baseline_column. ``current`` and ``baseline`` may instead fall back to
-    ``policy.semantic_anchors``. Additionally metric, semantic_kind, and
-    semantic_model are required but inherited from the referenced current
-    MetricFrame when not supplied. No metadata is auto-inferred.
-
-    Args:
-        source: An ExplorationResult or raw DataFrame containing delta data.
-        policy: Supplies ``semantic_anchors`` fallback values. Promotion
-            always fails closed on missing metadata.
-        session: Target session. Uses the ambient session when None.
-        current: ArtifactRef pointing to the "current" MetricFrame.
-            Falls back to ``policy.semantic_anchors.current``.
-        baseline: ArtifactRef pointing to the "baseline" MetricFrame.
-            Falls back to ``policy.semantic_anchors.baseline``.
-        metric: Override metric reference (must match source frames if given).
-        semantic_kind: Override semantic kind (must match source frames).
-        semantic_model: Override semantic model name (must match source frames).
-        delta_column: Column name holding the numeric delta values.
-        current_column: Column with current-period raw values. Required for
-            the delta formula consistency check.
-        baseline_column: Column with baseline-period raw values. Required for
-            the delta formula consistency check.
-        alignment: How current and baseline periods are aligned.
-            Defaults to window_bucket alignment.
-
-    Returns:
-        A DeltaFrame persisted to the session's frame store.
-
-    Raises:
-        PromotionFailedError: If required fields are missing, columns are
-            invalid, current/baseline metadata is inconsistent, or the
-            session's semantic project is ready with metrics defined and the
-            metric id is not in the catalog.
-        SessionNotWritableError: If the resolved session is read-only.
-
-    Example:
-        >>> df = promote_delta_frame(
-        ...     delta_exploration,
-        ...     current=ArtifactRef(current_mf.ref),
-        ...     baseline=ArtifactRef(baseline_mf.ref),
-        ...     delta_column="revenue_change",
-        ... )
-    """
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
     resolved_policy = _policy_or_default(policy)
@@ -1142,48 +984,6 @@ def promote_attribution_frame(
     method: str = "promotion",
     method_params: dict[str, Any] | None = None,
 ) -> AttributionFrame:
-    """Upgrade an ExplorationResult or DataFrame into a typed AttributionFrame.
-
-    Use this when you have pre-computed attribution/decomposition data that
-    explains which drivers contributed to a delta, and you need a typed frame
-    that the analysis pipeline can consume as evidence.
-
-    Required parameters: source_delta, driver_field, contribution_column.
-    ``source_delta`` may instead fall back to ``policy.semantic_anchors``.
-    metric, semantic_kind, and semantic_model are inherited from the source
-    DeltaFrame. No metadata is auto-inferred.
-
-    Args:
-        source: An ExplorationResult or raw DataFrame with attribution rows.
-        policy: Supplies ``semantic_anchors`` fallback values. Promotion
-            always fails closed on missing metadata.
-        session: Target session. Uses the ambient session when None.
-        source_delta: ArtifactRef pointing to the DeltaFrame being explained.
-            Falls back to ``policy.semantic_anchors.source_delta``.
-        driver_field: Column name identifying the dimension driver
-            (e.g., "region", "product_category").
-        contribution_column: Numeric column holding each driver's contribution
-            to the total delta. Must not contain NaN values.
-        value_column: Optional column with the absolute value per driver.
-        method: Attribution method label. Defaults to "promotion".
-        method_params: Additional parameters for the attribution method.
-
-    Returns:
-        An AttributionFrame persisted to the session's frame store.
-
-    Raises:
-        PromotionFailedError: If required fields are missing, columns are
-            invalid, or contribution_column contains null values.
-        SessionNotWritableError: If the resolved session is read-only.
-
-    Example:
-        >>> af = promote_attribution_frame(
-        ...     attribution_data,
-        ...     source_delta=ArtifactRef(delta_frame.ref),
-        ...     driver_field="region",
-        ...     contribution_column="contribution",
-        ... )
-    """
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
     resolved_policy = _policy_or_default(policy)
