@@ -112,10 +112,6 @@ candidate semantic objects they might produce.
 2. For each relevant table, collect source metadata:
 
 ```python
-project.bind_datasource_access(
-    inspect_source=mv.datasources.inspect_source,
-    backend_factory=mv.datasources.build_backend,
-)
 source_facts = project.inspect_source_context(
     datasource="warehouse",
     source=ms.TableSource(table="orders", database="sales_mart"),
@@ -338,11 +334,10 @@ All semantic objects are validated after all code is written. Phase 3 uses
 checks refs, runs required backend previews, runs eligible parity checks, and
 folds richness findings into one `ReadinessReport`.
 
-`readiness(...)` depends on backend access bound on the project, such as the
-backend factory registered through `project.bind_datasource_access(...)`. The
-agent must not pass a separate `backend_factory` at readiness time. If the
-project has no bound backend access, readiness returns a blocker instead of a
-fallback or degraded report.
+`readiness(...)` uses project datasource defaults (kernel-default `md.connect`
+and `md.inspect_source`) when no explicit `backend_factory` or
+`inspect_source` override is passed. If no project datasources are registered,
+readiness returns a blocker instead of a fallback or degraded report.
 
 ```python
 report = project.readiness(

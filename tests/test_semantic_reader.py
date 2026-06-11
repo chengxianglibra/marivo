@@ -114,7 +114,7 @@ def backend_factory(duckdb_backend):
 
 
 def _fake_inspect_source(datasource, *, source, include_partitions=True):
-    from marivo.analysis.datasources.metadata import TableMetadata
+    from marivo.datasource.metadata import TableMetadata
 
     return TableMetadata(
         datasource=datasource,
@@ -955,39 +955,51 @@ def test_collect_source_preview_rejects_invalid_limit(
 
 
 # ---------------------------------------------------------------------------
-# bind_datasource_access
+# Default datasource access (replaces bind_datasource_access)
 # ---------------------------------------------------------------------------
 
 
-def test_bind_datasource_access_materialize(semantic_project_factory, backend_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
+@pytest.fixture
+def semantic_project_with_duckdb(tmp_path):
+    """Create a SemanticProject backed by a real file-backed DuckDB datasource."""
+    from marivo.datasource.authoring import DatasourceSpec
+    from marivo.datasource.store import save_one
+
+    marivo_root = tmp_path / ".marivo"
+    semantic_root = marivo_root / "semantic"
+    semantic_root.mkdir(parents=True, exist_ok=True)
+
+    # Create a file-backed DuckDB with the orders table
+    db_path = tmp_path / "data.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.con.execute(
+        "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
     )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
+    con.con.execute(
+        "INSERT INTO orders VALUES (1, 100.0, 'US', '2025-01-01'), (2, 200.0, 'EU', '2025-02-01')"
     )
-    table = project.materialize_dataset("sales.orders")
-    assert hasattr(table, "columns")
+    con.disconnect()
+
+    # Register the datasource pointing to the file-backed DB
+    save_one(
+        DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        project_root=tmp_path,
+    )
+
+    # Write the semantic model files
+    (semantic_root / "sales").mkdir(parents=True, exist_ok=True)
+    (semantic_root / "sales" / "__init__.py").write_text("")
+    (semantic_root / "sales" / "_domain.py").write_text(_DOMAIN_PY)
+    (semantic_root / "sales" / "objects.py").write_text(_FULL_DOMAIN_PY)
+
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject(workspace_dir=tmp_path)
+    project.load()
+    return project
 
 
-def test_bind_datasource_access_preview(semantic_project_factory, backend_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
-    )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    result = project.preview_metric("sales.total_revenue", limit=2)
-    assert isinstance(result, PreviewResult)
-
-
-def test_bind_datasource_access_missing_raises(semantic_project_factory) -> None:
+def test_materialize_requires_explicit_factory(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -999,63 +1011,92 @@ def test_bind_datasource_access_missing_raises(semantic_project_factory) -> None
     assert exc_info.value.kind == ErrorKind.BACKEND_FACTORY_REQUIRED
 
 
-def test_bind_datasource_access_explicit_override(
-    semantic_project_factory, backend_factory
-) -> None:
+def test_materialize_with_explicit_factory(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
-    )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
     table = project.materialize_dataset("sales.orders", backend_factory=backend_factory)
     assert hasattr(table, "columns")
 
 
-def test_bind_datasource_access_preserved_across_reload(
-    semantic_project_factory, backend_factory
-) -> None:
+def test_preview_dataset_defaults_to_project_datasource(semantic_project_with_duckdb) -> None:
+    project = semantic_project_with_duckdb
+    result = project.preview_dataset("sales.orders")
+    assert isinstance(result, PreviewResult)
+    assert result.returned_row_count >= 0  # no bind_datasource_access, no explicit factory
+
+
+def test_preview_metric_with_default_factory(semantic_project_with_duckdb) -> None:
+    project = semantic_project_with_duckdb
+    result = project.preview_metric("sales.total_revenue", limit=2)
+    assert isinstance(result, PreviewResult)
+
+
+def test_default_factory_backends_are_closed(semantic_project_with_duckdb, monkeypatch) -> None:
+    import marivo.semantic.reader as reader_mod
+
+    closed: list[bool] = []
+    real_connect = reader_mod._default_connect
+
+    def tracking_connect(name: str, project_root=None):
+        backend = real_connect(name, project_root=project_root)
+        real_disconnect = backend.disconnect
+
+        def spy_disconnect() -> None:
+            closed.append(True)
+            real_disconnect()
+
+        monkeypatch.setattr(backend, "disconnect", spy_disconnect, raising=False)
+        return backend
+
+    monkeypatch.setattr(reader_mod, "_default_connect", tracking_connect)
+    project = semantic_project_with_duckdb
+    project.preview_dataset("sales.orders")
+    assert closed and all(closed)
+
+
+def test_injected_factory_is_never_closed(semantic_project_with_duckdb) -> None:
+    project = semantic_project_with_duckdb
+    db_path = project.semantic_root.parent.parent / "data.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    project.preview_dataset("sales.orders", backend_factory=lambda name: con)
+    # still usable: semantic must not have disconnected the injected backend
+    assert con.raw_sql("SELECT 1") is not None
+    con.disconnect()
+
+
+def test_materialize_dataset_requires_explicit_factory(semantic_project_with_duckdb) -> None:
+    project = semantic_project_with_duckdb
+    with pytest.raises(SemanticRuntimeError) as excinfo:
+        project.materialize_dataset("sales.orders")
+    assert "backend_factory" in str(excinfo.value)
+
+
+def test_list_datasources_returns_unified_summary(semantic_project_with_duckdb) -> None:
+    from marivo.datasource import DatasourceSummary
+
+    project = semantic_project_with_duckdb
+    result = project.list_datasources()
+    assert all(isinstance(item, DatasourceSummary) for item in result)
+    assert result.ids() == [item.name for item in result]
+
+
+def test_audit_datasources_reports_missing(semantic_project_with_duckdb) -> None:
+    project = semantic_project_with_duckdb
+    report = project.audit_datasources()
+    assert report.missing == []
+    assert set(report.present) <= {item.name for item in project.list_datasources()}
+
+
+def test_readiness_uses_default_factory(semantic_project_factory, backend_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
             "sales/objects.py": _FULL_DOMAIN_PY,
         }
-    )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    project.load()
-    table = project.materialize_dataset("sales.orders")
-    assert hasattr(table, "columns")
-
-
-def test_readiness_uses_bound_factory(semantic_project_factory, backend_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
-    )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
     )
     report = project.readiness()
     assert report.status in ("ready", "ready_with_warnings", "warning", "blocked")
-
-
-def test_readiness_without_bound_factory(semantic_project_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
-    )
-    report = project.readiness()
-    assert report.status == "blocked"
-    blockers = [issue for issue in report.blockers if issue.kind == "datasource_unreachable"]
-    assert blockers
-    assert "project-bound backend access" in blockers[0].message
-    assert "bind_datasource_access" in blockers[0].message

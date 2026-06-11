@@ -22,7 +22,6 @@ from marivo.analysis.errors import (
 from marivo.analysis.session.active import (
     clear_active_session,
     read_active_session_name,
-    resolve_project_root,
     write_active_session_name,
 )
 from marivo.analysis.session.core import Session, SessionState
@@ -32,6 +31,7 @@ from marivo.analysis.session.persistence import (
     write_session_meta,
 )
 from marivo.analysis.timezone import resolve_system_timezone
+from marivo.project import resolve_project_root
 
 _CURRENT_SESSION: Session | None = None
 
@@ -104,10 +104,10 @@ def _compile_backend_factory(
     if backend_factory is not None:
         return backend_factory
     if use_datasources:
-        from marivo.analysis import datasources as _datasources
+        from marivo.datasource import connect as _md_connect
 
         def from_datasources(name: str) -> Any:
-            return _datasources.build_backend(name)
+            return _md_connect(name)
 
         return from_datasources
     return None
@@ -178,13 +178,6 @@ def _session_from_row(
         default_calendar=default_calendar,
     )
     semantic_project = _build_semantic_project(project_root)
-    if factory is not None:
-        from marivo.analysis import datasources as _datasources
-
-        semantic_project.bind_datasource_access(
-            inspect_source=_datasources.inspect_source,
-            backend_factory=factory,
-        )
     return Session(
         id=row["id"],
         name=row["name"],

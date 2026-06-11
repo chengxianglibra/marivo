@@ -10,7 +10,7 @@ Use this skill when writing or running metric-centered workflows with
 
 The `mv` top level is the core agent surface: constructor refs and policies,
 sessions, frames, frame metadata, lineage, and namespace entrypoints. Use
-submodules for domain DTOs and errors: `mv.evidence.*`, `mv.datasources.*`,
+submodules for domain DTOs and errors: `mv.evidence.*`,
 and `mv.errors.*`.
 
 Use `marivo-semantic` instead when the task is authoring semantic models.

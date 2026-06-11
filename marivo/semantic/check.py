@@ -13,29 +13,9 @@ from marivo.semantic.loader import find_project
 from marivo.semantic.reader import SemanticProject
 
 
-def _default_backend_factory() -> Callable[[str], Any]:
-    """Return a backend factory from marivo.analysis.
-
-    Uses importlib to defer the import so marivo.semantic does not
-    carry a static dependency on marivo.analysis.  Tests and external
-    callers may monkeypatch this function to inject their own factory.
-    """
-    import importlib
-
-    analysis = importlib.import_module("marivo.analysis")
-    return lambda name: analysis.datasources.build_backend(name)
-
-
-def _default_inspect_source() -> Callable[..., Any]:
-    """Return an inspect_source callable from marivo.analysis."""
-    import importlib
-
-    analysis = importlib.import_module("marivo.analysis")
-    return analysis.datasources.inspect_source  # type: ignore[no-any-return]
-
-
 def _run_parity_checks(
     project: SemanticProject,
+    backend_factory: Callable[[str], Any] | None = None,
 ) -> None:
     """Run parity checks for base metrics declared as sql_parity."""
     if not project.is_ready():
@@ -49,7 +29,7 @@ def _run_parity_checks(
         if metric.provenance.verification_mode != "sql_parity":
             continue
         with contextlib.suppress(Exception):
-            project.parity_check(metric.semantic_id)
+            project.parity_check(metric.semantic_id, backend_factory=backend_factory)
 
 
 def _error_to_dict(error: Any) -> dict[str, object]:
@@ -117,16 +97,8 @@ def run_check(
     }
 
     if readiness:
-        factory = backend_factory
-        if factory is None:
-            factory = _default_backend_factory()
-        if factory is not None:
-            project.bind_datasource_access(
-                inspect_source=_default_inspect_source(),
-                backend_factory=factory,
-            )
-        _run_parity_checks(project)
-        report = project.readiness()
+        _run_parity_checks(project, backend_factory=backend_factory)
+        report = project.readiness(backend_factory=backend_factory)
         payload["readiness"] = report.to_dict()
         payload["status"] = report.status
 

@@ -3,11 +3,13 @@
 from marivo.analysis.errors import (
     AnalysisError,
     AxisNotInPanelDimensionsError,
-    DatasourceEnvVarMissingError,
-    DatasourceSecretStorePermissionsError,
     MetricNotFoundError,
     SemanticKindMismatchError,
     WindowInvalidError,
+)
+from marivo.datasource.errors import (
+    DatasourceEnvVarMissingError,
+    DatasourceSecretStorePermissionsError,
 )
 
 
@@ -60,7 +62,7 @@ def test_datasource_env_var_missing_mentions_cache_and_validation() -> None:
 
     assert "TRINO_PASSWORD" in rendered
     assert "not set in os.environ and is not present in ~/.marivo/secrets.toml" in rendered
-    assert 'mv.datasources.test("wh")' in rendered
+    assert 'md.test("wh")' in rendered
 
 
 def test_secret_store_permissions_error_has_chmod_fix() -> None:
@@ -307,7 +309,7 @@ def test_no_backend_factory_default_template_fields_populated() -> None:
     rendered = str(err)
     assert "Fix:" in rendered
     assert "datasource='tiny_orders' resolved to None or a non-ibis object" in rendered
-    assert "mv.datasources.register" in rendered
+    assert "md.register" in rendered
     assert "@ms.datasource" not in rendered
     assert "Docs: marivo-skills/marivo-semantic/references/datasource.md" in rendered
 
@@ -331,7 +333,7 @@ def test_no_backend_factory_without_details_uses_session_backend_template() -> N
     assert "session has no backend factory configured" in rendered
     assert "Fix:" in rendered
     assert "mv.session.get_or_create" in rendered
-    assert "mv.datasources.register" in rendered
+    assert "md.register" in rendered
     assert "backend_factory=" in rendered
     assert "Docs: marivo-skills/marivo-semantic/references/datasource.md" in rendered
 

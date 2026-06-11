@@ -1,4 +1,4 @@
-"""Public API tests for marivo.analysis.datasources registry."""
+"""Public API tests for marivo.datasource management surface."""
 
 from __future__ import annotations
 
@@ -7,10 +7,9 @@ from pathlib import Path
 import ibis
 import pytest
 
-import marivo.analysis as mv
 import marivo.datasource as md
-from marivo.analysis.datasources import secrets as datasource_secrets
-from marivo.analysis.errors import (
+from marivo.datasource import secrets as datasource_secrets
+from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceMissingError,
     DatasourcePreviewError,
@@ -29,7 +28,7 @@ def _spec(name: str, *, backend_type: str, **fields: object) -> md.DatasourceSpe
 
 
 def test_set_returns_summary(project_root: Path) -> None:
-    summary = mv.datasources.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+    summary = md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
     assert summary.name == "wh"
     assert summary.backend_type == "duckdb"
     assert (project_root / ".marivo" / "datasource" / "wh.py").is_file()
@@ -37,25 +36,25 @@ def test_set_returns_summary(project_root: Path) -> None:
 
 def test_register_rejects_legacy_name_and_kwargs(project_root: Path) -> None:
     with pytest.raises(TypeError):
-        mv.datasources.register("wh", backend_type="duckdb", path=":memory:")  # type: ignore[call-arg]
+        md.register("wh", backend_type="duckdb", path=":memory:")  # type: ignore[call-arg]
 
 
 def test_set_rejects_model_qualified_name(project_root: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        mv.datasources.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
+        md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
     assert exc_info.value.details["field"] == "<name>"
     assert "global datasource name" in str(exc_info.value)
 
 
 def test_list_returns_sorted_summaries(project_root: Path) -> None:
-    mv.datasources.register(_spec("b", backend_type="duckdb", path=":memory:"))
-    mv.datasources.register(_spec("a", backend_type="duckdb", path=":memory:"))
-    names = [p.name for p in mv.datasources.all()]
+    md.register(_spec("b", backend_type="duckdb", path=":memory:"))
+    md.register(_spec("a", backend_type="duckdb", path=":memory:"))
+    names = [p.name for p in md.list()]
     assert names == ["a", "b"]
 
 
 def test_describe_redacts_secrets(project_root: Path) -> None:
-    mv.datasources.register(
+    md.register(
         _spec(
             "wh",
             backend_type="trino",
@@ -65,7 +64,7 @@ def test_describe_redacts_secrets(project_root: Path) -> None:
             password_env="TRINO_PASSWORD",
         )
     )
-    desc = mv.datasources.describe("wh")
+    desc = md.describe("wh")
     assert desc.literal_fields == {"host": "trino.example", "port": 8080, "catalog": "hive"}
     assert desc.env_refs == {"password": "TRINO_PASSWORD"}
 
@@ -74,7 +73,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    mv.datasources.register(_spec("wh", backend_type="trino", host="trino.example", catalog="hive"))
+    md.register(_spec("wh", backend_type="trino", host="trino.example", catalog="hive"))
 
     class _FakeBackend:
         disconnected = False
@@ -90,11 +89,11 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
             self.disconnected = True
 
     backend = _FakeBackend()
-    import marivo.analysis.datasources.registry as registry_mod
+    import marivo.datasource.manage as registry_mod
 
-    monkeypatch.setattr(registry_mod, "build_backend", lambda _name: backend)
+    monkeypatch.setattr(registry_mod, "connect", lambda _name: backend)
 
-    result = mv.datasources.test("wh")
+    result = md.test("wh")
 
     assert result.ok is True
     assert result.error is None
@@ -104,7 +103,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
 def test_datasource_test_success_persists_env_sourced_secret(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    mv.datasources.register(
+    md.register(
         _spec(
             "wh",
             backend_type="trino",
@@ -141,7 +140,7 @@ def test_datasource_test_success_persists_env_sourced_secret(
 
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
 
-    result = mv.datasources.test("wh")
+    result = md.test("wh")
 
     assert result.ok is True
     assert persisted == [("TRINO_PASSWORD", "validated-secret")]
@@ -150,7 +149,7 @@ def test_datasource_test_success_persists_env_sourced_secret(
 def test_datasource_test_failure_does_not_persist_env_sourced_secret(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    mv.datasources.register(
+    md.register(
         _spec(
             "wh",
             backend_type="trino",
@@ -186,7 +185,7 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
 
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
 
-    result = mv.datasources.test("wh")
+    result = md.test("wh")
 
     assert result.ok is False
     assert "authentication failed" in str(result.error)
@@ -195,16 +194,16 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
 
 def test_describe_missing_raises_with_hint(project_root: Path) -> None:
     with pytest.raises(DatasourceMissingError) as exc_info:
-        mv.datasources.describe("nope")
+        md.describe("nope")
     rendered = str(exc_info.value)
-    assert "mv.datasources.register" in rendered
+    assert "md.register" in rendered
     assert "'nope'" in rendered
 
 
 def test_remove_returns_bool(project_root: Path) -> None:
-    mv.datasources.register(_spec("wh", backend_type="duckdb", path=":memory:"))
-    assert mv.datasources.remove("wh") is True
-    assert mv.datasources.remove("wh") is False
+    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+    assert md.remove("wh") is True
+    assert md.remove("wh") is False
 
 
 def _create_preview_duckdb(path: Path) -> None:
@@ -225,9 +224,9 @@ def _create_preview_duckdb(path: Path) -> None:
 def test_preview_table_returns_bounded_result(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_preview_duckdb(db_path)
-    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
-    preview = mv.datasources.preview(
+    preview = md.preview(
         "wh",
         table="orders",
         columns=["order_id", "amount"],
@@ -248,9 +247,9 @@ def test_preview_table_returns_bounded_result(project_root: Path) -> None:
 def test_preview_table_supports_structured_filter_and_order(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_preview_duckdb(db_path)
-    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
-    preview = mv.datasources.preview(
+    preview = md.preview(
         "wh",
         table="orders",
         columns=["order_id", "region", "amount"],
@@ -272,9 +271,9 @@ def test_preview_table_supports_structured_filter_and_order(project_root: Path) 
 def test_preview_table_returns_values_without_redaction(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_preview_duckdb(db_path)
-    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
-    preview = mv.datasources.preview(
+    preview = md.preview(
         "wh",
         table="orders",
         columns=["order_id", "customer_email"],
@@ -288,14 +287,14 @@ def test_preview_table_returns_values_without_redaction(project_root: Path) -> N
 def test_preview_table_rejects_raw_sql_filter(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_preview_duckdb(db_path)
-    mv.datasources.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
     with pytest.raises(DatasourcePreviewError) as exc_info:
-        mv.datasources.preview("wh", table="orders", where=["region = 'US'"])  # type: ignore[list-item]
+        md.preview("wh", table="orders", where=["region = 'US'"])  # type: ignore[list-item]
 
     assert exc_info.value.details["field"] == "where"
     assert "structured preview filter" in str(exc_info.value)
 
 
 def test_preview_exports_from_datasources_namespace() -> None:
-    assert mv.datasources.PreviewResult is PreviewResult
+    assert md.PreviewResult is PreviewResult

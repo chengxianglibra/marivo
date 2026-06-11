@@ -4,7 +4,7 @@ import inspect
 
 import ibis
 
-from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
+from marivo.datasource.metadata import ColumnMetadata, TableMetadata
 from marivo.semantic.authoring_check import check_authoring_inputs
 from marivo.semantic.dtos import (
     AuthoringSourceInput,
@@ -174,10 +174,16 @@ def test_assess_authoring_collects_current_source_context_then_checks(tmp_path):
         con.con.execute("INSERT INTO orders VALUES (1, 10.0), (2, 20.0)")
         return con
 
-    root = tmp_path / ".marivo" / "semantic"
+    marivo_root = tmp_path / ".marivo"
+    root = marivo_root / "semantic"
     root.mkdir(parents=True)
+    (marivo_root / "datasource").mkdir(parents=True, exist_ok=True)
+    (marivo_root / "datasource" / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "md.datasource(warehouse)\n"
+    )
     project = SemanticProject(root=root)
-    project.bind_datasource_access(inspect_source=inspect_orders, backend_factory=backend_factory)
     source = TableSource(table="orders")
 
     result = project.assess_authoring(
@@ -192,6 +198,8 @@ def test_assess_authoring_collects_current_source_context_then_checks(tmp_path):
             ),
         ),
         semantic_refs=("sales.orders",),
+        inspect_source=inspect_orders,
+        backend_factory=backend_factory,
     )
 
     assert result.status == "supported"
@@ -199,7 +207,7 @@ def test_assess_authoring_collects_current_source_context_then_checks(tmp_path):
     assert any(fact.label == "referenced_columns" for fact in result.facts)
 
 
-def test_assess_authoring_rejects_unbound_datasource_access(tmp_path):
+def test_assess_authoring_rejects_unregistered_datasource(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(root=root)
@@ -220,7 +228,7 @@ def test_assess_authoring_rejects_unbound_datasource_access(tmp_path):
     assert result.status == "blocked"
     assert result.issues[0].kind == "missing_source"
     assert result.issues[0].message
-    assert "bind_datasource_access" in result.issues[0].message
+    assert "md.register()" in result.issues[0].message
 
 
 def test_assess_authoring_allows_derived_metric_without_sources_or_bound_access(tmp_path):
@@ -243,11 +251,9 @@ def test_assess_authoring_allows_derived_metric_without_sources_or_bound_access(
     )
 
 
-def test_assess_authoring_signature_omits_draft_and_datasource_overrides():
+def test_assess_authoring_signature_omits_draft_overrides():
     signature = inspect.signature(SemanticProject.assess_authoring)
     assert not {
         "ai_context",
         "source_sql",
-        "inspect_source",
-        "backend_factory",
     }.intersection(signature.parameters)

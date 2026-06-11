@@ -37,7 +37,7 @@ Implementation lives at
 ## Credential sources (priority order)
 
 `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are resolved via
-`marivo.analysis.datasources.secrets.resolve()`, which walks env first, then
+`marivo.datasource.secrets.resolve()`, which walks env first, then
 the user-global plaintext cache:
 
 1. Environment variables `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.

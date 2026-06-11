@@ -1,4 +1,4 @@
-"""Backend dispatch tests for marivo.analysis.datasources."""
+"""Backend dispatch tests for marivo.datasource.backends."""
 
 from __future__ import annotations
 
@@ -6,12 +6,11 @@ from pathlib import Path
 
 import pytest
 
-import marivo.analysis as mv
 import marivo.datasource as md
-from marivo.analysis.datasources import backends as datasource_backends
-from marivo.analysis.datasources import secrets as datasource_secrets
-from marivo.analysis.datasources import store as datasource_store
-from marivo.analysis.errors import (
+from marivo.datasource import backends as datasource_backends
+from marivo.datasource import secrets as datasource_secrets
+from marivo.datasource import store as datasource_store
+from marivo.datasource.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceEnvVarMissingError,
     DatasourceFieldInvalidError,
@@ -30,8 +29,8 @@ def _spec(name: str, *, backend_type: str, **fields: object) -> md.DatasourceSpe
 
 
 def test_build_duckdb_in_memory(project_root: Path) -> None:
-    mv.datasources.register(_spec("local", backend_type="duckdb", path=":memory:"))
-    backend = mv.datasources.build_backend("local")
+    md.register(_spec("local", backend_type="duckdb", path=":memory:"))
+    backend = md.connect("local")
     # ibis DuckDB backend exposes list_tables(); empty for a fresh in-memory db.
     assert backend.list_tables() == []
 

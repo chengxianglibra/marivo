@@ -11,8 +11,8 @@ from pathlib import Path
 
 from marivo.datasource.authoring import _DATASOURCE_CTX, DatasourceLoaderContext
 from marivo.datasource.errors import (
-    DatasourceConfigError,
     DatasourceDuplicateError,
+    DatasourceError,
     DatasourceLoadError,
 )
 from marivo.datasource.ir import DatasourceIR
@@ -61,7 +61,7 @@ def _execute_file(
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
     except Exception as exc:
-        if isinstance(exc, DatasourceConfigError):
+        if isinstance(exc, DatasourceError):
             errors.append(exc)
         else:
             errors.append(

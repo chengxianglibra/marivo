@@ -50,8 +50,8 @@ import sys
 from pathlib import Path
 from typing import Protocol
 
-from marivo.analysis.datasources import secrets
-from marivo.analysis.errors import DatasourceEnvVarMissingError
+from marivo.datasource import secrets
+from marivo.datasource.errors import DatasourceEnvVarMissingError
 
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",

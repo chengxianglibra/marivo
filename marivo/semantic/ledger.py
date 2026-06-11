@@ -12,10 +12,9 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import Literal, cast
 
-if TYPE_CHECKING:
-    from marivo.analysis.datasources.metadata import TableMetadata
+from marivo.datasource.metadata import TableMetadata
 
 
 @dataclass(frozen=True)
