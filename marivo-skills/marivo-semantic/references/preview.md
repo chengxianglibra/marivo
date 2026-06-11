@@ -5,11 +5,11 @@ meaning by itself.
 
 ## Source preview evidence
 
-`inspect_source_context(...)` folds source inspection and bounded profiling.
+`inspect_table(...)` reads source metadata only. `inspect_columns(...)` reads a
+fixed 5-row sample for selected columns and closes its datasource connection.
 Readiness runs required raw and semantic previews live through project-bound
-datasource access. Use bounded raw previews before
-declaring or revising datasets, time-like columns, amount columns, enum/status
-columns, and join keys.
+datasource access. Use bounded raw previews before declaring or revising
+datasets, time-like columns, amount columns, enum/status columns, and join keys.
 
 For debugging or targeted raw table inspection, `collect_source_preview` is still
 available:

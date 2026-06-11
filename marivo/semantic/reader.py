@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -15,14 +16,15 @@ from typing import Any, Literal
 import ibis
 import ibis.expr.types as ir
 
-from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.authoring import DatasourceRef
+from marivo.datasource.ir import DatasourceIR, EntitySourceIR, FileSourceIR, TableSourceIR
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
-    PREVIEW_MAX_LIMIT,
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
+    normalize_preview_cell,
     preview_ibis_table,
     preview_ibis_value,
     validate_preview_limit,
@@ -34,12 +36,9 @@ from marivo.semantic.dtos import (
     AuthoringObjectKind,
     AuthoringSourceInput,
     BoundedProfilePolicy,
-    ColumnEvidence,
-    DatasetSource,
-    SamplePolicy,
-    SelectedColumnsPolicy,
+    ColumnContext,
     SourceEvidencePack,
-    TableSource,
+    TableContext,
 )
 from marivo.semantic.errors import (
     ErrorKind,
@@ -94,6 +93,7 @@ __all__ = [
 
 
 _FIELD_PREVIEW_CONTEXT_COLUMNS = 3
+_COLUMN_INSPECT_SAMPLE_LIMIT = 5
 
 
 # ---------------------------------------------------------------------------
@@ -1134,91 +1134,183 @@ class SemanticProject:
 
     # -- authoring evidence -------------------------------------------------
 
-    def _datasets_by_source(self, datasource: str, source: DatasetSource) -> tuple[EntityIR, ...]:
-        reg = self._registry
-        if reg is None:
-            return ()
-        source_ir = source.to_ir()
-        return tuple(
-            ds
-            for ds in reg.datasets.values()
-            if ds.datasource == datasource and ds.source == source_ir
+    def _resolve_datasource_name(self, datasource: DatasourceRef | str) -> str:
+        if isinstance(datasource, DatasourceRef):
+            return datasource.semantic_id
+        if isinstance(datasource, str) and datasource:
+            return datasource
+        _raise(
+            ErrorKind.INVALID_REF,
+            "datasource must be a marivo.datasource ref or a non-empty datasource name string.",
+            cls=SemanticRuntimeError,
         )
 
-    def inspect_source_context(
-        self,
-        *,
-        datasource: str,
-        source: DatasetSource,
-        inspect_source: Callable[..., Any] | None = None,
-        backend_factory: Callable[[str], Any] | None = None,
-        sample_policy: SamplePolicy,
-    ) -> SourceEvidencePack:
-        """Collect and persist a SourceEvidencePack for one physical source.
+    def _inspect_metadata(self, datasource: str, table: EntitySourceIR) -> Any:
+        from marivo.datasource.metadata import inspect_source
 
-        Folds the old inspect_source + collect_source_preview authoring steps
-        into one call. When ``sample_policy`` reads rows, a bounded raw-preview
-        evidence ref is also recorded so ``readiness()`` passes without a
-        separate collect_source_preview call.
-
-        If *inspect_source* or *backend_factory* is not provided, the bound
-        callable (set via :meth:`bind_datasource_access`) is used.
-        """
-        fn = self._resolve_inspect_source(inspect_source)
-        factory = self._resolve_backend_factory(backend_factory)
-        from marivo.semantic.inspect import collect_source_evidence
-
-        pack = collect_source_evidence(
-            datasource=datasource,
-            source=source,
-            inspect_source=fn,
-            backend_factory=factory,
-            sample_policy=sample_policy,
+        return inspect_source(
+            datasource,
+            source=table,
+            include_partitions=True,
+            project_root=self._workspace_dir,
         )
-        if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)) and isinstance(
-            source, TableSource
-        ):
-            self.collect_source_preview(
-                datasource=datasource,
-                table=source.table,
-                database=source.database,
-                backend_factory=factory,
-                limit=min(sample_policy.limit, PREVIEW_MAX_LIMIT),
+
+    def _build_datasource_backend(self, datasource: str) -> Any:
+        from marivo.datasource import backends as _backends
+        from marivo.datasource import store as _store
+        from marivo.datasource.errors import DatasourceMissingError
+
+        datasource_ir = _store.load_one(datasource, project_root=self._workspace_dir)
+        if datasource_ir is None:
+            raise DatasourceMissingError(
+                message=f"datasource {datasource!r} is not configured",
+                details={
+                    "datasource": datasource,
+                    "available": _store.list_names(self._workspace_dir),
+                },
             )
-        if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)):
-            for ds in self._datasets_by_source(datasource, source):
-                if ds.primary_key:
-                    self.record_primary_key_sample(ds.semantic_id)
-        return pack
+        return _backends.build_backend(datasource_ir)
 
-    def inspect_column_context(
-        self,
-        *,
-        datasource: str,
-        source: DatasetSource,
-        columns: Sequence[str],
-        inspect_source: Callable[..., Any] | None = None,
-        backend_factory: Callable[[str], Any] | None = None,
-        sample_policy: BoundedProfilePolicy | SelectedColumnsPolicy,
-    ) -> tuple[ColumnEvidence, ...]:
-        """Deep-dive selected columns after inspect_source_context."""
-        fn = self._resolve_inspect_source(inspect_source)
-        factory = self._resolve_backend_factory(backend_factory)
-        from marivo.semantic.inspect import collect_column_evidence
-
-        result = collect_column_evidence(
-            datasource=datasource,
-            source=source,
-            columns=columns,
-            inspect_source=fn,
-            backend_factory=factory,
-            sample_policy=sample_policy,
+    def _source_expr(self, backend: Any, table: EntitySourceIR) -> Any:
+        if isinstance(table, TableSourceIR):
+            if table.database is None:
+                return backend.table(table.table)
+            return backend.table(table.table, database=table.database)
+        if isinstance(table, FileSourceIR):
+            reader_name = {
+                "parquet": "read_parquet",
+                "csv": "read_csv",
+                "json": "read_json",
+            }[table.format]
+            reader = getattr(backend, reader_name)
+            return reader(table.path, **table.options)
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"table must be TableSourceIR or FileSourceIR, got {type(table).__name__}.",
+            cls=SemanticRuntimeError,
         )
-        column_set = set(columns)
-        for ds in self._datasets_by_source(datasource, source):
-            if ds.primary_key and set(ds.primary_key) <= column_set:
-                self.record_primary_key_sample(ds.semantic_id)
-        return result
+
+    def inspect_table(
+        self,
+        datasource: DatasourceRef | str,
+        table: EntitySourceIR,
+    ) -> TableContext:
+        """Inspect basic metadata for one datasource table or file source."""
+        datasource_name = self._resolve_datasource_name(datasource)
+        metadata = self._inspect_metadata(datasource_name, table)
+        return TableContext(
+            datasource=datasource_name,
+            table=table,
+            table_comment=metadata.comment,
+            columns=tuple(column.name for column in metadata.columns),
+            column_comments={
+                column.name: column.comment
+                for column in metadata.columns
+                if column.comment is not None
+            },
+            metadata_warnings=tuple(
+                f"{warning.kind}: {warning.message}" for warning in metadata.warnings
+            ),
+        )
+
+    def inspect_columns(
+        self,
+        datasource: DatasourceRef | str,
+        table: EntitySourceIR,
+        columns: Sequence[str] | None = None,
+    ) -> tuple[ColumnContext, ...]:
+        """Inspect sampled details for selected columns on one datasource source."""
+        datasource_name = self._resolve_datasource_name(datasource)
+        metadata = self._inspect_metadata(datasource_name, table)
+        specs = {
+            column.name: (column.type, column.nullable, column.comment)
+            for column in metadata.columns
+        }
+        selected_columns = tuple(specs.keys()) if columns is None else tuple(dict.fromkeys(columns))
+        present_columns = tuple(column for column in selected_columns if column in specs)
+
+        frame: Any | None = None
+        if present_columns:
+            backend = self._build_datasource_backend(datasource_name)
+            try:
+                frame = (
+                    self._source_expr(backend, table)
+                    .select(*present_columns)
+                    .limit(_COLUMN_INSPECT_SAMPLE_LIMIT)
+                    .execute()
+                )
+            finally:
+                disconnect = getattr(backend, "disconnect", None)
+                if callable(disconnect):
+                    with suppress(Exception):
+                        disconnect()
+
+        contexts: list[ColumnContext] = []
+        for column in selected_columns:
+            spec = specs.get(column)
+            if spec is None:
+                contexts.append(
+                    ColumnContext(
+                        datasource=datasource_name,
+                        table=table,
+                        column=column,
+                        data_type="UNKNOWN",
+                        nullable=None,
+                        comment=None,
+                        sample_values=(),
+                        null_count=None,
+                        min_value=None,
+                        max_value=None,
+                        warnings=("column absent from source schema",),
+                    )
+                )
+                continue
+
+            data_type, nullable, comment = spec
+            if frame is None or column not in frame:
+                contexts.append(
+                    ColumnContext(
+                        datasource=datasource_name,
+                        table=table,
+                        column=column,
+                        data_type=data_type,
+                        nullable=nullable,
+                        comment=comment,
+                        sample_values=(),
+                        null_count=None,
+                        min_value=None,
+                        max_value=None,
+                        warnings=("column absent from bounded sample",),
+                    )
+                )
+                continue
+
+            series = frame[column]
+            non_null = series.dropna()
+            min_value: object | None = None
+            max_value: object | None = None
+            if not non_null.empty:
+                try:
+                    min_value = normalize_preview_cell(non_null.min())
+                    max_value = normalize_preview_cell(non_null.max())
+                except TypeError:
+                    min_value = None
+                    max_value = None
+            contexts.append(
+                ColumnContext(
+                    datasource=datasource_name,
+                    table=table,
+                    column=column,
+                    data_type=data_type,
+                    nullable=nullable,
+                    comment=comment,
+                    sample_values=tuple(normalize_preview_cell(value) for value in series),
+                    null_count=int(series.isna().sum()),
+                    min_value=min_value,
+                    max_value=max_value,
+                )
+            )
+        return tuple(contexts)
 
     def assess_authoring(
         self,

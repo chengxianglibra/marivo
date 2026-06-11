@@ -1,7 +1,7 @@
-"""Source evidence collection to authoring assessment.
+"""Source inspection to authoring assessment.
 
-Shows: collect a SourceEvidencePack with bounded profiles, then run
-assess_authoring for a metric and branch on status.
+Shows: inspect table/column context, then run assess_authoring for a metric and
+branch on status.
 """
 
 from __future__ import annotations
@@ -12,59 +12,48 @@ from pathlib import Path
 import ibis
 
 import marivo.semantic as ms
-from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
-from marivo.semantic.ir import TableSourceIR
-
-
-def fake_inspect_source(
-    datasource: str, *, source: TableSourceIR, include_partitions: bool = True
-) -> TableMetadata:
-    return TableMetadata(
-        datasource=datasource,
-        table=source.table,
-        database=source.database,
-        backend_type="duckdb",
-        comment="Orders fact table. dt is the reporting partition.",
-        columns=(
-            ColumnMetadata("order_id", "INTEGER", False, "Primary order id", 1),
-            ColumnMetadata("dt", "DATE", False, "Partition date for reporting", 2),
-            ColumnMetadata("amount", "DOUBLE", True, "Gross order amount", 3),
-            ColumnMetadata("paid", "BOOLEAN", True, "Paid flag", 4),
-        ),
-        partitions=(PartitionMetadata("dt", type="DATE"),) if include_partitions else (),
-        warnings=(),
-    )
-
-
-def backend_factory(_name: str) -> ibis.backends.duckdb.Backend:
-    con = ibis.duckdb.connect(":memory:")
-    con.con.execute("CREATE TABLE orders (order_id INT, dt DATE, amount DOUBLE, paid BOOLEAN)")
-    con.con.execute(
-        "INSERT INTO orders VALUES "
-        "(1, DATE '2026-07-01', 10.0, true), (2, DATE '2026-07-01', 20.0, true), "
-        "(3, DATE '2026-07-02', 5.0, false)"
-    )
-    return con
-
 
 with tempfile.TemporaryDirectory() as tmp:
-    root = Path(tmp) / ".marivo" / "semantic"
+    workspace = Path(tmp)
+    root = workspace / ".marivo" / "semantic"
+    datasource_dir = workspace / ".marivo" / "datasource"
     root.mkdir(parents=True)
+    datasource_dir.mkdir(parents=True)
+
+    db_path = workspace / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    try:
+        con.con.execute("CREATE TABLE orders (order_id INT, dt DATE, amount DOUBLE, paid BOOLEAN)")
+        con.con.execute(
+            "INSERT INTO orders VALUES "
+            "(1, DATE '2026-07-01', 10.0, true), "
+            "(2, DATE '2026-07-01', 20.0, true), "
+            "(3, DATE '2026-07-02', 5.0, false)"
+        )
+        con.con.execute("COMMENT ON TABLE orders IS 'Orders fact table'")
+        con.con.execute("COMMENT ON COLUMN orders.amount IS 'Gross order amount'")
+    finally:
+        con.disconnect()
+
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "warehouse = md.DatasourceSpec("
+        "name='warehouse', backend_type='duckdb', path="
+        f"{str(db_path)!r})\n"
+        "md.datasource(warehouse)\n"
+    )
+
     from marivo.semantic.reader import SemanticProject
 
-    project = SemanticProject(root=root)
-    project.bind_datasource_access(
-        inspect_source=fake_inspect_source, backend_factory=backend_factory
+    project = SemanticProject(workspace_dir=workspace)
+    table_context = project.inspect_table("warehouse", ms.table("orders"))
+    column_contexts = project.inspect_columns(
+        "warehouse",
+        ms.table("orders"),
+        columns=("amount", "paid"),
     )
-
-    pack = project.inspect_source_context(
-        datasource="warehouse",
-        source=ms.TableSource(table="orders"),
-        sample_policy=ms.BoundedProfilePolicy(limit=100, max_profiled_columns=50),
-    )
-    print("partition hints:", list(pack.partition_hints))
-    amount = next(p for p in pack.column_profiles if p.column == "amount")
-    print("amount sample scope:", amount.sample_scope, "approximate:", amount.approximate)
+    print("source columns:", list(table_context.columns))
+    print("amount sample values:", list(column_contexts[0].sample_values))
 
     assessment = project.assess_authoring(
         object_kind="metric",

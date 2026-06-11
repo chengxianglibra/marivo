@@ -6,7 +6,7 @@ stored in a sidecar map, not in the IR itself.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal
@@ -18,6 +18,8 @@ from marivo.datasource.ir import (
     EntitySourceIR,
     FileSourceIR,
     TableSourceIR,
+    source_from_dict,
+    source_label,
     source_name,
     source_to_dict,
 )
@@ -187,43 +189,6 @@ class SelectedColumnsPolicyIR:
 
 
 SamplePolicyIR = MetadataOnlyPolicyIR | BoundedProfilePolicyIR | SelectedColumnsPolicyIR
-
-
-def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
-    kind = data.get("kind")
-    if kind == "table":
-        raw_database = data.get("database")
-        database: str | tuple[str, ...] | None
-        if isinstance(raw_database, list):
-            database = tuple(str(part) for part in raw_database)
-        elif raw_database is None:
-            database = None
-        else:
-            database = str(raw_database)
-        return TableSourceIR(table=str(data["table"]), database=database)
-    if kind == "file":
-        raw_options = data.get("options", {})
-        options = dict(raw_options) if isinstance(raw_options, Mapping) else {}
-        format_value = str(data["format"])
-        if format_value not in {"parquet", "csv"}:
-            raise ValueError(f"unsupported file source format: {format_value!r}")
-        return FileSourceIR(
-            path=str(data["path"]),
-            format=format_value,  # type: ignore[arg-type]
-            options=options,
-        )
-    raise ValueError(f"unsupported entity source kind: {kind!r}")
-
-
-def source_label(source: EntitySourceIR) -> str:
-    if isinstance(source, TableSourceIR):
-        if source.database is None:
-            return source.table
-        database = (
-            ".".join(source.database) if isinstance(source.database, tuple) else source.database
-        )
-        return f"{database}.{source.table}"
-    return source.path
 
 
 @dataclass(frozen=True)

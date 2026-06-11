@@ -10,10 +10,12 @@ from marivo.semantic.dtos import (
     AuthoringQuestion,
     AuthoringSourceInput,
     BoundedProfilePolicy,
+    ColumnContext,
     ColumnProfile,
     FileSource,
     MetadataOnlyPolicy,
     SelectedColumnsPolicy,
+    TableContext,
     TableSource,
     derive_status,
 )
@@ -165,6 +167,63 @@ def test_column_profile_to_dict_is_json_safe():
         "sample_scope": "bounded_sample",
         "approximate": True,
     }
+
+
+def test_table_context_to_dict_is_json_safe():
+    source = TableSourceIR(table="orders", database=("mart", "sales"))
+    context = TableContext(
+        datasource="warehouse",
+        table=source,
+        table_comment="orders fact",
+        columns=("order_id", "amount"),
+        column_comments={"amount": "Gross amount"},
+        metadata_warnings=("comments_unavailable: n/a",),
+    )
+
+    assert context.to_dict() == {
+        "datasource": "warehouse",
+        "table": {"kind": "table", "table": "orders", "database": ["mart", "sales"]},
+        "table_comment": "orders fact",
+        "columns": ["order_id", "amount"],
+        "column_comments": {"amount": "Gross amount"},
+        "metadata_warnings": ["comments_unavailable: n/a"],
+    }
+
+
+def test_column_context_to_dict_is_json_safe_and_intentionally_small():
+    source = TableSourceIR(table="orders")
+    context = ColumnContext(
+        datasource="warehouse",
+        table=source,
+        column="amount",
+        data_type="DOUBLE",
+        nullable=True,
+        comment="Gross amount",
+        sample_values=(10.0, None, 20.0),
+        null_count=1,
+        min_value=10.0,
+        max_value=20.0,
+        warnings=("bounded sample",),
+    )
+
+    assert context.to_dict() == {
+        "datasource": "warehouse",
+        "table": {"kind": "table", "table": "orders", "database": None},
+        "column": "amount",
+        "data_type": "DOUBLE",
+        "nullable": True,
+        "comment": "Gross amount",
+        "sample_values": [10.0, None, 20.0],
+        "null_count": 1,
+        "min_value": 10.0,
+        "max_value": 20.0,
+        "warnings": ["bounded sample"],
+    }
+    assert not hasattr(context, "distinct_count")
+    assert not hasattr(context, "top_values")
+    assert not hasattr(context, "empty_count")
+    assert not hasattr(context, "sample_row_count")
+    assert not hasattr(context, "approximate")
 
 
 def test_derive_status_blocked_on_blocker_issue():

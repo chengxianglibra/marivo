@@ -63,6 +63,7 @@ from marivo.semantic.dtos import (
     AuthoringQuestion,
     AuthoringSourceInput,
     BoundedProfilePolicy,
+    ColumnContext,
     ColumnEvidence,
     ColumnProfile,
     DatasetSource,
@@ -72,6 +73,7 @@ from marivo.semantic.dtos import (
     SamplePolicy,
     SelectedColumnsPolicy,
     SourceEvidencePack,
+    TableContext,
     TableSource,
 )
 from marivo.semantic.help import help, help_text
@@ -101,6 +103,7 @@ __all__ = [
     "AuthoringQuestion",
     "AuthoringSourceInput",
     "BoundedProfilePolicy",
+    "ColumnContext",
     "ColumnEvidence",
     "ColumnProfile",
     "DatasetSource",
@@ -136,6 +139,7 @@ __all__ = [
     "SemanticRefInput",
     "SnapshotVersioning",
     "SourceEvidencePack",
+    "TableContext",
     "TableSource",
     "TimeDimensionDetails",
     "TimeDimensionRef",

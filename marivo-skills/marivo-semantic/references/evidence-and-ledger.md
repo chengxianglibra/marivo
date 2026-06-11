@@ -13,6 +13,8 @@
 
 | DTO | Purpose |
 | --- | ------- |
+| `TableContext` | Basic table/file metadata from `inspect_table` |
+| `ColumnContext` | Fixed-sample column details from `inspect_columns` |
 | `TableSource` | Physical table source (table name, optional database) |
 | `FileSource` | Physical file source (path + format: parquet/csv/json) |
 | `DatasetSource` | Type alias: `TableSource \| FileSource` |
@@ -31,25 +33,26 @@
 ## Collecting Evidence
 
 ```python
-# Bind datasource access once after loading the project
-project.bind_datasource_access(
-    inspect_source=md.inspect_source,
-    backend_factory=md.connect,
-)
-
-# Source evidence
-pack = project.inspect_source_context(
-    datasource="warehouse",
-    source=ms.TableSource(table="orders"),
-    sample_policy=ms.BoundedProfilePolicy(limit=100),
-)
+# Table metadata
+table_context = project.inspect_table("warehouse", ms.table("orders"))
 
 # Column deep-dive
-evidence = project.inspect_column_context(
-    datasource="warehouse",
-    source=ms.TableSource(table="orders"),
+evidence = project.inspect_columns(
+    "warehouse",
+    ms.table("orders"),
     columns=("status", "amount"),
-    sample_policy=ms.SelectedColumnsPolicy(limit=100, columns=("status", "amount")),
+)
+
+assessment = project.assess_authoring(
+    object_kind="entity",
+    subject_ref="sales.orders",
+    sources=(
+        ms.AuthoringSourceInput(
+            role="primary",
+            datasource="warehouse",
+            source=ms.TableSource(table="orders"),
+        ),
+    ),
 )
 ```
 

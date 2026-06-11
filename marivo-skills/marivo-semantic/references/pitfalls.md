@@ -13,8 +13,8 @@ or inspect the full table outside the authoring workflow.
 ## Expecting a candidate worklist
 
 The project does not return a candidate worklist. Rank columns yourself from
-pack facts (type, comments, nullable, partition hints, sampled values). Use
-`project.inspect_column_context(...)` to deep-dive a small set of columns, then
+table and column context facts (type, comments, nullable, sampled values). Use
+`project.inspect_columns(...)` to deep-dive a small set of columns, then
 author directly.
 
 ## Passing ledger evidence as source inputs

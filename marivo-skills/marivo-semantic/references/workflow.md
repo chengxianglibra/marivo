@@ -28,43 +28,33 @@ DuckDB for local files). Do not route ClickHouse or MySQL tables through a Trino
 catalog unless the user explicitly requires Trino federation.
 
 ```python
-import marivo.analysis as mv
 import marivo.semantic as ms
 
 project = ms.find_project()
-project.bind_datasource_access(
-    inspect_source=md.inspect_source,
-    backend_factory=md.connect,
-)
 catalog = ms.load()
-pack = project.inspect_source_context(
-    datasource="warehouse",
-    source=ms.TableSource(table="orders", database="sales_mart"),
-    sample_policy=ms.BoundedProfilePolicy(limit=100, max_profiled_columns=50),
+table_context = project.inspect_table(
+    "warehouse",
+    ms.table("orders", database="sales_mart"),
 )
+column_contexts = project.inspect_columns("warehouse", ms.table("orders"))
 ```
 
 Stop on insufficient evidence — fix datasource access or request missing context
-before continuing. `inspect_source_context` folds metadata inspection and bounded
-preview into one call and persists evidence metadata under
-`.marivo/semantic/.evidence/`.
+before continuing. `inspect_table` reads metadata only; `inspect_columns` reads
+a fixed 5-row sample and closes its datasource connection.
 
-For `metadata_only` policy (no row reads):
+For metadata only (no row reads):
 
 ```python
-pack = project.inspect_source_context(
-    datasource="warehouse",
-    source=ms.TableSource(table="orders"),
-    sample_policy=ms.MetadataOnlyPolicy(),
-)
+table_context = project.inspect_table("warehouse", ms.table("orders"))
 ```
 
 For Trino without a default schema, pass the schema as `database`:
 
 ```python
-metadata = md.inspect_source(
+table_context = project.inspect_table(
     "warehouse",
-    source=ms.table("orders", database="sales_mart"),
+    ms.table("orders", database="sales_mart"),
 )
 ```
 
@@ -73,27 +63,39 @@ metadata = md.inspect_source(
 Deep-dive selected columns after source evidence:
 
 ```python
-evidence = project.inspect_column_context(
-    datasource="warehouse",
-    source=ms.TableSource(table="orders"),
+evidence = project.inspect_columns(
+    "warehouse",
+    ms.table("orders"),
     columns=("status", "amount"),
-    sample_policy=ms.SelectedColumnsPolicy(
-        limit=100, columns=("status", "amount")
-    ),
 )
 for col in evidence:
-    print(col.column, col.profile.distinct_count, col.profile.top_values)
+    print(col.column, col.data_type, col.sample_values)
 ```
 
 Use this for time/enum/amount/join-key columns. Sample-derived values are facts
-about the bounded sample only — never treat them as full-table truth.
+about the fixed 5-row sample only — never treat them as full-table truth.
+
+Assess candidate authoring inputs before writing semantic files:
+
+```python
+assessment = project.assess_authoring(
+    object_kind="entity",
+    subject_ref="sales.orders",
+    sources=(
+        ms.AuthoringSourceInput(
+            role="primary",
+            datasource="warehouse",
+            source=ms.TableSource(table="orders"),
+        ),
+    ),
+)
+```
 
 ## Phase 2: Assess and Author Each Candidate Object
 
 Call `project.assess_authoring(...)` before writing each candidate object. It
-collects current source context through the datasource access bound in Phase 1,
-checks the source roles and semantic refs, and returns facts, issues, and
-questions.
+collects current source context through project datasource configuration,
+checks the source roles and semantic refs, and returns facts, issues, and questions.
 
 ```python
 assessment = project.assess_authoring(

@@ -85,11 +85,19 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
     evidence = _read("marivo-skills/marivo-semantic/references/evidence-and-ledger.md")
 
-    assert "md.inspect_source" in skill
-    assert "project.inspect_source_context(" in workflow
-    assert "bind_datasource_access" in workflow
+    assert "project.inspect_table(" in skill
+    assert "project.inspect_columns(" in skill
+    assert "project.inspect_table(" in workflow
+    assert "project.inspect_columns(" in workflow
+    assert "inspect_source_context" not in skill
+    assert "inspect_column_context" not in skill
+    assert "inspect_source_context" not in workflow
+    assert "inspect_column_context" not in workflow
+    assert "bind_datasource_access" not in workflow
+    assert "sample_policy=" not in workflow
+    assert "backend_factory=" not in workflow
     assert "project.assess_authoring(" in workflow
-    assert "sample_scope" in workflow or "sample_scope" in skill
+    assert "fixed 5-row sample" in workflow or "fixed 5-row sample" in skill
     assert "non-negative integer count" in skill
     assert "AuthoringQuestion" in evidence
     assert "table.schema()` returns types but not comments" in skill
@@ -254,13 +262,21 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "return table.dt" in single
     assert "return table.dt.cast" not in single
     assert 'required_prefix="log_date"' in single
-    assert "project.inspect_source_context(" in evidence
-    assert "bind_datasource_access" in evidence
+    assert "project.inspect_table(" in evidence
+    assert "project.inspect_columns(" in evidence
+    assert "inspect_source_context" not in evidence
+    assert "inspect_column_context" not in evidence
+    assert "bind_datasource_access" not in evidence
+    assert "sample_policy=" not in evidence
     assert "ms.AuthoringSourceInput(" in evidence
     assert "sources=(" in evidence
     assert "project.assess_authoring(" in evidence
-    assert "project.inspect_source_context(" in closeout
-    assert "bind_datasource_access" in closeout
+    assert "project.inspect_table(" in closeout
+    assert "project.inspect_columns(" in closeout
+    assert "inspect_source_context" not in closeout
+    assert "inspect_column_context" not in closeout
+    assert "bind_datasource_access" not in closeout
+    assert "sample_policy=" not in closeout
     for text in (closeout_ref, preview_ref, closeout):
         assert "require_preview" not in text
         assert "require_evidence_ledger" not in text

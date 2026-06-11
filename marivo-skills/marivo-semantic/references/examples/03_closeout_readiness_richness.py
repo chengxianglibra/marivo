@@ -115,18 +115,14 @@ with tempfile.TemporaryDirectory() as tmp:
         project = SemanticProject(root=root / ".marivo" / "semantic")
         project.load()
 
-        project.bind_datasource_access(
-            inspect_source=fake_inspect_source,
-            backend_factory=md.connect,
+        table_context = project.inspect_table("warehouse", ms.table("orders"))
+        column_contexts = project.inspect_columns(
+            "warehouse",
+            ms.table("orders"),
+            columns=("order_id", "amount"),
         )
-
-        # inspect_source_context folds source inspection and bounded preview
-        pack = project.inspect_source_context(
-            datasource="warehouse",
-            source=ms.TableSource(table="orders"),
-            sample_policy=ms.BoundedProfilePolicy(limit=100, max_profiled_columns=50),
-        )
-        print("source schema columns:", len(pack.schema))
+        print("source schema columns:", len(table_context.columns))
+        print("sampled columns:", [column.column for column in column_contexts])
 
         report = project.readiness(
             refs=("sales.orders", "sales.unverified_revenue", "sales.drifted_revenue"),

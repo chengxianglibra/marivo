@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import ibis
 
+import marivo.semantic as ms
 from marivo.datasource.metadata import ColumnMetadata, TableMetadata
-from marivo.semantic.dtos import AuthoringSourceInput, BoundedProfilePolicy, TableSource
+from marivo.semantic.dtos import AuthoringSourceInput, TableSource
 from marivo.semantic.reader import SemanticProject
 
 
@@ -42,9 +43,20 @@ def test_collect_check_author_reload_inspect(tmp_path):
     root = marivo_root / "semantic"
     (root / "sales").mkdir(parents=True)
     (marivo_root / "datasource").mkdir(parents=True)
+    db_path = tmp_path / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    try:
+        con.con.execute("CREATE TABLE orders (order_id INT, created_at DATE, amount DOUBLE)")
+        con.con.execute("INSERT INTO orders VALUES (1, DATE '2026-07-01', 10.0)")
+        con.con.execute("COMMENT ON TABLE orders IS 'orders'")
+        con.con.execute("COMMENT ON COLUMN orders.amount IS 'gross amount'")
+    finally:
+        con.disconnect()
     (marivo_root / "datasource" / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "warehouse = md.DatasourceSpec("
+        "name='warehouse', backend_type='duckdb', path="
+        f"{str(db_path)!r})\n"
         "md.datasource(warehouse)\n"
     )
     project = SemanticProject(workspace_dir=tmp_path)
@@ -52,12 +64,15 @@ def test_collect_check_author_reload_inspect(tmp_path):
         inspect_source=_fake_inspect_source, backend_factory=_backend_factory
     )
 
-    # 1. collect source evidence
-    project.inspect_source_context(
-        datasource="warehouse",
-        source=TableSource(table="orders"),
-        sample_policy=BoundedProfilePolicy(limit=50),
+    # 1. inspect physical source metadata and selected columns
+    table_context = project.inspect_table("warehouse", ms.table("orders"))
+    column_contexts = project.inspect_columns(
+        "warehouse",
+        ms.table("orders"),
+        columns=("amount",),
     )
+    assert table_context.table_comment == "orders"
+    assert column_contexts[0].comment == "gross amount"
 
     # 2. check dataset inputs
     dataset_check = project.assess_authoring(
