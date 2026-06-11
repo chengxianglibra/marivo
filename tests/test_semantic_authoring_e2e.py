@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import ibis
 
-from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
+from marivo.datasource.metadata import ColumnMetadata, TableMetadata
 from marivo.semantic.dtos import AuthoringSourceInput, BoundedProfilePolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 

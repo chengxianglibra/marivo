@@ -102,7 +102,7 @@ These forks were resolved during brainstorming:
      or `ms.sum()` over an existing field): no datasource re-inspection; evidence
      is the existing refs plus formula / source SQL / knowledge / user
      confirmation.
-   - Needs an undeclared column: `mv.datasources.inspect_source(...)` for that
+   - Needs an undeclared column: `md.inspect_source(...)` for that
      one table to read the column type, comment, and nullability, then author the
      field from that evidence.
 4. **Author one object** in the existing `.marivo/semantic/<model>/_domain.py`,

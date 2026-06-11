@@ -104,7 +104,7 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "Lineage",
         "LineageStep",
     }
-    namespaces = {"session", "datasources", "evidence", "frames", "errors", "publish"}
+    namespaces = {"session", "evidence", "frames", "errors", "publish"}
 
     for name in construction_types | core_runtime_result_types | namespaces:
         assert name in mv.__all__, name
@@ -113,6 +113,7 @@ def test_analysis_exports_public_surface_by_layer() -> None:
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
     import marivo.analysis as mv
+    import marivo.datasource as md
 
     subdomain_only = {
         # Evidence DTOs live under mv.evidence.
@@ -133,7 +134,7 @@ def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
         "TestedHypothesis",
         "TimeWindow",
         "TriggeredByFollowup",
-        # Datasource metadata DTOs live under mv.datasources.
+        # Datasource metadata DTOs live under md.
         "ColumnMetadata",
         "MetadataWarning",
         "PartitionMetadata",
@@ -162,8 +163,8 @@ def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
         assert not hasattr(mv, name), f"{name} should not be a mv attribute"
 
     assert mv.evidence.Subject is not None
-    assert mv.datasources.TableMetadata is not None
-    assert mv.datasources.PreviewResult is not None
+    assert md.TableMetadata is not None
+    assert md.PreviewResult is not None
     assert mv.errors.PromotionFailedError is not None
     assert mv.errors.DiscoverInsufficientDataError is not None
 

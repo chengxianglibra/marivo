@@ -85,7 +85,7 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
     evidence = _read("marivo-skills/marivo-semantic/references/evidence-and-ledger.md")
 
-    assert "mv.datasources.inspect_source" in skill
+    assert "md.inspect_source" in skill
     assert "project.inspect_source_context(" in workflow
     assert "bind_datasource_access" in workflow
     assert "project.assess_authoring(" in workflow
@@ -197,8 +197,8 @@ def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
     assert "catalog.schema.table" not in combined
     assert 'backend.table("orders", database="sales_mart")' not in combined
     assert "FDN" not in combined
-    assert "mv.datasources.all()" in combined
-    assert "mv.datasources.list()" not in combined
+    assert "md.list()" in combined
+    assert "md.all()" not in combined
 
 
 def test_semantic_skill_prefers_native_datasource_backends() -> None:
@@ -222,7 +222,7 @@ def test_semantic_skill_prefers_native_datasource_backends() -> None:
 def test_design_spec_marks_remaining_phases_implemented() -> None:
     spec = _read("docs/specs/semantic/agent-semantic-layer-authoring-design.md")
 
-    assert "| Table metadata/comments | `mv.datasources.inspect_source(...)` | same |" in spec
+    assert "| Table metadata/comments | `md.inspect_source(...)` | same |" in spec
     assert "### Phase 4: Metadata API\n\nImplemented:" in spec
     assert "### Phase 5: Agent Automation Tightening\n\nImplemented:" in spec
 

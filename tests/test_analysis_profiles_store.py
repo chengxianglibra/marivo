@@ -7,11 +7,11 @@ from pathlib import Path
 import pytest
 
 import marivo.datasource as md
-from marivo.analysis.datasources import store as datasource_store
 from marivo.analysis.errors import (
     DatasourceFieldInvalidError,
     DatasourceSecretInPlaintextError,
 )
+from marivo.datasource import store as datasource_store
 
 
 @pytest.fixture(autouse=True)

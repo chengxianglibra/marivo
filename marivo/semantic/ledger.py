@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
-    from marivo.analysis.datasources.metadata import TableMetadata
+    from marivo.datasource.metadata import TableMetadata
 
 
 @dataclass(frozen=True)

@@ -7,11 +7,12 @@ import os
 import stat
 import tempfile
 import tomllib
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from marivo.analysis.errors import (
+from marivo.datasource.errors import (
     DatasourceEnvVarMissingError,
     DatasourceSecretStorePermissionsError,
 )
@@ -82,9 +83,6 @@ class LocalPlaintextCache:
                 tmp_path.unlink()
 
     def persistence_enabled(self) -> bool:
-        # Gate on CI and the kill switch only. Do NOT gate on an interactive
-        # TTY: agents run non-interactively and are the primary actor that must
-        # persist. The git-repo path guard covers the sandbox-HOME case.
         if os.environ.get("MARIVO_PERSIST_SECRETS") == "0":
             return False
         return not os.environ.get("CI")
@@ -158,3 +156,19 @@ def persist_env_sourced(resolved: tuple[ResolvedSecret, ...]) -> None:
     for item in resolved:
         if isinstance(item.provider, EnvProvider):
             cache.persist(item.name, item.value)
+
+
+_ENV_SOURCED_SECRETS_ATTR = "_marivo_env_sourced_secrets"
+
+
+def remember_env_sourced(backend: object, resolved: tuple[ResolvedSecret, ...]) -> None:
+    """Stash env-sourced secret provenance on a live backend object."""
+    with suppress(Exception):
+        setattr(backend, _ENV_SOURCED_SECRETS_ATTR, resolved)
+
+
+def persist_backend_env_sourced(backend: object) -> None:
+    """Persist env-sourced secrets previously stashed on a backend."""
+    resolved = getattr(backend, _ENV_SOURCED_SECRETS_ATTR, ())
+    if isinstance(resolved, tuple):
+        persist_env_sourced(resolved)

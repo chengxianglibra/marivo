@@ -33,8 +33,8 @@ import marivo.semantic as ms
 
 project = ms.find_project()
 project.bind_datasource_access(
-    inspect_source=mv.datasources.inspect_source,
-    backend_factory=mv.datasources.build_backend,
+    inspect_source=md.inspect_source,
+    backend_factory=md.connect,
 )
 catalog = ms.load()
 pack = project.inspect_source_context(
@@ -62,7 +62,7 @@ pack = project.inspect_source_context(
 For Trino without a default schema, pass the schema as `database`:
 
 ```python
-metadata = mv.datasources.inspect_source(
+metadata = md.inspect_source(
     "warehouse",
     source=ms.table("orders", database="sales_mart"),
 )

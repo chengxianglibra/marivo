@@ -8,7 +8,7 @@ import textwrap
 import ibis
 import pytest
 
-from marivo.analysis.datasources.metadata import TableMetadata
+from marivo.datasource.metadata import TableMetadata
 from marivo.preview import PreviewWarning
 from marivo.semantic.readiness import (
     ParitySummary,
@@ -42,7 +42,7 @@ def backend_factory(duckdb_backend):
 
 
 def _fake_inspect_source(datasource, *, source, include_partitions=True):
-    from marivo.analysis.datasources.metadata import TableMetadata
+    from marivo.datasource.metadata import TableMetadata
 
     return TableMetadata(
         datasource=datasource,

@@ -8,10 +8,9 @@ from pathlib import Path
 
 import ibis
 
-import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis.datasources.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
 from marivo.semantic.ir import TableSourceIR
 
 DOMAIN = """
@@ -110,9 +109,7 @@ with tempfile.TemporaryDirectory() as tmp:
     previous = Path.cwd()
     try:
         os.chdir(root)
-        mv.datasources.register(
-            md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path))
-        )
+        md.register(md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)))
         from marivo.semantic.reader import SemanticProject
 
         project = SemanticProject(root=root / ".marivo" / "semantic")
@@ -120,7 +117,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
         project.bind_datasource_access(
             inspect_source=fake_inspect_source,
-            backend_factory=mv.datasources.build_backend,
+            backend_factory=md.connect,
         )
 
         # inspect_source_context folds source inspection and bounded preview

@@ -79,7 +79,7 @@ registry and validation pieces:
   `materialize_metric(...)`
 - `project.parity_check(...)`
 - `ms.help(...)` and `ms.help("constraints")`
-- `mv.datasources.register(...)`, `all()`, `describe()`, `build_backend()`,
+- `md.register(...)`, `all()`, `describe()`, `build_backend()`,
   and `test()`
 - analysis frame `preview(limit=...)`
 
@@ -101,13 +101,13 @@ has landed in their installed Marivo version.
 | --- | --- | --- |
 | Find and load semantic project | `ms.find_project()`, `project.load()` | same |
 | Inspect semantic objects | `project.list_*()`, `search()`, `describe()` | same |
-| Build backend from datasource | `mv.datasources.build_backend(name)` | same |
-| Test datasource | `mv.datasources.test(name)` | same |
+| Build backend from datasource | `md.connect(name)` | same |
+| Test datasource | `md.test(name)` | same |
 | Raw table preview | `project.collect_source_preview(..., backend_factory=...)` so readiness can consume the physical source evidence | same |
 | Semantic dataset/field/metric preview | `project.preview_dataset(...)`, `project.preview_field(...)`, `project.preview_metric(...)` | same |
 | Metric SQL parity | `project.parity_check(...)` | same |
 | Readiness report | agent-authored closeout from load, preview, and parity evidence | `project.readiness(...)` |
-| Table metadata/comments | `mv.datasources.inspect_source(...)` | same |
+| Table metadata/comments | `md.inspect_source(...)` | same |
 
 When calling materialization, compilation, parity, or target preview/readiness
 APIs, pass a backend factory, not a backend instance:
@@ -115,7 +115,7 @@ APIs, pass a backend factory, not a backend instance:
 ```python
 import marivo.analysis as mv
 
-backend_factory = lambda name: mv.datasources.build_backend(name)
+backend_factory = lambda name: md.connect(name)
 
 expr = project.materialize_metric(
     "sales.revenue",
@@ -173,17 +173,17 @@ Current API:
 ```python
 import marivo.analysis as mv
 
-mv.datasources.all()
-mv.datasources.describe("warehouse")
-mv.datasources.test("warehouse")
-backend = mv.datasources.build_backend("warehouse")
+md.list()
+md.describe("warehouse")
+md.test("warehouse")
+backend = md.connect("warehouse")
 ```
 
 Target APIs for richer inspection are described later in this document.
 
 Use `md.DatasourceSpec(...)` plus `md.datasource(spec)` in
 `.marivo/datasource/<name>.py` when authoring datasource files directly. Use
-`mv.datasources.register(md.DatasourceSpec(...))` when a script or agent wants
+`md.register(md.DatasourceSpec(...))` when a script or agent wants
 Marivo to create or replace the datasource file through the public registry API.
 Semantic model files should reference project datasources with `md.ref(...)`;
 datasource configuration itself does not belong inside semantic model files.
@@ -281,7 +281,7 @@ After authoring, the agent validates semantic objects with bounded previews:
 Use the standard preview APIs:
 
 ```python
-backend_factory = lambda name: mv.datasources.build_backend(name)
+backend_factory = lambda name: md.connect(name)
 
 project.preview_dataset("sales.orders", limit=20, backend_factory=backend_factory)
 project.preview_field("sales.order_date", limit=20, backend_factory=backend_factory)
@@ -352,10 +352,10 @@ namespace.
 
 Source APIs:
 
-- `mv.datasources.all()`
-- `mv.datasources.describe(...)`
-- `mv.datasources.test(...)`
-- target `mv.datasources.inspect(...)`
+- `md.list()`
+- `md.describe(...)`
+- `md.test(...)`
+- target `md.inspect(...)`
 
 ### Table Metadata Evidence
 
@@ -525,7 +525,7 @@ Rules:
 Available APIs.
 
 ```python
-backend_factory = lambda name: mv.datasources.build_backend(name)
+backend_factory = lambda name: md.connect(name)
 
 project.preview_dataset("sales.orders", limit=20, backend_factory=backend_factory)
 project.preview_field("sales.order_date", limit=20, backend_factory=backend_factory)
@@ -815,7 +815,7 @@ Available API. Use this as the standard final validation step after load, raw pr
 ```python
 project.bind_datasource_access(
     inspect_source=inspect_source,
-    backend_factory=lambda name: mv.datasources.build_backend(name),
+    backend_factory=lambda name: md.connect(name),
 )
 
 report = project.readiness(
@@ -1038,7 +1038,7 @@ Implemented:
 
 Implemented:
 
-- `mv.datasources.inspect_source(...)`
+- `md.inspect_source(...)`
 - table comments
 - column comments
 - nullable flags

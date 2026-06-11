@@ -23,7 +23,7 @@ from marivo.semantic.parity import propagated_parity_status
 from marivo.semantic.richness import DemandSignal, RichnessGap, build_richness_report
 
 if TYPE_CHECKING:
-    from marivo.analysis.datasources.metadata import TableMetadata
+    from marivo.datasource.metadata import TableMetadata
     from marivo.semantic.reader import SemanticProject
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]

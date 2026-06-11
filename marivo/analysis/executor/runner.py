@@ -19,7 +19,6 @@ from zoneinfo import ZoneInfo
 import ibis
 import pandas as pd
 
-from marivo.analysis.datasources import registry as _datasource_registry
 from marivo.analysis.errors import (
     BackendError,
     DataTypeMismatchError,
@@ -37,6 +36,7 @@ from marivo.analysis.executor.query_record import (
 from marivo.analysis.timezone import zoneinfo_from_name
 from marivo.analysis.windows.grain import _TRUNCATE_CODE, Grain
 from marivo.analysis.windows.spec import AbsoluteWindow, is_date_only
+from marivo.datasource import secrets as _secrets
 
 UTC_ZONE = ZoneInfo("UTC")
 _MISSING_ATTR = object()
@@ -1475,7 +1475,7 @@ def execute(
                 backend.compile = original_compile_attr
 
     if cache.should_mark_validated(datasource_name):
-        _datasource_registry._persist_backend_env_sourced_secrets(backend)
+        _secrets.persist_backend_env_sourced(backend)
         cache.mark_validated(datasource_name)
     if isinstance(raw, pd.DataFrame):
         df = raw

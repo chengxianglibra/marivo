@@ -3,7 +3,7 @@ from __future__ import annotations
 import ibis
 import pandas as pd
 
-from marivo.analysis.datasources.metadata import (
+from marivo.datasource.metadata import (
     ColumnMetadata,
     MetadataWarning,
     PartitionMetadata,

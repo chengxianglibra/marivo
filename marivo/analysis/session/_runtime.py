@@ -137,7 +137,7 @@ def _compile_backend_factory(
     if backend_factory is not None:
         return backend_factory
     if use_datasources:
-        from marivo.analysis.datasources import build_backend
+        from marivo.datasource import connect as build_backend
 
         def from_datasources(name: str) -> Any:
             return build_backend(name)
@@ -181,7 +181,7 @@ def _session_from_row(
     layout = PersistenceLayout(project_root=project_root, session_id=session_id)
     semantic_project = _build_semantic_project(project_root)
     if factory is not None:
-        from marivo.analysis.datasources import inspect_source
+        from marivo.datasource import inspect_source
 
         semantic_project.bind_datasource_access(
             inspect_source=inspect_source,

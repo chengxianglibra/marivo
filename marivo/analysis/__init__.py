@@ -51,10 +51,6 @@ from marivo.analysis.windows.spec import (
 
 
 def __getattr__(name: str) -> _Any:
-    if name == "datasources":
-        from importlib import import_module
-
-        return import_module("marivo.analysis.datasources")
     if name == "evidence":
         from importlib import import_module
 
@@ -114,7 +110,6 @@ __all__ = [
     "SliceValue",
     "TimeScope",
     "TimeScopeInput",
-    "datasources",
     "errors",
     "evidence",
     "frames",

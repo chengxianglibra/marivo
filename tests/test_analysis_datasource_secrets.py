@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.datasources import secrets
 from marivo.analysis.errors import (
     DatasourceEnvVarMissingError,
     DatasourceSecretStorePermissionsError,
 )
+from marivo.datasource import secrets
 
 
 @pytest.fixture

@@ -22,16 +22,14 @@ def _default_backend_factory() -> Callable[[str], Any]:
     """
     import importlib
 
-    analysis = importlib.import_module("marivo.analysis")
-    return lambda name: analysis.datasources.build_backend(name)
+    return lambda name: importlib.import_module("marivo.datasource").connect(name)
 
 
 def _default_inspect_source() -> Callable[..., Any]:
     """Return an inspect_source callable from marivo.analysis."""
     import importlib
 
-    analysis = importlib.import_module("marivo.analysis")
-    return analysis.datasources.inspect_source  # type: ignore[no-any-return]
+    return importlib.import_module("marivo.datasource").inspect_source  # type: ignore[no-any-return]
 
 
 def _run_parity_checks(

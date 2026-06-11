@@ -7,10 +7,10 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from marivo.analysis.datasources import backends as _backends
-from marivo.analysis.datasources import store as _store
-from marivo.analysis.errors import DatasourceMetadataError
-from marivo.semantic.ir import EntitySourceIR, FileSourceIR, TableSourceIR, source_name
+from marivo.datasource import backends as _backends
+from marivo.datasource import store as _store
+from marivo.datasource.errors import DatasourceMetadataError
+from marivo.datasource.ir import EntitySourceIR, FileSourceIR, TableSourceIR, source_name
 
 MetadataWarningKind = Literal[
     "comments_unavailable",
