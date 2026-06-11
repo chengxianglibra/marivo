@@ -5,7 +5,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     FrameCacheCorruptedError,
     FrameRefNotFound,
@@ -74,7 +74,7 @@ def test_observe_cache_hit_after_reattach(tmp_path):
 
     # Simulate a new script: reset process state and reattach.
     session_attach._reset_process_state()
-    s2 = session_attach.attach(name="demo", backends=_backends(con))
+    s2 = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     second = s2.observe(mv.MetricRef("sales.revenue"))
     assert second.ref == ref
@@ -144,7 +144,7 @@ def test_get_frame_cross_script(tmp_path):
 
     # Simulate a new script.
     session_attach._reset_process_state()
-    s2 = session_attach.attach(name="demo", backends=_backends(con))
+    s2 = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     loaded = s2.get_frame(ref)
     assert loaded.ref == ref
@@ -294,7 +294,7 @@ def test_observe_derived_metric_components_after_reattach(tmp_path):
 
     # Simulate new process
     session_attach._reset_process_state()
-    s2 = session_attach.attach(name="demo", backends={"warehouse": lambda: con})
+    s2 = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     loaded = s2.get_frame(ref)
     components = loaded.components()

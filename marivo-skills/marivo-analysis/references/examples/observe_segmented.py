@@ -14,7 +14,7 @@ ensure_loaded()
 
 import marivo.analysis as mv  # noqa: E402
 
-session = mv.session.active()
+session = mv.session.current()
 by_region = session.observe(
     mv.MetricRef(DERIVED_RATIO_METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},

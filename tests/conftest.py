@@ -9,6 +9,15 @@ import pytest
 from tests.shared_fixtures import sales_orders_template
 
 
+@pytest.fixture(autouse=True)
+def _reset_analysis_session_process_state():
+    from marivo.analysis.session._runtime import reset_process_state
+
+    reset_process_state()
+    yield
+    reset_process_state()
+
+
 @pytest.fixture(scope="session")
 def _sales_orders_template_path():
     """Session-scoped: ensure the DuckDB template is built once per worker."""

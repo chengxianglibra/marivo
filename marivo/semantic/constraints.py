@@ -76,6 +76,7 @@ class ConstraintId(StrEnum):
     PARITY_SCALAR_RESULT = "parity_scalar_result"
     AMBIGUOUS_REFERENCE = "ambiguous_reference"
     BACKEND_FACTORY_AVAILABLE = "backend_factory_available"
+    INSPECT_SOURCE_AVAILABLE = "inspect_source_available"
     PROJECT_LOADED_REQUIRED = "project_loaded_required"
     CATALOG_KIND_VALID = "catalog_kind_valid"
     CATALOG_PARENT_BROWSABLE = "catalog_parent_browsable"
@@ -616,7 +617,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SemanticProject",),
         "Materialization and preview methods require a backend_factory.",
         "A backend_factory maps datasource names to ibis backends for data access.",
-        "Pass backend_factory=md.connect (and disconnect the backends yourself) or a custom factory.",
+        "Call project.bind_datasource_access(...) after load() or pass backend_factory=... explicitly.",
+    ),
+    ConstraintId.INSPECT_SOURCE_AVAILABLE: _constraint(
+        ConstraintId.INSPECT_SOURCE_AVAILABLE,
+        "inspect_source_required",
+        "runtime",
+        ("SemanticProject",),
+        "Source inspection methods require an inspect_source callable.",
+        "inspect_source maps datasource+source to TableMetadata for schema discovery.",
+        "Call project.bind_datasource_access(...) after load() or pass inspect_source=... explicitly.",
     ),
     ConstraintId.PROJECT_LOADED_REQUIRED: _constraint(
         ConstraintId.PROJECT_LOADED_REQUIRED,

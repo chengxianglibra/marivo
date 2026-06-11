@@ -1,19 +1,20 @@
-"""Disk I/O for session metadata, job records, and frame files."""
+"""Tests for session file-system layout and byte I/O helpers."""
 
 from datetime import UTC, datetime
 
 import pandas as pd
+import pytest
 
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
-from marivo.analysis.session.persistence import (
+from marivo.analysis.session._layout import (
     PersistenceLayout,
+    _atomic_write_text,
     read_frame_from_disk,
     read_job_record,
-    read_session_meta,
+    report_dir,
     write_frame_to_disk,
     write_job_record,
-    write_session_meta,
 )
 
 
@@ -25,6 +26,9 @@ def _layout(tmp_path):
     return PersistenceLayout(project_root=tmp_path, session_id="sess_test01")
 
 
+# -- PersistenceLayout paths --
+
+
 def test_layout_paths(tmp_path):
     layout = _layout(tmp_path)
     assert layout.session_dir == tmp_path / ".marivo" / "analysis" / "sessions" / "sess_test01"
@@ -34,21 +38,28 @@ def test_layout_paths(tmp_path):
     assert layout.reports_dir == layout.session_dir / "reports"
 
 
-def test_write_and_read_session_meta(tmp_path):
+def test_layout_store_db(tmp_path):
     layout = _layout(tmp_path)
-    meta = {
-        "id": "sess_test01",
-        "name": "demo",
-        "question": "What changed?",
-        "cwd": "/tmp/proj",
-        "state": "active",
-        "created_at": _now().isoformat(),
-        "updated_at": _now().isoformat(),
-        "project_root": str(tmp_path),
-        "known_datasources": ["warehouse"],
-    }
-    write_session_meta(layout, meta)
-    assert read_session_meta(layout) == meta
+    assert layout.store_db == tmp_path / ".marivo" / "analysis" / "session_store.db"
+
+
+# -- _atomic_write_text --
+
+
+def test_atomic_write_text_creates_file(tmp_path):
+    target = tmp_path / "sub" / "file.txt"
+    _atomic_write_text(target, "hello")
+    assert target.read_text() == "hello"
+
+
+def test_atomic_write_text_replaces_existing(tmp_path):
+    target = tmp_path / "file.txt"
+    _atomic_write_text(target, "v1")
+    _atomic_write_text(target, "v2")
+    assert target.read_text() == "v2"
+
+
+# -- Job records --
 
 
 def test_write_and_read_job_record(tmp_path):
@@ -70,6 +81,9 @@ def test_write_and_read_job_record(tmp_path):
     }
     write_job_record(layout, record)
     assert read_job_record(layout, "job_abc12345") == record
+
+
+# -- Frame disk I/O --
 
 
 def test_write_and_read_frame(tmp_path):
@@ -102,8 +116,51 @@ def test_write_and_read_frame(tmp_path):
     assert meta_back["kind"] == "metric_frame"
 
 
-def test_write_session_meta_atomic_via_rename(tmp_path):
+# -- report_dir --
+
+
+def test_report_dir_returns_layout_reports_dir_subdir(tmp_path):
     layout = _layout(tmp_path)
-    write_session_meta(layout, {"id": "sess_test01", "name": "v1"})
-    write_session_meta(layout, {"id": "sess_test01", "name": "v2"})
-    assert read_session_meta(layout)["name"] == "v2"
+    result = report_dir(layout, "rpt_abc")
+    assert result == layout.reports_dir / "rpt_abc"
+
+
+def test_report_dir_rejects_empty_id(tmp_path):
+    layout = _layout(tmp_path)
+    with pytest.raises(ValueError):
+        report_dir(layout, "")
+
+
+def test_report_dir_rejects_dot(tmp_path):
+    layout = _layout(tmp_path)
+    with pytest.raises(ValueError):
+        report_dir(layout, ".")
+
+
+def test_report_dir_rejects_dotdot(tmp_path):
+    layout = _layout(tmp_path)
+    with pytest.raises(ValueError):
+        report_dir(layout, "..")
+
+
+def test_report_dir_rejects_slash(tmp_path):
+    layout = _layout(tmp_path)
+    with pytest.raises(ValueError):
+        report_dir(layout, "a/b")
+
+
+def test_report_dir_rejects_backslash(tmp_path):
+    layout = _layout(tmp_path)
+    with pytest.raises(ValueError):
+        report_dir(layout, "a\\b")
+
+
+# -- Module does not export session meta functions --
+
+
+def test_layout_module_has_no_session_meta_functions():
+    """_layout should not expose read_session_meta or write_session_meta."""
+    import marivo.analysis.session._layout as mod
+
+    assert not hasattr(mod, "read_session_meta")
+    assert not hasattr(mod, "write_session_meta")

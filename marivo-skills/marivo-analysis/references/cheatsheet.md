@@ -155,7 +155,7 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 | Override backend resolution for tests/CI | `mv.session.get_or_create(name=..., backend_factory=..., use_datasources=False)` |
 | Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` |
 | Inspect calendar file shape | `mv.help("calendar")` |
-| Confirm metric ids | `import marivo.semantic as ms; catalog = ms.load(); catalog.list("<model>", kind="metric")` |
+| Confirm metric ids | `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind="metric")` |
 | Recover a frame across scripts (no re-query) | `session.get_frame(ref)` |
 | List persisted frame refs and metadata | `session.frame_summaries()` |
 | Find frame ref by metric_id | `session.frame_summaries()` |
@@ -163,7 +163,7 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 Calendar alignment and timestamp bucketing use the Python process system timezone. If a naive warehouse timestamp physically stores UTC, declare it in the semantic layer with `@ms.time_dimension(..., timezone="UTC")`.
 
 Metric refs wrap exact ids such as `mv.MetricRef("model.metric")`. Do not guess
-ids from metric display names; call `catalog.list("<model>", kind="metric")` after loading the
+ids from metric display names; call `catalog.list(kind="metric")` after loading the
 semantic project.
 
 For cross-dataset base metrics (datasets cover multiple datasets with an explicit

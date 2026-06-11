@@ -1,4 +1,4 @@
-"""Cross-check a semantic project against configured project datasources."""
+"""Cross-check a semantic project against project-level datasources."""
 
 from __future__ import annotations
 
@@ -17,13 +17,11 @@ class DatasourceAuditResult:
 
 
 def audit_project(project: SemanticProject) -> DatasourceAuditResult:
-    from marivo.semantic._registry_bridge import iter_datasource_irs, iter_entity_irs
-
-    configured = {datasource.name for datasource in iter_datasource_irs(project)}
+    configured = {summary.name for summary in project.list_datasources()}
     present: list[str] = []
     missing: list[str] = []
     semantic_ids: dict[str, str] = {}
-    for dataset in iter_entity_irs(project):
+    for dataset in project.list_entities():
         semantic_ids[dataset.datasource] = dataset.datasource
         if dataset.datasource in configured:
             present.append(dataset.datasource)

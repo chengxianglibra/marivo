@@ -10,7 +10,7 @@ Use this skill when writing or running metric-centered workflows with
 
 The `mv` top level is the core agent surface: constructor refs and policies,
 sessions, frames, frame metadata, lineage, and namespace entrypoints. Use
-submodules for domain DTOs and errors: `mv.evidence.*`,
+submodules for domain DTOs and errors: `mv.evidence.*`, `mv.datasources.*`,
 and `mv.errors.*`.
 
 Use `marivo-semantic` instead when the task is authoring semantic models.
@@ -38,7 +38,7 @@ consistently for every install, check, and script run.
 2. For a specific intent pattern, adapt the closest runnable
    `references/examples/NN_*.py`; those examples use a tiny fixture so they
    can run in CI.
-3. Confirm metric ids: `import marivo.semantic as ms; catalog = ms.load(); catalog.list("<model>", kind="metric").show()`.
+3. Confirm metric ids: `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind="metric").show()`.
 4. Use runtime help as the authoritative per-object contract. For the intent,
    frame, policy, or topic you are about to use, inspect
    `mv.help('<name>')`; examples:
@@ -188,20 +188,21 @@ promote explicitly with `session.promote_metric_frame(...)` or related helpers.
 
 Default to one session per analysis task. Start the first script with
 `mv.session.get_or_create(name="<stable_task_name>")`, then reuse the same
-stable name or explicitly attach/current the same session in every follow-up
-script. Do not create new sessions for script splits, retries, or branch
-exploration: artifacts, knowledge, facts, followups, and job history are
-session-scoped.
+stable name or probe `mv.session.current()` in every follow-up script. Do not
+create new sessions for script splits, retries, or branch exploration: artifacts,
+knowledge, facts, followups, and job history are session-scoped.
 
 Create a new session only when the user explicitly starts an independent
 investigation, or when the existing session is polluted enough that restarting
-is the correct recovery. State that reason in the final output.
+is the correct recovery. State that reason in the final output. When a session
+is beyond recovery, delete it with `mv.session.delete(name)`.
 
 ```python
 mv.session.get_or_create(name="my_analysis")  # idempotent entry point; auto-loads project datasources
 mv.session.current()                          # None-safe probe; returns Session, not SessionSummary
 mv.session.list()                             # list sessions
-session.recent_jobs(limit=5)                  # recent job history
+mv.session.delete(name="my_analysis")         # destructive cleanup; removes session and all data
+session.recent_jobs(limit=5)                   # recent job history
 ```
 
 Do not construct `backend_factory` for normal project analysis. Use it only as

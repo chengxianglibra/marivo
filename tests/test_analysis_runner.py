@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import ibis
 import pytest
 
+from marivo.analysis.datasources import registry as datasource_registry
 from marivo.analysis.errors import BackendError, SliceInvalidError, WindowInvalidError
 from marivo.analysis.executor.backend import BackendCache
 from marivo.analysis.executor.runner import (
@@ -17,8 +18,6 @@ from marivo.analysis.executor.runner import (
     execute,
 )
 from marivo.analysis.windows.spec import AbsoluteWindow
-from marivo.datasource import secrets as datasource_secrets
-from marivo.semantic._registry_bridge import get_entity_ir
 from marivo.semantic.reader import SemanticProject
 
 # ---------------------------------------------------------------------------
@@ -82,7 +81,7 @@ def _build_dataset_adapter(sp: SemanticProject, dataset_semantic_id: str) -> obj
     """
     from marivo.analysis.intents.observe import _build_dataset_adapter as _build
 
-    dataset_ir = get_entity_ir(sp, dataset_semantic_id)
+    dataset_ir = sp.get_entity(dataset_semantic_id)
     assert dataset_ir is not None, f"Dataset {dataset_semantic_id} not found"
     return _build(sp, dataset_ir)
 
@@ -174,8 +173,8 @@ def test_execute_persists_backend_env_sourced_secrets_once_after_success(
     backend = FakeBackend()
     cache = BackendCache(lambda name: backend)
     monkeypatch.setattr(
-        datasource_secrets,
-        "persist_backend_env_sourced",
+        datasource_registry,
+        "_persist_backend_env_sourced_secrets",
         lambda received: calls.append(received),
     )
 
@@ -268,8 +267,8 @@ def test_execute_does_not_persist_backend_env_sourced_secrets_after_failure(
 
     cache = BackendCache(lambda name: FakeBackend())
     monkeypatch.setattr(
-        datasource_secrets,
-        "persist_backend_env_sourced",
+        datasource_registry,
+        "_persist_backend_env_sourced_secrets",
         lambda received: calls.append(received),
     )
 

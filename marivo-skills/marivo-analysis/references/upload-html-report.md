@@ -5,9 +5,10 @@ outside the local workspace via S3. The `marivo-upload-report` command
 supersedes ad-hoc per-session upload scripts and works against both AWS S3
 and S3-compatible endpoints (Bilibili BOSS, MinIO, etc.).
 
-For the `publish_report_package` library helper (manifest stamping, content
-hash, secret scanning), see the **Publishing handoff** section of
-`final-report.md`. This command is the lighter-weight variant: it uploads
+For the session-scoped publish API (manifest stamping, content hash, secret
+scanning), see `session.save_report(artifact)` and
+`session.publish_report(report_id)` in `final-report.md`. This command is
+the lighter-weight variant: it uploads
 whatever directory it is given, with no manifest contract.
 
 ## Command
@@ -37,7 +38,7 @@ Implementation lives at
 ## Credential sources (priority order)
 
 `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are resolved via
-`marivo.datasource.secrets.resolve()`, which walks env first, then
+`marivo.analysis.datasources.secrets.resolve()`, which walks env first, then
 the user-global plaintext cache:
 
 1. Environment variables `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.

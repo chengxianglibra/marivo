@@ -6,11 +6,16 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
-from marivo.analysis.errors import FrameMetaInvalidError, FrameRefNotFound
+import marivo.analysis.session as session_attach
+from marivo.analysis.errors import (
+    CrossSessionFrameError,
+    FrameCacheCorruptedError,
+    FrameMetaInvalidError,
+    FrameRefNotFound,
+)
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.session.persistence import write_frame_to_disk
+from marivo.analysis.session._layout import write_frame_to_disk
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -39,7 +44,7 @@ def _base_meta(session, *, kind, ref):
                     inputs=[],
                     params_digest="sha256:test",
                 )
-            ]
+            ],
         ),
     }
 
@@ -126,6 +131,7 @@ def test_load_frame_round_trips_hypothesis_test_result():
         HypothesisTestResult,
         HypothesisTestResultMeta,
     )
+    from marivo.analysis.session._runtime import persist_frame
 
     session = session_attach.get_or_create(name="demo")
     frame = HypothesisTestResult(
@@ -147,7 +153,7 @@ def test_load_frame_round_trips_hypothesis_test_result():
             not_enough_data_count=0,
         ),
     )
-    frame.meta = write_frame_to_disk(session._layout, frame)
+    frame.meta = persist_frame(session, frame)
 
     loaded = session.get_frame("frame_test")
 
@@ -159,6 +165,7 @@ def test_load_frame_round_trips_hypothesis_test_result():
 
 def test_load_frame_round_trips_forecast_frame():
     from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
+    from marivo.analysis.session._runtime import persist_frame
 
     session = session_attach.get_or_create(name="demo")
     frame = ForecastFrame(
@@ -183,7 +190,7 @@ def test_load_frame_round_trips_forecast_frame():
             segment_dimensions=[],
         ),
     )
-    frame.meta = write_frame_to_disk(session._layout, frame)
+    frame.meta = persist_frame(session, frame)
 
     loaded = session.get_frame("frame_forecast")
 
@@ -195,6 +202,7 @@ def test_load_frame_round_trips_forecast_frame():
 
 def test_load_frame_round_trips_quality_report():
     from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
+    from marivo.analysis.session._runtime import persist_frame
 
     session = session_attach.get_or_create(name="demo")
     frame = QualityReport(
@@ -213,7 +221,7 @@ def test_load_frame_round_trips_quality_report():
             warning_count=0,
         ),
     )
-    frame.meta = write_frame_to_disk(session._layout, frame)
+    frame.meta = persist_frame(session, frame)
 
     loaded = session.get_frame("frame_quality")
 
@@ -264,3 +272,107 @@ def test_session_get_frame_ref_not_found():
     session = session_attach.get_or_create(name="demo")
     with pytest.raises(FrameRefNotFound):
         session.get_frame("frame_nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# Store-backed frame loading tests
+# ---------------------------------------------------------------------------
+
+
+def test_frame_file_without_artifacts_row_is_unreachable():
+    """A frame file on disk without an artifacts store row cannot be loaded."""
+    session = session_attach.get_or_create(name="demo")
+    # Write a frame directly to disk without using persist_frame,
+    # so no store row is created.
+    from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+    from marivo.analysis.lineage import Lineage, LineageStep
+
+    ref = "frame_orphan"
+    meta = MetricFrameMeta(
+        kind="metric_frame",
+        ref=ref,
+        session_id=session.id,
+        project_root=str(session.project_root),
+        produced_by_job=None,
+        created_at=datetime(2026, 5, 26, 12, 0, 0, tzinfo=UTC),
+        row_count=1,
+        byte_size=0,
+        lineage=Lineage(
+            steps=[
+                LineageStep(
+                    intent="test_orphan",
+                    job_ref=None,
+                    inputs=[],
+                    params_digest="test",
+                )
+            ],
+        ),
+        metric_id="custom.metric",
+        axes={},
+        measure={"name": "value"},
+        window=None,
+        where={},
+        semantic_kind="scalar",
+        semantic_model="custom",
+    )
+    frame = MetricFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
+    # Write to disk only (no store registration).
+    write_frame_to_disk(session._layout, frame)
+    # Attempting to load it should raise FrameRefNotFound.
+    with pytest.raises(FrameRefNotFound):
+        session.get_frame(ref)
+
+
+def test_registered_frame_with_missing_bytes_raises_corrupted_error():
+    """A registered frame whose data.parquet is deleted raises FrameCacheCorruptedError."""
+    session = session_attach.get_or_create(name="demo")
+    frame = make_metric_frame(
+        pd.DataFrame({"value": [1.0]}),
+        metric_id="custom.metric",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="custom",
+        session=session,
+    )
+    # make_metric_frame uses persist_frame, so the frame is registered.
+    # Delete the data file to simulate corruption.
+    data_path = session._layout.frames_dir / frame.ref / "data.parquet"
+    data_path.unlink()
+    with pytest.raises(FrameCacheCorruptedError):
+        session.get_frame(frame.ref)
+
+
+def test_cross_session_frame_raises_cross_session_frame_error():
+    """A frame registered to another session raises CrossSessionFrameError."""
+    session_a = session_attach.get_or_create(name="session_a")
+    frame = make_metric_frame(
+        pd.DataFrame({"value": [1.0]}),
+        metric_id="custom.metric",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="custom",
+        session=session_a,
+    )
+
+    # Create a second session. Manually register the frame ref in session_b's
+    # store so that the store lookup passes, but point the paths to session_a's
+    # files. The meta.json will say session_id=session_a.id, triggering
+    # CrossSessionFrameError.
+    session_b = session_attach.get_or_create(name="session_b")
+    session_b._store.record_artifact(
+        session_id=session_b.id,
+        artifact_id=frame.ref,
+        kind=frame.meta.kind,
+        path=session_a._layout.relative_path(
+            session_a._layout.frames_dir / frame.ref / "data.parquet"
+        ),
+        meta_path=session_a._layout.relative_path(
+            session_a._layout.frames_dir / frame.ref / "meta.json"
+        ),
+        content_hash=None,
+        produced_by_job=None,
+    )
+    with pytest.raises(CrossSessionFrameError):
+        session_b.get_frame(frame.ref)

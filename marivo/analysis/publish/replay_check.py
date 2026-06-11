@@ -12,7 +12,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from marivo.semantic._registry_bridge import iter_metric_irs
 from marivo.semantic.reader import SemanticProject
 
 ALLOWED_IMPORT_ROOTS: frozenset[str] = frozenset({"marivo", "os"})
@@ -62,7 +61,7 @@ def _load_metric_ids(workspace_dir: Path) -> frozenset[str]:
     """Load the embedded semantic model and return its metric semantic ids."""
     project = SemanticProject(workspace_dir=workspace_dir)
     project.load()
-    return frozenset(m.semantic_id for m in iter_metric_irs(project))
+    return frozenset(m.semantic_id for m in project.list_metrics())
 
 
 def _check_imports(tree: ast.Module) -> list[ReplayCheckIssue]:

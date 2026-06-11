@@ -79,7 +79,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("observe", "MetricRef"),
         "Observed metrics must resolve to a registered semantic metric.",
         "Analysis frames are materialized from semantic metric ids; unresolved ids cannot produce SQL.",
-        "Use mv.MetricRef('<model.metric>') and confirm ids with catalog = ms.load(); catalog.list('<model>', kind='metric').refs().",
+        "Use mv.MetricRef('<model.metric>') and confirm the id with ms.find_project().load().list_metrics().",
         example=f"{_EXAMPLE_BASE}/01_observe_single_window.py",
         docs_ref=_PITFALLS,
     ),
@@ -231,7 +231,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("datasources", "session", "observe"),
         "Named datasources must exist before analysis runtime lookup.",
         "Datasource-backed sessions resolve semantic source refs through persisted datasource metadata.",
-        "Register the datasource with md.register(...) before creating or attaching the session.",
+        "Register the datasource with mv.datasources.register(...) before creating or attaching the session.",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_ENV_AVAILABLE: _constraint(
@@ -241,7 +241,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("datasources", "session"),
         "Datasource secret environment variables must be available at runtime.",
         "The datasource contract stores secret references, not plaintext credentials.",
-        "Export the referenced environment variable or validate and remember it with md.test(...).",
+        "Export the referenced environment variable or validate and remember it with mv.datasources.test(...).",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_BACKEND_SUPPORTED: _constraint(

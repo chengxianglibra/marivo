@@ -55,9 +55,13 @@ from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
 from marivo.analysis.session._load import load_frame
-from marivo.analysis.session.attach import active as session_active
-from marivo.analysis.session.core import Session, ensure_session_writable
-from marivo.analysis.session.persistence import write_frame_to_disk, write_job_record
+from marivo.analysis.session._runtime import (
+    persist_frame,
+    persist_job_record,
+    register_frame_artifact,
+    require_current_session,
+)
+from marivo.analysis.session.core import Session
 
 EXPECTED_METRIC_FRAME_KIND = "metric_frame"
 PRESENCE_STATUS_COLUMN = "presence_status"
@@ -431,7 +435,7 @@ def _persist_delta_component_frame(
         semantic_model=source_component.meta.semantic_model,
     )
     comp_frame = ComponentFrame(_df=df, meta=meta)
-    comp_frame.meta = cast("ComponentFrameMeta", write_frame_to_disk(session._layout, comp_frame))
+    comp_frame.meta = cast("ComponentFrameMeta", persist_frame(session, comp_frame))
     return comp_frame
 
 
@@ -443,8 +447,8 @@ def compare(
     session: Session | None = None,
 ) -> DeltaFrame:
     if session is None:
-        session = session_active()
-    ensure_session_writable(session)
+        session = require_current_session()
+    # compare does not require a backend factory; it computes deltas from existing frames
     if alignment is None:
         alignment = AlignmentPolicy(kind="window_bucket")
     if not isinstance(alignment, AlignmentPolicy):
@@ -648,6 +652,7 @@ def compare(
         comparison_window=comparison_window_dict,
         comparison_basis="left_vs_right",
     )
+    register_frame_artifact(session, output_frame)
 
     # --- Persist delta component frame if both inputs are component-aware ---
     if current_component is not None and baseline_component is not None:
@@ -668,10 +673,10 @@ def compare(
         )
         output_frame.meta = output_frame.meta.model_copy(update={"component_ref": delta_comp.ref})
         # Re-persist the output frame meta with the component_ref
-        write_frame_to_disk(session._layout, output_frame)
+        persist_frame(session, output_frame)
 
-    write_job_record(
-        session._layout,
+    persist_job_record(
+        session,
         {
             "id": job_ref,
             "session_id": session.id,

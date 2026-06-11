@@ -104,7 +104,7 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "Lineage",
         "LineageStep",
     }
-    namespaces = {"session", "evidence", "frames", "errors", "publish"}
+    namespaces = {"session", "datasources", "evidence", "frames", "errors", "publish"}
 
     for name in construction_types | core_runtime_result_types | namespaces:
         assert name in mv.__all__, name
@@ -113,7 +113,6 @@ def test_analysis_exports_public_surface_by_layer() -> None:
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
     import marivo.analysis as mv
-    import marivo.datasource as md
 
     subdomain_only = {
         # Evidence DTOs live under mv.evidence.
@@ -134,7 +133,7 @@ def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
         "TestedHypothesis",
         "TimeWindow",
         "TriggeredByFollowup",
-        # Datasource metadata DTOs live under md (marivo.datasource).
+        # Datasource metadata DTOs live under mv.datasources.
         "ColumnMetadata",
         "MetadataWarning",
         "PartitionMetadata",
@@ -163,8 +162,8 @@ def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
         assert not hasattr(mv, name), f"{name} should not be a mv attribute"
 
     assert mv.evidence.Subject is not None
-    assert md.TableMetadata is not None
-    assert md.PreviewResult is not None
+    assert mv.datasources.TableMetadata is not None
+    assert mv.datasources.PreviewResult is not None
     assert mv.errors.PromotionFailedError is not None
     assert mv.errors.DiscoverInsufficientDataError is not None
 
@@ -175,14 +174,12 @@ def test_analysis_exports_report_artifact_surface() -> None:
         ReportManifest,
         load_report_artifact,
         validate_report_artifact,
-        write_report_artifact,
     )
 
     assert MarivoReportArtifact.__name__ == "MarivoReportArtifact"
     assert ReportManifest.__name__ == "ReportManifest"
     assert callable(validate_report_artifact)
     assert callable(load_report_artifact)
-    assert callable(write_report_artifact)
 
 
 def test_analysis_exports_report_mcp_adapter_surface() -> None:
@@ -190,7 +187,6 @@ def test_analysis_exports_report_mcp_adapter_surface() -> None:
         ReportChartSpec,
         ReportColumn,
         ReportMetric,
-        materialize_mcp_adapter,
         to_mcp_artifact_payload,
     )
 
@@ -198,19 +194,16 @@ def test_analysis_exports_report_mcp_adapter_surface() -> None:
     assert ReportColumn.__name__ == "ReportColumn"
     assert ReportMetric.__name__ == "ReportMetric"
     assert callable(to_mcp_artifact_payload)
-    assert callable(materialize_mcp_adapter)
 
 
 def test_analysis_exports_report_html_adapter_surface() -> None:
     from marivo.analysis.publish import (
-        materialize_html_adapter,
         render_report_html,
         to_html_report_payload,
     )
 
     assert callable(to_html_report_payload)
     assert callable(render_report_html)
-    assert callable(materialize_html_adapter)
 
 
 def test_analysis_does_not_export_publish_or_meta_types() -> None:
@@ -241,7 +234,7 @@ def test_analysis_does_not_export_publish_or_meta_types() -> None:
         "ReportSection",
         "ReportSpec",
         "SourceProvenance",
-        # Publish functions
+        # Publish functions (directory-based APIs replaced by session methods)
         "export_report_json_schema",
         "load_report_artifact",
         "materialize_html_adapter",
@@ -269,6 +262,29 @@ def test_analysis_does_not_export_publish_or_meta_types() -> None:
     for name in removed:
         assert name not in mv.__all__, f"{name} should not be in mv.__all__"
         assert not hasattr(mv, name), f"{name} should not be a mv attribute"
+
+
+def test_analysis_publish_does_not_export_directory_materialization_helpers() -> None:
+    """Directory-based report helpers are internal; use session methods instead."""
+    from marivo.analysis import publish
+
+    removed = [
+        "write_report_artifact",
+        "materialize_html_adapter",
+        "materialize_mcp_adapter",
+        "publish_report_package",
+    ]
+    for name in removed:
+        assert name not in publish.__all__, f"{name} should not be in publish.__all__"
+        assert not hasattr(publish, name), f"{name} should not be a publish attribute"
+
+
+def test_session_exposes_report_methods() -> None:
+    import marivo.analysis as mv
+
+    assert callable(mv.Session.save_report)
+    assert callable(mv.Session.validate_report)
+    assert callable(mv.Session.publish_report)
 
 
 def test_analysis_publish_submodule_accessible() -> None:

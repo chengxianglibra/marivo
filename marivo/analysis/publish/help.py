@@ -33,14 +33,10 @@ _SUMMARIES: dict[str, str] = {
     "SourceProvenance": "source provenance metadata for a dataset or artifact",
     "export_report_json_schema": "export the JSON Schema for the report artifact model",
     "load_report_artifact": "load a report artifact from a package directory",
-    "materialize_html_adapter": "write HTML adapter files into a package directory",
-    "materialize_mcp_adapter": "write MCP adapter files into a package directory",
-    "publish_report_package": "publish a staged report package to a target destination",
     "render_report_html": "render a standalone HTML string from a report artifact",
     "to_html_report_payload": "build the HTML renderer payload without writing files",
     "to_mcp_artifact_payload": "build the MCP adapter payload without writing files",
     "validate_report_artifact": "validate a report artifact and return issues",
-    "write_report_artifact": "write a report artifact to a package directory",
 }
 
 _SEE_ALSO: dict[str, tuple[str, ...]] = {
@@ -86,6 +82,11 @@ def _format_top_level_text() -> str:
         lines.append(f"  mv.publish.{entry['name']:<28} [{entry['kind']}]  {entry['summary']}")
     lines.append("")
     lines.append('Call mv.publish.help("<name>") for detail on any entry.')
+    lines.append("")
+    lines.append("For report registration and publishing, use session methods:")
+    lines.append("  session.save_report(artifact)   — persist a report under the session")
+    lines.append("  session.validate_report(id)     — validate a registered report")
+    lines.append("  session.publish_report(id)      — publish a registered report")
     return "\n".join(lines)
 
 
@@ -102,7 +103,7 @@ def help(symbol: str | None = None) -> None:
     """Print bounded agent-facing help for the publish surface and return None.
 
     Args:
-        symbol: Symbol name (e.g. "ReportSpec", "publish_report_package").
+        symbol: Symbol name (e.g. "ReportSpec", "PublishTarget").
             None prints the top-level surface listing.
 
     Returns:

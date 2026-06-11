@@ -17,7 +17,7 @@ ensure_loaded()
 
 import marivo.analysis as mv  # noqa: E402
 
-session = mv.session.active()
+session = mv.session.current()
 cur = session.observe(
     mv.MetricRef(METRIC_ID),
     where={mv.DimensionRef("created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},

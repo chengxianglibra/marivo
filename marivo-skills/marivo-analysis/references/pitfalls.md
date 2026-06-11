@@ -96,7 +96,7 @@ catalog and re-promote with a defined metric id:
 ```python
 import marivo.semantic as ms
 catalog = ms.load()
-catalog.list("sales", kind="metric").show()
+catalog.list(kind="metric").show()
 ```
 
 ## No active session
@@ -104,10 +104,10 @@ catalog.list("sales", kind="metric").show()
 **Symptom:**
 
 ```text
-NoActiveSessionError: no active session and none set via attach()
+NoActiveSessionError: no current analysis session
 ```
 
-**Action:** ``mv.session.current()`` returns the active ``Session`` (with all
+**Action:** ``mv.session.current()`` returns the current ``Session`` (with all
 analysis methods) or ``None``. Check and continue work in one call:
 
 ```python
@@ -211,7 +211,7 @@ MetricNotFoundError: metric 'sales.revenu' not found
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.list("sales", kind="metric")
+catalog.list(kind="metric")
 cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
 ```
 

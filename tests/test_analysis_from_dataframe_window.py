@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import WindowInvalidError
 from tests.shared_fixtures import make_metric_frame
 

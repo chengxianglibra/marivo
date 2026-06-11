@@ -31,7 +31,7 @@ def test_report_manifest_publish_fields_round_trip() -> None:
 
 def _staged_package(tmp_path):
     """Materialize a valid report package (manifest, core files, datasets, index.html)."""
-    from marivo.analysis.publish import materialize_html_adapter
+    from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
 
     package_dir = tmp_path / "staging"
     materialize_html_adapter(_valid_artifact(), package_dir)
@@ -138,7 +138,7 @@ def test_publish_writes_manifest_last(tmp_path) -> None:
 
 def test_publish_rejects_invalid_artifact(tmp_path) -> None:
     from marivo.analysis.errors import ReportPublishValidationError
-    from marivo.analysis.publish import load_report_artifact, write_report_artifact
+    from marivo.analysis.publish.report_package import load_report_artifact, write_report_artifact
     from marivo.analysis.publish.report_publish import publish_report_package
 
     package_dir = _staged_package(tmp_path)
@@ -165,7 +165,7 @@ def test_publish_rejects_invalid_artifact(tmp_path) -> None:
 
 def test_publish_rejects_missing_entrypoint(tmp_path) -> None:
     from marivo.analysis.errors import ReportPublishValidationError
-    from marivo.analysis.publish import write_report_artifact
+    from marivo.analysis.publish.report_package import write_report_artifact
     from marivo.analysis.publish.report_publish import publish_report_package
 
     package_dir = tmp_path / "staging"
@@ -297,19 +297,16 @@ def test_publish_public_api_is_exported() -> None:
         PublishTarget,
         SecretScanIssue,
         compute_package_hash,
-        publish_report_package,
         resolve_publish_config,
         resolve_publish_prefix,
         scan_package_for_secrets,
     )
 
-    assert callable(publish_report_package)
     assert callable(compute_package_hash)
     assert callable(scan_package_for_secrets)
     assert callable(resolve_publish_config)
     assert callable(resolve_publish_prefix)
     assert SecretScanIssue is not None
-    assert mv.publish.publish_report_package is publish_report_package
     assert mv.publish.PublishReportResult is PublishReportResult
     assert mv.publish.PublishConfig is PublishConfig
     assert mv.publish.PublishTarget is PublishTarget

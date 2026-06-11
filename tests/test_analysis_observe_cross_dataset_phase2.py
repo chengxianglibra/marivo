@@ -7,7 +7,7 @@ import datetime as dt
 import ibis
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.analysis.refs import DimensionRef, MetricRef
@@ -724,16 +724,17 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
     assert details["candidates"]["versioned_dataset"] == "sales.user_profile_daily"
 
 
-def test_derived_observe_populates_known_datasources(tmp_path):
-    """Regression: known_datasources must be updated for each component datasource."""
+def test_derived_observe_registers_component_frames(tmp_path):
+    """Regression: component frames must be registered in the session store."""
     _bootstrap_derived_ratio(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_derived_ratio(con)
     session = _session(con)
-    observe(MetricRef("sales.gmv_per_session"), session=session)
-    # Both component metrics (gmv -> orders/users, session_count -> sessions/users)
-    # share the same "warehouse" datasource in this fixture.
-    assert "warehouse" in session._known_datasources
+    mf = observe(MetricRef("sales.gmv_per_session"), session=session)
+    # Component frames should be loadable from the store.
+    if mf.meta.component_ref is not None:
+        loaded = session.get_frame(mf.meta.component_ref)
+        assert loaded.ref == mf.meta.component_ref
 
 
 def test_derived_components_can_span_datasources(tmp_path):

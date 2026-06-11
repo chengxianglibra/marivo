@@ -24,7 +24,6 @@ from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTe
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.refs import ArtifactRef
-from marivo.analysis.session.persistence import read_frame_from_disk
 from marivo.analysis.windows import AbsoluteWindow
 
 if TYPE_CHECKING:
@@ -46,30 +45,45 @@ _FRAME_CLASSES = {
 
 def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     """Load a persisted analysis frame by ref from the given or active session."""
+    import json
+
     if isinstance(ref, ArtifactRef):
         ref = ref.id
 
-    frame_dir = session._layout.frames_dir / ref
-    if not (frame_dir / "meta.json").is_file():
-        owner = _find_frame_owner(ref, session=session)
-        if owner is not None and owner != session.id:
-            raise CrossSessionFrameError(
-                message=(
-                    f"frame '{ref}' belongs to session {owner!r} "
-                    f"but was loaded through session {session.id!r}"
-                ),
+    # Check the store first — the artifacts table is the source of truth.
+    artifact_row = session._store.get_artifact(session.id, ref)
+    if artifact_row is not None:
+        # Use store-registered paths to locate the on-disk data.
+        meta_path = session.project_root / artifact_row["meta_path"]
+        if not meta_path.is_file():
+            raise FrameCacheCorruptedError(
+                message=f"frame '{ref}' is registered but meta file is missing",
+                details={"ref": ref, "meta_path": str(meta_path)},
             )
+        data_path = session.project_root / artifact_row["path"]
+        if not data_path.is_file():
+            raise FrameCacheCorruptedError(
+                message=f"frame '{ref}' is registered but data file is missing",
+                details={"ref": ref, "data_path": str(data_path)},
+            )
+        try:
+            import pandas as pd
+
+            df = pd.read_parquet(data_path, engine="pyarrow", to_pandas_kwargs={})
+            meta = json.loads(meta_path.read_text())
+        except Exception as exc:
+            raise FrameCacheCorruptedError(
+                message=f"frame '{ref}' exists on disk but cannot be loaded",
+                details={"ref": ref, "cause": str(exc)},
+            ) from exc
+    else:
+        # No store row — the frame is not registered in the session's artifacts
+        # table, so it cannot be loaded through this session.
         raise FrameRefNotFound(
             message=f"no frame '{ref}' under session {session.id!r}",
             details={"session_id": session.id, "ref": ref},
         )
-    try:
-        df, meta = read_frame_from_disk(session._layout, ref)
-    except Exception as exc:
-        raise FrameCacheCorruptedError(
-            message=f"frame '{ref}' exists on disk but cannot be loaded",
-            details={"ref": ref, "cause": str(exc)},
-        ) from exc
+
     if meta.get("session_id") != session.id:
         raise CrossSessionFrameError(
             message=(
@@ -83,16 +97,6 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     _coerce_metric_window_meta(meta, frame_ref=ref)
     frame_cls, meta_cls = _FRAME_CLASSES[kind]
     return cast("BaseFrame", frame_cls(_df=df, meta=meta_cls(**meta)))
-
-
-def _find_frame_owner(ref: str, *, session: Session) -> str | None:
-    sessions_dir = session._layout.sessions_dir
-    if not sessions_dir.is_dir():
-        return None
-    for candidate in sessions_dir.iterdir():
-        if (candidate / "frames" / ref / "meta.json").is_file():
-            return candidate.name
-    return None
 
 
 def _coerce_metric_window_meta(meta: dict[str, object], *, frame_ref: str) -> None:

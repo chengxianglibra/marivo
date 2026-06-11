@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     CrossSessionFrameError,
     SemanticKindMismatchError,

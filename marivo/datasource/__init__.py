@@ -1,4 +1,4 @@
-"""Project-level datasource authoring and management API."""
+"""Project-level datasource authoring API."""
 
 from __future__ import annotations
 
@@ -10,57 +10,18 @@ from marivo.datasource.ir import (
     DatasourceIR,
     DatasourceSourceLocation,
 )
-from marivo.datasource.loader import load_datasources  # noqa: F401
-from marivo.datasource.manage import (
-    DatasourceDescription,
-    DatasourceSummary,
-    DatasourceTestResult,
-    connect,
-    describe,
-    inspect_source,
-    inspect_table,
-    list,
-    preview,
-    register,
-    remove,
-    test,
-)
-from marivo.datasource.metadata import (
-    ColumnMetadata,
-    MetadataWarning,
-    PartitionMetadata,
-    TableMetadata,
-)
-from marivo.preview import PreviewResult, PreviewSamplePolicy, PreviewWarning
+from marivo.datasource.loader import load_datasources
 
 __all__ = [
     "AiContextIR",
-    "ColumnMetadata",
     "DatasourceAiContextIR",
-    "DatasourceDescription",
     "DatasourceIR",
     "DatasourceRef",
     "DatasourceSourceLocation",
     "DatasourceSpec",
-    "DatasourceSummary",
-    "DatasourceTestResult",
-    "MetadataWarning",
-    "PartitionMetadata",
-    "PreviewResult",
-    "PreviewSamplePolicy",
-    "PreviewWarning",
-    "TableMetadata",
-    "connect",
     "datasource",
-    "describe",
     "help",
     "help_text",
-    "inspect_source",
-    "inspect_table",
-    "list",
-    "preview",
+    "load_datasources",
     "ref",
-    "register",
-    "remove",
-    "test",
 ]

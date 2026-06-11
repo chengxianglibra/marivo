@@ -5,14 +5,14 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.frames.exploration import (
     ExplorationResult,
     ExplorationResultMeta,
 )
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.session.persistence import write_frame_to_disk
+from marivo.analysis.session._runtime import persist_frame
 from tests.conftest import bootstrap_sales_project
 
 
@@ -65,7 +65,7 @@ def test_exploration_result_round_trips_through_load_frame():
             promotion_refs=[],
         ),
     )
-    scratch.meta = write_frame_to_disk(session._layout, scratch)
+    scratch.meta = persist_frame(session, scratch)
 
     loaded = session.get_frame("frame_scratch")
 
@@ -1192,7 +1192,7 @@ def _stored_metric_frame(session, *, ref, metric_id, value):
             semantic_model="sales",
         ),
     )
-    frame.meta = write_frame_to_disk(session._layout, frame)
+    frame.meta = persist_frame(session, frame)
     return frame
 
 

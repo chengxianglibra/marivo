@@ -8,7 +8,7 @@ from tests.test_analysis_report_artifact_validation import _valid_artifact
 
 
 def test_write_and_load_report_artifact_round_trips(tmp_path) -> None:
-    from marivo.analysis.publish import load_report_artifact, write_report_artifact
+    from marivo.analysis.publish.report_package import load_report_artifact, write_report_artifact
 
     artifact = _valid_artifact()
     write_report_artifact(artifact, tmp_path)
@@ -30,7 +30,7 @@ def test_write_and_load_report_artifact_round_trips(tmp_path) -> None:
 
 
 def test_load_report_artifact_validates_required_files(tmp_path) -> None:
-    from marivo.analysis.publish import load_report_artifact
+    from marivo.analysis.publish.report_package import load_report_artifact
 
     try:
         load_report_artifact(tmp_path)
@@ -41,7 +41,7 @@ def test_load_report_artifact_validates_required_files(tmp_path) -> None:
 
 
 def test_write_report_artifact_removes_stale_dataset_and_evidence_files(tmp_path) -> None:
-    from marivo.analysis.publish import load_report_artifact, write_report_artifact
+    from marivo.analysis.publish.report_package import load_report_artifact, write_report_artifact
 
     artifact = _valid_artifact()
     write_report_artifact(artifact, tmp_path)
@@ -55,7 +55,7 @@ def test_write_report_artifact_removes_stale_dataset_and_evidence_files(tmp_path
 
 
 def test_write_report_artifact_rejects_path_unsafe_dataset_ids(tmp_path) -> None:
-    from marivo.analysis.publish import write_report_artifact
+    from marivo.analysis.publish.report_package import write_report_artifact
 
     artifact = _valid_artifact()
     dataset = artifact.datasets["headline_metrics"]
@@ -74,7 +74,7 @@ def test_write_report_artifact_rejects_path_unsafe_dataset_ids(tmp_path) -> None
 
 
 def test_write_report_artifact_rejects_path_unsafe_evidence_ids(tmp_path) -> None:
-    from marivo.analysis.publish import write_report_artifact
+    from marivo.analysis.publish.report_package import write_report_artifact
 
     unsafe_artifact = _valid_artifact().model_copy(
         update={"evidence": {"../escape": {"summary": "bad"}}}
@@ -89,7 +89,7 @@ def test_write_report_artifact_rejects_path_unsafe_evidence_ids(tmp_path) -> Non
 def test_write_report_artifact_preserves_existing_snapshots_on_serialization_error(
     tmp_path,
 ) -> None:
-    from marivo.analysis.publish import write_report_artifact
+    from marivo.analysis.publish.report_package import write_report_artifact
 
     artifact = _valid_artifact()
     write_report_artifact(artifact, tmp_path)
@@ -104,7 +104,7 @@ def test_write_report_artifact_preserves_existing_snapshots_on_serialization_err
 
 
 def test_write_report_artifact_rejects_non_finite_evidence_json(tmp_path) -> None:
-    from marivo.analysis.publish import write_report_artifact
+    from marivo.analysis.publish.report_package import write_report_artifact
 
     unsafe_artifact = _valid_artifact().model_copy(
         update={"evidence": {"artifact_observe_1": {"value": float("nan")}}}
@@ -117,7 +117,7 @@ def test_write_report_artifact_rejects_non_finite_evidence_json(tmp_path) -> Non
 
 
 def test_load_report_artifact_rejects_non_standard_json_constants(tmp_path) -> None:
-    from marivo.analysis.publish import load_report_artifact, write_report_artifact
+    from marivo.analysis.publish.report_package import load_report_artifact, write_report_artifact
 
     write_report_artifact(_valid_artifact(), tmp_path)
     evidence_path = tmp_path / "evidence" / "artifact_observe_1.json"

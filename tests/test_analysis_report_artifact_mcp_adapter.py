@@ -650,7 +650,8 @@ def test_to_mcp_artifact_payload_preserves_available_sql_source() -> None:
 def test_materialize_mcp_adapter_writes_payload_and_updates_manifest(tmp_path) -> None:
     import json
 
-    from marivo.analysis.publish import load_report_artifact, materialize_mcp_adapter
+    from marivo.analysis.publish.report_mcp_adapter import materialize_mcp_adapter
+    from marivo.analysis.publish.report_package import load_report_artifact
 
     artifact = _artifact_with_chart_and_table()
     updated = materialize_mcp_adapter(
@@ -682,7 +683,7 @@ def test_materialize_mcp_adapter_writes_payload_and_updates_manifest(tmp_path) -
 def test_materialize_mcp_adapter_does_not_write_adapter_payload_if_package_write_fails(
     tmp_path,
 ) -> None:
-    from marivo.analysis.publish import materialize_mcp_adapter
+    from marivo.analysis.publish.report_mcp_adapter import materialize_mcp_adapter
 
     artifact = _artifact_with_chart_and_table().model_copy(
         update={"evidence": {"../escape": {"summary": "bad"}}}
@@ -699,7 +700,8 @@ def test_materialize_mcp_adapter_keeps_manifest_unmaterialized_if_adapter_write_
     tmp_path,
 ) -> None:
     import marivo.analysis.publish.report_mcp_adapter as report_mcp_adapter
-    from marivo.analysis.publish import load_report_artifact, materialize_mcp_adapter
+    from marivo.analysis.publish.report_mcp_adapter import materialize_mcp_adapter
+    from marivo.analysis.publish.report_package import load_report_artifact
 
     original_write_json = report_mcp_adapter._write_json
 

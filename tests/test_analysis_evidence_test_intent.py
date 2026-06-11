@@ -7,7 +7,7 @@ import sqlite3
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.frames.metric import MetricFrame
 from tests.shared_fixtures import make_metric_frame
 
@@ -39,7 +39,7 @@ def _metric(session, values: list[float]) -> MetricFrame:
 
 
 def test_hypothesis_test_populates_surface1_and_test_finding() -> None:
-    session = session_attach.create(name="test_evidence")
+    session = session_attach.get_or_create(name="test_evidence")
     current = _metric(session, [20.0, 21.0, 22.0, 23.0, 24.0, 25.0])
     baseline = _metric(session, [10.0, 10.2, 10.4, 10.6, 10.8, 11.0])
 

@@ -217,8 +217,15 @@ _VALID_TEMPLATE = textwrap.dedent(
     import marivo.analysis as mv
     import marivo.semantic as ms
 
-    catalog = ms.load()
-    metric_ids = catalog.list("sales", kind="metric").refs()
+    project = ms.find_project()
+    if project is None:
+        raise SystemExit("No semantic project found.")
+
+    result = project.load()
+    if result.errors:
+        raise SystemExit(result.errors)
+
+    metric_ids = [metric.semantic_id for metric in project.list_metrics()]
     metric_id = "sales.revenue"
     if metric_id not in metric_ids:
         raise SystemExit(f"Metric not found: {metric_id}")
@@ -269,13 +276,13 @@ def test_template_example_is_validated_without_execution(tmp_path: Path) -> None
 def test_template_example_fails_when_required_snippet_is_missing(tmp_path: Path) -> None:
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "00_real_project_template.py").write_text(
-        _VALID_TEMPLATE.replace("catalog = ms.load()", "catalog = object()")
+        _VALID_TEMPLATE.replace("result = project.load()", "result = object()")
     )
     _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "invalid template" in result.stderr
-    assert "ms.load()" in result.stderr
+    assert "project.load()" in result.stderr
 
 
 def test_template_example_fails_when_using_fixture_shortcuts(tmp_path: Path) -> None:

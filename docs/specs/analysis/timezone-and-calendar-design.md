@@ -67,7 +67,7 @@ UTC 的当系统时区会偏、存本地的当 UTC 会偏。`time_field.timezone
 
 按规则 2，所有面向用户的入口都不接受时区参数，系统时区在内部统一解析：
 
-- `session.start(...)` / `attach(...)` / `get_or_create(...)`：**移除 `timezone=` 形参**。
+- `session.start(...)` / `get_or_create(...)`：**移除 `timezone=` 形参**。
 - observe / compare 的 `window=`：**移除 `tz` 字段**。窗口只表达边界与粒度，不带时区。
 - `@ms.time_dimension(...)`：**新增可选 `timezone=` 字段**，且**只对无时区的
   `datetime` / `timestamp` 列有意义**（见 §列时区声明）。这是全 public surface 上唯一

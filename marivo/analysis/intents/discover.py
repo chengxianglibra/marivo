@@ -52,8 +52,8 @@ from marivo.analysis.intents._discover_scorers import (
 from marivo.analysis.intents._types import DiscoverSensitivity
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.refs import DimensionRef
+from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_writable
-from marivo.analysis.session.persistence import write_job_record
 
 _DEFAULT_STRATEGY: dict[CandidateObjective, CandidateStrategy] = {
     "point_anomalies": "zscore",
@@ -319,8 +319,9 @@ def _discover_dispatch(
             triggered_by_followup=_triggered_by,
         ),
     )
-    write_job_record(
-        session._layout,
+    register_frame_artifact(session, frame)
+    persist_job_record(
+        session,
         {
             "id": job_ref,
             "session_id": session.id,

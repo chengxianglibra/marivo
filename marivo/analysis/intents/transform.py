@@ -37,9 +37,12 @@ from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.refs import DimensionRef
-from marivo.analysis.session.attach import active as session_active
+from marivo.analysis.session._runtime import (
+    persist_job_record,
+    register_frame_artifact,
+    require_current_session,
+)
 from marivo.analysis.session.core import Session, ensure_session_writable
-from marivo.analysis.session.persistence import write_job_record
 from marivo.analysis.windows import (
     AbsoluteWindow,
     dump_window,
@@ -159,7 +162,7 @@ def _transform_dispatch(
     """
 
     if session is None:
-        session = session_active()
+        session = require_current_session()
     ensure_session_writable(session)
 
     if not isinstance(frame, (MetricFrame, DeltaFrame)):
@@ -1879,6 +1882,7 @@ def _persist_transform_frame(
                 triggered_by_followup=triggered_by_followup,
             ),
         )
+        register_frame_artifact(session, frame)
     else:
         delta_meta = DeltaFrameMeta(**meta_payload)
         frame = DeltaFrame(_df=df.copy(), meta=delta_meta)
@@ -1897,9 +1901,10 @@ def _persist_transform_frame(
                 triggered_by_followup=triggered_by_followup,
             ),
         )
+        register_frame_artifact(session, frame)
 
-    write_job_record(
-        session._layout,
+    persist_job_record(
+        session,
         {
             "id": job_ref,
             "session_id": session.id,

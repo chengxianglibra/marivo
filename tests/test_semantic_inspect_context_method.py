@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ibis
 
-from marivo.datasource.metadata import ColumnMetadata, TableMetadata
+from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
 from marivo.semantic.dtos import (
     BoundedProfilePolicy,
     MetadataOnlyPolicy,
@@ -100,11 +100,12 @@ def test_inspect_source_context_returns_pack_and_persists(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(workspace_dir=tmp_path)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     pack = project.inspect_source_context(
         datasource="warehouse",
         source=TableSource(table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=BoundedProfilePolicy(limit=50),
     )
     assert pack.datasource == "warehouse"
@@ -115,11 +116,12 @@ def test_inspect_source_context_records_raw_preview_for_readiness(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(workspace_dir=tmp_path)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     project.inspect_source_context(
         datasource="warehouse",
         source=TableSource(table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=BoundedProfilePolicy(limit=50),
     )
     # the dataset-level raw preview ref is now visible to readiness plumbing
@@ -134,11 +136,12 @@ def test_metadata_only_does_not_record_raw_preview(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(workspace_dir=tmp_path)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     project.inspect_source_context(
         datasource="warehouse",
         source=TableSource(table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=MetadataOnlyPolicy(),
     )
     # MetadataOnlyPolicy does not record raw preview evidence
@@ -156,6 +159,9 @@ def test_inspect_source_context_auto_records_primary_key_sample(
     semantic_project_factory,
 ):
     project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     project.collect_source_preview(
         datasource="warehouse", table="orders", backend_factory=_backend_factory
     )
@@ -165,8 +171,6 @@ def test_inspect_source_context_auto_records_primary_key_sample(
     project.inspect_source_context(
         datasource="warehouse",
         source=TableSource(table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=BoundedProfilePolicy(limit=50),
     )
     report = project.readiness()
@@ -177,14 +181,15 @@ def test_inspect_source_context_metadata_only_skips_auto_record(
     semantic_project_factory,
 ):
     project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     project.collect_source_preview(
         datasource="warehouse", table="orders", backend_factory=_backend_factory
     )
     project.inspect_source_context(
         datasource="warehouse",
         source=TableSource(table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=MetadataOnlyPolicy(),
     )
     report = project.readiness()
@@ -195,6 +200,9 @@ def test_inspect_column_context_covers_primary_key(
     semantic_project_factory,
 ):
     project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     project.collect_source_preview(
         datasource="warehouse", table="orders", backend_factory=_backend_factory
     )
@@ -205,8 +213,6 @@ def test_inspect_column_context_covers_primary_key(
         datasource="warehouse",
         source=TableSource(table="orders"),
         columns=("order_id", "amount"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=SelectedColumnsPolicy(limit=100, columns=("order_id", "amount")),
     )
     report = project.readiness()
@@ -217,6 +223,9 @@ def test_inspect_column_context_does_not_cover_primary_key(
     semantic_project_factory,
 ):
     project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
     project.collect_source_preview(
         datasource="warehouse", table="orders", backend_factory=_backend_factory
     )
@@ -224,8 +233,6 @@ def test_inspect_column_context_does_not_cover_primary_key(
         datasource="warehouse",
         source=TableSource(table="orders"),
         columns=("amount",),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=SelectedColumnsPolicy(limit=100, columns=("amount",)),
     )
     report = project.readiness()
@@ -236,6 +243,10 @@ def test_inspect_column_context_compound_key_partial(
     semantic_project_factory,
 ):
     project = _make_project(semantic_project_factory, _ORDER_LINES_DOMAIN_PY)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source_compound,
+        backend_factory=_backend_factory_compound,
+    )
     project.collect_source_preview(
         datasource="warehouse",
         table="order_lines",
@@ -245,8 +256,6 @@ def test_inspect_column_context_compound_key_partial(
         datasource="warehouse",
         source=TableSource(table="order_lines"),
         columns=("order_id",),
-        inspect_source=_fake_inspect_source_compound,
-        backend_factory=_backend_factory_compound,
         sample_policy=SelectedColumnsPolicy(limit=100, columns=("order_id",)),
     )
     report = project.readiness()
@@ -257,6 +266,10 @@ def test_inspect_column_context_compound_key_full(
     semantic_project_factory,
 ):
     project = _make_project(semantic_project_factory, _ORDER_LINES_DOMAIN_PY)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source_compound,
+        backend_factory=_backend_factory_compound,
+    )
     project.collect_source_preview(
         datasource="warehouse",
         table="order_lines",
@@ -269,8 +282,6 @@ def test_inspect_column_context_compound_key_full(
         datasource="warehouse",
         source=TableSource(table="order_lines"),
         columns=("order_id", "line_num"),
-        inspect_source=_fake_inspect_source_compound,
-        backend_factory=_backend_factory_compound,
         sample_policy=SelectedColumnsPolicy(limit=100, columns=("order_id", "line_num")),
     )
     report = project.readiness()

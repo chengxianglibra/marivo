@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import pytest
 
-from marivo.semantic._registry_bridge import get_entity_ir
 from marivo.semantic.errors import SemanticLoadFailed
 
 # ---------------------------------------------------------------------------
@@ -64,7 +63,7 @@ def test_validity_versioning_round_trip(semantic_project_factory):
         }
     )
 
-    dataset = get_entity_ir(project, "sales.user_history")
+    dataset = project.get_entity("sales.user_history")
     assert dataset is not None
     versioning = dataset.versioning
     assert versioning is not None
@@ -107,7 +106,7 @@ def test_validity_empty_open_end_rejected(semantic_project_factory):
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        get_entity_ir(project, "sales.user_history")
+        project.get_entity("sales.user_history")
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -147,7 +146,7 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        get_entity_ir(project, "sales.user_history")
+        project.get_entity("sales.user_history")
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -187,7 +186,7 @@ def test_validity_valid_from_not_in_primary_key_rejected(semantic_project_factor
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        get_entity_ir(project, "sales.user_history")
+        project.get_entity("sales.user_history")
 
     errors = exc_info.value.errors
     assert len(errors) >= 1
@@ -233,7 +232,7 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        get_entity_ir(project, "sales.user_history")
+        project.get_entity("sales.user_history")
     error = exc_info.value.errors[0]
     assert error.kind == "invalid_entity_versioning"
     assert error.details["dimension"] == "valid_to"

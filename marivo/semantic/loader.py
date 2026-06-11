@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from marivo.datasource.errors import (
+    DatasourceConfigError,
     DatasourceDuplicateError,
-    DatasourceError,
     DatasourceLoadError,
 )
 from marivo.datasource.ir import DatasourceIR
@@ -81,7 +81,7 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             refs=refs,
             hint=error.hint or "Check .marivo/datasource/*.py datasource declarations.",
         )
-    if isinstance(error, DatasourceError):
+    if isinstance(error, DatasourceConfigError):
         datasource = error.details.get("datasource")
         refs = (datasource,) if isinstance(datasource, str) and datasource else ()
         return SemanticLoadError(

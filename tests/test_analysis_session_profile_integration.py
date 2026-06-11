@@ -1,4 +1,4 @@
-"""End-to-end datasource integration with mv.session.create / attach."""
+"""End-to-end datasource integration with mv.session.get_or_create."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
+import marivo.analysis.session as session_attach
 import marivo.datasource as md
-from marivo.analysis.errors import NoBackendFactoryError
-from marivo.analysis.session import attach as session_attach
-from marivo.datasource.errors import (
+from marivo.analysis.errors import (
     DatasourceFieldInvalidError,
     DatasourceMissingError,
+    NoBackendFactoryError,
 )
 from tests.conftest import bootstrap_sales_project
 
@@ -56,25 +56,27 @@ def test_observe_uses_global_datasource_name(tmp_path: Path, fake_home: Path) ->
     seeded = ibis.duckdb.connect(str(db_path))
     _seed(seeded)
     seeded.disconnect()
-    md.register(_spec("warehouse", backend_type="duckdb", path=str(db_path)))
+    mv.datasources.register(_spec("warehouse", backend_type="duckdb", path=str(db_path)))
 
     session = mv.session.get_or_create(name="s")
     frame = session.observe(mv.MetricRef("sales.revenue"))
 
     assert frame.to_pandas().iloc[0, 0] == 10.0
-    assert session._known_datasources == {"warehouse"}
+    # The observe succeeded using the global datasource, meaning the frame
+    # is persisted and loadable from the store.
+    assert session.get_frame(frame.ref) is not None
 
 
 def test_model_qualified_datasource_name_is_rejected(tmp_path: Path, fake_home: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
+        mv.datasources.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
 
     assert exc_info.value.details["field"] == "<name>"
 
 
 def test_explicit_backend_factory_overrides_datasource(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
-    md.register(_spec("warehouse", backend_type="duckdb", path=":memory:"))
+    mv.datasources.register(_spec("warehouse", backend_type="duckdb", path=":memory:"))
 
     sentinel = ibis.duckdb.connect(":memory:")
     _seed(sentinel)
@@ -96,12 +98,12 @@ def test_missing_datasource_raises_datasource_missing(tmp_path: Path, fake_home:
         session._backend_cache.get_or_create("warehouse")
     rendered = str(exc_info.value)
     assert "warehouse" in rendered
-    assert "md.register" in rendered
+    assert "mv.datasources.register" in rendered
 
 
 def test_use_datasources_false_disables_auto_factory(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
-    md.register(_spec("warehouse", backend_type="duckdb", path=":memory:"))
+    mv.datasources.register(_spec("warehouse", backend_type="duckdb", path=":memory:"))
     session = mv.session.get_or_create(name="s", use_datasources=False)
     with pytest.raises(NoBackendFactoryError):
         session._backend_cache.get_or_create("warehouse")
@@ -110,6 +112,6 @@ def test_use_datasources_false_disables_auto_factory(tmp_path: Path, fake_home: 
 def test_audit_project_reports_missing(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
     session = mv.session.get_or_create(name="s")
-    result = session._semantic_project.audit_datasources()
+    result = mv.datasources.audit_project(session._semantic_project)
     assert result.missing == []
     assert "warehouse" in result.present

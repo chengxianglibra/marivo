@@ -40,13 +40,11 @@ the project structure before authoring semantic objects.
   secret that the cache already holds.
 - Python files under `.marivo/semantic/<domain>/` are the only semantic source of
   truth.
-- Collect source evidence before authoring. If you need custom
-  `inspect_source` or `backend_factory`, pass them explicitly:
+- Collect source evidence before authoring. Bind datasource access once with
+  `project.bind_datasource_access(inspect_source=mv.datasources.inspect_source,
+  backend_factory=mv.datasources.build_backend)`, then call
   `project.inspect_source_context(datasource=..., source=ms_evidence.DatasetSource(...),
-  inspect_source=..., backend_factory=..., sample_policy=...)`.
-  It folds metadata inspection and bounded preview into one call.
-  When no overrides are given, the kernel defaults (`md.inspect_source` and
-  `md.connect`) are used automatically.
+  sample_policy=...)`. It folds metadata inspection and bounded preview into one call.
 - Sample-derived values (`top_values`, `distinct_count`, `min_value`/`max_value`) are facts
   about the bounded sample only (`sample_scope="bounded_sample"`, `approximate=True`). Never
   treat them as full-column cardinality, complete enums, or global ranges.
@@ -100,8 +98,8 @@ implementation expressions, or debug authoring behavior.
 
 Read `references/workflow.md` first. The short form is:
 
-1. Discovery/source inspection: discover the project and existing refs, inspect
-   source context, and deep-dive only the columns that matter.
+1. Discovery/source inspection: discover the project and existing refs, bind datasource
+   access once, inspect source context, and deep-dive only the columns that matter.
 2. Assess and author each candidate object: call `project.assess_authoring(...)`,
    resolve blockers/questions, author one `.marivo/semantic/<domain>/_domain.py` using ref
    variables, load, and inspect the authored object.

@@ -3,12 +3,11 @@
 import ibis
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     MetricNotFoundError,
     NoBackendFactoryError,
     SemanticKindMismatchError,
-    SessionStateError,
     WindowInvalidError,
 )
 from marivo.analysis.frames.metric import MetricFrame
@@ -488,34 +487,35 @@ def test_observe_persists_job_and_frame(tmp_path):
     assert (s._layout.frames_dir / mf.ref / "data.parquet").is_file()
 
 
-def test_observe_archived_session_raises(tmp_path):
+def test_observe_read_only_session_without_backend_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
-    con = connect_sales_orders()
-    s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
-    session_attach.archive("demo")
-    with pytest.raises(SessionStateError):
+    # Session without backend factory is read-only and cannot execute.
+    s = session_attach.get_or_create(name="demo", use_datasources=False)
+    with pytest.raises(NoBackendFactoryError):
         observe(MetricRef("sales.revenue"), session=s)
 
 
-def test_observe_stale_archived_session_raises(tmp_path):
+def test_observe_stale_session_without_backend_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
+    # Create a session with a backend, then re-open without backend.
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     session_attach._reset_process_state()
-    session_attach.archive("demo")
-    assert s.state == "active"
-    with pytest.raises(SessionStateError):
-        observe(MetricRef("sales.revenue"), session=s)
+    # Re-open without backends -> session becomes read-only.
+    s_ro = session_attach.get_or_create(name="demo", use_datasources=False)
+    with pytest.raises(NoBackendFactoryError):
+        observe(MetricRef("sales.revenue"), session=s_ro)
 
 
-def test_observe_persists_known_datasources(tmp_path):
+def test_observe_frame_survives_reattach(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
-    observe(MetricRef("sales.revenue"), session=s)
+    mf = observe(MetricRef("sales.revenue"), session=s)
     session_attach._reset_process_state()
-    reattached = session_attach.get_or_create(name="demo")
-    assert reattached._known_datasources == {"warehouse"}
+    reattached = session_attach.get_or_create(name="demo", backends=sales_backends(con))
+    loaded = reattached.get_frame(mf.ref)
+    assert loaded.ref == mf.ref
 
 
 # ---------------------------------------------------------------------------

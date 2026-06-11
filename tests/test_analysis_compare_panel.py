@@ -7,7 +7,7 @@ import ibis
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import AlignmentFailedError, PanelGrainMismatchError
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.intents.compare import compare
@@ -15,7 +15,7 @@ from marivo.analysis.intents.observe import observe
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef, DimensionRef, MetricRef
-from marivo.analysis.session.persistence import write_frame_to_disk
+from marivo.analysis.session._runtime import persist_frame
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -209,7 +209,7 @@ def _component_panel_metric(session, *, ref, rows, component_rows):
             },
         }
     )
-    metric.meta = write_frame_to_disk(session._layout, metric)
+    metric.meta = persist_frame(session, metric)
     component = ComponentFrame(
         _df=pd.DataFrame(component_rows),
         meta=ComponentFrameMeta(
@@ -234,9 +234,9 @@ def _component_panel_metric(session, *, ref, rows, component_rows):
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session._layout, component)
+    component.meta = persist_frame(session, component)
     metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
-    metric.meta = write_frame_to_disk(session._layout, metric)
+    metric.meta = persist_frame(session, metric)
     return metric
 
 

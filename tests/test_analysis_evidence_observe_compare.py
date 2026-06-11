@@ -8,7 +8,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
 from tests.conftest import bootstrap_sales_project
@@ -43,7 +43,7 @@ def test_observe_writes_artifact_metadata(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = mv.session.create(name="t", backends=_backends(con), use_datasources=False)
+    session = mv.session.get_or_create(name="t", backends=_backends(con), use_datasources=False)
 
     frame = observe(
         mv.MetricRef("sales.revenue"),
@@ -64,7 +64,7 @@ def test_compare_seeds_change_proposition_and_emits_followups(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = mv.session.create(name="t", backends=_backends(con), use_datasources=False)
+    session = mv.session.get_or_create(name="t", backends=_backends(con), use_datasources=False)
 
     current = observe(
         mv.MetricRef("sales.revenue"),
@@ -93,7 +93,7 @@ def test_session_knowledge_returns_change_fact(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    session = mv.session.create(name="t", backends=_backends(con), use_datasources=False)
+    session = mv.session.get_or_create(name="t", backends=_backends(con), use_datasources=False)
     current = observe(
         mv.MetricRef("sales.revenue"),
         timescope={"start": "2026-05-01", "end": "2026-05-07"},

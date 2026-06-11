@@ -35,8 +35,8 @@ from marivo.analysis.intents._derived import (
     resolve_session,
 )
 from marivo.analysis.lineage import LineageStep
+from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_writable
-from marivo.analysis.session.persistence import write_job_record
 
 _FREQ = {"day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
 _DEFAULT_SEASONALITY = {"day": 7, "week": 52, "month": 12, "quarter": 4}
@@ -191,8 +191,9 @@ def forecast(
             triggered_by_followup=_triggered_by,
         ),
     )
-    write_job_record(
-        session._layout,
+    register_frame_artifact(session, frame)
+    persist_job_record(
+        session,
         {
             "id": job_ref,
             "session_id": session.id,

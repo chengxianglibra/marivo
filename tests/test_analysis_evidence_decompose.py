@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 
@@ -58,7 +58,7 @@ def _delta(session) -> DeltaFrame:
 
 
 def test_decompose_populates_surface1_and_decomposition_findings() -> None:
-    session = session_attach.create(name="decompose_evidence")
+    session = session_attach.get_or_create(name="decompose_evidence")
 
     attribution = session.decompose(
         _delta(session),

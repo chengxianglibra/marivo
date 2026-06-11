@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
-from marivo.datasource.metadata import TableMetadata
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PreviewResult,
@@ -24,6 +23,7 @@ from marivo.semantic.parity import propagated_parity_status
 from marivo.semantic.richness import DemandSignal, RichnessGap, build_richness_report
 
 if TYPE_CHECKING:
+    from marivo.analysis.datasources.metadata import TableMetadata
     from marivo.semantic.reader import SemanticProject
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
@@ -1123,8 +1123,8 @@ def build_readiness_report(
                 "datasource_unreachable",
                 "blocker",
                 preview_refs,
-                "Required previews need project-bound backend access; register a project datasource via md.register() first.",
-                "Register a project datasource via md.register() and rerun readiness.",
+                "Required previews need project-bound backend access; call project.bind_datasource_access(...) before readiness closeout.",
+                "Bind datasource access with project.bind_datasource_access(...) and rerun readiness.",
             )
         )
         failed_previews.extend(preview_refs)

@@ -105,8 +105,7 @@ filter to one dimension or split into separate charts. The HTML renderer rejects
 a chart whose x values repeat without a `series` channel.
 
 Report language: pass `language="zh-Hans"` (or matching BCP 47 locale code)
-to `render_report_html`, `materialize_html_adapter`, or
-`materialize_mcp_adapter` to localize the report's chrome and the Audit Trail
+to `render_report_html` or `session.save_report(artifact, adapter=...)` to localize the report's chrome and the Audit Trail
 headings/labels from built-in catalogs
 (`marivo/analysis/publish/locales/`, English fallback) and to emit
 `<html lang>` accordingly. Use script-based tags (`zh-Hans`, `zh-Hant`) rather
@@ -120,33 +119,30 @@ To add a language, add a `<lang>.json` catalog — never hardcode non-English
 labels in Python.
 
 Output locations: agent-generated analysis scripts and rendered HTML reports
-belong under the active session's directory, not at the project root. Use
-`session.layout.scripts_dir` and `session.layout.reports_dir` (both resolve
-to `<project_root>/.marivo/analysis/sessions/<session_id>/{scripts,reports}/`)
-and create the directory lazily before writing:
+belong under the session directory, not at the project root. Use
+`session.save_report(artifact, adapter="html")` to persist and register a
+report package in one call. The package bytes live under the session directory
+at `<project_root>/.marivo/analysis/sessions/<session_id>/reports/<report_id>/`.
+To publish a registered report outside the workspace, call
+`session.publish_report(report_id, target=...)`.
 
 ```python
-from pathlib import Path
 import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="investigation")
 
-scripts_dir = session.layout.scripts_dir
-scripts_dir.mkdir(parents=True, exist_ok=True)
-(scripts_dir / "step_observe.py").write_text("# observe ...", encoding="utf-8")
+# Persist and register the report package in the session store.
+registration = session.save_report(artifact, adapter="html")
+# registration.report_id  -> e.g. "rpt_abc123"
+# registration.package_dir -> absolute path to the on-disk package
 
-reports_dir = session.layout.reports_dir
-reports_dir.mkdir(parents=True, exist_ok=True)
-html = mv.publish.render_report_html(artifact, language="zh-Hans")
-(reports_dir / "trino_anomaly_weekly.html").write_text(html, encoding="utf-8")
+# Publish outside the workspace (optional).
+result = session.publish_report(registration.report_id, target="/published")
 ```
 
-For a full report package, call
-`materialize_html_adapter(artifact, root=session.layout.reports_dir / artifact.manifest.report_id, script_source_dir=session.layout.session_dir)`
-so the package files land under `reports/<report_id>/`. When
-`script_source_dir` is provided, every referenced script is copied into the
-report package, making `<a href="scripts/...">` links functional after
-publishing. Paths in `script_refs` stay relative (e.g.
+When `adapter="html"` is used, every script referenced in `script_refs` is
+copied into the report package, making `<a href="scripts/...">` links
+functional after publishing. Paths in `script_refs` stay relative (e.g.
 `"scripts/step_observe.py"`); they resolve against
 `session.layout.session_dir` for validation (see below).
 
@@ -202,12 +198,11 @@ When the selected delivery surface is a Data Analytics MCP report app, use the
 Marivo MCP adapter after the core report artifact validates:
 
 1. Build and validate the `MarivoReportArtifact`.
-2. Call `to_mcp_artifact_payload(artifact)` for an in-memory MCP manifest,
-   snapshot, sources, and package metadata.
-3. When the payload should be stored in the package, call
-   `materialize_mcp_adapter(artifact, package_root)` and use the returned
-   artifact so `manifest.adapter_mcp` records the adapter files.
-4. In Codex/Data Analytics environments, call MCP `validate_artifact` before the
+2. Call `session.save_report(artifact, adapter="mcp")` to persist the package
+   with MCP adapter files and register it in the session store.
+   Internally this uses `to_mcp_artifact_payload(artifact)` for the MCP manifest
+   and writes the adapter files to the session report directory.
+3. In Codex/Data Analytics environments, call MCP `validate_artifact` before the
    first visible `render_artifact` call. Iterate on validator errors with the
    validator, not by repeatedly rendering visible broken artifacts.
 
@@ -223,12 +218,12 @@ When the selected delivery surface is a standalone HTML report, use the Marivo
 HTML adapter after the core report artifact validates:
 
 1. Build and validate the `MarivoReportArtifact`.
-2. Call `to_html_report_payload(artifact)` when the agent needs to inspect the
-   exact renderer payload before writing files.
-3. Call `render_report_html(artifact)` for an in-memory standalone HTML string.
-4. Call `materialize_html_adapter(artifact, package_root)` when the report
-   package should include `index.html`; use the returned artifact so
-   `manifest.entrypoints["html"]` records the file.
+2. Call `session.save_report(artifact, adapter="html")` to persist the package
+   with `index.html` and register it in the session store.
+   The returned `ReportRegistration` records the report id and package directory.
+3. When the agent needs to inspect the exact renderer payload, call
+   `mv.publish.to_html_report_payload(artifact)` for an in-memory payload, or
+   `mv.publish.render_report_html(artifact)` for the standalone HTML string.
 
 The standalone HTML surface opens directly from `index.html` and uses frozen
 datasets, grounding, flow steps, evidence objects, and source provenance from
@@ -253,20 +248,22 @@ recompute executive-summary claims.
 
 ## Publishing handoff
 
-When the report package should be shared outside the local workspace, publish the
-staged package with the deterministic library helper after the artifact validates
-and an adapter has materialized at least one entrypoint (for example
-`index.html`):
+When the report package should be shared outside the local workspace, use
+session-scoped publish after the artifact validates and has been saved with
+an adapter (for example `adapter="html"`):
 
-1. Build and validate the `MarivoReportArtifact`, then materialize the package
-   directory with `materialize_html_adapter` (and `materialize_mcp_adapter` if an
-   MCP payload should be stored).
-2. Call `publish_report_package(package_dir, exported_by=..., target=...)`.
-3. The helper loads and re-validates the package, scans packaged text files for
+1. Build and validate the `MarivoReportArtifact`.
+2. Call `session.save_report(artifact, adapter="html")` to persist the package
+   directory and register it in the session store. The returned
+   `ReportRegistration` contains `report_id` and `package_dir`.
+3. Call `session.publish_report(report_id, exported_by=..., target=...)` to
+   publish the registered package. The publish method re-validates, scans for
+   secrets, and writes the manifest last.
+4. The helper loads and re-validates the package, scans packaged text files for
    secrets, computes a deterministic content hash (excluding `manifest.json`),
    and stamps `exported_by`, `exported_at`, and `content_hash` into the published
    manifest.
-4. Content files upload first and `manifest.json` is written last, so a partial
+5. Content files upload first and `manifest.json` is written last, so a partial
    upload is never mistaken for a completed publish.
 
 The publish destination is user-scoped: the resolved path must include the
@@ -276,8 +273,8 @@ credentials, or row-level frames that the manifest data policy omits. Publishing
 is deterministic and library-owned; it does not author narrative, HTML, or
 replay scripts.
 
-For direct S3 upload of an HTML report package (without going through
-`publish_report_package`), see `references/upload-html-report.md`.
+For direct S3 upload of an HTML report package, see
+`references/upload-html-report.md`.
 
 ## Discovery and anomaly reports
 

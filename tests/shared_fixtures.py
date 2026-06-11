@@ -38,11 +38,11 @@ def make_metric_frame(
     """Create a persisted MetricFrame for tests without exposing a public constructor."""
     from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
     from marivo.analysis.lineage import Lineage, LineageStep
-    from marivo.analysis.session.core import ensure_session_writable
-    from marivo.analysis.session.persistence import write_frame_to_disk
+    from marivo.analysis.session._runtime import persist_frame
+    from marivo.analysis.session.core import ensure_session_can_execute
     from marivo.analysis.windows import dump_window, normalize_absolute_window_input
 
-    ensure_session_writable(session)
+    ensure_session_can_execute(session)
     resolved_window = normalize_absolute_window_input(window)
     frame_ref = f"frame_{secrets.token_hex(4)}"
     meta = MetricFrameMeta(
@@ -74,7 +74,7 @@ def make_metric_frame(
         semantic_model=semantic_model,
     )
     frame = MetricFrame(_df=df.copy(), meta=meta)
-    frame.meta = write_frame_to_disk(session._layout, frame)
+    frame.meta = persist_frame(session, frame)
     return frame
 
 
