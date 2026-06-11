@@ -101,9 +101,9 @@
 @ms.time_dimension(
     entity=bw_samples,
     data_type="timestamp",
-    granularity="minute",
+    granularity="second",            # 列物理精度:上报时间戳抖动到秒
     timezone="UTC",                  # naive 列实存时区,沿用现有声明
-    sample_interval=(5, "minute"),   # 新增:采样节奏
+    sample_interval=(5, "minute"),   # 新增:采样过程节奏
 )
 def sample_ts(bw_samples):
     return bw_samples.sample_ts
@@ -116,6 +116,11 @@ def sample_ts(bw_samples):
   (沿用 grain 整除日规则)。
 - 仅当 `data_type` 为 `datetime` / `timestamp` 时合法,且列 `granularity`
   不得粗于 `sample_interval` 的单位;违例在 decorator-time fail closed。
+- 与 `granularity` 正交,不重复:`granularity` 声明**列的物理精度**(既有
+  字段,驱动解析、data_type 校验与既有粒度下界),`sample_interval` 声明
+  **采样过程的节奏**(驱动采样点键、fold 门控、覆盖期望)。精度推不出
+  节奏(事件轴有精度无周期),节奏也不替代精度(抖动列精度为 second、
+  节奏为 5 分钟)。唯一交叠是有效查询粒度下界取二者更严者。
 - 一个 dataset 可有多个 time field,`sample_interval` 按 time field 声明。
   折叠指标通过 `fold_time_dimension` 绑定其中一条 sampled 轴(见 metric 节);
   两段式执行由指标声明激活,不依赖 observe 调用方选轴。
@@ -458,7 +463,7 @@ def dt(bw_samples):
     return bw_samples.dt                # 天分区轴:分区裁剪与可加指标默认轴
 
 @ms.time_dimension(entity=bw_samples, data_type="timestamp",
-                   granularity="minute", timezone="UTC",
+                   granularity="second", timezone="UTC",
                    sample_interval=(5, "minute"))
 def sample_ts(bw_samples):
     return bw_samples.sample_ts         # 唯一 sampled 轴:折叠指标自动绑定到它
