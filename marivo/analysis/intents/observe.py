@@ -1335,7 +1335,9 @@ def _execute_derived(
                     .select(*group_names, component_name)
                 )
             else:
-                grouped_expr = table.aggregate(**{component_name: metric_expr}).select(component_name)
+                grouped_expr = table.aggregate(**{component_name: metric_expr}).select(
+                    component_name
+                )
             df = execute(
                 grouped_expr,
                 datasource_name=cp.base_plan.datasource_name,
@@ -1469,7 +1471,7 @@ def _backend_for_datasource(session: Session, datasource_name: str) -> tuple[str
 
 def _resolve_backend_type(datasource_name: str, project_root: str) -> str | None:
     """Resolve the backend_type for a named datasource from the project store."""
-    from marivo.analysis.datasources import store as _ds_store
+    from marivo.datasource import store as _ds_store
 
     ds_ir = _ds_store.load_one(datasource_name, project_root=Path(project_root))
     if ds_ir is not None:

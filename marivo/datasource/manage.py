@@ -1,4 +1,4 @@
-"""Public ``mv.datasources`` API surface."""
+"""Unified datasource management API (md.*)."""
 
 from __future__ import annotations
 
@@ -9,14 +9,15 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
-from marivo.analysis.datasources import backends as _backends
-from marivo.analysis.datasources import secrets as _secrets
-from marivo.analysis.datasources import store as _store
-from marivo.analysis.datasources.metadata import TableMetadata
-from marivo.analysis.datasources.metadata import inspect_source as _inspect_source
-from marivo.analysis.datasources.metadata import inspect_table as _inspect_table
-from marivo.analysis.errors import DatasourceMissingError, DatasourcePreviewError
+from marivo.datasource import backends as _backends
+from marivo.datasource import secrets as _secrets
+from marivo.datasource import store as _store
 from marivo.datasource.authoring import DatasourceSpec
+from marivo.datasource.errors import DatasourceMissingError, DatasourcePreviewError
+from marivo.datasource.ir import EntitySourceIR
+from marivo.datasource.metadata import TableMetadata
+from marivo.datasource.metadata import inspect_source as _inspect_source
+from marivo.datasource.metadata import inspect_table as _inspect_table
 from marivo.preview import (
     PREVIEW_DEFAULT_LIMIT,
     PreviewFilter,
@@ -25,17 +26,26 @@ from marivo.preview import (
     PreviewSamplePolicy,
     preview_ibis_table,
 )
-from marivo.semantic.ir import EntitySourceIR
 
 
 @dataclass(frozen=True)
 class DatasourceSummary:
+    """Summary row for one configured project datasource."""
+
     name: str
     backend_type: str
+    description: str | None = None
+
+    @property
+    def semantic_id(self) -> str:
+        """Stable id used by discovery surfaces; equals ``name``."""
+        return self.name
 
 
 @dataclass(frozen=True)
 class DatasourceDescription:
+    """Literal fields and env refs for one datasource."""
+
     name: str
     backend_type: str
     literal_fields: dict[str, Any]
@@ -44,50 +54,94 @@ class DatasourceDescription:
 
 @dataclass(frozen=True)
 class DatasourceTestResult:
+    """Result of a datasource connectivity round-trip."""
+
     name: str
     ok: bool
     error: str | None
     latency_ms: int | None
 
 
-_ENV_SOURCED_SECRETS_ATTR = "_marivo_env_sourced_secrets"
-
-
-def _remember_env_sourced_secrets(
-    backend: Any,
-    resolved: tuple[_secrets.ResolvedSecret, ...],
-) -> None:
-    with suppress(Exception):
-        setattr(backend, _ENV_SOURCED_SECRETS_ATTR, resolved)
-
-
-def _persist_backend_env_sourced_secrets(backend: Any) -> None:
-    resolved = getattr(backend, _ENV_SOURCED_SECRETS_ATTR, ())
-    if isinstance(resolved, tuple):
-        _secrets.persist_env_sourced(resolved)
-
-
 def register(spec: DatasourceSpec) -> DatasourceSummary:
-    """Create or replace a project-level datasource file."""
+    """Create or replace a project datasource file from a DatasourceSpec.
+
+    Args:
+        spec: Validated datasource specification with name, backend_type,
+            and connection fields.
+
+    Returns:
+        A ``DatasourceSummary`` for the newly stored datasource.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.register(md.DatasourceSpec(name="wh", backend_type="duckdb", path=":memory:"))
+
+    Constraints:
+        The name must be a flat identifier (no dots).  Sensitive fields
+        (password, token, key) must use ``*_env`` references, not literals.
+    """
     stored = _store.save_one(spec)
-    return DatasourceSummary(name=stored.name, backend_type=stored.backend_type)
+    return DatasourceSummary(
+        name=stored.name, backend_type=stored.backend_type, description=stored.description
+    )
 
 
 def remove(name: str) -> bool:
-    """Delete the named project datasource file."""
+    """Delete the named project datasource file.
+
+    Args:
+        name: The datasource name to remove.
+
+    Returns:
+        True if the file existed and was deleted; False if it was not found.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.remove("wh")
+        True
+
+    Constraints:
+        Only the project-local ``.marivo/datasource/<name>.py`` file is removed.
+    """
     return _store.delete_one(name)
 
 
-def all() -> builtins.list[DatasourceSummary]:
-    """Return every project datasource, sorted by name."""
+def list() -> builtins.list[DatasourceSummary]:
+    """List configured project datasources as DatasourceSummary rows.
+
+    Returns:
+        Sorted list of ``DatasourceSummary`` objects (by name).
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.list()
+        [DatasourceSummary(name='wh', ...)]
+
+    Constraints:
+        Only datasources with a persisted project file are included.
+    """
     return [
-        DatasourceSummary(name=p.name, backend_type=p.backend_type)
+        DatasourceSummary(name=p.name, backend_type=p.backend_type, description=p.description)
         for p in sorted(_store.load_all().values(), key=lambda item: item.name)
     ]
 
 
 def describe(name: str) -> DatasourceDescription:
-    """Return the shape of the named datasource."""
+    """Show literal fields and env refs for one datasource.
+
+    Args:
+        name: The datasource name to describe.
+
+    Returns:
+        A ``DatasourceDescription`` with literal_fields and env_refs.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.describe("wh")
+
+    Constraints:
+        Raises ``DatasourceMissingError`` when the name has no project file.
+    """
     datasource = _store.load_one(name)
     if datasource is None:
         raise DatasourceMissingError(
@@ -102,8 +156,29 @@ def describe(name: str) -> DatasourceDescription:
     )
 
 
-def build_backend(name: str) -> Any:
-    """Return a live ibis backend for the named project datasource."""
+def connect(name: str) -> Any:
+    """Open a live ibis backend for a datasource; caller disconnects.
+
+    Args:
+        name: The datasource name to connect to.
+
+    Returns:
+        A live ibis backend. The caller must call ``.disconnect()`` when done.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> backend = md.connect("wh")
+        >>> try:
+        ...     backend.raw_sql("SELECT 1")
+        ... finally:
+        ...     backend.disconnect()
+
+    Constraints:
+        The caller owns the backend lifetime and must call ``disconnect()``.
+        Env-sourced secrets used to open this backend are remembered on the
+        backend object so that a subsequent round-trip validation can persist
+        them via ``secrets.persist_backend_env_sourced``.
+    """
     datasource = _store.load_one(name)
     if datasource is None:
         raise DatasourceMissingError(
@@ -111,7 +186,7 @@ def build_backend(name: str) -> Any:
             details={"datasource": name, "available": _store.list_names()},
         )
     built = _backends.build_backend_with_secrets(datasource)
-    _remember_env_sourced_secrets(built.backend, built.env_sourced_secrets)
+    _secrets.remember_env_sourced(built.backend, built.env_sourced_secrets)
     return built.backend
 
 
@@ -206,7 +281,7 @@ def _apply_preview_filter(expr: Any, preview_filter: PreviewFilter) -> Any:
                 message="preview 'in' filter value must be a non-string iterable",
                 details={"field": "where.value", "op": "in", "value": repr(raw_value)},
             )
-        return expr.filter(value.isin(list(raw_value)))
+        return expr.filter(value.isin(builtins.list(raw_value)))
     if op == "is_null":
         return expr.filter(value.isnull())
     if op == "is_not_null":
@@ -238,9 +313,32 @@ def preview(
     order_by: Iterable[PreviewOrder] | None = None,
     include_types: bool = True,
 ) -> PreviewResult:
-    """Return a bounded preview of a datasource table."""
-    backend = build_backend(datasource)
+    """Bounded, filtered preview of one datasource table.
+
+    Args:
+        datasource: Name of the project datasource.
+        table: Table name within the datasource.
+        database: Optional database/catalog path.
+        columns: Optional column subset to select.
+        limit: Maximum rows to return (default 100).
+        where: Structured filter mappings (column, op, value).
+        order_by: Structured order mappings (column, direction).
+        include_types: Whether to include column type information.
+
+    Returns:
+        A ``PreviewResult`` with rows, columns, types, and sample metadata.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.preview("wh", table="orders", limit=5)
+
+    Constraints:
+        The backend is always disconnected before returning, even on error.
+        Raw SQL filters are rejected; use structured ``where`` mappings.
+    """
+    backend: Any | None = None
     try:
+        backend = connect(datasource)
         expr = backend.table(table) if database is None else backend.table(table, database=database)
 
         selected_columns = tuple(columns or ())
@@ -253,7 +351,7 @@ def preview(
         for preview_filter in filters:
             expr = _apply_preview_filter(expr, preview_filter)
 
-        order_labels: list[str] = []
+        order_labels: builtins.list[str] = []
         orders = tuple(_validate_order(item) for item in (order_by or ()))
         for preview_order in orders:
             expr, label = _apply_preview_order(expr, preview_order)
@@ -280,6 +378,12 @@ def preview(
             message=f"failed to preview datasource table {datasource!r}.{table!r}: {exc}",
             details={"datasource": datasource, "table": table, "database": database},
         ) from exc
+    finally:
+        if backend is not None:
+            disconnect = getattr(backend, "disconnect", None)
+            if callable(disconnect):
+                with suppress(Exception):
+                    disconnect()
 
 
 def inspect_table(
@@ -289,7 +393,24 @@ def inspect_table(
     database: str | tuple[str, ...] | None = None,
     include_partitions: bool = True,
 ) -> TableMetadata:
-    """Return schema, comments, nullable flags, and partition hints for a table."""
+    """Schema, comments, nullability, and partition metadata for a table.
+
+    Args:
+        datasource: Name of the project datasource.
+        table: Table name within the datasource.
+        database: Optional database/catalog path.
+        include_partitions: Whether to include partition hints.
+
+    Returns:
+        A ``TableMetadata`` with columns, warnings, and optional partitions.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.inspect_table("wh", table="orders")
+
+    Constraints:
+        Opens and closes a backend connection internally.
+    """
     return _inspect_table(
         datasource,
         table=table,
@@ -304,7 +425,23 @@ def inspect_source(
     source: EntitySourceIR,
     include_partitions: bool = True,
 ) -> TableMetadata:
-    """Return schema, comments, nullable flags, and partition hints for a source."""
+    """Table metadata for a semantic entity source (table or file).
+
+    Args:
+        datasource: Name of the project datasource.
+        source: An ``EntitySourceIR`` describing the table or file.
+        include_partitions: Whether to include partition hints.
+
+    Returns:
+        A ``TableMetadata`` with columns, warnings, and optional partitions.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.inspect_source("wh", source=source_ir)
+
+    Constraints:
+        Opens and closes a backend connection internally.
+    """
     return _inspect_source(
         datasource,
         source=source,
@@ -313,13 +450,29 @@ def inspect_source(
 
 
 def test(name: str) -> DatasourceTestResult:
-    """Open the backend and run a trivial round-trip to verify reachability."""
+    """Round-trip the backend and persist validated env secrets.
+
+    Args:
+        name: The datasource name to test.
+
+    Returns:
+        A ``DatasourceTestResult`` with ok/error status and latency.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.test("wh")
+
+    Constraints:
+        On success, env-sourced secrets that resolved correctly are
+        persisted to the user-global plaintext cache. The backend is
+        always disconnected.
+    """
     start = time.perf_counter()
     backend: Any | None = None
     try:
-        backend = build_backend(name)
+        backend = connect(name)
         backend.raw_sql("SELECT 1")
-        _persist_backend_env_sourced_secrets(backend)
+        _secrets.persist_backend_env_sourced(backend)
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(name=name, ok=True, error=None, latency_ms=latency_ms)
     except Exception as exc:

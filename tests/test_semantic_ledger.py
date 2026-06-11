@@ -274,7 +274,7 @@ def _decision(
 
 
 def _metadata(status_type="INTEGER", status_comment="1=paid"):
-    from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
+    from marivo.datasource.metadata import ColumnMetadata, TableMetadata
 
     return TableMetadata(
         datasource="warehouse",

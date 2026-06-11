@@ -14,13 +14,13 @@ wrong place:
   `md.datasource(...)`, `md.ref(...)`, `DatasourceIR`, the `.marivo/datasource`
   file loader, and `*_env` secret-literal validation.
 - `marivo/analysis/datasources/` holds the rest of the domain as
-  `mv.datasources`: file store (spec-to-file codegen), backend construction,
+  `md`: file store (spec-to-file codegen), backend construction,
   secret resolution and the user-global cache, table metadata inspection,
   preview/test diagnostics, and the semantic cross-check audit.
 
 Observed costs of this split:
 
-1. Four read surfaces with three result shapes: `mv.datasources.all()`,
+1. Four read surfaces with three result shapes: `md.list()`,
    `project.list_datasources()`, `catalog.list(kind="datasource")`, and the
    public `md.load_datasources(...)`. Two distinct `DatasourceSummary`
    dataclasses exist with different fields
@@ -40,12 +40,12 @@ Observed costs of this split:
    leaks its backend, and the session-level `BackendCache` is a separate
    mechanism.
 6. Agents must hold two near-identical namespaces (`marivo.datasource` to
-   declare, `mv.datasources` to manage).
+   declare, `md` to manage).
 
 ## Decision
 
 Adopt the single-surface option: `marivo.datasource` (canonical alias `md`)
-becomes the only public datasource namespace. `mv.datasources` is deleted with
+becomes the only public datasource namespace. `md` is deleted with
 no facade or deprecation period. On-disk formats (`.marivo/datasource/*.py`,
 `~/.marivo/secrets.toml`) do not change; the break is Python-API-only.
 
@@ -166,7 +166,7 @@ semantic package as the implementation behind
    rendering machinery unchanged); declaration and runtime errors both
    subclass it. No `except AnalysisError` sites exist in `marivo/`, so the
    rebase is behavior-safe inside the library. Hint and `fix_snippet` strings
-   that mention `mv.datasources.*` are rewritten to `md.*`. The agent guide's
+   that mention `md.*` are rewritten to `md.*`. The agent guide's
    exception rule adds `DatasourceError` as a sanctioned base.
    `NoBackendFactoryError` stays in analysis (session concern).
 
@@ -230,7 +230,7 @@ connection-free (the existing Materializer stance is preserved).
 ## Documentation and skill updates (same change)
 
 - `docs/specs/semantic/python-semantic-layer.md`: datasource chapter,
-  materializer `backend_factory` contract, `mv.datasources.*` references.
+  materializer `backend_factory` contract, `md.*` references.
 - `marivo-skills/marivo-semantic/`: `SKILL.md` plus `references/datasource.md`,
   `preview.md`, `closeout.md`, `evidence-and-ledger.md`.
 - `marivo-skills/marivo-analysis/SKILL.md`.
@@ -239,7 +239,7 @@ connection-free (the existing Materializer stance is preserved).
 
 ## Tests
 
-- ~18 test files reference `mv.datasources`/`marivo.analysis.datasources`;
+- ~18 test files reference `md`/`marivo.analysis.datasources`;
   call sites update mechanically (`register` dominates with ~48 uses, then
   `metadata`/`inspect_table`).
 - `tests/test_analysis_imports.py` export assertions update.

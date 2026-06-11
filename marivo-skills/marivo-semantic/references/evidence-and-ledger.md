@@ -33,8 +33,8 @@
 ```python
 # Bind datasource access once after loading the project
 project.bind_datasource_access(
-    inspect_source=mv.datasources.inspect_source,
-    backend_factory=mv.datasources.build_backend,
+    inspect_source=md.inspect_source,
+    backend_factory=md.connect,
 )
 
 # Source evidence

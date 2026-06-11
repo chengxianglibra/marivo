@@ -32,6 +32,9 @@ class ConstraintId(StrEnum):
     DATASOURCE_LOADER_CONTEXT = "datasource_loader_context"
     DATASOURCE_UNIQUE_NAME = "datasource_unique_name"
     DATASOURCE_FILE_LOADABLE = "datasource_file_loadable"
+    DATASOURCE_CONFIGURED = "datasource_configured"
+    DATASOURCE_ENV_AVAILABLE = "datasource_env_available"
+    DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
 
 
 def _constraint(
@@ -133,6 +136,36 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Open the failing .marivo/datasource file, fix the reported error, then rerun md.load_datasources(...).",
         docs_ref=_DATASOURCE_DOC,
     ),
+    ConstraintId.DATASOURCE_CONFIGURED: _constraint(
+        ConstraintId.DATASOURCE_CONFIGURED,
+        "DatasourceMissing",
+        "runtime",
+        ("datasources", "session", "observe"),
+        "Named datasources must exist before analysis runtime lookup.",
+        "Datasource-backed sessions resolve semantic source refs through persisted datasource metadata.",
+        "Register the datasource with md.register(...) before creating or attaching the session.",
+        docs_ref=_DATASOURCE_DOC,
+    ),
+    ConstraintId.DATASOURCE_ENV_AVAILABLE: _constraint(
+        ConstraintId.DATASOURCE_ENV_AVAILABLE,
+        "DatasourceEnvVarMissing",
+        "runtime",
+        ("datasources", "session"),
+        "Datasource secret environment variables must be available at runtime.",
+        "The datasource contract stores secret references, not plaintext credentials.",
+        "Export the referenced environment variable or validate and remember it with md.test(...).",
+        docs_ref=_DATASOURCE_DOC,
+    ),
+    ConstraintId.DATASOURCE_BACKEND_SUPPORTED: _constraint(
+        ConstraintId.DATASOURCE_BACKEND_SUPPORTED,
+        "DatasourceBackendTypeUnsupported",
+        "runtime",
+        ("datasources", "session"),
+        "Datasource backend_type must have a registered backend adapter.",
+        "The analysis runtime can only create ibis connections for supported datasource backend types.",
+        "Use a supported backend_type or add an adapter before relying on datasource auto-loading.",
+        docs_ref=_DATASOURCE_DOC,
+    ),
 }
 
 _DEFAULT_BY_ERROR_KIND: dict[str, ConstraintId] = {
@@ -140,6 +173,9 @@ _DEFAULT_BY_ERROR_KIND: dict[str, ConstraintId] = {
     "DatasourceSecretInPlaintext": ConstraintId.DATASOURCE_SECRET_ENV_REF,
     "DatasourceLoad": ConstraintId.DATASOURCE_FILE_LOADABLE,
     "DatasourceDuplicate": ConstraintId.DATASOURCE_UNIQUE_NAME,
+    "DatasourceMissing": ConstraintId.DATASOURCE_CONFIGURED,
+    "DatasourceEnvVarMissing": ConstraintId.DATASOURCE_ENV_AVAILABLE,
+    "DatasourceBackendTypeUnsupported": ConstraintId.DATASOURCE_BACKEND_SUPPORTED,
 }
 
 

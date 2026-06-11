@@ -22,7 +22,7 @@ from marivo.semantic.dtos import (
 if TYPE_CHECKING:
     import pandas as pd
 
-    from marivo.analysis.datasources.metadata import TableMetadata  # noqa: F401
+    from marivo.datasource.metadata import TableMetadata  # noqa: F401
 
 _TOP_K = 10
 _NUMERIC_TYPE_TOKENS = (

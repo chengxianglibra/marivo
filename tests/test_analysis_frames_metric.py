@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import FrameReadError, NoBackendFactoryError
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta

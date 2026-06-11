@@ -4,7 +4,7 @@ import inspect
 
 import ibis
 
-from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
+from marivo.datasource.metadata import ColumnMetadata, TableMetadata
 from marivo.semantic.authoring_check import check_authoring_inputs
 from marivo.semantic.dtos import (
     AuthoringSourceInput,

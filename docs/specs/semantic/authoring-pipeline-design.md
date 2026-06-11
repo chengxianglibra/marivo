@@ -113,8 +113,8 @@ candidate semantic objects they might produce.
 
 ```python
 project.bind_datasource_access(
-    inspect_source=mv.datasources.inspect_source,
-    backend_factory=mv.datasources.build_backend,
+    inspect_source=md.inspect_source,
+    backend_factory=md.connect,
 )
 source_facts = project.inspect_source_context(
     datasource="warehouse",

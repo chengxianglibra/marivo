@@ -12,7 +12,7 @@ from pathlib import Path
 import ibis
 
 import marivo.semantic as ms
-from marivo.analysis.datasources.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
 from marivo.semantic.ir import TableSourceIR
 
 
