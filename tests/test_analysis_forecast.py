@@ -10,9 +10,8 @@ from marivo.analysis.errors import (
     ForecastPolicyError,
     ForecastShapeUnsupportedError,
 )
-from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.session._load import load_frame
-from tests.shared_fixtures import seeded_time_series_metric_frame
+from tests.shared_fixtures import make_metric_frame, seeded_time_series_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -98,7 +97,7 @@ def test_panel_per_segment_and_insufficient_history(tmp_path):
     )
     short_rows = [{"segment": "CA", "time": pd.Timestamp("2026-01-01"), "value": 3.0}]
     combined = pd.concat([full.to_pandas(), pd.DataFrame(short_rows)], ignore_index=True)
-    history = MetricFrame.from_dataframe(
+    history = make_metric_frame(
         combined,
         metric_id="sales.revenue",
         axes={"time": {"field": "time", "grain": "day"}, "dimensions": [{"field": "segment"}]},
@@ -136,7 +135,7 @@ def test_forecast_errors_and_persistence(tmp_path):
     with pytest.raises(ForecastInsufficientHistoryError):
         session.forecast(history, horizon=1, model="seasonal_naive", seasonality_period=7)
 
-    scalar = MetricFrame.from_dataframe(
+    scalar = make_metric_frame(
         pd.DataFrame({"value": [1.0]}),
         metric_id="sales.revenue",
         axes={},
@@ -150,7 +149,7 @@ def test_forecast_errors_and_persistence(tmp_path):
 
     with_nan = history.to_pandas()
     with_nan.loc[0, "value"] = None
-    nan_frame = MetricFrame.from_dataframe(
+    nan_frame = make_metric_frame(
         with_nan,
         metric_id="sales.revenue",
         axes=history.meta.axes,
@@ -164,7 +163,7 @@ def test_forecast_errors_and_persistence(tmp_path):
         session.forecast(nan_frame, horizon=1)
 
     gap = history.to_pandas().drop(index=[2])
-    gap_frame = MetricFrame.from_dataframe(
+    gap_frame = make_metric_frame(
         gap,
         metric_id="sales.revenue",
         axes=history.meta.axes,

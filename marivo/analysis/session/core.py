@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.association import AssociationResult
     from marivo.analysis.frames.attribution import AttributionFrame
     from marivo.analysis.frames.base import BaseFrame
-    from marivo.analysis.frames.candidate import CandidateObjective, CandidateSet, CandidateStrategy
+    from marivo.analysis.frames.candidate import CandidateSet
     from marivo.analysis.frames.delta import DeltaFrame
     from marivo.analysis.frames.exploration import ExplorationResult
     from marivo.analysis.frames.forecast import ForecastFrame
@@ -39,9 +39,9 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.intents._shape import SemanticShape
-    from marivo.analysis.intents._types import DiscoverSensitivity, SliceValue
-    from marivo.analysis.intents.transform import NormalizeKind, TransformOp
-    from marivo.analysis.policies import AlignmentPolicy, LagPolicy, PromotionPolicy, SamplingPolicy
+    from marivo.analysis.intents._types import SliceValue
+    from marivo.analysis.intents.transform import NormalizeKind
+    from marivo.analysis.policies import AlignmentPolicy, PromotionPolicy, SamplingPolicy
     from marivo.analysis.refs import ArtifactRef, DimensionRef, MetricRef
     from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
     from marivo.semantic.reader import SemanticProject
@@ -60,12 +60,6 @@ class JobSummary:
     started_at: str
     duration_ms: int
     output_frame_ref: str | None
-
-
-@dataclass(frozen=True)
-class FrameRecord:
-    ref: str
-    kind: str
 
 
 @dataclass(frozen=True)
@@ -259,21 +253,6 @@ class Session:
         """
         return read_job_record(self._layout, job_id)
 
-    def frames(self) -> list[FrameRecord]:
-        """Return a :class:`FrameRecord` for each persisted frame in this session.
-
-        Returns an empty list when no frames have been persisted yet.
-        """
-        if not self._layout.frames_dir.is_dir():
-            return []
-        refs: list[FrameRecord] = []
-        for frame_dir in sorted(self._layout.frames_dir.iterdir()):
-            meta_file = frame_dir / "meta.json"
-            if meta_file.is_file():
-                meta = json.loads(meta_file.read_text())
-                refs.append(FrameRecord(ref=meta["ref"], kind=meta["kind"]))
-        return refs
-
     def get_frame(self, ref: str) -> BaseFrame:
         """Load a persisted frame by ref or artifact_id.
 
@@ -399,6 +378,53 @@ class Session:
         time_dimension: DimensionRef | None = None,
         expect_shape: SemanticShape | None = None,
     ) -> MetricFrame:
+        """Materialize a metric into a typed MetricFrame.
+
+        When to use: starting point for any metric analysis workflow.
+
+        Resolves ``metric`` against the active semantic project, applies the
+        optional ``timescope`` / ``grain`` / ``dimensions`` / ``where`` filters, executes against
+        the session's backend, and persists the result as a MetricFrame on disk.
+
+        Args:
+            metric: Wrap the registered metric id with ``mv.MetricRef("<domain>.<metric>")``.
+                Bare strings are rejected.
+            timescope: Half-open time range ``{"start": ..., "end": ...}`` — start is
+                inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
+                means data from August 1 is **not** included.
+            grain: Optional time bucket grain. When present, observe returns a time
+                series or panel depending on ``dimensions``.
+            dimensions: Segment axes. In v1 all dimensions must resolve to the same
+                entity as ``metric``.
+            where: Pre-aggregation row filter. Keys are ``mv.DimensionRef(...)`` for
+                the filtered dimension; values are either a scalar (``==``), a list
+                (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
+                ``==, !=, in, >, >=, <, <=, between``.
+            time_dimension: Pick the entity time axis as
+                ``mv.DimensionRef("<time_dimension>")`` when an entity declares multiple
+                ``@ms.time_dimension`` columns. Omit when the entity has a single (or
+                default) time dimension.
+            expect_shape: Optional guard. If set, observe predicts the output shape
+                from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
+                before any backend work when the prediction differs.
+
+        Raises:
+            MetricNotFoundError: The metric id is unknown or not ``<domain>.<metric>``.
+            SemanticKindMismatchError: ``metric`` is not a ``MetricRef``, ``time_dimension``
+                is not a ``DimensionRef``, or a ``where`` key is not a ``DimensionRef``.
+            ObservePlanningError: Planning failed (e.g. cross-datasource plan, missing
+                path, ambiguous dimension). Check ``details["code"]`` for the specific
+                error code.
+
+        Example:
+            >>> frame = session.observe(
+            ...     mv.MetricRef("sales.revenue"),
+            ...     timescope={"start": "2026-07-01", "end": "2026-10-01"},
+            ...     grain="day",
+            ...     dimensions=[mv.DimensionRef("country")],
+            ... )
+            >>> frame.summary()
+        """
         from marivo.analysis.intents.observe import observe
 
         return observe(
@@ -419,6 +445,32 @@ class Session:
         *,
         alignment: AlignmentPolicy | None = None,
     ) -> DeltaFrame:
+        """Compute the typed delta between two MetricFrames (current minus baseline).
+
+        When to use: quantify change between two periods; produces a DeltaFrame for decompose or discover.
+
+        The two frames must share ``metric_id`` and ``semantic_kind``. ``segmented``
+        frames must share segment columns; ``panel`` frames must share grain.
+
+        Args:
+            current: Current-period MetricFrame.
+            baseline: Baseline-period MetricFrame.
+            alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``. For
+                ``segmented`` frames, only ``window_bucket`` is supported in v1.
+
+        Raises:
+            SemanticKindMismatchError: Different ``metric_id``, ``semantic_kind``, or
+                ``current``/``baseline`` is not a MetricFrame.
+            SegmentDimensionMismatchError: ``segmented`` frames disagree on segment columns.
+            PanelGrainMismatchError: ``panel`` frames disagree on time grain.
+            AlignmentPolicyNotApplicableError: Alignment kind incompatible with the frame shape.
+            CrossSessionFrameError: A frame belongs to a different session.
+
+        Example:
+            >>> cur  = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+            >>> base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
+            >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+        """
         from marivo.analysis.intents.compare import compare
 
         return compare(current, baseline, alignment=alignment, session=self)
@@ -429,6 +481,29 @@ class Session:
         *,
         axis: DimensionRef,
     ) -> AttributionFrame:
+        """Attribute a DeltaFrame's movement across a chosen segment axis.
+
+        When to use: attribute a delta to dimension segments (why did revenue drop?).
+
+        For ``panel`` deltas, ``axis`` must be one of the frame's segment dimensions.
+        For ``time_series`` deltas, ``axis`` is the bucket-start column.
+
+        Args:
+            frame: A DeltaFrame produced by ``session.compare``.
+            axis: The segment column to attribute over, wrapped in ``mv.DimensionRef``.
+                Dotted ids such as ``"model.field"`` resolve to the persisted
+                DeltaFrame column ``"field"`` when present.
+
+        Raises:
+            SemanticKindMismatchError: ``frame`` is not a DeltaFrame, or ``axis`` is not a DimensionRef.
+            AxisNotInPanelDimensionsError: ``axis`` is not a segment column of the panel.
+            CrossSessionFrameError: ``frame`` belongs to a different session.
+
+        Example:
+            >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+            >>> attribution = session.decompose(delta, axis=mv.DimensionRef("country"))
+            >>> attribution.summary()
+        """
         from marivo.analysis.intents.decompose import decompose
 
         return decompose(frame, axis=axis, session=self)
@@ -441,9 +516,36 @@ class Session:
         measure_a: str | None = None,
         measure_b: str | None = None,
         alignment: AlignmentPolicy | None = None,
-        lag_policy: LagPolicy | None = None,
         method: Literal["pearson"] = "pearson",
     ) -> AssociationResult:
+        """Measure the association between two MetricFrames over aligned buckets.
+
+        When to use: measure statistical association between two metrics over aligned time buckets.
+
+        v1 only supports Pearson correlation under ``window_bucket`` alignment with
+        zero-lag behavior. Both frames must belong to the active session.
+
+        Args:
+            a: First MetricFrame.
+            b: Second MetricFrame.
+            measure_a: Numeric column on ``a``. Defaults to the frame's measure column.
+            measure_b: Numeric column on ``b``. Defaults to the frame's measure column.
+            alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``.
+            method: Only ``"pearson"`` in v1.
+
+        Raises:
+            SemanticKindMismatchError: Inputs are not MetricFrames, or alignment
+                kinds are unsupported.
+            AlignmentFailedError: Frames cannot be aligned (e.g. no overlapping buckets).
+            CrossSessionFrameError: A frame belongs to a different session.
+
+        Example:
+            >>> result = session.correlate(
+            ...     a, b,
+            ...     alignment=mv.AlignmentPolicy(kind="window_bucket"),
+            ... )
+            >>> result.summary()
+        """
         from marivo.analysis.intents.correlate import correlate
 
         return correlate(
@@ -452,7 +554,6 @@ class Session:
             measure_a=measure_a,
             measure_b=measure_b,
             alignment=alignment,
-            lag_policy=lag_policy,
             method=method,
             session=self,
         )
@@ -467,6 +568,39 @@ class Session:
         interval_level: float = 0.95,
         measure_column: str | None = None,
     ) -> ForecastFrame:
+        """Project a time_series or panel MetricFrame forward by ``horizon`` buckets.
+
+        When to use: project a time series forward; requires time_series or panel shape.
+
+        v1 requires continuous time buckets and no NaN values. Impute or re-observe
+        before forecasting. ``seasonal_naive`` needs at least
+        ``seasonality_period + 1`` training rows per series.
+
+        Args:
+            history: A ``time_series`` or ``panel`` MetricFrame.
+            horizon: Number of buckets to project. Must be >= 1.
+            model: Forecast strategy. ``seasonal_naive`` defaults to the grain-typical period.
+            seasonality_period: Override for the seasonality period. Defaults by grain
+                (day=7, week=52, month=12, quarter=4).
+            interval_level: Confidence level for prediction intervals. Must be in (0, 1).
+            measure_column: Numeric column to forecast. Defaults to the frame's measure column.
+
+        Raises:
+            ForecastShapeUnsupportedError: ``history`` is not a time_series / panel MetricFrame,
+                or its grain is not in {day, week, month, quarter}.
+            ForecastPolicyError: ``horizon`` or ``interval_level`` is out of range.
+            ForecastInsufficientHistoryError: Not enough rows for the chosen model.
+            ForecastInputQualityError: ``history`` contains NaN values in ``value``.
+            CrossSessionFrameError: ``history`` belongs to a different session.
+
+        Example:
+            >>> history = session.observe(
+            ...     mv.MetricRef("sales.revenue"),
+            ...     timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
+            ... )
+            >>> forecast = session.forecast(history, horizon=30)
+            >>> forecast.summary()
+        """
         from marivo.analysis.intents.forecast import forecast
 
         return forecast(
@@ -480,6 +614,27 @@ class Session:
         )
 
     def assess_quality(self, frame: BaseFrame) -> QualityReport:
+        """Run quality checks over a MetricFrame and return a structured report.
+
+        When to use: check data quality (nulls, outliers, coverage) before analysis.
+
+        v1 accepts only MetricFrames. Reports for DeltaFrame / CandidateSet /
+        ForecastFrame / AttributionFrame are planned for later releases. The
+        returned QualityReport carries per-check rows, blocking issues, and a list
+        of recommended follow-up intents.
+
+        Args:
+            frame: A MetricFrame to inspect.
+
+        Raises:
+            QualityShapeUnsupportedError: ``frame`` is not a MetricFrame.
+            CrossSessionFrameError: ``frame`` belongs to a different session.
+
+        Example:
+            >>> report = session.assess_quality(frame)
+            >>> for issue in report.blocking_issues:
+            ...     print(issue)
+        """
         from marivo.analysis.intents.assess_quality import assess_quality
 
         return assess_quality(frame, session=self)
@@ -496,6 +651,38 @@ class Session:
         sampling: SamplingPolicy | None = None,
         alpha: float = 0.05,
     ) -> HypothesisTestResult:
+        """Run a paired hypothesis test over two compatible MetricFrames.
+
+        When to use: statistically validate whether a metric changed between two periods.
+
+        v1 only supports ``hypothesis="mean_changed"`` under ``window_bucket``
+        alignment. Scalar MetricFrames are not testable. ``a`` and ``b`` must share
+        ``semantic_kind`` and ``semantic_model``; ``sampling.pairing`` must match
+        the frame shape (``segment_key`` for segmented, ``window_bucket`` for
+        time_series / panel).
+
+        Args:
+            a: Current MetricFrame.
+            b: Baseline MetricFrame.
+            hypothesis: Only ``"mean_changed"`` in v1.
+            value_a: Numeric column on ``a``. Defaults to the frame's measure column.
+            value_b: Numeric column on ``b``. Defaults to the frame's measure column.
+            alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``.
+            sampling: Defaults to ``SamplingPolicy()`` (pairing inferred from shape).
+            alpha: Significance level in (0, 0.5].
+
+        Raises:
+            SemanticKindMismatchError: Inputs are not MetricFrames, or differ in
+                ``semantic_kind`` / ``semantic_model``.
+            TestPolicyError: ``hypothesis`` / ``alpha`` / ``alignment.kind`` is unsupported.
+            TestAlignmentError: Frames cannot be paired under the alignment.
+            TestShapeNotTestableError: Frame shape is scalar or otherwise untestable.
+            CrossSessionFrameError: A frame belongs to a different session.
+
+        Example:
+            >>> result = session.hypothesis_test(cur, base)
+            >>> result.summary()
+        """
         from marivo.analysis.intents.test import hypothesis_test
 
         return hypothesis_test(
@@ -517,6 +704,30 @@ class Session:
         description: str | None = None,
         sources: list[Any] | None = None,
     ) -> ExplorationResult:
+        """Import a pandas DataFrame into the session as an ExplorationResult.
+
+        Use this when you have data from an external source (CSV, API response,
+        manual construction) that you want to bring into the Marivo analysis
+        pipeline. The returned ExplorationResult is an untyped scratch frame;
+        promote it with ``promote_metric_frame`` or similar before passing to
+        typed intents like ``compare`` or ``decompose``.
+
+        Args:
+            df: Source DataFrame. A defensive copy is made internally.
+            description: Human-readable note stored in frame metadata.
+            sources: Optional lineage references to upstream artifacts that
+                produced this data.
+
+        Returns:
+            An ExplorationResult persisted to the session's frame store.
+
+        Raises:
+            SessionNotWritableError: If the resolved session is read-only.
+
+        Example:
+            >>> result = session.from_pandas(my_df, description="daily sales extract")
+            >>> mf = session.promote_metric_frame(result, metric=metric_ref, ...)
+        """
         from marivo.analysis.escape_hatch import from_pandas
 
         return from_pandas(df, session=self, description=description, sources=sources)
@@ -529,6 +740,41 @@ class Session:
         description: str | None = None,
         sources: list[Any] | None = None,
     ) -> ExplorationResult:
+        """Run an ibis query against a datasource and return an ExplorationResult.
+
+        Use this when you need to query a registered datasource with custom ibis
+        logic that goes beyond what the semantic model exposes. The query is
+        executed immediately and the result is persisted as an untyped scratch
+        frame. Promote the result before passing to typed intents.
+
+        Args:
+            query_builder: A callable that receives an ibis backend connection
+                and returns an ibis expression (table or column expression).
+                The callable runs in its own closure scope — you must
+                ``import ibis`` (or ``from ibis import _``) in your module
+                before using ibis top-level names like ``ibis.desc()`` or
+                ``_`` inside the callable.
+            datasource: Name of the datasource registered in the session's
+                backend cache.
+            description: Human-readable note stored in frame metadata.
+            sources: Optional lineage references to upstream artifacts.
+
+        Returns:
+            An ExplorationResult containing the query result, persisted to disk.
+
+        Raises:
+            TypeError: If ``query_builder`` does not return a valid ibis expression.
+            NameError: If the callable references ibis names not in scope
+                (e.g. forgot ``import ibis``).
+            SessionNotWritableError: If the resolved session is read-only.
+
+        Example:
+            >>> import ibis
+            >>> result = session.explore_ibis(
+            ...     lambda con: con.table("orders").order_by(ibis.desc("amount")),
+            ...     datasource="warehouse",
+            ... )
+        """
         from marivo.analysis.escape_hatch import explore_ibis
 
         return explore_ibis(
@@ -553,6 +799,52 @@ class Session:
         window: object | None = None,
         where: dict[str, Any] | None = None,
     ) -> MetricFrame:
+        """Upgrade an ExplorationResult or DataFrame into a typed MetricFrame.
+
+        Use this when you have raw tabular data that represents a metric
+        observation and you need to feed it into typed intents (``compare``,
+        ``decompose``, etc.) that require a MetricFrame.
+
+        No metadata is auto-inferred. ``semantic_kind``, ``measure_column``, and
+        ``semantic_model`` must be supplied explicitly. ``metric`` and
+        ``time_axis`` may instead fall back to ``policy.semantic_anchors``.
+        ``axes``, ``window``, and ``where`` are only read from explicit arguments.
+
+        Args:
+            source: An ExplorationResult or raw pandas DataFrame to promote.
+            policy: Supplies ``semantic_anchors`` fallback values and extra
+                ``required_fields`` checks. Promotion always fails closed on
+                missing metadata.
+            metric: Reference to the semantic metric this frame measures.
+                Falls back to ``policy.semantic_anchors.metric``.
+            semantic_kind: One of "scalar", "time_series", "segmented", "panel".
+            measure_column: Column name holding the numeric measure values.
+            axes: Mapping of column name to DimensionRef for dimension axes.
+            time_axis: Column name or DimensionRef for the time dimension.
+                Falls back to ``policy.semantic_anchors.time_axis``.
+            semantic_model: Name of the semantic model this metric belongs to.
+            window: Absolute time window specification.
+            where: Filter predicates applied to the observation.
+
+        Returns:
+            A MetricFrame persisted to the session's frame store.
+
+        Raises:
+            PromotionFailedError: If required fields are missing, columns are
+                invalid, or the session's semantic project is ready with metrics
+                defined and the metric id is not in the catalog.
+            SessionNotWritableError: If the resolved session is read-only.
+
+        Example:
+            >>> mf = session.promote_metric_frame(
+            ...     exploration_result,
+            ...     metric=MetricRef("revenue"),
+            ...     semantic_kind="time_series",
+            ...     measure_column="total_revenue",
+            ...     semantic_model="sales",
+            ...     time_axis="order_date",
+            ... )
+        """
         from marivo.analysis.escape_hatch import promote_metric_frame
 
         return promote_metric_frame(
@@ -584,6 +876,55 @@ class Session:
         baseline_column: str | None = None,
         alignment: AlignmentPolicy | None = None,
     ) -> DeltaFrame:
+        """Upgrade an ExplorationResult or DataFrame into a typed DeltaFrame.
+
+        Use this when you have pre-computed difference data between two metric
+        observations and need a typed frame for downstream intents like
+        ``decompose`` (attribution analysis).
+
+        Required parameters: current, baseline, delta_column, current_column,
+        baseline_column. ``current`` and ``baseline`` may instead fall back to
+        ``policy.semantic_anchors``. Additionally metric, semantic_kind, and
+        semantic_model are required but inherited from the referenced current
+        MetricFrame when not supplied. No metadata is auto-inferred.
+
+        Args:
+            source: An ExplorationResult or raw DataFrame containing delta data.
+            policy: Supplies ``semantic_anchors`` fallback values. Promotion
+                always fails closed on missing metadata.
+            current: ArtifactRef pointing to the "current" MetricFrame.
+                Falls back to ``policy.semantic_anchors.current``.
+            baseline: ArtifactRef pointing to the "baseline" MetricFrame.
+                Falls back to ``policy.semantic_anchors.baseline``.
+            metric: Override metric reference (must match source frames if given).
+            semantic_kind: Override semantic kind (must match source frames).
+            semantic_model: Override semantic model name (must match source frames).
+            delta_column: Column name holding the numeric delta values.
+            current_column: Column with current-period raw values. Required for
+                the delta formula consistency check.
+            baseline_column: Column with baseline-period raw values. Required for
+                the delta formula consistency check.
+            alignment: How current and baseline periods are aligned.
+                Defaults to window_bucket alignment.
+
+        Returns:
+            A DeltaFrame persisted to the session's frame store.
+
+        Raises:
+            PromotionFailedError: If required fields are missing, columns are
+                invalid, current/baseline metadata is inconsistent, or the
+                session's semantic project is ready with metrics defined and the
+                metric id is not in the catalog.
+            SessionNotWritableError: If the resolved session is read-only.
+
+        Example:
+            >>> df = session.promote_delta_frame(
+            ...     delta_exploration,
+            ...     current=ArtifactRef(current_mf.ref),
+            ...     baseline=ArtifactRef(baseline_mf.ref),
+            ...     delta_column="revenue_change",
+            ... )
+        """
         from marivo.analysis.escape_hatch import promote_delta_frame
 
         return promote_delta_frame(
@@ -613,6 +954,47 @@ class Session:
         method: str = "promotion",
         method_params: dict[str, Any] | None = None,
     ) -> AttributionFrame:
+        """Upgrade an ExplorationResult or DataFrame into a typed AttributionFrame.
+
+        Use this when you have pre-computed attribution/decomposition data that
+        explains which drivers contributed to a delta, and you need a typed frame
+        that the analysis pipeline can consume as evidence.
+
+        Required parameters: source_delta, driver_field, contribution_column.
+        ``source_delta`` may instead fall back to ``policy.semantic_anchors``.
+        metric, semantic_kind, and semantic_model are inherited from the source
+        DeltaFrame. No metadata is auto-inferred.
+
+        Args:
+            source: An ExplorationResult or raw DataFrame with attribution rows.
+            policy: Supplies ``semantic_anchors`` fallback values. Promotion
+                always fails closed on missing metadata.
+            source_delta: ArtifactRef pointing to the DeltaFrame being explained.
+                Falls back to ``policy.semantic_anchors.source_delta``.
+            driver_field: Column name identifying the dimension driver
+                (e.g., "region", "product_category").
+            contribution_column: Numeric column holding each driver's contribution
+                to the total delta. Must not contain NaN values.
+            value_column: Optional column with the absolute value per driver.
+            method: Attribution method label. Defaults to "promotion".
+            method_params: Additional parameters for the attribution method.
+
+        Returns:
+            An AttributionFrame persisted to the session's frame store.
+
+        Raises:
+            PromotionFailedError: If required fields are missing, columns are
+                invalid, or contribution_column contains null values.
+            SessionNotWritableError: If the resolved session is read-only.
+
+        Example:
+            >>> af = session.promote_attribution_frame(
+            ...     attribution_data,
+            ...     source_delta=ArtifactRef(delta_frame.ref),
+            ...     driver_field="region",
+            ...     contribution_column="contribution",
+            ... )
+        """
         from marivo.analysis.escape_hatch import promote_attribution_frame
 
         return promote_attribution_frame(
@@ -645,34 +1027,6 @@ class SessionDiscoverNamespace:
 
     _session: Session
 
-    def __call__(
-        self,
-        source: object,
-        *,
-        objective: CandidateObjective | str,
-        strategy: CandidateStrategy | None = None,
-        value: str | None = None,
-        threshold: float | None = None,
-        sensitivity: DiscoverSensitivity = "balanced",
-        limit: int | None = None,
-        search_space: list[DimensionRef] | None = None,
-        peer_scope: list[DimensionRef] | None = None,
-    ) -> CandidateSet:
-        from marivo.analysis.intents.discover import discover
-
-        return discover(
-            source,
-            objective=objective,
-            strategy=strategy,
-            value=value,
-            threshold=threshold,
-            sensitivity=sensitivity,
-            limit=limit,
-            search_space=search_space,
-            peer_scope=peer_scope,
-            session=self._session,
-        )
-
     def point_anomalies(
         self,
         source: MetricFrame,
@@ -680,6 +1034,12 @@ class SessionDiscoverNamespace:
         value: str | None = None,
         threshold: float | None = None,
     ) -> CandidateSet:
+        """Find time-series points with unusual values.
+
+        Source must be a MetricFrame with time_series or panel shape.
+        ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 3.0.
+        Lower values flag more candidates.
+        """
         from marivo.analysis.intents.discover import discover
 
         return discover.point_anomalies(
@@ -696,6 +1056,13 @@ class SessionDiscoverNamespace:
         value: str | None = None,
         threshold: float | None = None,
     ) -> CandidateSet:
+        """Find period-shift candidates from a DeltaFrame.
+
+        Requires at least four time buckets in a time-series delta, or at least
+        one panel series with four time buckets.
+        ``threshold`` is an absolute z-score cutoff on rolling window means
+        (|z| >= threshold); default 2.0.
+        """
         from marivo.analysis.intents.discover import discover
 
         return discover.period_shifts(
@@ -713,6 +1080,11 @@ class SessionDiscoverNamespace:
         value: str | None = None,
         limit: int | None = None,
     ) -> CandidateSet:
+        """Find dimensions that explain a delta.
+
+        Source must be a DeltaFrame. ``search_space`` is required and lists
+        the candidate dimensions to evaluate for explanatory power.
+        """
         from marivo.analysis.intents.discover import discover
 
         return discover.driver_axes(
@@ -783,42 +1155,6 @@ class SessionTransformNamespace:
     """Session-bound family-preserving transform helpers."""
 
     _session: Session
-
-    def __call__(
-        self,
-        frame: object,
-        *,
-        op: TransformOp,
-        where: dict[DimensionRef, SliceValue] | None = None,
-        predicate: Callable[..., Any] | None = None,
-        drop_axes: list[DimensionRef] | None = None,
-        by: str | None = None,
-        limit: int | None = None,
-        order: str | None = None,
-        method: str = "ordinal",
-        rank_column: str = "rank",
-        mode: str | None = None,
-        baseline: object | None = None,
-        window: object | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        from marivo.analysis.intents.transform import transform
-
-        return transform(
-            frame,
-            op=op,
-            where=where,
-            predicate=predicate,
-            drop_axes=drop_axes,
-            by=by,
-            limit=limit,
-            order=order,
-            method=method,
-            rank_column=rank_column,
-            mode=mode,
-            baseline=baseline,
-            window=window,
-            session=self._session,
-        )
 
     def filter(self, frame: object, *, predicate: Callable[[Any], Any]) -> MetricFrame | DeltaFrame:
         from marivo.analysis.intents.transform import transform

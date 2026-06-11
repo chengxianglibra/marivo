@@ -15,19 +15,18 @@ ensure_loaded()
 import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
-revenue_by_country = mv.MetricFrame.from_dataframe(
+revenue_by_country = session.promote_metric_frame(
     pd.DataFrame(
         {
             "country": ["US", "CA", "MX"],
             "revenue": [120.0, 80.0, 40.0],
         }
     ),
-    metric_id=METRIC_ID,
-    axes={"country": {"role": "dimension", "column": "country"}},
-    measure={"column": "revenue"},
+    metric=mv.MetricRef(METRIC_ID),
+    axes={"country": mv.DimensionRef("country")},
+    measure_column="revenue",
     semantic_kind="segmented",
     semantic_model="sales",
-    session=session,
 )
 sliced = session.transform.slice(revenue_by_country, where={mv.DimensionRef("country"): "US"})
 print(sliced.summary())

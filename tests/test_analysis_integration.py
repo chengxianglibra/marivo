@@ -58,17 +58,17 @@ def test_end_to_end_sales_observe_compare_load(tmp_path):
     assert df.iloc[0]["delta"] == pytest.approx(40.0)
 
     assert sorted(j.intent for j in s.jobs()) == ["compare", "observe", "observe"]
-    assert {f.kind for f in s.frames()} == {"metric_frame", "delta_frame"}
+    assert {f.kind for f in s.frame_summaries()} == {"metric_frame", "delta_frame"}
 
-    reloaded = mv.load_frame(q3.ref, session=s)
+    reloaded = s.get_frame(q3.ref)
     assert reloaded.meta.metric_id == "sales.revenue"
     assert reloaded.meta.session_id == s.id
 
     session_attach._reset_process_state()
     s_ro = mv.session.get_or_create(name="qoq-investigation", use_datasources=False)
     assert s_ro.is_read_only
-    q3_again = mv.load_frame(q3.ref, session=s_ro)
-    q2_again = mv.load_frame(q2.ref, session=s_ro)
+    q3_again = s_ro.get_frame(q3.ref)
+    q2_again = s_ro.get_frame(q2.ref)
     d_again = s_ro.compare(
         q3_again,
         q2_again,

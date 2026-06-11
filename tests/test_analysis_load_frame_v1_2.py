@@ -6,12 +6,12 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-import marivo.analysis as mv
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import FrameMetaInvalidError, FrameRefNotFound
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session.persistence import write_frame_to_disk
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +46,7 @@ def _base_meta(session, *, kind, ref):
 
 def test_load_frame_coerces_legacy_window_dict():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
         axes={},
@@ -64,7 +64,7 @@ def test_load_frame_coerces_legacy_window_dict():
     }
     meta_file.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
 
-    loaded = mv.load_frame(frame.ref, session=session)
+    loaded = session.get_frame(frame.ref)
 
     assert loaded.meta.window is not None
     assert loaded.meta.window["kind"] == "absolute"
@@ -75,7 +75,7 @@ def test_load_frame_coerces_legacy_window_dict():
 
 def test_load_frame_rejects_unparseable_legacy_window():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
         axes={},
@@ -90,14 +90,14 @@ def test_load_frame_rejects_unparseable_legacy_window():
     meta_file.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
 
     with pytest.raises(FrameMetaInvalidError) as exc_info:
-        mv.load_frame(frame.ref, session=session)
+        session.get_frame(frame.ref)
 
     assert exc_info.value.details.get("kind") == "LegacyWindowShapeInvalid"
 
 
 def test_load_frame_wraps_legacy_window_validation_error():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
         axes={},
@@ -116,7 +116,7 @@ def test_load_frame_wraps_legacy_window_validation_error():
     meta_file.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
 
     with pytest.raises(FrameMetaInvalidError) as exc_info:
-        mv.load_frame(frame.ref, session=session)
+        session.get_frame(frame.ref)
 
     assert exc_info.value.details.get("kind") == "LegacyWindowShapeInvalid"
 
@@ -149,7 +149,7 @@ def test_load_frame_round_trips_hypothesis_test_result():
     )
     frame.meta = write_frame_to_disk(session._layout, frame)
 
-    loaded = mv.load_frame("frame_test", session=session)
+    loaded = session.get_frame("frame_test")
 
     assert isinstance(loaded, HypothesisTestResult)
     assert loaded.meta.kind == "hypothesis_test_result"
@@ -185,7 +185,7 @@ def test_load_frame_round_trips_forecast_frame():
     )
     frame.meta = write_frame_to_disk(session._layout, frame)
 
-    loaded = mv.load_frame("frame_forecast", session=session)
+    loaded = session.get_frame("frame_forecast")
 
     assert isinstance(loaded, ForecastFrame)
     assert loaded.meta.kind == "forecast_frame"
@@ -215,7 +215,7 @@ def test_load_frame_round_trips_quality_report():
     )
     frame.meta = write_frame_to_disk(session._layout, frame)
 
-    loaded = mv.load_frame("frame_quality", session=session)
+    loaded = session.get_frame("frame_quality")
 
     assert isinstance(loaded, QualityReport)
     assert loaded.meta.kind == "quality_report"
@@ -237,16 +237,16 @@ def test_loads_new_operator_frame_families(tmp_path, monkeypatch):
         session.assess_quality(frame),
     ]
 
-    assert [mv.load_frame(output.ref, session=session).meta.kind for output in outputs] == [
+    assert [session.get_frame(output.ref).meta.kind for output in outputs] == [
         "hypothesis_test_result",
         "forecast_frame",
         "quality_report",
     ]
 
 
-def test_load_frame_accepts_artifact_ref():
+def test_session_get_frame_accepts_ref_string():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
         axes={},
@@ -255,12 +255,12 @@ def test_load_frame_accepts_artifact_ref():
         semantic_model="custom",
         session=session,
     )
-    loaded = mv.load_frame(mv.ArtifactRef(frame.ref), session=session)
+    loaded = session.get_frame(frame.ref)
     assert isinstance(loaded, MetricFrame)
     assert loaded.ref == frame.ref
 
 
-def test_load_frame_artifact_ref_not_found():
+def test_session_get_frame_ref_not_found():
     session = session_attach.get_or_create(name="demo")
     with pytest.raises(FrameRefNotFound):
-        mv.load_frame(mv.ArtifactRef("frame_nonexistent"), session=session)
+        session.get_frame("frame_nonexistent")

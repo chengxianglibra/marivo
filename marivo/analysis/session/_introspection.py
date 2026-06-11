@@ -13,9 +13,9 @@ which intent function; the installer and the guard test both consume it so the
 two never drift apart.
 
 The same mirroring covers the escape-hatch methods (``session.from_pandas`` /
-``promote_*``, owned by ``escape_hatch.*``) and the ``session.discover`` /
-``session.transform`` namespace helpers (owned by the ``DiscoverAPI`` /
-``TransformAPI`` methods).
+``promote_*``, owned by ``escape_hatch.*``) and the typed
+``session.discover.*`` / ``session.transform.*`` namespace helpers (owned by
+the ``DiscoverAPI`` / ``TransformAPI`` methods).
 """
 
 from __future__ import annotations
@@ -80,7 +80,6 @@ def install_intent_docstrings() -> None:
     Session.promote_attribution_frame.__doc__ = escape_hatch.promote_attribution_frame.__doc__
 
     # Discover namespace helpers own their docstrings on DiscoverAPI.
-    SessionDiscoverNamespace.__call__.__doc__ = type(discover).__call__.__doc__
     for name in (
         "point_anomalies",
         "period_shifts",
@@ -92,7 +91,6 @@ def install_intent_docstrings() -> None:
         getattr(SessionDiscoverNamespace, name).__doc__ = getattr(discover, name).__doc__
 
     # Transform namespace helpers own their docstrings on TransformAPI.
-    SessionTransformNamespace.__call__.__doc__ = type(transform).__call__.__doc__
     for name in (
         "filter",
         "slice",

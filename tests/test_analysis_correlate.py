@@ -11,8 +11,8 @@ from marivo.analysis.errors import (
     SemanticKindMismatchError,
 )
 from marivo.analysis.frames.association import AssociationResult
-from marivo.analysis.frames.metric import MetricFrame
-from marivo.analysis.policies import AlignmentPolicy, LagPolicy
+from marivo.analysis.policies import AlignmentPolicy
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +23,7 @@ def _chdir(tmp_path, monkeypatch):
 
 
 def _metric(session, df, *, metric_id, semantic_model="sales", semantic_kind="time_series"):
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         df,
         metric_id=metric_id,
         axes={},
@@ -96,7 +96,6 @@ def test_correlate_common_key_alignment():
         a,
         b,
         alignment=AlignmentPolicy(kind="window_bucket"),
-        lag_policy=LagPolicy(mode="single", offset=0),
     )
 
     df = out.to_pandas()
@@ -135,7 +134,6 @@ def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
         a,
         b,
         alignment=AlignmentPolicy(kind="window_bucket"),
-        lag_policy=LagPolicy(mode="single", offset=0),
     )
 
     df = out.to_pandas()
@@ -176,7 +174,6 @@ def test_correlate_rejects_duplicate_composite_keys_without_persisting():
             a,
             b,
             alignment=AlignmentPolicy(kind="window_bucket"),
-            lag_policy=LagPolicy(mode="single", offset=0),
         )
 
     assert [job for job in session.jobs() if job.intent == "correlate"] == []
@@ -248,7 +245,7 @@ def test_correlate_writes_job_and_frame():
         "mode": "ordinal_bucket",
         "strict_lengths": False,
     }
-    assert params["lag_policy"] == {"mode": "single", "offset": 0}
+    assert "lag_policy" not in params
     assert params["method"] == "pearson"
 
 
@@ -266,7 +263,7 @@ def test_correlate_output_round_trips_through_load_frame():
     )
 
     out = session.correlate(a, b)
-    loaded = mv.load_frame(out.ref, session=session)
+    loaded = session.get_frame(out.ref)
 
     assert isinstance(loaded, AssociationResult)
     assert loaded.meta.correlation == pytest.approx(1.0)
@@ -279,7 +276,7 @@ def test_correlate_sample_output_round_trips_with_null_driver_field():
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
 
     out = session.correlate(a, b)
-    loaded = mv.load_frame(out.ref, session=session)
+    loaded = session.get_frame(out.ref)
 
     assert isinstance(loaded, AssociationResult)
     row = loaded.to_pandas().iloc[0]
@@ -387,22 +384,10 @@ def test_correlate_rejects_calendar_backed_alignment_for_now():
     assert exc.value.details == {"alignment": alignment.model_dump(mode="json")}
 
 
-def test_correlate_rejects_non_lag_policy():
+def test_correlate_does_not_accept_lag_policy_argument():
     session = session_attach.get_or_create(name="demo")
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
 
-    with pytest.raises(SemanticKindMismatchError) as exc:
+    with pytest.raises(TypeError):
         session.correlate(a, b, lag_policy={"mode": "single", "offset": 0})  # type: ignore[arg-type]
-
-    assert exc.value.details == {
-        "expected_kind": "LagPolicy",
-        "got_kind": "dict",
-    }
-
-
-def test_correlate_rejects_non_zero_lag_policy_construction():
-    from pydantic import ValidationError
-
-    with pytest.raises(ValidationError):
-        LagPolicy(mode="single", offset=1)

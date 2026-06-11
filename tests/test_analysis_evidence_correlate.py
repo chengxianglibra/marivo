@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.frames.metric import MetricFrame
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -19,7 +20,7 @@ def _chdir(tmp_path, monkeypatch):
 
 
 def _metric(session, df: pd.DataFrame, *, metric_id: str) -> MetricFrame:
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         df,
         metric_id=metric_id,
         axes={},

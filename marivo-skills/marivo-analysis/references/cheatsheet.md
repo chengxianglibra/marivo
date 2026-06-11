@@ -34,7 +34,7 @@ mv.help('MetricFrame.components')        # method signature and doc
 
 | Frame | Created by | Valid next step |
 | --- | --- | --- |
-| `MetricFrame` | `session.observe`, manual `MetricFrame.from_dataframe` for local series | `session.compare`, `session.discover.<objective>`, `session.correlate` |
+| `MetricFrame` | `session.observe`, `session.promote_metric_frame` for validated scratch re-entry | `session.compare`, `session.discover.<objective>`, `session.correlate` |
 | `DeltaFrame` | `session.compare` | `session.decompose` |
 | `CandidateSet` | `session.discover.<objective>` | `candidates.select(...)` to pull a typed field; otherwise terminal. Inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
 | `AssociationResult` | `session.correlate` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
@@ -48,10 +48,9 @@ Frames are immutable. Use `frame.summary()` for a cheap read,
 `frame.to_pandas()` when you need a mutable copy. Use
 `frame.to_pandas().head(n)` only when you explicitly want pandas behavior.
 
-Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`,
-`mv.AlignmentPolicy(...)`, and `mv.LagPolicy(...)` at public operator
-boundaries. Do not pass bare strings directly to `observe`, `decompose`, or
-calendar-backed `compare`.
+Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`, and
+`mv.AlignmentPolicy(...)` at public operator boundaries. Do not pass bare
+strings directly to `observe`, `decompose`, or calendar-backed `compare`.
 
 ## Minimal Patterns
 
@@ -158,9 +157,8 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 | Inspect calendar file shape | `mv.help("calendar")` |
 | Confirm metric ids | `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind="metric")` |
 | Recover a frame across scripts (no re-query) | `session.get_frame(ref)` |
-| List persisted frame refs | `session.frames()` |
+| List persisted frame refs and metadata | `session.frame_summaries()` |
 | Find frame ref by metric_id | `session.frame_summaries()` |
-| Module-level frame load | `mv.load_frame(ref, session=session)` |
 
 Calendar alignment and timestamp bucketing use the Python process system timezone. If a naive warehouse timestamp physically stores UTC, declare it in the semantic layer with `@ms.time_dimension(..., timezone="UTC")`.
 

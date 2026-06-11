@@ -154,7 +154,7 @@ def _transform_dispatch(
         CrossSessionFrameError: ``frame`` belongs to a different session.
 
     Example:
-        >>> top = session.transform(delta, op="topk", limit=10, order="decrease")
+        >>> top = session.transform.topk(delta, by="delta", limit=10, order="decrease")
         >>> top.summary()
     """
 
@@ -249,45 +249,6 @@ def _require_dimension_refs(values: Iterable[Any], *, argument: str) -> None:
 
 class TransformAPI:
     """Callable namespace for family-preserving MetricFrame / DeltaFrame transforms."""
-
-    def __call__(
-        self,
-        frame: object,
-        *,
-        op: TransformOp | str,
-        session: Session | None = None,
-        where: Any = None,
-        predicate: Any = None,
-        drop_axes: Any = None,
-        by: Any = None,
-        limit: int | None = None,
-        order: str | None = None,
-        method: str = "ordinal",
-        rank_column: str = "rank",
-        mode: str | None = None,
-        baseline: Any = None,
-        window: Any = None,
-        _triggered_by: TriggeredByFollowup | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        """Family-preserving reshape. Prefer typed sub-methods (session.transform.topk, etc.) for precise signatures."""
-
-        return _transform_dispatch(
-            frame,
-            op=op,
-            session=session,
-            where=where,
-            predicate=predicate,
-            drop_axes=drop_axes,
-            by=by,
-            limit=limit,
-            order=order,
-            method=method,
-            rank_column=rank_column,
-            mode=mode,
-            baseline=baseline,
-            window=window,
-            _triggered_by=_triggered_by,
-        )
 
     def filter(
         self,

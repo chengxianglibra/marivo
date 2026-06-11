@@ -221,16 +221,12 @@ def test_help_json_top_level_is_canonical() -> None:
     assert {entry["name"] for entry in entries} == set(mv.__all__) | _HELP_ONLY_ENTRIES
 
 
-def test_help_json_load_frame_uses_own_docstring_only() -> None:
+def test_help_rejects_removed_load_frame_symbol() -> None:
     result = _json_data("load_frame")
 
     assert isinstance(result, dict)
-    assert result["kind"] == "callable"
+    assert result["kind"] == "unknown"
     assert result["symbol"] == "load_frame"
-    assert "load_frame(" in cast("str", result["signature"])
-    doc = cast("str", result["doc"])
-    assert "Load a persisted analysis frame" in doc
-    assert "Load persisted analysis frames." not in doc
 
 
 def test_help_resolves_core_runtime_and_result_types() -> None:
@@ -239,7 +235,6 @@ def test_help_resolves_core_runtime_and_result_types() -> None:
         "BaseFrameMeta": "class",
         "FrameSummary": "class",
         "FramePreview": "class",
-        "FrameRecord": "class",
         "SessionSummary": "class",
         "JobSummary": "class",
         "Lineage": "class",

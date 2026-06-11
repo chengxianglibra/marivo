@@ -12,12 +12,12 @@ import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
-from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._candidate_columns import (
     build_union_columns,
     validate_shape_columns,
 )
 from marivo.analysis.lineage import Lineage
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +31,7 @@ def _metric(session, df, *, semantic_kind="time_series"):
     axes: dict[str, Any] = {}
     if "bucket" in df.columns:
         axes["time"] = {"role": "time", "column": "bucket"}
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         df,
         metric_id="sales.revenue",
         axes=axes,
@@ -310,9 +310,8 @@ def test_select_axis_feeds_decompose():
     session = session_attach.get_or_create(name="demo")
     delta_df = pd.DataFrame({"country": ["US", "JP", "DE"], "delta": [10.0, 5.0, 0.5]})
     src = _delta(session, delta_df, semantic_kind="segmented")
-    axis_candidates = session.discover(
+    axis_candidates = session.discover.driver_axes(
         src,
-        objective="driver_axes",
         search_space=[mv.DimensionRef("country")],
     )
     selected_axis = axis_candidates.select(rank=1, attribute="axis")
@@ -329,13 +328,12 @@ def test_select_window_feeds_transform_window():
         }
     )
     metric = _metric(session, df, semantic_kind="time_series")
-    windows = session.discover(
+    windows = session.discover.interesting_windows(
         metric,
-        objective="interesting_windows",
         threshold=2.0,
     )
     window = windows.select(rank=1, attribute="window")
-    local = session.transform(metric, op="window", window=window)
+    local = session.transform.window(metric, window=window)
     assert local.meta.kind == "metric_frame"
 
 
@@ -353,14 +351,13 @@ def test_select_selector_feeds_transform_slice():
         "country": {"role": "dimension", "column": "country"},
         "platform": {"role": "dimension", "column": "platform"},
     }
-    slice_cands = session.discover(
+    slice_cands = session.discover.interesting_slices(
         src,
-        objective="interesting_slices",
         search_space=[mv.DimensionRef("country"), mv.DimensionRef("platform")],
         threshold=2.0,
     )
     selector = slice_cands.select(rank=1, attribute="selector")
-    focus = session.transform(src, op="slice", where=selector)
+    focus = session.transform.slice(src, where=selector)
     assert focus.meta.kind == "delta_frame"
 
 

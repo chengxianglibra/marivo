@@ -1,11 +1,11 @@
-"""Window normalization for MetricFrame.from_dataframe."""
+"""Window normalization for test metric frame helper."""
 
 import pandas as pd
 import pytest
 
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import WindowInvalidError
-from marivo.analysis.frames.metric import MetricFrame
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -16,9 +16,9 @@ def _chdir(tmp_path, monkeypatch):
     yield
 
 
-def test_from_dataframe_accepts_absolute_window_dict():
+def test_make_metric_frame_accepts_absolute_window_dict():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame({"value": [1.0]}),
         metric_id="custom.metric",
         axes={},
@@ -33,10 +33,10 @@ def test_from_dataframe_accepts_absolute_window_dict():
     assert frame.meta.window["kind"] == "absolute"
 
 
-def test_from_dataframe_rejects_relative_window_dict():
+def test_make_metric_frame_rejects_relative_window_dict():
     session = session_attach.get_or_create(name="demo")
     with pytest.raises(WindowInvalidError) as exc_info:
-        MetricFrame.from_dataframe(
+        make_metric_frame(
             pd.DataFrame({"value": [1.0]}),
             metric_id="custom.metric",
             axes={},

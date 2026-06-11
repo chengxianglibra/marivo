@@ -67,7 +67,7 @@ def test_exploration_result_round_trips_through_load_frame():
     )
     scratch.meta = write_frame_to_disk(session._layout, scratch)
 
-    loaded = mv.load_frame("frame_scratch", session=session)
+    loaded = session.get_frame("frame_scratch")
 
     assert isinstance(loaded, ExplorationResult)
     assert loaded.meta.kind == "exploration_result"
@@ -271,7 +271,7 @@ def test_core_operators_reject_exploration_result_inputs():
         session.decompose(scratch, axis=mv.DimensionRef("country"))  # type: ignore[arg-type]
 
     with pytest.raises(mv.errors.SemanticKindMismatchError):
-        session.discover(scratch, objective="point_anomalies")  # type: ignore[arg-type]
+        session.discover.point_anomalies(scratch)  # type: ignore[arg-type]
 
     with pytest.raises(mv.errors.SemanticKindMismatchError):
         session.hypothesis_test(metric, scratch)  # type: ignore[arg-type]

@@ -15,8 +15,8 @@ import marivo.analysis as mv
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import DiscoverInsufficientDataError, SemanticKindMismatchError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
-from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.lineage import Lineage
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +27,7 @@ def _chdir(tmp_path, monkeypatch):
 
 
 def _metric(session, df, *, semantic_kind="time_series"):
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         df,
         metric_id="sales.revenue",
         axes={},
@@ -63,7 +63,7 @@ def _delta(session, df, *, semantic_kind="time_series"):
 
 def test_discover_api_exposes_typed_method_signatures():
     session = session_attach.get_or_create(name="demo")
-    assert callable(session.discover)
+    assert not callable(session.discover)
 
     driver_axes_signature = inspect.signature(session.discover.driver_axes)
     assert "objective" not in driver_axes_signature.parameters
@@ -162,16 +162,16 @@ def test_discover_api_methods_set_objective_shape_and_strategy():
 
 def test_unknown_objective_raises():
     session = session_attach.get_or_create(name="demo")
-    frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
-    with pytest.raises(SemanticKindMismatchError):
-        session.discover(frame, objective="not_an_objective")  # type: ignore[arg-type]
+    name = "not_an_objective"
+    with pytest.raises(AttributeError):
+        getattr(session.discover, name)
 
 
 def test_period_shifts_rejects_metric_frame():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
     with pytest.raises(SemanticKindMismatchError) as exc:
-        session.discover(frame, objective="period_shifts")
+        session.discover.period_shifts(frame)  # type: ignore[arg-type]
     assert exc.value.details.get("objective") == "period_shifts"
     assert exc.value.details.get("source_kind") == "metric_frame"
 
@@ -246,15 +246,14 @@ def test_driver_axes_rejects_metric_frame():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
     with pytest.raises(SemanticKindMismatchError):
-        session.discover(frame, objective="driver_axes")
+        session.discover.driver_axes(frame, search_space=[mv.DimensionRef("country")])  # type: ignore[arg-type]
 
 
 def test_driver_axes_requires_search_space():
     session = session_attach.get_or_create(name="demo")
     delta = _delta(session, pd.DataFrame({"country": ["US"], "delta": [1.0]}))
-    with pytest.raises(SemanticKindMismatchError) as exc:
-        session.discover(delta, objective="driver_axes")
-    assert exc.value.details.get("missing") == "search_space"
+    with pytest.raises(TypeError):
+        session.discover.driver_axes(delta)  # type: ignore[call-arg]
 
 
 def test_cross_sectional_outliers_rejects_time_series():
@@ -265,33 +264,18 @@ def test_cross_sectional_outliers_rejects_time_series():
         semantic_kind="time_series",
     )
     with pytest.raises(SemanticKindMismatchError):
-        session.discover(frame, objective="cross_sectional_outliers")
+        session.discover.cross_sectional_outliers(frame)
 
 
-@pytest.mark.parametrize(
-    "objective, allowed_strategy, rejected_strategy",
-    [
-        ("point_anomalies", "zscore", "iqr"),
-        ("period_shifts", "delta_window_zscore", "cusum"),
-        ("driver_axes", "variance_explained", "lasso"),
-        ("interesting_slices", "delta_magnitude", "isolation_forest"),
-        ("interesting_windows", "rolling_zscore", "stl_residual"),
-        ("cross_sectional_outliers", "mad", "zscore"),
-    ],
-)
-def test_non_default_strategy_rejected(objective, allowed_strategy, rejected_strategy):
+def test_typed_discover_helpers_do_not_accept_strategy():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session,
         pd.DataFrame({"bucket": ["a", "b", "c"], "value": [1.0, 2.0, 99.0]}),
         semantic_kind="time_series",
     )
-    with pytest.raises(SemanticKindMismatchError):
-        session.discover(
-            frame,
-            objective=objective,  # type: ignore[arg-type]
-            strategy=rejected_strategy,  # type: ignore[arg-type]
-        )
+    with pytest.raises(TypeError):
+        session.discover.point_anomalies(frame, strategy="iqr")  # type: ignore[call-arg]
 
 
 def test_period_shifts_segment_merging():
@@ -306,9 +290,8 @@ def test_period_shifts_segment_merging():
         }
     )
     src = _delta(session, df, semantic_kind="time_series")
-    out = session.discover(
+    out = session.discover.period_shifts(
         src,
-        objective="period_shifts",
         threshold=2.0,
     )
     rows = out.to_pandas()
@@ -329,9 +312,8 @@ def test_point_anomalies_baseline_window_populated():
         }
     )
     src = _metric(session, df, semantic_kind="time_series")
-    out = session.discover(
+    out = session.discover.point_anomalies(
         src,
-        objective="point_anomalies",
         threshold=2.0,
     )
     rows = out.to_pandas()
@@ -353,9 +335,8 @@ def test_period_shifts_panel_groups_independently():
         }
     )
     src = _delta(session, df, semantic_kind="panel")
-    out = session.discover(
+    out = session.discover.period_shifts(
         src,
-        objective="period_shifts",
         threshold=2.0,
     )
     rows = out.to_pandas()
@@ -373,9 +354,8 @@ def test_driver_axes_rank_one_is_largest_axis():
         }
     )
     src = _delta(session, df, semantic_kind="segmented")
-    out = session.discover(
+    out = session.discover.driver_axes(
         src,
-        objective="driver_axes",
         search_space=[mv.DimensionRef("country"), mv.DimensionRef("platform")],
     )
     rows = out.to_pandas()
@@ -395,9 +375,8 @@ def test_driver_axes_records_reason_codes():
         }
     )
     src = _delta(session, df, semantic_kind="segmented")
-    out = session.discover(
+    out = session.discover.driver_axes(
         src,
-        objective="driver_axes",
         search_space=[mv.DimensionRef("country")],
     )
     rows = out.to_pandas()
@@ -416,9 +395,8 @@ def test_interesting_slices_returns_selector_dict_round_trip():
         }
     )
     src = _delta(session, df, semantic_kind="segmented")
-    out = session.discover(
+    out = session.discover.interesting_slices(
         src,
-        objective="interesting_slices",
         search_space=[mv.DimensionRef("country"), mv.DimensionRef("platform")],
         threshold=2.0,
     )
@@ -441,9 +419,8 @@ def test_interesting_slices_metric_input_uses_zscore():
         ),
         semantic_kind="segmented",
     )
-    out = session.discover(
+    out = session.discover.interesting_slices(
         metric,
-        objective="interesting_slices",
         search_space=[mv.DimensionRef("country")],
         threshold=1.0,
     )
@@ -461,9 +438,8 @@ def test_interesting_windows_metric_input_finds_segment():
         }
     )
     metric = _metric(session, df, semantic_kind="time_series")
-    out = session.discover(
+    out = session.discover.interesting_windows(
         metric,
-        objective="interesting_windows",
         threshold=2.0,
     )
     rows = out.to_pandas()
@@ -482,7 +458,7 @@ def test_interesting_windows_delta_input_passes_dispatch():
         }
     )
     delta = _delta(session, df, semantic_kind="time_series")
-    out = session.discover(delta, objective="interesting_windows", threshold=2.0)
+    out = session.discover.interesting_windows(delta, threshold=2.0)
     assert out.meta.shape == "window"
 
 
@@ -498,9 +474,8 @@ def test_cross_sectional_outliers_segmented():
         ),
         semantic_kind="segmented",
     )
-    out = session.discover(
+    out = session.discover.cross_sectional_outliers(
         metric,
-        objective="cross_sectional_outliers",
         threshold=3.0,
     )
     rows = out.to_pandas()
@@ -521,9 +496,8 @@ def test_cross_sectional_outliers_records_peer_scope():
         ),
         semantic_kind="segmented",
     )
-    out = session.discover(
+    out = session.discover.cross_sectional_outliers(
         metric,
-        objective="cross_sectional_outliers",
         threshold=3.0,
         peer_scope=[mv.DimensionRef("region")],
     )
@@ -594,8 +568,9 @@ def test_persistence_round_trip(objective, source_kind, builder):
     else:
         pytest.fail(f"unknown builder {builder}")
 
-    out = session.discover(src, objective=objective, **kwargs)
-    loaded = mv.load_frame(out.ref, session=session)
+    helper = getattr(session.discover, objective)
+    out = helper(src, **kwargs)
+    loaded = session.get_frame(out.ref)
     assert loaded.meta.shape == out.meta.shape
     assert loaded.meta.objective == out.meta.objective
     assert loaded.meta.strategy == out.meta.strategy

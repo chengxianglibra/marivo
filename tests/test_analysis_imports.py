@@ -68,6 +68,7 @@ def test_session_class_exposes_execution_surface():
     assert callable(mv.Session.promote_delta_frame)
     assert callable(mv.Session.promote_attribution_frame)
     assert mv.ExplorationResult is not None
+    assert not hasattr(mv.MetricFrame, "from_dataframe")
 
 
 def test_analysis_exports_non_execution_escape_hatch_types():
@@ -99,7 +100,6 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "BaseFrameMeta",
         "FrameSummary",
         "FramePreview",
-        "FrameRecord",
         "FrameSummaryEntry",
         "Lineage",
         "LineageStep",
@@ -146,6 +146,15 @@ def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
         "PromotionFailedError",
         # The old persisted-frame listing name conflicts with constructor refs.
         "FrameRef",
+        "FrameRecord",
+        # Removed compatibility or implementation-detail analysis names.
+        "Grain",
+        "GrainInput",
+        "GrainUnit",
+        "LagPolicy",
+        "TimeGrain",
+        "ensure_grain_supported",
+        "load_frame",
     }
 
     for name in subdomain_only:

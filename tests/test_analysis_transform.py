@@ -23,10 +23,12 @@ from marivo.analysis import (
 from marivo.analysis.frames.attribution import AttributionFrameMeta
 from marivo.analysis.frames.delta import DeltaFrameMeta
 from marivo.analysis.session.persistence import read_frame_from_disk, read_job_record
+from tests.shared_fixtures import make_metric_frame
 
 
 def _active_transform(frame: object, **kwargs):
-    return session_attach.active().transform(frame, **kwargs)
+    op = kwargs.pop("op")
+    return getattr(session_attach.active().transform, op)(frame, **kwargs)
 
 
 def _positive_delta_predicate(row):
@@ -256,7 +258,7 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
 
 def test_transform_api_exposes_typed_method_signatures():
     session = session_attach.get_or_create(name="demo")
-    assert callable(session.transform)
+    assert not callable(session.transform)
 
     topk_signature = inspect.signature(session.transform.topk)
     assert "op" not in topk_signature.parameters
@@ -286,7 +288,7 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
     ranked = session.transform.rank(series, by="revenue", method="dense", rank_column="r")
     assert ranked.to_pandas()["r"].tolist() == [2, 1]
 
-    segmented = MetricFrame.from_dataframe(
+    segmented = make_metric_frame(
         pd.DataFrame({"country": ["US", "CA"], "revenue": [30.0, 40.0]}),
         metric_id="sales.revenue",
         axes={"country": {"role": "dimension", "column": "country"}},
@@ -298,7 +300,7 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
     share = session.transform.normalize(segmented, mode="share")
     assert share.to_pandas()["revenue"].round(6).tolist() == [0.428571, 0.571429]
 
-    panel = MetricFrame.from_dataframe(
+    panel = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-01"]),
@@ -418,12 +420,10 @@ def _assert_persisted_metric_frame(frame: MetricFrame) -> None:
     assert job_record["output_frame_ref"] == frame.ref
 
 
-def test_transform_unknown_op_raises_op_unsupported(tmp_path):
-    from marivo.analysis.errors import TransformOpUnsupportedError
-
+def test_transform_unknown_op_is_not_a_typed_helper(tmp_path):
     frame = _make_time_series(tmp_path)
     _assert_persisted_metric_frame(frame)
-    with pytest.raises(TransformOpUnsupportedError) as excinfo:
+    with pytest.raises(AttributeError) as excinfo:
         _active_transform(frame, op="explode")
     assert "explode" in str(excinfo.value)
 
@@ -483,7 +483,7 @@ def test_transform_window_clips_time_series(tmp_path):
 
 def test_transform_window_scans_role_based_time_axis_and_excludes_end():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame(
             {
                 "order_day": pd.to_datetime(["2026-07-01", "2026-07-02", "2026-07-03"]),
@@ -571,7 +571,7 @@ def test_transform_window_rejects_relative_window_with_as_of(monkeypatch):
     monkeypatch.setenv("TZ", "America/Los_Angeles")
     session_attach._reset_process_state()
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02"]),
@@ -620,7 +620,7 @@ def test_transform_window_absolute_rejects_tz_field(tmp_path):
 
 def test_transform_window_absolute_timezone_clips_tz_aware_axis():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.to_datetime(
@@ -760,7 +760,7 @@ def test_transform_normalize_index_on_time_series(tmp_path):
 
 def test_transform_normalize_prefers_declared_metric_measure_column():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02"]),
@@ -793,7 +793,7 @@ def test_transform_normalize_prefers_declared_metric_measure_column():
 
 def test_transform_normalize_prefers_metric_measure_name_when_column_absent():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02"]),
@@ -846,7 +846,7 @@ def test_transform_normalize_pct_change_on_time_series(tmp_path):
 
 def test_transform_normalize_pct_change_on_unsorted_panel_uses_time_order_per_dimension():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.to_datetime(
@@ -909,7 +909,7 @@ def test_transform_normalize_pct_change_rejects_zero_denominator():
     from marivo.analysis.errors import TransformArgError
 
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02", "2026-07-03"]),
@@ -977,18 +977,32 @@ def test_transform_normalize_index_rejected_on_delta():
 
 
 def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
-    frame = _make_time_series(tmp_path)
+    session = session_attach.get_or_create(name="demo")
+    frame = make_metric_frame(
+        pd.DataFrame(
+            {
+                "event_date": pd.to_datetime(["2026-07-01", "2026-07-02"]),
+                "revenue": [10.0, 20.0],
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={"event_date": {"role": "dimension", "column": "event_date"}},
+        measure={"column": "revenue"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        session=session,
+    )
     sliced = _active_transform(
         frame,
         op="slice",
-        where={"bucket_start": np.datetime64("2026-07-01")},
+        where={DimensionRef("event_date"): np.datetime64("2026-07-01")},
     )
 
     assert sliced.meta.row_count == 1
     assert sliced.meta.produced_by_job is not None
     job_record = read_job_record(session_attach.active()._layout, sliced.meta.produced_by_job)
     json.dumps(job_record["params"])
-    assert job_record["params"]["where"]["bucket_start"] == "2026-07-01"
+    assert job_record["params"]["where"]["event_date"] == "2026-07-01"
 
 
 def test_transform_dispatcher_persists_handler_result(tmp_path, monkeypatch):
@@ -1007,7 +1021,7 @@ def test_transform_dispatcher_persists_handler_result(tmp_path, monkeypatch):
 
     monkeypatch.setitem(transform_mod._OP_DISPATCH, "filter", handler)
 
-    out = _active_transform(parent, op="filter")
+    out = _active_transform(parent, op="filter", predicate=_positive_delta_predicate)
 
     assert isinstance(out, MetricFrame)
     assert out.ref != parent.ref
@@ -1041,10 +1055,8 @@ def test_transform_filter_preserves_metric_frame(tmp_path):
 
 
 def test_transform_filter_requires_predicate(tmp_path):
-    from marivo.analysis.errors import TransformArgError
-
     frame = _make_time_series(tmp_path)
-    with pytest.raises(TransformArgError) as excinfo:
+    with pytest.raises(TypeError) as excinfo:
         _active_transform(frame, op="filter")
     assert "predicate" in str(excinfo.value)
 
@@ -1064,10 +1076,8 @@ def test_transform_filter_rejects_misaligned_mask_index(tmp_path):
 
 
 def test_transform_filter_rejects_unsupported_kwargs(tmp_path):
-    from marivo.analysis.errors import TransformArgError
-
     frame = _make_time_series(tmp_path)
-    with pytest.raises(TransformArgError) as excinfo:
+    with pytest.raises(TypeError) as excinfo:
         _active_transform(
             frame,
             op="filter",
@@ -1075,7 +1085,7 @@ def test_transform_filter_rejects_unsupported_kwargs(tmp_path):
             predicate=lambda d: d["revenue"] > 0,
         )
     message = str(excinfo.value)
-    assert "where" in message or "unsupported kwargs" in message
+    assert "where" in message
 
 
 @pytest.mark.parametrize(
@@ -1086,10 +1096,8 @@ def test_transform_filter_rejects_unsupported_kwargs(tmp_path):
     ],
 )
 def test_transform_filter_rejects_non_default_rank_kwargs(tmp_path, kwargs, name):
-    from marivo.analysis.errors import TransformArgError
-
     frame = _make_time_series(tmp_path)
-    with pytest.raises(TransformArgError) as excinfo:
+    with pytest.raises(TypeError) as excinfo:
         _active_transform(frame, op="filter", predicate=lambda d: d["revenue"] > 0, **kwargs)
     assert name in str(excinfo.value)
 
@@ -1124,10 +1132,8 @@ def test_transform_rank_custom_column_name(tmp_path):
 
 
 def test_transform_rank_requires_by(tmp_path):
-    from marivo.analysis.errors import TransformArgError
-
     frame = _make_time_series(tmp_path)
-    with pytest.raises(TransformArgError):
+    with pytest.raises(TypeError):
         _active_transform(frame, op="rank")
 
 
@@ -1135,7 +1141,7 @@ def test_transform_rank_rejects_null_by_values():
     from marivo.analysis.errors import TransformArgError
 
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame({"revenue": [10.0, np.nan]}),
         metric_id="sales.revenue",
         axes={},
@@ -1158,7 +1164,7 @@ def test_transform_rank_rejects_null_by_values():
 
 def test_transform_rank_dense_method_uses_dense_tie_ranks():
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame({"revenue": [20.0, 20.0, 10.0]}),
         metric_id="sales.revenue",
         axes={},
@@ -1205,14 +1211,12 @@ def test_transform_topk_rejects_unknown_column(tmp_path):
         _active_transform(frame, op="topk", by="not_a_column", limit=1)
 
 
-def test_transform_rollup_panel_drops_time_axis_to_segmented(tmp_path):
+def test_transform_rollup_rejects_time_axis_dimension_ref(tmp_path):
+    from marivo.analysis.errors import TransformDimensionNotFoundError
+
     frame = _make_panel(tmp_path)
-    rolled = _active_transform(frame, op="rollup", drop_axes=["time"])
-    assert rolled.meta.semantic_kind == "segmented"
-    assert "time" not in rolled.meta.axes
-    df = rolled.to_pandas()
-    assert "bucket_start" not in df.columns
-    assert {"country", "revenue"} <= set(df.columns)
+    with pytest.raises(TransformDimensionNotFoundError):
+        _active_transform(frame, op="rollup", drop_axes=[DimensionRef("time")])
 
 
 def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
@@ -1273,12 +1277,12 @@ def test_transform_rollup_delta_preserves_all_missing_baseline(tmp_path):
     assert df["pct_change"].isna().tolist() == [True]
 
 
-def test_transform_rollup_rejects_dropping_every_axis(tmp_path):
-    from marivo.analysis.errors import TransformShapeUnsupportedError
+def test_transform_rollup_rejects_dropping_time_axis(tmp_path):
+    from marivo.analysis.errors import TransformDimensionNotFoundError
 
     frame = _make_time_series(tmp_path)
-    with pytest.raises(TransformShapeUnsupportedError):
-        _active_transform(frame, op="rollup", drop_axes=["time"])
+    with pytest.raises(TransformDimensionNotFoundError):
+        _active_transform(frame, op="rollup", drop_axes=[DimensionRef("time")])
 
 
 def test_transform_rollup_rejects_unknown_axis(tmp_path):
@@ -1313,13 +1317,12 @@ def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
     assert sliced.meta.where["country"] == "US"
 
 
-def test_transform_slice_string_dimension_key_demotes_on_single_value(tmp_path):
+def test_transform_slice_requires_dimension_ref_keys(tmp_path):
+    from marivo.analysis.errors import TransformArgError
+
     frame = _make_segmented(tmp_path)
-    sliced = _active_transform(frame, op="slice", where={"country": "US"})
-    assert sliced.meta.semantic_kind == "scalar"
-    assert "country" not in sliced.meta.axes
-    assert sliced.meta.where["country"] == "US"
-    assert "country" not in sliced.to_pandas().columns
+    with pytest.raises(TransformArgError):
+        _active_transform(frame, op="slice", where={"country": "US"})
 
 
 def test_transform_slice_delta_dimension_selector_is_recorded_in_alignment(tmp_path):
@@ -1341,11 +1344,25 @@ def test_transform_slice_rejects_unknown_dimension(tmp_path):
 
 
 def test_transform_slice_supports_range_tuple(tmp_path):
-    frame = _make_time_series(tmp_path)
-    values = frame.to_pandas()["bucket_start"]
+    session = session_attach.get_or_create(name="demo")
+    frame = make_metric_frame(
+        pd.DataFrame(
+            {
+                "event_date": pd.to_datetime(["2026-07-01", "2026-07-02"]),
+                "revenue": [10.0, 20.0],
+            }
+        ),
+        metric_id="sales.revenue",
+        axes={"event_date": {"role": "dimension", "column": "event_date"}},
+        measure={"column": "revenue"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        session=session,
+    )
+    values = frame.to_pandas()["event_date"]
     start = values.iloc[0]
     end = values.iloc[-1]
-    sliced = _active_transform(frame, op="slice", where={"bucket_start": (start, end)})
+    sliced = _active_transform(frame, op="slice", where={DimensionRef("event_date"): (start, end)})
     expected = int(values.between(start, end, inclusive="both").sum())
     assert sliced.meta.row_count == expected
 
@@ -1355,16 +1372,16 @@ def test_transform_slice_rejects_string_key_that_is_not_axis_column(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError) as excinfo:
-        _active_transform(frame, op="slice", where={"revenue": (15, 35)})
+        _active_transform(frame, op="slice", where={DimensionRef("revenue"): (15, 35)})
     assert "revenue" in str(excinfo.value)
 
 
 def test_transform_slice_rejects_incomparable_range_bounds(tmp_path):
     from marivo.analysis.errors import TransformArgError
 
-    frame = _make_time_series(tmp_path)
+    frame = _make_segmented(tmp_path)
     with pytest.raises(TransformArgError) as excinfo:
-        _active_transform(frame, op="slice", where={"bucket_start": ("x", "z")})
+        _active_transform(frame, op="slice", where={DimensionRef("country"): (1, "z")})
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
 
@@ -1372,13 +1389,12 @@ def test_transform_slice_rejects_incomparable_range_bounds(tmp_path):
 def test_transform_slice_rejects_non_range_tuple(tmp_path):
     from marivo.analysis.errors import TransformArgError
 
-    frame = _make_time_series(tmp_path)
-    values = frame.to_pandas()["bucket_start"]
+    frame = _make_segmented(tmp_path)
     with pytest.raises(TransformArgError) as excinfo:
         _active_transform(
             frame,
             op="slice",
-            where={"bucket_start": (values.iloc[0], values.iloc[-1], values.iloc[-1])},
+            where={DimensionRef("country"): ("US", "CA", "MX")},
         )
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
@@ -1397,7 +1413,7 @@ def test_transform_slice_rejects_range_tuple_on_dimension(tmp_path):
 def test_transform_metric_frame_drops_component_contract(tmp_path):
     session_attach._reset_process_state()
     session = session_attach.get_or_create(name="demo")
-    frame = MetricFrame.from_dataframe(
+    frame = make_metric_frame(
         pd.DataFrame({"region": ["north", "south"], "failure_rate": [0.25, 0.50]}),
         metric_id="sales.failure_rate",
         axes={"region": {"role": "dimension", "column": "region"}},

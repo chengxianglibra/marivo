@@ -36,7 +36,6 @@ from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import (
     AlignmentKind,
     AlignmentPolicy,
-    LagPolicy,
     PromotionPolicy,
     PromotionSemanticAnchors,
     SamplingPolicy,
@@ -45,15 +44,10 @@ from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricR
 from marivo.analysis.session._introspection import (
     install_intent_docstrings as _install_intent_docstrings,
 )
-from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.attach import SessionSummary
-from marivo.analysis.session.core import FrameRecord, FrameSummaryEntry, JobSummary, Session
-from marivo.analysis.windows import GrainUnit, ensure_grain_supported
+from marivo.analysis.session.core import FrameSummaryEntry, JobSummary, Session
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
-    Grain,
-    GrainInput,
-    TimeGrain,
     TimeScope,
     TimeScopeInput,
 )
@@ -102,15 +96,10 @@ __all__ = [
     "FollowupAction",
     "ForecastFrame",
     "FramePreview",
-    "FrameRecord",
     "FrameSummary",
     "FrameSummaryEntry",
-    "Grain",
-    "GrainInput",
-    "GrainUnit",
     "HypothesisTestResult",
     "JobSummary",
-    "LagPolicy",
     "Lineage",
     "LineageStep",
     "MetricFrame",
@@ -125,17 +114,14 @@ __all__ = [
     "SlicePredicateOp",
     "SliceScalar",
     "SliceValue",
-    "TimeGrain",
     "TimeScope",
     "TimeScopeInput",
     "datasources",
-    "ensure_grain_supported",
     "errors",
     "evidence",
     "frames",
     "help",
     "help_text",
-    "load_frame",
     "publish",
     "session",
 ]

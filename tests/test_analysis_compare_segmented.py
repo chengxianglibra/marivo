@@ -12,6 +12,7 @@ from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +24,7 @@ def _session_project(tmp_path, monkeypatch):
 
 
 def _segmented_metric(session, rows, *, dimension: str = "region") -> MetricFrame:
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         pd.DataFrame(rows),
         metric_id="sales.revenue",
         axes={dimension: {"role": "dimension", "column": dimension}},

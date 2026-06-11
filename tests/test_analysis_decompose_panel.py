@@ -7,11 +7,11 @@ import pytest
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import AxisNotInPanelDimensionsError
 from marivo.analysis.frames.attribution import AttributionFrame
-from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.decompose import decompose
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import DimensionRef
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +34,7 @@ def _panel_delta(tmp_path):
         },
         "region": {"role": "dimension", "column": "region"},
     }
-    current = MetricFrame.from_dataframe(
+    current = make_metric_frame(
         pd.DataFrame(
             [
                 {"bucket_start": "2026-07-01", "region": "NORTH", "revenue": 10.0},
@@ -50,7 +50,7 @@ def _panel_delta(tmp_path):
         semantic_model="sales",
         session=session,
     )
-    baseline = MetricFrame.from_dataframe(
+    baseline = make_metric_frame(
         pd.DataFrame(
             [
                 {"bucket_start": "2026-07-01", "region": "NORTH", "revenue": 8.0},

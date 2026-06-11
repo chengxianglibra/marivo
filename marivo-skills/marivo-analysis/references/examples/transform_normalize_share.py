@@ -15,19 +15,18 @@ ensure_loaded()
 import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
-segmented_frame = mv.MetricFrame.from_dataframe(
+segmented_frame = session.promote_metric_frame(
     pd.DataFrame(
         {
             "country": ["US", "CA", "MX"],
             "revenue": [120.0, 80.0, 40.0],
         }
     ),
-    metric_id=METRIC_ID,
-    axes={"country": {"role": "dimension", "column": "country"}},
-    measure={"column": "revenue"},
+    metric=mv.MetricRef(METRIC_ID),
+    axes={"country": mv.DimensionRef("country")},
+    measure_column="revenue",
     semantic_kind="segmented",
     semantic_model="sales",
-    session=session,
 )
 share = session.transform.normalize(segmented_frame, mode="share")
 print(share.summary())

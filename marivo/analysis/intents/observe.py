@@ -61,12 +61,12 @@ from marivo.analysis.session.persistence import (
     write_job_record,
     write_session_meta,
 )
+from marivo.analysis.windows.grain import ensure_grain_supported
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
     GrainInput,
     TimeScopeInput,
     dump_window,
-    ensure_grain_supported,
     make_absolute_window,
     normalize_timescope_input,
 )

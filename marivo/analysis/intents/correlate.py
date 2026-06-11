@@ -30,7 +30,7 @@ from marivo.analysis.intents._derived import (
     resolve_session,
 )
 from marivo.analysis.lineage import LineageStep
-from marivo.analysis.policies import AlignmentPolicy, LagPolicy
+from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.session.persistence import write_job_record
 
@@ -51,7 +51,6 @@ def correlate(
     measure_a: str | None = None,
     measure_b: str | None = None,
     alignment: AlignmentPolicy | None = None,
-    lag_policy: LagPolicy | None = None,
     method: Literal["pearson"] = "pearson",
     session: Session | None = None,
 ) -> AssociationResult:
@@ -60,8 +59,7 @@ def correlate(
     When to use: measure statistical association between two metrics over aligned time buckets.
 
     v1 only supports Pearson correlation under ``window_bucket`` alignment with
-    zero-lag (``LagPolicy(mode="single", offset=0)``). Both frames must belong to
-    the active session.
+    zero-lag behavior. Both frames must belong to the active session.
 
     Args:
         a: First MetricFrame.
@@ -69,12 +67,11 @@ def correlate(
         measure_a: Numeric column on ``a``. Defaults to the frame's measure column.
         measure_b: Numeric column on ``b``. Defaults to the frame's measure column.
         alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``.
-        lag_policy: Defaults to ``LagPolicy(mode="single", offset=0)``.
         method: Only ``"pearson"`` in v1.
         session: Defaults to the currently-attached session.
 
     Raises:
-        SemanticKindMismatchError: Inputs are not MetricFrames, or alignment / lag policy
+        SemanticKindMismatchError: Inputs are not MetricFrames, or alignment
             kinds are unsupported.
         AlignmentFailedError: Frames cannot be aligned (e.g. no overlapping buckets).
         CrossSessionFrameError: A frame belongs to a different session.
@@ -83,7 +80,6 @@ def correlate(
         >>> result = session.correlate(
         ...     a, b,
         ...     alignment=mv.AlignmentPolicy(kind="window_bucket"),
-        ...     lag_policy=mv.LagPolicy(mode="single", offset=0),
         ... )
         >>> result.summary()
     """
@@ -95,22 +91,12 @@ def correlate(
     ensure_frame_in_session(b, session=session, label="correlate b")
     if alignment is None:
         alignment = AlignmentPolicy(kind="window_bucket")
-    if lag_policy is None:
-        lag_policy = LagPolicy(mode="single", offset=0)
     if not isinstance(alignment, AlignmentPolicy):
         raise SemanticKindMismatchError(
             message="correlate requires alignment=AlignmentPolicy(...)",
             details={
                 "expected_kind": "AlignmentPolicy",
                 "got_kind": type(alignment).__name__,
-            },
-        )
-    if not isinstance(lag_policy, LagPolicy):
-        raise SemanticKindMismatchError(
-            message="correlate requires lag_policy=LagPolicy(...)",
-            details={
-                "expected_kind": "LagPolicy",
-                "got_kind": type(lag_policy).__name__,
             },
         )
     if alignment.kind != "window_bucket":
@@ -152,7 +138,6 @@ def correlate(
         raise AlignmentFailedError(message="pearson correlation produced NaN")
 
     alignment_dump = alignment.model_dump(mode="json")
-    lag_dump = lag_policy.model_dump(mode="json")
     output = pd.DataFrame(
         {
             "metric_id_a": [a.meta.metric_id],
@@ -162,8 +147,8 @@ def correlate(
             "semantic_kind": [a.meta.semantic_kind],
             "method": [method],
             "alignment_kind": [alignment.kind],
-            "lag_mode": [lag_policy.mode],
-            "lag_offset": [lag_policy.offset],
+            "lag_mode": ["single"],
+            "lag_offset": [0],
             "driver_field": [driver_field],
             "value_column_a": [a_value],
             "value_column_b": [b_value],
@@ -180,7 +165,6 @@ def correlate(
         "measure_a": a_value,
         "measure_b": b_value,
         "alignment": alignment_dump,
-        "lag_policy": lag_dump,
         "method": method,
     }
     frame_ref = _gen_ref("frame")
@@ -211,7 +195,7 @@ def correlate(
         semantic_models=[a.meta.semantic_model, b.meta.semantic_model],
         method=method,
         alignment=alignment_dump,
-        lag_policy=lag_dump,
+        lag_policy={"mode": "single", "offset": 0},
         aligned_row_count=len(aligned),
         dropped_row_count=before_drop - len(aligned),
         correlation=correlation,

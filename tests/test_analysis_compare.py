@@ -21,6 +21,7 @@ from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import MetricRef
 from marivo.analysis.session.persistence import read_frame_from_disk
 from tests.conftest import bootstrap_sales_project
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -206,7 +207,7 @@ def test_window_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
     s = session_attach.get_or_create(
         name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
     )
-    cur = MetricFrame.from_dataframe(
+    cur = make_metric_frame(
         pd.DataFrame({"bucket_start": ["2026-07-01", "2026-07-02"], "revenue": [10.0, 20.0]}),
         metric_id="sales.revenue",
         axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
@@ -215,7 +216,7 @@ def test_window_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
         semantic_model="sales",
         session=s,
     )
-    base = MetricFrame.from_dataframe(
+    base = make_metric_frame(
         pd.DataFrame({"bucket_start": ["2026-04-01", "2026-04-02"], "revenue": [5.0, 15.0]}),
         metric_id="sales.revenue",
         axes={"time": {"role": "time", "column": "bucket_start", "grain": "hour"}},
@@ -302,7 +303,7 @@ def test_window_bucket_overlapping_windows_use_ordinal_mode_by_default(tmp_path)
     s = session_attach.get_or_create(
         name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
     )
-    cur = MetricFrame.from_dataframe(
+    cur = make_metric_frame(
         pd.DataFrame({"bucket_start": ["2026-07-01", "2026-07-02"], "revenue": [10.0, 20.0]}),
         metric_id="sales.revenue",
         axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
@@ -312,7 +313,7 @@ def test_window_bucket_overlapping_windows_use_ordinal_mode_by_default(tmp_path)
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
         session=s,
     )
-    base = MetricFrame.from_dataframe(
+    base = make_metric_frame(
         pd.DataFrame({"bucket_start": ["2026-07-02", "2026-07-03"], "revenue": [7.0, 9.0]}),
         metric_id="sales.revenue",
         axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
@@ -337,7 +338,7 @@ def test_window_bucket_calendar_mode_outer_joins_bucket_keys(tmp_path):
     s = session_attach.get_or_create(
         name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
     )
-    cur = MetricFrame.from_dataframe(
+    cur = make_metric_frame(
         pd.DataFrame({"bucket_start": ["2026-07-01", "2026-07-03"], "revenue": [10.0, 30.0]}),
         metric_id="sales.revenue",
         axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
@@ -347,7 +348,7 @@ def test_window_bucket_calendar_mode_outer_joins_bucket_keys(tmp_path):
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
         session=s,
     )
-    base = MetricFrame.from_dataframe(
+    base = make_metric_frame(
         pd.DataFrame({"bucket_start": ["2026-07-01", "2026-07-02"], "revenue": [8.0, 20.0]}),
         metric_id="sales.revenue",
         axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
@@ -379,7 +380,7 @@ def test_window_bucket_february_to_march_daily_uses_outer_ordinal_union(tmp_path
     s = session_attach.get_or_create(
         name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
     )
-    cur = MetricFrame.from_dataframe(
+    cur = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.date_range("2026-02-01", periods=28, freq="D"),
@@ -394,7 +395,7 @@ def test_window_bucket_february_to_march_daily_uses_outer_ordinal_union(tmp_path
         window={"start": "2026-02-01", "end": "2026-03-01", "grain": "day"},
         session=s,
     )
-    base = MetricFrame.from_dataframe(
+    base = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.date_range("2026-03-01", periods=31, freq="D"),
@@ -428,7 +429,7 @@ def test_window_bucket_leap_year_february_returns_rows_by_default(tmp_path):
     s = session_attach.get_or_create(
         name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
     )
-    cur = MetricFrame.from_dataframe(
+    cur = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.date_range("2024-02-01", periods=29, freq="D"),
@@ -443,7 +444,7 @@ def test_window_bucket_leap_year_february_returns_rows_by_default(tmp_path):
         window={"start": "2024-02-01", "end": "2024-03-01", "grain": "day"},
         session=s,
     )
-    base = MetricFrame.from_dataframe(
+    base = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": pd.date_range("2025-02-01", periods=28, freq="D"),
@@ -510,7 +511,7 @@ def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_p
     s = session_attach.get_or_create(
         name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
     )
-    cur = MetricFrame.from_dataframe(
+    cur = make_metric_frame(
         pd.DataFrame({"bucket_start": ["2026-07-01", "2026-07-02"], "revenue": [10.0, 20.0]}),
         metric_id="sales.revenue",
         axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
@@ -520,7 +521,7 @@ def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_p
         window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
         session=s,
     )
-    base = MetricFrame.from_dataframe(
+    base = make_metric_frame(
         pd.DataFrame({"bucket_start": ["2026-04-01"], "revenue": [5.0]}),
         metric_id="sales.revenue",
         axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
@@ -557,7 +558,7 @@ def test_compare_pct_change_status_handles_zero_missing_and_negative_baseline(
 ):
     bootstrap_sales_project(tmp_path)
     s = session_attach.get_or_create(name="demo")
-    cur = MetricFrame.from_dataframe(
+    cur = make_metric_frame(
         pd.DataFrame({"value": [current]}),
         metric_id="sales.revenue",
         axes={},
@@ -566,7 +567,7 @@ def test_compare_pct_change_status_handles_zero_missing_and_negative_baseline(
         semantic_model="sales",
         session=s,
     )
-    base = MetricFrame.from_dataframe(
+    base = make_metric_frame(
         pd.DataFrame({"value": [baseline]}),
         metric_id="sales.revenue",
         axes={},
@@ -593,7 +594,7 @@ def test_compare_pct_change_status_handles_zero_missing_and_negative_baseline(
 def test_compare_scalar_rejects_multirow_inputs(tmp_path):
     bootstrap_sales_project(tmp_path)
     s = session_attach.get_or_create(name="demo")
-    cur = MetricFrame.from_dataframe(
+    cur = make_metric_frame(
         pd.DataFrame({"value": [10.0, 11.0]}),
         metric_id="sales.revenue",
         axes={},
@@ -602,7 +603,7 @@ def test_compare_scalar_rejects_multirow_inputs(tmp_path):
         semantic_model="sales",
         session=s,
     )
-    base = MetricFrame.from_dataframe(
+    base = make_metric_frame(
         pd.DataFrame({"value": [8.0]}),
         metric_id="sales.revenue",
         axes={},
@@ -625,7 +626,7 @@ def test_window_bucket_no_overlap_supports_quarter_grain(tmp_path):
     s = session_attach.get_or_create(
         name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
     )
-    cur = MetricFrame.from_dataframe(
+    cur = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": ["2026-04-01", "2026-07-01"],
@@ -640,7 +641,7 @@ def test_window_bucket_no_overlap_supports_quarter_grain(tmp_path):
         window={"start": "2026-04-01", "end": "2026-10-01", "grain": "quarter"},
         session=s,
     )
-    base = MetricFrame.from_dataframe(
+    base = make_metric_frame(
         pd.DataFrame(
             {
                 "bucket_start": ["2025-04-01", "2025-07-01"],
@@ -730,7 +731,7 @@ def test_compare_stale_archived_session_raises(tmp_path):
 
 def test_compare_component_aware_scalar_missing_component_ref_fails_closed(tmp_path):
     s = session_attach.get_or_create(name="demo")
-    current = MetricFrame.from_dataframe(
+    current = make_metric_frame(
         pd.DataFrame({"failure_rate": [0.25]}),
         metric_id="sales.failure_rate",
         axes={},
@@ -739,7 +740,7 @@ def test_compare_component_aware_scalar_missing_component_ref_fails_closed(tmp_p
         semantic_model="sales",
         session=s,
     )
-    baseline = MetricFrame.from_dataframe(
+    baseline = make_metric_frame(
         pd.DataFrame({"failure_rate": [0.10]}),
         metric_id="sales.failure_rate",
         axes={},

@@ -17,12 +17,12 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame
-from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
 from marivo.analysis.session.persistence import write_frame_to_disk
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def calendar_project(tmp_path, monkeypatch):
 
 
 def _metric(session, rows, semantic_kind="time_series"):
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         pd.DataFrame(rows),
         metric_id="sales.revenue",
         axes={
@@ -73,7 +73,7 @@ def _metric_frame(
     measure,
     semantic_kind="time_series",
 ):
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         pd.DataFrame(rows),
         metric_id="sales.revenue",
         axes=axes,
@@ -97,7 +97,7 @@ def _component_time_series_metric(session, *, ref, rows, component_rows):
             "time_dimension": "order_date",
         }
     }
-    metric = MetricFrame.from_dataframe(
+    metric = make_metric_frame(
         pd.DataFrame(rows),
         metric_id="sales.failure_rate",
         axes=axes,
@@ -718,7 +718,7 @@ def test_compare_calendar_rejects_missing_calendar_ref(calendar_project):
         fallback="drop",
     )
     before_jobs = len(s.jobs())
-    before_frames = len(s.frames())
+    before_frames = len(s.frame_summaries())
 
     with pytest.raises(CalendarPolicyError) as exc_info:
         compare(
@@ -730,7 +730,7 @@ def test_compare_calendar_rejects_missing_calendar_ref(calendar_project):
 
     assert exc_info.value.details["kind"] == "CalendarRefMissing"
     assert len(s.jobs()) == before_jobs
-    assert len(s.frames()) == before_frames
+    assert len(s.frame_summaries()) == before_frames
 
 
 def test_compare_calendar_wraps_policy_validation_error(calendar_project):

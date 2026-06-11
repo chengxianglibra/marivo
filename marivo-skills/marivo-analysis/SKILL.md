@@ -325,8 +325,6 @@ session = mv.session.get_or_create(name="my_analysis")
 summaries = session.frame_summaries()
 # Load a frame by ref — zero datasource queries:
 prev = session.get_frame("<ref>")
-# Or use the module-level function:
-# prev = mv.load_frame("<ref>", session=session)
 ```
 
 ## Walkthrough

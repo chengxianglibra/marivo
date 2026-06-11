@@ -16,33 +16,31 @@ ensure_loaded()
 import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
-current = mv.MetricFrame.from_dataframe(
+current = session.promote_metric_frame(
     pd.DataFrame(
         {
             "country": ["US", "CA", "MX", "BR"],
             "revenue": [90.0, 70.0, 35.0, 10.0],
         }
     ),
-    metric_id=METRIC_ID,
-    axes={"country": {"role": "dimension", "column": "country"}},
-    measure={"column": "revenue"},
+    metric=mv.MetricRef(METRIC_ID),
+    axes={"country": mv.DimensionRef("country")},
+    measure_column="revenue",
     semantic_kind="segmented",
     semantic_model="sales",
-    session=session,
 )
-baseline = mv.MetricFrame.from_dataframe(
+baseline = session.promote_metric_frame(
     pd.DataFrame(
         {
             "country": ["US", "CA", "MX", "BR"],
             "revenue": [120.0, 80.0, 55.0, 15.0],
         }
     ),
-    metric_id=METRIC_ID,
-    axes={"country": {"role": "dimension", "column": "country"}},
-    measure={"column": "revenue"},
+    metric=mv.MetricRef(METRIC_ID),
+    axes={"country": mv.DimensionRef("country")},
+    measure_column="revenue",
     semantic_kind="segmented",
     semantic_model="sales",
-    session=session,
 )
 delta_frame = session.compare(
     current,

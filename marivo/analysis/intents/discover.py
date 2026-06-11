@@ -186,11 +186,7 @@ def _discover_dispatch(
         CrossSessionFrameError: ``source`` belongs to a different session.
 
     Example:
-        >>> candidates = session.discover(
-        ...     series,
-        ...     objective="point_anomalies",
-        ...     threshold=1.0,
-        ... )
+        >>> candidates = session.discover.point_anomalies(series, threshold=1.0)
         >>> candidates.summary()
     """
     session = resolve_session(session)
@@ -346,37 +342,6 @@ def _discover_dispatch(
 
 class DiscoverAPI:
     """Callable namespace for candidate discovery objectives."""
-
-    def __call__(
-        self,
-        source: object,
-        *,
-        objective: CandidateObjective | str,
-        strategy: CandidateStrategy | None = None,
-        value: str | None = None,
-        threshold: float | None = None,
-        sensitivity: DiscoverSensitivity = "balanced",
-        limit: int | None = None,
-        search_space: list[DimensionRef] | None = None,
-        peer_scope: list[DimensionRef] | None = None,
-        session: Session | None = None,
-        _triggered_by: TriggeredByFollowup | None = None,
-    ) -> CandidateSet:
-        """Discover candidate follow-ups. Prefer typed sub-methods (session.discover.point_anomalies, etc.) for precise signatures."""
-
-        return _discover_dispatch(
-            source,
-            objective=objective,
-            strategy=strategy,
-            value=value,
-            threshold=threshold,
-            sensitivity=sensitivity,
-            limit=limit,
-            search_space=search_space,
-            peer_scope=peer_scope,
-            session=session,
-            _triggered_by=_triggered_by,
-        )
 
     def point_anomalies(
         self,
