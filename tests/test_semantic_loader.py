@@ -18,6 +18,11 @@ import textwrap
 
 import pytest
 
+from marivo.semantic._registry_bridge import (
+    get_entity_ir,
+    iter_datasource_irs,
+    iter_domain_irs,
+)
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.reader import SemanticProject
 
@@ -85,10 +90,14 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
     )
 
     assert project.is_ready()
-    datasources = project.list_datasources()
+    datasources = iter_datasource_irs(project)
     assert [ds.semantic_id for ds in datasources] == ["warehouse"]
-    assert project.get_entity("sales.orders").datasource == "warehouse"
-    assert project.get_entity("finance.refunds").datasource == "warehouse"
+    sales_orders = get_entity_ir(project, "sales.orders")
+    finance_refunds = get_entity_ir(project, "finance.refunds")
+    assert sales_orders is not None
+    assert finance_refunds is not None
+    assert sales_orders.datasource == "warehouse"
+    assert finance_refunds.datasource == "warehouse"
 
 
 def test_duplicate_global_datasource_declaration_must_match(semantic_project_factory) -> None:
@@ -146,7 +155,7 @@ def test_missing_domain_py(semantic_project_factory) -> None:
 
 
 def test_datasources_accessible_when_model_load_errors(semantic_project_factory) -> None:
-    """list_datasources / get_datasource work even if model dirs are broken."""
+    """Datasource IRs remain available even if model dirs are broken."""
     project = semantic_project_factory(
         {
             "sales/datasets.py": _MINIMAL_DATASET_PY,
@@ -155,13 +164,13 @@ def test_datasources_accessible_when_model_load_errors(semantic_project_factory)
     assert not project.is_ready()
     assert any(e.kind == ErrorKind.DOMAIN_FILE_MISSING for e in project.errors())
 
-    datasources = project.list_datasources()
+    datasources = iter_datasource_irs(project)
     assert len(datasources) == 1
     assert datasources[0].name == "warehouse"
     assert datasources[0].backend_type == "duckdb"
 
     with pytest.raises(Exception):
-        project.list_domains()
+        get_entity_ir(project, "sales.orders")
 
 
 def test_model_name_mismatch(semantic_project_factory) -> None:
@@ -1021,7 +1030,7 @@ def test_semantic_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) 
     result = project.load()
     # scripts/ should NOT appear as a model dir — only .marivo/semantic/ is scanned
     assert result.status == "ready"
-    assert len(project.list_domains()) == 0
+    assert len(iter_domain_irs(project)) == 0
 
 
 # ---------------------------------------------------------------------------

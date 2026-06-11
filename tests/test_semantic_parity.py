@@ -17,7 +17,7 @@ Tests cover:
 - Derived propagation: one unverified -> UNVERIFIED
 - Derived propagation: mix of SQL parity verified + python_native -> VERIFIED
 - Parity results cached, cleared on reload
-- list_metrics(provenance_status=...) filter works
+- Metric IRs can be filtered by propagated parity status through the internal bridge
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ import textwrap
 import ibis
 import pytest
 
+from marivo.semantic._registry_bridge import iter_metric_irs
 from marivo.semantic.errors import ErrorKind, SemanticParityError
 from marivo.semantic.ir import ParityStatus
 from marivo.semantic.parity import propagated_parity_status
@@ -724,12 +725,14 @@ def test_parity_results_cleared_on_reload(semantic_project_factory, backend_fact
 
 
 # ---------------------------------------------------------------------------
-# list_metrics(provenance_status=...) filter works
+# Metric IR parity-status filtering through internal bridge
 # ---------------------------------------------------------------------------
 
 
-def test_list_metrics_provenance_status_filter(semantic_project_factory, backend_factory) -> None:
-    """list_metrics(provenance_status=...) should filter by propagated status."""
+def test_metric_irs_can_be_filtered_by_propagated_status(
+    semantic_project_factory, backend_factory
+) -> None:
+    """Internal callers can filter metric IRs by propagated status."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -738,20 +741,36 @@ def test_list_metrics_provenance_status_filter(semantic_project_factory, backend
     )
 
     # Before parity check: UNVERIFIED
-    unverified = project.list_metrics(provenance_status=ParityStatus.UNVERIFIED)
+    unverified = [
+        metric
+        for metric in iter_metric_irs(project)
+        if propagated_parity_status(project, metric.semantic_id) == ParityStatus.UNVERIFIED
+    ]
     assert any(m.semantic_id == "sales.total_amount" for m in unverified)
 
-    verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED)
+    verified = [
+        metric
+        for metric in iter_metric_irs(project)
+        if propagated_parity_status(project, metric.semantic_id) == ParityStatus.VERIFIED
+    ]
     assert not any(m.semantic_id == "sales.total_amount" for m in verified)
 
     # Run parity check
     project.parity_check("sales.total_amount", backend_factory=backend_factory)
 
     # After parity check: VERIFIED
-    verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED)
+    verified = [
+        metric
+        for metric in iter_metric_irs(project)
+        if propagated_parity_status(project, metric.semantic_id) == ParityStatus.VERIFIED
+    ]
     assert any(m.semantic_id == "sales.total_amount" for m in verified)
 
-    unverified = project.list_metrics(provenance_status=ParityStatus.UNVERIFIED)
+    unverified = [
+        metric
+        for metric in iter_metric_irs(project)
+        if propagated_parity_status(project, metric.semantic_id) == ParityStatus.UNVERIFIED
+    ]
     assert not any(m.semantic_id == "sales.total_amount" for m in unverified)
 
 

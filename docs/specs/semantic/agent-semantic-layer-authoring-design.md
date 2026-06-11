@@ -66,14 +66,9 @@ author and validate the semantic layer; they are not a second semantic DSL.
 The current Marivo Python-native surface already provides the core semantic
 registry and validation pieces:
 
-- `marivo.semantic.SemanticProject`
-- `ms.find_project()`
-- `project.load()`
-- `project.list_models()` / `list_datasources()` / `list_datasets()` /
-  `list_dimensions()` / `list_time_dimensions()` / `list_metrics()` /
-  `list_relationships()`
-- `project.search(...)`
-- `project.describe(...)`
+- `ms.load() -> SemanticCatalog`
+- `catalog.list(...)` / `catalog.get(...)`
+- `SemanticProject.load()` for authoring, preview, readiness, and materialization
 - `project.dependencies(...)` / `project.dependents(...)`
 - `project.materialize_dataset(...)` / `materialize_field(...)` /
   `materialize_metric(...)`
@@ -99,8 +94,8 @@ has landed in their installed Marivo version.
 
 | Capability | Available today | Target API |
 | --- | --- | --- |
-| Find and load semantic project | `ms.find_project()`, `project.load()` | same |
-| Inspect semantic objects | `project.list_*()`, `search()`, `describe()` | same |
+| Find and load semantic catalog | `ms.load()` | same |
+| Inspect semantic objects | `catalog.list(...)`, `catalog.get(...)` | same |
 | Build backend from datasource | `md.connect(name)` | same |
 | Test datasource | `md.test(name)` | same |
 | Raw table preview | `project.collect_source_preview(..., backend_factory=...)` so readiness can consume the physical source evidence | same |
@@ -130,30 +125,27 @@ datasource.
 
 ### 1. Discover
 
-The agent starts by finding and loading the semantic project:
+The agent starts by loading the semantic catalog:
 
 ```python
 import marivo.semantic as ms
 
-project = ms.find_project()
-if project is None:
-    raise SystemExit("No .marivo/semantic project found")
-result = project.load()
+catalog = ms.load()
 ```
 
 The agent then inspects existing objects before proposing anything new:
 
 ```python
-project.list_models()
-project.list_datasources()
-project.list_datasets()
-project.list_metrics()
-project.search("revenue")
+catalog.list().show()
+catalog.list(kind="datasource").show()
+catalog.list("sales").show()
+catalog.list("sales", kind="metric").show()
+catalog.get("sales.revenue").details()
 ```
 
-`project.list_*()` and `project.search(...)` print deterministic text tables by
-default for script-driven agents while still returning structured objects. When
-code consumes the returned list programmatically, pass `display=False`.
+`catalog.list(...)` returns a `SemanticObjectList` without printing. Call
+`.show()` explicitly for a deterministic text table, or consume `.refs()` /
+`.objects` in code.
 
 Rule: reuse existing semantic refs when their `business_definition`,
 guardrails, dependencies, and provenance match the user intent. Add new objects
@@ -338,9 +330,9 @@ Source APIs:
 
 - `ms.find_project()`
 - `project.load()`
-- `project.list_*()`
-- `project.search(...)`
-- `project.describe(...)`
+- `ms.load()`
+- `catalog.list(...)`
+- `catalog.get(...)`
 - `project.dependencies(...)`
 - `project.dependents(...)`
 
@@ -704,8 +696,8 @@ Guidance:
 Agents must search existing semantic objects before adding new ones:
 
 ```python
-project.search("revenue", kind="metric")
-project.describe("sales.revenue")
+catalog.list("sales", kind="metric").show()
+catalog.get("sales.revenue").details()
 ```
 
 Reuse is required when the existing object matches the requested business

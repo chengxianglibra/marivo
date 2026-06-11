@@ -18,6 +18,7 @@ from marivo.analysis.intents.observe_planner import (
     unique_shortest_relationship_path,
 )
 from marivo.analysis.refs import DimensionRef
+from marivo.semantic._registry_bridge import get_metric_ir
 
 
 def test_observe_planning_error_payload_is_stable():
@@ -67,7 +68,7 @@ def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
             ),
         }
     )
-    metric = project.get_metric("sales.revenue")
+    metric = get_metric_ir(project, "sales.revenue")
     assert metric is not None
     assert resolve_metric_root(metric) == "sales.orders"
 
@@ -92,7 +93,7 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
             ),
         }
     )
-    metric = project.get_metric("sales.revenue")
+    metric = get_metric_ir(project, "sales.revenue")
     assert metric is not None
 
     resolved = resolve_observe_fields(
@@ -128,7 +129,7 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
             ),
         }
     )
-    metric = project.get_metric("sales.revenue")
+    metric = get_metric_ir(project, "sales.revenue")
     assert metric is not None
 
     with pytest.raises(ObservePlanningError) as exc_info:
@@ -170,7 +171,7 @@ def test_field_ref_not_found_adds_ibis_hint_for_builtin_names(semantic_project_f
             ),
         }
     )
-    metric = project.get_metric("sales.revenue")
+    metric = get_metric_ir(project, "sales.revenue")
 
     with pytest.raises(ObservePlanningError) as exc_info:
         resolve_observe_fields(

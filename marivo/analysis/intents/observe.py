@@ -70,6 +70,14 @@ from marivo.analysis.windows.spec import (
     make_absolute_window,
     normalize_timescope_input,
 )
+from marivo.semantic._registry_bridge import (
+    get_entity_ir,
+    get_metric_ir,
+    iter_all_dimension_irs,
+    iter_entity_irs,
+    iter_metric_irs,
+    iter_time_dimension_irs,
+)
 
 # ---------------------------------------------------------------------------
 # v1.1 -> runner adapter types
@@ -164,7 +172,9 @@ def _build_dataset_adapter(
 
     # Build field adapters for this dataset
     field_adapters: dict[str, _DimensionIRAdapter] = {}
-    for field_ir in sp.list_dimensions(entity=dataset_ir.semantic_id):
+    for field_ir in iter_all_dimension_irs(sp, entity=dataset_ir.semantic_id):
+        if field_ir.is_time_dimension:
+            continue
         field_fn = sidecar.get(field_ir.semantic_id) if sidecar else None
         _captured_field_sid = field_ir.semantic_id
 
@@ -181,7 +191,7 @@ def _build_dataset_adapter(
         field_adapters[field_ir.name] = adapter
 
     # Add time fields
-    for tf_ir in sp.list_time_dimensions(entity=dataset_ir.semantic_id):
+    for tf_ir in iter_time_dimension_irs(sp, entity=dataset_ir.semantic_id):
         tf_fn = sidecar.get(tf_ir.semantic_id) if sidecar else None
         _captured_tf_sid = tf_ir.semantic_id
 
@@ -515,7 +525,7 @@ def _execute_base(
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "scalar"
 
     if is_time_series and resolved_window is not None and resolved_dimensions:
-        root_ds_ir = sp.get_entity(plan.root_entity)
+        root_ds_ir = get_entity_ir(sp, plan.root_entity)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
         time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
         if resolved_window.grain is not None:
@@ -589,7 +599,7 @@ def _execute_base(
         }
         semantic_kind = "panel"
     elif is_time_series and resolved_window is not None:
-        root_ds_ir = sp.get_entity(plan.root_entity)
+        root_ds_ir = get_entity_ir(sp, plan.root_entity)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
         time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
         if resolved_window.grain is not None:
@@ -715,7 +725,7 @@ def _execute_derived(
         table = cp.base_plan.table
         if has_time:
             assert resolved_window is not None  # narrowing: has_time implies resolved_window is set
-            root_ds_ir = sp.get_entity(cp.base_plan.root_entity)
+            root_ds_ir = get_entity_ir(sp, cp.base_plan.root_entity)
             root_adapter = _build_dataset_adapter(sp, root_ds_ir)
             time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
             if resolved_window.grain is not None:
@@ -817,7 +827,7 @@ def _execute_derived(
     axes: dict[str, Any] = {}
     if has_time and plan.component_plans and resolved_window is not None:
         first_cp = plan.component_plans[0]
-        root_ds_ir = sp.get_entity(first_cp.base_plan.root_entity)
+        root_ds_ir = get_entity_ir(sp, first_cp.base_plan.root_entity)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
         time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
         axes["time"] = {
@@ -893,9 +903,9 @@ def observe(
     if not sp.is_ready():
         sp.load()
     metric_semantic_id = f"{model_name}.{metric_name}"
-    metric_ir = sp.get_metric(metric_semantic_id)
+    metric_ir = get_metric_ir(sp, metric_semantic_id)
     if metric_ir is None:
-        available_ids = sorted(m.semantic_id for m in sp.list_metrics())
+        available_ids = sorted(m.semantic_id for m in iter_metric_irs(sp))
         raise MetricNotFoundError(
             message=f"metric '{metric_id}' not found",
             hint="Check <project_root>/.marivo/semantic/.",
@@ -943,10 +953,7 @@ def observe(
         # Build dataset adapters for all entities in the project so the planner
         # can resolve component metrics that span different entities.
         all_dataset_irs: dict[str, _EntityIRAdapter] = {}
-        for ds_summary in sp.list_entities():
-            ds_ir = sp.get_entity(ds_summary.semantic_id)
-            if ds_ir is None:
-                continue
+        for ds_ir in iter_entity_irs(sp):
             all_dataset_irs[ds_ir.semantic_id] = _build_dataset_adapter(sp, ds_ir)
         all_dataset_fns = {ds_id: adapter.fn for ds_id, adapter in all_dataset_irs.items()}
 
@@ -1090,7 +1097,7 @@ def observe(
     # --- Base (non-derived) metric path: route through planner ---
     # Build dataset adapters for all metric entities
     for entity_name in metric_datasets:
-        entity_ir = sp.get_entity(entity_name)
+        entity_ir = get_entity_ir(sp, entity_name)
         if entity_ir is None:
             raise MetricNotFoundError(
                 message=f"entity '{entity_name}' not found for metric '{metric_id}'",
@@ -1099,20 +1106,20 @@ def observe(
         dataset_irs[entity_name] = _build_dataset_adapter(sp, entity_ir)
 
     # Add entities required by explicit dimensions/where
-    for dim_ir in [*sp.list_dimensions(), *sp.list_time_dimensions()]:
+    for dim_ir in iter_all_dimension_irs(sp):
         if (
             dimensions
             and any(dim.semantic_id == dim_ir.semantic_id for dim in dimension_refs)
             and dim_ir.entity not in dataset_irs
         ):
-            ds_ir = sp.get_entity(dim_ir.entity)
-            if ds_ir is not None:
-                dataset_irs[dim_ir.entity] = _build_dataset_adapter(sp, ds_ir)
+            extra_entity_ir = get_entity_ir(sp, dim_ir.entity)
+            if extra_entity_ir is not None:
+                dataset_irs[dim_ir.entity] = _build_dataset_adapter(sp, extra_entity_ir)
         for raw_key in where_by_id or {}:
             if raw_key == dim_ir.semantic_id and dim_ir.entity not in dataset_irs:
-                ds_ir = sp.get_entity(dim_ir.entity)
-                if ds_ir is not None:
-                    dataset_irs[dim_ir.entity] = _build_dataset_adapter(sp, ds_ir)
+                extra_entity_ir = get_entity_ir(sp, dim_ir.entity)
+                if extra_entity_ir is not None:
+                    dataset_irs[dim_ir.entity] = _build_dataset_adapter(sp, extra_entity_ir)
 
     dataset_fns = {dataset_id: adapter.fn for dataset_id, adapter in dataset_irs.items()}
 

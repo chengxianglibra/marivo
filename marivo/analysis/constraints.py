@@ -79,7 +79,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("observe", "MetricRef"),
         "Observed metrics must resolve to a registered semantic metric.",
         "Analysis frames are materialized from semantic metric ids; unresolved ids cannot produce SQL.",
-        "Use mv.MetricRef('<model.metric>') and confirm the id with ms.find_project().load().list_metrics().",
+        "Use mv.MetricRef('<model.metric>') and confirm ids with catalog = ms.load(); catalog.list('<model>', kind='metric').refs().",
         example=f"{_EXAMPLE_BASE}/01_observe_single_window.py",
         docs_ref=_PITFALLS,
     ),

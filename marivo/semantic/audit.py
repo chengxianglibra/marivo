@@ -17,11 +17,13 @@ class DatasourceAuditResult:
 
 
 def audit_project(project: SemanticProject) -> DatasourceAuditResult:
-    configured = {summary.name for summary in project.list_datasources()}
+    from marivo.semantic._registry_bridge import iter_datasource_irs, iter_entity_irs
+
+    configured = {datasource.name for datasource in iter_datasource_irs(project)}
     present: list[str] = []
     missing: list[str] = []
     semantic_ids: dict[str, str] = {}
-    for dataset in project.list_entities():
+    for dataset in iter_entity_irs(project):
         semantic_ids[dataset.datasource] = dataset.datasource
         if dataset.datasource in configured:
             present.append(dataset.datasource)

@@ -10,6 +10,7 @@ from typing import Any, cast
 from pytest import CaptureFixture
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.session.core import Session
 from marivo.introspection.surface import render
@@ -419,7 +420,8 @@ def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: C
             ),
         }
     )
-    metric_ids = project.list_metrics().ids()
+    catalog = ms.SemanticCatalog(project)
+    metric_ids = catalog.list("sales", kind="metric").ids()
     if not metric_ids:
         pytest.skip("no metrics in fixture")
     ref = MetricRef(metric_ids[0])

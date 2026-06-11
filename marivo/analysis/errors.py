@@ -500,7 +500,7 @@ class PromotionFailedError(AnalysisError):
                 "fix_snippet": (
                     "import marivo.semantic as ms\n"
                     "catalog = ms.load()\n"
-                    'catalog.list(kind="metric").show()  # pick a defined metric id, then re-promote'
+                    'catalog.list("<model>", kind="metric").show()  # pick a defined metric id, then re-promote'
                 ),
                 "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
             }

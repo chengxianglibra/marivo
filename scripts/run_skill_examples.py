@@ -26,9 +26,9 @@ _TEMPLATE_MARKER = "# marivo-example: template"
 _TEMPLATE_REQUIRED_SNIPPETS = (
     "marivo.semantic",
     "marivo.analysis",
-    "ms.find_project()",
-    "project.load()",
-    "project.list_metrics()",
+    "ms.load()",
+    "catalog.list(",
+    'kind="metric"',
     "mv.session.get_or_create(",
     "default_calendar=",
     "session.observe(",

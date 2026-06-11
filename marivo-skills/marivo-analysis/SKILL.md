@@ -38,7 +38,7 @@ consistently for every install, check, and script run.
 2. For a specific intent pattern, adapt the closest runnable
    `references/examples/NN_*.py`; those examples use a tiny fixture so they
    can run in CI.
-3. Confirm metric ids: `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind="metric").show()`.
+3. Confirm metric ids: `import marivo.semantic as ms; catalog = ms.load(); catalog.list("<model>", kind="metric").show()`.
 4. Use runtime help as the authoritative per-object contract. For the intent,
    frame, policy, or topic you are about to use, inspect
    `mv.help('<name>')`; examples:

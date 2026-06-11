@@ -17,15 +17,9 @@ default_calendar = "cn_holidays"
 timescope = {"start": "2026-05-01", "end": "2026-06-01"}
 grain = "day"
 
-project = ms.find_project()
-if project is None:
-    raise SystemExit("No .marivo/semantic project found. Run this from a Marivo project root.")
-
-result = project.load()
-if result.errors:
-    raise SystemExit(result.errors)
-
-available_metric_ids = [metric.semantic_id for metric in project.list_metrics()]
+catalog = ms.load()
+model_name = metric_id.split(".", 1)[0]
+available_metric_ids = catalog.list(model_name, kind="metric").refs()
 if metric_id not in available_metric_ids:
     raise SystemExit(
         f"Metric {metric_id!r} was not found. Available metrics: {available_metric_ids}"

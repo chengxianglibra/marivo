@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from marivo.datasource.ir import DatasourceIR
 from marivo.semantic.ir import (
     DimensionIR,
+    DomainIR,
     EntityIR,
     MetricIR,
     RelationshipIR,
@@ -37,6 +39,14 @@ def get_entity_ir(project: SemanticProject, name: str) -> EntityIR | None:
 
 def get_metric_ir(project: SemanticProject, name: str) -> MetricIR | None:
     return _reg(project).metrics.get(name)
+
+
+def iter_domain_irs(project: SemanticProject) -> list[DomainIR]:
+    return list(_reg(project).models.values())
+
+
+def iter_datasource_irs(project: SemanticProject) -> list[DatasourceIR]:
+    return list(project._datasource_irs or tuple(_reg(project).datasources.values()))
 
 
 def iter_entity_irs(project: SemanticProject, *, domain: str | None = None) -> list[EntityIR]:
