@@ -5,12 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from marivo.datasource.ir import EntitySourceIR, FileSourceIR, TableSourceIR, source_to_dict
 from marivo.semantic.ir import (
     BoundedProfilePolicyIR,
-    FileSourceIR,
     MetadataOnlyPolicyIR,
     SelectedColumnsPolicyIR,
-    TableSourceIR,
 )
 
 Severity = Literal["blocker", "warning", "info"]
@@ -263,6 +262,56 @@ class ColumnEvidence:
     column: str
     profile: ColumnProfile
     issues: tuple[AssessmentIssue, ...] = ()
+
+
+@dataclass(frozen=True)
+class TableContext:
+    datasource: str
+    table: EntitySourceIR
+    table_comment: str | None
+    columns: tuple[str, ...]
+    column_comments: dict[str, str]
+    metadata_warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "datasource": self.datasource,
+            "table": source_to_dict(self.table),
+            "table_comment": self.table_comment,
+            "columns": list(self.columns),
+            "column_comments": dict(self.column_comments),
+            "metadata_warnings": list(self.metadata_warnings),
+        }
+
+
+@dataclass(frozen=True)
+class ColumnContext:
+    datasource: str
+    table: EntitySourceIR
+    column: str
+    data_type: str
+    nullable: bool | None
+    comment: str | None
+    sample_values: tuple[object, ...]
+    null_count: int | None
+    min_value: object | None
+    max_value: object | None
+    warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "datasource": self.datasource,
+            "table": source_to_dict(self.table),
+            "column": self.column,
+            "data_type": self.data_type,
+            "nullable": self.nullable,
+            "comment": self.comment,
+            "sample_values": list(self.sample_values),
+            "null_count": self.null_count,
+            "min_value": self.min_value,
+            "max_value": self.max_value,
+            "warnings": list(self.warnings),
+        }
 
 
 @dataclass(frozen=True)

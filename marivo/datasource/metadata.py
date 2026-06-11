@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from marivo.datasource import backends as _backends
@@ -880,12 +881,17 @@ def inspect_table(
     table: str,
     database: str | tuple[str, ...] | None = None,
     include_partitions: bool = True,
+    project_root: Path | None = None,
 ) -> TableMetadata:
-    datasource_ir = _store.load_one(datasource)
+    datasource_ir = _store.load_one(datasource, project_root=project_root)
     if datasource_ir is None:
         raise DatasourceMetadataError(
             message=f"datasource {datasource!r} is not configured",
-            details={"datasource": datasource, "table": table, "available": _store.list_names()},
+            details={
+                "datasource": datasource,
+                "table": table,
+                "available": _store.list_names(project_root),
+            },
         )
 
     try:
@@ -1002,6 +1008,7 @@ def inspect_source(
     *,
     source: EntitySourceIR,
     include_partitions: bool = True,
+    project_root: Path | None = None,
 ) -> TableMetadata:
     if isinstance(source, TableSourceIR):
         return inspect_table(
@@ -1009,6 +1016,7 @@ def inspect_source(
             table=str(source.table),
             database=source.database,
             include_partitions=include_partitions,
+            project_root=project_root,
         )
     if not isinstance(source, FileSourceIR):
         raise DatasourceMetadataError(
@@ -1016,11 +1024,11 @@ def inspect_source(
             details={"datasource": datasource, "source_kind": getattr(source, "kind", None)},
         )
 
-    datasource_ir = _store.load_one(datasource)
+    datasource_ir = _store.load_one(datasource, project_root=project_root)
     if datasource_ir is None:
         raise DatasourceMetadataError(
             message=f"datasource {datasource!r} is not configured",
-            details={"datasource": datasource, "available": _store.list_names()},
+            details={"datasource": datasource, "available": _store.list_names(project_root)},
         )
     try:
         backend = _backends.build_backend(datasource_ir)
