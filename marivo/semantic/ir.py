@@ -371,6 +371,7 @@ class MetricIR:
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
     root_entity: str | None = None
     fanout_policy: Literal["block", "aggregate_then_join"] = "block"
+    unit: str | None = None
 
 
 @dataclass(frozen=True)

@@ -648,6 +648,7 @@ def compare(
         alignment=alignment_dump,
         semantic_kind=current.meta.semantic_kind,
         semantic_model=current.meta.semantic_model,
+        unit=current.meta.unit,
         decomposition=current.meta.decomposition if current_component is not None else None,
     )
     output_frame = DeltaFrame(_df=df, meta=meta)

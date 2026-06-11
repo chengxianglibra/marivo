@@ -1562,3 +1562,86 @@ def test_field_model_mismatch_with_dataset_raises() -> None:
         assert exc_info.value.kind == "invalid_ref"
     finally:
         _exit_ctx()
+
+
+# metric unit field
+
+
+def test_metric_unit_lands_on_ir() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.metric(entities=["sales.orders"], decomposition=ms.sum(), unit="CNY")
+        def revenue(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ir, _ = ctx.pending_objects[-1]
+        assert ir.unit == "CNY"
+    finally:
+        _exit_ctx()
+
+
+def test_metric_unit_defaults_to_none() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.metric(entities=["sales.orders"], decomposition=ms.sum())
+        def revenue(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ir, _ = ctx.pending_objects[-1]
+        assert ir.unit is None
+    finally:
+        _exit_ctx()
+
+
+def test_derived_metric_unit_lands_on_ir() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        ms.derived_metric(
+            name="aov",
+            decomposition=ms.ratio(
+                numerator="sales.revenue",
+                denominator="sales.order_count",
+            ),
+            unit="1",
+        )
+        ir, _ = ctx.pending_objects[-1]
+        assert ir.unit == "1"
+    finally:
+        _exit_ctx()
+
+
+@pytest.mark.parametrize("bad", ("", "C N Y", "CNY\t", "µs"))
+def test_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.metric(entities=["sales.orders"], decomposition=ms.sum(), unit=bad)
+            def revenue(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == "invalid_ref"
+    finally:
+        _exit_ctx()
+
+
+@pytest.mark.parametrize("bad", ("", "C N Y"))
+def test_derived_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.derived_metric(
+                name="margin",
+                decomposition=ms.ratio(
+                    numerator="sales.revenue",
+                    denominator="sales.cost",
+                ),
+                unit=bad,
+            )
+
+        assert exc_info.value.kind == "invalid_ref"
+        assert ctx.pending_objects == []
+    finally:
+        _exit_ctx()

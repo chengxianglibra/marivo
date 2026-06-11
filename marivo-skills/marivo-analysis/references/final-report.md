@@ -90,6 +90,12 @@ Value formats: the `percent` format expects values already expressed in
 percentage points (store `89.8` for `89.8%`, not `0.898`). Use `number` or
 `compact` for raw counts and `currency` for monetary values.
 
+When choosing `format` and value suffixes for report metrics, consult the
+semantic metric's `unit` (via `mv.help(ref)` or catalog details): `%` means
+values are percentage points (use percent format); a bare ISO 4217 code is a
+currency suffix; `1` means dimensionless fractions. Never rescale values to
+match a unit.
+
 Charts must be single-series: a chart block's dataset needs one value per x
 position, or it must declare a `series` channel
 (`fields={"x": ..., "y": ..., "series": ...}`) so a bar chart can group bars by

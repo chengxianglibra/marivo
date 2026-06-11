@@ -762,3 +762,58 @@ def test_compare_component_aware_scalar_missing_component_ref_fails_closed(tmp_p
 
     with pytest.raises(ComponentFrameUnavailableError):
         compare(current, baseline, session=s)
+
+
+def _bootstrap_unit_sales_project(tmp_path) -> None:
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', "
+        "path=':memory:')\n"
+        "md.datasource(warehouse)\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\n"
+        "\n"
+        "warehouse = md.ref('warehouse')\n"
+        "\n"
+        "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+        "\n"
+        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
+        "def order_date(orders):\n"
+        "    return orders.created_at.cast('date')\n"
+        "\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), "
+        "name='revenue', verification_mode='python_native', unit='CNY')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+
+
+def test_compare_propagates_metric_unit_to_delta_meta(tmp_path):
+    _bootstrap_unit_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+    q3 = observe(
+        MetricRef("sales.revenue"),
+        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        session=s,
+    )
+    assert q3.meta.unit == "CNY"
+    q2 = observe(
+        MetricRef("sales.revenue"),
+        timescope={"start": "2026-04-01", "end": "2026-04-30"},
+        session=s,
+    )
+    d = compare(q3, q2, session=s)
+    assert d.meta.unit == "CNY"
+    assert "unit=CNY" in d._repr_identity()

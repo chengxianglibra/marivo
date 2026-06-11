@@ -19,6 +19,7 @@ class DeltaFrameMeta(BaseFrameMeta):
 
     kind: Literal["delta_frame"] = "delta_frame"
     metric_id: str
+    unit: str | None = None
     source_current_ref: str
     source_baseline_ref: str
     alignment: dict[str, Any]
@@ -36,9 +37,10 @@ class DeltaFrame(BaseFrame):
     _NEXT_INTENTS = ("decompose", "discover", "transform")
 
     def _repr_identity(self) -> str:
+        unit_part = f" unit={self.meta.unit}" if self.meta.unit else ""
         return (
-            f"DeltaFrame ref={self.meta.ref} metric={self.meta.metric_id} "
-            f"rows={self.meta.row_count}"
+            f"DeltaFrame ref={self.meta.ref} metric={self.meta.metric_id}"
+            f"{unit_part} rows={self.meta.row_count}"
         )
 
     @property

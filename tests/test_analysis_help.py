@@ -462,3 +462,35 @@ def test_help_top_level_all_entries_have_summaries() -> None:
     entries = cast("list[dict[str, Any]]", result["entries"])
     empty = [e["name"] for e in entries if not e["summary"]]
     assert not empty, f"entries with empty summary: {empty}"
+
+
+# --- metric unit in help ---
+
+
+def test_help_semantic_metric_ref_prints_unit(capsys, semantic_project_factory):
+    from marivo.semantic.ir import MetricRef
+
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\n"
+                "warehouse = md.ref('warehouse')\n"
+                "orders = ms.entity(name='orders', datasource=warehouse, "
+                "source=ms.table('orders'))\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', "
+                "verification_mode='python_native', unit='CNY')\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum()\n"
+            ),
+            "datasource/warehouse.py": (
+                "import marivo.datasource as md\n"
+                "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+                "md.datasource(warehouse)\n"
+            ),
+        }
+    )
+    mv.help(MetricRef("sales.revenue"), project=project)
+    out = capsys.readouterr().out
+    assert "unit: CNY" in out
