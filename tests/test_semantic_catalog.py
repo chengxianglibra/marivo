@@ -274,6 +274,7 @@ def test_metric_details_fields():
         decomposition="sum",
         additivity="additive",
         fanout_policy="block",
+        unit=None,
         verification_mode="python_native",
         parity_status=ParityStatus.UNVERIFIED,
         source_sql=None,
@@ -332,6 +333,7 @@ def _make_metric_obj() -> SemanticObject:
         decomposition="sum",
         additivity="additive",
         fanout_policy="block",
+        unit=None,
         verification_mode="python_native",
         parity_status=ParityStatus.UNVERIFIED,
         source_sql=None,
@@ -914,3 +916,47 @@ def test_catalog_readiness_no_stdout(semantic_project_factory, capsys):
     catalog = _make_catalog(semantic_project_factory)
     catalog.readiness()
     assert capsys.readouterr().out == ""
+
+
+# --- metric unit passthrough ---
+
+
+_UNIT_DATASETS_PY = (
+    "import marivo.semantic as ms\n"
+    "import marivo.datasource as md\n"
+    "\n"
+    "warehouse = md.ref('warehouse')\n"
+    "\n"
+    "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+    "\n"
+    "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', "
+    "verification_mode='python_native', unit='CNY')\n"
+    "def revenue(orders):\n"
+    "    return orders.amount.sum()\n"
+)
+
+_WAREHOUSE_PY = (
+    "import marivo.datasource as md\n"
+    "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    "md.datasource(warehouse)\n"
+)
+
+
+def test_catalog_metric_details_unit_passthrough(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _UNIT_DATASETS_PY,
+            "datasource/warehouse.py": _WAREHOUSE_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+    d = catalog.get("sales.revenue").details()
+    assert isinstance(d, MetricDetails)
+    assert d.unit == "CNY"
+
+
+def test_catalog_metric_details_unit_defaults_to_none(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+    d = catalog.get("sales.revenue").details()
+    assert d.unit is None

@@ -102,6 +102,9 @@ def _detect_depth(reg: Registry) -> list[tuple[str, tuple[str, ...]]]:
             gaps.append(("missing_synonyms", ref))
         if not ai.examples:
             gaps.append(("missing_examples", ref))
+    for metric in reg.metrics.values():
+        if metric.unit is None:
+            gaps.append(("missing_unit", (metric.semantic_id,)))
     return gaps
 
 
@@ -220,6 +223,7 @@ _SUGGESTED_ACTION = {
     "missing_guardrails": "Add ai_context.guardrails to record usage constraints.",
     "missing_synonyms": "Add ai_context.synonyms for natural-language matching.",
     "missing_examples": "Add ai_context.examples (sample questions) to seed demand.",
+    "missing_unit": "Add unit (UCUM case-sensitive code, e.g. 'CNY', '%', '{order}') so analysis payloads and displays carry it.",
 }
 
 

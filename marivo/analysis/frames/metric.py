@@ -29,6 +29,7 @@ class MetricFrameMeta(BaseFrameMeta):
 
     kind: Literal["metric_frame"] = "metric_frame"
     metric_id: str
+    unit: str | None = None
     axes: dict[str, Any]
     measure: dict[str, Any]
     window: dict[str, Any] | None
@@ -55,9 +56,10 @@ class MetricFrame(BaseFrame):
     )
 
     def _repr_identity(self) -> str:
+        unit_part = f" unit={self.meta.unit}" if self.meta.unit else ""
         return (
             f"MetricFrame ref={self.meta.ref} metric={self.meta.metric_id} "
-            f"shape={self.meta.semantic_kind} rows={self.meta.row_count}"
+            f"shape={self.meta.semantic_kind}{unit_part} rows={self.meta.row_count}"
         )
 
     @property

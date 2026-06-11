@@ -193,6 +193,20 @@ def _build_metric_provenance(
     )
 
 
+def _validate_unit(unit: str | None, semantic_id: str) -> None:
+    if unit is None:
+        return
+    if unit == "" or any(not (0x21 <= ord(ch) <= 0x7E) for ch in unit):
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"metric {semantic_id!r}: unit must be a non-empty token of printable "
+            f"ASCII without whitespace (UCUM case-sensitive code such as 'CNY', "
+            f"'%', '1', 'ms', '{{order}}'); got {unit!r}.",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+        )
+
+
 def _caller_location() -> SourceLocation:
     """Best-effort source location from the caller's frame."""
     frame = inspect.currentframe()
@@ -680,6 +694,7 @@ def metric(
     root_entity: EntityRef | str | None = None,
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None,
     fanout_policy: Literal["block", "aggregate_then_join"] = "block",
+    unit: str | None = None,
     decomposition: DecompositionBuilder,
     source_sql: str | None = None,
     source_dialect: str | None = None,
@@ -711,13 +726,19 @@ def metric(
             by ``ms.domain(...)``. Defaults to the file's default domain.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
+        unit: Optional UCUM case-sensitive unit code describing the values this
+            metric emits, exactly as emitted; no layer converts values based on
+            it. Examples: ``"CNY"`` (bare ISO 4217 code = currency), ``"%"``
+            (values are percentage points, e.g. 89.8), ``"1"`` (dimensionless
+            fraction, e.g. 0.898 — the native output of ratio decompositions),
+            ``"ms"``, ``"By"``, ``"{order}"`` (counted noun), ``"By/s"``.
 
     Returns:
         A decorator that returns a ``MetricRef``.
 
     Raises:
-        SemanticDecoratorError: ``entities`` is empty, name collides, or the body
-            violates the AST whitelist.
+        SemanticDecoratorError: ``entities`` is empty, name collides, the body
+            violates the AST whitelist, or ``unit`` is not a valid printable ASCII token.
 
     Example:
         >>> @ms.metric(name="revenue", entities=[orders], decomposition=ms.sum())
@@ -731,6 +752,7 @@ def metric(
         obj_name = name or fn.__name__
         semantic_id = f"{resolved_domain}.{obj_name}"
         _check_duplicate(ctx, semantic_id, MetricIR)
+        _validate_unit(unit, semantic_id)
 
         ds_refs = _resolve_entity_refs(entities)
         if len(ds_refs) == 0:
@@ -779,6 +801,7 @@ def metric(
             additivity=additivity,
             root_entity=resolved_root_ref,
             fanout_policy=fanout_policy,
+            unit=unit,
         )
 
         _push_ir(ctx, ir, fn)
@@ -801,12 +824,38 @@ def derived_metric(
     domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
+    unit: str | None = None,
 ) -> MetricRef:
-    """Declare a body-free derived metric from canonical decomposition structure."""
+    """Declare a body-free derived metric from canonical decomposition structure.
+
+    Args:
+        name: Metric name.
+        decomposition: ``ms.ratio(...)`` / ``ms.weighted_average(...)`` builder
+            with component references.
+        additivity: Must be omitted or ``"non_additive"``.
+        source_sql: Original SQL definition, persisted to provenance.
+        source_dialect: SQL dialect tag for ``source_sql``.
+        source_document: External doc reference for the metric.
+        source_notes: Free-form provenance notes.
+        verification_mode: ``"sql_parity"`` or ``"python_native"``.
+        domain: Override the active domain namespace with a ``DomainRef``.
+        description: Free-text description.
+        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+        unit: Optional UCUM case-sensitive unit code describing the values this
+            metric emits, exactly as emitted; no layer converts values based on
+            it. Examples: ``"CNY"`` (bare ISO 4217 code = currency), ``"%"``
+            (values are percentage points, e.g. 89.8), ``"1"`` (dimensionless
+            fraction, e.g. 0.898 — the native output of ratio decompositions),
+            ``"ms"``, ``"By"``, ``"{order}"`` (counted noun), ``"By/s"``.
+
+    Returns:
+        A ``MetricRef`` for the derived metric.
+    """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     semantic_id = f"{resolved_domain}.{name}"
     _check_duplicate(ctx, semantic_id, MetricIR)
+    _validate_unit(unit, semantic_id)
 
     if decomposition.kind not in ("ratio", "weighted_average") or not decomposition.components:
         _raise(
@@ -855,6 +904,7 @@ def derived_metric(
         additivity=additivity,
         root_entity=None,
         fanout_policy="block",
+        unit=unit,
     )
     _push_ir(ctx, ir, None)
 

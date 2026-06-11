@@ -285,6 +285,7 @@ class MetricDetails:
     decomposition: Literal["sum", "ratio", "weighted_average"]
     additivity: Literal["additive", "semi_additive", "non_additive"] | None
     fanout_policy: Literal["block", "aggregate_then_join"]
+    unit: str | None
     verification_mode: Literal["sql_parity", "python_native"] | None
     parity_status: ParityStatus
     source_sql: str | None
@@ -780,6 +781,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         decomposition=m_ir.decomposition.kind,
         additivity=m_ir.additivity,
         fanout_policy=m_ir.fanout_policy,
+        unit=m_ir.unit,
         verification_mode=m_ir.provenance.verification_mode,
         parity_status=parity_status,
         source_sql=m_ir.provenance.source_sql,

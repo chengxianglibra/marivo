@@ -198,7 +198,7 @@ API 形态。`ms.help()` 打印帮助文本并返回 None。
 
 `project.list_*()` 和 `project.search(...)` 默认把结果打印成稳定的纯文本表格，同时仍返回结构化对象列表。程序化消费返回值时传 `display=False`，避免污染 stdout，例如 `[m.semantic_id for m in project.list_metrics(display=False)]`。
 
-`describe(..., format="object")` 返回结构化 dataclass / dict，而不是只打印文本。最小字段包括 `semantic_id`、`kind`、`domain`、`description`、`business_definition`、`guardrails`、`parity_status`、`compiled_sql`、`compile_error`、`source_sql`、`dependencies`、`dependents`、`python_symbol` 和 `source_location`。`format="text"` 只作为人类阅读糖；agent 默认消费结构化对象。
+`describe(..., format="object")` 返回结构化 dataclass / dict，而不是只打印文本。最小字段包括 `semantic_id`、`kind`、`domain`、`description`、`business_definition`、`guardrails`、`parity_status`、`compiled_sql`、`compile_error`、`source_sql`、`dependencies`、`dependents`、`python_symbol`、`source_location` 和 `unit`。对于 metric 对象，`unit` 字段来自 `MetricIR.unit`（默认 `None`）。`format="text"` 只作为人类阅读糖；agent 默认消费结构化对象。
 
 free function 形态只允许作为 REPL 糖保留；如果没有显式 active project，必须 fail closed，不能 silent fallback 到 CWD 推断。
 
@@ -453,6 +453,7 @@ non-empty `datasets=[...]` and a single-return Ibis reduction body.
     additivity="additive",
     decomposition=ms.sum(),
     description="Total revenue from paid orders.",
+    unit="CNY",
     verification_mode="sql_parity",
     source_sql="select sum(amount) as value from orders where pay_status = 1",
     source_dialect="duckdb",
@@ -475,6 +476,7 @@ avg_execution_time = ms.derived_metric(
         denominator=query_count,
     ),
     additivity="non_additive",
+    unit="s",
     ai_context={
         "business_definition": "Average execution time per query in seconds.",
         "guardrails": ["Unit is seconds."],
@@ -490,6 +492,29 @@ avg_execution_time = ms.derived_metric(
 - `decomposition=ms.sum()` 没有 components，因此必须是 base metric；省略 `datasets=[...]` 时直接报 `missing_datasets`。
 - `@ms.metric(..., verification_mode="python_native",)` with an empty datasets list: error.
 - 没有 `datasets` 且没有 decomposition components：错误。
+
+### Metric unit (UCUM)
+
+`@ms.metric` / `ms.derived_metric` accept optional `unit: str | None` (default `None`).
+Values use the UCUM case-sensitive vocabulary, with one explicit extension: bare
+ISO 4217 uppercase three-letter codes represent currencies.
+
+| Category | Notation | Examples |
+|---|---|---|
+| Time | UCUM code | `s`, `ms`, `min`, `h`, `d` |
+| Bytes | UCUM code | `By`, `KiBy`, `MiBy` |
+| Percent | UCUM code | `%` (values are percentage points, e.g. `89.8`) |
+| Dimensionless fraction | UCUM code | `1` (values 0–1, native output of ratio decompositions) |
+| Counted noun | UCUM annotation, English singular | `{order}`, `{user}` |
+| Compound / ratio | UCUM `/` combination | `By/s`, `{order}/d`, `CNY/{user}` |
+| Currency (explicit extension) | Bare ISO 4217 uppercase code | `CNY`, `USD` |
+
+Iron rules: unit precisely describes the metric's emitted values; no layer may
+convert values based on unit; `None` is always valid (richness advisory only, not
+a readiness blocker). Validation at authoring time is lightweight: non-empty,
+every character falls within `0x21–0x7E`. Full UCUM grammar validation, derived
+metric unit inference, and cross-metric consistency checks are non-goals. Design
+doc: `docs/superpowers/specs/2026-06-11-metric-unit-design.md`.
 
 ### Base Metric Grain And Additivity
 

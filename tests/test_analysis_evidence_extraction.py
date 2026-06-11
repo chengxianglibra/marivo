@@ -141,3 +141,60 @@ def test_delta_finding_id_is_replay_stable() -> None:
         committed_at=_now(),
     )[0]
     assert f1.finding_id == f2.finding_id
+
+
+def test_delta_scalar_payload_carries_unit() -> None:
+    df = pd.DataFrame(
+        {"current": [120.0], "baseline": [100.0], "delta": [20.0], "pct_change": [0.2]}
+    )
+    subject = Subject(metric="sales.revenue", slice={}, analysis_axis="change")
+    findings = extract_delta_findings(
+        df=df,
+        artifact_id="art_delta_u1",
+        session_id="sess_1",
+        subject=subject,
+        semantic_kind="scalar",
+        committed_at=_now(),
+        unit="CNY",
+    )
+    assert findings[0].payload["unit"] == "CNY"
+
+
+def test_delta_segmented_payload_carries_unit() -> None:
+    df = pd.DataFrame(
+        {
+            "region": ["us"],
+            "current": [120.0],
+            "baseline": [100.0],
+            "delta": [20.0],
+            "pct_change": [0.2],
+        }
+    )
+    subject = Subject(metric="sales.revenue", slice={}, analysis_axis="change")
+    findings = extract_delta_findings(
+        df=df,
+        artifact_id="art_delta_u2",
+        session_id="sess_1",
+        subject=subject,
+        semantic_kind="segmented",
+        committed_at=_now(),
+        dimension_columns=["region"],
+        unit="CNY",
+    )
+    assert findings[0].payload["unit"] == "CNY"
+
+
+def test_delta_payload_unit_defaults_to_none() -> None:
+    df = pd.DataFrame(
+        {"current": [120.0], "baseline": [100.0], "delta": [20.0], "pct_change": [0.2]}
+    )
+    subject = Subject(metric="sales.revenue", slice={}, analysis_axis="change")
+    findings = extract_delta_findings(
+        df=df,
+        artifact_id="art_delta_u3",
+        session_id="sess_1",
+        subject=subject,
+        semantic_kind="scalar",
+        committed_at=_now(),
+    )
+    assert findings[0].payload["unit"] is None

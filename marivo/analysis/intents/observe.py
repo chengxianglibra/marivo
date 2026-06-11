@@ -1082,6 +1082,7 @@ def observe(
             where=stored_where,
             semantic_kind=derived_kind,
             semantic_model=model_name,
+            unit=metric_ir.unit,
         )
         frame = MetricFrame(_df=result.df, meta=meta)
         frame = _commit_observe_metric_frame(
@@ -1250,6 +1251,7 @@ def observe(
         where=stored_where,
         semantic_kind=semantic_kind,
         semantic_model=model_name,
+        unit=metric_ir.unit,
     )
     frame = MetricFrame(_df=result.df, meta=meta)
 

@@ -18,6 +18,7 @@ def _delta_finding(
     presence: str | None = None,
     canonical_item_key: str = "value",
     dimension_keys: dict[str, str] | None = None,
+    unit: str | None = None,
 ) -> Finding:
     payload: dict[str, object] = {
         "delta_kind": delta_kind,
@@ -26,6 +27,7 @@ def _delta_finding(
         "magnitude": 20.0,
         "current": 120.0,
         "baseline": 100.0,
+        "unit": unit,
     }
     if dimension_keys is not None:
         payload["dimension_keys"] = dimension_keys
@@ -137,3 +139,14 @@ def test_seed_change_proposition_id_replay_stable() -> None:
     )
     assert p1 is not None and p2 is not None
     assert p1.proposition_id == p2.proposition_id
+
+
+def test_seed_change_passes_unit_through() -> None:
+    finding = _delta_finding(direction="increase", delta_kind="scalar_delta", unit="CNY")
+    prop = seed_change_proposition(
+        finding=finding,
+        comparison_window=_comparison_window(),
+        comparison_basis="left_vs_right",
+    )
+    assert prop is not None
+    assert prop.payload["unit"] == "CNY"

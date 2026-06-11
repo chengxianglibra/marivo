@@ -245,6 +245,7 @@ def _extract_findings(
             semantic_kind=semantic_kind,
             committed_at=committed_at,
             dimension_columns=dimension_columns,
+            unit=getattr(meta, "unit", None),
         )
     if extractor_family == "attribution_frame":
         scope_delta_ref = getattr(meta, "scope_delta_ref", None)

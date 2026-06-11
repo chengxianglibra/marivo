@@ -844,6 +844,8 @@ def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None
     ]
     if ir.description:
         lines.append(f"description: {ir.description}")
+    if getattr(ir, "unit", None):
+        lines.append(f"unit: {ir.unit}")
     ai = getattr(ir, "ai_context", None)
     if ai is not None:
         if getattr(ai, "business_definition", None):

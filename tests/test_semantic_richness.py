@@ -297,6 +297,31 @@ def test_project_richness_default_demand_is_none(semantic_project_factory):
     assert all(gap.demand_weight == 0.0 for gap in report.gaps)
 
 
+def test_detect_depth_flags_missing_unit(semantic_project_factory):
+    from marivo.semantic.richness import _detect_depth
+
+    files = {
+        "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+        "sales/objects.py": (
+            "import marivo.semantic as ms\n"
+            "orders = ms.entity(name='orders', datasource='warehouse', "
+            "source=ms.table('orders'))\n"
+            "@ms.metric(entities=[orders], decomposition=ms.sum(), name='bare_metric', "
+            "additivity='additive', verification_mode='python_native')\n"
+            "def bare_metric(orders):\n"
+            "    return orders.amount.sum()\n"
+            "@ms.metric(entities=[orders], decomposition=ms.sum(), name='priced_metric', "
+            "additivity='additive', verification_mode='python_native', unit='CNY')\n"
+            "def priced_metric(orders):\n"
+            "    return orders.amount.sum()\n"
+        ),
+    }
+    project = semantic_project_factory(files)
+    gaps = {(kind, refs[0]) for kind, refs in _detect_depth(project._registry)}
+    assert ("missing_unit", "sales.bare_metric") in gaps
+    assert ("missing_unit", "sales.priced_metric") not in gaps
+
+
 def test_richness_types_are_public():
     import marivo.semantic as ms
 

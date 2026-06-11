@@ -75,6 +75,7 @@ def extract_delta_findings(
     committed_at: datetime,
     dimension_columns: list[str] | None = None,
     time_column: str | None = None,
+    unit: str | None = None,
 ) -> list[Finding]:
     """Extract delta findings from a comparison DataFrame.
 
@@ -99,6 +100,7 @@ def extract_delta_findings(
             "pct_change": pct,
             "direction": _classify_direction(delta_val, current, baseline),
             "presence": _presence(current, baseline),
+            "unit": unit,
         }
         return [
             Finding(
@@ -141,6 +143,7 @@ def extract_delta_findings(
                         "pct_change": pct,
                         "direction": _classify_direction(delta_val, current, baseline),
                         "presence": _presence(current, baseline),
+                        "unit": unit,
                         "dimension_keys": {k: str(v) for k, v in keys.items()},
                     },
                     committed_at=committed_at,
