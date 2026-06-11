@@ -5,8 +5,9 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import NoBackendFactoryError
+from marivo.analysis.errors import FrameReadError, NoBackendFactoryError
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from tests.shared_fixtures import make_metric_frame
@@ -208,3 +209,72 @@ def test_metric_frame_meta_component_links_default_to_none():
     )
     assert meta.component_ref is None
     assert meta.decomposition is None
+
+
+def test_metric_frame_meta_coverage_links_default_to_none():
+    meta = MetricFrameMeta(
+        ref="frame_test",
+        session_id="sess_test",
+        project_root="/tmp/proj",
+        produced_by_job=None,
+        created_at=datetime.now(UTC),
+        row_count=0,
+        byte_size=0,
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "revenue"},
+        window=None,
+        where={},
+        semantic_kind="scalar",
+        semantic_model="sales",
+    )
+    assert meta.coverage_ref is None
+    assert meta.coverage_summary is None
+
+
+def test_metric_frame_meta_accepts_coverage_summary():
+    meta = MetricFrameMeta(
+        ref="frame_test",
+        session_id="sess_test",
+        project_root="/tmp/proj",
+        produced_by_job=None,
+        created_at=datetime.now(UTC),
+        row_count=0,
+        byte_size=0,
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "revenue"},
+        window=None,
+        where={},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        coverage_ref="cov_abc123",
+        coverage_summary={"min": 0.5, "avg": 0.75, "partial_buckets": 3},
+    )
+    assert meta.coverage_ref == "cov_abc123"
+    assert meta.coverage_summary == {"min": 0.5, "avg": 0.75, "partial_buckets": 3}
+
+
+def test_metric_frame_coverage_raises_when_no_sidecar():
+    df = pd.DataFrame({"bucket": ["2026-07-01"], "value": [10.0]})
+    meta = MetricFrameMeta(
+        kind="metric_frame",
+        ref="frame_abc",
+        session_id="sess_x",
+        project_root="/p",
+        produced_by_job="job_1",
+        created_at=_now(),
+        row_count=1,
+        byte_size=64,
+        lineage=Lineage(),
+        metric_id="sales.revenue",
+        axes={"time": {"column": "bucket", "grain": "day"}},
+        measure={"name": "value", "unit": "USD", "type": "scalar"},
+        window=None,
+        where={},
+        semantic_kind="time_series",
+        semantic_model="sales",
+    )
+    mf = MetricFrame(_df=df, meta=meta)
+    with pytest.raises(FrameReadError, match="no coverage sidecar"):
+        mf.coverage()

@@ -140,6 +140,11 @@ def make_component_artifact_id(parent_ref: str) -> str:
     return _hash("comp_", parent_ref)
 
 
+def make_coverage_artifact_id(parent_ref: str) -> str:
+    """Deterministic coverage frame ref derived from the parent's ref or artifact_id."""
+    return _hash("cov_", parent_ref)
+
+
 __all__ = [
     "canonical_json",
     "canonical_subject_key",
@@ -147,6 +152,7 @@ __all__ = [
     "make_artifact_id",
     "make_assessment_id",
     "make_component_artifact_id",
+    "make_coverage_artifact_id",
     "make_finding_id",
     "make_issue_id",
     "make_proposition_id",

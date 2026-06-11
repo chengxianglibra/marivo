@@ -1439,3 +1439,114 @@ def test_transform_metric_frame_drops_component_contract(tmp_path):
 
     assert out.meta.component_ref is None
     assert out.meta.decomposition is None
+
+
+# ---------------------------------------------------------------------------
+# Sampled semi-additive rollup gate
+# ---------------------------------------------------------------------------
+
+
+def _bootstrap_bandwidth_for_rollup(tmp_path):
+    """Bootstrap a bandwidth semantic project for rollup gate tests."""
+    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    datasource_dir = semantic_dir.parent.parent / "datasource"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "\n"
+        "bandwidth_samples = ms.entity(\n"
+        "    name='bandwidth_samples',\n"
+        "    datasource='warehouse',\n"
+        "    primary_key=['sample_id'],\n"
+        "    source=ms.table('bandwidth_samples'),\n"
+        ")\n"
+        "\n"
+        "@ms.time_dimension(entity=bandwidth_samples, data_type='date', granularity='day')\n"
+        "def dt(bandwidth_samples):\n"
+        "    return bandwidth_samples.dt.cast('date')\n"
+        "\n"
+        "@ms.time_dimension(\n"
+        "    name='sample_ts',\n"
+        "    entity=bandwidth_samples,\n"
+        "    data_type='datetime',\n"
+        "    granularity='minute',\n"
+        "    sample_interval=(5, 'minute'),\n"
+        ")\n"
+        "def sample_ts(bandwidth_samples):\n"
+        "    return bandwidth_samples.sample_ts\n"
+        "\n"
+        "@ms.dimension(entity=bandwidth_samples)\n"
+        "def province(bandwidth_samples):\n"
+        "    return bandwidth_samples.province\n"
+        "\n"
+        "@ms.metric(\n"
+        "    name='upstream_bw_p95',\n"
+        "    entities=[bandwidth_samples],\n"
+        "    additivity='semi_additive',\n"
+        "    decomposition=ms.sum(),\n"
+        "    verification_mode='python_native',\n"
+        "    time_fold=('quantile', 0.95),\n"
+        "    fold_time_dimension=sample_ts,\n"
+        ")\n"
+        "def upstream_bw_p95(bandwidth_samples):\n"
+        "    return bandwidth_samples.upstream_bw_var.sum()\n"
+    )
+
+
+def _seed_bandwidth_for_rollup(con):
+    """Seed bandwidth_samples with two days of data for rollup gate tests."""
+    con.raw_sql(
+        "CREATE TABLE bandwidth_samples ("
+        "sample_id INTEGER, dt DATE, sample_ts TIMESTAMP, "
+        "upstream_bw DOUBLE, upstream_bw_var DOUBLE, reserved_bw DOUBLE, province VARCHAR)"
+    )
+    rows = []
+    sid = 1
+    for day in ("2026-01-01", "2026-01-02"):
+        for i in range(12):
+            minute = i * 5
+            ts = f"TIMESTAMP '{day} 00:{minute:02d}:00'"
+            rows.append(f"({sid}, DATE '{day}', {ts}, 100.0, {(i + 1) * 10.0}, 200.0, 'beijing')")
+            sid += 1
+            rows.append(f"({sid}, DATE '{day}', {ts}, 200.0, 0.0, 0.0, 'beijing')")
+            sid += 1
+            rows.append(f"({sid}, DATE '{day}', {ts}, 90.0, 0.0, 0.0, 'shanghai')")
+            sid += 1
+    con.raw_sql("INSERT INTO bandwidth_samples VALUES " + ",".join(rows))
+
+
+@pytest.fixture()
+def sampled_bandwidth_for_rollup(tmp_path):
+    _bootstrap_bandwidth_for_rollup(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_bandwidth_for_rollup(con)
+    return session_attach.get_or_create(name="demo_rollup", backends={"warehouse": lambda: con})
+
+
+def test_rollup_rejects_non_reaggregatable_metric_frame(sampled_bandwidth_for_rollup) -> None:
+    from marivo.analysis.errors import TransformShapeUnsupportedError
+
+    frame = sampled_bandwidth_for_rollup.observe(
+        MetricRef("sales.upstream_bw_p95"),
+        timescope={"start": "2026-01-01", "end": "2026-01-02"},
+        grain="hour",
+        dimensions=[DimensionRef("sales.bandwidth_samples.province")],
+    )
+
+    with pytest.raises(TransformShapeUnsupportedError) as exc_info:
+        sampled_bandwidth_for_rollup.transform.rollup(
+            frame,
+            drop_axes=[DimensionRef("province")],
+        )
+
+    assert exc_info.value.details["op"] == "rollup"
+    assert exc_info.value.details["reason"] == "non_reaggregatable"

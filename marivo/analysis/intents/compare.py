@@ -122,6 +122,29 @@ def _component_decomposition_kind(frame: MetricFrame) -> str | None:
     return None
 
 
+def _component_fold_payload(
+    frame: MetricFrame,
+    *,
+    session: Session | None = None,
+) -> list[dict[str, Any]]:
+    """Collect time_fold metadata from the component frame rows, if any."""
+    if frame.meta.component_ref is None or session is None:
+        return []
+    component = load_frame(frame.meta.component_ref, session=session)
+    if not hasattr(component, "to_pandas"):
+        return []
+    rows = component.to_pandas().to_dict("records")
+    return [
+        {
+            "component_metric_id": row.get("component_metric_id"),
+            "time_fold": row.get("time_fold"),
+            "fold_time_dimension": row.get("fold_time_dimension"),
+        }
+        for row in rows
+        if row.get("time_fold") is not None
+    ]
+
+
 def _load_component_for_compare(frame: MetricFrame, session: Session, label: str) -> ComponentFrame:
     """Load and validate the component frame for a compare input."""
     if frame.meta.component_ref is None:
@@ -626,6 +649,8 @@ def compare(
         semantic_model=current.meta.semantic_model,
         unit=current.meta.unit,
         decomposition=current.meta.decomposition if current_component is not None else None,
+        fold=getattr(current.meta, "fold", None),
+        component_folds=_component_fold_payload(current, session=session),
     )
     output_frame = DeltaFrame(_df=df, meta=meta)
 

@@ -5,6 +5,7 @@ from marivo.analysis.frames.attribution import AttributionFrame, AttributionFram
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, FramePreview
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
+from marivo.analysis.frames.coverage import CoverageFrame, CoverageFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.exploration import ExplorationResult, ExplorationResultMeta
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
@@ -29,6 +30,8 @@ __all__ = [
     "CheckResult",
     "ComponentFrame",
     "ComponentFrameMeta",
+    "CoverageFrame",
+    "CoverageFrameMeta",
     "DeltaFrame",
     "DeltaFrameMeta",
     "ExplorationResult",

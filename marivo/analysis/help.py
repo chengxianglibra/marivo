@@ -433,6 +433,35 @@ def _session_text(content: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+def _observe_content() -> dict[str, object]:
+    return {
+        "summary": "Build a MetricFrame from a metric and window.",
+        "sampled_semi_additive": {
+            "fold": "sampled semi-additive metrics use their bound sampled time axis",
+            "coverage": "return coverage through frame.coverage()",
+            "reaggregation": "re-run observe rather than rolling up sampled folded frames",
+        },
+        "notes": [
+            "Sampled semi-additive metrics use their bound sampled time axis, return "
+            "coverage through frame.coverage(), and should be re-observed rather than "
+            "rolled up.",
+        ],
+    }
+
+
+def _observe_text(content: dict[str, object]) -> str:
+    lines = ["observe: build a MetricFrame from a metric and window", ""]
+    sampled = cast("dict[str, object]", content["sampled_semi_additive"])
+    lines.append("Sampled semi-additive metrics:")
+    lines.append(f"  fold axis: {sampled['fold']}")
+    lines.append(f"  coverage: {sampled['coverage']}")
+    lines.append(f"  reaggregation: {sampled['reaggregation']}")
+    lines.extend(("", "Notes:"))
+    for note in cast("list[str]", content["notes"]):
+        lines.append(f"  - {note}")
+    return "\n".join(lines)
+
+
 def _alignment_content() -> dict[str, object]:
     return {
         "summary": "mv.AlignmentPolicy variants and calendar-backed alignment columns.",
@@ -650,6 +679,7 @@ def _surface() -> Surface:
     transform_content = _transform_content()
     alignment_content = _alignment_content()
     calendar_content = _calendar_content()
+    observe_content = _observe_content()
     session_constraints = constraints_for_symbol("session")
     session_content = _session_content(session_constraints)
     return Surface(
@@ -659,6 +689,7 @@ def _surface() -> Surface:
         resolve=_resolve,
         catalog=catalog,
         topics={
+            "observe": _topic("observe", observe_content, _observe_text(observe_content)),
             "discover": _topic("discover", discover_content, _discover_text(discover_content)),
             "select": _topic("select", select_content, _select_text(select_content)),
             "transform": _topic(

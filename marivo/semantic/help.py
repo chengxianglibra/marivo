@@ -75,6 +75,7 @@ _SUMMARIES: dict[str, str] = {
     "weighted_average": "weighted-average aggregation marker",
     "constraints": "authoring and validation constraints",
     "decomposition": "metric decomposition builders and aggregation boundary",
+    "time_fold": "sampled semi-additive time folding for bandwidth-style metrics",
 }
 
 
@@ -209,6 +210,49 @@ def _decomposition_topic() -> Descriptor:
     )
 
 
+def _time_fold_content() -> dict[str, object]:
+    return {
+        "summary": "sampled semi-additive time folding for bandwidth-style metrics",
+        "folds": ["mean", "min", "max", "first", "last", "('quantile', q)"],
+        "rules": [
+            "time_fold requires additivity='semi_additive'",
+            "fold_time_dimension binds the sampled axis used for filtering, sample points, and buckets",
+            "fold is a metric definition choice, not an observe parameter",
+        ],
+    }
+
+
+def _time_fold_text(content: dict[str, object]) -> str:
+    folds = cast("list[str]", content["folds"])
+    rules = cast("list[str]", content["rules"])
+    lines = [
+        "marivo.semantic time_fold",
+        "",
+        str(content["summary"]),
+        "",
+        "Supported folds:",
+    ]
+    for fold in folds:
+        lines.append(f"  - {fold}")
+    lines.extend(("", "Rules:"))
+    for rule in rules:
+        lines.append(f"  - {rule}")
+    return "\n".join(lines)
+
+
+def _time_fold_topic() -> Descriptor:
+    content = _time_fold_content()
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="time_fold",
+        summary=cast("str", content["summary"]),
+        content=content,
+        doc=_time_fold_text(content),
+        see_also=("metric", "constraints"),
+    )
+
+
 def _resolve(symbol: str) -> Any | None:
     import marivo.semantic as ms
     from marivo.semantic import errors as errors_mod
@@ -227,7 +271,7 @@ def _resolve(symbol: str) -> Any | None:
 def _surface() -> Surface:
     import marivo.semantic as ms
 
-    all_names = tuple(dict.fromkeys((*ms.__all__, "constraints", "decomposition")))
+    all_names = tuple(dict.fromkeys((*ms.__all__, "constraints", "decomposition", "time_fold")))
     summaries = {name: _SUMMARIES.get(name, "") for name in all_names}
     catalog = {constraint.id: constraint for constraint in iter_constraints()}
     return Surface(
@@ -239,6 +283,7 @@ def _surface() -> Surface:
         topics={
             "constraints": _constraint_topic(),
             "decomposition": _decomposition_topic(),
+            "time_fold": _time_fold_topic(),
         },
     )
 

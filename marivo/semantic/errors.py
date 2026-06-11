@@ -81,6 +81,13 @@ class ErrorKind(StrEnum):
     DERIVED_METRIC_FANOUT_POLICY = "derived_metric_fanout_policy"
     SUBDAY_GRANULARITY_WITHOUT_TIME = "subday_granularity_without_time"
     DUPLICATE_DEFAULT_TIME_DIMENSION = "duplicate_default_time_dimension"
+    INVALID_SAMPLE_INTERVAL = "invalid_sample_interval"
+    INVALID_TIME_FOLD = "invalid_time_fold"
+    TIME_FOLD_REQUIRES_SEMI_ADDITIVE = "time_fold_requires_semi_additive"
+    TIME_FOLD_REQUIRES_SAMPLED_TIME_FIELD = "time_fold_requires_sampled_time_field"
+    MISSING_TIME_FOLD = "missing_time_fold"
+    AMBIGUOUS_FOLD_TIME_DIMENSION = "ambiguous_fold_time_dimension"
+    INVALID_FOLD_TIME_DIMENSION = "invalid_fold_time_dimension"
 
     # runtime
     NOT_FOUND = "not_found"

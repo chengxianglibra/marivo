@@ -563,6 +563,36 @@ def gmv_with_items(orders, order_items):
     return orders.amount.sum()
 ```
 
+### Sampled Semi-Additive Metrics
+
+Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inventory, or device-reported rates. The time dimension declares physical precision with `granularity` and reporting cadence with `sample_interval`; the metric declares the business fold and the sampled axis it folds over.
+
+```python
+@ms.time_dimension(
+    entity=bw_samples,
+    data_type="timestamp",
+    granularity="second",
+    timezone="UTC",
+    sample_interval=(5, "minute"),
+)
+def sample_ts(bw_samples):
+    return bw_samples.sample_ts
+
+@ms.metric(
+    entities=[bw_samples],
+    additivity="semi_additive",
+    time_fold="mean",
+    fold_time_dimension=sample_ts,
+    decomposition=ms.sum(),
+    unit="kbit/s",
+    verification_mode="python_native",
+)
+def upstream_bw(bw_samples):
+    return bw_samples.upstream_kbps.sum()
+```
+
+The metric body expresses the spatial aggregate inside one sample point. `time_fold` expresses how the sample-point series is reduced to the requested observe grain. P95-style folds use `time_fold=("quantile", 0.95)` and are always recomputed from base samples for the requested grain.
+
 ### Relationship
 
 relationship 描述 dataset 之间的连接路径：

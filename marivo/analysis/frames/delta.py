@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, assert_semantic_shape
 
@@ -28,6 +28,8 @@ class DeltaFrameMeta(BaseFrameMeta):
     normalization: dict[str, Any] | None = None
     component_ref: str | None = None
     decomposition: dict[str, Any] | None = None
+    fold: dict[str, Any] | None = None
+    component_folds: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @dataclass(repr=False)

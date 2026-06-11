@@ -33,6 +33,12 @@ ObserveErrorCode = Literal[
     "component-filter-field-mismatch",
     "component-version-mismatch",
     "nested-derived-unsupported",
+    "sampled-grain-floor-unsupported-unit",
+    "grain-finer-than-sampled-floor",
+    "fold-time-dimension-unresolved",
+    "fold-time-dimension-mismatch",
+    "fold-time-dimension-missing-metadata",
+    "fold-time-dimension-unsupported-type",
 ]
 
 

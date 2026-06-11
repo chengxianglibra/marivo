@@ -11,6 +11,7 @@ from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, assert_semanti
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.component import ComponentFrame
+    from marivo.analysis.frames.coverage import CoverageFrame
 
 
 class MetricFrameMeta(BaseFrameMeta):
@@ -28,6 +29,13 @@ class MetricFrameMeta(BaseFrameMeta):
     normalization: dict[str, Any] | None = None
     component_ref: str | None = None
     decomposition: dict[str, Any] | None = None
+    fold: dict[str, Any] | None = None
+    reaggregatable: bool = True
+    sample_set_digest: str | None = None
+    quantile_mode: Literal["exact", "approximate"] | None = None
+    quantile_method: str | None = None
+    coverage_ref: str | None = None
+    coverage_summary: dict[str, Any] | None = None
 
 
 @dataclass(repr=False)
@@ -93,4 +101,16 @@ class MetricFrame(BaseFrame):
             component_ref=self.meta.component_ref,
             decomposition=self.meta.decomposition,
             advice="re-run observe() to regenerate it",
+        )
+
+    def coverage(self) -> CoverageFrame:
+        """Load the linked CoverageFrame for sampled time-slot coverage."""
+        from marivo.analysis.frames._coverage import _load_coverage_frame
+
+        return _load_coverage_frame(
+            parent_ref=self.ref,
+            session_id=self.meta.session_id,
+            project_root=self.meta.project_root,
+            artifact_id=self.meta.artifact_id,
+            coverage_ref=self.meta.coverage_ref,
         )

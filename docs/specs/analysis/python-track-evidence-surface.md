@@ -162,6 +162,10 @@ class FollowupAction:
 | 适用场景 | 默认随每步暴露 | 需要正式 quality artifact 进入 lineage / evidence chain |
 | 是否会重复跑 | 否；存于 SQLite | 显式调用每次创建新 step |
 
+### Sampled fold coverage sidecar
+
+Sampled folds produce a linked `CoverageFrame` accessible through `frame.coverage()`. The main MetricFrame stays limited to axis columns plus measure columns; time-slot coverage rows live in the sidecar frame and summarize into `result.meta.quality.sample_coverage_*`.
+
 ### `evidence_status` per-field fallback
 
 | `evidence_status` | 失败阶段 | 仍然填充 | 可能为 `null` / 空 |

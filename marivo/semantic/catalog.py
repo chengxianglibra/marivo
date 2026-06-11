@@ -293,6 +293,8 @@ class MetricDetails:
     source_document: str | None
     source_notes: str | None
     python_symbol: str
+    time_fold: str | None
+    fold_time_dimension: str | None
 
 
 @dataclass(frozen=True)
@@ -789,6 +791,8 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         source_document=m_ir.provenance.source_document,
         source_notes=m_ir.provenance.source_notes,
         python_symbol=m_ir.python_symbol,
+        time_fold=m_ir.time_fold.label() if m_ir.time_fold is not None else None,
+        fold_time_dimension=m_ir.fold_time_dimension,
     )
     return SemanticObject(
         ref=ref,

@@ -27,6 +27,8 @@ def _authoring_fingerprint_for_metric(ir: MetricIR) -> str:
         "decomposition_components": dict(ir.decomposition.components),
         "body_ast_hash": ir.body_ast_hash,
         "additivity": ir.additivity,
+        "time_fold": ir.time_fold.label() if ir.time_fold is not None else None,
+        "fold_time_dimension": ir.fold_time_dimension,
     }
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -56,6 +58,8 @@ def _metric_chosen(ir: MetricIR) -> dict[str, object]:
         "components": dict(ir.decomposition.components),
         "is_derived": ir.is_derived,
         "additivity": ir.additivity,
+        "time_fold": ir.time_fold.label() if ir.time_fold is not None else None,
+        "fold_time_dimension": ir.fold_time_dimension,
     }
 
 

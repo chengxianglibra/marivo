@@ -334,3 +334,56 @@ evidence is ambiguous:
 
 Inference is only a drafting aid; the field's semantics are an author
 declaration. Backfill after the user answers.
+
+## Sampled semi-additive metrics
+
+Use sampled folds for periodic snapshot facts such as bandwidth, capacity,
+inventory, or device-reported rates. The time dimension declares physical
+precision with `granularity` and reporting cadence with `sample_interval`;
+the metric declares the business fold and the sampled axis it folds over.
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(name="network")
+
+warehouse = md.ref("warehouse")
+
+bw_samples = ms.entity(
+    name="bw_samples",
+    datasource=warehouse,
+    source=ms.table("bw_samples"),
+)
+
+@ms.time_dimension(
+    entity=bw_samples,
+    data_type="timestamp",
+    granularity="second",
+    timezone="UTC",
+    sample_interval=(5, "minute"),
+)
+def sample_ts(bw_samples):
+    return bw_samples.sample_ts
+
+@ms.metric(
+    entities=[bw_samples],
+    additivity="semi_additive",
+    time_fold="mean",
+    fold_time_dimension=sample_ts,
+    decomposition=ms.sum(),
+    unit="kbit/s",
+    verification_mode="python_native",
+)
+def upstream_bw(bw_samples):
+    return bw_samples.upstream_kbps.sum()
+```
+
+Rules:
+
+- `time_fold` requires `additivity="semi_additive"`.
+- `fold_time_dimension` binds the sampled time axis used for filtering,
+  sample points, and buckets.
+- `time_fold` is a metric definition choice, not an observe parameter.
+- P95-style folds use `time_fold=("quantile", 0.95)` and are always
+  recomputed from base samples for the requested grain.

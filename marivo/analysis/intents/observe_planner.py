@@ -23,6 +23,7 @@ from marivo.analysis.intents.observe_errors import (
     RepairSafety,
     raise_observe_planning_error,
 )
+from marivo.analysis.intents.sampled_fold import ensure_fold_time_dimension_matches
 from marivo.analysis.refs import DimensionRef
 from marivo.analysis.windows.spec import is_date_only
 from marivo.introspection._fuzzy import did_you_mean
@@ -62,6 +63,8 @@ class BaseObservePlan:
     lineage_metadata: dict[str, Any]
     warnings: list[dict[str, Any]]
     datasource_name: str
+    fold_time_dimension: str | None = None
+    time_fold: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -1043,6 +1046,7 @@ def plan_base_observe(
     allow_unqualified_outside_scope: bool = False,
 ) -> BaseObservePlan:
     root = resolve_metric_root(metric_ir)
+    ensure_fold_time_dimension_matches(metric_ir, time_dimension)
     if metric_ir.additivity is None:
         raise_observe_planning_error(
             code="missing-additivity",
@@ -1354,9 +1358,13 @@ def plan_base_observe(
             "relationships": edge_metadata,
             "snapshots": snapshot_metadata,
             "version_resolutions": version_resolutions,
+            "time_fold": metric_ir.time_fold.label() if metric_ir.time_fold is not None else None,
+            "fold_time_dimension": metric_ir.fold_time_dimension,
         },
         warnings=plan_warnings,
         datasource_name=datasource_name,
+        fold_time_dimension=metric_ir.fold_time_dimension,
+        time_fold=metric_ir.time_fold,
     )
 
 
@@ -1694,6 +1702,15 @@ def _plan_derived_observe(
             dataset_irs,
             dataset_fns,
         )
+        # When a component metric has a fold_time_dimension, use it as the
+        # time dimension for planning so the planner resolves the correct
+        # time axis when the entity has multiple time dimensions.
+        component_time_dimension = time_dimension
+        if (
+            getattr(component_ir, "fold_time_dimension", None) is not None
+            and component_time_dimension is None
+        ):
+            component_time_dimension = component_ir.fold_time_dimension
         try:
             base_plan = plan_base_observe(
                 project=project,
@@ -1704,7 +1721,7 @@ def _plan_derived_observe(
                 dimensions=dimensions,
                 where=where,
                 resolved_window=resolved_window,
-                time_dimension=time_dimension,
+                time_dimension=component_time_dimension,
                 allow_unqualified_outside_scope=True,
             )
         except WindowInvalidError as _win_exc:
@@ -1720,7 +1737,7 @@ def _plan_derived_observe(
                 dimensions=dimensions,
                 where=where,
                 resolved_window=None,
-                time_dimension=time_dimension,
+                time_dimension=component_time_dimension,
                 allow_unqualified_outside_scope=True,
             )
         except ObservePlanningError as exc:
