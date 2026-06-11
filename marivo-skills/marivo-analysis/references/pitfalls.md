@@ -96,7 +96,7 @@ catalog and re-promote with a defined metric id:
 ```python
 import marivo.semantic as ms
 catalog = ms.load()
-catalog.list(kind="metric").show()
+catalog.list("sales", kind="metric").show()
 ```
 
 ## No active session
@@ -211,7 +211,7 @@ MetricNotFoundError: metric 'sales.revenu' not found
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.list(kind="metric")
+catalog.list("sales", kind="metric")
 cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
 ```
 

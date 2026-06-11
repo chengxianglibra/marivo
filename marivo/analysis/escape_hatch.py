@@ -34,6 +34,7 @@ from marivo.analysis.windows import (
     dump_window,
     normalize_absolute_window_input,
 )
+from marivo.semantic._registry_bridge import get_metric_ir, iter_metric_irs
 
 if TYPE_CHECKING:
     from marivo.analysis.session.core import Session
@@ -150,12 +151,12 @@ def _validate_metric_in_catalog(
     sp = getattr(session, "_semantic_project", None)
     if sp is None or not sp.is_ready():
         return
-    available_metric_ids = sorted(ir.semantic_id for ir in sp.list_metrics())
+    available_metric_ids = sorted(ir.semantic_id for ir in iter_metric_irs(sp))
     # An empty workspace loads as "ready" with zero metrics; promotion in
     # catalog-less sessions stays unvalidated.
     if not available_metric_ids:
         return
-    if sp.get_metric(metric_id) is not None:
+    if get_metric_ir(sp, metric_id) is not None:
         return
     raise PromotionFailedError(
         message=f"cannot promote scratch result to {target_kind}",

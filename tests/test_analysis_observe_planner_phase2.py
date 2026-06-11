@@ -11,6 +11,7 @@ from marivo.analysis.intents.observe_planner import (
     _derive_version_mode,
     _effective_key,
 )
+from marivo.semantic._registry_bridge import get_metric_ir
 
 
 def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
@@ -150,7 +151,7 @@ def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factor
             ),
         }
     )
-    metric = project.get_metric("sales.revenue")
+    metric = get_metric_ir(project, "sales.revenue")
     from marivo.analysis.intents.observe_planner import (
         plan_observe,
     )

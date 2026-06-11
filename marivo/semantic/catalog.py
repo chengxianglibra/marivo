@@ -440,6 +440,9 @@ class SemanticObjectList:
     def __getitem__(self, index: int) -> SemanticObject:
         return self._items[index]
 
+    def __repr__(self) -> str:
+        return f"<SemanticObjectList items={len(self._items)}; call .show() to inspect>"
+
     def render(self) -> str:
         """Return bounded plain-text browsing card without a trailing newline."""
         lines: list[str] = []

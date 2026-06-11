@@ -2,6 +2,7 @@
 
 import pytest
 
+from marivo.semantic._registry_bridge import get_entity_ir
 from marivo.semantic.errors import SemanticLoadFailed
 
 
@@ -36,7 +37,7 @@ def test_second_granularity_on_date_is_rejected(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_entity("ops.events")
+        get_entity_ir(project, "ops.events")
     errors = exc_info.value.errors
     kinds = [e.kind for e in errors]
     assert "subday_granularity_without_time" in kinds
@@ -58,7 +59,7 @@ def test_minute_granularity_on_date_is_rejected(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_entity("ops.events")
+        get_entity_ir(project, "ops.events")
     errors = exc_info.value.errors
     kinds = [e.kind for e in errors]
     assert "subday_granularity_without_time" in kinds
@@ -81,7 +82,7 @@ def test_hour_granularity_on_date_is_rejected(semantic_project_factory):
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_entity("ops.events")
+        get_entity_ir(project, "ops.events")
     errors = exc_info.value.errors
     kinds = [e.kind for e in errors]
     assert "subday_granularity_without_time" in kinds
@@ -137,7 +138,7 @@ def test_minute_granularity_string_without_time_format_is_rejected(semantic_proj
     )
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_entity("ops.events")
+        get_entity_ir(project, "ops.events")
     errors = exc_info.value.errors
     kinds = [e.kind for e in errors]
     assert "subday_granularity_without_time" in kinds

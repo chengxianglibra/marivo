@@ -149,6 +149,9 @@ def test_all_list_matches_expected() -> None:
         "DemandSignal",
         "RichnessGap",
         "RichnessReport",
+        "DomainSummary",
+        "EntitySummary",
+        "MetricSummary",
         "DimensionSummary",
         "RelationshipSummary",
     ):

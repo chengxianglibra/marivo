@@ -38,7 +38,7 @@ class DiscoveryResult(Generic[T]):  # noqa: UP046
             When True, ``.ids()`` is advertised in the ``available:`` section.
 
     Example:
-        >>> catalog = ms.load(); catalog.list(kind="metric")
+        >>> metrics = DiscoveryResult(metric_items, item_type_name="MetricSummary")
         >>> metrics
         <DiscoveryResult[MetricSummary] items=12; call .show() to inspect>
         >>> metrics.show()

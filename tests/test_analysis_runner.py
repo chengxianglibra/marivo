@@ -18,6 +18,7 @@ from marivo.analysis.executor.runner import (
 )
 from marivo.analysis.windows.spec import AbsoluteWindow
 from marivo.datasource import secrets as datasource_secrets
+from marivo.semantic._registry_bridge import get_entity_ir
 from marivo.semantic.reader import SemanticProject
 
 # ---------------------------------------------------------------------------
@@ -81,7 +82,7 @@ def _build_dataset_adapter(sp: SemanticProject, dataset_semantic_id: str) -> obj
     """
     from marivo.analysis.intents.observe import _build_dataset_adapter as _build
 
-    dataset_ir = sp.get_entity(dataset_semantic_id)
+    dataset_ir = get_entity_ir(sp, dataset_semantic_id)
     assert dataset_ir is not None, f"Dataset {dataset_semantic_id} not found"
     return _build(sp, dataset_ir)
 
