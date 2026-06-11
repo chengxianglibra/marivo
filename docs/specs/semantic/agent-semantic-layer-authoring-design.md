@@ -66,16 +66,21 @@ author and validate the semantic layer; they are not a second semantic DSL.
 The current Marivo Python-native surface already provides the core semantic
 registry and validation pieces:
 
-- `ms.load() -> SemanticCatalog`
-- `catalog.list(...)` / `catalog.get(...)`
-- `SemanticProject.load()` for authoring, preview, readiness, and materialization
+- `marivo.semantic.SemanticProject`
+- `ms.find_project()`
+- `project.load()`
+- `project.list_models()` / `list_datasources()` / `list_datasets()` /
+  `list_dimensions()` / `list_time_dimensions()` / `list_metrics()` /
+  `list_relationships()`
+- `project.search(...)`
+- `project.describe(...)`
 - `project.dependencies(...)` / `project.dependents(...)`
 - `project.materialize_dataset(...)` / `materialize_field(...)` /
   `materialize_metric(...)`
 - `project.parity_check(...)`
 - `ms.help(...)` and `ms.help("constraints")`
-- `md.register(...)`, `md.list()`, `md.describe()`, `md.connect()`,
-  and `md.test()`
+- `mv.datasources.register(...)`, `all()`, `describe()`, `build_backend()`,
+  and `test()`
 - analysis frame `preview(limit=...)`
 
 The current gaps are:
@@ -94,23 +99,23 @@ has landed in their installed Marivo version.
 
 | Capability | Available today | Target API |
 | --- | --- | --- |
-| Find and load semantic catalog | `ms.load()` | same |
-| Inspect semantic objects | `catalog.list(...)`, `catalog.get(...)` | same |
-| Build backend from datasource | `md.connect(name)` | same |
-| Test datasource | `md.test(name)` | same |
+| Find and load semantic project | `ms.find_project()`, `project.load()` | same |
+| Inspect semantic objects | `project.list_*()`, `search()`, `describe()` | same |
+| Build backend from datasource | `mv.datasources.build_backend(name)` | same |
+| Test datasource | `mv.datasources.test(name)` | same |
 | Raw table preview | `project.collect_source_preview(..., backend_factory=...)` so readiness can consume the physical source evidence | same |
 | Semantic dataset/field/metric preview | `project.preview_dataset(...)`, `project.preview_field(...)`, `project.preview_metric(...)` | same |
 | Metric SQL parity | `project.parity_check(...)` | same |
 | Readiness report | agent-authored closeout from load, preview, and parity evidence | `project.readiness(...)` |
-| Table metadata/comments | `md.inspect_source(...)` | same |
+| Table metadata/comments | `mv.datasources.inspect_source(...)` | same |
 
 When calling materialization, compilation, parity, or target preview/readiness
 APIs, pass a backend factory, not a backend instance:
 
 ```python
-import marivo.datasource as md
+import marivo.analysis as mv
 
-backend_factory = lambda name: md.connect(name)
+backend_factory = lambda name: mv.datasources.build_backend(name)
 
 expr = project.materialize_metric(
     "sales.revenue",
@@ -125,27 +130,30 @@ datasource.
 
 ### 1. Discover
 
-The agent starts by loading the semantic catalog:
+The agent starts by finding and loading the semantic project:
 
 ```python
 import marivo.semantic as ms
 
-catalog = ms.load()
+project = ms.find_project()
+if project is None:
+    raise SystemExit("No .marivo/semantic project found")
+result = project.load()
 ```
 
 The agent then inspects existing objects before proposing anything new:
 
 ```python
-catalog.list().show()
-catalog.list(kind="datasource").show()
-catalog.list("sales").show()
-catalog.list("sales", kind="metric").show()
-catalog.get("sales.revenue").details()
+project.list_models()
+project.list_datasources()
+project.list_datasets()
+project.list_metrics()
+project.search("revenue")
 ```
 
-`catalog.list(...)` returns a `SemanticObjectList` without printing. Call
-`.show()` explicitly for a deterministic text table, or consume `.refs()` /
-`.objects` in code.
+`project.list_*()` and `project.search(...)` print deterministic text tables by
+default for script-driven agents while still returning structured objects. When
+code consumes the returned list programmatically, pass `display=False`.
 
 Rule: reuse existing semantic refs when their `business_definition`,
 guardrails, dependencies, and provenance match the user intent. Add new objects
@@ -163,19 +171,19 @@ For every candidate datasource, the agent must:
 Current API:
 
 ```python
-import marivo.datasource as md
+import marivo.analysis as mv
 
-md.list()
-md.describe("warehouse")
-md.test("warehouse")
-backend = md.connect("warehouse")
+mv.datasources.all()
+mv.datasources.describe("warehouse")
+mv.datasources.test("warehouse")
+backend = mv.datasources.build_backend("warehouse")
 ```
 
 Target APIs for richer inspection are described later in this document.
 
 Use `md.DatasourceSpec(...)` plus `md.datasource(spec)` in
 `.marivo/datasource/<name>.py` when authoring datasource files directly. Use
-`md.register(md.DatasourceSpec(...))` when a script or agent wants
+`mv.datasources.register(md.DatasourceSpec(...))` when a script or agent wants
 Marivo to create or replace the datasource file through the public registry API.
 Semantic model files should reference project datasources with `md.ref(...)`;
 datasource configuration itself does not belong inside semantic model files.
@@ -273,7 +281,7 @@ After authoring, the agent validates semantic objects with bounded previews:
 Use the standard preview APIs:
 
 ```python
-backend_factory = lambda name: md.connect(name)
+backend_factory = lambda name: mv.datasources.build_backend(name)
 
 project.preview_dataset("sales.orders", limit=20, backend_factory=backend_factory)
 project.preview_field("sales.order_date", limit=20, backend_factory=backend_factory)
@@ -330,9 +338,9 @@ Source APIs:
 
 - `ms.find_project()`
 - `project.load()`
-- `ms.load()`
-- `catalog.list(...)`
-- `catalog.get(...)`
+- `project.list_*()`
+- `project.search(...)`
+- `project.describe(...)`
 - `project.dependencies(...)`
 - `project.dependents(...)`
 
@@ -344,10 +352,10 @@ namespace.
 
 Source APIs:
 
-- `md.list()`
-- `md.describe(...)`
-- `md.test(...)`
-- target `md.inspect_source(...)`
+- `mv.datasources.all()`
+- `mv.datasources.describe(...)`
+- `mv.datasources.test(...)`
+- target `mv.datasources.inspect(...)`
 
 ### Table Metadata Evidence
 
@@ -488,7 +496,7 @@ possible and should preserve column order.
 Available API.
 
 ```python
-import marivo.datasource as md
+import marivo.analysis as mv
 
 preview = project.collect_source_preview(
     datasource="warehouse",
@@ -517,7 +525,7 @@ Rules:
 Available APIs.
 
 ```python
-backend_factory = lambda name: md.connect(name)
+backend_factory = lambda name: mv.datasources.build_backend(name)
 
 project.preview_dataset("sales.orders", limit=20, backend_factory=backend_factory)
 project.preview_field("sales.order_date", limit=20, backend_factory=backend_factory)
@@ -696,8 +704,8 @@ Guidance:
 Agents must search existing semantic objects before adding new ones:
 
 ```python
-catalog.list("sales", kind="metric").show()
-catalog.get("sales.revenue").details()
+project.search("revenue", kind="metric")
+project.describe("sales.revenue")
 ```
 
 Reuse is required when the existing object matches the requested business
@@ -805,7 +813,11 @@ Readiness summarizes whether semantic refs can safely flow into analysis.
 Available API. Use this as the standard final validation step after load, raw previews, semantic previews, materialization, and parity checks. The API does not replace Phase 4 datasource metadata inspection; table comments and catalog metadata still come from explicit evidence until the metadata API lands.
 
 ```python
-# readiness defaults to md.connect and md.inspect_source for project datasources
+project.bind_datasource_access(
+    inspect_source=inspect_source,
+    backend_factory=lambda name: mv.datasources.build_backend(name),
+)
+
 report = project.readiness(
     refs=("sales.revenue",),
     demand=ms.DemandSignal(example_questions=("daily revenue by region",)),
@@ -1026,7 +1038,7 @@ Implemented:
 
 Implemented:
 
-- `md.inspect_source(...)`
+- `mv.datasources.inspect_source(...)`
 - table comments
 - column comments
 - nullable flags

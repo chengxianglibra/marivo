@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
-from marivo.analysis.errors import SessionStateError
+import marivo.analysis.session as session_attach
+from marivo.analysis.errors import NoBackendFactoryError
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from tests.shared_fixtures import make_metric_frame
@@ -124,12 +124,11 @@ def test_make_metric_frame_persists_external_frame(tmp_path, monkeypatch):
     assert (s._layout.frames_dir / mf.ref / "data.parquet").is_file()
 
 
-def test_make_metric_frame_rejects_archived_session(tmp_path, monkeypatch):
+def test_make_metric_frame_rejects_read_only_session(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
-    s = session_attach.get_or_create(name="demo")
-    session_attach.archive("demo")
-    with pytest.raises(SessionStateError):
+    s = session_attach.get_or_create(name="demo", use_datasources=False)
+    with pytest.raises(NoBackendFactoryError):
         make_metric_frame(
             pd.DataFrame({"value": [1.0]}),
             metric_id="custom.metric",

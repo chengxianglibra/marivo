@@ -18,7 +18,7 @@ ensure_loaded(default_calendar="cn_holidays")
 
 import marivo.analysis as mv  # noqa: E402
 
-session = mv.session.active()
+session = mv.session.current()
 calendar_dir = session.project_root / ".marivo" / "calendar"
 (calendar_dir / "cn_holidays.json").write_text(
     json.dumps(

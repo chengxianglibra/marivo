@@ -26,12 +26,6 @@ from marivo.analysis.intents.observe_errors import (
 from marivo.analysis.refs import DimensionRef
 from marivo.analysis.windows.spec import is_date_only
 from marivo.introspection._fuzzy import did_you_mean
-from marivo.semantic._registry_bridge import (
-    get_entity_ir,
-    get_metric_ir,
-    iter_all_dimension_irs,
-    iter_relationship_irs,
-)
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
 
 
@@ -129,7 +123,7 @@ def resolve_metric_root(metric_ir: Any) -> str:
 
 
 def _all_fields(project: Any) -> list[Any]:
-    return iter_all_dimension_irs(project)
+    return [*project.list_dimensions(), *project.list_time_dimensions()]
 
 
 _IBIS_BUILTIN_NAMES = frozenset(
@@ -305,7 +299,7 @@ def resolve_observe_fields(
 
 def _relationship_neighbors(project: Any, dataset_id: str) -> list[tuple[str, Any]]:
     neighbors: list[tuple[str, Any]] = []
-    for relationship in iter_relationship_irs(project):
+    for relationship in project.list_relationships():
         if relationship.from_entity == dataset_id:
             neighbors.append((relationship.to_entity, relationship))
         elif relationship.to_entity == dataset_id:
@@ -358,7 +352,7 @@ def _field_names(project: Any, field_ids: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _effective_key(project: Any, dataset_id: str) -> tuple[str, ...]:
-    dataset = get_entity_ir(project, dataset_id)
+    dataset = project.get_entity(dataset_id)
     if dataset is None:
         return ()
     versioning = getattr(dataset, "versioning", None)
@@ -400,7 +394,7 @@ def _effective_key_semantic_ids(project: Any, dataset_id: str) -> frozenset[str]
         return frozenset()
     # Build a dummy ibis table with the primary key columns so we can call
     # each field function and inspect the output column name.
-    dataset = get_entity_ir(project, dataset_id)
+    dataset = project.get_entity(dataset_id)
     if dataset is None:
         return frozenset()
     schema = dict.fromkeys(dataset.primary_key or [], "int64")
@@ -494,9 +488,7 @@ def _root_time_dimension(
 ) -> Any | None:
     if explicit_time_dimension is not None:
         return explicit_time_dimension
-    candidates = [
-        tf for tf in iter_all_dimension_irs(project, entity=root_entity_id) if tf.is_time_dimension
-    ]
+    candidates = [tf for tf in project.list_time_dimensions() if tf.entity == root_entity_id]
     if not candidates:
         return None
     if len(candidates) == 1:
@@ -1206,7 +1198,7 @@ def plan_base_observe(
                 next_table = pre_aggregated_tables.get(next_dataset)
                 if next_table is None:
                     next_table = dataset_fns[next_dataset](backend)
-                next_dataset_meta = get_entity_ir(project, next_dataset)
+                next_dataset_meta = project.get_entity(next_dataset)
                 versioning = (
                     getattr(next_dataset_meta, "versioning", None)
                     if next_dataset_meta is not None
@@ -1428,7 +1420,7 @@ def _component_dataset_adapters(
         # circular import at module load time.
         from marivo.analysis.intents.observe import _build_dataset_adapter
 
-        ds_ir = get_entity_ir(project, entity_id)
+        ds_ir = project.get_entity(entity_id)
         if ds_ir is None:
             raise_observe_planning_error(
                 code="derived-shared-planner-unsupported",
@@ -1680,7 +1672,7 @@ def _plan_derived_observe(
     component_unreachable_where: dict[str, list[str]] = {}
 
     for role, component_id in metric_ir.decomposition.components.items():
-        component_ir = get_metric_ir(project, component_id)
+        component_ir = project.get_metric(component_id)
         if component_ir is None:
             raise_observe_planning_error(
                 code="derived-shared-planner-unsupported",

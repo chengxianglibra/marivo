@@ -24,7 +24,7 @@ ensure_loaded()
 
 import marivo.analysis as mv  # noqa: E402
 
-session = mv.session.active()
+session = mv.session.current()
 
 # --- String grain (day or coarser) ------------------------------------
 # Single-unit calendar grains use the token string form.

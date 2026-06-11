@@ -41,8 +41,8 @@ from marivo.analysis.policies import (
     SamplingPolicy,
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
-from marivo.analysis.session.attach import SessionSummary
-from marivo.analysis.session.core import FrameSummaryEntry, JobSummary, Session
+from marivo.analysis.session._store import SessionSummary
+from marivo.analysis.session.core import FrameSummaryEntry, JobSummary, ReportRegistration, Session
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
     TimeScope,
@@ -51,6 +51,10 @@ from marivo.analysis.windows.spec import (
 
 
 def __getattr__(name: str) -> _Any:
+    if name == "datasources":
+        from importlib import import_module
+
+        return import_module("marivo.analysis.datasources")
     if name == "evidence":
         from importlib import import_module
 
@@ -100,6 +104,7 @@ __all__ = [
     "PromotionPolicy",
     "PromotionSemanticAnchors",
     "QualityReport",
+    "ReportRegistration",
     "SamplingPolicy",
     "Session",
     "SessionSummary",
@@ -109,6 +114,7 @@ __all__ = [
     "SliceValue",
     "TimeScope",
     "TimeScopeInput",
+    "datasources",
     "errors",
     "evidence",
     "frames",

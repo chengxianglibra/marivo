@@ -18,7 +18,7 @@ warehouse = md.ref("warehouse")
 
 Marivo resolves `*_env` credentials through a provider chain: **os.environ >
 ~/.marivo/secrets.toml > error**. After a successful
-`md.test(...)` round-trip, resolved env-sourced secrets are
+`mv.datasources.test(...)` round-trip, resolved env-sourced secrets are
 auto-persisted to the cache.
 
 Before authoring `*_env` fields on a new `DatasourceSpec`, read the cache to
@@ -42,7 +42,7 @@ datasource). Do not ask the user for a secret the cache already holds; the
 resolution chain will supply it at runtime.
 
 If secrets.toml does not exist or has no relevant entries, ask the user for the
-env var name and value. After `md.test(...)` succeeds, the new
+env var name and value. After `mv.datasources.test(...)` succeeds, the new
 secret is persisted automatically.
 
 ## Runtime Help
@@ -81,22 +81,22 @@ declaring `ms.file(...)`; do not invent unsupported file formats.
 
 ## Inspect configured datasources
 
-Use `md` (`marivo.datasource`) from the installed project environment:
+Use `mv.datasources` from the installed project environment:
 
 ```python
-import marivo.datasource as md
+import marivo.analysis as mv
 import marivo.semantic as ms
 
-print(md.list())
-print(md.describe("warehouse"))
-print(md.test("warehouse"))
+print(mv.datasources.all())
+print(mv.datasources.describe("warehouse"))
+print(mv.datasources.test("warehouse"))
 
-metadata = md.inspect_source("warehouse", source=ms.table("orders"))
+metadata = mv.datasources.inspect_source("warehouse", source=ms.table("orders"))
 print(metadata.to_dict())
 ```
 
 `table.schema()` returns types but not comments. Prefer
-`md.inspect_source(...)` for table comments, column comments,
+`mv.datasources.inspect_source(...)` for table comments, column comments,
 nullable flags, partition hints, and warnings.
 
 ## DuckDB datasource
@@ -157,10 +157,10 @@ md.datasource(warehouse)
 Inspect and author tables with `database="sales_mart"`:
 
 ```python
-import marivo.datasource as md
+import marivo.analysis as mv
 import marivo.semantic as ms
 
-metadata = md.inspect_source(
+metadata = mv.datasources.inspect_source(
     "warehouse",
     source=ms.table("orders", database="sales_mart"),
 )
@@ -169,7 +169,7 @@ orders = ms.entity(
     datasource=warehouse,
     source=ms.table("orders", database="sales_mart"),
 )
-backend = md.connect("warehouse")
+backend = mv.datasources.build_backend("warehouse")
 schemas = backend.list_databases(catalog="hive")
 tables = backend.list_tables(database="sales_mart")
 ```

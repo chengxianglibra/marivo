@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis import (
     AlignmentPolicy,
     AttributionFrame,
@@ -22,13 +22,13 @@ from marivo.analysis import (
 )
 from marivo.analysis.frames.attribution import AttributionFrameMeta
 from marivo.analysis.frames.delta import DeltaFrameMeta
-from marivo.analysis.session.persistence import read_frame_from_disk, read_job_record
+from marivo.analysis.session._layout import read_frame_from_disk, read_job_record
 from tests.shared_fixtures import make_metric_frame
 
 
 def _active_transform(frame: object, **kwargs):
     op = kwargs.pop("op")
-    return getattr(session_attach.active().transform, op)(frame, **kwargs)
+    return getattr(session_attach.current().transform, op)(frame, **kwargs)
 
 
 def _positive_delta_predicate(row):
@@ -161,7 +161,7 @@ def _make_delta_time_series(tmp_path) -> DeltaFrame:
 
 def _make_attribution_frame(tmp_path) -> AttributionFrame:
     source = _make_topk_delta_time_series()
-    session = session_attach.active()
+    session = session_attach.current()
     source_df = source.to_pandas()
     df = pd.DataFrame(
         {
@@ -272,7 +272,7 @@ def test_transform_api_exposes_typed_method_signatures():
 
 def test_transform_api_methods_cover_supported_ops(tmp_path):
     series = _make_time_series(tmp_path)
-    session = session_attach.active()
+    session = session_attach.current()
     filtered = session.transform.filter(series, predicate=lambda d: d["revenue"] > 10)
     assert filtered.to_pandas()["revenue"].tolist() == [20.0]
 
@@ -411,7 +411,7 @@ def _make_current_only_delta_panel() -> DeltaFrame:
 
 
 def _assert_persisted_metric_frame(frame: MetricFrame) -> None:
-    session = session_attach.active()
+    session = session_attach.current()
     stored_df, stored_meta = read_frame_from_disk(session._layout, frame.ref)
     assert isinstance(stored_df, pd.DataFrame)
     assert stored_meta["ref"] == frame.ref
@@ -454,7 +454,7 @@ def test_transform_cross_session_rejected(tmp_path):
 
 def test_transform_lineage_and_job_record_persist(tmp_path):
     frame = _make_time_series(tmp_path)
-    session = session_attach.active()
+    session = session_attach.current()
 
     out = _active_transform(frame, op="filter", predicate=lambda d: d["revenue"] > 10)
 
@@ -679,7 +679,7 @@ def test_persist_transform_frame_updates_delta_alignment_axes(tmp_path):
     from marivo.analysis.intents.transform import _persist_transform_frame
 
     parent = _make_delta_panel(tmp_path)
-    session = session_attach.active()
+    session = session_attach.current()
     axes = {
         "time": {
             "role": "time",
@@ -709,7 +709,7 @@ def test_persist_transform_frame_stores_json_safe_params(tmp_path):
     from marivo.analysis.intents.transform import _persist_transform_frame
 
     parent = _make_delta_panel(tmp_path)
-    session = session_attach.active()
+    session = session_attach.current()
 
     out = _persist_transform_frame(
         session=session,
@@ -1000,7 +1000,7 @@ def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
 
     assert sliced.meta.row_count == 1
     assert sliced.meta.produced_by_job is not None
-    job_record = read_job_record(session_attach.active()._layout, sliced.meta.produced_by_job)
+    job_record = read_job_record(session_attach.current()._layout, sliced.meta.produced_by_job)
     json.dumps(job_record["params"])
     assert job_record["params"]["where"]["event_date"] == "2026-07-01"
 
@@ -1008,7 +1008,7 @@ def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
 def test_transform_dispatcher_persists_handler_result(tmp_path, monkeypatch):
     transform_mod = importlib.import_module("marivo.analysis.intents.transform")
     parent = _make_time_series(tmp_path)
-    session = session_attach.active()
+    session = session_attach.current()
 
     def handler(frame, params):
         assert frame is parent

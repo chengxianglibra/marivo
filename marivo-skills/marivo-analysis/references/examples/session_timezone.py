@@ -19,7 +19,7 @@ ensure_loaded(default_calendar="cn_holidays")
 
 import marivo.analysis as mv  # noqa: E402
 
-active = mv.session.active()
+active = mv.session.current()
 
 assert str(active.tz) == "Asia/Shanghai"
 assert active.default_calendar == "cn_holidays"

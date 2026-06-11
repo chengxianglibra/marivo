@@ -11,7 +11,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.analysis.intents.observe_planner import _validate_field_expr
 

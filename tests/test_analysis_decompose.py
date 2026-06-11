@@ -5,11 +5,11 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     CrossSessionFrameError,
+    NoBackendFactoryError,
     SemanticKindMismatchError,
-    SessionStateError,
 )
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
@@ -273,19 +273,16 @@ def test_decompose_rejects_cross_session_frame():
         session_b.decompose(frame, axis=DimensionRef("bucket"))
 
 
-def test_decompose_archived_session_raises():
-    session = session_attach.get_or_create(name="demo")
+def test_decompose_read_only_session_without_backend_raises():
+    session = session_attach.get_or_create(name="demo", use_datasources=False)
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
-    session_attach.archive("demo")
-    with pytest.raises(SessionStateError):
+    with pytest.raises(NoBackendFactoryError):
         session.decompose(frame, axis=DimensionRef("bucket"))
 
 
-def test_decompose_stale_archived_session_raises():
-    session = session_attach.get_or_create(name="demo")
+def test_decompose_stale_session_without_backend_raises():
+    session = session_attach.get_or_create(name="demo", use_datasources=False)
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
-    session_attach._reset_process_state()
-    session_attach.archive("demo")
-    assert session.state == "active"
-    with pytest.raises(SessionStateError):
+    # Session without backend factory cannot execute decompose intents.
+    with pytest.raises(NoBackendFactoryError):
         session.decompose(frame, axis=DimensionRef("bucket"))

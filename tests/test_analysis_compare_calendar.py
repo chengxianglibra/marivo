@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.calendar.align import _json_key, _local_dates, align_calendar_frames
 from marivo.analysis.calendar.model import Calendar, CalendarEntry, CalendarPolicy
 from marivo.analysis.errors import (
@@ -21,7 +21,7 @@ from marivo.analysis.intents.compare import compare
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
-from marivo.analysis.session.persistence import write_frame_to_disk
+from marivo.analysis.session._runtime import persist_frame
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -118,7 +118,7 @@ def _component_time_series_metric(session, *, ref, rows, component_rows):
             },
         }
     )
-    metric.meta = write_frame_to_disk(session._layout, metric)
+    metric.meta = persist_frame(session, metric)
     component = ComponentFrame(
         _df=pd.DataFrame(component_rows),
         meta=ComponentFrameMeta(
@@ -143,9 +143,9 @@ def _component_time_series_metric(session, *, ref, rows, component_rows):
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session._layout, component)
+    component.meta = persist_frame(session, component)
     metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
-    metric.meta = write_frame_to_disk(session._layout, metric)
+    metric.meta = persist_frame(session, metric)
     return metric
 
 

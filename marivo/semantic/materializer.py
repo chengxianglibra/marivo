@@ -15,7 +15,7 @@ import ibis
 import ibis.expr.types as ir
 from ibis.expr.operations.relations import SQLQueryResult
 
-from marivo.datasource.errors import DatasourceError
+from marivo.datasource.errors import DatasourceConfigError
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import EntityProvenance, FileSourceIR, MetricIR, TableSourceIR
 from marivo.semantic.validator import Registry, Sidecar
@@ -114,7 +114,7 @@ class Materializer:
 
         try:
             table = self._materialize_dataset_source(semantic_id, backend, ds_ir.source)
-        except DatasourceError:
+        except DatasourceConfigError:
             raise
         except SemanticRuntimeError:
             raise

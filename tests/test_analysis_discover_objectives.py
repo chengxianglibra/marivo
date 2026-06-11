@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import DiscoverInsufficientDataError, SemanticKindMismatchError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage

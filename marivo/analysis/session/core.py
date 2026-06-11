@@ -9,12 +9,7 @@ from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from marivo.analysis.session.persistence import (
-    PersistenceLayout,
-    list_job_ids,
-    read_job_record,
-    read_session_meta,
-)
+from marivo.analysis.session._layout import PersistenceLayout, read_job_record
 from marivo.analysis.timezone import resolve_system_timezone
 
 if TYPE_CHECKING:
@@ -42,13 +37,19 @@ if TYPE_CHECKING:
     from marivo.analysis.intents._types import SliceValue
     from marivo.analysis.intents.transform import NormalizeKind
     from marivo.analysis.policies import AlignmentPolicy, PromotionPolicy, SamplingPolicy
+    from marivo.analysis.publish.publish_targets import PublishTarget
+    from marivo.analysis.publish.report_models import (
+        MarivoReportArtifact,
+        ReportPackageValidationResult,
+    )
+    from marivo.analysis.publish.report_publish import PublishReportResult
     from marivo.analysis.refs import ArtifactRef, DimensionRef, MetricRef
+    from marivo.analysis.session._store import SessionStore
     from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
     from marivo.semantic.reader import SemanticProject
 
 SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
-SessionState = Literal["active", "archived"]
 BackendFactory = Callable[[str], Any]
 
 
@@ -72,6 +73,23 @@ class FrameSummaryEntry:
     created_at: str | None
 
 
+@dataclass(frozen=True)
+class ReportRegistration:
+    """Immutable result of persisting a report package under a session.
+
+    Attributes:
+        report_id: The report identifier (generated or user-supplied).
+        package_dir: Absolute path to the on-disk report package directory.
+        entrypoint: The primary entrypoint file name within the package.
+        content_hash: Deterministic ``sha256:`` hash of the package contents.
+    """
+
+    report_id: str
+    package_dir: Path
+    entrypoint: str
+    content_hash: str
+
+
 class Session:
     __slots__ = (
         "_backend_cache",
@@ -83,14 +101,12 @@ class Session:
         "_id",
         "_judgment_store",
         "_judgment_store_unavailable",
-        "_known_calendars",
-        "_known_datasources",
         "_layout",
         "_name",
         "_project_root",
         "_question",
         "_semantic_project",
-        "_state",
+        "_store",
         "_tz",
         "_updated_at",
     )
@@ -102,17 +118,15 @@ class Session:
         question: str | None,
         cwd: Path,
         project_root: Path,
-        state: SessionState,
         created_at: datetime,
         updated_at: datetime,
         backend_factory: BackendFactory | None,
         layout: PersistenceLayout,
         semantic_project: SemanticProject,
+        store: SessionStore,
         tz: tzinfo | None = None,
         default_calendar: str | None = None,
-        known_calendars: set[str] | None = None,
         calendars: Any = None,
-        known_datasources: set[str] | None = None,
         backend_cache: Any = None,
         judgment_store: JudgmentStore | None = None,
         judgment_store_unavailable: bool = False,
@@ -122,17 +136,15 @@ class Session:
         self._question = question
         self._cwd = cwd
         self._project_root = project_root
-        self._state = state
         self._created_at = created_at
         self._updated_at = updated_at
         self._backend_factory = backend_factory
         self._layout = layout
         self._semantic_project = semantic_project
+        self._store = store
         self._tz = tz if tz is not None else resolve_system_timezone().tz
         self._default_calendar = default_calendar
-        self._known_calendars = known_calendars if known_calendars is not None else set()
         self._calendars = calendars
-        self._known_datasources = known_datasources if known_datasources is not None else set()
         self._backend_cache = backend_cache
         self._judgment_store = judgment_store
         self._judgment_store_unavailable = judgment_store_unavailable
@@ -194,16 +206,6 @@ class Session:
         return self._default_calendar
 
     @property
-    def state(self) -> SessionState:
-        return self._state
-
-    @state.setter
-    def state(self, value: SessionState) -> None:
-        if value not in ("active", "archived"):
-            raise ValueError(f"Invalid session state: {value!r}")
-        self._state = value
-
-    @property
     def is_read_only(self) -> bool:
         """Whether this session can execute queries against datasources.
 
@@ -219,8 +221,10 @@ class Session:
         Each entry is a :class:`JobSummary` (id, intent, status, timing, output
         frame ref). For the full record of a single job, use :meth:`job`.
         """
+
         summaries: list[JobSummary] = []
-        for job_id in list_job_ids(self._layout):
+        for row in self._store.list_jobs(self.id):
+            job_id = row["job_id"]
             record = read_job_record(self._layout, job_id)
             summaries.append(
                 JobSummary(
@@ -251,6 +255,14 @@ class Session:
         objects, this returns the complete persisted record including fields
         such as ``params``. Raises if no job with ``job_id`` exists.
         """
+        from marivo.analysis.errors import JobNotFoundError
+
+        row = self._store.get_job(self.id, job_id)
+        if row is None:
+            raise JobNotFoundError(
+                message=f"no job '{job_id}' in session {self.id!r}",
+                details={"session_id": self.id, "job_id": job_id},
+            )
         return read_job_record(self._layout, job_id)
 
     def get_frame(self, ref: str) -> BaseFrame:
@@ -282,13 +294,12 @@ class Session:
         this method includes metric_id, semantic_kind, and other fields
         needed for semantic lookup across script boundaries.
         """
-        if not self._layout.frames_dir.is_dir():
-            return []
         entries: list[FrameSummaryEntry] = []
-        for frame_dir in sorted(self._layout.frames_dir.iterdir()):
-            meta_file = frame_dir / "meta.json"
-            if meta_file.is_file():
-                meta = json.loads(meta_file.read_text())
+        for row in self._store.list_artifacts(self.id):
+            meta_path = row["meta_path"]
+            abs_meta = self._project_root / meta_path
+            if abs_meta.is_file():
+                meta = json.loads(abs_meta.read_text())
                 entries.append(
                     FrameSummaryEntry(
                         ref=meta["ref"],
@@ -299,6 +310,7 @@ class Session:
                         created_at=meta.get("created_at"),
                     )
                 )
+        entries.sort(key=lambda e: (e.created_at or "", e.ref))
         return entries
 
     def close(self) -> None:
@@ -312,6 +324,205 @@ class Session:
             self._judgment_store = None
         if self._backend_cache is not None:
             self._backend_cache.close_all()
+
+    # -- Report methods -----------------------------------------------------
+
+    def save_report(
+        self,
+        artifact: MarivoReportArtifact,
+        *,
+        report_id: str | None = None,
+        adapter: Literal["html", "mcp", "package"] = "html",
+        script_source_dir: str | Path | None = None,
+    ) -> ReportRegistration:
+        """Persist a report package under this session and register it in the store.
+
+        Writes package files first, then registers metadata in the store so
+        that on-disk state and store state are always consistent.
+
+        Args:
+            artifact: The report artifact to persist.
+            report_id: Optional report identifier. When ``None``, a unique id
+                is generated with the ``rpt_`` prefix.
+            adapter: Materialization adapter to use:
+
+                - ``"html"`` writes the canonical package plus ``index.html``
+                  via :func:`materialize_html_adapter`.
+                - ``"mcp"`` writes the canonical package plus MCP adapter files
+                  via :func:`materialize_mcp_adapter`.
+                - ``"package"`` writes only the canonical JSON package via
+                  :func:`write_report_artifact`.
+
+            script_source_dir: Optional directory to resolve script refs from
+                when using the ``"html"`` adapter.
+
+        Returns:
+            A :class:`ReportRegistration` with the report id, package dir,
+            entrypoint, and content hash.
+
+        Raises:
+            ValueError: If *report_id* is supplied but not safe for use as a
+                directory name.
+
+        Example:
+            >>> registration = session.save_report(artifact, adapter="html")
+            >>> registration.report_id
+            'rpt_abc123'
+        """
+        import secrets
+
+        from marivo.analysis.publish.publish_hash import compute_package_hash
+        from marivo.analysis.session._layout import report_dir
+
+        resolved_id = report_id if report_id is not None else f"rpt_{secrets.token_hex(6)}"
+        pkg_dir = report_dir(self._layout, resolved_id)
+
+        # Materialize package files to disk.
+        if adapter == "html":
+            from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
+
+            updated = materialize_html_adapter(
+                artifact,
+                pkg_dir,
+                script_source_dir=script_source_dir,
+            )
+        elif adapter == "mcp":
+            from marivo.analysis.publish.report_mcp_adapter import materialize_mcp_adapter
+
+            updated = materialize_mcp_adapter(artifact, pkg_dir)
+        elif adapter == "package":
+            from marivo.analysis.publish.report_package import write_report_artifact
+
+            write_report_artifact(artifact, pkg_dir)
+            updated = artifact
+        else:
+            raise ValueError(f"unknown adapter: {adapter!r}")
+
+        # Determine the primary entrypoint from the updated manifest.
+        entrypoints = updated.manifest.entrypoints
+        entrypoint = ""
+        if "html" in entrypoints:
+            entrypoint = entrypoints["html"]
+        elif entrypoints:
+            entrypoint = next(iter(entrypoints.values()))
+
+        # Compute package hash after files are written.
+        content_hash = compute_package_hash(pkg_dir)
+
+        # Register in the store after files are on disk.
+        package_dir_relative = self._layout.relative_path(pkg_dir)
+        self._store.record_report(
+            session_id=self.id,
+            report_id=resolved_id,
+            package_dir=package_dir_relative,
+            entrypoint=entrypoint,
+            package_hash=content_hash,
+        )
+
+        return ReportRegistration(
+            report_id=resolved_id,
+            package_dir=pkg_dir,
+            entrypoint=entrypoint,
+            content_hash=content_hash,
+        )
+
+    def validate_report(self, report_id: str) -> ReportPackageValidationResult:
+        """Resolve a registered report's package dir and validate it.
+
+        Args:
+            report_id: The report identifier previously used with
+                :meth:`save_report`.
+
+        Returns:
+            A :class:`~marivo.analysis.publish.ReportPackageValidationResult`
+            indicating whether the package is valid.
+
+        Raises:
+            ReportPublishError: If *report_id* is not registered in this
+                session.
+
+        Example:
+            >>> result = session.validate_report("rpt_abc123")
+            >>> result.ok
+            True
+        """
+        from marivo.analysis.errors import ReportPublishError
+        from marivo.analysis.publish.report_validation import validate_report_artifact
+
+        row = self._store.get_report(self.id, report_id)
+        if row is None:
+            raise ReportPublishError(
+                message=f"report {report_id!r} is not registered in session {self.name!r}",
+                details={"report_id": report_id, "session_name": self.name},
+            )
+
+        package_dir = self._project_root / row["package_dir"]
+        from marivo.analysis.publish.report_package import load_report_artifact
+
+        artifact = load_report_artifact(package_dir)
+        return validate_report_artifact(artifact)
+
+    def publish_report(
+        self,
+        report_id: str,
+        *,
+        exported_by: str | None = None,
+        exported_at: str | None = None,
+        target: str | PublishTarget | None = None,
+        project_root: str | Path | None = None,
+    ) -> PublishReportResult:
+        """Publish a registered session report and record the published URL.
+
+        Resolves the package directory from the store, validates the package,
+        then delegates to the existing publish logic.
+
+        Args:
+            report_id: The report identifier previously used with
+                :meth:`save_report`.
+            exported_by: Exporter name. Defaults to the current OS user.
+            exported_at: ISO-8601 export timestamp. Defaults to now.
+            target: Publish target (a path string for local filesystem, or a
+                :class:`~marivo.analysis.publish.PublishTarget` instance).
+            project_root: Project root for resolving publish config. Defaults
+                to this session's project root.
+
+        Returns:
+            A :class:`~marivo.analysis.publish.PublishReportResult` with the
+            published URI, content hash, exporter info, and file count.
+
+        Raises:
+            ReportPublishError: If *report_id* is not registered in this
+                session.
+            ReportPublishValidationError: If the package fails validation.
+
+        Example:
+            >>> result = session.publish_report("rpt_abc123", target="/published")
+            >>> result.uri
+            'file:///published/...'
+        """
+        from marivo.analysis.errors import ReportPublishError
+        from marivo.analysis.publish.report_publish import publish_report_package
+
+        row = self._store.get_report(self.id, report_id)
+        if row is None:
+            raise ReportPublishError(
+                message=f"report {report_id!r} is not registered in session {self.name!r}",
+                details={"report_id": report_id, "session_name": self.name},
+            )
+
+        package_dir = self._project_root / row["package_dir"]
+        result = publish_report_package(
+            package_dir,
+            exported_by=exported_by,
+            exported_at=exported_at,
+            target=target,
+            project_root=project_root or self._project_root,
+        )
+
+        # Record the published URL in the store.
+        self._store.update_report_published_url(self.id, report_id, result.uri)
+
+        return result
 
     def _evidence_store(self) -> JudgmentStore | None:
         """Return the lazily-opened JudgmentStore, or None if unavailable."""
@@ -1010,15 +1221,21 @@ class Session:
         )
 
 
-def ensure_session_writable(session: Session) -> None:
-    from marivo.analysis.errors import SessionStateError
+def ensure_session_can_execute(session: Session) -> None:
+    """Raise ``NoBackendFactoryError`` when the session has no backend factory."""
+    from marivo.analysis.errors import NoBackendFactoryError
 
-    state = session.state
-    if session._layout.meta_file.is_file():
-        state = read_session_meta(session._layout).get("state", state)
-    if state == "archived":
-        session.state = "archived"
-        raise SessionStateError(message=f"session '{session.name}' is archived")
+    if session.is_read_only:
+        raise NoBackendFactoryError(
+            message=f"session '{session.name}' has no backend factory configured",
+            details={"session_name": session.name},
+        )
+
+
+# Deprecated: kept for backward compatibility with intent modules that import
+# ensure_session_writable. Will be removed once those modules are migrated to
+# ensure_session_can_execute (Task 5).
+ensure_session_writable = ensure_session_can_execute
 
 
 @dataclass(frozen=True)

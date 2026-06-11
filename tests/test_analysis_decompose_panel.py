@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import AxisNotInPanelDimensionsError
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.intents.compare import compare

@@ -5,7 +5,7 @@ These tests verify:
 - Help APIs print bounded help and return None.
 - repr() is one line and points to .show().
 - render() + show() are present and well-behaved.
-- result guidance sections are present and non-empty.
+- available: sections are present and non-empty.
 - Docs teach the no-side-effect result contract.
 - display= parameter is absent.
 - format= is absent from help APIs and skill examples.
@@ -29,7 +29,7 @@ from marivo.analysis.lineage import Lineage
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
-# Minimal project files for tests that need a loaded semantic catalog
+# Minimal project files for tests that need a loaded SemanticProject
 # ---------------------------------------------------------------------------
 
 _DOMAIN_PY = textwrap.dedent("""\
@@ -69,24 +69,20 @@ def _make_project(semantic_project_factory):
     )
 
 
-def _make_catalog(semantic_project_factory):
-    return ms.SemanticCatalog(_make_project(semantic_project_factory))
-
-
 # ---------------------------------------------------------------------------
 # No-stdout contract on public APIs
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_list_metrics_is_silent(semantic_project_factory, capsys) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-    catalog.list("sales", kind="metric")
+def test_list_metrics_is_silent(semantic_project_factory, capsys) -> None:
+    project = _make_project(semantic_project_factory)
+    project.list_metrics()
     assert capsys.readouterr().out == ""
 
 
-def test_catalog_list_datasources_is_silent(semantic_project_factory, capsys) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-    catalog.list(kind="datasource")
+def test_list_datasources_is_silent(semantic_project_factory, capsys) -> None:
+    project = _make_project(semantic_project_factory)
+    project.list_datasources()
     assert capsys.readouterr().out == ""
 
 
@@ -153,12 +149,25 @@ def test_ms_help_raises_on_format_kwarg() -> None:
 
 
 # ---------------------------------------------------------------------------
-# display= absent from catalog browsing
+# display= removed from discovery methods
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_list_no_display_parameter() -> None:
-    sig = inspect.signature(ms.SemanticCatalog.list)
+def test_list_metrics_no_display_parameter(semantic_project_factory) -> None:
+    project = _make_project(semantic_project_factory)
+    sig = inspect.signature(project.list_metrics)
+    assert "display" not in sig.parameters
+
+
+def test_list_models_no_display_parameter(semantic_project_factory) -> None:
+    project = _make_project(semantic_project_factory)
+    sig = inspect.signature(project.list_domains)
+    assert "display" not in sig.parameters
+
+
+def test_list_datasources_no_display_parameter(semantic_project_factory) -> None:
+    project = _make_project(semantic_project_factory)
+    sig = inspect.signature(project.list_datasources)
     assert "display" not in sig.parameters
 
 
@@ -186,12 +195,12 @@ def test_metric_frame_repr_is_one_line() -> None:
     assert "call .show() to inspect" in r
 
 
-def test_semantic_object_list_repr_is_one_line(semantic_project_factory) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales", kind="metric")
+def test_discovery_result_repr_is_one_line(semantic_project_factory) -> None:
+    project = _make_project(semantic_project_factory)
+    result = project.list_metrics()
     r = repr(result)
     assert r.count("\n") == 0
-    assert "SemanticObjectList" in r
+    assert "DiscoveryResult" in r
     assert "call .show() to inspect" in r
 
 
@@ -245,16 +254,18 @@ def test_frame_show_prints_render_plus_newline(capsys) -> None:
     assert captured.out == frame.render() + "\n"
 
 
-def test_semantic_object_list_render_contains_next_steps(semantic_project_factory) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales", kind="metric")
-    assert "next steps:" in result.render()
+def test_discovery_result_render_contains_available(semantic_project_factory) -> None:
+    project = _make_project(semantic_project_factory)
+    result = project.list_metrics()
+    assert "available:" in result.render()
 
 
-def test_semantic_object_list_next_steps_never_none(semantic_project_factory) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales", kind="metric")
-    assert "next steps: none" not in result.render().lower()
+def test_discovery_result_available_never_none(semantic_project_factory) -> None:
+    project = _make_project(semantic_project_factory)
+    result = project.list_metrics()
+    # "available: none" should never appear — the available: section lists
+    # method entries, never the word "none"
+    assert "available: none" not in result.render().lower()
 
 
 def test_readiness_render_contains_available(semantic_project_factory) -> None:

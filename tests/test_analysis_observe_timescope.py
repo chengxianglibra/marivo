@@ -5,7 +5,7 @@ from typing import get_type_hints
 import ibis
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.refs import MetricRef
 from marivo.analysis.windows.spec import GrainInput, TimeScopeInput

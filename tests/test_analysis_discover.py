@@ -7,11 +7,11 @@ import pytest
 from pandas.api.types import is_float_dtype
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     CrossSessionFrameError,
+    NoBackendFactoryError,
     SemanticKindMismatchError,
-    SessionStateError,
 )
 from marivo.analysis.frames.candidate import CandidateSet
 from marivo.analysis.intents._candidate_columns import CANDIDATE_COLUMNS
@@ -234,24 +234,27 @@ def test_discover_rejects_cross_session_frame():
         session_b.discover.point_anomalies(frame)
 
 
-def test_discover_archived_session_raises():
+def test_discover_read_only_session_without_backend_raises():
+    # Create a writable session to build the metric frame first.
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
-    session_attach.archive("demo")
-
-    with pytest.raises(SessionStateError):
-        session.discover.point_anomalies(frame)
-
-
-def test_discover_stale_archived_session_raises():
-    session = session_attach.get_or_create(name="demo")
-    frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
+    # Re-open without backend factory -> read-only.
     session_attach._reset_process_state()
-    session_attach.archive("demo")
-    assert session.state == "active"
+    session_ro = session_attach.get_or_create(name="demo", use_datasources=False)
 
-    with pytest.raises(SessionStateError):
-        session.discover.point_anomalies(frame)
+    with pytest.raises(NoBackendFactoryError):
+        session_ro.discover.point_anomalies(frame)
+
+
+def test_discover_stale_session_without_backend_raises():
+    # Create a writable session to build the metric frame first.
+    session = session_attach.get_or_create(name="demo")
+    frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
+    # Re-open without backend factory -> read-only.
+    session_attach._reset_process_state()
+    session_ro = session_attach.get_or_create(name="demo", use_datasources=False)
+    with pytest.raises(NoBackendFactoryError):
+        session_ro.discover.point_anomalies(frame)
 
 
 def test_detect_is_not_public_api():

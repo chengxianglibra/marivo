@@ -12,7 +12,7 @@ from pathlib import Path
 import ibis
 
 import marivo.semantic as ms
-from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.analysis.datasources.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
 from marivo.semantic.ir import TableSourceIR
 
 
@@ -53,12 +53,13 @@ with tempfile.TemporaryDirectory() as tmp:
     from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject(root=root)
+    project.bind_datasource_access(
+        inspect_source=fake_inspect_source, backend_factory=backend_factory
+    )
 
     pack = project.inspect_source_context(
         datasource="warehouse",
         source=ms.TableSource(table="orders"),
-        inspect_source=fake_inspect_source,
-        backend_factory=backend_factory,
         sample_policy=ms.BoundedProfilePolicy(limit=100, max_profiled_columns=50),
     )
     print("partition hints:", list(pack.partition_hints))
@@ -77,8 +78,6 @@ with tempfile.TemporaryDirectory() as tmp:
             ),
         ),
         semantic_refs=("sales.orders",),
-        inspect_source=fake_inspect_source,
-        backend_factory=backend_factory,
     )
     print("assessment status:", assessment.status)
     print("issue kinds:", [issue.kind for issue in assessment.issues])

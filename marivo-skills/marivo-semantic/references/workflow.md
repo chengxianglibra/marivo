@@ -20,7 +20,7 @@ PY
 Reuse existing semantic refs when their definitions, guardrails, dependencies,
 and provenance match the requested intent. Search before authoring.
 
-After loading the project, collect a
+Bind datasource access once after loading the project, then collect a
 `SourceEvidencePack` for each physical source. Choose the datasource backend
 from the physical source first: use native backends by default (Trino for
 Hive/Iceberg lakehouse, ClickHouse for ClickHouse tables, MySQL for MySQL tables,
@@ -28,9 +28,14 @@ DuckDB for local files). Do not route ClickHouse or MySQL tables through a Trino
 catalog unless the user explicitly requires Trino federation.
 
 ```python
+import marivo.analysis as mv
 import marivo.semantic as ms
 
 project = ms.find_project()
+project.bind_datasource_access(
+    inspect_source=mv.datasources.inspect_source,
+    backend_factory=mv.datasources.build_backend,
+)
 catalog = ms.load()
 pack = project.inspect_source_context(
     datasource="warehouse",
@@ -57,7 +62,7 @@ pack = project.inspect_source_context(
 For Trino without a default schema, pass the schema as `database`:
 
 ```python
-metadata = md.inspect_source(
+metadata = mv.datasources.inspect_source(
     "warehouse",
     source=ms.table("orders", database="sales_mart"),
 )
@@ -86,8 +91,7 @@ about the bounded sample only — never treat them as full-table truth.
 ## Phase 2: Assess and Author Each Candidate Object
 
 Call `project.assess_authoring(...)` before writing each candidate object. It
-collects current source context through the project's datasource access
-(kernel defaults: `md.connect` and `md.inspect_source`),
+collects current source context through the datasource access bound in Phase 1,
 checks the source roles and semantic refs, and returns facts, issues, and
 questions.
 

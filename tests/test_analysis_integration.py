@@ -4,7 +4,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from tests.conftest import bootstrap_sales_project
 
 

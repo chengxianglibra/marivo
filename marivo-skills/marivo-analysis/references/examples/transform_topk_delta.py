@@ -15,7 +15,7 @@ ensure_loaded()
 
 import marivo.analysis as mv  # noqa: E402
 
-session = mv.session.active()
+session = mv.session.current()
 current = session.promote_metric_frame(
     pd.DataFrame(
         {

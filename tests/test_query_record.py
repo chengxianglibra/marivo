@@ -6,7 +6,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.executor.backend import BackendCache
 from marivo.analysis.executor.query_record import (
     QueryExecution,

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import ibis
 
-from marivo.datasource.metadata import ColumnMetadata, TableMetadata
+from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
 from marivo.semantic.dtos import AuthoringSourceInput, BoundedProfilePolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 
@@ -48,13 +48,14 @@ def test_collect_check_author_reload_inspect(tmp_path):
         "md.datasource(warehouse)\n"
     )
     project = SemanticProject(workspace_dir=tmp_path)
+    project.bind_datasource_access(
+        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
+    )
 
     # 1. collect source evidence
     project.inspect_source_context(
         datasource="warehouse",
         source=TableSource(table="orders"),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
         sample_policy=BoundedProfilePolicy(limit=50),
     )
 
@@ -69,8 +70,6 @@ def test_collect_check_author_reload_inspect(tmp_path):
                 source=TableSource(table="orders"),
             ),
         ),
-        inspect_source=_fake_inspect_source,
-        backend_factory=_backend_factory,
     )
     assert dataset_check.status == "supported"
 

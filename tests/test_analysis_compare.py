@@ -5,13 +5,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyValidationError,
     ComponentFrameUnavailableError,
     SemanticKindMismatchError,
-    SessionStateError,
 )
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
@@ -19,7 +18,7 @@ from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import MetricRef
-from marivo.analysis.session.persistence import read_frame_from_disk
+from marivo.analysis.session._layout import read_frame_from_disk
 from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import make_metric_frame
 
@@ -703,19 +702,21 @@ def test_compare_works_in_read_only_session(tmp_path):
     assert isinstance(d, DeltaFrame)
 
 
-def test_compare_archived_session_raises_for_cached_session(tmp_path):
+def test_compare_works_in_read_only_session_no_backend(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     a = observe(MetricRef("sales.revenue"), session=s)
     b = observe(MetricRef("sales.revenue"), session=s)
-    session_attach.archive("demo")
-    with pytest.raises(SessionStateError):
-        compare(a, b, session=s)
+    # Re-open session without backend -> read-only, but compare still works.
+    session_attach._reset_process_state()
+    s_ro = session_attach.get_or_create(name="demo", use_datasources=False)
+    d = compare(a, b, session=s_ro)
+    assert isinstance(d, DeltaFrame)
 
 
-def test_compare_stale_archived_session_raises(tmp_path):
+def test_compare_works_after_archive_reopen(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
@@ -723,10 +724,11 @@ def test_compare_stale_archived_session_raises(tmp_path):
     a = observe(MetricRef("sales.revenue"), session=s)
     b = observe(MetricRef("sales.revenue"), session=s)
     session_attach._reset_process_state()
-    session_attach.archive("demo")
-    assert s.state == "active"
-    with pytest.raises(SessionStateError):
-        compare(a, b, session=s)
+    # Re-open without backends; compare still works since it only needs
+    # persisted frame data, not a live backend connection.
+    s_ro = session_attach.get_or_create(name="demo", use_datasources=False)
+    d = compare(a, b, session=s_ro)
+    assert isinstance(d, DeltaFrame)
 
 
 def test_compare_component_aware_scalar_missing_component_ref_fails_closed(tmp_path):

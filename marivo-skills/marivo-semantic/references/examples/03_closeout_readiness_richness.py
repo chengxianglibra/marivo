@@ -8,9 +8,10 @@ from pathlib import Path
 
 import ibis
 
+import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.analysis.datasources.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
 from marivo.semantic.ir import TableSourceIR
 
 DOMAIN = """
@@ -109,18 +110,23 @@ with tempfile.TemporaryDirectory() as tmp:
     previous = Path.cwd()
     try:
         os.chdir(root)
-        md.register(md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)))
+        mv.datasources.register(
+            md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path))
+        )
         from marivo.semantic.reader import SemanticProject
 
         project = SemanticProject(root=root / ".marivo" / "semantic")
         project.load()
 
+        project.bind_datasource_access(
+            inspect_source=fake_inspect_source,
+            backend_factory=mv.datasources.build_backend,
+        )
+
         # inspect_source_context folds source inspection and bounded preview
         pack = project.inspect_source_context(
             datasource="warehouse",
             source=ms.TableSource(table="orders"),
-            inspect_source=fake_inspect_source,
-            backend_factory=md.connect,
             sample_policy=ms.BoundedProfilePolicy(limit=100, max_profiled_columns=50),
         )
         print("source schema columns:", len(pack.schema))

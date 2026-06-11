@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.frames.metric import MetricFrame
 from tests.shared_fixtures import make_metric_frame
 
@@ -33,7 +33,7 @@ def _metric(session, df: pd.DataFrame, *, semantic_kind: str = "time_series") ->
 
 
 def test_discover_point_anomalies_populates_surface1_and_anomaly_findings() -> None:
-    session = session_attach.create(name="discover_evidence")
+    session = session_attach.get_or_create(name="discover_evidence")
     frame = _metric(
         session,
         pd.DataFrame({"bucket": ["a", "b", "c", "d"], "value": [-100.0, 0.0, 0.0, 100.0]}),
@@ -64,7 +64,7 @@ def test_discover_point_anomalies_populates_surface1_and_anomaly_findings() -> N
 
 
 def test_discover_non_anomaly_objective_commits_without_seeding() -> None:
-    session = session_attach.create(name="discover_other_evidence")
+    session = session_attach.get_or_create(name="discover_other_evidence")
     frame = _metric(
         session,
         pd.DataFrame({"country": ["US", "CA", "JP"], "value": [100.0, 1.0, 1.0]}),

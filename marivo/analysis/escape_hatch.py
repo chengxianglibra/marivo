@@ -26,15 +26,13 @@ from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy, PromotionPolicy
 from marivo.analysis.refs import ArtifactRef, DimensionRef, MetricRef
 from marivo.analysis.session._load import load_frame
-from marivo.analysis.session.attach import active as active_session
+from marivo.analysis.session._runtime import persist_frame, require_current_session
 from marivo.analysis.session.core import ensure_session_writable
-from marivo.analysis.session.persistence import write_frame_to_disk
 from marivo.analysis.windows import (
     AbsoluteWindow,
     dump_window,
     normalize_absolute_window_input,
 )
-from marivo.semantic._registry_bridge import get_metric_ir, iter_metric_irs
 
 if TYPE_CHECKING:
     from marivo.analysis.session.core import Session
@@ -43,7 +41,7 @@ SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
 
 def _resolve_session(session: Session | None) -> Session:
-    return session if session is not None else active_session()
+    return session if session is not None else require_current_session()
 
 
 def _new_frame_ref() -> str:
@@ -151,12 +149,12 @@ def _validate_metric_in_catalog(
     sp = getattr(session, "_semantic_project", None)
     if sp is None or not sp.is_ready():
         return
-    available_metric_ids = sorted(ir.semantic_id for ir in iter_metric_irs(sp))
+    available_metric_ids = sorted(ir.semantic_id for ir in sp.list_metrics())
     # An empty workspace loads as "ready" with zero metrics; promotion in
     # catalog-less sessions stays unvalidated.
     if not available_metric_ids:
         return
-    if get_metric_ir(sp, metric_id) is not None:
+    if sp.get_metric(metric_id) is not None:
         return
     raise PromotionFailedError(
         message=f"cannot promote scratch result to {target_kind}",
@@ -522,7 +520,7 @@ def from_pandas(
     scratch = ExplorationResult(_df=copied, meta=meta)
     scratch.meta = cast(
         "ExplorationResultMeta",
-        write_frame_to_disk(resolved_session._layout, scratch),
+        persist_frame(resolved_session, scratch),
     )
     return scratch
 
@@ -592,7 +590,7 @@ def explore_ibis(
     scratch = ExplorationResult(_df=copied, meta=meta)
     scratch.meta = cast(
         "ExplorationResultMeta",
-        write_frame_to_disk(resolved_session._layout, scratch),
+        persist_frame(resolved_session, scratch),
     )
     return scratch
 
@@ -743,7 +741,7 @@ def promote_metric_frame(
     frame = MetricFrame(_df=df, meta=meta)
     frame.meta = cast(
         "MetricFrameMeta",
-        write_frame_to_disk(resolved_session._layout, frame),
+        persist_frame(resolved_session, frame),
     )
     return frame
 
@@ -968,7 +966,7 @@ def promote_delta_frame(
     frame = DeltaFrame(_df=df, meta=meta)
     frame.meta = cast(
         "DeltaFrameMeta",
-        write_frame_to_disk(resolved_session._layout, frame),
+        persist_frame(resolved_session, frame),
     )
     return frame
 
@@ -1073,6 +1071,6 @@ def promote_attribution_frame(
     frame = AttributionFrame(_df=df, meta=meta)
     frame.meta = cast(
         "AttributionFrameMeta",
-        write_frame_to_disk(resolved_session._layout, frame),
+        persist_frame(resolved_session, frame),
     )
     return frame

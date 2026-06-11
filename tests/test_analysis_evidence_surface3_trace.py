@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from tests.test_analysis_evidence_surface3 import _compare, _session
 
 

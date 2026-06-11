@@ -5,12 +5,12 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import ComponentFrameUnavailableError
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
-from marivo.analysis.session.persistence import write_frame_to_disk
+from marivo.analysis.session._runtime import persist_frame
 
 
 @pytest.fixture(autouse=True)
@@ -95,7 +95,7 @@ def test_load_frame_round_trips_component_frame():
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session._layout, component)
+    component.meta = persist_frame(session, component)
 
     loaded = session.get_frame(component.ref)
 
@@ -130,7 +130,7 @@ def test_metric_frame_components_loads_linked_component_frame():
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session._layout, component)
+    component.meta = persist_frame(session, component)
     parent = MetricFrame(
         _df=pd.DataFrame({"failure_rate": [0.5]}),
         meta=MetricFrameMeta(
@@ -294,7 +294,7 @@ def test_metric_frame_components_fallback_to_deterministic_ref():
             decomposition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
         ),
     )
-    parent.meta = write_frame_to_disk(session._layout, parent)
+    parent.meta = persist_frame(session, parent)
 
     # Create the ComponentFrame at the deterministic ref
     det_ref = make_component_artifact_id(parent_artifact_id)
@@ -319,7 +319,7 @@ def test_metric_frame_components_fallback_to_deterministic_ref():
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session._layout, component)
+    component.meta = persist_frame(session, component)
 
     # components() should fall back to the deterministic ref
     loaded = parent.components()

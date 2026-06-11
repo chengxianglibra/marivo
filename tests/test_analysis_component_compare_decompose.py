@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     ComponentDecompositionError,
     ComponentFrameMismatchError,
@@ -17,7 +17,7 @@ from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import DimensionRef
-from marivo.analysis.session.persistence import write_frame_to_disk
+from marivo.analysis.session._runtime import persist_frame
 
 
 @pytest.fixture(autouse=True)
@@ -66,7 +66,7 @@ def _component_aware_metric(
             decomposition={"kind": decomposition_kind, "components": component_map},
         ),
     )
-    metric.meta = write_frame_to_disk(session._layout, metric)
+    metric.meta = persist_frame(session, metric)
     component = ComponentFrame(
         _df=pd.DataFrame(component_rows),
         meta=ComponentFrameMeta(
@@ -88,9 +88,9 @@ def _component_aware_metric(
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session._layout, component)
+    component.meta = persist_frame(session, component)
     metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
-    metric.meta = write_frame_to_disk(session._layout, metric)
+    metric.meta = persist_frame(session, metric)
     return metric
 
 
@@ -131,7 +131,7 @@ def _component_aware_metric_with_axes(
             decomposition={"kind": decomposition_kind, "components": component_map},
         ),
     )
-    metric.meta = write_frame_to_disk(session._layout, metric)
+    metric.meta = persist_frame(session, metric)
     component = ComponentFrame(
         _df=pd.DataFrame(component_rows),
         meta=ComponentFrameMeta(
@@ -153,9 +153,9 @@ def _component_aware_metric_with_axes(
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session._layout, component)
+    component.meta = persist_frame(session, component)
     metric.meta = metric.meta.model_copy(update={"component_ref": component.ref})
-    metric.meta = write_frame_to_disk(session._layout, metric)
+    metric.meta = persist_frame(session, metric)
     return metric
 
 
@@ -267,7 +267,7 @@ def test_compare_component_aware_metric_missing_component_frame_fails_closed():
             },
         ),
     )
-    baseline.meta = write_frame_to_disk(session._layout, baseline)
+    baseline.meta = persist_frame(session, baseline)
 
     with pytest.raises(ComponentFrameUnavailableError):
         session.compare(current, baseline)
@@ -843,7 +843,7 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             },
         ),
     )
-    compared.meta = write_frame_to_disk(session._layout, compared)
+    compared.meta = persist_frame(session, compared)
     component = ComponentFrame(
         _df=pd.DataFrame(
             [
@@ -886,9 +886,9 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             semantic_model="sales",
         ),
     )
-    component.meta = write_frame_to_disk(session._layout, component)
+    component.meta = persist_frame(session, component)
     compared.meta = compared.meta.model_copy(update={"component_ref": component.ref})
-    compared.meta = write_frame_to_disk(session._layout, compared)
+    compared.meta = persist_frame(session, compared)
 
     attribution = session.decompose(compared, axis=DimensionRef("bucket_start"))
 

@@ -148,29 +148,38 @@ The loader may still execute sibling Python files as a lower-level capability, b
 
 ## Reader / Introspection
 
-Reader 层让 agent 通过 `ms.load()` 获取明确的 `SemanticCatalog`，而不是重新解析文件或依赖进程全局状态：
+Reader 层让 agent 和 `analysis` 读取明确的 `SemanticProject`，而不是重新解析文件或依赖进程全局状态：
 
 ```python
 import marivo.semantic as ms
 
-catalog = ms.load()
-catalog.list().show()
-catalog.list("sales", kind="metric").show()
-print(catalog.get("sales.revenue").details())
+project = ms.find_project()
+if project is None:
+    raise SystemExit("No .marivo/semantic project found")
+
+project.list_models()
+project.search("revenue")
+print(project.dependencies("sales.revenue"))
+print(project.describe("sales.revenue", compile_sql=True))
 ```
 
-目标态 reader / introspection surface 以 catalog methods 为主：
+目标态 reader / introspection surface 以 project methods 为主：
 
 | API | 语义 |
 | --- | --- |
-| `ms.load(workspace_dir=None)` | 加载项目并返回 `SemanticCatalog`；失败时抛 typed load error |
-| `catalog.list(parent=None, kind=None)` | 浏览顶层 domain/datasource，或浏览 domain/entity 下的对象 |
-| `catalog.get(ref)` | 按完整 semantic ref 读取单个对象 |
-| `object.details()` | 读取 kind-specific 结构化详情，包括上下游 refs、ai_context、source location |
+| `ms.find_project(start_dir=".")` | 从 `start_dir` 向上查找最近的 `.marivo/semantic/`，找到则返回 `SemanticProject`，否则返回 `None` |
+| `project.list_models(display=True)` | 列出已加载 model |
+| `project.list_datasources(display=True)` | 列出 `model.datasource` |
+| `project.list_datasets(model=None, display=True)` | 列出 dataset，可按 model 过滤 |
+| `project.list_metrics(dataset=None, decomposition=None, provenance_status=None, display=True)` | 列出 metric，可按 dataset、decomposition 或可信状态过滤 |
+| `project.search(query, kind=None, display=True)` | 确定性搜索对象 |
+| `project.dependencies(name)` | 返回某个对象的上游 datasource / dataset / field / metric / relationship 依赖图 |
+| `project.dependents(name)` | 返回依赖某个对象的下游对象，供 agent 判断修改影响面 |
+| `project.describe(name, compile_sql=False, format="object")` | 读取 datasource / dataset / metric 的结构化摘要，可选择编译 SQL |
 | `project.materialize_dataset(name, backend_factory=...)` | 物化 dataset 到 Ibis table |
 | `project.materialize_field(name, backend_factory=...)` | 物化 field 到 Ibis expression |
 | `project.materialize_metric(name, backend_factory=...)` | 物化 metric 到 Ibis expression |
-| `SemanticProject.load()` | 内部 lifecycle/authoring entrypoint；消费侧浏览不直接使用 |
+| `project.load()` | 重新加载该项目 |
 | `project.richness(demand=None)` | 返回纯 advisory 的 demand-ranked semantic coverage/depth gap report，不阻塞 readiness |
 
 `project.richness(...)` returns a `RichnessReport`; callers seed ranking with
@@ -183,9 +192,11 @@ API 形态。`ms.help()` 打印帮助文本并返回 None。
 `ms.help("constraints")` 是 authoring / validation
 约束目录的统一入口，不另设并行 helper。
 
-`find_project()` 的 project 判定只要求 `.marivo/semantic/` 目录存在。空目录也算语义项目：`SemanticProject` 可返回；`ms.load()` 在空 registry 上返回可浏览但为空的 catalog。如果 `.marivo/semantic` 存在但不是目录，必须 fail closed。
+`find_project()` 的 project 判定只要求 `.marivo/semantic/` 目录存在。空目录也算语义项目：`SemanticProject` 可返回，load 后 registry 为 `ready`，`list_models()` 返回 `[]`。如果 `.marivo/semantic` 存在但不是目录，必须 fail closed。
 
-`catalog.list(...)` 不做 embedding 或语义相似度匹配。它要求 parent 使用完整 semantic ref；顶层列出 domain/datasource，domain 下列出 entity/metric，entity 下列出 dimension/time_dimension/relationship/metric。程序化消费使用 `.refs()` 或 `.objects`；需要文本时显式调用 `.show()`。
+`project.search(query, kind=None)` 不做 embedding 或语义相似度匹配。它在 `semantic_id`、`name`、`description`、`ai_context.business_definition`、`ai_context.synonyms` 和 `ai_context.examples` 上做大小写不敏感的子串匹配；结果按字段优先级、semantic id 字典序稳定排序。这样 agent 可以写可预测断言，而不是依赖不可复现的模糊召回。
+
+`project.list_*()` 和 `project.search(...)` 默认把结果打印成稳定的纯文本表格，同时仍返回结构化对象列表。程序化消费返回值时传 `display=False`，避免污染 stdout，例如 `[m.semantic_id for m in project.list_metrics(display=False)]`。
 
 `describe(..., format="object")` 返回结构化 dataclass / dict，而不是只打印文本。最小字段包括 `semantic_id`、`kind`、`domain`、`description`、`business_definition`、`guardrails`、`parity_status`、`compiled_sql`、`compile_error`、`source_sql`、`dependencies`、`dependents`、`python_symbol`、`source_location` 和 `unit`。对于 metric 对象，`unit` 字段来自 `MetricIR.unit`（默认 `None`）。`format="text"` 只作为人类阅读糖；agent 默认消费结构化对象。
 
@@ -200,22 +211,21 @@ Inspection is explicit:
 - `result.render()` — return the same bounded text without writing stdout
 - `repr(result)` — one-line cold-start hint pointing to `.show()`
 
-Catalog browse methods return `SemanticObjectList`, not raw lists. Use
-`.refs()` for common agent access patterns, `.objects` for structured objects,
-and `.show()` only when text output is desired.
+Discovery methods (`list_metrics()`, `search()`, etc.) return
+`DiscoveryResult[T]`, not raw lists. Use `.ids()`, `.first()`, and
+`.require_one()` for common agent access patterns.
 
 ## Materialization
 
-Materialization 层把已注册的 Python 函数重新组合成 Ibis 对象。Preview, readiness, and evidence paths default to opening project datasources via `md.connect` and close every backend they opened before returning; an explicitly passed `backend_factory` overrides the default and its connection lifecycle stays with the caller. `materialize_*` returns live ibis expressions and therefore always requires an explicit `backend_factory` owned by the caller (`backend_factory=md.connect` works; the caller disconnects). `bind_datasource_access` no longer exists.
+Materialization 层把已注册的 Python 函数重新组合成 Ibis 对象。调用方提供 `backend_factory(datasource_name)`，语义层不自己构造连接：
 
 ```python
 import marivo.semantic as ms
-import marivo.datasource as md
 
 project = ms.SemanticProject(root=".marivo/semantic")
 expr = project.materialize_metric(
     "sales.revenue",
-    backend_factory=md.connect,
+    backend_factory=lambda datasource_name: con,
 )
 value = expr.execute()
 ```
@@ -246,7 +256,7 @@ project = SemanticProject(root="/path/to/.marivo/semantic")
 
 ### Model
 
-model 是业务域边界，例如 `sales`、`marketing`、`subscription`。model 名称参与下游 semantic id，例如 `sales.revenue`。agent 不应用自然语言近似匹配替代 model id；如果不确定，应先 `catalog.list()` / `catalog.get(...)`。
+model 是业务域边界，例如 `sales`、`marketing`、`subscription`。model 名称参与下游 semantic id，例如 `sales.revenue`。agent 不应用自然语言近似匹配替代 model id；如果不确定，应先 `project.list_models()` / `project.describe(...)`。
 
 当前标准 authoring pipeline 不要求 `_exports.py`。跨 model 或前向引用无法自然使用
 decorated Python ref 时，使用当前实现格式的字符串 ref，例如
@@ -666,7 +676,7 @@ if result.errors:
 
 ### 2. 声明最小业务对象
 
-新增 metric 时的最小 happy path 是 datasource、dataset、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `md.inspect_source(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
+新增 metric 时的最小 happy path 是 datasource、dataset、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `mv.datasources.inspect_source(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
 
 新建 metric 可以省略 provenance 并自动进入 `unverified`，但 agent 不能把它当作完成状态。若同一 PR 新增多个 unverified metrics，应停下来确认业务来源；CI 可用 `--strict-provenance` 禁止 unverified metric 合入。
 
@@ -868,7 +878,7 @@ typed frames + session persistence + lineage
 - decorators：`domain`、`datasource`、`entity`、`dimension`、`time_dimension`、`metric`、`relationship`。
 - builders：`sum`、`ratio`、`weighted_average`、`ref`。
 - loader：model 目录扫描、`_domain.py` 优先执行、sibling files 排序执行、re-load 清理项目模块。
-- reader/introspection：`ms.load()`、`SemanticCatalog.list()`、`SemanticCatalog.get()`、`ms.help()`。消费侧 browse 不再暴露 `SemanticProject.list_*`。
+- reader/introspection：`list_models`、`list_datasources`、`list_datasets`、`list_metrics`、`describe`、`help`。v1 现状的 reader 是 module-level free functions，依赖 context-local active project；v1.1 全部迁移到 `SemanticProject` methods（参见上方 §Reader / Introspection），free function 形态仅作为有显式 active project 的 REPL 糖保留。
 - materialization：dataset、field、metric 到 Ibis object。
 - validation：metric body AST 约束、missing refs、time prefix、relationship endpoint/columns/arity。
 - SQL provenance：`source_sql`、`source_dialect`、`source_document`、`source_notes`。
@@ -893,7 +903,7 @@ typed frames + session persistence + lineage
 - Derived metric 的有效 parity status 从自身 provenance 和 components status 中取更弱者。
 - Datasource 和 relationship 改为顶级 metadata call，不再要求无意义 function body。
 - Relationship join keys 改为 dimension/time_dimension refs；裸字符串 `from_columns` / `to_columns` 不再是目标态契约。
-- Reader 主 API 迁移到 `SemanticCatalog`；materialization/preview/readiness 继续由 `SemanticProject` lifecycle 支撑。
+- Reader / materialization 主 API 迁移到 `SemanticProject` methods；free functions 只保留为有显式 active project 的 REPL sugar。
 - Metric provenance status 始终存在；authoring-time 缺省为 `unverified`，promotion / strict CI / analysis consumption 前必须提升为 SQL triple 或 `python_native`。
 - Parity status 成为 metric / frame / describe 的可见属性。
 - Dimension / time_dimension 不要求 provenance status；缺失 provenance 在 describe 中显示为 `null`。
@@ -902,8 +912,9 @@ typed frames + session persistence + lineage
 - `check` 缺省向上查找 `.marivo/semantic/`，支持 `--strict-provenance`，并默认提示字符串 refs。
 - 提供 semantic refactor rename 工具，减少 agent 手工重命名字符串 refs。
 - Loader 采用 two-pass collect / resolve；合法 ref 不受 sibling filename sort order 影响。
-- `ms.load()` 向上解析项目根并返回 `SemanticCatalog`，作为 agent 进入新 repo 的第一步。
-- Reader 通过 `catalog.list(parent, kind=...)` 和 `catalog.get(ref).details()` 暴露结构化对象、依赖 refs、source location 和 parity status。
+- `find_project()` 向上查找 `.marivo/semantic/`，作为 agent 进入新 repo 的第一步。
+- Reader 增加 `search`、`dependencies`、`dependents` 和更丰富的 `list_metrics` 过滤。
+- `describe(..., compile_sql=True)` 返回结构化对象，包含 Ibis repr、compiled SQL、source SQL、dependencies、source location 和 parity status；`format="text"` 只作阅读糖。
 - `name=` 是 semantic identity；Python 符号名只是 local alias，check/describe 显示二者映射。
 - structured errors 提供 error kind 到 agent action 的稳定映射。
 - `ai_context` 收敛为固定 schema，适用于所有语义对象，至少包含 `business_definition` 和 `guardrails`；禁止不可消费的自由 dict。

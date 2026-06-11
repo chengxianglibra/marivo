@@ -25,13 +25,16 @@ from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.session.attach import active as session_active
+from marivo.analysis.session._runtime import (
+    persist_job_record,
+    register_frame_artifact,
+    require_current_session,
+)
 from marivo.analysis.session.core import Session
-from marivo.analysis.session.persistence import write_job_record
 
 
 def resolve_session(session: Session | None) -> Session:
-    return session if session is not None else session_active()
+    return session if session is not None else require_current_session()
 
 
 def gen_ref(prefix: str) -> str:
@@ -161,9 +164,10 @@ def persist_attribution_frame(
             seeding_context={"observed_window": None},
         ),
     )
+    register_frame_artifact(session, frame)
     _captured_queries = session._backend_cache.take_captured_queries()
-    write_job_record(
-        session._layout,
+    persist_job_record(
+        session,
         {
             "id": job_ref,
             "session_id": session.id,

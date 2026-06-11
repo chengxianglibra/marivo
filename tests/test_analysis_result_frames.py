@@ -3,11 +3,11 @@ from datetime import UTC, datetime
 import pandas as pd
 
 import marivo.analysis as mv
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.session.persistence import write_frame_to_disk
+from marivo.analysis.session._runtime import persist_frame
 
 
 def _now():
@@ -66,7 +66,7 @@ def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
             params={"threshold": 3.0},
         ),
     )
-    frame.meta = write_frame_to_disk(session._layout, frame)
+    frame.meta = persist_frame(session, frame)
 
     loaded = session.get_frame("frame_candidates")
 
@@ -96,7 +96,7 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
             correlation=0.75,
         ),
     )
-    frame.meta = write_frame_to_disk(session._layout, frame)
+    frame.meta = persist_frame(session, frame)
 
     loaded = session.get_frame("frame_assoc")
 

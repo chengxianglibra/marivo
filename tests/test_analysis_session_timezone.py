@@ -1,11 +1,21 @@
 """Session timezone contract: system resolver, no timezone= kwarg."""
 
+import json
 from zoneinfo import ZoneInfo
 
 import pytest
 
-import marivo.analysis.session.attach as session_attach
-from marivo.analysis.session.persistence import read_session_meta, write_session_meta
+import marivo.analysis.session as session_attach
+
+
+def _read_session_meta(session: object) -> dict:
+    layout = session._layout  # type: ignore[attr-defined]
+    return json.loads((layout.session_dir / "meta.json").read_text())
+
+
+def _write_session_meta(session: object, meta: dict) -> None:
+    layout = session._layout  # type: ignore[attr-defined]
+    (layout.session_dir / "meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True))
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +32,7 @@ def test_create_uses_system_timezone(monkeypatch):
 
     assert s.tz == ZoneInfo("Asia/Shanghai")
     assert s.default_calendar == "cn_holidays"
-    meta = read_session_meta(s._layout)
+    meta = _read_session_meta(s)
     assert meta["tz"] == "Asia/Shanghai"
     assert meta["tz_resolution"] == "iana"
     assert meta["tz_warning"] is None
@@ -33,23 +43,23 @@ def test_session_helpers_reject_timezone_kwarg():
     with pytest.raises(TypeError):
         session_attach.get_or_create(name="demo", timezone="UTC")  # type: ignore[call-arg]
     with pytest.raises(TypeError):
-        session_attach.create(name="fresh", timezone="UTC")  # type: ignore[call-arg]
+        session_attach.get_or_create(name="fresh", timezone="UTC")  # type: ignore[call-arg]
 
 
 def test_attach_legacy_meta_preserves_existing_audit_timezone(monkeypatch):
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     s = session_attach.get_or_create(name="demo")
-    meta = read_session_meta(s._layout)
+    meta = _read_session_meta(s)
     meta["tz"] = "UTC"
     meta.pop("tz_resolution", None)
     meta.pop("tz_warning", None)
-    write_session_meta(s._layout, meta)
+    _write_session_meta(s, meta)
     session_attach._reset_process_state()
 
     attached = session_attach.get_or_create(name="demo")
 
     assert attached.tz == ZoneInfo("Asia/Shanghai")
-    upgraded = read_session_meta(attached._layout)
+    upgraded = _read_session_meta(attached)
     assert upgraded["tz"] == "Asia/Shanghai"
     assert upgraded["previous_tz"] == "UTC"
 

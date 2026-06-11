@@ -438,7 +438,8 @@ def test_render_report_html_keeps_audit_details_after_main_sections() -> None:
 
 
 def test_materialize_html_adapter_writes_index_and_canonical_package(tmp_path) -> None:
-    from marivo.analysis.publish import load_report_artifact, materialize_html_adapter
+    from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
+    from marivo.analysis.publish.report_package import load_report_artifact
 
     artifact = _html_artifact()
     updated = materialize_html_adapter(artifact, tmp_path)
@@ -459,7 +460,7 @@ def test_materialize_html_adapter_writes_index_and_canonical_package(tmp_path) -
 
 
 def test_materialize_html_adapter_preserves_existing_non_html_entrypoints(tmp_path) -> None:
-    from marivo.analysis.publish import materialize_html_adapter
+    from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
 
     artifact = _html_artifact()
     artifact = artifact.model_copy(
@@ -565,7 +566,7 @@ def test_render_report_html_renders_inline_source_code() -> None:
 def test_materialize_html_adapter_does_not_write_manifest_if_index_write_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from marivo.analysis.publish import materialize_html_adapter
+    from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
 
     original_write_text = Path.write_text
 
@@ -947,7 +948,7 @@ def _artifact_with_script_refs(
 
 
 def test_materialize_copies_scripts_when_source_dir_provided(tmp_path: Path) -> None:
-    from marivo.analysis.publish import materialize_html_adapter
+    from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
 
     artifact = _artifact_with_script_refs(
         flow_script_refs=("scripts/step_observe.py",),
@@ -966,7 +967,7 @@ def test_materialize_copies_scripts_when_source_dir_provided(tmp_path: Path) -> 
 
 
 def test_materialize_no_scripts_without_source_dir(tmp_path: Path) -> None:
-    from marivo.analysis.publish import materialize_html_adapter
+    from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
 
     artifact = _artifact_with_script_refs(
         flow_script_refs=("scripts/step_observe.py",),
@@ -978,7 +979,7 @@ def test_materialize_no_scripts_without_source_dir(tmp_path: Path) -> None:
 
 
 def test_materialize_removes_stale_scripts_on_re_run(tmp_path: Path) -> None:
-    from marivo.analysis.publish import materialize_html_adapter
+    from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
 
     source_dir = tmp_path / "source"
     (source_dir / "scripts").mkdir(parents=True)
@@ -1005,7 +1006,7 @@ def test_materialize_removes_stale_scripts_on_re_run(tmp_path: Path) -> None:
 def test_materialize_warns_on_missing_source_script(tmp_path: Path) -> None:
     import warnings
 
-    from marivo.analysis.publish import materialize_html_adapter
+    from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
 
     source_dir = tmp_path / "source"
     (source_dir / "scripts").mkdir(parents=True)
@@ -1026,7 +1027,7 @@ def test_materialize_warns_on_missing_source_script(tmp_path: Path) -> None:
 def test_materialize_skips_path_traversal_script_ref(tmp_path: Path) -> None:
     import warnings
 
-    from marivo.analysis.publish import materialize_html_adapter
+    from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
 
     source_dir = tmp_path / "source"
     (source_dir / "scripts").mkdir(parents=True)

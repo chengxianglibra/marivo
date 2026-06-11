@@ -521,7 +521,7 @@ marivo/analysis/evidence/
 
 ```text
 <project_root>/.marivo/analysis/
-  ├── active
+  ├── analysis.db                       # SQLite: session index, artifacts, jobs, current_session_id
   └── sessions/<session_id>/
       ├── meta.json                    # session metadata
       ├── jobs/<job_id>.json           # existing analysis job records
@@ -691,7 +691,7 @@ Surface 1 字段在 SQLite 的落点对应关系：
 - WAL 模式启用，允许多 reader + 1 writer
 - 同一 session 同时被多进程持有 writer 锁会 `SQLITE_BUSY` → 抛 `SessionLockedByAnotherProcess(AnalysisError)`
 - **不支持** 多 writer 协同写同一 session
-- **不支持** 跨 session attach-mode 查询；每 session 独立 db，跨 session 查询不在 scope
+- **不支持** 跨 session 查询；每 session 独立 db，跨 session 查询不在 scope
 
 ### 不写入 judgment.db 的内容
 

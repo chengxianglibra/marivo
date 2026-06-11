@@ -3,7 +3,7 @@ from pathlib import Path
 import ibis
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import PropositionNotFoundError
 from marivo.analysis.evidence.types import Assessment, Finding, Proposition, Subject
 from tests.conftest import bootstrap_sales_project
@@ -30,12 +30,14 @@ def _seed(con: ibis.BaseBackend) -> None:
 
 
 def _session(tmp_path: Path, *, name: str = "t"):
-    import marivo.analysis.session.attach as attach
+    import marivo.analysis.session as session_mod
 
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     bootstrap_sales_project(tmp_path)
-    return attach.create(name=name, backends={"warehouse": lambda: con}, use_datasources=False)
+    return session_mod.get_or_create(
+        name=name, backends={"warehouse": lambda: con}, use_datasources=False
+    )
 
 
 def _compare(session):

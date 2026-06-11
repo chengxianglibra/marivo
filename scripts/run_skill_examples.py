@@ -26,9 +26,9 @@ _TEMPLATE_MARKER = "# marivo-example: template"
 _TEMPLATE_REQUIRED_SNIPPETS = (
     "marivo.semantic",
     "marivo.analysis",
-    "ms.load()",
-    "catalog.list(",
-    'kind="metric"',
+    "ms.find_project()",
+    "project.load()",
+    "project.list_metrics()",
     "mv.session.get_or_create(",
     "default_calendar=",
     "session.observe(",
@@ -97,7 +97,7 @@ def _execute_example_in_process(example: Path) -> tuple[int, str, str]:
     os.chdir(example.parent)
 
     try:
-        import marivo.analysis.session.attach as session_attach
+        import marivo.analysis.session as session_attach
 
         session_attach._reset_process_state()
         stdout_buf = io.StringIO()

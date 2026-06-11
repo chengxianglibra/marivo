@@ -31,7 +31,13 @@
 ## Collecting Evidence
 
 ```python
-# Source evidence (defaults to md.inspect_source and md.connect)
+# Bind datasource access once after loading the project
+project.bind_datasource_access(
+    inspect_source=mv.datasources.inspect_source,
+    backend_factory=mv.datasources.build_backend,
+)
+
+# Source evidence
 pack = project.inspect_source_context(
     datasource="warehouse",
     source=ms.TableSource(table="orders"),

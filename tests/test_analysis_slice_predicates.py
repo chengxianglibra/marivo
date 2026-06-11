@@ -2,11 +2,10 @@
 
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.errors import SliceInvalidError
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.refs import DimensionRef, MetricRef
-from marivo.analysis.session.persistence import read_session_meta
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
 
@@ -120,5 +119,6 @@ def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
             session=session,
         )
 
-    assert session._known_datasources == set()
-    assert read_session_meta(session._layout)["known_datasources"] == []
+    # No frames or jobs should be persisted since observe failed.
+    assert len(session.frame_summaries()) == 0
+    assert len(session.jobs()) == 0

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from marivo.semantic._registry_bridge import get_entity_ir, get_metric_ir
 from marivo.semantic.errors import SemanticLoadFailed
 
 
@@ -23,7 +22,7 @@ def test_base_metric_requires_additivity(semantic_project_factory):
     )
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        get_metric_ir(project, "sales.revenue")
+        project.get_metric("sales.revenue")
 
     error = exc_info.value.errors[0]
     assert error.kind == "missing_metric_additivity"
@@ -50,7 +49,7 @@ def test_single_dataset_metric_defaults_root_dataset(semantic_project_factory):
         }
     )
 
-    metric = get_metric_ir(project, "sales.revenue")
+    metric = project.get_metric("sales.revenue")
     assert metric is not None
     assert metric.additivity == "additive"
     assert metric.root_entity == "sales.orders"
@@ -78,7 +77,7 @@ def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_fa
     )
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        get_metric_ir(project, "sales.revenue")
+        project.get_metric("sales.revenue")
 
     error = exc_info.value.errors[0]
     assert error.kind == "missing_metric_root_dataset"
@@ -107,7 +106,7 @@ def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory)
         }
     )
 
-    metric = get_metric_ir(project, "sales.revenue")
+    metric = project.get_metric("sales.revenue")
     assert metric is not None
     assert metric.root_entity == "sales.orders"
 
@@ -137,7 +136,7 @@ def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_proje
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        get_metric_ir(project, "sales.bad_user_sum")
+        project.get_metric("sales.bad_user_sum")
 
     error = exc_info.value.errors[0]
     assert error.kind == "non_root_metric_aggregate"
@@ -168,7 +167,7 @@ def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
         }
     )
 
-    dataset = get_entity_ir(project, "sales.user_profile_daily")
+    dataset = project.get_entity("sales.user_profile_daily")
     assert dataset is not None
     assert dataset.versioning is not None
     assert dataset.versioning.kind == "snapshot"

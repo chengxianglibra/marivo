@@ -53,14 +53,13 @@ from marivo.analysis.intents.observe_planner import (
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.refs import DimensionRef, MetricRef
 from marivo.analysis.session._load import load_frame
-from marivo.analysis.session.attach import active as session_active
-from marivo.analysis.session.core import Session, ensure_session_writable
-from marivo.analysis.session.persistence import (
-    read_session_meta,
-    write_frame_to_disk,
-    write_job_record,
-    write_session_meta,
+from marivo.analysis.session._runtime import (
+    persist_frame,
+    persist_job_record,
+    register_frame_artifact,
+    require_current_session,
 )
+from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.windows.grain import ensure_grain_supported
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
@@ -69,14 +68,6 @@ from marivo.analysis.windows.spec import (
     dump_window,
     make_absolute_window,
     normalize_timescope_input,
-)
-from marivo.semantic._registry_bridge import (
-    get_entity_ir,
-    get_metric_ir,
-    iter_all_dimension_irs,
-    iter_entity_irs,
-    iter_metric_irs,
-    iter_time_dimension_irs,
 )
 
 # ---------------------------------------------------------------------------
@@ -172,9 +163,7 @@ def _build_dataset_adapter(
 
     # Build field adapters for this dataset
     field_adapters: dict[str, _DimensionIRAdapter] = {}
-    for field_ir in iter_all_dimension_irs(sp, entity=dataset_ir.semantic_id):
-        if field_ir.is_time_dimension:
-            continue
+    for field_ir in sp.list_dimensions(entity=dataset_ir.semantic_id):
         field_fn = sidecar.get(field_ir.semantic_id) if sidecar else None
         _captured_field_sid = field_ir.semantic_id
 
@@ -191,7 +180,7 @@ def _build_dataset_adapter(
         field_adapters[field_ir.name] = adapter
 
     # Add time fields
-    for tf_ir in iter_time_dimension_irs(sp, entity=dataset_ir.semantic_id):
+    for tf_ir in sp.list_time_dimensions(entity=dataset_ir.semantic_id):
         tf_fn = sidecar.get(tf_ir.semantic_id) if sidecar else None
         _captured_tf_sid = tf_ir.semantic_id
 
@@ -314,7 +303,7 @@ def _persist_metric_component_frame(
             semantic_model=parent.meta.semantic_model,
         ),
     )
-    component.meta = cast("ComponentFrameMeta", write_frame_to_disk(session._layout, component))
+    component.meta = cast("ComponentFrameMeta", persist_frame(session, component))
     return component
 
 
@@ -331,7 +320,7 @@ def _attach_metric_component_ref(
             "decomposition": _decomposition_payload(metric_ir),
         }
     )
-    parent.meta = cast("MetricFrameMeta", write_frame_to_disk(session._layout, parent))
+    parent.meta = cast("MetricFrameMeta", persist_frame(session, parent))
     return parent
 
 
@@ -525,7 +514,7 @@ def _execute_base(
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "scalar"
 
     if is_time_series and resolved_window is not None and resolved_dimensions:
-        root_ds_ir = get_entity_ir(sp, plan.root_entity)
+        root_ds_ir = sp.get_entity(plan.root_entity)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
         time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
         if resolved_window.grain is not None:
@@ -599,7 +588,7 @@ def _execute_base(
         }
         semantic_kind = "panel"
     elif is_time_series and resolved_window is not None:
-        root_ds_ir = get_entity_ir(sp, plan.root_entity)
+        root_ds_ir = sp.get_entity(plan.root_entity)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
         time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
         if resolved_window.grain is not None:
@@ -725,7 +714,7 @@ def _execute_derived(
         table = cp.base_plan.table
         if has_time:
             assert resolved_window is not None  # narrowing: has_time implies resolved_window is set
-            root_ds_ir = get_entity_ir(sp, cp.base_plan.root_entity)
+            root_ds_ir = sp.get_entity(cp.base_plan.root_entity)
             root_adapter = _build_dataset_adapter(sp, root_ds_ir)
             time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
             if resolved_window.grain is not None:
@@ -767,7 +756,9 @@ def _execute_derived(
             cache=session._backend_cache,
             session_id=session.id,
         ).df
-        session._known_datasources.add(cp.base_plan.datasource_name)
+        # Note: datasource tracking was previously persisted to meta.json
+        # via session._known_datasources; this is no longer needed as
+        # session metadata lives in the SQLite store.
         if has_time and "bucket_start" in df:
             df["bucket_start"] = ensure_bucket_start_timestamp(
                 df["bucket_start"],
@@ -827,7 +818,7 @@ def _execute_derived(
     axes: dict[str, Any] = {}
     if has_time and plan.component_plans and resolved_window is not None:
         first_cp = plan.component_plans[0]
-        root_ds_ir = get_entity_ir(sp, first_cp.base_plan.root_entity)
+        root_ds_ir = sp.get_entity(first_cp.base_plan.root_entity)
         root_adapter = _build_dataset_adapter(sp, root_ds_ir)
         time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
         axes["time"] = {
@@ -875,7 +866,7 @@ def observe(
     session: Session | None = None,
 ) -> MetricFrame:
     if session is None:
-        session = session_active()
+        session = require_current_session()
     ensure_session_writable(session)
     if not isinstance(metric, MetricRef):
         raise SemanticKindMismatchError(
@@ -903,9 +894,9 @@ def observe(
     if not sp.is_ready():
         sp.load()
     metric_semantic_id = f"{model_name}.{metric_name}"
-    metric_ir = get_metric_ir(sp, metric_semantic_id)
+    metric_ir = sp.get_metric(metric_semantic_id)
     if metric_ir is None:
-        available_ids = sorted(m.semantic_id for m in iter_metric_irs(sp))
+        available_ids = sorted(m.semantic_id for m in sp.list_metrics())
         raise MetricNotFoundError(
             message=f"metric '{metric_id}' not found",
             hint="Check <project_root>/.marivo/semantic/.",
@@ -953,7 +944,10 @@ def observe(
         # Build dataset adapters for all entities in the project so the planner
         # can resolve component metrics that span different entities.
         all_dataset_irs: dict[str, _EntityIRAdapter] = {}
-        for ds_ir in iter_entity_irs(sp):
+        for ds_summary in sp.list_entities():
+            ds_ir = sp.get_entity(ds_summary.semantic_id)
+            if ds_ir is None:
+                continue
             all_dataset_irs[ds_ir.semantic_id] = _build_dataset_adapter(sp, ds_ir)
         all_dataset_fns = {ds_id: adapter.fn for ds_id, adapter in all_dataset_irs.items()}
 
@@ -1010,7 +1004,6 @@ def observe(
             session=session,
             resolved_window=resolved_window,
         )
-        _persist_known_datasources(session)
         finished_at = datetime.now(UTC)
         frame_ref = _gen_ref("frame")
         job_ref = _gen_ref("job")
@@ -1071,8 +1064,8 @@ def observe(
             )
         _captured_queries = session._backend_cache.take_captured_queries()
         _output_ref = frame.meta.artifact_id or frame.ref
-        write_job_record(
-            session._layout,
+        persist_job_record(
+            session,
             {
                 "id": job_ref,
                 "session_id": session.id,
@@ -1097,7 +1090,7 @@ def observe(
     # --- Base (non-derived) metric path: route through planner ---
     # Build dataset adapters for all metric entities
     for entity_name in metric_datasets:
-        entity_ir = get_entity_ir(sp, entity_name)
+        entity_ir = sp.get_entity(entity_name)
         if entity_ir is None:
             raise MetricNotFoundError(
                 message=f"entity '{entity_name}' not found for metric '{metric_id}'",
@@ -1106,20 +1099,20 @@ def observe(
         dataset_irs[entity_name] = _build_dataset_adapter(sp, entity_ir)
 
     # Add entities required by explicit dimensions/where
-    for dim_ir in iter_all_dimension_irs(sp):
+    for dim_ir in [*sp.list_dimensions(), *sp.list_time_dimensions()]:
         if (
             dimensions
             and any(dim.semantic_id == dim_ir.semantic_id for dim in dimension_refs)
             and dim_ir.entity not in dataset_irs
         ):
-            extra_entity_ir = get_entity_ir(sp, dim_ir.entity)
-            if extra_entity_ir is not None:
-                dataset_irs[dim_ir.entity] = _build_dataset_adapter(sp, extra_entity_ir)
+            ds_ir = sp.get_entity(dim_ir.entity)
+            if ds_ir is not None:
+                dataset_irs[dim_ir.entity] = _build_dataset_adapter(sp, ds_ir)
         for raw_key in where_by_id or {}:
             if raw_key == dim_ir.semantic_id and dim_ir.entity not in dataset_irs:
-                extra_entity_ir = get_entity_ir(sp, dim_ir.entity)
-                if extra_entity_ir is not None:
-                    dataset_irs[dim_ir.entity] = _build_dataset_adapter(sp, extra_entity_ir)
+                ds_ir = sp.get_entity(dim_ir.entity)
+                if ds_ir is not None:
+                    dataset_irs[dim_ir.entity] = _build_dataset_adapter(sp, ds_ir)
 
     dataset_fns = {dataset_id: adapter.fn for dataset_id, adapter in dataset_irs.items()}
 
@@ -1135,8 +1128,6 @@ def observe(
         time_dimension=time_dimension_id,
     )
     primary_datasource = plan.datasource_name
-    session._known_datasources.add(primary_datasource)
-    _persist_known_datasources(session)
 
     if primary_datasource is None:
         raise MetricNotFoundError(message=f"metric '{metric_id}' references no datasets")
@@ -1233,8 +1224,8 @@ def observe(
 
     _captured_queries = session._backend_cache.take_captured_queries()
     _output_ref = frame.meta.artifact_id or frame.ref
-    write_job_record(
-        session._layout,
+    persist_job_record(
+        session,
         {
             "id": job_ref,
             "session_id": session.id,
@@ -1255,13 +1246,6 @@ def observe(
     return frame
 
 
-def _persist_known_datasources(session: Session) -> None:
-    meta = read_session_meta(session._layout)
-    meta["known_datasources"] = sorted(session._known_datasources)
-    meta["updated_at"] = datetime.now(UTC).isoformat()
-    write_session_meta(session._layout, meta)
-
-
 def _commit_observe_metric_frame(
     *,
     session: Session,
@@ -1274,7 +1258,7 @@ def _commit_observe_metric_frame(
     subject_grain: str | None = None,
 ) -> MetricFrame:
     """Commit an observe MetricFrame through the evidence pipeline (shared tail)."""
-    return cast(
+    result = cast(
         "MetricFrame",
         commit_result(
             store=session._evidence_store(),
@@ -1295,6 +1279,8 @@ def _commit_observe_metric_frame(
             extractor_family="metric_frame",
         ),
     )
+    register_frame_artifact(session, result)
+    return result
 
 
 def _analysis_axis_for_kind(

@@ -38,10 +38,6 @@ The public Marivo surface is the Python library:
 - `marivo.semantic`
 - `marivo.analysis`
 
-Datasource declaration, management, connection, secrets, and table metadata all
-live in `marivo.datasource`; `marivo.analysis` no longer exposes a datasources
-namespace.
-
 Rules for this surface:
 
 - Python-track expressions return ibis expressions only. Do not introduce raw
@@ -51,7 +47,7 @@ Rules for this surface:
   `marivo/semantic/validator.py`.
 - Expression-bearing semantic decorators keep provenance kwargs such as
   `source_sql` and `source_definition`.
-- New exceptions subclass `SemanticError`, `AnalysisError`, or `DatasourceError`, carry structured
+- New exceptions subclass `SemanticError` or `AnalysisError`, carry structured
   fields, and render through the shared template style.
 - Top-level Frame APIs remain immutable. Only `frame.to_pandas()` returns an
   isolated copy.

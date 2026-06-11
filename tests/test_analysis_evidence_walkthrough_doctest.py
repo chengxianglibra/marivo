@@ -10,7 +10,7 @@ import ibis
 import pytest
 
 import marivo.analysis as ap
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from tests.conftest import bootstrap_sales_project
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -54,7 +54,7 @@ def _create_walkthrough_session(project_root: Path) -> ap.session.attach.Session
     bootstrap_sales_project(project_root)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
-    return ap.session.create(
+    return ap.session.get_or_create(
         name="walkthrough",
         backends={"warehouse": lambda: con},
         use_datasources=False,

@@ -7,7 +7,7 @@ import sqlite3
 import pandas as pd
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from marivo.analysis.frames.metric import MetricFrame
 from tests.shared_fixtures import make_metric_frame
 
@@ -32,7 +32,7 @@ def _metric(session, df: pd.DataFrame, *, metric_id: str) -> MetricFrame:
 
 
 def test_correlate_populates_surface1_and_correlation_finding() -> None:
-    session = session_attach.create(name="correlate_evidence")
+    session = session_attach.get_or_create(name="correlate_evidence")
     revenue = _metric(
         session,
         pd.DataFrame(

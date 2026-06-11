@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-import marivo.analysis.session.attach as session_attach
+import marivo.analysis.session as session_attach
 from tests.shared_fixtures import seeded_time_series_metric_frame
 
 
@@ -18,7 +18,7 @@ def _chdir(tmp_path, monkeypatch):
 
 
 def test_assess_quality_populates_surface1_without_findings_or_followups() -> None:
-    session = session_attach.create(name="quality_evidence")
+    session = session_attach.get_or_create(name="quality_evidence")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
 
     quality = session.assess_quality(frame)

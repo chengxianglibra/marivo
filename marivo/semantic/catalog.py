@@ -440,9 +440,6 @@ class SemanticObjectList:
     def __getitem__(self, index: int) -> SemanticObject:
         return self._items[index]
 
-    def __repr__(self) -> str:
-        return f"<SemanticObjectList items={len(self._items)}; call .show() to inspect>"
-
     def render(self) -> str:
         """Return bounded plain-text browsing card without a trailing newline."""
         lines: list[str] = []
@@ -1132,11 +1129,13 @@ def load(
         Raises a typed load error on failure. Does not return a partial catalog.
         Does not print to stdout.
     """
-    from marivo.project import resolve_project_root
+    import os
+
     from marivo.semantic.reader import SemanticProject
 
     if workspace_dir is None:
-        workspace_dir = resolve_project_root()
+        env = os.environ.get("MARIVO_PROJECT_ROOT")
+        workspace_dir = env if env else Path.cwd()
 
     project = SemanticProject(workspace_dir=workspace_dir)
     result = project.load()
