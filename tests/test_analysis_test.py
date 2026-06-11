@@ -11,9 +11,8 @@ from marivo.analysis.errors import (
     TestPolicyError,
     TestShapeNotTestableError,
 )
-from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.session._load import load_frame
-from tests.shared_fixtures import seeded_time_series_metric_frame
+from tests.shared_fixtures import make_metric_frame, seeded_time_series_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +49,7 @@ def _metric_frame(
     window=None,
 ):
     df = pd.DataFrame(rows)
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         df,
         metric_id=metric_id,
         axes=axes or {"time": {"role": "time", "field": "time", "grain": "day"}},

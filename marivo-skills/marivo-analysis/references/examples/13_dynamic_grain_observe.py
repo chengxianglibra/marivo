@@ -4,9 +4,9 @@ When to use: you need a time-series at a specific granularity.
   - Day or coarser grains use a legacy string: ``grain="day"``.
   - Sub-day single-unit grains use ``grain="hour"`` when the time field
     has hour-level or finer base granularity.
-  - Dynamic sub-day grains (multi-bucket) use ``grain=(5, "minute")`` or
-    ``grain=Grain(count=5, unit="minute")`` when the time field has
-    minute-level or finer base granularity.
+  - Dynamic sub-day grains (multi-bucket) use token strings such as
+    ``grain="5minute"`` when the time field has minute-level or finer base
+    granularity.
 
 The tiny fixture in this example uses a day-granularity time field, so
 only day grain is demonstrated with a live call.  Sub-day patterns are
@@ -23,12 +23,11 @@ from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 ensure_loaded()
 
 import marivo.analysis as mv  # noqa: E402
-from marivo.analysis import Grain  # noqa: E402
 
 session = mv.session.active()
 
-# --- Legacy string grain (day or coarser) -----------------------------
-# Single-unit calendar grains use the legacy string form.
+# --- String grain (day or coarser) ------------------------------------
+# Single-unit calendar grains use the token string form.
 # This works with the tiny fixture's day-granularity time field.
 series_day = session.observe(
     mv.MetricRef(METRIC_ID),
@@ -38,37 +37,13 @@ series_day = session.observe(
 
 print(f"day_series_kind={series_day.meta.semantic_kind!r}")
 
-# --- Grain object ----------------------------------------------------
-# The same day grain expressed as a typed Grain object.
-series_day_obj = session.observe(
-    mv.MetricRef(METRIC_ID),
-    timescope={"start": "2026-07-01", "end": "2026-10-01"},
-    grain=Grain(count=1, unit="day"),
-)
-
-print(f"day_obj_kind={series_day_obj.meta.semantic_kind!r}")
-
 # --- Dynamic sub-day grain patterns (API reference) ------------------
 # The patterns below require a time field with minute-level or finer base
 # granularity (e.g. ``granularity="minute"`` on a timestamp column).
 # The tiny fixture uses day-level granularity, so these calls are shown
 # as reference patterns that would work with a suitable semantic model.
 
-# (count, unit) tuple: 5-minute buckets (288 per day).
-# series_5min = session.observe(
-#     mv.MetricRef("ops.hits"),
-#     timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
-#     grain=(5, "minute"),
-# )
-
-# Grain object: same 5-minute grain with typed constructor.
-# series_5min_obj = session.observe(
-#     mv.MetricRef("ops.hits"),
-#     timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
-#     grain=Grain(count=5, unit="minute"),
-# )
-
-# Grain token string: shorthand form for sub-day multi-bucket grains.
+# Grain token string: sub-day multi-bucket grains.
 # series_5min_token = session.observe(
 #     mv.MetricRef("ops.hits"),
 #     timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
@@ -85,7 +60,7 @@ print(f"day_obj_kind={series_day_obj.meta.semantic_kind!r}")
 # --- Base granularity rule -------------------------------------------
 # If the requested grain is finer than the time field's base granularity,
 # the planner raises GrainUnsupportedError.  For example:
-#   - Requesting grain=(5, "minute") on a day-level time field is rejected.
+#   - Requesting grain="5minute" on a day-level time field is rejected.
 #   - Requesting grain="hour" on a date-type time field is rejected
 #     unless the time field declares granularity="hour" with required_prefix.
 

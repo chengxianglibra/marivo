@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.frames.metric import MetricFrame
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -20,7 +21,7 @@ def _chdir(tmp_path, monkeypatch):
 
 def _metric(session, values: list[float]) -> MetricFrame:
     times = pd.date_range("2026-01-01", periods=len(values), freq="D")
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         pd.DataFrame({"time": times, "value": values}),
         metric_id="sales.revenue",
         axes={"time": {"role": "time", "field": "time", "grain": "day"}},

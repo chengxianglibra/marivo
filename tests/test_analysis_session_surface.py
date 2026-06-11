@@ -141,7 +141,6 @@ def test_help_session_lists_object_methods():
         "promote_attribution_frame",
         "jobs",
         "recent_jobs",
-        "frames",
         "job",
         "is_read_only",
         "close",
@@ -154,6 +153,18 @@ def test_help_session_lists_object_methods():
     assert data["constraints"]
     assert data["content"]["constraints"]
     assert "Constraints:" in mv.help_text("session")
+
+
+def test_session_namespaces_are_typed_helpers_only(tmp_path, monkeypatch):
+    session = _session(tmp_path, monkeypatch)
+
+    assert not callable(session.discover)
+    assert callable(session.discover.point_anomalies)
+    assert callable(session.discover.driver_axes)
+
+    assert not callable(session.transform)
+    assert callable(session.transform.topk)
+    assert callable(session.transform.slice)
 
 
 def test_help_session_lists_identity_fields():

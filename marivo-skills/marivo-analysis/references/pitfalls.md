@@ -4,10 +4,9 @@ Use this file when a Marivo Python analysis script fails with a structured
 exception. Fix the smallest script and re-run it with the active Python
 environment where `marivo` is installed.
 
-Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`,
-`mv.AlignmentPolicy(...)`, and `mv.LagPolicy(...)` at public operator
-boundaries. Do not pass bare strings directly to `observe`, `decompose`, or
-calendar-backed `compare`.
+Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`, and
+`mv.AlignmentPolicy(...)` at public operator boundaries. Do not pass bare
+strings directly to `observe`, `decompose`, or calendar-backed `compare`.
 
 ## Wrong Python environment
 
@@ -288,7 +287,6 @@ correlation = session.correlate(
     a,
     b,
     alignment=mv.AlignmentPolicy(kind="window_bucket"),
-    lag_policy=mv.LagPolicy(mode="single", offset=0),
 )
 assert correlation.meta.kind == "association_result"
 ```

@@ -68,7 +68,7 @@ def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
     )
     frame.meta = write_frame_to_disk(session._layout, frame)
 
-    loaded = mv.load_frame("frame_candidates", session=session)
+    loaded = session.get_frame("frame_candidates")
 
     assert isinstance(loaded, CandidateSet)
     assert loaded.meta.kind == "candidate_set"
@@ -98,7 +98,7 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
     )
     frame.meta = write_frame_to_disk(session._layout, frame)
 
-    loaded = mv.load_frame("frame_assoc", session=session)
+    loaded = session.get_frame("frame_assoc")
 
     assert isinstance(loaded, AssociationResult)
     assert loaded.meta.kind == "association_result"

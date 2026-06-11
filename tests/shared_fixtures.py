@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 import tempfile
 from contextlib import suppress
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, Literal
 
 import duckdb
 import ibis
@@ -19,6 +21,61 @@ import ibis
 # copies rebuild automatically.
 
 _SALES_ORDERS_V = "v1"
+
+
+def make_metric_frame(
+    df: Any,
+    *,
+    metric_id: str,
+    axes: dict[str, Any],
+    measure: dict[str, Any],
+    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
+    semantic_model: str,
+    window: object | None = None,
+    where: dict[str, Any] | None = None,
+    session: Any,
+) -> Any:
+    """Create a persisted MetricFrame for tests without exposing a public constructor."""
+    from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+    from marivo.analysis.lineage import Lineage, LineageStep
+    from marivo.analysis.session.core import ensure_session_writable
+    from marivo.analysis.session.persistence import write_frame_to_disk
+    from marivo.analysis.windows import dump_window, normalize_absolute_window_input
+
+    ensure_session_writable(session)
+    resolved_window = normalize_absolute_window_input(window)
+    frame_ref = f"frame_{secrets.token_hex(4)}"
+    meta = MetricFrameMeta(
+        kind="metric_frame",
+        ref=frame_ref,
+        session_id=session.id,
+        project_root=str(session.project_root),
+        produced_by_job=None,
+        created_at=datetime.now(UTC),
+        row_count=len(df),
+        byte_size=0,
+        lineage=Lineage(
+            steps=[
+                LineageStep(
+                    intent="test_make_metric_frame",
+                    job_ref=None,
+                    inputs=[],
+                    params_digest="test",
+                )
+            ],
+            external_inputs=[frame_ref],
+        ),
+        metric_id=metric_id,
+        axes=axes,
+        measure=measure,
+        window=dump_window(resolved_window),
+        where=where or {},
+        semantic_kind=semantic_kind,
+        semantic_model=semantic_model,
+    )
+    frame = MetricFrame(_df=df.copy(), meta=meta)
+    frame.meta = write_frame_to_disk(session._layout, frame)
+    return frame
 
 
 def _template_cache_dir() -> Path:
@@ -177,8 +234,6 @@ def seeded_time_series_metric_frame(
     import numpy as np
     import pandas as pd
 
-    from marivo.analysis.frames.metric import MetricFrame
-
     rng = np.random.default_rng(seed)
     freq_by_grain = {"day": "D", "week": "W-MON"}
     if grain not in freq_by_grain:
@@ -213,7 +268,7 @@ def seeded_time_series_metric_frame(
             "dimensions": [{"field": "segment"}],
         }
 
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         pd.DataFrame(rows),
         metric_id="sales.revenue",
         axes=axes,

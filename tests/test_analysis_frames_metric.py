@@ -9,6 +9,7 @@ import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import SessionStateError
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
+from tests.shared_fixtures import make_metric_frame
 
 
 def _now():
@@ -64,8 +65,8 @@ def test_metric_frame_wraps_df_and_meta():
     assert list(mf.columns) == ["bucket", "value"]
 
 
-def test_from_dataframe_creates_external_entry(tmp_path):
-    """from_dataframe marks lineage with external_inputs."""
+def test_make_metric_frame_creates_external_entry(tmp_path):
+    """test helper marks lineage with external_inputs."""
 
     df = pd.DataFrame({"region": ["a", "b"], "value": [1.0, 2.0]})
 
@@ -81,7 +82,7 @@ def test_from_dataframe_creates_external_entry(tmp_path):
         lineage=Lineage(
             steps=[
                 LineageStep(
-                    intent="from_dataframe",
+                    intent="test helper",
                     job_ref=None,
                     inputs=[],
                     params_digest="external",
@@ -102,13 +103,13 @@ def test_from_dataframe_creates_external_entry(tmp_path):
     assert "frame_external_001" in mf.meta.lineage.external_inputs
 
 
-def test_from_dataframe_persists_external_frame(tmp_path, monkeypatch):
+def test_make_metric_frame_persists_external_frame(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
     s = session_attach.get_or_create(name="demo")
     df = pd.DataFrame({"region": ["north"], "value": [1.0]})
 
-    mf = MetricFrame.from_dataframe(
+    mf = make_metric_frame(
         df,
         metric_id="custom.metric",
         axes={"segment": {"column": "region"}},
@@ -123,13 +124,13 @@ def test_from_dataframe_persists_external_frame(tmp_path, monkeypatch):
     assert (s._layout.frames_dir / mf.ref / "data.parquet").is_file()
 
 
-def test_from_dataframe_rejects_archived_session(tmp_path, monkeypatch):
+def test_make_metric_frame_rejects_archived_session(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
     s = session_attach.get_or_create(name="demo")
     session_attach.archive("demo")
     with pytest.raises(SessionStateError):
-        MetricFrame.from_dataframe(
+        make_metric_frame(
             pd.DataFrame({"value": [1.0]}),
             metric_id="custom.metric",
             axes={},

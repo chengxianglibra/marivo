@@ -10,6 +10,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.frames.metric import MetricFrame
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -20,7 +21,7 @@ def _chdir(tmp_path, monkeypatch):
 
 
 def _metric(session, df: pd.DataFrame, *, semantic_kind: str = "time_series") -> MetricFrame:
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         df,
         metric_id="sales.revenue",
         axes={},
@@ -38,10 +39,8 @@ def test_discover_point_anomalies_populates_surface1_and_anomaly_findings() -> N
         pd.DataFrame({"bucket": ["a", "b", "c", "d"], "value": [-100.0, 0.0, 0.0, 100.0]}),
     )
 
-    candidates = session.discover(
+    candidates = session.discover.point_anomalies(
         frame,
-        objective="point_anomalies",
-        strategy="zscore",
         threshold=1.0,
     )
 
@@ -72,9 +71,8 @@ def test_discover_non_anomaly_objective_commits_without_seeding() -> None:
         semantic_kind="segmented",
     )
 
-    candidates = session.discover(
+    candidates = session.discover.interesting_slices(
         frame,
-        objective="interesting_slices",
         search_space=[mv.DimensionRef("country")],
         threshold=1.0,
     )

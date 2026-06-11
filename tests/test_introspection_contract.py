@@ -308,14 +308,10 @@ def test_unknown_symbol_returns_descriptor_with_suggestion() -> None:
 def test_no_inherited_or_module_docstring_leaks() -> None:
     assert _json_help(mv, "AlignmentPolicy").get("doc", "") != inspect.getdoc(object)
 
-    original_doc = mv.load_frame.__doc__
-    mv.load_frame.__doc__ = None
-    try:
-        data = _json_help(mv, "load_frame")
-        assert data.get("doc", "") == ""
-        assert "Marivo Python-native analysis runtime" not in data.get("doc", "")
-    finally:
-        mv.load_frame.__doc__ = original_doc
+    data = _json_help(mv, "load_frame")
+    assert data["kind"] == "unknown"
+    assert data.get("doc", "") == ""
+    assert "Marivo Python-native analysis runtime" not in data.get("doc", "")
 
 
 def test_semantic_catalog_descriptor_lists_agent_workflow_methods() -> None:

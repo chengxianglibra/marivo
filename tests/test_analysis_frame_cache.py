@@ -348,16 +348,16 @@ def test_compare_derived_metric_delta_components_after_cache_hit(tmp_path):
     assert isinstance(delta_comp2, ComponentFrame)
 
 
-# --- session.frames (existing API, smoke test) ---
+# --- session.frame_summaries smoke test ---
 
 
-def test_frames_returns_refs(tmp_path):
+def test_frame_summaries_returns_refs(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = _make_session(tmp_path, con)
 
     s.observe(mv.MetricRef("sales.revenue"))
 
-    refs = s.frames()
+    refs = s.frame_summaries()
     assert len(refs) >= 1
     assert all(r.ref and r.kind for r in refs)

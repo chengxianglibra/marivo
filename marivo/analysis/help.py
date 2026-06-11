@@ -44,12 +44,12 @@ _FRAME_SYMBOLS: set[str] = {
 }
 
 _CONSTRUCTED_BY: dict[str, str] = {
-    "MetricFrame": "session.observe(...), MetricFrame.from_dataframe(...)",
+    "MetricFrame": "session.observe(...), session.promote_metric_frame(...)",
     "DeltaFrame": "session.compare(...)",
     "AttributionFrame": "session.decompose(...)",
     "ForecastFrame": "session.forecast(...)",
     "QualityReport": "session.assess_quality(...)",
-    "CandidateSet": "session.discover(...)",
+    "CandidateSet": "session.discover.<objective>(...)",
     "AssociationResult": "session.correlate(...)",
     "ComponentFrame": "MetricFrame.components(), DeltaFrame.components()",
     "ExplorationResult": "analysis exploration intents",
@@ -64,7 +64,6 @@ _SUMMARIES: dict[str, str] = {
     "evidence": "analysis evidence DTOs and session knowledge helpers",
     "errors": "AnalysisError hierarchy and analysis error kinds",
     "frames": "analysis frame and frame metadata types",
-    "load_frame": "load a persisted frame by ref",
     "observe": "build a MetricFrame from a metric and window",
     "compare": "compare two MetricFrames into a DeltaFrame",
     "decompose": "decompose a DeltaFrame into an AttributionFrame",
@@ -84,7 +83,6 @@ _SUMMARIES: dict[str, str] = {
     "BaseFrameMeta": "shared metadata model available as frame.meta",
     "FrameSummary": "stable structured return from frame.summary()",
     "FramePreview": "bounded structured return from frame.preview()",
-    "FrameRecord": "persisted frame listing row returned by Session.frames()",
     "FrameSummaryEntry": "rich persisted frame metadata returned by Session.frame_summaries()",
     "Lineage": "ordered provenance for an analysis frame",
     "LineageStep": "single lineage step within a frame provenance chain",
@@ -110,10 +108,6 @@ _SUMMARIES: dict[str, str] = {
     "DimensionRef": "semantic dimension ref for observe and decompose",
     "DiscoverSensitivity": "literal values for discover sensitivity parameter",
     "FollowupAction": "recommended follow-up action attached to frame meta",
-    "Grain": "structured time grain with count and unit",
-    "GrainInput": "accepted grain input types (Grain, token, tuple, or None)",
-    "GrainUnit": "literal values for Grain.unit field",
-    "LagPolicy": "lag policy for aligned comparisons",
     "MetricRef": "semantic metric ref for observe",
     "PromotionPolicy": "promotion policy for promoted metric frames",
     "PromotionSemanticAnchors": "semantic anchor refs for PromotionPolicy",
@@ -122,10 +116,8 @@ _SUMMARIES: dict[str, str] = {
     "SlicePredicateOp": "literal values for SlicePredicate.op field",
     "SliceScalar": "scalar types allowed in slice values",
     "SliceValue": "accepted value types for transform slice",
-    "TimeGrain": "deprecated alias for GrainInput",
     "TimeScope": "half-open time interval model for observe",
     "TimeScopeInput": "accepted timescope input types",
-    "ensure_grain_supported": "validate that a grain is supported for the given semantic kind",
     "publish": "report packaging and publishing sub-surface",
 }
 
@@ -133,12 +125,9 @@ _TYPE_ALIASES: set[str] = {
     "AlignmentKind",
     "CandidateObjective",
     "DiscoverSensitivity",
-    "GrainInput",
-    "GrainUnit",
     "SlicePredicateOp",
     "SliceScalar",
     "SliceValue",
-    "TimeGrain",
     "TimeScopeInput",
 }
 
@@ -375,11 +364,6 @@ _SESSION_METHODS: tuple[dict[str, str], ...] = (
         "name": "recent_jobs",
         "group": "lifecycle",
         "summary": "list the most recent persisted jobs",
-    },
-    {
-        "name": "frames",
-        "group": "lifecycle",
-        "summary": "list persisted frames for the session",
     },
     {
         "name": "job",

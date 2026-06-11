@@ -8,22 +8,16 @@ from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.windows.grain import (
     Grain,
     GrainInput,
-    ensure_grain_supported,
     normalize_grain,
 )
-
-# Deprecated alias: the analysis grain surface is now the structured Grain input union.
-TimeGrain = GrainInput
 
 __all__ = [
     "AbsoluteWindow",
     "Grain",
     "GrainInput",
-    "TimeGrain",
     "TimeScope",
     "TimeScopeInput",
     "dump_window",
-    "ensure_grain_supported",
     "is_date_only",
     "make_absolute_window",
     "normalize_absolute_window_input",

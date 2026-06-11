@@ -216,7 +216,7 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
 
     assert exc_info.value.details["code"] == "path-missing"
     assert s.jobs() == []
-    assert s.frames() == []
+    assert s.frame_summaries() == []
 
 
 def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):

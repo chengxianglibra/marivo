@@ -8,10 +8,9 @@ import pytest
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import QualityShapeUnsupportedError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
-from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._load import load_frame
-from tests.shared_fixtures import seeded_time_series_metric_frame
+from tests.shared_fixtures import make_metric_frame, seeded_time_series_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +22,7 @@ def _reset_session(tmp_path, monkeypatch):
 
 
 def _metric(session, rows, *, semantic_kind="time_series", axes=None, window=None, measure=None):
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         pd.DataFrame(rows),
         metric_id="sales.revenue",
         axes=axes or {"time": {"field": "time", "grain": "day"}},

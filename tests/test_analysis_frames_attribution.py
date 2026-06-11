@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-import marivo.analysis as mv
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import FrameMutationError, SemanticKindMismatchError
 from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
@@ -92,7 +91,7 @@ def test_load_frame_round_trips_attribution_frame(tmp_path):
     meta = _meta(session_id=session.id, project_root=str(session.project_root))
     written = write_frame_to_disk(session._layout, AttributionFrame(_df=df, meta=meta))
 
-    loaded = mv.load_frame(written.ref, session=session)
+    loaded = session.get_frame(written.ref)
 
     assert isinstance(loaded, AttributionFrame)
     assert loaded.meta.kind == "attribution_frame"

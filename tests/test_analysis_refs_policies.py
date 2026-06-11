@@ -9,7 +9,6 @@ from marivo.analysis.errors import (
 from marivo.analysis.policies import (
     AlignmentKind,
     AlignmentPolicy,
-    LagPolicy,
     PromotionPolicy,
     PromotionSemanticAnchors,
 )
@@ -87,14 +86,10 @@ def test_alignment_policy_validation_error_renders_fix_snippet():
     assert 'mv.AlignmentPolicy(kind="window_bucket")' in rendered_unexpected
 
 
-def test_lag_policy_supports_only_single_zero_offset():
-    assert LagPolicy(mode="single", offset=0).offset == 0
+def test_lag_policy_is_not_public_policy():
+    import marivo.analysis.policies as policies
 
-    with pytest.raises(ValidationError):
-        LagPolicy(mode="single", offset=1)
-
-    with pytest.raises(ValidationError):
-        LagPolicy(mode="sweep", offset=0)
+    assert not hasattr(policies, "LagPolicy")
 
 
 def test_sampling_policy_defaults_and_forbids_extra():

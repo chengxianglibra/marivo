@@ -30,7 +30,7 @@ def test_load_frame_cross_session_raises(tmp_path):
     session_attach._reset_process_state()
     s_b = mv.session.get_or_create(name="b", backends={"warehouse": lambda: con})
     with pytest.raises(CrossSessionFrameError):
-        mv.load_frame(mf.ref, session=s_b)
+        s_b.get_frame(mf.ref)
 
 
 def test_load_frame_same_session_succeeds(tmp_path):
@@ -39,7 +39,7 @@ def test_load_frame_same_session_succeeds(tmp_path):
     _seed(con)
     s = mv.session.get_or_create(name="a", backends={"warehouse": lambda: con})
     mf = s.observe(mv.MetricRef("sales.revenue"))
-    loaded = mv.load_frame(mf.ref, session=s)
+    loaded = s.get_frame(mf.ref)
     assert loaded.ref == mf.ref
     assert loaded.meta.metric_id == "sales.revenue"
 
@@ -48,4 +48,4 @@ def test_load_frame_missing_ref_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
     s = mv.session.get_or_create(name="a")
     with pytest.raises(FrameRefNotFound):
-        mv.load_frame("frame_nonexistent_ref", session=s)
+        s.get_frame("frame_nonexistent_ref")

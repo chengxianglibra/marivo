@@ -70,7 +70,7 @@ def select(
             is out of range, or ``attribute`` is not available for the candidate shape.
 
     Example:
-        >>> candidates = session.discover(series, objective="point_anomalies", threshold=1.0)
+        >>> candidates = session.discover.point_anomalies(series, threshold=1.0)
         >>> candidates.select(rank=1, attribute="window")
     """
     if not isinstance(candidate_set, CandidateSet):

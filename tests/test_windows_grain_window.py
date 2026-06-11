@@ -1,7 +1,7 @@
-from marivo.analysis.windows.grain import Grain, GrainInput
+import marivo.analysis.windows.spec as window_spec
+from marivo.analysis.windows.grain import Grain
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
-    TimeGrain,
     TimeScope,
     dump_window,
     make_absolute_window,
@@ -36,5 +36,5 @@ def test_make_absolute_window_normalizes():
     assert w.grain == Grain(count=10, unit="minute")
 
 
-def test_timegrain_alias_is_graininput():
-    assert TimeGrain == GrainInput
+def test_timegrain_alias_is_removed():
+    assert not hasattr(window_spec, "TimeGrain")

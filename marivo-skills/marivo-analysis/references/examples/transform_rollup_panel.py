@@ -15,7 +15,7 @@ ensure_loaded()
 import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.active()
-panel_frame = mv.MetricFrame.from_dataframe(
+panel_frame = session.promote_metric_frame(
     pd.DataFrame(
         {
             "bucket_start": pd.to_datetime(
@@ -25,20 +25,13 @@ panel_frame = mv.MetricFrame.from_dataframe(
             "revenue": [10.0, 30.0, 20.0, 40.0],
         }
     ),
-    metric_id=METRIC_ID,
-    axes={
-        "time": {
-            "role": "time",
-            "column": "bucket_start",
-            "grain": "day",
-            "time_dimension": "created_at",
-        },
-        "country": {"role": "dimension", "column": "country"},
-    },
-    measure={"column": "revenue"},
+    metric=mv.MetricRef(METRIC_ID),
+    axes={"country": mv.DimensionRef("country")},
+    time_axis="bucket_start",
+    measure_column="revenue",
     semantic_kind="panel",
     semantic_model="sales",
-    session=session,
+    window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
 )
 rolled = session.transform.rollup(panel_frame, drop_axes=[mv.DimensionRef("country")])
 print(rolled.summary())

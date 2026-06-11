@@ -170,13 +170,13 @@ class SemanticKindMismatchError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         if str(self.details.get("missing")) == "search_space":
             return {
-                "location": "session.discover(driver_axes) arguments",
+                "location": "session.discover.driver_axes arguments",
                 "cause": (
-                    "discover(objective='driver_axes') requires a non-empty "
+                    "discover.driver_axes requires a non-empty "
                     "search_space=[DimensionRef(...), ...]."
                 ),
                 "fix_snippet": (
-                    'session.discover(delta, objective="driver_axes",\n'
+                    "session.discover.driver_axes(delta,\n"
                     '            search_space=[mv.DimensionRef("country")])'
                 ),
                 "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
@@ -352,7 +352,7 @@ class SemanticKindMismatchError(AnalysisError):
                     "operates on CandidateSet artifacts."
                 ),
                 "fix_snippet": (
-                    'cands = session.discover(metric, objective="point_anomalies")\n'
+                    "cands = session.discover.point_anomalies(metric)\n"
                     'window = cands.select(rank=1, attribute="window")'
                 ),
                 "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
@@ -585,7 +585,7 @@ class ForecastInputQualityError(AnalysisError):
         return {
             "location": "session.forecast history data",
             "cause": "forecast does not silently impute NaN values or fill missing time buckets.",
-            "fix_snippet": "clean = session.transform(history, op='window', order_by='time')  # or impute upstream before forecasting",
+            "fix_snippet": "clean = session.transform.window(history, window={...})  # or impute upstream before forecasting",
             "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
         }
 

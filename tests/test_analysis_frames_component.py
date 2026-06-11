@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-import marivo.analysis as mv
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import ComponentFrameUnavailableError
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
@@ -98,7 +97,7 @@ def test_load_frame_round_trips_component_frame():
     )
     component.meta = write_frame_to_disk(session._layout, component)
 
-    loaded = mv.load_frame(component.ref, session=session)
+    loaded = session.get_frame(component.ref)
 
     assert isinstance(loaded, ComponentFrame)
     assert loaded.meta.parent_kind == "metric_frame"

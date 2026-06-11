@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from marivo.analysis.calendar.loader import CalendarCache
-from marivo.analysis.session.core import FrameRecord, JobSummary, Session, SessionState
+from marivo.analysis.session.core import FrameSummaryEntry, JobSummary, Session, SessionState
 from marivo.analysis.session.persistence import PersistenceLayout, write_job_record
 
 
@@ -82,15 +82,28 @@ def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
     assert isinstance(summaries[0], JobSummary)
 
 
-def test_session_frames_returns_frame_records(tmp_path):
+def test_session_frame_summaries_returns_rich_records(tmp_path):
     s = _session(tmp_path)
     frame_dir = s._layout.frames_dir / "frame_001"
     frame_dir.mkdir(parents=True)
-    (frame_dir / "meta.json").write_text('{"ref": "frame_001", "kind": "metric"}')
+    (frame_dir / "meta.json").write_text(
+        '{"ref": "frame_001", "kind": "metric", "metric_id": "sales.revenue", '
+        '"semantic_kind": "time_series", "semantic_model": "sales", '
+        '"created_at": "2026-05-24T10:00:00+00:00"}'
+    )
 
-    records = s.frames()
+    records = s.frame_summaries()
 
-    assert records == [FrameRecord(ref="frame_001", kind="metric")]
+    assert records == [
+        FrameSummaryEntry(
+            ref="frame_001",
+            kind="metric",
+            metric_id="sales.revenue",
+            semantic_kind="time_series",
+            semantic_model="sales",
+            created_at="2026-05-24T10:00:00+00:00",
+        )
+    ]
 
 
 def test_session_state_literal_values():

@@ -10,13 +10,13 @@ import pytest
 import marivo.analysis.session.attach as session_attach
 from marivo.analysis.errors import AlignmentFailedError, PanelGrainMismatchError
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
-from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef, DimensionRef, MetricRef
 from marivo.analysis.session.persistence import write_frame_to_disk
+from tests.shared_fixtures import make_metric_frame
 
 
 @pytest.fixture(autouse=True)
@@ -153,7 +153,7 @@ def _panel_metric(
     axes: dict[str, object] | None = None,
     window: dict[str, object] | None = None,
 ):
-    return MetricFrame.from_dataframe(
+    return make_metric_frame(
         pd.DataFrame(rows),
         metric_id="sales.revenue",
         axes=axes
@@ -188,7 +188,7 @@ def _component_panel_metric(session, *, ref, rows, component_rows):
         },
         "region": {"role": "dimension", "column": "region"},
     }
-    metric = MetricFrame.from_dataframe(
+    metric = make_metric_frame(
         pd.DataFrame(rows),
         metric_id="sales.failure_rate",
         axes=axes,

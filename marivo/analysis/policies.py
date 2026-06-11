@@ -73,13 +73,6 @@ class AlignmentPolicy(BaseModel):
         return self
 
 
-class LagPolicy(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    mode: Literal["single"] = "single"
-    offset: Literal[0] = 0
-
-
 class SamplingPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
