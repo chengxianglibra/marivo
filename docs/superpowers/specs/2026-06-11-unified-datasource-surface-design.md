@@ -56,9 +56,12 @@ Confirmed sub-decisions:
 - `audit_project` moves to the semantic side as
   `SemanticProject.audit_datasources()` (it consumes a `SemanticProject`;
   keeping it in the datasource package would invert dependencies).
-- `backend_factory` parameters on semantic materialization/preview remain as
-  explicit overrides but default to `md.connect`;
-  `bind_datasource_access(...)` is deleted.
+- `bind_datasource_access(...)` is deleted. Both bound callables get kernel
+  defaults: `_resolve_backend_factory` falls back to `md.connect` and
+  `_resolve_inspect_source` falls back to `md.inspect_source`; the existing
+  keyword parameters stay as explicit overrides. Exception: `materialize_*`
+  keeps requiring an explicit `backend_factory` (see connection lifecycle
+  ownership).
 - The physical source descriptors `TableSourceIR`, `FileSourceIR`,
   `EntitySourceIR`, `source_name`, and `source_to_dict` move from
   `marivo/semantic/ir.py` to `marivo/datasource/ir.py`.
@@ -96,12 +99,16 @@ Surface reductions:
 - Read surfaces collapse to two with distinct purposes: `md.list/describe`
   (management view over project files) and `catalog.list/get` (semantic browse
   over a loaded project). Both are backed by the same `DatasourceIR`.
-- One `DatasourceSummary(name, backend_type, description)` defined in
-  `marivo.datasource`; `project.list_datasources()` returns
-  `DiscoveryResult[DatasourceSummary]` using this type (per the 2026-06-09
-  agent-friendly public API design, the discovery shape is unchanged).
-  `DatasourceDescription` and `DatasourceTestResult` move with the management
-  module.
+- One `DatasourceSummary` defined in `marivo.datasource` with fields
+  `name, backend_type, description` and a `semantic_id` property returning
+  `name` (datasource semantic ids are the bare name by construction, so
+  `DiscoveryResult.ids()` keeps working). `md.list()` returns a plain
+  `list[DatasourceSummary]`; `project.list_datasources()` stays an id-bearing
+  discovery surface returning `DiscoveryResult[DatasourceSummary]` with
+  `has_ids=True` — the discovery shape from the 2026-06-09 agent-friendly
+  public API design is unchanged. Same item type, two wrappers fitting each
+  track. `DatasourceDescription` and `DatasourceTestResult` move with the
+  management module.
 
 All public functions keep the repository docstring contract (purpose, params,
 return, example, constraints) and concrete types; `describe`/`md.help` cover
@@ -170,12 +177,18 @@ Semantic track:
 - `TYPE_CHECKING` imports of `TableMetadata` become real imports from
   `marivo.datasource.metadata`.
 - `bind_datasource_access(...)` and its bound-slot plumbing are deleted.
-  `_resolve_backend_factory` falls back to `md.connect`;
-  the `backend_factory` parameter remains for explicit override (tests inject
-  in-memory duckdb as before). The committed contract in
-  `docs/specs/semantic/python-semantic-layer.md` ("the semantic layer does not
-  construct connections itself") is relaxed to "defaults to project
-  datasources via `md.connect`; callers may inject an override".
+  `_resolve_backend_factory` falls back to `md.connect` and
+  `_resolve_inspect_source` falls back to `md.inspect_source`; both keyword
+  parameters remain for explicit override (tests inject in-memory duckdb as
+  before). `ErrorKind.INSPECT_SOURCE_REQUIRED` becomes unreachable and is
+  removed; `ErrorKind.BACKEND_FACTORY_REQUIRED` survives only on
+  `materialize_*`, with its hint rewritten from `bind_datasource_access` to
+  `backend_factory=md.connect`. Readiness/authoring error texts and the seven
+  test files that call `bind_datasource_access` update accordingly. The
+  committed contract in `docs/specs/semantic/python-semantic-layer.md` ("the
+  semantic layer does not construct connections itself") is relaxed to
+  "defaults to project datasources via `md.connect`; callers may inject an
+  override".
 - `reader.DatasourceSummary` is deleted in favor of the unified type.
 
 Analysis track:
@@ -189,6 +202,30 @@ Analysis track:
 - `constraints.py` and `errors.py` hint texts switch to `md.*` invocations.
 - `scripts/upload_html_report.py` imports secrets from
   `marivo.datasource.secrets`.
+
+## Connection lifecycle ownership
+
+The rule is creator-closes: whoever opens a backend owns disconnecting it.
+
+- Injected `backend_factory`: lifecycle stays with the caller, unchanged.
+  Semantic never disconnects backends produced by an injected factory (test
+  suites share one in-memory duckdb connection across calls).
+- Default `md.connect` on plain-data paths: semantic previews
+  (`preview_dataset/field/metric`, raw source preview), readiness closeout
+  (including parity), and source-evidence collection return plain data, so
+  when the default factory was used they disconnect every backend they opened
+  in a `finally` block — the same fix `md.preview` gets. Materializer-backed
+  preview paths close their per-call `_backend_cache` on exit under the
+  default factory.
+- `materialize_*` returns live ibis expressions whose connections must
+  outlive the call, so eager close is impossible there. These keep requiring
+  an explicit `backend_factory`: implicit connection creation with no close
+  handle would be a leak by construction. Analysis passes its session-scoped
+  `BackendCache` factory as today; standalone callers pass
+  `backend_factory=md.connect` and own the disconnect.
+
+No project-held backend cache is introduced; `SemanticProject` stays
+connection-free (the existing Materializer stance is preserved).
 
 ## Documentation and skill updates (same change)
 
@@ -208,9 +245,12 @@ Analysis track:
 - `tests/test_analysis_imports.py` export assertions update.
 - `test_analysis_session_profile_integration.py` audit test switches to
   `project.audit_datasources()`.
+- Seven semantic test files call `bind_datasource_access`; they switch to the
+  defaults or to explicit `backend_factory=`/`inspect_source=` overrides.
 - New coverage: `md.preview` closes its backend (regression for the leak);
-  unified `DatasourceSummary` shape via both `md.list()` and
-  `project.list_datasources()`.
+  semantic default-factory preview/readiness paths disconnect what they open;
+  unified `DatasourceSummary` shape (including `.ids()` via `semantic_id`)
+  through both `md.list()` and `project.list_datasources()`.
 
 ## Non-goals
 
@@ -229,4 +269,7 @@ Analysis track:
   every public `md` symbol satisfies the docstring/describe contract.
 - Exactly one `DatasourceSummary` class exists in the library.
 - `marivo/semantic/` contains no `TYPE_CHECKING` imports from analysis modules
-  and no `bind_datasource_access` seam.
+  and no `bind_datasource_access` seam; `ErrorKind.INSPECT_SOURCE_REQUIRED` no
+  longer exists.
+- Semantic plain-data paths (preview, readiness, evidence) using the default
+  factory leave no open backends.
