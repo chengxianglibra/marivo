@@ -93,7 +93,6 @@ class ErrorKind(StrEnum):
     AMBIGUOUS_REFERENCE = "ambiguous_reference"
     CROSS_DATASOURCE_NOT_SUPPORTED = "cross_datasource_not_supported"
     BACKEND_FACTORY_REQUIRED = "backend_factory_required"
-    INSPECT_SOURCE_REQUIRED = "inspect_source_required"
     PROJECT_NOT_LOADED = "project_not_loaded"
 
     # catalog

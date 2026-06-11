@@ -15,9 +15,9 @@ For debugging or targeted raw table inspection, `collect_source_preview` is stil
 available:
 
 ```python
-import marivo.analysis as mv
+import marivo.datasource as md
 
-backend_factory = lambda name: mv.datasources.build_backend(name)
+backend_factory = lambda name: md.connect(name)
 preview = project.collect_source_preview(
     datasource="warehouse",
     table="orders",
@@ -55,9 +55,9 @@ After authoring and load, preview the semantic objects that will be handed to
 analysis:
 
 ```python
-import marivo.analysis as mv
+import marivo.datasource as md
 
-backend_factory = lambda name: mv.datasources.build_backend(name)
+backend_factory = lambda name: md.connect(name)
 
 project.preview_dataset("sales.orders", backend_factory=backend_factory, limit=20)
 project.preview_field("sales.orders.order_date", backend_factory=backend_factory, limit=20)

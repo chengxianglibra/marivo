@@ -1129,13 +1129,11 @@ def load(
         Raises a typed load error on failure. Does not return a partial catalog.
         Does not print to stdout.
     """
-    import os
-
+    from marivo.project import resolve_project_root
     from marivo.semantic.reader import SemanticProject
 
     if workspace_dir is None:
-        env = os.environ.get("MARIVO_PROJECT_ROOT")
-        workspace_dir = env if env else Path.cwd()
+        workspace_dir = resolve_project_root()
 
     project = SemanticProject(workspace_dir=workspace_dir)
     result = project.load()

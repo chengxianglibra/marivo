@@ -60,7 +60,6 @@ _SUMMARIES: dict[str, str] = {
     "help": "this introspection entry point",
     "help_text": "return analysis help text without printing",
     "session": "analysis session lifecycle and persistence helpers",
-    "datasources": "analysis datasource registration, validation, and runtime lookup",
     "evidence": "analysis evidence DTOs and session knowledge helpers",
     "errors": "AnalysisError hierarchy and analysis error kinds",
     "frames": "analysis frame and frame metadata types",

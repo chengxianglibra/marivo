@@ -7,11 +7,12 @@ import os
 import stat
 import tempfile
 import tomllib
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from marivo.analysis.errors import (
+from marivo.datasource.errors import (
     DatasourceEnvVarMissingError,
     DatasourceSecretStorePermissionsError,
 )
@@ -158,3 +159,46 @@ def persist_env_sourced(resolved: tuple[ResolvedSecret, ...]) -> None:
     for item in resolved:
         if isinstance(item.provider, EnvProvider):
             cache.persist(item.name, item.value)
+
+
+_ENV_SOURCED_SECRETS_ATTR = "_marivo_env_sourced_secrets"
+
+
+def remember_env_sourced(backend: object, resolved: tuple[ResolvedSecret, ...]) -> None:
+    """Stash env-sourced secret provenance on a live backend object.
+
+    Args:
+        backend: Live ibis backend returned by the datasource connector.
+        resolved: Env-provider-sourced secrets used to open the backend.
+
+    Returns:
+        None.
+
+    Example:
+        >>> remember_env_sourced(backend, built.env_sourced_secrets)
+
+    Constraints:
+        Best-effort: backends that reject attribute assignment are skipped.
+    """
+    with suppress(Exception):
+        setattr(backend, _ENV_SOURCED_SECRETS_ATTR, resolved)
+
+
+def persist_backend_env_sourced(backend: object) -> None:
+    """Persist env-sourced secrets previously stashed on a backend.
+
+    Args:
+        backend: Backend previously passed to ``remember_env_sourced``.
+
+    Returns:
+        None.
+
+    Example:
+        >>> persist_backend_env_sourced(backend)  # after a validated round-trip
+
+    Constraints:
+        No-op when nothing was stashed or persistence is disabled.
+    """
+    resolved = getattr(backend, _ENV_SOURCED_SECRETS_ATTR, ())
+    if isinstance(resolved, tuple):
+        persist_env_sourced(resolved)

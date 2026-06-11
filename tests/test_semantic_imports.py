@@ -522,7 +522,6 @@ _EXPECTED_RUNTIME_KINDS = {
     "ambiguous_reference",
     "cross_datasource_not_supported",
     "backend_factory_required",
-    "inspect_source_required",
     "project_not_loaded",
     "unsupported_kind",
     "unsupported_list_parent",

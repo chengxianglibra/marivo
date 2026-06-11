@@ -1,4 +1,4 @@
-"""Cross-check a semantic project against project-level datasources."""
+"""Cross-check a semantic project against configured project datasources."""
 
 from __future__ import annotations
 

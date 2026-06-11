@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 import marivo.datasource as md
-from marivo.analysis.datasources import store as datasource_store
-from marivo.analysis.errors import (
+from marivo.datasource import store as datasource_store
+from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceSecretInPlaintextError,
 )

@@ -11,8 +11,8 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.session.active import (
     read_active_session_name,
-    resolve_project_root,
 )
+from marivo.project import resolve_project_root
 
 
 @pytest.fixture(autouse=True)

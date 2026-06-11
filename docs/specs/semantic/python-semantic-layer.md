@@ -217,15 +217,16 @@ Discovery methods (`list_metrics()`, `search()`, etc.) return
 
 ## Materialization
 
-Materialization 层把已注册的 Python 函数重新组合成 Ibis 对象。调用方提供 `backend_factory(datasource_name)`，语义层不自己构造连接：
+Materialization 层把已注册的 Python 函数重新组合成 Ibis 对象。Preview, readiness, and evidence paths default to opening project datasources via `md.connect` and close every backend they opened before returning; an explicitly passed `backend_factory` overrides the default and its connection lifecycle stays with the caller. `materialize_*` returns live ibis expressions and therefore always requires an explicit `backend_factory` owned by the caller (`backend_factory=md.connect` works; the caller disconnects). `bind_datasource_access` no longer exists.
 
 ```python
 import marivo.semantic as ms
+import marivo.datasource as md
 
 project = ms.SemanticProject(root=".marivo/semantic")
 expr = project.materialize_metric(
     "sales.revenue",
-    backend_factory=lambda datasource_name: con,
+    backend_factory=md.connect,
 )
 value = expr.execute()
 ```
@@ -676,7 +677,7 @@ if result.errors:
 
 ### 2. 声明最小业务对象
 
-新增 metric 时的最小 happy path 是 datasource、dataset、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `mv.datasources.inspect_source(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
+新增 metric 时的最小 happy path 是 datasource、dataset、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `md.inspect_source(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
 
 新建 metric 可以省略 provenance 并自动进入 `unverified`，但 agent 不能把它当作完成状态。若同一 PR 新增多个 unverified metrics，应停下来确认业务来源；CI 可用 `--strict-provenance` 禁止 unverified metric 合入。
 

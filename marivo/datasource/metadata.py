@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from marivo.analysis.datasources import backends as _backends
-from marivo.analysis.datasources import store as _store
-from marivo.analysis.errors import DatasourceMetadataError
-from marivo.semantic.ir import EntitySourceIR, FileSourceIR, TableSourceIR, source_name
+from marivo.datasource import backends as _backends
+from marivo.datasource import store as _store
+from marivo.datasource.errors import DatasourceMetadataError
+from marivo.datasource.ir import EntitySourceIR, FileSourceIR, TableSourceIR, source_name
+
+
+def _disconnect_quietly(backend: object) -> None:
+    disconnect = getattr(backend, "disconnect", None)
+    if callable(disconnect):
+        with suppress(Exception):
+            disconnect()
+
 
 MetadataWarningKind = Literal[
     "comments_unavailable",
@@ -888,78 +897,96 @@ def inspect_table(
             details={"datasource": datasource, "table": table, "available": _store.list_names()},
         )
 
+    backend: Any | None = None
     try:
-        backend = _backends.build_backend(datasource_ir)
-        table_expr = (
-            backend.table(table) if database is None else backend.table(table, database=database)
-        )
-    except Exception as exc:
-        raise DatasourceMetadataError(
-            message=f"failed to inspect datasource table {datasource!r}.{table!r}: {exc}",
-            details={
-                "datasource": datasource,
-                "table": table,
-                "database": _database_label(database),
-                "cause": str(exc),
-            },
-        ) from exc
+        try:
+            backend = _backends.build_backend(datasource_ir)
+            table_expr = (
+                backend.table(table)
+                if database is None
+                else backend.table(table, database=database)
+            )
+        except Exception as exc:
+            raise DatasourceMetadataError(
+                message=f"failed to inspect datasource table {datasource!r}.{table!r}: {exc}",
+                details={
+                    "datasource": datasource,
+                    "table": table,
+                    "database": _database_label(database),
+                    "cause": str(exc),
+                },
+            ) from exc
 
-    try:
-        if datasource_ir.backend_type == "duckdb":
-            return _inspect_duckdb(
+        try:
+            if datasource_ir.backend_type == "duckdb":
+                return _inspect_duckdb(
+                    datasource=datasource,
+                    backend=backend,
+                    table=table,
+                    database=database,
+                    table_expr=table_expr,
+                    include_partitions=include_partitions,
+                )
+            if datasource_ir.backend_type == "mysql":
+                return _inspect_mysql(
+                    datasource=datasource,
+                    backend=backend,
+                    table=table,
+                    database=database,
+                    table_expr=table_expr,
+                    include_partitions=include_partitions,
+                    default_database=(
+                        str(datasource_ir.fields["database"])
+                        if datasource_ir.fields.get("database") is not None
+                        else None
+                    ),
+                )
+            if datasource_ir.backend_type == "trino":
+                return _inspect_trino(
+                    datasource=datasource,
+                    backend=backend,
+                    table=table,
+                    database=database,
+                    table_expr=table_expr,
+                    include_partitions=include_partitions,
+                    catalog=str(datasource_ir.fields["catalog"]),
+                    default_schema=(
+                        str(datasource_ir.fields["schema"])
+                        if datasource_ir.fields.get("schema") is not None
+                        else None
+                    ),
+                )
+            if datasource_ir.backend_type == "clickhouse":
+                ch_database = (
+                    database
+                    if database is not None
+                    else datasource_ir.fields.get("database", "default")
+                )
+                return _inspect_clickhouse(
+                    datasource=datasource,
+                    backend=backend,
+                    table=table,
+                    database=ch_database,
+                    table_expr=table_expr,
+                    include_partitions=include_partitions,
+                )
+        except DatasourceMetadataError:
+            raise
+        except Exception as exc:
+            return _schema_only(
                 datasource=datasource,
-                backend=backend,
                 table=table,
                 database=database,
+                backend_type=datasource_ir.backend_type,
                 table_expr=table_expr,
-                include_partitions=include_partitions,
-            )
-        if datasource_ir.backend_type == "mysql":
-            return _inspect_mysql(
-                datasource=datasource,
-                backend=backend,
-                table=table,
-                database=database,
-                table_expr=table_expr,
-                include_partitions=include_partitions,
-                default_database=(
-                    str(datasource_ir.fields["database"])
-                    if datasource_ir.fields.get("database") is not None
-                    else None
+                warnings=(
+                    MetadataWarning(
+                        kind="metadata_query_failed",
+                        message=f"{datasource_ir.backend_type} metadata query failed: {exc}",
+                    ),
                 ),
             )
-        if datasource_ir.backend_type == "trino":
-            return _inspect_trino(
-                datasource=datasource,
-                backend=backend,
-                table=table,
-                database=database,
-                table_expr=table_expr,
-                include_partitions=include_partitions,
-                catalog=str(datasource_ir.fields["catalog"]),
-                default_schema=(
-                    str(datasource_ir.fields["schema"])
-                    if datasource_ir.fields.get("schema") is not None
-                    else None
-                ),
-            )
-        if datasource_ir.backend_type == "clickhouse":
-            ch_database = (
-                database
-                if database is not None
-                else datasource_ir.fields.get("database", "default")
-            )
-            return _inspect_clickhouse(
-                datasource=datasource,
-                backend=backend,
-                table=table,
-                database=ch_database,
-                table_expr=table_expr,
-                include_partitions=include_partitions,
-            )
-    except DatasourceMetadataError:
-        raise
-    except Exception as exc:
+
         return _schema_only(
             datasource=datasource,
             table=table,
@@ -968,33 +995,22 @@ def inspect_table(
             table_expr=table_expr,
             warnings=(
                 MetadataWarning(
-                    kind="metadata_query_failed",
-                    message=f"{datasource_ir.backend_type} metadata query failed: {exc}",
+                    kind="comments_unavailable",
+                    message=f"{datasource_ir.backend_type} comments are not supported by this adapter",
+                ),
+                MetadataWarning(
+                    kind="nullable_unavailable",
+                    message=f"{datasource_ir.backend_type} nullable flags are not supported by this adapter",
+                ),
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message=f"{datasource_ir.backend_type} partition metadata is not supported by this adapter",
                 ),
             ),
         )
-
-    return _schema_only(
-        datasource=datasource,
-        table=table,
-        database=database,
-        backend_type=datasource_ir.backend_type,
-        table_expr=table_expr,
-        warnings=(
-            MetadataWarning(
-                kind="comments_unavailable",
-                message=f"{datasource_ir.backend_type} comments are not supported by this adapter",
-            ),
-            MetadataWarning(
-                kind="nullable_unavailable",
-                message=f"{datasource_ir.backend_type} nullable flags are not supported by this adapter",
-            ),
-            MetadataWarning(
-                kind="partitions_unavailable",
-                message=f"{datasource_ir.backend_type} partition metadata is not supported by this adapter",
-            ),
-        ),
-    )
+    finally:
+        if backend is not None:
+            _disconnect_quietly(backend)
 
 
 def inspect_source(
@@ -1022,42 +1038,47 @@ def inspect_source(
             message=f"datasource {datasource!r} is not configured",
             details={"datasource": datasource, "available": _store.list_names()},
         )
+    backend: Any | None = None
     try:
-        backend = _backends.build_backend(datasource_ir)
-        reader_name = "read_parquet" if source.format == "parquet" else "read_csv"
-        reader = getattr(backend, reader_name, None)
-        if reader is None:
-            raise AttributeError(f"backend has no {reader_name}()")
-        table_expr = reader(source.path, **source.options)
-    except Exception as exc:
-        raise DatasourceMetadataError(
-            message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
-            details={
-                "datasource": datasource,
-                "path": source.path,
-                "format": source.format,
-                "cause": str(exc),
-            },
-        ) from exc
+        try:
+            backend = _backends.build_backend(datasource_ir)
+            reader_name = "read_parquet" if source.format == "parquet" else "read_csv"
+            reader = getattr(backend, reader_name, None)
+            if reader is None:
+                raise AttributeError(f"backend has no {reader_name}()")
+            table_expr = reader(source.path, **source.options)
+        except Exception as exc:
+            raise DatasourceMetadataError(
+                message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
+                details={
+                    "datasource": datasource,
+                    "path": source.path,
+                    "format": source.format,
+                    "cause": str(exc),
+                },
+            ) from exc
 
-    return _schema_only(
-        datasource=datasource,
-        table=source_name(source),
-        database=None,
-        backend_type=datasource_ir.backend_type,
-        table_expr=table_expr,
-        warnings=(
-            MetadataWarning(
-                kind="comments_unavailable",
-                message="file source comments are not available",
+        return _schema_only(
+            datasource=datasource,
+            table=source_name(source),
+            database=None,
+            backend_type=datasource_ir.backend_type,
+            table_expr=table_expr,
+            warnings=(
+                MetadataWarning(
+                    kind="comments_unavailable",
+                    message="file source comments are not available",
+                ),
+                MetadataWarning(
+                    kind="nullable_unavailable",
+                    message="file source nullable flags are not available",
+                ),
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message="file source partition metadata is not available",
+                ),
             ),
-            MetadataWarning(
-                kind="nullable_unavailable",
-                message="file source nullable flags are not available",
-            ),
-            MetadataWarning(
-                kind="partitions_unavailable",
-                message="file source partition metadata is not available",
-            ),
-        ),
-    )
+        )
+    finally:
+        if backend is not None:
+            _disconnect_quietly(backend)

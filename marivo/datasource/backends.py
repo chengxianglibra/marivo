@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
-from marivo.analysis.datasources import secrets
-from marivo.analysis.errors import (
+from marivo.datasource import secrets
+from marivo.datasource.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceFieldInvalidError,
 )
@@ -66,7 +66,7 @@ def build_backend_with_secrets(datasource: DatasourceIR) -> BuiltDatasourceBacke
         raise DatasourceBackendTypeUnsupportedError(
             message=(
                 f"datasource {datasource.name!r} backend_type={datasource.backend_type!r} "
-                "is not supported by mv.datasources"
+                "is not supported by md backend dispatch"
             ),
             details={
                 "backend_type": datasource.backend_type,

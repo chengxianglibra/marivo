@@ -231,7 +231,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("datasources", "session", "observe"),
         "Named datasources must exist before analysis runtime lookup.",
         "Datasource-backed sessions resolve semantic source refs through persisted datasource metadata.",
-        "Register the datasource with mv.datasources.register(...) before creating or attaching the session.",
+        "Register the datasource with md.register(...) before creating or attaching the session.",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_ENV_AVAILABLE: _constraint(
@@ -241,7 +241,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("datasources", "session"),
         "Datasource secret environment variables must be available at runtime.",
         "The datasource contract stores secret references, not plaintext credentials.",
-        "Export the referenced environment variable or validate and remember it with mv.datasources.test(...).",
+        "Export the referenced environment variable or validate and remember it with md.test(...).",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_BACKEND_SUPPORTED: _constraint(

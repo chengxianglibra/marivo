@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ibis
 
-from marivo.analysis.datasources.metadata import ColumnMetadata, TableMetadata
+from marivo.datasource.metadata import ColumnMetadata, TableMetadata
 from marivo.semantic.dtos import SelectedColumnsPolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 
@@ -34,13 +34,12 @@ def test_inspect_column_context_profiles_selected_columns(tmp_path):
     root = tmp_path / ".marivo" / "semantic"
     root.mkdir(parents=True)
     project = SemanticProject(workspace_dir=tmp_path)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=_backend_factory
-    )
     evidence = project.inspect_column_context(
         datasource="warehouse",
         source=TableSource(table="orders"),
         columns=("status", "amount"),
+        inspect_source=_fake_inspect_source,
+        backend_factory=_backend_factory,
         sample_policy=SelectedColumnsPolicy(limit=100, columns=("status", "amount")),
     )
     by_col = {e.column: e for e in evidence}

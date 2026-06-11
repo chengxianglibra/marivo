@@ -1,4 +1,4 @@
-"""Project root resolution and active session pointer management."""
+"""Active session pointer management."""
 
 from __future__ import annotations
 
@@ -7,16 +7,6 @@ from pathlib import Path
 _DOT_MARIVO = ".marivo"
 _ANALYSIS_DIR = "analysis"
 _ACTIVE_FILE = "active"
-
-
-def resolve_project_root(start: Path | None = None) -> Path:
-    """Return nearest ancestor containing .marivo, or the starting directory."""
-    base = Path(start) if start is not None else Path.cwd()
-    base = base.resolve()
-    for candidate in (base, *base.parents):
-        if (candidate / _DOT_MARIVO).is_dir():
-            return candidate
-    return base
 
 
 def _active_path(project_root: Path) -> Path:

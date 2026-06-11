@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import ibis
 import ibis.expr.types as ir
 
 from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.manage import DatasourceSummary
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
@@ -77,6 +79,9 @@ from marivo.semantic.richness import (
 )
 from marivo.semantic.validator import Registry, Sidecar
 
+if TYPE_CHECKING:
+    from marivo.semantic.audit import DatasourceAuditResult
+
 __all__ = [
     "DatasourceSummary",
     "DimensionSummary",
@@ -97,6 +102,102 @@ _FIELD_PREVIEW_CONTEXT_COLUMNS = 3
 
 
 # ---------------------------------------------------------------------------
+# Default kernel factories and creator-closes ownership
+# ---------------------------------------------------------------------------
+
+
+def _default_connect(name: str, project_root: Path | None = None) -> Any:
+    """Open a backend for a project datasource (kernel default factory)."""
+    from marivo.datasource import backends as _backends
+    from marivo.datasource import secrets as _secrets
+    from marivo.datasource import store as _store
+
+    datasource = _store.load_one(name, project_root=project_root)
+    if datasource is None:
+        from marivo.datasource.errors import DatasourceMissingError
+
+        raise DatasourceMissingError(
+            message=f"datasource {name!r} is not configured",
+            details={"datasource": name, "available": _store.list_names(project_root=project_root)},
+        )
+    built = _backends.build_backend_with_secrets(datasource)
+    _secrets.remember_env_sourced(built.backend, built.env_sourced_secrets)
+    return built.backend
+
+
+def _default_inspect_source(*args: Any, **kwargs: Any) -> Any:
+    """Inspect a source using the kernel default."""
+    from marivo.datasource import inspect_source
+
+    return inspect_source(*args, **kwargs)
+
+
+def _make_project_inspect_source(project_root: Path) -> Callable[..., Any]:
+    """Create an inspect_source callable scoped to a project root.
+
+    Temporarily sets MARIVO_PROJECT_ROOT so that the kernel
+    ``md.inspect_source`` can resolve the project datasources.
+    """
+    root_str = str(project_root)
+
+    def _inspect(datasource: str, *, source: Any, include_partitions: bool = True) -> Any:
+        from marivo.datasource import inspect_source
+
+        prev = os.environ.get("MARIVO_PROJECT_ROOT")
+        try:
+            os.environ["MARIVO_PROJECT_ROOT"] = root_str
+            return inspect_source(datasource, source=source, include_partitions=include_partitions)
+        finally:
+            if prev is None:
+                os.environ.pop("MARIVO_PROJECT_ROOT", None)
+            else:
+                os.environ["MARIVO_PROJECT_ROOT"] = prev
+
+    return _inspect
+
+
+class _OwnedBackendFactory:
+    """Default-factory wrapper that tracks opened backends for closing.
+
+    Backends produced by an injected factory are never wrapped, so semantic
+    never closes connections it did not create.
+    """
+
+    def __init__(self, project_root: Path | None = None) -> None:
+        self._project_root = project_root
+        self._opened: list[Any] = []
+
+    def __call__(self, name: str) -> Any:
+        backend = _default_connect(name, project_root=self._project_root)
+        self._opened.append(backend)
+        return backend
+
+    def close_all(self) -> None:
+        for backend in self._opened:
+            disconnect = getattr(backend, "disconnect", None)
+            if callable(disconnect):
+                with suppress(Exception):
+                    disconnect()
+        self._opened.clear()
+
+
+def _close_owned(factory: Callable[[str], Any]) -> None:
+    """Close all backends opened by an _OwnedBackendFactory; no-op otherwise."""
+    if isinstance(factory, _OwnedBackendFactory):
+        factory.close_all()
+
+
+def _list_datasources_available(project_root: Path | None = None) -> bool:
+    """Return True if the project has at least one registered datasource."""
+    from marivo.datasource import store as _store
+
+    try:
+        return bool(_store.load_all(project_root=project_root))
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Summary types
 # ---------------------------------------------------------------------------
 
@@ -109,16 +210,6 @@ class DomainSummary:
     description: str | None
     default: bool
     object_counts: dict[str, int]  # kind -> count
-
-
-@dataclass(frozen=True)
-class DatasourceSummary:
-    """Summary of a datasource returned by ``project.list_datasources()``."""
-
-    semantic_id: str
-    name: str
-    backend_type: str
-    description: str | None
 
 
 @dataclass(frozen=True)
@@ -288,8 +379,6 @@ class SemanticProject:
         self._filtered_domains: tuple[str, ...] = ()
         self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
-        self._bound_inspect_source: Callable[..., Any] | None = None
-        self._bound_backend_factory: Callable[[str], Any] | None = None
         self._datasource_irs: tuple[DatasourceIR, ...] = ()
 
     @property
@@ -434,7 +523,6 @@ class SemanticProject:
         )
         results = [
             DatasourceSummary(
-                semantic_id=ds_ir.semantic_id,
                 name=ds_ir.name,
                 backend_type=ds_ir.backend_type,
                 description=ds_ir.description,
@@ -642,6 +730,26 @@ class SemanticProject:
         ]
         return DiscoveryResult(results, item_type_name="RelationshipSummary")
 
+    def audit_datasources(self) -> DatasourceAuditResult:
+        """Cross-check entity datasource refs against configured datasources.
+
+        Returns:
+            DatasourceAuditResult with ``present``/``missing`` datasource
+            names and the ref map used by the check.
+
+        Example:
+            >>> report = project.audit_datasources()
+            >>> report.missing
+            []
+
+        Constraints:
+            Reads `.marivo/datasource` configuration through the project
+            store; does not open backends.
+        """
+        from marivo.semantic.audit import audit_project
+
+        return audit_project(self)
+
     # -- single-object accessors -------------------------------------------
 
     def get_entity(self, name: str) -> EntityIR | None:
@@ -746,7 +854,15 @@ class SemanticProject:
 
         Each call creates a fresh Materializer instance.
         """
-        mat = Materializer(self, self._resolve_backend_factory(backend_factory))
+        if backend_factory is None:
+            _raise(
+                ErrorKind.BACKEND_FACTORY_REQUIRED,
+                "materialize_* returns live ibis expressions, so it needs an explicit "
+                "backend_factory you own. Pass backend_factory=md.connect (and disconnect "
+                "the backends yourself) or a custom factory.",
+                cls=SemanticRuntimeError,
+            )
+        mat = Materializer(self, backend_factory)
         return mat.entity(name)
 
     def materialize_field(
@@ -759,7 +875,15 @@ class SemanticProject:
 
         Each call creates a fresh Materializer instance.
         """
-        mat = Materializer(self, self._resolve_backend_factory(backend_factory))
+        if backend_factory is None:
+            _raise(
+                ErrorKind.BACKEND_FACTORY_REQUIRED,
+                "materialize_* returns live ibis expressions, so it needs an explicit "
+                "backend_factory you own. Pass backend_factory=md.connect (and disconnect "
+                "the backends yourself) or a custom factory.",
+                cls=SemanticRuntimeError,
+            )
+        mat = Materializer(self, backend_factory)
         return mat.dimension(name)
 
     def materialize_metric(
@@ -772,7 +896,15 @@ class SemanticProject:
 
         Each call creates a fresh Materializer instance.
         """
-        mat = Materializer(self, self._resolve_backend_factory(backend_factory))
+        if backend_factory is None:
+            _raise(
+                ErrorKind.BACKEND_FACTORY_REQUIRED,
+                "materialize_* returns live ibis expressions, so it needs an explicit "
+                "backend_factory you own. Pass backend_factory=md.connect (and disconnect "
+                "the backends yourself) or a custom factory.",
+                cls=SemanticRuntimeError,
+            )
+        mat = Materializer(self, backend_factory)
         return mat.metric(name)
 
     # -- preview ---------------------------------------------------------------
@@ -794,57 +926,61 @@ class SemanticProject:
         records the physical preview ref as raw preview evidence for subsequent
         readiness checks on this project instance.
 
-        If *backend_factory* is not provided, the bound factory (set via
-        :meth:`bind_datasource_access`) is used.
+        If *backend_factory* is not provided, a default factory backed by
+        ``md.connect`` is used; any backends it opens are disconnected
+        automatically when this method returns.
         """
         factory = self._resolve_backend_factory(backend_factory)
-        validate_preview_limit(limit)
-        backend = factory(datasource)
-        source_table = table
-        preview_table = (
-            backend.table(source_table)
-            if database is None
-            else backend.table(source_table, database=database)
-        )
-        selected_columns = tuple(columns or ())
-        if selected_columns:
-            preview_table = preview_table.select(*selected_columns)
-
-        ref = _raw_preview_ref(datasource, source_table, database)
-        preview = preview_ibis_table(
-            preview_table,
-            kind="datasource_table",
-            ref=ref,
-            limit=limit,
-            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
-            include_types=include_types,
-        )
-        from datetime import UTC, datetime
-
-        from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
-
-        sample_policy: dict[str, object] = {
-            "method": preview.sample_policy.method,
-            "limit": preview.sample_policy.limit,
-            "order_by": list(preview.sample_policy.order_by),
-            "filters": [dict(filter_) for filter_ in preview.sample_policy.filters],
-        }
-        LedgerStore(self._semantic_root).write_raw_preview(
-            RawPreviewEvidence(
-                ref=preview.ref,
-                datasource=datasource,
-                table=source_table,
-                database=database,
-                columns=preview.columns,
-                types=preview.types,
-                requested_limit=preview.requested_limit,
-                returned_row_count=preview.returned_row_count,
-                sample_policy=sample_policy,
-                collected_at=datetime.now(UTC).isoformat(),
-                status="success",
+        try:
+            validate_preview_limit(limit)
+            backend = factory(datasource)
+            source_table = table
+            preview_table = (
+                backend.table(source_table)
+                if database is None
+                else backend.table(source_table, database=database)
             )
-        )
-        return preview
+            selected_columns = tuple(columns or ())
+            if selected_columns:
+                preview_table = preview_table.select(*selected_columns)
+
+            ref = _raw_preview_ref(datasource, source_table, database)
+            preview = preview_ibis_table(
+                preview_table,
+                kind="datasource_table",
+                ref=ref,
+                limit=limit,
+                sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
+                include_types=include_types,
+            )
+            from datetime import UTC, datetime
+
+            from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
+
+            sample_policy: dict[str, object] = {
+                "method": preview.sample_policy.method,
+                "limit": preview.sample_policy.limit,
+                "order_by": list(preview.sample_policy.order_by),
+                "filters": [dict(filter_) for filter_ in preview.sample_policy.filters],
+            }
+            LedgerStore(self._semantic_root).write_raw_preview(
+                RawPreviewEvidence(
+                    ref=preview.ref,
+                    datasource=datasource,
+                    table=source_table,
+                    database=database,
+                    columns=preview.columns,
+                    types=preview.types,
+                    requested_limit=preview.requested_limit,
+                    returned_row_count=preview.returned_row_count,
+                    sample_policy=sample_policy,
+                    collected_at=datetime.now(UTC).isoformat(),
+                    status="success",
+                )
+            )
+            return preview
+        finally:
+            _close_owned(factory)
 
     def record_primary_key_sample(self, dataset: str) -> None:
         """Record that primary key uniqueness was sampled for a dataset."""
@@ -862,16 +998,19 @@ class SemanticProject:
     ) -> PreviewResult:
         """Return a bounded preview of a semantic dataset."""
         factory = self._resolve_backend_factory(backend_factory)
-        limit = validate_preview_limit(limit)
-        table = self.materialize_dataset(name, backend_factory=factory)
-        return preview_ibis_table(
-            table,
-            kind="semantic_dataset",
-            ref=name,
-            limit=limit,
-            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
-            include_types=include_types,
-        )
+        try:
+            limit = validate_preview_limit(limit)
+            table = Materializer(self, factory).entity(name)
+            return preview_ibis_table(
+                table,
+                kind="semantic_dataset",
+                ref=name,
+                limit=limit,
+                sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
+                include_types=include_types,
+            )
+        finally:
+            _close_owned(factory)
 
     def preview_field(
         self,
@@ -884,51 +1023,54 @@ class SemanticProject:
     ) -> PreviewResult:
         """Return a bounded preview of a semantic field with parent dataset context."""
         factory = self._resolve_backend_factory(backend_factory)
-        limit = validate_preview_limit(limit)
-        reg = _require_registry(self._registry, project=self)
-        field_ir = reg.fields.get(name)
-        if field_ir is None:
-            _raise(
-                ErrorKind.DIMENSION_NOT_FOUND,
-                f"Dimension {name!r} not found in registry.",
-                cls=SemanticRuntimeError,
-                refs=(name,),
+        try:
+            limit = validate_preview_limit(limit)
+            reg = _require_registry(self._registry, project=self)
+            field_ir = reg.fields.get(name)
+            if field_ir is None:
+                _raise(
+                    ErrorKind.DIMENSION_NOT_FOUND,
+                    f"Dimension {name!r} not found in registry.",
+                    cls=SemanticRuntimeError,
+                    refs=(name,),
+                )
+
+            mat = Materializer(self, factory)
+            parent_table = mat.entity(field_ir.entity)
+            field_value = mat.dimension(name)
+            field_column_name = _semantic_leaf_name(name)
+
+            if context_columns is None:
+                selected_context = tuple(
+                    column for column in parent_table.columns if column != field_column_name
+                )[:_FIELD_PREVIEW_CONTEXT_COLUMNS]
+            else:
+                selected_context = tuple(context_columns)
+
+            missing_context = [
+                column for column in selected_context if column not in parent_table.columns
+            ]
+            if missing_context:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"Field preview context columns are not present on parent dataset: {missing_context}",
+                    cls=SemanticRuntimeError,
+                    refs=(name,),
+                )
+
+            projections = [parent_table[column] for column in selected_context]
+            projections.append(field_value.name(field_column_name))
+            preview_table = parent_table.select(*projections)
+            return preview_ibis_table(
+                preview_table,
+                kind="semantic_field",
+                ref=name,
+                limit=limit,
+                sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
+                include_types=include_types,
             )
-
-        mat = Materializer(self, factory)
-        parent_table = mat.entity(field_ir.entity)
-        field_value = mat.dimension(name)
-        field_column_name = _semantic_leaf_name(name)
-
-        if context_columns is None:
-            selected_context = tuple(
-                column for column in parent_table.columns if column != field_column_name
-            )[:_FIELD_PREVIEW_CONTEXT_COLUMNS]
-        else:
-            selected_context = tuple(context_columns)
-
-        missing_context = [
-            column for column in selected_context if column not in parent_table.columns
-        ]
-        if missing_context:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Field preview context columns are not present on parent dataset: {missing_context}",
-                cls=SemanticRuntimeError,
-                refs=(name,),
-            )
-
-        projections = [parent_table[column] for column in selected_context]
-        projections.append(field_value.name(field_column_name))
-        preview_table = parent_table.select(*projections)
-        return preview_ibis_table(
-            preview_table,
-            kind="semantic_field",
-            ref=name,
-            limit=limit,
-            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
-            include_types=include_types,
-        )
+        finally:
+            _close_owned(factory)
 
     def preview_metric(
         self,
@@ -946,37 +1088,40 @@ class SemanticProject:
         The result is approximate.
         """
         factory = self._resolve_backend_factory(backend_factory)
-        limit = validate_preview_limit(limit)
-        mat = Materializer(self, factory, sample_size=METRIC_PREVIEW_SAMPLE_SIZE)
-        metric_value = mat.metric(name)
-        result = preview_ibis_value(
-            metric_value,
-            kind="semantic_metric",
-            ref=name,
-            limit=limit,
-            column_name="value",
-            sample_policy=PreviewSamplePolicy(method="pre_aggregate_limit", limit=limit),
-            include_types=include_types,
-        )
-        result_with_warning = PreviewResult(
-            kind=result.kind,
-            ref=result.ref,
-            columns=result.columns,
-            types=result.types,
-            rows=result.rows,
-            requested_limit=result.requested_limit,
-            returned_row_count=result.returned_row_count,
-            is_truncated=result.is_truncated,
-            warnings=(
-                *result.warnings,
-                PreviewWarning(
-                    kind="approximate_preview",
-                    message=f"metric computed on {METRIC_PREVIEW_SAMPLE_SIZE} row sample, result is approximate",
+        try:
+            limit = validate_preview_limit(limit)
+            mat = Materializer(self, factory, sample_size=METRIC_PREVIEW_SAMPLE_SIZE)
+            metric_value = mat.metric(name)
+            result = preview_ibis_value(
+                metric_value,
+                kind="semantic_metric",
+                ref=name,
+                limit=limit,
+                column_name="value",
+                sample_policy=PreviewSamplePolicy(method="pre_aggregate_limit", limit=limit),
+                include_types=include_types,
+            )
+            result_with_warning = PreviewResult(
+                kind=result.kind,
+                ref=result.ref,
+                columns=result.columns,
+                types=result.types,
+                rows=result.rows,
+                requested_limit=result.requested_limit,
+                returned_row_count=result.returned_row_count,
+                is_truncated=result.is_truncated,
+                warnings=(
+                    *result.warnings,
+                    PreviewWarning(
+                        kind="approximate_preview",
+                        message=f"metric computed on {METRIC_PREVIEW_SAMPLE_SIZE} row sample, result is approximate",
+                    ),
                 ),
-            ),
-            sample_policy=result.sample_policy,
-        )
-        return result_with_warning
+                sample_policy=result.sample_policy,
+            )
+            return result_with_warning
+        finally:
+            _close_owned(factory)
 
     # -- parity -------------------------------------------------------------
 
@@ -994,14 +1139,17 @@ class SemanticProject:
         See :func:`marivo.semantic.parity.parity_check` for details.
         """
         factory = self._resolve_backend_factory(backend_factory)
-        return parity_check(
-            self,
-            name,
-            backend_factory=factory,
-            rel_tol=rel_tol,
-            abs_tol=abs_tol,
-            force=force,
-        )
+        try:
+            return parity_check(
+                self,
+                name,
+                backend_factory=factory,
+                rel_tol=rel_tol,
+                abs_tol=abs_tol,
+                force=force,
+            )
+        finally:
+            _close_owned(factory)
 
     # -- readiness ----------------------------------------------------------
 
@@ -1035,50 +1183,25 @@ class SemanticProject:
             supports_federation=False,
         )
 
-    @property
-    def _backend_factory(self) -> Callable[[str], Any] | None:
-        """Return the bound backend factory, if any."""
-        return self._bound_backend_factory
-
-    def bind_datasource_access(
-        self,
-        *,
-        inspect_source: Callable[..., Any],
-        backend_factory: Callable[[str], Any],
-    ) -> None:
-        """Bind datasource access callables for evidence collection and materialization."""
-        self._bound_inspect_source = inspect_source
-        self._bound_backend_factory = backend_factory
-
     def _resolve_backend_factory(
         self,
         backend_factory: Callable[[str], Any] | None,
     ) -> Callable[[str], Any]:
-        """Return *backend_factory* or the bound factory, raising if neither is set."""
-        factory = backend_factory or self._backend_factory
-        if factory is None:
-            _raise(
-                ErrorKind.BACKEND_FACTORY_REQUIRED,
-                "No backend_factory available. Call project.bind_datasource_access(...) "
-                "or pass backend_factory=... explicitly.",
-                cls=SemanticRuntimeError,
-            )
-        return factory
+        """Return *backend_factory* or a fresh owned default-connect factory."""
+        if backend_factory is not None:
+            return backend_factory
+        return _OwnedBackendFactory(project_root=self._workspace_dir)
 
     def _resolve_inspect_source(
         self,
         inspect_source: Callable[..., Any] | None,
     ) -> Callable[..., Any]:
-        """Return *inspect_source* or the bound callable, raising if neither is set."""
-        fn = inspect_source or self._bound_inspect_source
-        if fn is None:
-            _raise(
-                ErrorKind.INSPECT_SOURCE_REQUIRED,
-                "No inspect_source available. Call project.bind_datasource_access(...) "
-                "or pass inspect_source=... explicitly.",
-                cls=SemanticRuntimeError,
-            )
-        return fn
+        """Return *inspect_source* or the kernel default scoped to this project."""
+        return (
+            inspect_source
+            if inspect_source is not None
+            else _make_project_inspect_source(self._workspace_dir)
+        )
 
     def readiness(
         self,
@@ -1088,29 +1211,41 @@ class SemanticProject:
         preview_limit: int = 20,
         parity_rel_tol: float | None = None,
         parity_abs_tol: float | None = None,
+        backend_factory: Callable[[str], Any] | None = None,
     ) -> ReadinessReport:
         """Return a structured semantic readiness report.
 
         Evidence is auto-loaded from the project's ledger and evidence store.
-        Closeout uses project-bound backend access for semantic previews and
-        eligible parity checks, folds richness gaps into warnings, and reports
-        missing backend access as a readiness blocker. Use ``refs`` to scope
-        which semantic objects to check; by default all loaded objects are
+        Closeout uses default or injected backend access for semantic previews
+        and eligible parity checks, folds richness gaps into warnings, and
+        reports missing backend access as a readiness blocker. Use ``refs`` to
+        scope which semantic objects to check; by default all loaded objects are
         checked.
+
+        If *backend_factory* is not provided, a default factory backed by
+        ``md.connect`` is used when project datasources exist.
         """
         self.load(models=list(self._filtered_domains) if self._filtered_domains else None)
         evidence = self._auto_collect_evidence()
-        factory = self._backend_factory
-        return build_readiness_report(
-            self,
-            evidence,
-            backend_factory=factory,
-            refs=refs,
-            demand=demand,
-            preview_limit=preview_limit,
-            parity_rel_tol=parity_rel_tol,
-            parity_abs_tol=parity_abs_tol,
-        )
+        factory: Callable[[str], Any] | None = None
+        if backend_factory is not None:
+            factory = backend_factory
+        elif _list_datasources_available(project_root=self._workspace_dir):
+            factory = self._resolve_backend_factory(None)
+        try:
+            return build_readiness_report(
+                self,
+                evidence,
+                backend_factory=factory,
+                refs=refs,
+                demand=demand,
+                preview_limit=preview_limit,
+                parity_rel_tol=parity_rel_tol,
+                parity_abs_tol=parity_abs_tol,
+            )
+        finally:
+            if factory is not None:
+                _close_owned(factory)
 
     # -- richness -----------------------------------------------------------
 
@@ -1156,35 +1291,38 @@ class SemanticProject:
         evidence ref is also recorded so ``readiness()`` passes without a
         separate collect_source_preview call.
 
-        If *inspect_source* or *backend_factory* is not provided, the bound
-        callable (set via :meth:`bind_datasource_access`) is used.
+        If *inspect_source* or *backend_factory* is not provided, the kernel
+        default (``md.inspect_source`` / ``md.connect``) is used.
         """
         fn = self._resolve_inspect_source(inspect_source)
         factory = self._resolve_backend_factory(backend_factory)
         from marivo.semantic.inspect import collect_source_evidence
 
-        pack = collect_source_evidence(
-            datasource=datasource,
-            source=source,
-            inspect_source=fn,
-            backend_factory=factory,
-            sample_policy=sample_policy,
-        )
-        if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)) and isinstance(
-            source, TableSource
-        ):
-            self.collect_source_preview(
+        try:
+            pack = collect_source_evidence(
                 datasource=datasource,
-                table=source.table,
-                database=source.database,
+                source=source,
+                inspect_source=fn,
                 backend_factory=factory,
-                limit=min(sample_policy.limit, PREVIEW_MAX_LIMIT),
+                sample_policy=sample_policy,
             )
-        if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)):
-            for ds in self._datasets_by_source(datasource, source):
-                if ds.primary_key:
-                    self.record_primary_key_sample(ds.semantic_id)
-        return pack
+            if isinstance(
+                sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)
+            ) and isinstance(source, TableSource):
+                self.collect_source_preview(
+                    datasource=datasource,
+                    table=source.table,
+                    database=source.database,
+                    backend_factory=factory,
+                    limit=min(sample_policy.limit, PREVIEW_MAX_LIMIT),
+                )
+            if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)):
+                for ds in self._datasets_by_source(datasource, source):
+                    if ds.primary_key:
+                        self.record_primary_key_sample(ds.semantic_id)
+            return pack
+        finally:
+            _close_owned(factory)
 
     def inspect_column_context(
         self,
@@ -1201,19 +1339,22 @@ class SemanticProject:
         factory = self._resolve_backend_factory(backend_factory)
         from marivo.semantic.inspect import collect_column_evidence
 
-        result = collect_column_evidence(
-            datasource=datasource,
-            source=source,
-            columns=columns,
-            inspect_source=fn,
-            backend_factory=factory,
-            sample_policy=sample_policy,
-        )
-        column_set = set(columns)
-        for ds in self._datasets_by_source(datasource, source):
-            if ds.primary_key and set(ds.primary_key) <= column_set:
-                self.record_primary_key_sample(ds.semantic_id)
-        return result
+        try:
+            result = collect_column_evidence(
+                datasource=datasource,
+                source=source,
+                columns=columns,
+                inspect_source=fn,
+                backend_factory=factory,
+                sample_policy=sample_policy,
+            )
+            column_set = set(columns)
+            for ds in self._datasets_by_source(datasource, source):
+                if ds.primary_key and set(ds.primary_key) <= column_set:
+                    self.record_primary_key_sample(ds.semantic_id)
+            return result
+        finally:
+            _close_owned(factory)
 
     def assess_authoring(
         self,
@@ -1222,6 +1363,8 @@ class SemanticProject:
         subject_ref: str,
         sources: Sequence[AuthoringSourceInput] = (),
         semantic_refs: Sequence[str] = (),
+        inspect_source: Callable[..., Any] | None = None,
+        backend_factory: Callable[[str], Any] | None = None,
     ) -> AuthoringAssessment:
         """Collect current source context and assess semantic authoring inputs.
 
@@ -1253,11 +1396,11 @@ class SemanticProject:
         Constraints
         -----------
         This method accepts only source and semantic references, not drafted
-        object content. For physical sources, call
-        ``project.bind_datasource_access(...)`` first so Marivo can collect
-        current datasource evidence.
+        object content. For physical sources, ensure at least one project
+        datasource is registered (via ``md.register()``) so Marivo can
+        collect current datasource evidence.
         """
-        if sources and (self._bound_inspect_source is None or self._bound_backend_factory is None):
+        if sources and not _list_datasources_available(project_root=self._workspace_dir):
             issue = AssessmentIssue(
                 kind="missing_source",
                 severity="blocker",
@@ -1265,8 +1408,7 @@ class SemanticProject:
                 rule_id="datasource_access_bound",
                 message=(
                     "Datasource access is required before assessing physical sources. "
-                    "Call project.bind_datasource_access(...) with inspect_source and "
-                    "backend_factory."
+                    "Register a project datasource via md.register() first."
                 ),
             )
             return AuthoringAssessment(
@@ -1279,16 +1421,21 @@ class SemanticProject:
         from marivo.semantic.authoring_check import check_authoring_inputs as _check
         from marivo.semantic.inspect import collect_source_evidence
 
+        fn = self._resolve_inspect_source(inspect_source)
+        factory = self._resolve_backend_factory(backend_factory)
         collected_packs: list[SourceEvidencePack] = []
-        for source_input in sources:
-            pack = collect_source_evidence(
-                datasource=source_input.datasource,
-                source=source_input.source,
-                inspect_source=self._resolve_inspect_source(None),
-                backend_factory=self._resolve_backend_factory(None),
-                sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=50),
-            )
-            collected_packs.append(pack)
+        try:
+            for source_input in sources:
+                pack = collect_source_evidence(
+                    datasource=source_input.datasource,
+                    source=source_input.source,
+                    inspect_source=fn,
+                    backend_factory=factory,
+                    sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=50),
+                )
+                collected_packs.append(pack)
+        finally:
+            _close_owned(factory)
 
         return _check(
             packs=collected_packs,

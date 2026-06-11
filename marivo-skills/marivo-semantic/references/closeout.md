@@ -8,17 +8,12 @@ Closeout decides whether semantic refs are ready for `marivo-analysis`.
 catalog = ms.load()
 ```
 
-## Bind Datasource Access
+## Datasource Access
 
-Bind datasource access once before closeout. `readiness(...)` uses the bound
-access to run required preview, materialization, parity, and richness checks.
-
-```python
-project.bind_datasource_access(
-    inspect_source=mv.datasources.inspect_source,
-    backend_factory=mv.datasources.build_backend,
-)
-```
+Readiness closeout automatically uses the kernel default factories
+(`md.inspect_source` and `md.connect`) when project datasources are
+registered. For custom `inspect_source` or `backend_factory`, pass
+them explicitly to `inspect_source_context`, `assess_authoring`, etc.
 
 ## Readiness gate
 
