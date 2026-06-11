@@ -318,7 +318,7 @@ def test_help_json_top_level_returns_compact_directory() -> None:
         assert "kind" in entry
         assert entry["kind"] in {"callable", "class", "module", "topic", "surface", "unknown"}
     entry_names = {e["name"] for e in entries}
-    assert entry_names == set(ms.__all__) | {"constraints", "decomposition"}
+    assert entry_names == set(ms.__all__) | {"constraints", "decomposition", "time_fold"}
     assert "entity" in entry_names
     assert "metric" in entry_names
     assert "derived_metric" in entry_names
@@ -486,6 +486,8 @@ _EXPECTED_DECORATOR_KINDS = {
     "invalid_ai_context",
     "sql_escape_hatch",
     "ibis_attr_shadow",
+    "invalid_sample_interval",
+    "invalid_time_fold",
 }
 
 _EXPECTED_ASSEMBLY_KINDS = {
@@ -509,6 +511,11 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "non_root_metric_aggregate",
     "invalid_metric_fanout_policy",
     "derived_metric_fanout_policy",
+    "time_fold_requires_semi_additive",
+    "time_fold_requires_sampled_time_field",
+    "missing_time_fold",
+    "ambiguous_fold_time_dimension",
+    "invalid_fold_time_dimension",
 }
 
 _EXPECTED_RUNTIME_KINDS = {
@@ -916,3 +923,18 @@ def test_semantic_project_load_reloads() -> None:
         project = SemanticProject(root=semantic_root)
         result = project.load()
         assert result.status == "ready"
+
+
+def test_help_time_fold_documents_sampled_semantics(capsys) -> None:
+    ms.help("time_fold")
+    out = capsys.readouterr().out
+    assert "sampled semi-additive" in out
+    assert "fold_time_dimension" in out
+    assert "('quantile', q)" in out
+
+
+def test_help_metric_mentions_time_fold_is_definition_choice(capsys) -> None:
+    ms.help("metric")
+    out = capsys.readouterr().out
+    assert "time_fold" in out
+    assert "definition choice, not an observe parameter" in out

@@ -1607,6 +1607,13 @@ def _op_rollup(
             details={"op": "rollup", "unsupported_kwargs": unsupported_kwargs},
         )
 
+    if getattr(frame.meta, "reaggregatable", True) is False:
+        raise TransformShapeUnsupportedError(
+            message="transform(op='rollup') cannot roll up non-reaggregatable metric values",
+            hint="Re-run session.observe(...) at the target grain or target dimensions.",
+            details={"op": "rollup", "reason": "non_reaggregatable", "frame_ref": frame.ref},
+        )
+
     drop_ids = _normalize_rollup_drop_axes(frame, params.drop_axes)
     axes = copy.deepcopy(_frame_axes(frame))
     new_axes = {axis_id: axis for axis_id, axis in axes.items() if axis_id not in drop_ids}

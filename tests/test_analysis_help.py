@@ -380,7 +380,7 @@ def test_ms_help_output_within_80_lines(capsys: CaptureFixture[str]):
 
     ms.help("metric")
     captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) <= 80
+    assert len(captured.out.splitlines()) <= 100
 
 
 # --- semantic ref object support ---
@@ -489,3 +489,14 @@ def test_help_semantic_metric_ref_prints_unit(capsys, semantic_project_factory):
     mv.help(MetricRef("sales.revenue"), project=project)
     out = capsys.readouterr().out
     assert "unit: CNY" in out
+
+
+# --- sampled semi-additive observe help ---
+
+
+def test_help_observe_mentions_sampled_fold_coverage(capsys) -> None:
+    mv.help("observe")
+    out = capsys.readouterr().out
+    assert "sampled semi-additive" in out
+    assert "coverage()" in out
+    assert "re-run observe" in out

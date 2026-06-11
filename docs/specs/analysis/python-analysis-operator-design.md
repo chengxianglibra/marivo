@@ -480,6 +480,8 @@ same family as input
 | `impute_nulls` | `metric_frame`, `delta_frame` | same family | 显式填补缺失并记录策略 |
 | `winsorize` / `strip_outliers` | `metric_frame`, `delta_frame` | same family | 显式限制或剔除离群点并记录策略 |
 
+Sampled folded MetricFrames set `reaggregatable=False`. `transform.rollup(...)` must fail closed and instruct callers to re-run `session.observe(...)` at the target grain or dimension set.
+
 示例：
 
 ```python

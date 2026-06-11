@@ -94,6 +94,9 @@ class QualitySummary(_FrozenModel):
     metric_definition_compatibility: (
         Literal["exact", "compatible", "incompatible", "unknown"] | None
     ) = None
+    sample_coverage_min: float | None = None
+    sample_coverage_avg: float | None = None
+    sample_coverage_partial_buckets: int | None = None
 
 
 class Finding(_FrozenModel):

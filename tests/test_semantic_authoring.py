@@ -33,6 +33,7 @@ from marivo.semantic.ir import (
     DimensionKind,
     DimensionRef,
     EntityRef,
+    MetricIR,
     MetricRef,
     RelationshipRef,
     TimeDimensionRef,
@@ -772,6 +773,48 @@ def test_time_field_rejects_invalid_strptime_directive() -> None:
         _exit_ctx()
 
 
+def test_time_dimension_accepts_sample_interval() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.time_dimension(
+            entity="sales.bandwidth_samples",
+            data_type="timestamp",
+            granularity="second",
+            timezone="UTC",
+            sample_interval=(5, "minute"),
+        )
+        def sample_ts(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        irs = [obj for obj, _ in ctx.pending_objects if isinstance(obj, DimensionIR)]
+        assert irs[-1].sample_interval is not None
+        assert irs[-1].granularity == "second"
+        assert irs[-1].sample_interval.count == 5
+        assert irs[-1].sample_interval.unit == "minute"
+    finally:
+        _exit_ctx()
+
+
+def test_time_dimension_rejects_invalid_sample_interval_unit() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_dimension(
+                entity="sales.bandwidth_samples",
+                data_type="timestamp",
+                granularity="second",
+                sample_interval=(1, "day"),  # type: ignore[arg-type]
+            )
+            def sample_ts(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # ms.metric() decorator
 # ---------------------------------------------------------------------------
@@ -919,6 +962,49 @@ def test_metric_pushes_callable() -> None:
         ms.metric(entities=["sales.orders"], decomposition=ms.sum())(revenue_fn)
         ir, callable_ = ctx.pending_objects[-1]
         assert callable_ is revenue_fn
+    finally:
+        _exit_ctx()
+
+
+def test_metric_accepts_time_fold_and_fold_time_dimension() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.metric(
+            entities=["sales.bandwidth_samples"],
+            additivity="semi_additive",
+            decomposition=ms.sum(),
+            time_fold=("quantile", 0.95),
+            fold_time_dimension="sales.bandwidth_samples.sample_ts",
+        )
+        def upstream_p95(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ir, _ = ctx.pending_objects[-1]
+        assert isinstance(ir, MetricIR)
+        assert ir.time_fold is not None
+        assert ir.time_fold.kind == "quantile"
+        assert ir.time_fold.q == 0.95
+        assert ir.fold_time_dimension == "sales.bandwidth_samples.sample_ts"
+    finally:
+        _exit_ctx()
+
+
+def test_metric_rejects_quantile_time_fold_outside_open_interval() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.metric(
+                entities=["sales.bandwidth_samples"],
+                additivity="semi_additive",
+                decomposition=ms.sum(),
+                time_fold=("quantile", 1.0),
+            )
+            def upstream_p100(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_TIME_FOLD
     finally:
         _exit_ctx()
 

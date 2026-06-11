@@ -725,6 +725,105 @@ def _filtered_domain_ref_warning(
     )
 
 
+def _sampled_time_fields_for_entity(registry: Registry, entity_id: str) -> list[DimensionIR]:
+    return [
+        field
+        for field in registry.fields.values()
+        if field.entity == entity_id
+        and field.is_time_dimension
+        and field.sample_interval is not None
+    ]
+
+
+def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]) -> None:
+    for metric_id, metric_ir in registry.metrics.items():
+        root = metric_ir.root_entity or (
+            metric_ir.entities[0] if len(metric_ir.entities) == 1 else None
+        )
+        sampled_fields = _sampled_time_fields_for_entity(registry, root) if root else []
+        if metric_ir.is_derived:
+            if metric_ir.time_fold is not None:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.TIME_FOLD_REQUIRES_SEMI_ADDITIVE,
+                        message=f"Derived metric {metric_id!r} cannot declare time_fold.",
+                        refs=(metric_id,),
+                        details={"metric": metric_id},
+                    )
+                )
+            continue
+        if metric_ir.time_fold is not None and metric_ir.additivity != "semi_additive":
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.TIME_FOLD_REQUIRES_SEMI_ADDITIVE,
+                    message=f"Metric {metric_id!r} time_fold requires additivity='semi_additive'.",
+                    refs=(metric_id,),
+                    details={"metric": metric_id, "additivity": metric_ir.additivity},
+                )
+            )
+            continue
+        if (
+            metric_ir.additivity == "semi_additive"
+            and sampled_fields
+            and metric_ir.time_fold is None
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.MISSING_TIME_FOLD,
+                    message=f"Sampled semi-additive metric {metric_id!r} must declare time_fold.",
+                    refs=(metric_id,),
+                    details={
+                        "metric": metric_id,
+                        "sampled_time_dimensions": [f.semantic_id for f in sampled_fields],
+                    },
+                )
+            )
+            continue
+        if metric_ir.time_fold is None:
+            continue
+        if not sampled_fields:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.TIME_FOLD_REQUIRES_SAMPLED_TIME_FIELD,
+                    message=f"Metric {metric_id!r} declares time_fold but its root entity has no sampled time dimension.",
+                    refs=(metric_id,),
+                    details={"metric": metric_id, "root_entity": root},
+                )
+            )
+            continue
+        if metric_ir.fold_time_dimension is None:
+            if len(sampled_fields) == 1:
+                object.__setattr__(metric_ir, "fold_time_dimension", sampled_fields[0].semantic_id)
+            else:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.AMBIGUOUS_FOLD_TIME_DIMENSION,
+                        message=f"Metric {metric_id!r} must declare fold_time_dimension because multiple sampled axes exist.",
+                        refs=(metric_id,),
+                        details={
+                            "metric": metric_id,
+                            "sampled_time_dimensions": [f.semantic_id for f in sampled_fields],
+                        },
+                    )
+                )
+            continue
+        matching = [
+            field for field in sampled_fields if field.semantic_id == metric_ir.fold_time_dimension
+        ]
+        if not matching:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_FOLD_TIME_DIMENSION,
+                    message=f"Metric {metric_id!r} fold_time_dimension must reference a sampled time dimension on its root entity.",
+                    refs=(metric_id, metric_ir.fold_time_dimension),
+                    details={
+                        "metric": metric_id,
+                        "fold_time_dimension": metric_ir.fold_time_dimension,
+                    },
+                )
+            )
+
+
 def assembly_validate(
     registry: Registry,
     sidecar: Sidecar | None = None,
@@ -929,6 +1028,9 @@ def assembly_validate(
                             },
                         )
                     )
+
+    # -- Validate sampled semi-additive time folds ---------------------------
+    _validate_sampled_time_folds(registry, errors)
 
     # -- Validate metric component refs in decomposition --------------------
     for m_id, m_ir in registry.metrics.items():

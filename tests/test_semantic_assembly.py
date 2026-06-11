@@ -34,8 +34,10 @@ from marivo.semantic.ir import (
     MetricIR,
     ProvenanceIR,
     RelationshipIR,
+    SampleIntervalIR,
     SourceLocation,
     TableSourceIR,
+    TimeFoldIR,
 )
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.validator import Registry, assembly_validate
@@ -1162,3 +1164,93 @@ def test_semantic_error_str_omits_did_you_mean_when_empty() -> None:
 
     rendered = str(err)
     assert "Did you mean" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# Sampled semi-additive time fold validation
+# ---------------------------------------------------------------------------
+
+
+def test_sampled_semi_additive_metric_without_time_fold_fails() -> None:
+    registry = _make_registry()
+    registry.datasets["sales.bandwidth_samples"] = dataclasses.replace(
+        registry.datasets["sales.orders"],
+        semantic_id="sales.bandwidth_samples",
+        name="bandwidth_samples",
+        primary_key=("device_id", "sample_ts"),
+    )
+    registry.fields["sales.bandwidth_samples.sample_ts"] = DimensionIR(
+        semantic_id="sales.bandwidth_samples.sample_ts",
+        domain="sales",
+        entity="sales.bandwidth_samples",
+        name="sample_ts",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_dimension=True,
+        kind=DimensionKind.TIME,
+        data_type="timestamp",
+        granularity="second",
+        required_prefix=None,
+        python_symbol="sample_ts",
+        location=_LOC,
+        format=None,
+        timezone="UTC",
+        is_default=False,
+        sample_interval=SampleIntervalIR(count=5, unit="minute"),
+    )
+    registry.metrics["sales.upstream_bw"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.upstream_bw",
+        name="upstream_bw",
+        entities=("sales.bandwidth_samples",),
+        additivity="semi_additive",
+        time_fold=None,
+    )
+
+    errors, _warnings = assembly_validate(registry)
+    assert [err.kind for err in errors] == [ErrorKind.MISSING_TIME_FOLD]
+
+
+def test_metric_time_fold_auto_binds_single_sampled_axis() -> None:
+    registry = _make_registry()
+    registry.datasets["sales.bandwidth_samples"] = dataclasses.replace(
+        registry.datasets["sales.orders"],
+        semantic_id="sales.bandwidth_samples",
+        name="bandwidth_samples",
+        primary_key=("device_id", "sample_ts"),
+    )
+    registry.fields["sales.bandwidth_samples.sample_ts"] = DimensionIR(
+        semantic_id="sales.bandwidth_samples.sample_ts",
+        domain="sales",
+        entity="sales.bandwidth_samples",
+        name="sample_ts",
+        description=None,
+        ai_context=AiContextIR(),
+        is_time_dimension=True,
+        kind=DimensionKind.TIME,
+        data_type="timestamp",
+        granularity="second",
+        required_prefix=None,
+        python_symbol="sample_ts",
+        location=_LOC,
+        format=None,
+        timezone="UTC",
+        is_default=False,
+        sample_interval=SampleIntervalIR(count=5, unit="minute"),
+    )
+    registry.metrics["sales.upstream_bw"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.upstream_bw",
+        name="upstream_bw",
+        entities=("sales.bandwidth_samples",),
+        additivity="semi_additive",
+        time_fold=TimeFoldIR(kind="mean"),
+        fold_time_dimension=None,
+    )
+
+    errors, _warnings = assembly_validate(registry)
+    assert errors == []
+    assert (
+        registry.metrics["sales.upstream_bw"].fold_time_dimension
+        == "sales.bandwidth_samples.sample_ts"
+    )

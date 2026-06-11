@@ -38,10 +38,12 @@ from marivo.semantic.ir import (
     ProvenanceIR,
     RelationshipIR,
     RelationshipRef,
+    SampleIntervalIR,
     SnapshotVersioningIR,
     SourceLocation,
     TableSourceIR,
     TimeDimensionRef,
+    TimeFoldIR,
     ValidityVersioningIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
@@ -205,6 +207,91 @@ def _validate_unit(unit: str | None, semantic_id: str) -> None:
             refs=(semantic_id,),
             cls=SemanticDecoratorError,
         )
+
+
+def _normalize_sample_interval(
+    sample_interval: tuple[int, str] | None,
+    *,
+    semantic_id: str,
+    data_type: str,
+    granularity: str,
+) -> SampleIntervalIR | None:
+    if sample_interval is None:
+        return None
+    count, unit = sample_interval
+    if unit not in {"minute", "hour"} or count <= 0:
+        _raise(
+            ErrorKind.INVALID_SAMPLE_INTERVAL,
+            "sample_interval must use a positive minute or hour interval.",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
+        )
+    seconds = count * (60 if unit == "minute" else 3600)
+    if 86400 % seconds != 0:
+        _raise(
+            ErrorKind.INVALID_SAMPLE_INTERVAL,
+            "sample_interval must divide one day evenly.",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
+        )
+    if data_type not in {"datetime", "timestamp"}:
+        _raise(
+            ErrorKind.INVALID_SAMPLE_INTERVAL,
+            "sample_interval is only supported on datetime or timestamp time dimensions.",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
+        )
+    rank = {
+        "second": 0,
+        "minute": 1,
+        "hour": 2,
+        "day": 3,
+        "week": 4,
+        "month": 5,
+        "quarter": 6,
+        "year": 7,
+    }
+    if rank[granularity] > rank[unit]:
+        _raise(
+            ErrorKind.INVALID_SAMPLE_INTERVAL,
+            "time dimension physical granularity cannot be coarser than sample_interval.",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
+        )
+    return SampleIntervalIR(count=count, unit=unit)  # type: ignore[arg-type]
+
+
+def _normalize_time_fold(
+    time_fold: str | tuple[str, float] | None,
+    *,
+    semantic_id: str,
+) -> TimeFoldIR | None:
+    if time_fold is None:
+        return None
+    if isinstance(time_fold, str):
+        if time_fold not in {"mean", "min", "max", "first", "last"}:
+            _raise(
+                ErrorKind.INVALID_TIME_FOLD,
+                f"time_fold {time_fold!r} is not supported.",
+                refs=(semantic_id,),
+                cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.TIME_FOLD_VALID,
+            )
+        return TimeFoldIR(kind=time_fold)  # type: ignore[arg-type]
+    kind, q = time_fold
+    if kind != "quantile" or not isinstance(q, (float, int)) or not 0 < float(q) < 1:
+        _raise(
+            ErrorKind.INVALID_TIME_FOLD,
+            "quantile time_fold must be ('quantile', q) with 0 < q < 1.",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.TIME_FOLD_VALID,
+        )
+    return TimeFoldIR(kind="quantile", q=float(q))
 
 
 def _caller_location() -> SourceLocation:
@@ -531,6 +618,7 @@ def time_dimension(
     required_prefix: str | None = None,
     timezone: str | None = None,
     is_default: bool = False,
+    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -677,6 +765,12 @@ def time_dimension(
             format=normalized_format,
             timezone=timezone,
             is_default=is_default,
+            sample_interval=_normalize_sample_interval(
+                sample_interval,
+                semantic_id=semantic_id,
+                data_type=data_type,
+                granularity=granularity,
+            ),
         )
         _push_ir(ctx, ir, fn)
 
@@ -696,6 +790,8 @@ def metric(
     fanout_policy: Literal["block", "aggregate_then_join"] = "block",
     unit: str | None = None,
     decomposition: DecompositionBuilder,
+    time_fold: str | tuple[Literal["quantile"], float] | None = None,
+    fold_time_dimension: TimeDimensionRef | str | None = None,
     source_sql: str | None = None,
     source_dialect: str | None = None,
     source_document: str | None = None,
@@ -732,6 +828,12 @@ def metric(
             (values are percentage points, e.g. 89.8), ``"1"`` (dimensionless
             fraction, e.g. 0.898 — the native output of ratio decompositions),
             ``"ms"``, ``"By"``, ``"{order}"`` (counted noun), ``"By/s"``.
+        time_fold: Sampled semi-additive fold kind (``"mean"``, ``"min"``,
+            ``"max"``, ``"first"``, ``"last"``, or ``("quantile", q)``).
+            Requires ``additivity="semi_additive"``. time_fold is a metric
+            definition choice, not an observe parameter.
+        fold_time_dimension: The sampled time dimension that provides the
+            sample axis. Required when ``time_fold`` is set.
 
     Returns:
         A decorator that returns a ``MetricRef``.
@@ -802,6 +904,12 @@ def metric(
             root_entity=resolved_root_ref,
             fanout_policy=fanout_policy,
             unit=unit,
+            time_fold=_normalize_time_fold(time_fold, semantic_id=semantic_id),
+            fold_time_dimension=(
+                _resolve_ref_string(fold_time_dimension)
+                if fold_time_dimension is not None
+                else None
+            ),
         )
 
         _push_ir(ctx, ir, fn)

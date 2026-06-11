@@ -319,6 +319,21 @@ def decompose(
             message=f"decompose does not support semantic_kind={frame.meta.semantic_kind!r}",
         )
 
+    # Gate: reject non-linear sampled time folds that cannot be decomposed.
+    fold = getattr(frame.meta, "fold", None)
+    component_folds = getattr(frame.meta, "component_folds", [])
+    fold_labels = [fold.get("time_fold")] if isinstance(fold, dict) else []
+    fold_labels.extend(item.get("time_fold") for item in component_folds if isinstance(item, dict))
+    if any(label and not str(label).startswith("mean") for label in fold_labels):
+        raise ComponentDecompositionError(
+            message="decompose does not support non-linear sampled time folds",
+            details={
+                "reason": "non_linear_time_fold",
+                "delta_ref": frame.ref,
+                "time_folds": fold_labels,
+            },
+        )
+
     started_at = datetime.now(UTC)
     started = monotonic()
     source_df = frame.to_pandas()

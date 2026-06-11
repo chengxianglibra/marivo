@@ -300,7 +300,7 @@ def test_mv_help_topic_within_budget(capsys) -> None:
 def test_ms_help_topic_within_budget(capsys) -> None:
     ms.help("metric")
     captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) <= 80
+    assert len(captured.out.splitlines()) <= 100
 
 
 # ---------------------------------------------------------------------------

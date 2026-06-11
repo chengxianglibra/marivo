@@ -80,6 +80,13 @@ class ConstraintId(StrEnum):
     PROJECT_LOADED_REQUIRED = "project_loaded_required"
     CATALOG_KIND_VALID = "catalog_kind_valid"
     CATALOG_PARENT_BROWSABLE = "catalog_parent_browsable"
+    SAMPLE_INTERVAL_VALID = "sample_interval_valid"
+    TIME_FOLD_VALID = "time_fold_valid"
+    TIME_FOLD_BINDING = "time_fold_binding"
+    TIME_FOLD_SEMI_ADDITIVE = "time_fold_requires_semi_additive"
+    TIME_FOLD_SAMPLED_TIME_FIELD = "time_fold_requires_sampled_time_field"
+    TIME_FOLD_MISSING = "missing_time_fold"
+    FOLD_TIME_DIMENSION_INVALID = "invalid_fold_time_dimension"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -654,6 +661,69 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Only domain, datasource, and entity refs can be used as catalog.list() parents.",
         "Metrics, dimensions, time dimensions, and relationships are leaf objects with no children to list.",
         "Use catalog.get(ref).details() to inspect a leaf object's dependencies.",
+    ),
+    ConstraintId.SAMPLE_INTERVAL_VALID: _constraint(
+        ConstraintId.SAMPLE_INTERVAL_VALID,
+        "invalid_sample_interval",
+        "decorator",
+        ("time_dimension",),
+        "sample_interval must be a positive minute or hour interval that divides one day evenly.",
+        "Sampled time dimensions represent periodic measurements within a day; the interval must evenly divide 24 hours.",
+        "Use sample_interval=(5, 'minute') or another minute/hour interval that divides a day.",
+    ),
+    ConstraintId.TIME_FOLD_VALID: _constraint(
+        ConstraintId.TIME_FOLD_VALID,
+        "invalid_time_fold",
+        "decorator",
+        ("metric",),
+        "time_fold must be a supported fold kind with valid parameters.",
+        "Fold kinds define how sampled time series are compressed into a single representative value.",
+        "Use time_fold='mean', 'min', 'max', 'first', 'last', or ('quantile', q) with 0 < q < 1.",
+    ),
+    ConstraintId.TIME_FOLD_BINDING: _constraint(
+        ConstraintId.TIME_FOLD_BINDING,
+        "ambiguous_fold_time_dimension",
+        "assembly",
+        ("metric",),
+        "Semi-additive metrics with time_fold must bind to a sampled time dimension.",
+        "When the root entity has multiple sampled time axes, fold_time_dimension must disambiguate.",
+        "Bind folded metrics to a sampled time dimension with fold_time_dimension=... when the root entity has multiple sampled axes.",
+    ),
+    ConstraintId.TIME_FOLD_SEMI_ADDITIVE: _constraint(
+        ConstraintId.TIME_FOLD_SEMI_ADDITIVE,
+        "time_fold_requires_semi_additive",
+        "assembly",
+        ("metric",),
+        "time_fold is only valid on semi_additive metrics.",
+        "Additive metrics sum unconditionally; non-additive metrics cannot be folded.",
+        "Set additivity='semi_additive' when using time_fold, or remove time_fold from additive/non_additive metrics.",
+    ),
+    ConstraintId.TIME_FOLD_SAMPLED_TIME_FIELD: _constraint(
+        ConstraintId.TIME_FOLD_SAMPLED_TIME_FIELD,
+        "time_fold_requires_sampled_time_field",
+        "assembly",
+        ("metric",),
+        "Semi-additive metrics with time_fold require a sampled time dimension on the root entity.",
+        "The fold operation compresses intra-day samples into a single daily value.",
+        "Declare a time dimension with sample_interval on the root entity before using time_fold.",
+    ),
+    ConstraintId.TIME_FOLD_MISSING: _constraint(
+        ConstraintId.TIME_FOLD_MISSING,
+        "missing_time_fold",
+        "assembly",
+        ("metric",),
+        "Semi-additive metrics on sampled entities must declare a time_fold.",
+        "Without a fold, sampled semi-additive metrics would double-count intra-day observations.",
+        "Add time_fold='mean' (or another fold kind) to the metric declaration.",
+    ),
+    ConstraintId.FOLD_TIME_DIMENSION_INVALID: _constraint(
+        ConstraintId.FOLD_TIME_DIMENSION_INVALID,
+        "invalid_fold_time_dimension",
+        "assembly",
+        ("metric",),
+        "fold_time_dimension must reference a sampled time dimension on the root entity.",
+        "The fold operation targets a specific sampled time axis.",
+        "Use fold_time_dimension with a time dimension that has sample_interval declared.",
     ),
 }
 

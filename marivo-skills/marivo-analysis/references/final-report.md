@@ -319,3 +319,10 @@ Before finalizing, check the evidence surface:
   without external cause evidence.
 - Mixing periodic changes, missing-data gaps, low-volume noise, and true sudden
   changes into one undifferentiated anomaly bucket.
+
+## Sampled semi-additive metric reporting
+
+When a MetricFrame has `coverage_ref`, inspect `frame.coverage()` before
+reporting sampled folded metrics. If a folded frame is `reaggregatable=False`,
+do not roll it up manually; re-run `session.observe(...)` at the required grain
+or dimensions.

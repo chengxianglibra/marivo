@@ -8,9 +8,19 @@ import pandas as pd
 
 from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.followups import ConfidenceScope
-from marivo.analysis.frames.base import BaseFrame
+from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 
 GRAIN_FREQ = {"day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
+
+
+def _coverage_summary_val(meta: BaseFrameMeta, key: str) -> float | int | None:
+    """Extract a single value from the frame meta's coverage_summary dict."""
+    coverage_summary = getattr(meta, "coverage_summary", None)
+    if isinstance(coverage_summary, dict):
+        val = coverage_summary.get(key)
+        if isinstance(val, (int, float)):
+            return val
+    return None
 
 
 def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
@@ -72,6 +82,13 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
         null_rate=null_rate,
         sample_size=sample_size,
         metric_definition_compatibility="unknown",
+        sample_coverage_min=_coverage_summary_val(meta, "min"),
+        sample_coverage_avg=_coverage_summary_val(meta, "avg"),
+        sample_coverage_partial_buckets=(
+            int(v)
+            if isinstance(v := _coverage_summary_val(meta, "partial_buckets"), (int, float))
+            else None
+        ),
     )
 
 

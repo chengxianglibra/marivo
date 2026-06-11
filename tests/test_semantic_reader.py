@@ -1059,3 +1059,63 @@ def test_readiness_without_bound_factory(semantic_project_factory) -> None:
     assert blockers
     assert "project-bound backend access" in blockers[0].message
     assert "bind_datasource_access" in blockers[0].message
+
+
+# ---------------------------------------------------------------------------
+# Sampled semi-additive metric read surfaces
+# ---------------------------------------------------------------------------
+
+
+_SAMPLED_METRIC_DOMAIN_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+    ms.domain(name="sales", default=True)
+""")
+
+_SAMPLED_METRIC_OBJECTS_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+    bandwidth_samples = ms.entity(
+        name="bandwidth_samples",
+        datasource="warehouse",
+        source=ms.table("bandwidth_samples"),
+        primary_key=["device_id", "sample_ts"],
+    )
+
+    @ms.time_dimension(
+        entity=bandwidth_samples,
+        data_type="timestamp",
+        granularity="second",
+        sample_interval=(5, "minute"),
+    )
+    def sample_ts(table):
+        return table.sample_ts
+
+    @ms.metric(
+        entities=[bandwidth_samples],
+        additivity="semi_additive",
+        decomposition=ms.sum(),
+        verification_mode="python_native",
+        time_fold="mean",
+    )
+    def upstream_bw(table):
+        return table.bytes_sent.sum()
+""")
+
+
+@pytest.fixture
+def project_with_sampled_metric(semantic_project_factory):
+    return semantic_project_factory(
+        {
+            "sales/_domain.py": _SAMPLED_METRIC_DOMAIN_PY,
+            "sales/objects.py": _SAMPLED_METRIC_OBJECTS_PY,
+        }
+    )
+
+
+def test_metric_details_include_time_fold_and_fold_axis(project_with_sampled_metric) -> None:
+    from marivo.semantic.catalog import SemanticCatalog
+
+    catalog = SemanticCatalog(project_with_sampled_metric)
+    metric = catalog.get("sales.upstream_bw")
+    details = metric.details()
+    assert details.time_fold == "mean"
+    assert details.fold_time_dimension == "sales.bandwidth_samples.sample_ts"

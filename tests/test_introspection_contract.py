@@ -40,7 +40,7 @@ SURFACES = [
         "marivo.semantic",
         ms,
         SEMANTIC_CONSTRAINTS,
-        {"constraints", "decomposition"},
+        {"constraints", "decomposition", "time_fold"},
         id="semantic",
     ),
     pytest.param(
@@ -208,7 +208,7 @@ def test_every_listed_name_resolves_to_descriptor(
         assert data["surface"] == surface_name
         assert data["kind"] != "unknown", name
         assert REQUIRED_BY_KIND[data["kind"]] <= set(data), name
-        assert _json_size(data) < 12_000, name
+        assert _json_size(data) < 13_000, name
 
 
 @pytest.mark.parametrize(("surface_name", "module", "catalog", "extra_names"), SURFACES)

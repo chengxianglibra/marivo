@@ -45,6 +45,7 @@ __all__ = [
     "ProvenanceIR",
     "RelationshipIR",
     "RelationshipRef",
+    "SampleIntervalIR",
     "SamplePolicyIR",
     "SelectedColumnsPolicyIR",
     "SnapshotVersioningIR",
@@ -52,6 +53,7 @@ __all__ = [
     "SymbolKind",
     "TableSourceIR",
     "TimeDimensionRef",
+    "TimeFoldIR",
     "ValidityVersioningIR",
     "VerificationMode",
     "_BaseRef",
@@ -316,6 +318,35 @@ class EntityIR:
 
 
 @dataclass(frozen=True)
+class SampleIntervalIR:
+    """Periodic sampling interval for a time dimension."""
+
+    count: int
+    unit: Literal["minute", "hour"]
+
+    def to_token(self) -> str:
+        return f"{self.count}{self.unit}"
+
+
+@dataclass(frozen=True)
+class TimeFoldIR:
+    """Time folding declaration for sampled semi-additive metrics."""
+
+    kind: Literal["mean", "min", "max", "first", "last", "quantile"]
+    q: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind == "quantile" and self.q is None:
+            msg = "TimeFoldIR(kind='quantile') requires q to be set"
+            raise ValueError(msg)
+
+    def label(self) -> str:
+        if self.kind == "quantile":
+            return f"quantile({self.q})"
+        return self.kind
+
+
+@dataclass(frozen=True)
 class DimensionIR:
     """Dimension declaration (categorical or measure column)."""
 
@@ -335,6 +366,7 @@ class DimensionIR:
     format: str | None = None
     timezone: str | None = None
     is_default: bool = False
+    sample_interval: SampleIntervalIR | None = None
 
     def __post_init__(self) -> None:
         if self.is_time_dimension != (self.kind == DimensionKind.TIME):
@@ -372,6 +404,8 @@ class MetricIR:
     root_entity: str | None = None
     fanout_policy: Literal["block", "aggregate_then_join"] = "block"
     unit: str | None = None
+    time_fold: TimeFoldIR | None = None
+    fold_time_dimension: str | None = None
 
 
 @dataclass(frozen=True)

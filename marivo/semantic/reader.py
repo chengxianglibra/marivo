@@ -148,6 +148,7 @@ class MetricSummary:
     is_derived: bool
     parity_status: ParityStatus
     python_symbol: str
+    time_fold: str | None
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.semantic_id!r})"
@@ -170,6 +171,7 @@ class DimensionSummary:
     format: str | None = None
     timezone: str | None = None
     required_prefix: str | None = None
+    sample_interval: Any | None = None
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.semantic_id!r})"
@@ -516,6 +518,7 @@ class SemanticProject:
                 format=f.format,
                 timezone=f.timezone,
                 required_prefix=f.required_prefix,
+                sample_interval=f.sample_interval,
             )
             for f in irs
         ]
@@ -559,6 +562,7 @@ class SemanticProject:
                 format=f.format,
                 timezone=f.timezone,
                 required_prefix=f.required_prefix,
+                sample_interval=f.sample_interval,
             )
             for f in irs
         ]
@@ -605,6 +609,7 @@ class SemanticProject:
                 is_derived=m.is_derived,
                 parity_status=propagated_parity_status(self, m.semantic_id),
                 python_symbol=m.python_symbol,
+                time_fold=m.time_fold.label() if m.time_fold is not None else None,
             )
             for m in metrics
         ]

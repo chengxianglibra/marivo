@@ -684,7 +684,7 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
     requested = window.get("time_dimension")
     if requested:
         for field in time_fields:
-            if field.name == requested:
+            if field.name == requested or field.semantic_id == requested:
                 return field
         candidates = [field.name for field in time_fields]
         first_candidate = candidates[0] if candidates else "<time_dimension>"
@@ -884,6 +884,34 @@ def _timestamp_expr_in_session_timezone(
     if shift_seconds == 0:
         return ts_expr
     return ts_expr + ibis.interval(seconds=shift_seconds)
+
+
+def bucket_time_expression(
+    raw: Any,
+    *,
+    time_meta: Any,
+    grain: Grain,
+    session_tz: ZoneInfo,
+    window: AbsoluteWindow | None,
+) -> Any:
+    """Return a session-local bucket expression for a timestamp-like time field."""
+    if time_meta.data_type in {"datetime", "timestamp"}:
+        if window is None:
+            raise WindowInvalidError(
+                message="bucket_time_expression requires a window for timestamp bucketing.",
+                details={"data_type": time_meta.data_type},
+            )
+        return _local_bucket_expr(
+            raw,
+            time_meta=time_meta,
+            grain=grain,
+            session_tz=session_tz,
+            window=window,
+        )
+    raise WindowInvalidError(
+        message="bucket_time_expression requires a datetime or timestamp time field.",
+        details={"data_type": time_meta.data_type},
+    )
 
 
 def _local_bucket_expr(
