@@ -207,16 +207,17 @@ def test_inspect_source_context_auto_records_primary_key_sample(
             datasource="warehouse",
             table="orders",
         )
-        report = project.readiness()
-        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
+        from marivo.semantic.ledger import LedgerStore
+
+        store = LedgerStore(project.semantic_root)
+        assert "sales.orders" not in store.read_primary_key_samples()
 
         project.inspect_source_context(
             datasource="warehouse",
             source=TableSource(table="orders"),
             sample_policy=BoundedProfilePolicy(limit=50),
         )
-        report = project.readiness()
-        assert not any(w.kind == "primary_key_unsampled" for w in report.warnings)
+        assert "sales.orders" in store.read_primary_key_samples()
 
 
 def test_inspect_source_context_metadata_only_skips_auto_record(
@@ -233,8 +234,10 @@ def test_inspect_source_context_metadata_only_skips_auto_record(
             source=TableSource(table="orders"),
             sample_policy=MetadataOnlyPolicy(),
         )
-        report = project.readiness()
-        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
+        from marivo.semantic.ledger import LedgerStore
+
+        store = LedgerStore(project.semantic_root)
+        assert "sales.orders" not in store.read_primary_key_samples()
 
 
 def test_inspect_column_context_covers_primary_key(
@@ -246,8 +249,10 @@ def test_inspect_column_context_covers_primary_key(
             datasource="warehouse",
             table="orders",
         )
-        report = project.readiness()
-        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
+        from marivo.semantic.ledger import LedgerStore
+
+        store = LedgerStore(project.semantic_root)
+        assert "sales.orders" not in store.read_primary_key_samples()
 
         project.inspect_column_context(
             datasource="warehouse",
@@ -255,8 +260,7 @@ def test_inspect_column_context_covers_primary_key(
             columns=("order_id", "amount"),
             sample_policy=SelectedColumnsPolicy(limit=100, columns=("order_id", "amount")),
         )
-        report = project.readiness()
-        assert not any(w.kind == "primary_key_unsampled" for w in report.warnings)
+        assert "sales.orders" in store.read_primary_key_samples()
 
 
 def test_inspect_column_context_does_not_cover_primary_key(
@@ -274,8 +278,10 @@ def test_inspect_column_context_does_not_cover_primary_key(
             columns=("amount",),
             sample_policy=SelectedColumnsPolicy(limit=100, columns=("amount",)),
         )
-        report = project.readiness()
-        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
+        from marivo.semantic.ledger import LedgerStore
+
+        store = LedgerStore(project.semantic_root)
+        assert "sales.orders" not in store.read_primary_key_samples()
 
 
 def test_inspect_column_context_compound_key_partial(
@@ -295,8 +301,10 @@ def test_inspect_column_context_compound_key_partial(
             columns=("order_id",),
             sample_policy=SelectedColumnsPolicy(limit=100, columns=("order_id",)),
         )
-        report = project.readiness()
-        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
+        from marivo.semantic.ledger import LedgerStore
+
+        store = LedgerStore(project.semantic_root)
+        assert "sales.order_lines" not in store.read_primary_key_samples()
 
 
 def test_inspect_column_context_compound_key_full(
@@ -310,8 +318,10 @@ def test_inspect_column_context_compound_key_full(
             datasource="warehouse",
             table="order_lines",
         )
-        report = project.readiness()
-        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
+        from marivo.semantic.ledger import LedgerStore
+
+        store = LedgerStore(project.semantic_root)
+        assert "sales.order_lines" not in store.read_primary_key_samples()
 
         project.inspect_column_context(
             datasource="warehouse",
@@ -319,5 +329,4 @@ def test_inspect_column_context_compound_key_full(
             columns=("order_id", "line_num"),
             sample_policy=SelectedColumnsPolicy(limit=100, columns=("order_id", "line_num")),
         )
-        report = project.readiness()
-        assert not any(w.kind == "primary_key_unsampled" for w in report.warnings)
+        assert "sales.order_lines" in store.read_primary_key_samples()

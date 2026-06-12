@@ -5,13 +5,7 @@ from marivo.semantic.richness import RichnessReport
 
 
 def _make_readiness_report() -> ReadinessReport:
-    from marivo.semantic.readiness import (
-        ParitySummary,
-        PreviewSummary,
-        ReadinessInputSummary,
-        ReadinessReport,
-    )
-    from marivo.semantic.richness import RichnessSummary
+    from marivo.semantic.readiness import ReadinessInputSummary
 
     return ReadinessReport(
         status="ready_with_warnings",
@@ -21,17 +15,6 @@ def _make_readiness_report() -> ReadinessReport:
         input_summary=ReadinessInputSummary(
             datasources=(), refs=(), tables=(), decision_records=()
         ),
-        preview_summary=PreviewSummary(
-            required_previews=(), completed_previews=(), failed_previews=(), warnings=()
-        ),
-        parity_summary=ParitySummary(
-            verified_metrics=(),
-            unverified_metrics=(),
-            drifted_metrics=(),
-            unsupported_metrics=(),
-            skipped_metrics=(),
-        ),
-        richness_summary=RichnessSummary(gaps=()),
         checked_at="2026-06-09T00:00:00Z",
     )
 

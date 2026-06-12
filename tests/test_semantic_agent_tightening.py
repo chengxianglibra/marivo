@@ -121,9 +121,7 @@ def test_semantic_skill_uses_assess_authoring_not_next_checks() -> None:
     assert "needs_evidence" not in combined
     assert "project.check_authoring_inputs(" not in combined
     assert "check_authoring_inputs" not in combined
-    assert "project.richness(" not in combined
     assert "project.readiness(" in closeout
-    assert "project.richness(" not in closeout
 
 
 def test_superseded_specs_point_to_authoring_pipeline_design() -> None:
@@ -242,7 +240,6 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "project.assess_authoring(" not in evidence
     assert "project.verify_object(" in evidence
     assert "project.readiness(" in closeout
-    assert "md.ScanScope()" in closeout
     assert "bind_datasource_access" not in closeout
     for text in (closeout_ref, preview_ref, closeout):
         assert "require_preview" not in text
@@ -252,9 +249,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "project.readiness(" in closeout_ref
     assert "project.readiness(" in closeout
     assert "project.collect_raw_preview(" not in closeout
-    assert "unverified_metric" in closeout
-    assert "parity_drifted" in closeout
-    assert "project.richness(" not in closeout
+    assert "project.richness(" in closeout
 
 
 def test_semantic_docs_and_skills_use_verification_mode() -> None:

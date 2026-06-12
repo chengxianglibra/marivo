@@ -1,7 +1,7 @@
-"""Closeout: readiness folds preview, parity, and richness signals.
+"""Closeout: structural readiness check and richness reporting.
 
-Shows: readiness with ScanScope scope, abandoned candidates, and
-parity/richness reporting.
+Shows: readiness as a pure structural check, then richness and parity
+as separate dedicated APIs. Readiness requires no datasource connection.
 """
 
 from __future__ import annotations
@@ -97,21 +97,17 @@ with tempfile.TemporaryDirectory() as tmp:
         project = SemanticProject(root=root / ".marivo" / "semantic")
         project.load()
 
-        # readiness resolves backends internally via DatasourceConnectionService
+        # Structural readiness: pure in-memory check, no backend required.
         report = project.readiness(
             refs=("sales.orders", "sales.unverified_revenue", "sales.drifted_revenue"),
-            demand=None,
-            scope=md.ScanScope(),
         )
         print("readiness:", report.status)
         print("blockers:", [issue.kind for issue in report.blockers])
         print("warnings:", [issue.kind for issue in report.warnings])
-        print(
-            "unverified_metric:",
-            "sales.unverified_revenue" in report.parity_summary.unverified_metrics,
-        )
-        print("parity_drifted:", "sales.drifted_revenue" in report.parity_summary.drifted_metrics)
-        print("richness gaps:", len(report.richness_summary.gaps))
         print("abandoned:", len(report.abandoned))
+
+        # Richness is a separate advisory API.
+        richness = project.richness()
+        print("richness gaps:", len(richness.gaps))
     finally:
         os.chdir(previous)

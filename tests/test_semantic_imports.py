@@ -96,8 +96,6 @@ def test_all_list_matches_expected() -> None:
         "MetricBrief",
         "MetricDetails",
         "MetricRef",
-        "ParitySummary",
-        "PreviewSummary",
         "PrimaryKeyCandidate",
         "ReadinessIssue",
         "ReadinessInputSummary",
@@ -106,7 +104,6 @@ def test_all_list_matches_expected() -> None:
         "RelationshipBrief",
         "RelationshipDetails",
         "RelationshipRef",
-        "RichnessSummary",
         "SemanticCatalog",
         "SemanticKind",
         "SemanticKindInput",
@@ -184,9 +181,6 @@ def test_readiness_public_dtos() -> None:
     assert ms.ReadinessIssue is not None
     assert not hasattr(ms, "EvidenceSummary")
     assert ms.ReadinessInputSummary is not None
-    assert ms.ParitySummary is not None
-    assert ms.PreviewSummary is not None
-    assert ms.RichnessSummary is not None
 
 
 def test_readiness_public_contract_has_no_stale_evidence_summary_refs() -> None:

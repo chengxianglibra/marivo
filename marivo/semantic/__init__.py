@@ -96,12 +96,9 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.loader import find_project
 from marivo.semantic.readiness import (
-    ParitySummary,
-    PreviewSummary,
     ReadinessInputSummary,
     ReadinessIssue,
     ReadinessReport,
-    RichnessSummary,
 )
 from marivo.semantic.typing import AiContext
 
@@ -280,8 +277,6 @@ __all__ = [
     "MetricBrief",
     "MetricDetails",
     "MetricRef",
-    "ParitySummary",
-    "PreviewSummary",
     "PrimaryKeyCandidate",
     "ReadinessInputSummary",
     "ReadinessIssue",
@@ -290,7 +285,6 @@ __all__ = [
     "RelationshipBrief",
     "RelationshipDetails",
     "RelationshipRef",
-    "RichnessSummary",
     "SemanticCatalog",
     "SemanticKind",
     "SemanticKindInput",
