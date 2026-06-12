@@ -8,7 +8,6 @@ def test_new_evidence_dtos_are_exported():
         "TableSource",
         "FileSource",
         "DatasetSource",
-        "ColumnProfile",
         "AssessmentIssue",
         "AuthoringQuestion",
         "AuthoringAssessment",

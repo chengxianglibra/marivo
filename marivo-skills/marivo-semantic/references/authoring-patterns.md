@@ -318,7 +318,7 @@ values exactly; nothing converts based on it.
 Fill `unit` only from explicit evidence:
 
 - Column name suffixes: `_cents`, `_usd`, `_ms`, `_pct`.
-- Column comments stating the unit (from `inspect_source_context` packs).
+- Column comments stating the unit (from `md.inspect_table` / `md.inspect_columns` results).
 - `source_sql` conversion traces (e.g. `/100` on a cents column).
 - Count metrics: the counted entity noun, singular, in braces — `{order}`.
 - Ratio / weighted_average derived metrics: declare `"1"` (they emit fractions).

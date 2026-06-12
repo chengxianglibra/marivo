@@ -10,19 +10,12 @@ from marivo.semantic.dtos import (
     AuthoringAssessment,
     AuthoringQuestion,
     AuthoringSourceInput,
-    BoundedProfilePolicy,
-    ColumnProfile,
     FileSource,
-    MetadataOnlyPolicy,
-    SelectedColumnsPolicy,
     TableSource,
     derive_status,
 )
 from marivo.semantic.ir import (
-    BoundedProfilePolicyIR,
     FileSourceIR,
-    MetadataOnlyPolicyIR,
-    SelectedColumnsPolicyIR,
     TableSourceIR,
 )
 
@@ -100,74 +93,6 @@ def test_authoring_source_role_is_finite_public_vocabulary():
     assert get_type_hints(AuthoringSourceInput)["role"] == AuthoringSourceRole
 
 
-def test_metadata_only_policy_round_trips_through_ir():
-    policy = MetadataOnlyPolicy(timeout_seconds=30)
-    ir = policy.to_ir()
-    assert isinstance(ir, MetadataOnlyPolicyIR)
-    assert ir.timeout_seconds == 30
-
-
-def test_bounded_profile_policy_round_trips_through_ir():
-    policy = BoundedProfilePolicy(limit=100, max_profiled_columns=10)
-    ir = policy.to_ir()
-    assert isinstance(ir, BoundedProfilePolicyIR)
-    assert ir.limit == 100
-    assert ir.max_profiled_columns == 10
-
-
-def test_selected_columns_policy_round_trips_through_ir():
-    policy = SelectedColumnsPolicy(limit=100, columns=("a", "b"))
-    ir = policy.to_ir()
-    assert isinstance(ir, SelectedColumnsPolicyIR)
-    assert ir.columns == ("a", "b")
-
-
-def test_selected_columns_policy_requires_columns():
-    with pytest.raises(TypeError):
-        SelectedColumnsPolicy(limit=10)  # type: ignore[call-arg]
-
-
-def test_bounded_profile_policy_requires_limit():
-    with pytest.raises(TypeError):
-        BoundedProfilePolicy()  # type: ignore[call-arg]
-
-
-def test_column_profile_to_dict_is_json_safe():
-    profile = ColumnProfile(
-        column="status",
-        data_type="string",
-        nullable=False,
-        comment="Order status",
-        null_count=0,
-        empty_count=1,
-        distinct_count=2,
-        top_values=(("paid", 10), ("pending", 3)),
-        min_value="paid",
-        max_value="pending",
-        observed_formats=("lowercase", "snake_case"),
-        warnings=("sampled",),
-        sample_scope="bounded_sample",
-        approximate=True,
-    )
-
-    assert profile.to_dict() == {
-        "column": "status",
-        "data_type": "string",
-        "nullable": False,
-        "comment": "Order status",
-        "null_count": 0,
-        "empty_count": 1,
-        "distinct_count": 2,
-        "top_values": [["paid", 10], ["pending", 3]],
-        "min_value": "paid",
-        "max_value": "pending",
-        "observed_formats": ["lowercase", "snake_case"],
-        "warnings": ["sampled"],
-        "sample_scope": "bounded_sample",
-        "approximate": True,
-    }
-
-
 def test_derive_status_blocked_on_blocker_issue():
     issue = AssessmentIssue(
         kind="missing_column",
@@ -212,14 +137,14 @@ def test_authoring_assessment_status_uses_needs_input():
         rule_id="source_context_present",
     )
     status = derive_status((issue,), ())
-    assessment = AuthoringAssessment(status=status, facts=(), issues=(issue,), questions=())
+    assessment = AuthoringAssessment(status=status, issues=(issue,), questions=())
 
     assert status == "needs_input"
     assert assessment.status == "needs_input"
 
 
 def test_authoring_assessment_is_frozen():
-    assessment = AuthoringAssessment(status="supported", facts=(), issues=(), questions=())
+    assessment = AuthoringAssessment(status="supported", issues=(), questions=())
     with pytest.raises(AttributeError):
         assessment.status = "blocked"  # type: ignore[misc]
 

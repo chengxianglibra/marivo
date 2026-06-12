@@ -21,7 +21,6 @@ from marivo.datasource.scan import ScanReport, ScanScope
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
-    PREVIEW_MAX_LIMIT,
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
@@ -33,20 +32,13 @@ from marivo.semantic.discovery import DiscoveryResult
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringObjectKind,
-    BoundedProfilePolicy,
-    ColumnEvidence,
     CrossEntityMetricBrief,
-    DatasetSource,
     DerivedMetricBrief,
     DimensionBrief,
     DomainBrief,
     EntityBrief,
     MetricBrief,
     RelationshipBrief,
-    SamplePolicy,
-    SelectedColumnsPolicy,
-    SourceEvidencePack,
-    TableSource,
     TimeDimensionBrief,
     VerifyResult,
 )
@@ -225,17 +217,6 @@ def _require_registry(
 
 def _semantic_leaf_name(semantic_id: str) -> str:
     return semantic_id.rsplit(".", 1)[-1]
-
-
-def _raw_preview_ref(
-    datasource: str,
-    table: str,
-    database: str | tuple[str, ...] | None,
-) -> str:
-    if database is None:
-        return f"{datasource}.{table}"
-    namespace = ".".join(database) if isinstance(database, tuple) else database
-    return f"{datasource}.{namespace}.{table}"
 
 
 @dataclass(frozen=True)
@@ -764,80 +745,6 @@ class SemanticProject:
 
     # -- preview ---------------------------------------------------------------
 
-    def collect_source_preview(
-        self,
-        *,
-        datasource: str,
-        table: str,
-        database: str | tuple[str, ...] | None = None,
-        columns: Iterable[str] | None = None,
-        limit: int = PREVIEW_DEFAULT_LIMIT,
-        include_types: bool = True,
-    ) -> PreviewResult:
-        """Collect a bounded raw preview for a datasource table source.
-
-        The returned preview is the datasource-table preview. A successful call
-        records the physical preview ref as raw preview evidence for subsequent
-        readiness checks on this project instance.
-
-        Datasource backends are resolved internally via
-        ``DatasourceConnectionService``.
-        """
-        validate_preview_limit(limit)
-        service = self._connection_service()
-        backend = service.session_backend(datasource)
-        source_table = table
-        preview_table = (
-            backend.table(source_table)
-            if database is None
-            else backend.table(source_table, database=database)
-        )
-        selected_columns = tuple(columns or ())
-        if selected_columns:
-            preview_table = preview_table.select(*selected_columns)
-
-        ref = _raw_preview_ref(datasource, source_table, database)
-        preview = preview_ibis_table(
-            preview_table,
-            kind="datasource_table",
-            ref=ref,
-            limit=limit,
-            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
-            include_types=include_types,
-        )
-        from datetime import UTC, datetime
-
-        from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
-
-        sample_policy: dict[str, object] = {
-            "method": preview.sample_policy.method,
-            "limit": preview.sample_policy.limit,
-            "order_by": list(preview.sample_policy.order_by),
-            "filters": [dict(filter_) for filter_ in preview.sample_policy.filters],
-        }
-        LedgerStore(self._semantic_root).write_raw_preview(
-            RawPreviewEvidence(
-                ref=preview.ref,
-                datasource=datasource,
-                table=source_table,
-                database=database,
-                columns=preview.columns,
-                types=preview.types,
-                requested_limit=preview.requested_limit,
-                returned_row_count=preview.returned_row_count,
-                sample_policy=sample_policy,
-                collected_at=datetime.now(UTC).isoformat(),
-                status="success",
-            )
-        )
-        return preview
-
-    def record_primary_key_sample(self, dataset: str) -> None:
-        """Record that primary key uniqueness was sampled for a dataset."""
-        from marivo.semantic.ledger import LedgerStore
-
-        LedgerStore(self._semantic_root).write_primary_key_sample(dataset)
-
     def preview_dataset(
         self,
         name: str,
@@ -1045,93 +952,6 @@ class SemanticProject:
         run-history refs, and the build purpose.
         """
         return build_richness_report(self, demand=demand)
-
-    # -- authoring evidence -------------------------------------------------
-
-    def _datasets_by_source(self, datasource: str, source: DatasetSource) -> tuple[EntityIR, ...]:
-        reg = self._registry
-        if reg is None:
-            return ()
-        source_ir = source.to_ir()
-        return tuple(
-            ds
-            for ds in reg.datasets.values()
-            if ds.datasource == datasource and ds.source == source_ir
-        )
-
-    def inspect_source_context(
-        self,
-        *,
-        datasource: str,
-        source: DatasetSource,
-        sample_policy: SamplePolicy,
-    ) -> SourceEvidencePack:
-        """Collect and persist a SourceEvidencePack for one physical source.
-
-        Folds the old inspect_source + collect_source_preview authoring steps
-        into one call. When ``sample_policy`` reads rows, a bounded raw-preview
-        evidence ref is also recorded so ``readiness()`` passes without a
-        separate collect_source_preview call.
-
-        Datasource backends and inspect_source are resolved internally via
-        ``DatasourceConnectionService`` and ``marivo.datasource.inspect_source``.
-        """
-        from marivo.datasource import inspect_source as _inspect_source_fn
-
-        fn = _inspect_source_fn
-        factory = self._session_backend_factory()
-        from marivo.semantic.inspect import collect_source_evidence
-
-        pack = collect_source_evidence(
-            datasource=datasource,
-            source=source,
-            inspect_source=fn,
-            backend_factory=factory,
-            sample_policy=sample_policy,
-        )
-        if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)) and isinstance(
-            source, TableSource
-        ):
-            self.collect_source_preview(
-                datasource=datasource,
-                table=source.table,
-                database=source.database,
-                limit=min(sample_policy.limit, PREVIEW_MAX_LIMIT),
-            )
-        if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)):
-            for ds in self._datasets_by_source(datasource, source):
-                if ds.primary_key:
-                    self.record_primary_key_sample(ds.semantic_id)
-        return pack
-
-    def inspect_column_context(
-        self,
-        *,
-        datasource: str,
-        source: DatasetSource,
-        columns: Sequence[str],
-        sample_policy: BoundedProfilePolicy | SelectedColumnsPolicy,
-    ) -> tuple[ColumnEvidence, ...]:
-        """Deep-dive selected columns after inspect_source_context."""
-        from marivo.datasource import inspect_source as _inspect_source_fn
-
-        fn = _inspect_source_fn
-        factory = self._session_backend_factory()
-        from marivo.semantic.inspect import collect_column_evidence
-
-        result = collect_column_evidence(
-            datasource=datasource,
-            source=source,
-            columns=columns,
-            inspect_source=fn,
-            backend_factory=factory,
-            sample_policy=sample_policy,
-        )
-        column_set = set(columns)
-        for ds in self._datasets_by_source(datasource, source):
-            if ds.primary_key and set(ds.primary_key) <= column_set:
-                self.record_primary_key_sample(ds.semantic_id)
-        return result
 
     # -- prepare (registry-only) --------------------------------------------
 

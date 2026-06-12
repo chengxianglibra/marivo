@@ -24,7 +24,6 @@ from marivo.datasource.ir import (
 
 __all__ = [
     "AiContextIR",
-    "BoundedProfilePolicyIR",
     "DatasourceAiContextIR",
     "DatasourceIR",
     "DatasourceSourceLocation",
@@ -40,7 +39,6 @@ __all__ = [
     "EntitySourceIR",
     "EntityVersioningIR",
     "FileSourceIR",
-    "MetadataOnlyPolicyIR",
     "MetricAdditivity",
     "MetricIR",
     "MetricRef",
@@ -49,8 +47,6 @@ __all__ = [
     "RelationshipIR",
     "RelationshipRef",
     "SampleIntervalIR",
-    "SamplePolicyIR",
-    "SelectedColumnsPolicyIR",
     "SnapshotVersioningIR",
     "SourceLocation",
     "SymbolKind",
@@ -161,32 +157,6 @@ class ValidityVersioningIR:
 
 
 EntityVersioningIR = SnapshotVersioningIR | ValidityVersioningIR
-
-
-@dataclass(frozen=True)
-class MetadataOnlyPolicyIR:
-    timeout_seconds: int | None = None
-    kind: Literal["metadata_only"] = "metadata_only"
-
-
-@dataclass(frozen=True)
-class BoundedProfilePolicyIR:
-    limit: int
-    timeout_seconds: int | None = None
-    max_profiled_columns: int | None = None
-    kind: Literal["bounded_profile"] = "bounded_profile"
-
-
-@dataclass(frozen=True)
-class SelectedColumnsPolicyIR:
-    limit: int
-    columns: tuple[str, ...]
-    timeout_seconds: int | None = None
-    max_profiled_columns: int | None = None
-    kind: Literal["selected_columns_profile"] = "selected_columns_profile"
-
-
-SamplePolicyIR = MetadataOnlyPolicyIR | BoundedProfilePolicyIR | SelectedColumnsPolicyIR
 
 
 def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
