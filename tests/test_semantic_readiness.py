@@ -421,20 +421,39 @@ def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_proje
         }
     )
 
-    # Auto-record creates a decision during load(), so readiness
-    # passes for normally-loaded projects (evidence ledger is always on).
-    auto_report = project.readiness()
-    assert all(b.kind != "unresolved_clarification" for b in auto_report.blockers)
-
-    # Remove the auto-recorded decision. Readiness is a pure check — it
-    # does not reload or backfill, so the missing decision is correctly flagged.
-    from marivo.semantic.ledger import LedgerStore
-
-    LedgerStore(project.root)._object_path("sales.revenue").unlink(missing_ok=True)
-
-    strict_report = project.readiness()
-    kinds = {b.kind for b in strict_report.blockers}
+    # After load, no decisions exist in the ledger, so readiness
+    # flags the missing metric_decomposition decision.
+    bare_report = project.readiness()
+    kinds = {b.kind for b in bare_report.blockers}
     assert "unresolved_clarification" in kinds
+
+    # Record a decision manually. Readiness is a pure check — it
+    # sees the new ledger entry and clears the blocker.
+    from marivo.semantic import ledger as lg
+
+    user_decision = lg.DecisionRecord(
+        decision_kind="metric_decomposition",
+        chosen="sum",
+        agreement_confidence="high",
+        qualifying_sources=("user_confirmation",),
+        materiality="high",
+        blast_radius=0,
+        evidence_fingerprint="sha256:answer",
+        question_id="q-metric-decomposition",
+        decided_at="2026-06-01T00:00:00+00:00",
+    )
+    store = lg.LedgerStore(project.root)
+    store.write_object(
+        lg.ObjectEvidence(
+            semantic_id="sales.revenue",
+            authored_at="2026-06-01T00:00:00+00:00",
+            decisions=(user_decision,),
+            rejected_candidates=(),
+        )
+    )
+
+    resolved_report = project.readiness()
+    assert all(b.kind != "unresolved_clarification" for b in resolved_report.blockers)
 
 
 def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_project_factory):

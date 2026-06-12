@@ -351,21 +351,6 @@ class SemanticProject:
         self._registry = result.registry
         self._sidecar = result.sidecar
         self._datasource_irs = result.datasource_irs
-        if self._registry is not None:
-            from marivo.semantic.auto_record import (
-                auto_record_authoring_decisions,
-                backfill_blast_radii,
-            )
-
-            auto_record_authoring_decisions(
-                self._registry,
-                self._semantic_root,
-                blast_radius_of=self.blast_radius_of,
-            )
-            backfill_blast_radii(
-                self._semantic_root,
-                blast_radius_of=self.blast_radius_of,
-            )
         return result
 
     def is_ready(self) -> bool:
