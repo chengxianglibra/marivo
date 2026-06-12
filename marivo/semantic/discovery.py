@@ -6,7 +6,7 @@ import dataclasses
 from collections.abc import Iterator
 from typing import Generic, TypeVar
 
-from marivo.render import format_bounded_card
+from marivo.introspection.render import format_bounded_card
 from marivo.semantic.errors import ErrorKind, SemanticError
 
 T = TypeVar("T")

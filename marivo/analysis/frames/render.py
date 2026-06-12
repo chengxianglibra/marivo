@@ -1,12 +1,12 @@
 """Bounded plain-text card formatter for agent-facing result types.
 
 .. deprecated::
-    Import from ``marivo.render`` instead. This module re-exports
+    Import from ``marivo.introspection.render`` instead. This module re-exports
     ``format_bounded_card`` for backward compatibility.
 """
 
 from __future__ import annotations
 
-from marivo.render import format_bounded_card
+from marivo.introspection.render import format_bounded_card
 
 __all__ = ["format_bounded_card"]

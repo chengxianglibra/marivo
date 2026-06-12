@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from marivo.datasource._project import resolve_project_root
 from marivo.datasource.authoring import DatasourceSpec
 from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.loader import load_datasources
-from marivo.project import resolve_project_root
 
 
 def datasource_dir(project_root: Path | None = None) -> Path:
