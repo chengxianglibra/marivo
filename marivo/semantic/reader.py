@@ -70,14 +70,9 @@ from marivo.semantic.loader import LoadResult, load_project
 from marivo.semantic.materializer import EntityRuntimeMetadata, Materializer
 from marivo.semantic.parity import ParityResult, parity_check, propagated_parity_status
 from marivo.semantic.readiness import (
-    ParitySummary,
-    PreviewSummary,
     ReadinessInputSummary,
     ReadinessIssue,
     ReadinessReport,
-    RichnessSummary,
-    _ReadinessEvidence,
-    build_readiness_report,
 )
 from marivo.semantic.richness import (
     DemandSignal,
@@ -92,12 +87,9 @@ __all__ = [
     "DomainSummary",
     "EntitySummary",
     "MetricSummary",
-    "ParitySummary",
-    "PreviewSummary",
     "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",
-    "RichnessSummary",
     "SemanticProject",
 ]
 
@@ -1009,36 +1001,6 @@ class SemanticProject:
 
     # -- readiness ----------------------------------------------------------
 
-    def _auto_collect_evidence(self) -> _ReadinessEvidence:
-        from marivo.semantic.ledger import LedgerStore
-
-        store = LedgerStore(self._semantic_root)
-
-        # Raw previews: success vs failed
-        raw_preview_records = store.read_raw_previews()
-        raw_previews = tuple(r.ref for r in raw_preview_records if r.status == "success")
-        failed_raw_previews = tuple(r.ref for r in raw_preview_records if r.status == "failed")
-
-        # Required previews are scoped inside readiness() after requested refs
-        # and dependencies have been resolved.
-        required_raw_previews = ()
-        required_semantic_previews = ()
-        raw_sql_required_refs = ()
-
-        # Primary keys sampled
-        primary_keys_sampled = store.read_primary_key_samples()
-
-        return _ReadinessEvidence(
-            raw_previews=raw_previews,
-            failed_raw_previews=failed_raw_previews,
-            required_raw_previews=required_raw_previews,
-            required_semantic_previews=required_semantic_previews,
-            primary_keys_sampled=primary_keys_sampled,
-            raw_sql_required_refs=raw_sql_required_refs,
-            table_metadata=(),
-            supports_federation=False,
-        )
-
     def _connection_service(self) -> DatasourceConnectionService:
         """Return the lazily-created DatasourceConnectionService."""
         if self._connection_service_instance is None:
@@ -1064,46 +1026,25 @@ class SemanticProject:
         self,
         *,
         refs: Iterable[str] | None = None,
-        demand: DemandSignal | None = None,
-        preview_limit: int = 20,
-        parity_rel_tol: float | None = None,
-        parity_abs_tol: float | None = None,
-        scope: Any | None = None,
     ) -> ReadinessReport:
-        """Return a structured semantic readiness report.
+        """Return a structural semantic readiness report.
 
-        Evidence is auto-loaded from the project's ledger and evidence store.
-        Closeout uses project-bound backend access for semantic previews and
-        eligible parity checks, folds richness gaps into warnings, and reports
-        missing backend access as a readiness blocker. Use ``refs`` to scope
-        which semantic objects to check; by default all loaded objects are
-        checked.
+        Performs pure in-memory checks without datasource connectivity:
+        load errors, unknown refs, evidence ledger blockers, cross-datasource
+        unfederated metrics, raw SQL requirements, strict enrichment issues,
+        and load warnings forwarding. Use ``refs`` to scope which semantic
+        objects to check; by default all loaded objects are checked.
+
+        For runtime validation (previews, parity checks, richness gaps), use
+        the dedicated APIs: ``collect_source_preview()``, ``parity_check()``,
+        and ``richness()``.
 
         Args:
             refs: Semantic refs to scope the check. None checks all loaded objects.
-            demand: Demand signal for richness evaluation.
-            preview_limit: Maximum rows for bounded previews.
-            parity_rel_tol: Relative tolerance for parity checks.
-            parity_abs_tol: Absolute tolerance for parity checks.
-            scope: ScanScope for bounded datasource scans during readiness checks.
-                When None, a default ScanScope() is used.
         """
-        from marivo.datasource.scan import ScanScope
+        from marivo.semantic.readiness import build_structural_readiness_report
 
-        _scope = scope if scope is not None else ScanScope()
-        self.load(models=list(self._filtered_domains) if self._filtered_domains else None)
-        evidence = self._auto_collect_evidence()
-        factory = self._session_backend_factory()
-        return build_readiness_report(
-            self,
-            evidence,
-            backend_factory=factory,
-            refs=refs,
-            demand=demand,
-            preview_limit=preview_limit,
-            parity_rel_tol=parity_rel_tol,
-            parity_abs_tol=parity_abs_tol,
-        )
+        return build_structural_readiness_report(self, refs=refs)
 
     # -- richness -----------------------------------------------------------
 

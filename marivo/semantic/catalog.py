@@ -1085,7 +1085,12 @@ class SemanticCatalog:
         self,
         refs: Sequence[SemanticRefInput] | None = None,
     ) -> ReadinessReport:
-        """Run readiness closeout gate for the given semantic refs.
+        """Run structural readiness check for the given semantic refs.
+
+        Performs pure in-memory checks without datasource connectivity.
+        For runtime validation (previews, parity, richness), use the
+        dedicated APIs: ``collect_source_preview()``, ``parity_check()``,
+        and ``richness()``.
 
         Args:
             refs: Semantic refs to check. Resolves the full dependency closure

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -23,31 +22,6 @@ def _default_backend_factory() -> Callable[[str], Any]:
     import importlib
 
     return lambda name: importlib.import_module("marivo.datasource").connect(name)
-
-
-def _default_inspect_source() -> Callable[..., Any]:
-    """Return an inspect_source callable from marivo.analysis."""
-    import importlib
-
-    return importlib.import_module("marivo.datasource").inspect_source  # type: ignore[no-any-return]
-
-
-def _run_parity_checks(
-    project: SemanticProject,
-) -> None:
-    """Run parity checks for base metrics declared as sql_parity."""
-    if not project.is_ready():
-        return
-    reg = project._registry
-    if reg is None:
-        return
-    for metric in reg.metrics.values():
-        if metric.is_derived:
-            continue
-        if metric.provenance.verification_mode != "sql_parity":
-            continue
-        with contextlib.suppress(Exception):
-            project.parity_check(metric.semantic_id)
 
 
 def _error_to_dict(error: Any) -> dict[str, object]:
@@ -114,7 +88,6 @@ def run_check(
     }
 
     if readiness:
-        _run_parity_checks(project)
         report = project.readiness()
         payload["readiness"] = report.to_dict()
         payload["status"] = report.status
