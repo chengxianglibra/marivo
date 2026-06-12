@@ -71,6 +71,15 @@ class TableSourceIR:
     database: str | tuple[str, ...] | None = None
     kind: Literal["table"] = "table"
 
+    def to_dict(self) -> dict[str, object]:
+        database: str | list[str] | None = (
+            list(self.database) if isinstance(self.database, tuple) else self.database
+        )
+        return {"kind": self.kind, "table": self.table, "database": database}
+
+    def to_ir(self) -> TableSourceIR:
+        return self
+
 
 @dataclass(frozen=True)
 class FileSourceIR:
@@ -80,6 +89,17 @@ class FileSourceIR:
     format: Literal["parquet", "csv", "json"]
     options: dict[str, Any] = field(default_factory=dict)
     kind: Literal["file"] = "file"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "path": self.path,
+            "format": self.format,
+            "options": dict(self.options),
+        }
+
+    def to_ir(self) -> FileSourceIR:
+        return self
 
 
 EntitySourceIR = TableSourceIR | FileSourceIR

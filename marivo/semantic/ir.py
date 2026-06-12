@@ -175,7 +175,7 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
         raw_options = data.get("options", {})
         options = dict(raw_options) if isinstance(raw_options, Mapping) else {}
         format_value = str(data["format"])
-        if format_value not in {"parquet", "csv"}:
+        if format_value not in {"parquet", "csv", "json"}:
             raise ValueError(f"unsupported file source format: {format_value!r}")
         return FileSourceIR(
             path=str(data["path"]),

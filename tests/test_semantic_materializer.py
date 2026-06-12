@@ -273,6 +273,94 @@ def test_metric_materialize_sum(semantic_project_factory, backend_factory) -> No
     assert result == pytest.approx(300.0)
 
 
+def test_materializer_dimension_on_uses_supplied_table(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": _DATASET_AND_METRIC_PY,
+        }
+    )
+    mat = Materializer(project, backend_factory)
+    supplied = ibis.table({"amount": "float64", "region": "string"}, name="supplied_orders")
+
+    value = mat.dimension_on("sales.orders.amount", supplied)
+
+    assert isinstance(value, ibis.expr.types.Value)
+    assert "supplied_orders" in repr(value)
+
+
+def test_materializer_dimension_on_is_not_ref_cached(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": _DATASET_AND_METRIC_PY,
+        }
+    )
+    mat = Materializer(project, backend_factory)
+    first = ibis.table({"amount": "float64", "region": "string"}, name="first_orders")
+    second = ibis.table({"amount": "float64", "region": "string"}, name="second_orders")
+
+    first_value = mat.dimension_on("sales.orders.amount", first)
+    second_value = mat.dimension_on("sales.orders.amount", second)
+
+    assert "first_orders" in repr(first_value)
+    assert "second_orders" in repr(second_value)
+
+
+def test_materializer_metric_on_uses_supplied_table(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": _DATASET_AND_METRIC_PY,
+        }
+    )
+    mat = Materializer(project, backend_factory)
+    supplied = ibis.table({"amount": "float64", "region": "string"}, name="supplied_orders")
+
+    value = mat.metric_on("sales.total_amount", supplied)
+
+    assert isinstance(value, ibis.expr.types.Value)
+    assert "supplied_orders" in repr(value)
+
+
+def test_materializer_metric_on_rejects_derived_metric(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
+                "def revenue(table):\n"
+                "    return table.amount.sum()\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
+                "def orders_count(table):\n"
+                "    return table.order_id.nunique()\n"
+                "ratio = ms.derived_metric(\n"
+                "    name='ratio',\n"
+                "    decomposition=ms.ratio(numerator=revenue, denominator=orders_count),\n"
+                ")\n"
+            ),
+        }
+    )
+    mat = Materializer(project, backend_factory)
+    supplied = ibis.table({"amount": "float64", "order_id": "int64"}, name="supplied_orders")
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        mat.metric_on("sales.ratio", supplied)
+
+    assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
+    assert "derived metric" in str(exc_info.value)
+
+
 # ---------------------------------------------------------------------------
 # Backend cache
 # ---------------------------------------------------------------------------
