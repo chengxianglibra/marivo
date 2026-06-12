@@ -167,10 +167,35 @@ The `table(...)` / `file(...)` source constructors move to
 entity authoring is unchanged. There is exactly one physical table reference
 shape in the library: `md.table("orders", database="sales_mart")`.
 
-All data-touching project APIs resolve datasource access from
-`.marivo/datasource` per call and close connections before returning.
-Explicit `bind_datasource_access` choreography is removed from the agent
-contract (implementations may keep injection hooks for tests).
+Backend connection ownership is defined in the next section: no public API
+accepts a backend factory, backend instance, or `inspect_source` callable.
+
+## Backend Connection Ownership
+
+All backend connection construction and lifecycle management live inside
+`marivo.datasource`, behind an internal connection service that resolves
+specs from `.marivo/datasource`. Connections are an implementation detail,
+not a public-API currency:
+
+- **No public parameter.** `backend_factory=`, `inspect_source=`, and backend
+  instances disappear from every public signature (`materialize_*`,
+  `preview_*`, `parity_check`, `readiness`, and the new `prepare_*` /
+  `verify_object`). `bind_datasource_access` is removed entirely. Tests
+  inject through internal seams, not public parameters.
+- **Bounded operations are per-call.** Evidence, verification, readiness, and
+  parity operations obtain a connection from the service, use it, and release
+  it before returning. Their results are frozen DTOs; nothing
+  connection-shaped escapes.
+- **Expression-returning operations borrow.** `materialize_*` returns live
+  Ibis expressions whose connection must outlive the call. These resolve
+  through the same service; the service owns the connection and releases it
+  with the consuming scope — the analysis session's close for session-driven
+  use, or explicit `md.disconnect(name)` / `md.disconnect_all()` for direct
+  use.
+- **Analysis session migration.** The analysis session stops binding
+  `inspect_source` / `backend_factory` into `SemanticProject`
+  (`_session_from_row`); it requests connections from the datasource service,
+  and session close releases them.
 
 ## Datasource Inspection Surface (`marivo.datasource`)
 
@@ -227,6 +252,32 @@ mislead enum/time-format/join-key judgments).
 
 `timeout_seconds` keeps the current best-effort semantics: budget is checked
 before and after the read; profiling is skipped with a warning when exceeded.
+
+### Scope Injection into Semantic Execution
+
+`ScanScope` reaches the semantic execution layer through exactly one internal
+seam: a scope resolver that, given a loaded entity and a `ScanScope`, applies
+the `"latest"` resolution rules above to the entity's physical source and
+returns the partition-filtered table expression. Every scoped semantic
+execution binds entity sources through this resolver before materialization
+or preview:
+
+- `verify_object` runtime validation (entity preview, dimension /
+  time-dimension evaluation, metric execution);
+- `readiness` previews and materialization checks. `readiness` gains
+  `scope: ScanScope = ScanScope()`; the previous bare `preview_limit`
+  parameter folds into `scope.max_rows`.
+
+Scoping applies to the **root entity source**. Joined sides of a cross-entity
+metric are bounded through the join against the scoped root; snapshot- or
+validity-versioned joined entities keep their declared versioning semantics.
+
+Failure is structural, never silent: a partitioned root source whose scope
+cannot be resolved produces a `partition_scope_required` blocker on that
+object's `VerifyResult` or `ReadinessReport` entry. Implementations must not
+fall back to an unpruned LIMIT; an unpruned scan happens only when the caller
+passed an explicit `partition=None`, and is reported as such in the
+`ScanReport`.
 
 ### `md.inspect_table(datasource, source) -> TableMetadata`
 
@@ -378,14 +429,31 @@ Status semantics:
 `duplicate_candidate`, `static_check_failed`, `authored_object_invalid`,
 `ladder_order_advisory`.
 
-Reuse-before-add is baked into Briefs: each prepare reports existing or
-similar registered objects as facts (`duplicate_*` / `similar_*` fields), so
-searching is not a separate choreographed step.
+Reuse-before-add is baked into Briefs: each prepare reports already-registered
+candidates as `matches: tuple[RegisteredMatch, ...]`. A match is an
+explainable exact fact, never a similarity heuristic — free-text or keyword
+overlap is excluded, and fuzzy reuse judgment stays with the agent:
+
+```python
+@dataclass(frozen=True)
+class RegisteredMatch:
+    ref: str
+    basis: Literal[
+        "name_exact",      # same semantic name in scope
+        "same_source",     # same physical table/file
+        "same_column",     # expression over the same physical column
+        "same_endpoints",  # relationship over the same entity/dimension refs
+        "synonym_exact",   # exact hit on a declared ai_context.synonyms entry
+    ]
+```
+
+Match facts inform the reuse decision; they are never themselves a
+sufficiency criterion.
 
 ### `prepare_domain(*, name: str) -> DomainBrief`
 
 Registry-only. Facts: existing domains with descriptions and business
-definitions, exact name conflict, similar domains by synonym/keyword overlap.
+definitions, plus exact matches (`name_exact`, `synonym_exact`).
 Questions: business-boundary confirmation (advisory).
 
 ```python
@@ -393,11 +461,16 @@ Questions: business-boundary confirmation (advisory).
 class DomainBrief:
     status: BriefStatus
     proposed_name: str
-    name_conflict: bool
     existing_domains: tuple[DomainSummary, ...]
-    similar_domains: tuple[str, ...]
+    matches: tuple[RegisteredMatch, ...]
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
+
+@dataclass(frozen=True)
+class DomainSummary:
+    ref: str
+    description: str | None
+    business_definition: str | None
 ```
 
 ### `prepare_entity(*, datasource, source, domain, scope=ScanScope()) -> EntityBrief`
@@ -417,7 +490,7 @@ class EntityBrief:
     primary_key_candidates: tuple[PrimaryKeyCandidate, ...]
     versioning_hints: VersioningHints
     time_like_columns: tuple[str, ...]
-    existing_entity: str | None               # same source already modeled
+    matches: tuple[RegisteredMatch, ...]      # same_source / name_exact
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
     scan: ScanReport
@@ -455,7 +528,7 @@ class DimensionBrief:
     value_shape: Literal[
         "enum_like", "id_like", "numeric", "boolean_like", "temporal_like", "free_text"
     ]
-    duplicate_dimensions: tuple[str, ...]   # existing dims over same column
+    matches: tuple[RegisteredMatch, ...]    # same_column / name_exact
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
     scan: ScanReport                        # shared across the batch
@@ -510,7 +583,7 @@ class MetricBrief:
     measure_profiles: tuple[ColumnProfile, ...]  # range/negatives/nulls
     filter_dimension_values: tuple[DimensionValueFact, ...]
     time_dimensions: tuple[str, ...]             # empty -> ladder advisory
-    similar_metrics: tuple[str, ...]             # name/synonym matches
+    matches: tuple[RegisteredMatch, ...]         # name_exact / synonym_exact
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
     scan: ScanReport
@@ -541,7 +614,7 @@ class RelationshipBrief:
     to_dimensions: tuple[str, ...]
     probe: JoinKeyProbe
     to_entity_versioning: str | None        # snapshot/validity interaction note
-    existing_relationships: tuple[str, ...] # duplicate path check
+    matches: tuple[RegisteredMatch, ...]    # same_endpoints
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
 ```
@@ -590,7 +663,7 @@ class DerivedMetricBrief:
     components: tuple[ComponentFact, ...]
     propagated_verification: str            # projected status
     unit_hint: str | None                   # e.g. "CNY/{user}"
-    similar_metrics: tuple[str, ...]
+    matches: tuple[RegisteredMatch, ...]    # name_exact / synonym_exact
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
 
@@ -674,15 +747,30 @@ the scan layer).
 When a candidate cannot reach sufficiency — the user cannot answer a blocking
 question, or required evidence is unobtainable:
 
-1. Record a decision-ledger entry via the existing `record_decision` path with
-   the new decision kind `authoring_abandoned`: subject ref, object kind,
-   reason, open question ids; candidate detail uses the existing
-   `RejectedCandidate` shape.
+1. Record one `DecisionRecord` under the candidate's planned semantic id via
+   the existing `record_decision` path, plus one `RejectedCandidate` carrying
+   the free-text reason. Concrete value rules:
+
+   | Field | Value |
+   | --- | --- |
+   | `decision_kind` | `"authoring_abandoned"` — added to the `DecisionKind` Literal with materiality floor `"low"` |
+   | `chosen` | `"abandoned"` (satisfies the non-`None` invariant) |
+   | `agreement_confidence` | `"high"` (the abandonment itself is explicit) |
+   | `qualifying_sources` | `("user_confirmation",)` when the user declined to decide; `("structural",)` when evidence was unobtainable |
+   | `materiality` | `"low"` |
+   | `blast_radius` | `0` (nothing was authored; no dependents exist) |
+   | `evidence_fingerprint` | fingerprint of the candidate's latest `TableMetadata` when it had a physical source; `""` for registry-only kinds |
+   | `question_id` | the first unresolved blocking `AuthoringQuestion.id`, or `None` when not question-driven |
+   | `cited_source` / `cited_columns` | the candidate's physical source and columns when known |
+
+   The paired `RejectedCandidate` uses `decision_kind="authoring_abandoned"`,
+   `candidate=<planned ref>`, `reason=<free text>`, and the same fingerprint.
 2. Skip the object and continue the ladder. Dependents are naturally stopped
    by hard gates, with structured errors naming the missing prerequisite.
-3. `readiness` reports the abandoned list. The record is informational: a
-   later session may re-prepare the same candidate; abandonment is not a
-   permanent block.
+3. `ReadinessReport` gains `abandoned: tuple[RejectedCandidate, ...]`
+   (no new DTO), populated from `authoring_abandoned` ledger records for the
+   checked scope. The record is informational: a later session may re-prepare
+   the same candidate; abandonment is not a permanent block.
 
 ## AuthoringQuestion → User Question Mapping (skill rule)
 
@@ -739,14 +827,15 @@ Breaking, no compatibility shims.
 | `MetadataOnlyPolicy`, `BoundedProfilePolicy`, `SelectedColumnsPolicy` | replaced by `ScanScope` |
 | `EvidenceFact` (generic facts) | replaced by typed Brief fields |
 | `ReviewStatus` | replaced by `BriefStatus` |
-| `bind_datasource_access` (agent contract) | per-call resolution from `.marivo/datasource` |
+| `bind_datasource_access` | removed entirely; internal connection service (tests use internal seams) |
+| `backend_factory=` / `inspect_source=` parameters on `materialize_*`, `preview_*`, `parity_check` | connections resolved by the internal datasource service |
 
 ### Added
 
 | Module | Symbols |
 | --- | --- |
 | `marivo.datasource` | `ScanScope`, `ScanReport`, `PartitionInfo`, `PartitionValue`, `ColumnInspection`, `ColumnProfile` (moved), `JoinSide`, `JoinKeyProbe`, `probe_join_keys`, `table()` / `file()` constructors (with `ms.*` aliases retained) |
-| `marivo.semantic` | `prepare_domain`, `prepare_entity`, `prepare_dimensions`, `prepare_time_dimension`, `prepare_metric`, `prepare_relationship`, `prepare_cross_entity_metric`, `prepare_derived_metric`; `DomainBrief`, `EntityBrief`, `DimensionBrief`, `TimeDimensionBrief`, `MetricBrief`, `RelationshipBrief`, `CrossEntityMetricBrief`, `DerivedMetricBrief` and their fact DTOs; `BriefStatus`; `verify_object` / `VerifyResult`; ledger decision kind `authoring_abandoned` |
+| `marivo.semantic` | `prepare_domain`, `prepare_entity`, `prepare_dimensions`, `prepare_time_dimension`, `prepare_metric`, `prepare_relationship`, `prepare_cross_entity_metric`, `prepare_derived_metric`; `DomainBrief`, `EntityBrief`, `DimensionBrief`, `TimeDimensionBrief`, `MetricBrief`, `RelationshipBrief`, `CrossEntityMetricBrief`, `DerivedMetricBrief` and their fact DTOs; `RegisteredMatch`; `BriefStatus`; `verify_object` / `VerifyResult`; `ReadinessReport.abandoned`; ledger decision kind `authoring_abandoned` |
 
 ### Kept
 
@@ -785,6 +874,26 @@ decision ledger.
 - Entrypoints: `make test TESTS=...` narrow first, then `make test`,
   `make typecheck`, `make lint`.
 
+## Cutover Synchronization
+
+The switch from the superseded pipeline counts as complete only when all of
+the following hold in the same change set or an explicitly sequenced series:
+
+1. No file under `marivo-skills/marivo-semantic/` references a removed symbol
+   (`assess_authoring`, `AuthoringSourceInput`, `inspect_authored_object`,
+   `bind_datasource_access`, project-level `inspect_table` /
+   `inspect_columns`, `backend_factory=`).
+2. `ms.help` / `describe` catalogs cover every new public symbol and no longer
+   list removed ones.
+3. Tests are migrated to the new contract (no legacy-shape compatibility
+   tests remain).
+4. Superseded documents carry pointers to this document.
+5. `make test`, `make typecheck`, `make lint`, and `make examples-check` pass.
+
+Until cutover completes, the skill keeps routing agents through the old
+contract; spec supersession alone must not strand agents on APIs that no
+longer match the skill text.
+
 ## Acceptance Criteria
 
 - An agent can build a domain end-to-end strictly through the ladder, one
@@ -801,3 +910,8 @@ decision ledger.
 - `verify_object` catches structural and runtime errors immediately after each
   object is written; `readiness` reports no first-discovery structural errors
   in a ladder-followed build.
+- No public API accepts or returns backend connections, factories, or
+  `inspect_source` callables; scoped execution never silently degrades to an
+  unpruned scan.
+- The Cutover Synchronization checklist is satisfied before the skill and
+  docs declare the new workflow active.
