@@ -213,19 +213,22 @@ typed frames:
 import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.get("sales.revenue")
+region = catalog.get("sales.orders.region").ref
 
 current = session.observe(
-    mv.MetricRef("sales.revenue"),
+    revenue,
     timescope={"start": "2026-10-01", "end": "2027-01-01"},
     grain="month",
 )
 baseline = session.observe(
-    mv.MetricRef("sales.revenue"),
+    revenue,
     timescope={"start": "2025-10-01", "end": "2026-01-01"},
     grain="month",
 )
 delta = session.compare(current, baseline)
-attribution = session.decompose(delta, axis=mv.DimensionRef("sales.orders.region"))
+attribution = session.decompose(delta, axis=region)
 attribution.show()
 ```
 
@@ -264,7 +267,7 @@ result = session.explore_ibis(
 )
 frame = session.promote_metric_frame(
     result,
-    metric=mv.MetricRef("sales.revenue"),
+    metric=session.catalog.get("sales.revenue"),
     semantic_kind="scalar",
     measure_column="value",
     semantic_model="sales",

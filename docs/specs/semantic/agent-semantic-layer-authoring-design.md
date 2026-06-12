@@ -73,16 +73,8 @@ The current Marivo Python-native surface already provides the core semantic
 registry and validation pieces:
 
 - `marivo.semantic.SemanticProject`
-- `ms.find_project()`
-- `project.load()`
-- `project.list_models()` / `list_datasources()` / `list_datasets()` /
-  `list_dimensions()` / `list_time_dimensions()` / `list_metrics()` /
-  `list_relationships()`
-- `project.search(...)`
-- `project.describe(...)`
-- `project.dependencies(...)` / `project.dependents(...)`
-- `project.materialize_dataset(...)` / `materialize_field(...)` /
-  `materialize_metric(...)`
+- `ms.load()` returning `SemanticCatalog`
+- `catalog.list(...)` / `catalog.get(...)` / `catalog.preview(...)`
 - `project.parity_check(...)`
 - `ms.help(...)` and `ms.help("constraints")`
 - `md.register(...)`, `all()`, `describe()`, `build_backend()`,
@@ -105,32 +97,28 @@ has landed in their installed Marivo version.
 
 | Capability | Available today | Target API |
 | --- | --- | --- |
-| Find and load semantic project | `ms.find_project()`, `project.load()` | same |
-| Inspect semantic objects | `project.list_*()`, `search()`, `describe()` | same |
+| Find and load semantic project | `ms.load()` | same |
+| Inspect semantic objects | `catalog.list(...)`, `catalog.get(...)` | same |
 | Build backend from datasource | `md.connect(name)` | same |
 | Test datasource | `md.test(name)` | same |
-| Raw table preview | `project.collect_source_preview(..., backend_factory=...)` so readiness can consume the physical source evidence | same |
-| Semantic dataset/field/metric preview | `project.preview_dataset(...)`, `project.preview_field(...)`, `project.preview_metric(...)` | same |
+| Raw table preview | `md.preview(...)` for bounded datasource rows | same |
+| Semantic dataset/field/metric preview | `catalog.preview(...)` | same |
 | Metric SQL parity | `project.parity_check(...)` | same |
 | Readiness report | agent-authored closeout from load, preview, and parity evidence | `project.readiness(...)` |
 | Table metadata/comments | `md.inspect_source(...)` | same |
 
-When calling materialization, compilation, parity, or target preview/readiness
-APIs, pass a backend factory, not a backend instance:
+When calling parity or readiness APIs, use the project-owned datasource
+connection runtime. Agent-facing preview goes through the catalog:
 
 ```python
-import marivo.analysis as mv
+import marivo.semantic as ms
 
-backend_factory = lambda name: md.connect(name)
-
-expr = project.materialize_metric(
-    "sales.revenue",
-    backend_factory=backend_factory,
-)
+catalog = ms.load()
+preview = catalog.preview("sales.revenue")
 ```
 
-The callable receives a datasource name and returns a live Ibis backend for that
-datasource.
+Semantic internals that need Ibis expressions use resolver/materializer
+primitives rather than `SemanticProject` public methods.
 
 ## End-To-End Authoring Loop
 
@@ -141,25 +129,21 @@ The agent starts by finding and loading the semantic project:
 ```python
 import marivo.semantic as ms
 
-project = ms.find_project()
-if project is None:
-    raise SystemExit("No .marivo/semantic project found")
-result = project.load()
+catalog = ms.load()
 ```
 
 The agent then inspects existing objects before proposing anything new:
 
 ```python
-project.list_models()
-project.list_datasources()
-project.list_datasets()
-project.list_metrics()
-project.search("revenue")
+catalog.list().show()
+catalog.list("sales", kind="entity").show()
+catalog.list("sales", kind="metric").show()
+catalog.get("sales.revenue").details()
 ```
 
-`project.list_*()` and `project.search(...)` print deterministic text tables by
-default for script-driven agents while still returning structured objects. When
-code consumes the returned list programmatically, pass `display=False`.
+`catalog.list(...)` returns a `SemanticObjectList` without writing stdout.
+Call `.show()` for human-readable display and use `.objects` / `.refs()` for
+programmatic consumption.
 
 Rule: reuse existing semantic refs when their `business_definition`,
 guardrails, dependencies, and provenance match the user intent. Add new objects
@@ -177,7 +161,7 @@ For every candidate datasource, the agent must:
 Current API:
 
 ```python
-import marivo.analysis as mv
+import marivo.datasource as md
 
 md.list()
 md.describe("warehouse")
@@ -287,11 +271,9 @@ After authoring, the agent validates semantic objects with bounded previews:
 Use the standard preview APIs:
 
 ```python
-backend_factory = lambda name: md.connect(name)
-
-project.preview_dataset("sales.orders", limit=20, backend_factory=backend_factory)
-project.preview_field("sales.order_date", limit=20, backend_factory=backend_factory)
-project.preview_metric("sales.revenue", limit=20, backend_factory=backend_factory)
+catalog.preview("sales.orders", limit=20)
+catalog.preview("sales.orders.order_date", limit=20)
+catalog.preview("sales.revenue", limit=20)
 ```
 
 Preview failure does not always mean project load failure, but it is a readiness blocker for the affected object.
@@ -342,13 +324,10 @@ descriptions.
 
 Source APIs:
 
-- `ms.find_project()`
-- `project.load()`
-- `project.list_*()`
-- `project.search(...)`
-- `project.describe(...)`
-- `project.dependencies(...)`
-- `project.dependents(...)`
+- `ms.load()`
+- `catalog.list(...)`
+- `catalog.get(...)`
+- `catalog.preview(...)`
 
 ### Datasource Evidence
 
@@ -500,17 +479,15 @@ possible and should preserve column order.
 Available API.
 
 ```python
-import marivo.analysis as mv
+import marivo.datasource as md
 
-preview = project.collect_source_preview(
-    datasource="warehouse",
+preview = md.preview(
+    "warehouse",
     table="orders",
     database="sales_mart",
     columns=["order_id", "created_at", "amount", "status"],
     limit=20,
-    backend_factory=backend_factory,
     include_types=True,
-    redact=True,
 )
 ```
 
@@ -529,11 +506,9 @@ Rules:
 Available APIs.
 
 ```python
-backend_factory = lambda name: md.connect(name)
-
-project.preview_dataset("sales.orders", limit=20, backend_factory=backend_factory)
-project.preview_field("sales.order_date", limit=20, backend_factory=backend_factory)
-project.preview_metric("sales.revenue", limit=20, backend_factory=backend_factory)
+catalog.preview("sales.orders", limit=20)
+catalog.preview("sales.orders.order_date", limit=20)
+catalog.preview("sales.revenue", limit=20)
 ```
 
 Rules:
@@ -704,11 +679,11 @@ Guidance:
 
 ### Reuse Before Add
 
-Agents must search existing semantic objects before adding new ones:
+Agents must inspect existing semantic objects before adding new ones:
 
 ```python
-project.search("revenue", kind="metric")
-project.describe("sales.revenue")
+catalog.list("sales", kind="metric").show()
+catalog.get("sales.revenue").details()
 ```
 
 Reuse is required when the existing object matches the requested business
@@ -1014,15 +989,12 @@ Add:
 - preview value normalization
 - redaction helpers
 - backend-specific bounded preview tests
-- `project.collect_source_preview(..., backend_factory=...)` records successful
-  raw datasource previews as project-local readiness evidence under
-  `.marivo/semantic/.evidence/`; preview rows are not persisted
+- `md.preview(...)` provides bounded raw datasource previews; preview rows are
+  not persisted in semantic definitions
 
 Then add:
 
-- `project.preview_dataset(...)`
-- `project.preview_field(...)`
-- `project.preview_metric(...)`
+- `catalog.preview(...)`
 
 ### Phase 3: Readiness API
 

@@ -84,6 +84,7 @@ def test_all_list_matches_expected() -> None:
         "DimensionRef",
         "DimensionValueFact",
         "DomainBrief",
+        "DomainBriefSummary",
         "DomainDetails",
         "DomainRef",
         "EntityBrief",
@@ -168,7 +169,7 @@ def test_all_list_matches_expected() -> None:
         assert name not in ms.__all__, f"{name} should not be in ms.__all__"
 
 
-def test_semantic_project_class() -> None:
+def test_reader_project_class() -> None:
     from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject(root="/tmp/test")
@@ -897,7 +898,7 @@ def test_propagated_parity_status_callable() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_semantic_project_init() -> None:
+def test_reader_project_init() -> None:
     from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject(root="/tmp/test")
@@ -905,7 +906,7 @@ def test_semantic_project_init() -> None:
     assert project.errors() == ()
 
 
-def test_semantic_project_load_works() -> None:
+def test_reader_project_load_works() -> None:
     """SemanticProject.load() now works (implemented in Slice 1)."""
     import tempfile
     from pathlib import Path
@@ -920,7 +921,7 @@ def test_semantic_project_load_works() -> None:
         assert result.status == "ready"
 
 
-def test_semantic_project_load_reloads() -> None:
+def test_reader_project_load_reloads() -> None:
     """SemanticProject.load() resets and re-loads when called again."""
     import tempfile
     from pathlib import Path
@@ -961,6 +962,7 @@ def test_stepwise_authoring_dto_exports() -> None:
         "RegisteredMatch",
         "VerifyResult",
         "DomainBrief",
+        "DomainBriefSummary",
         "EntityBrief",
         "DimensionBrief",
         "TimeDimensionBrief",

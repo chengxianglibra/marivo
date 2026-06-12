@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import marivo.semantic as ms
+from marivo.semantic.errors import SemanticLoadFailed
 
 
 def test_prepare_domain_reports_exact_registered_match(
@@ -35,6 +38,16 @@ def test_prepare_domain_new_name_is_sufficient(
     assert brief.status == "sufficient"
     assert brief.proposed_name == "inventory"
     assert len(brief.matches) == 0
+
+
+def test_prepare_domain_requires_loaded_project(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"},
+        load=False,
+    )
+
+    with pytest.raises(SemanticLoadFailed):
+        project.prepare_domain(name="inventory")
 
 
 def test_prepare_derived_metric_blocks_missing_component(

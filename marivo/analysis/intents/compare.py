@@ -714,7 +714,7 @@ def compare(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session._semantic_project.semantic_root),
+            "semantic_project_root": str(session.catalog._project.semantic_root),
             "semantic_model": current.meta.semantic_model,
         },
     )

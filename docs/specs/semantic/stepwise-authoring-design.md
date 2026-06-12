@@ -461,13 +461,13 @@ Questions: business-boundary confirmation (advisory).
 class DomainBrief:
     status: BriefStatus
     proposed_name: str
-    existing_domains: tuple[DomainSummary, ...]
+    existing_domains: tuple[DomainBriefSummary, ...]
     matches: tuple[RegisteredMatch, ...]
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
 
 @dataclass(frozen=True)
-class DomainSummary:
+class DomainBriefSummary:
     ref: str
     description: str | None
     business_definition: str | None
@@ -839,11 +839,10 @@ Breaking, no compatibility shims.
 
 ### Kept
 
-`readiness` (scan-aligned), `preview_dataset` / `preview_field` /
-`preview_metric` and `parity_check` (debugging helpers), `richness`
-(advisory), `SemanticCatalog` browsing (`ms.load()`, `list`, `get`,
-`details`), `ms.help`, the decorator/builder authoring surface, and the
-decision ledger.
+`readiness` (scan-aligned), `catalog.preview(...)` and `parity_check`
+(debugging helpers), `richness` (advisory), `SemanticCatalog` browsing
+(`ms.load()`, `list`, `get`, `details`), `ms.help`, the decorator/builder
+authoring surface, and the decision ledger.
 
 ## Supersession
 

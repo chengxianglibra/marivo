@@ -7,9 +7,11 @@ import pytest
 from marivo.analysis.calendar.loader import CalendarCache
 from marivo.analysis.errors import JobNotFoundError
 from marivo.analysis.session._layout import PersistenceLayout
-from marivo.analysis.session._runtime import persist_job_record
+from marivo.analysis.session._runtime import _build_connection_runtime, persist_job_record
 from marivo.analysis.session._store import SessionStore
 from marivo.analysis.session.core import JobSummary, Session
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -43,9 +45,14 @@ def _session(tmp_path, *, read_only: bool = False) -> Session:
         project_root=tmp_path,
         created_at=_now(),
         updated_at=_now(),
-        backend_factory=None if read_only else (lambda name: object()),
+        connection_runtime=_build_connection_runtime(
+            tmp_path,
+            None if read_only else {"fake": lambda: object()},
+            None,
+            use_datasources=False,
+        ),
         layout=layout,
-        semantic_project=None,
+        semantic_catalog=SemanticCatalog(SemanticProject(workspace_dir=tmp_path)),
         store=store,
     )
 
@@ -168,11 +175,12 @@ def test_session_frame_summaries_sorted_by_created_at_then_ref(tmp_path):
     assert records[1].ref == frame_b.ref
 
 
-def test_session_close_clears_backend_cache(tmp_path):
+def test_session_close_closes_runtime_connections(tmp_path):
     s = _session(tmp_path)
-    s._backend_cache._cache["fake"] = object()
+    s._connection_runtime.session_backend("fake")
+    assert s._connection_runtime.service._session_backends
     s.close()
-    assert s._backend_cache._cache == {}
+    assert s._connection_runtime.service._session_backends == {}
 
 
 def test_session_initializes_calendar_cache(tmp_path):
@@ -202,3 +210,86 @@ def test_session_has_no_state_attribute(tmp_path):
     """Session.state and SessionState were removed in the session redesign."""
     s = _session(tmp_path)
     assert not hasattr(s, "state")
+
+
+def test_session_exposes_catalog_property(tmp_path, monkeypatch):
+    import marivo.analysis as mv
+    from marivo.semantic.catalog import SemanticCatalog
+
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create(name="catalog_session", use_datasources=False)
+
+    assert isinstance(session.catalog, SemanticCatalog)
+    assert session.catalog.workspace_dir == tmp_path
+
+
+def test_session_close_closes_connection_runtime(tmp_path):
+    from datetime import UTC, datetime
+
+    from marivo.analysis.session._connections import AnalysisConnectionRuntime
+    from marivo.analysis.session._layout import PersistenceLayout
+    from marivo.analysis.session._store import SessionStore
+    from marivo.datasource.runtime import DatasourceConnectionService
+    from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.reader import SemanticProject
+
+    class Runtime(AnalysisConnectionRuntime):
+        def __init__(self):
+            super().__init__(
+                DatasourceConnectionService(project_root=tmp_path, use_datasources=False)
+            )
+            self.closed = False
+
+        def close_all(self):
+            self.closed = True
+
+    runtime = Runtime()
+    project = SemanticProject(workspace_dir=tmp_path)
+    session = Session(
+        id="s1",
+        name="n",
+        question=None,
+        cwd=tmp_path,
+        project_root=tmp_path,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+        connection_runtime=runtime,
+        layout=PersistenceLayout(project_root=tmp_path, session_id="s1"),
+        semantic_catalog=SemanticCatalog(project),
+        store=SessionStore(project_root=tmp_path),
+    )
+
+    session.close()
+
+    assert runtime.closed
+
+
+def test_session_constructor_rejects_old_runtime_keywords(tmp_path):
+    from marivo.analysis.session._connections import AnalysisConnectionRuntime
+    from marivo.analysis.session._layout import PersistenceLayout
+    from marivo.analysis.session._store import SessionStore
+    from marivo.datasource.runtime import DatasourceConnectionService
+    from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.reader import SemanticProject
+
+    kwargs = {
+        "id": "s1",
+        "name": "n",
+        "question": None,
+        "cwd": tmp_path,
+        "project_root": tmp_path,
+        "created_at": _now(),
+        "updated_at": _now(),
+        "connection_runtime": AnalysisConnectionRuntime(
+            DatasourceConnectionService(project_root=tmp_path, use_datasources=False)
+        ),
+        "layout": PersistenceLayout(project_root=tmp_path, session_id="s1"),
+        "semantic_catalog": SemanticCatalog(SemanticProject(workspace_dir=tmp_path)),
+        "store": SessionStore(project_root=tmp_path),
+    }
+
+    with pytest.raises(TypeError):
+        Session(**kwargs, backend_factory=lambda name: object())
+
+    with pytest.raises(TypeError):
+        Session(**kwargs, semantic_project=SemanticProject(workspace_dir=tmp_path))

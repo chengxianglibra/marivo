@@ -18,6 +18,7 @@ import textwrap
 
 import pytest
 
+from marivo.semantic.catalog import EntityDetails, SemanticCatalog, SemanticKind, SemanticRef
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.reader import SemanticProject
 
@@ -85,10 +86,15 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
     )
 
     assert project.is_ready()
-    datasources = project.list_datasources()
-    assert [ds.semantic_id for ds in datasources] == ["warehouse"]
-    assert project.get_entity("sales.orders").datasource == "warehouse"
-    assert project.get_entity("finance.refunds").datasource == "warehouse"
+    catalog = SemanticCatalog(project)
+    datasources = catalog.list(kind="datasource").objects
+    assert [ds.ref.ref for ds in datasources] == ["warehouse"]
+    orders = catalog.get("sales.orders").details()
+    refunds = catalog.get("finance.refunds").details()
+    assert isinstance(orders, EntityDetails)
+    assert isinstance(refunds, EntityDetails)
+    assert orders.datasource.ref == "warehouse"
+    assert refunds.datasource.ref == "warehouse"
 
 
 def test_duplicate_global_datasource_declaration_must_match(semantic_project_factory) -> None:
@@ -145,8 +151,8 @@ def test_missing_domain_py(semantic_project_factory) -> None:
     assert ErrorKind.DOMAIN_FILE_MISSING in kind_values
 
 
-def test_datasources_accessible_when_model_load_errors(semantic_project_factory) -> None:
-    """list_datasources / get_datasource work even if model dirs are broken."""
+def test_datasources_loaded_when_model_load_errors(semantic_project_factory) -> None:
+    """Datasource loading succeeds even if model dirs are broken."""
     project = semantic_project_factory(
         {
             "sales/datasets.py": _MINIMAL_DATASET_PY,
@@ -155,13 +161,14 @@ def test_datasources_accessible_when_model_load_errors(semantic_project_factory)
     assert not project.is_ready()
     assert any(e.kind == ErrorKind.DOMAIN_FILE_MISSING for e in project.errors())
 
-    datasources = project.list_datasources()
+    result = project.load()
+    datasources = result.datasource_irs
     assert len(datasources) == 1
     assert datasources[0].name == "warehouse"
     assert datasources[0].backend_type == "duckdb"
 
     with pytest.raises(Exception):
-        project.list_domains()
+        SemanticCatalog(project).list()
 
 
 def test_model_name_mismatch(semantic_project_factory) -> None:
@@ -394,7 +401,7 @@ def test_subdirectories_not_scanned(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_semantic_project_unloaded() -> None:
+def test_reader_project_unloaded() -> None:
     import tempfile
     from pathlib import Path
 
@@ -404,7 +411,7 @@ def test_semantic_project_unloaded() -> None:
         assert project.errors() == ()
 
 
-def test_semantic_project_nonexistent_root() -> None:
+def test_reader_project_nonexistent_root() -> None:
     from pathlib import Path
 
     project = SemanticProject(workspace_dir=Path("/nonexistent/path"))
@@ -923,11 +930,13 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     fake_service = _FakeConnectionService()
 
     with patch.object(project, "_connection_service", return_value=fake_service):
-        # Materialize the dataset first
-        table = project.materialize_dataset("sales.orders")
+        catalog = SemanticCatalog(project)
+        resolver = catalog._resolver()
+        table = resolver.table(SemanticRef("sales.orders", kind=SemanticKind.ENTITY))
 
-        # Materialize the field
-        field_expr = project.materialize_field("sales.orders.region")
+        field_expr = resolver.dimension(
+            SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION)
+        )
     assert field_expr is not None
 
 
@@ -1000,7 +1009,7 @@ def test_load_raises_when_semantic_is_a_file(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_semantic_project_default_workspace_dir_is_cwd(monkeypatch, tmp_path) -> None:
+def test_reader_project_default_workspace_dir_is_cwd(monkeypatch, tmp_path) -> None:
     """SemanticProject() with no args uses cwd as workspace_dir."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
@@ -1009,7 +1018,7 @@ def test_semantic_project_default_workspace_dir_is_cwd(monkeypatch, tmp_path) ->
     assert project.semantic_root == tmp_path.resolve() / ".marivo" / "semantic"
 
 
-def test_semantic_project_env_var_overrides_cwd(monkeypatch, tmp_path) -> None:
+def test_reader_project_env_var_overrides_cwd(monkeypatch, tmp_path) -> None:
     """MARIVO_PROJECT_ROOT takes precedence over cwd."""
     other_dir = tmp_path / "other"
     other_dir.mkdir()
@@ -1019,7 +1028,7 @@ def test_semantic_project_env_var_overrides_cwd(monkeypatch, tmp_path) -> None:
     assert project.workspace_dir == other_dir.resolve()
 
 
-def test_semantic_project_explicit_workspace_dir_overrides_env(monkeypatch, tmp_path) -> None:
+def test_reader_project_explicit_workspace_dir_overrides_env(monkeypatch, tmp_path) -> None:
     """Explicit workspace_dir= takes precedence over MARIVO_PROJECT_ROOT."""
     env_dir = tmp_path / "env_dir"
     env_dir.mkdir()
@@ -1030,7 +1039,7 @@ def test_semantic_project_explicit_workspace_dir_overrides_env(monkeypatch, tmp_
     assert project.workspace_dir == explicit_dir.resolve()
 
 
-def test_semantic_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) -> None:
+def test_reader_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) -> None:
     """SemanticProject(workspace_dir='.') in a project root with scripts/ etc.
     does NOT misidentify those dirs as model directories."""
     scripts_dir = tmp_path / "scripts"
@@ -1042,7 +1051,7 @@ def test_semantic_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) 
     result = project.load()
     # scripts/ should NOT appear as a model dir — only .marivo/semantic/ is scanned
     assert result.status == "ready"
-    assert len(project.list_domains()) == 0
+    assert len(SemanticCatalog(project).list().objects) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1109,7 +1118,11 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
     fake_service = _FakeConnectionService()
 
     with patch.object(project, "_connection_service", return_value=fake_service):
-        result = project.materialize_dataset("sales.orders")
+        result = (
+            SemanticCatalog(project)
+            ._resolver()
+            .table(SemanticRef("sales.orders", kind=SemanticKind.ENTITY))
+        )
     assert isinstance(result, ibis.expr.types.Table)
     assert backend.calls == ["orders"]
 
@@ -1167,7 +1180,11 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
     fake_service = _FakeConnectionService()
 
     with patch.object(project, "_connection_service", return_value=fake_service):
-        result = project.materialize_dataset("sales.orders")
+        result = (
+            SemanticCatalog(project)
+            ._resolver()
+            .table(SemanticRef("sales.orders", kind=SemanticKind.ENTITY))
+        )
     assert isinstance(result, ibis.expr.types.Table)
 
 

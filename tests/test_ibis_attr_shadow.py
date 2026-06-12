@@ -14,6 +14,7 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.analysis.intents.observe_planner import _validate_field_expr
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 # ---------------------------------------------------------------------------
 # Runtime guard: _validate_field_expr
@@ -134,8 +135,8 @@ def test_schema_dimension_base_metric_observe(tmp_path):
         backends={"warehouse": lambda: con},
     )
     frame = s.observe(
-        mv.MetricRef("analytics.query_count"),
-        dimensions=[mv.DimensionRef("analytics.queries.schema")],
+        SemanticRef("analytics.query_count", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("analytics.queries.schema", kind=SemanticKind.DIMENSION)],
     )
     df = frame.to_pandas()
     assert "schema" in df.columns
@@ -152,8 +153,8 @@ def test_schema_dimension_derived_metric_observe(tmp_path):
         backends={"warehouse": lambda: con},
     )
     frame = s.observe(
-        mv.MetricRef("analytics.avg_elapsed_time"),
-        dimensions=[mv.DimensionRef("analytics.queries.schema")],
+        SemanticRef("analytics.avg_elapsed_time", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("analytics.queries.schema", kind=SemanticKind.DIMENSION)],
     )
     df = frame.to_pandas()
     assert "schema" in df.columns

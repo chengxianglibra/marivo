@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from functools import reduce
+from types import SimpleNamespace
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -24,9 +25,19 @@ from marivo.analysis.intents.observe_errors import (
     raise_observe_planning_error,
 )
 from marivo.analysis.intents.sampled_fold import ensure_fold_time_dimension_matches
-from marivo.analysis.refs import DimensionRef
+from marivo.analysis.semantic_inputs import DimensionInput
 from marivo.analysis.windows.spec import is_date_only
 from marivo.introspection._fuzzy import did_you_mean
+from marivo.semantic.catalog import (
+    DimensionDetails,
+    EntityDetails,
+    MetricDetails,
+    RelationshipDetails,
+    SemanticCatalog,
+    SemanticKind,
+    TimeDimensionDetails,
+)
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
 
 
@@ -94,6 +105,235 @@ class ResolvedObserveFields:
     time_dimension: Any | None = None
 
 
+FieldDetails = DimensionDetails | TimeDimensionDetails
+
+
+@dataclass(frozen=True)
+class _PlannedFieldDetails:
+    details: FieldDetails
+
+    @property
+    def ref(self) -> Any:
+        return self.details.ref
+
+    @property
+    def semantic_id(self) -> str:
+        return self.details.ref.ref
+
+    @property
+    def name(self) -> str:
+        return self.details.name
+
+    @property
+    def entity(self) -> str:
+        return self.details.entity.ref
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.details, name)
+
+
+def _planned_field(field: Any) -> _PlannedFieldDetails:
+    if isinstance(field, _PlannedFieldDetails):
+        return field
+    return _PlannedFieldDetails(field)
+
+
+@dataclass(frozen=True)
+class _PlannedRelationshipDetails:
+    details: RelationshipDetails
+
+    @property
+    def ref(self) -> Any:
+        return self.details.ref
+
+    @property
+    def semantic_id(self) -> str:
+        return self.details.ref.ref
+
+    @property
+    def from_entity(self) -> str:
+        return self.details.from_entity.ref
+
+    @property
+    def to_entity(self) -> str:
+        return self.details.to_entity.ref
+
+    @property
+    def from_dimensions(self) -> tuple[str, ...]:
+        return self.details.from_dimensions
+
+    @property
+    def to_dimensions(self) -> tuple[str, ...]:
+        return self.details.to_dimensions
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.details, name)
+
+
+def _planned_relationship(relationship: RelationshipDetails) -> _PlannedRelationshipDetails:
+    return _PlannedRelationshipDetails(relationship)
+
+
+RelationshipInfo = RelationshipDetails | _PlannedRelationshipDetails
+PlannerField = FieldDetails | _PlannedFieldDetails
+
+
+@dataclass(frozen=True)
+class _MetricDetailsAdapter:
+    details: MetricDetails
+
+    @property
+    def semantic_id(self) -> str:
+        return self.details.ref.ref
+
+    @property
+    def name(self) -> str:
+        return self.details.name
+
+    @property
+    def root_entity(self) -> str | None:
+        return self.details.root_entity.ref if self.details.root_entity is not None else None
+
+    @property
+    def entities(self) -> tuple[str, ...]:
+        return tuple(entity.ref for entity in self.details.entities)
+
+    @property
+    def additivity(self) -> str | None:
+        return self.details.additivity
+
+    @property
+    def fanout_policy(self) -> str:
+        return self.details.fanout_policy
+
+    @property
+    def is_derived(self) -> bool:
+        return self.details.is_derived
+
+    @property
+    def decomposition(self) -> Any:
+        return SimpleNamespace(
+            kind=self.details.decomposition,
+            components={role: component.ref for role, component in self.details.components},
+        )
+
+    @property
+    def time_fold(self) -> Any | None:
+        if self.details.time_fold is None:
+            return None
+        return _TimeFoldDetailsAdapter(self.details.time_fold)
+
+    @property
+    def fold_time_dimension(self) -> str | None:
+        return self.details.fold_time_dimension
+
+    @property
+    def unit(self) -> str | None:
+        return self.details.unit
+
+
+@dataclass(frozen=True)
+class _TimeFoldDetailsAdapter:
+    value: str
+
+    @property
+    def kind(self) -> str:
+        if self.value.startswith("quantile("):
+            return "quantile"
+        return self.value
+
+    @property
+    def q(self) -> float | None:
+        if not self.value.startswith("quantile("):
+            return None
+        return float(self.value.removeprefix("quantile(").removesuffix(")"))
+
+    def label(self) -> str:
+        return self.value
+
+
+def _planned_metric(details: MetricDetails) -> _MetricDetailsAdapter:
+    return _MetricDetailsAdapter(details)
+
+
+def _details(catalog: SemanticCatalog, ref: str) -> Any:
+    return catalog.get(ref).details()
+
+
+def _entity(catalog: SemanticCatalog, ref: str) -> EntityDetails:
+    details = _details(catalog, ref)
+    if not isinstance(details, EntityDetails):
+        raise_observe_planning_error(
+            code="path-missing",
+            message=f"Entity reference {ref!r} was not found.",
+            candidates={"ref": ref},
+            repair=[],
+        )
+    return details
+
+
+def _metric(catalog: SemanticCatalog, ref: str) -> MetricDetails:
+    details = _details(catalog, ref)
+    if not isinstance(details, MetricDetails):
+        raise_observe_planning_error(
+            code="derived-shared-planner-unsupported",
+            message=f"Metric reference {ref!r} was not found.",
+            candidates={"ref": ref},
+            repair=[],
+        )
+    return details
+
+
+def _fields_for_entity(catalog: SemanticCatalog, entity_ref: str) -> list[FieldDetails]:
+    fields: list[FieldDetails] = []
+    for kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
+        for obj in catalog.list(entity_ref, kind=kind):
+            details = obj.details()
+            if isinstance(details, (DimensionDetails, TimeDimensionDetails)):
+                fields.append(details)
+    return fields
+
+
+def _fields_for_entities(catalog: SemanticCatalog, entity_refs: set[str]) -> list[FieldDetails]:
+    fields: list[FieldDetails] = []
+    for entity_ref in sorted(entity_refs):
+        fields.extend(_fields_for_entity(catalog, entity_ref))
+    return fields
+
+
+def _ref_id(value: Any) -> str:
+    ref = getattr(value, "ref", None)
+    if isinstance(ref, str):
+        return ref
+    nested = getattr(ref, "ref", None)
+    if isinstance(nested, str):
+        return nested
+    semantic_id = getattr(value, "semantic_id", None)
+    if isinstance(semantic_id, str):
+        return semantic_id
+    return str(value)
+
+
+def _entity_id(field: Any) -> str:
+    return _ref_id(field.entity)
+
+
+def _input_ref_id(value: Any) -> str:
+    return _ref_id(value)
+
+
+def _relationship_id(relationship: Any) -> str:
+    return _ref_id(relationship)
+
+
+def _from_entity_id(relationship: Any) -> str:
+    return _ref_id(relationship.from_entity)
+
+
+def _to_entity_id(relationship: Any) -> str:
+    return _ref_id(relationship.to_entity)
+
+
 def resolve_metric_root(metric_ir: Any) -> str:
     root = getattr(metric_ir, "root_entity", None)
     if isinstance(root, str) and root:
@@ -125,10 +365,6 @@ def resolve_metric_root(metric_ir: Any) -> str:
     )
 
 
-def _all_fields(project: Any) -> list[Any]:
-    return [*project.list_dimensions(), *project.list_time_dimensions()]
-
-
 _IBIS_BUILTIN_NAMES = frozenset(
     {
         "desc",
@@ -144,32 +380,41 @@ _IBIS_BUILTIN_NAMES = frozenset(
 )
 
 
-def _fields_for_datasets(project: Any, dataset_ids: set[str]) -> list[Any]:
-    return [f for f in _all_fields(project) if f.entity in dataset_ids]
+def _fields_for_datasets(catalog: SemanticCatalog, entity_refs: set[str]) -> list[FieldDetails]:
+    return _fields_for_entities(catalog, entity_refs)
 
 
 def _resolve_field_ref(
-    project: Any,
+    catalog: SemanticCatalog,
     ref_id: str,
     *,
     scoped_dataset_ids: set[str],
     allow_qualified_outside_scope: bool,
     allow_unqualified_outside_scope: bool = False,
-) -> Any:
-    fields = _all_fields(project)
+) -> FieldDetails:
+    fields = _fields_for_entities(
+        catalog,
+        scoped_dataset_ids
+        if not allow_qualified_outside_scope and not allow_unqualified_outside_scope
+        else {
+            obj.ref.ref
+            for domain in catalog.list(kind=SemanticKind.DOMAIN)
+            for obj in catalog.list(domain.ref, kind=SemanticKind.ENTITY)
+        },
+    )
     if "." in ref_id:
-        matches = [f for f in fields if f.semantic_id == ref_id]
-        if matches and (allow_qualified_outside_scope or matches[0].entity in scoped_dataset_ids):
+        matches = [f for f in fields if f.ref.ref == ref_id]
+        if matches and (
+            allow_qualified_outside_scope or _entity_id(matches[0]) in scoped_dataset_ids
+        ):
             return matches[0]
     else:
-        scoped = _fields_for_datasets(project, scoped_dataset_ids)
+        scoped = _fields_for_datasets(catalog, scoped_dataset_ids)
         matches = [f for f in scoped if f.name == ref_id]
         if not matches and allow_unqualified_outside_scope:
-            # Fall back to all project fields so that dimensions on related
-            # datasets (reachable via relationships) can be resolved.
             matches = [f for f in fields if f.name == ref_id]
     if not matches:
-        all_field_ids = sorted(f.semantic_id for f in fields)
+        all_field_ids = sorted(f.ref.ref for f in fields)
         pool = all_field_ids if "." in ref_id else sorted({f.name for f in fields})
         suggestions = did_you_mean(ref_id, pool)
         repair_actions: list[RepairAction] = []
@@ -193,10 +438,7 @@ def _resolve_field_ref(
         if ref_id in _IBIS_BUILTIN_NAMES:
             ibis_hint = (
                 f"{ref_id!r} is also an ibis expression function (ibis.{ref_id}()). "
-                f"If you meant to use it inside a decorator body, ensure 'import ibis' "
-                f"is in the module where the body is defined. If you meant a semantic "
-                f"dimension, use its qualified name (e.g. 'entity.{ref_id}') or rename "
-                f"the dimension to avoid the collision with the ibis builtin."
+                f"Use bracket notation in the semantic function body when a column shadows an ibis method."
             )
             message = f"{message} {ibis_hint}"
             candidates["ibis_builtin_hint"] = ibis_hint
@@ -210,17 +452,17 @@ def _resolve_field_ref(
         raise_observe_planning_error(
             code="field-ref-ambiguous",
             message=f"Field reference {ref_id!r} is ambiguous in observe plan scope.",
-            candidates={"fields": sorted(f.semantic_id for f in matches)},
+            candidates={"fields": sorted(f.ref.ref for f in matches)},
             repair=[],
         )
     return matches[0]
 
 
 def resolve_observe_fields(
-    project: Any,
+    catalog: SemanticCatalog,
     metric_ir: Any,
     *,
-    dimensions: list[DimensionRef] | None,
+    dimensions: list[DimensionInput] | None,
     where: dict[Any, Any] | None,
     time_dimension: str | None,
     allow_unqualified_outside_scope: bool = False,
@@ -228,26 +470,30 @@ def resolve_observe_fields(
     root = resolve_metric_root(metric_ir)
     scoped_dataset_ids = {root, *tuple(metric_ir.entities)}
     resolved_dimensions = [
-        _resolve_field_ref(
-            project,
-            dimension.semantic_id,
-            scoped_dataset_ids=scoped_dataset_ids,
-            allow_qualified_outside_scope=True,
-            allow_unqualified_outside_scope=allow_unqualified_outside_scope,
+        _planned_field(
+            _resolve_field_ref(
+                catalog,
+                _input_ref_id(dimension),
+                scoped_dataset_ids=scoped_dataset_ids,
+                allow_qualified_outside_scope=True,
+                allow_unqualified_outside_scope=allow_unqualified_outside_scope,
+            )
         )
         for dimension in dimensions or []
     ]
     where_fields: dict[str, Any] = {}
     raw_root_where_keys: list[str] = []
-    all_fields = _all_fields(project)
+    all_fields = _fields_for_entities(catalog, scoped_dataset_ids)
     for raw_key in where or {}:
-        key = raw_key.semantic_id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        key = _input_ref_id(raw_key)
         if "." in key:
-            where_fields[key] = _resolve_field_ref(
-                project,
-                key,
-                scoped_dataset_ids=scoped_dataset_ids,
-                allow_qualified_outside_scope=True,
+            where_fields[key] = _planned_field(
+                _resolve_field_ref(
+                    catalog,
+                    key,
+                    scoped_dataset_ids=scoped_dataset_ids,
+                    allow_qualified_outside_scope=True,
+                )
             )
             continue
         # Unqualified where key: prefer a semantic field declared on the
@@ -255,43 +501,44 @@ def resolve_observe_fields(
         # treat as a root-phase raw key forwarded to apply_slice_to_dataset
         # so the legacy physical-column fallback can resolve it.
         root_match = next(
-            (f for f in all_fields if f.entity == root and f.name == key),
+            (f for f in all_fields if _entity_id(f) == root and f.name == key),
             None,
         )
         if root_match is not None:
-            where_fields[key] = root_match
+            where_fields[key] = _planned_field(root_match)
             continue
         non_root_matches = [
             f
             for f in all_fields
-            if f.entity in scoped_dataset_ids and f.entity != root and f.name == key
+            if _entity_id(f) in scoped_dataset_ids and _entity_id(f) != root and f.name == key
         ]
         if len(non_root_matches) == 1:
-            where_fields[key] = non_root_matches[0]
+            where_fields[key] = _planned_field(non_root_matches[0])
             continue
         if len(non_root_matches) > 1:
             raise_observe_planning_error(
                 code="field-ref-ambiguous",
                 message=f"Field reference {key!r} is ambiguous in observe plan scope.",
-                candidates={"fields": sorted(f.semantic_id for f in non_root_matches)},
+                candidates={"fields": sorted(f.ref.ref for f in non_root_matches)},
                 repair=[],
             )
         raw_root_where_keys.append(key)
     resolved_time_dimension = None
     if time_dimension is not None:
-        resolved_time_dimension = _resolve_field_ref(
-            project,
+        resolved_time_dimension_details = _resolve_field_ref(
+            catalog,
             time_dimension,
             scoped_dataset_ids={root},
             allow_qualified_outside_scope=False,
         )
-        if resolved_time_dimension.entity != root:
+        if _entity_id(resolved_time_dimension_details) != root:
             raise_observe_planning_error(
                 code="non-root-time-dimension",
                 message="observe time_dimension must belong to the metric root entity.",
-                candidates={"root_entity": root, "field": resolved_time_dimension.semantic_id},
+                candidates={"root_entity": root, "field": resolved_time_dimension_details.ref.ref},
                 repair=[],
             )
+        resolved_time_dimension = _planned_field(resolved_time_dimension_details)
     return ResolvedObserveFields(
         dimensions=resolved_dimensions,
         where_fields=where_fields,
@@ -300,30 +547,39 @@ def resolve_observe_fields(
     )
 
 
-def _relationship_neighbors(project: Any, dataset_id: str) -> list[tuple[str, Any]]:
-    neighbors: list[tuple[str, Any]] = []
-    for relationship in project.list_relationships():
-        if relationship.from_entity == dataset_id:
-            neighbors.append((relationship.to_entity, relationship))
-        elif relationship.to_entity == dataset_id:
-            neighbors.append((relationship.from_entity, relationship))
+def _relationship_neighbors(
+    catalog: SemanticCatalog, dataset_id: str
+) -> list[tuple[str, RelationshipInfo]]:
+    neighbors: list[tuple[str, RelationshipInfo]] = []
+    relationships: list[RelationshipInfo] = []
+    for obj in catalog.list(dataset_id, kind=SemanticKind.RELATIONSHIP):
+        details = obj.details()
+        if isinstance(details, RelationshipDetails):
+            relationships.append(_planned_relationship(details))
+    for relationship in relationships:
+        if _from_entity_id(relationship) == dataset_id:
+            neighbors.append((_to_entity_id(relationship), relationship))
+        elif _to_entity_id(relationship) == dataset_id:
+            neighbors.append((_from_entity_id(relationship), relationship))
     return neighbors
 
 
 def unique_shortest_relationship_path(
-    project: Any, start_dataset: str, end_dataset: str
-) -> list[Any]:
+    catalog: SemanticCatalog, start_dataset: str, end_dataset: str
+) -> list[RelationshipInfo]:
     if start_dataset == end_dataset:
         return []
-    queue: list[tuple[str, list[Any]]] = [(start_dataset, [])]
-    paths: list[list[Any]] = []
+    queue: list[tuple[str, list[RelationshipInfo]]] = [(start_dataset, [])]
+    paths: list[list[RelationshipInfo]] = []
     shortest_len: int | None = None
     while queue:
         current, path = queue.pop(0)
         if shortest_len is not None and len(path) >= shortest_len:
             continue
-        for next_dataset, relationship in _relationship_neighbors(project, current):
-            if any(relationship.semantic_id == existing.semantic_id for existing in path):
+        for next_dataset, relationship in _relationship_neighbors(catalog, current):
+            if any(
+                _relationship_id(relationship) == _relationship_id(existing) for existing in path
+            ):
                 continue
             next_path = [*path, relationship]
             if next_dataset == end_dataset:
@@ -343,22 +599,19 @@ def unique_shortest_relationship_path(
         raise_observe_planning_error(
             code="path-ambiguous",
             message=f"Multiple shortest relationship paths from {start_dataset!r} to {end_dataset!r}.",
-            candidates={"paths": [[rel.semantic_id for rel in p] for p in shortest_paths]},
+            candidates={"paths": [[_relationship_id(rel) for rel in p] for p in shortest_paths]},
             repair=[],
         )
     return shortest_paths[0]
 
 
-def _field_names(project: Any, field_ids: tuple[str, ...]) -> tuple[str, ...]:
-    fields = {f.semantic_id: f for f in _all_fields(project)}
-    return tuple(fields[fid].name for fid in field_ids)
+def _field_names(catalog: SemanticCatalog, field_ids: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(catalog.get(fid).name for fid in field_ids)
 
 
-def _effective_key(project: Any, dataset_id: str) -> tuple[str, ...]:
-    dataset = project.get_entity(dataset_id)
-    if dataset is None:
-        return ()
-    versioning = getattr(dataset, "versioning", None)
+def _effective_key(catalog: SemanticCatalog, dataset_id: str) -> tuple[str, ...]:
+    dataset = _entity(catalog, dataset_id)
+    versioning = dataset.versioning
     if isinstance(versioning, SnapshotVersioningIR):
         partition_name = versioning.partition_field.rsplit(".", 1)[-1]
         return tuple(key for key in dataset.primary_key if key != partition_name)
@@ -370,56 +623,38 @@ def _effective_key(project: Any, dataset_id: str) -> tuple[str, ...]:
     return tuple(dataset.primary_key)
 
 
-def _effective_key_semantic_ids(project: Any, dataset_id: str) -> frozenset[str]:
-    """Return the semantic_ids of the fields that form the effective primary key.
-
-    This is used by resolved_edge_safety to compare against relationship field
-    semantic_ids, handling the case where a field's name differs from the
-    physical column name it maps to.
-
-    Two strategies are tried in order:
-    1. Name match: field.name == physical key column name (fast path).
-    2. Expression match: call the field function on a dummy ibis table built
-       from the primary key columns and check the output column name.  This
-       handles aliased fields (e.g. profile_user_id -> user_id).
-    """
-    col_names = set(_effective_key(project, dataset_id))
+def _effective_key_semantic_ids(catalog: SemanticCatalog, dataset_id: str) -> frozenset[str]:
+    col_names = set(_effective_key(catalog, dataset_id))
     if not col_names:
         return frozenset()
-    all_dataset_fields = [f for f in _all_fields(project) if f.entity == dataset_id]
-    # Strategy 1: name match
-    by_name = frozenset(f.semantic_id for f in all_dataset_fields if f.name in col_names)
+    all_dataset_fields = _fields_for_entity(catalog, dataset_id)
+    by_name = frozenset(f.ref.ref for f in all_dataset_fields if f.name in col_names)
     if len(by_name) == len(col_names):
         return by_name
-    # Strategy 2: expression match via sidecar
-    sidecar = project._sidecar
-    if sidecar is None:
-        return frozenset()
-    # Build a dummy ibis table with the primary key columns so we can call
-    # each field function and inspect the output column name.
-    dataset = project.get_entity(dataset_id)
-    if dataset is None:
-        return frozenset()
-    schema = dict.fromkeys(dataset.primary_key or [], "int64")
+    dataset = _entity(catalog, dataset_id)
+    schema = dict.fromkeys(dataset.primary_key or (), "int64")
     if not schema:
         return frozenset()
     try:
         dummy = ibis.table(schema, name=dataset_id.rsplit(".", 1)[-1])
     except Exception:
         return frozenset()
+    resolver = catalog._resolver(connections=_NoConnectionService())
     result: set[str] = set()
-    for field_ir in all_dataset_fields:
-        fn = sidecar.get(field_ir.semantic_id)
-        if fn is None:
-            continue
+    for field_detail in all_dataset_fields:
         try:
-            expr = fn(dummy)
+            expr = resolver.dimension_on(field_detail.ref, dummy)
             out_name = expr.get_name()
         except Exception:
             continue
         if out_name in col_names:
-            result.add(field_ir.semantic_id)
+            result.add(field_detail.ref.ref)
     return frozenset(result)
+
+
+class _NoConnectionService:
+    def session_backend(self, name: str) -> Any:
+        raise RuntimeError(f"planner dummy resolver must not open datasource {name!r}")
 
 
 def _anchor_date(resolved_window: Any | None, timezone: str | None) -> date:
@@ -487,11 +722,15 @@ def _format_snapshot_partition(anchor: date, fmt: str | None) -> Any:
 
 
 def _root_time_dimension(
-    project: Any, root_entity_id: str, *, explicit_time_dimension: Any | None
-) -> Any | None:
+    catalog: SemanticCatalog, root_entity_id: str, *, explicit_time_dimension: Any | None
+) -> PlannerField | None:
     if explicit_time_dimension is not None:
-        return explicit_time_dimension
-    candidates = [tf for tf in project.list_time_dimensions() if tf.entity == root_entity_id]
+        return _planned_field(explicit_time_dimension)
+    candidates = [
+        field
+        for field in _fields_for_entity(catalog, root_entity_id)
+        if isinstance(field, TimeDimensionDetails)
+    ]
     if not candidates:
         return None
     if len(candidates) == 1:
@@ -529,7 +768,7 @@ def _discover_anchor_dates(
     df = execute(
         root_table.select(expr).distinct(),
         datasource_name=datasource_name,
-        cache=session._backend_cache,
+        cache=session._connection_runtime,
         session_id=session.id,
     ).df
     result: list[date] = []
@@ -557,7 +796,7 @@ def _discover_available_partitions(
     df = execute(
         snapshot_table.select(snapshot_table[partition_field_local].name("p")).distinct(),
         datasource_name=datasource_name,
-        cache=session._backend_cache,
+        cache=session._connection_runtime,
         session_id=session.id,
     ).df
     return sorted({_parse_partition_value(p, fmt=fmt) for p in df["p"].tolist() if p is not None})
@@ -616,33 +855,35 @@ def _mapping_digest(mapping: dict[date, date]) -> str:
     return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
-def resolved_edge_safety(project: Any, relationship: Any, *, from_entity: str) -> JoinSafety:
-    if from_entity == relationship.from_entity:
+def resolved_edge_safety(
+    catalog: SemanticCatalog, relationship: RelationshipInfo, *, from_entity: str
+) -> JoinSafety:
+    if from_entity == _from_entity_id(relationship):
         source_fields = relationship.from_dimensions
-        target_entity = relationship.to_entity
+        target_entity = _to_entity_id(relationship)
         target_fields = relationship.to_dimensions
-        source_entity = relationship.from_entity
+        source_entity = _from_entity_id(relationship)
     else:
         source_fields = relationship.to_dimensions
-        target_entity = relationship.from_entity
+        target_entity = _from_entity_id(relationship)
         target_fields = relationship.from_dimensions
-        source_entity = relationship.to_entity
+        source_entity = _to_entity_id(relationship)
     # Compare by field name first (fast path for the common case where field
     # names match primary key column names), then fall back to semantic_id
     # comparison to handle aliased fields (e.g. profile_user_id -> user_id).
-    source_field_names = set(_field_names(project, tuple(source_fields)))
-    target_field_names = set(_field_names(project, tuple(target_fields)))
-    source_key_names = set(_effective_key(project, source_entity))
-    target_key_names = set(_effective_key(project, target_entity))
+    source_field_names = set(_field_names(catalog, tuple(source_fields)))
+    target_field_names = set(_field_names(catalog, tuple(target_fields)))
+    source_key_names = set(_effective_key(catalog, source_entity))
+    target_key_names = set(_effective_key(catalog, target_entity))
     source_is_one = source_field_names == source_key_names
     target_is_one = target_field_names == target_key_names
     if not source_is_one:
         # Try semantic_id comparison
-        source_key_sids = _effective_key_semantic_ids(project, source_entity)
+        source_key_sids = _effective_key_semantic_ids(catalog, source_entity)
         source_is_one = frozenset(source_fields) == source_key_sids
     if not target_is_one:
         # Try semantic_id comparison
-        target_key_sids = _effective_key_semantic_ids(project, target_entity)
+        target_key_sids = _effective_key_semantic_ids(catalog, target_entity)
         target_is_one = frozenset(target_fields) == target_key_sids
     if source_is_one and target_is_one:
         return JoinSafety.ONE_TO_ONE
@@ -653,35 +894,38 @@ def resolved_edge_safety(project: Any, relationship: Any, *, from_entity: str) -
     return JoinSafety.UNKNOWN
 
 
-def _field_fn(project: Any, field_id: str) -> Any:
-    sidecar = project._sidecar
-    fn = sidecar.get(field_id) if sidecar else None
-    if fn is None:
-        sidecar_keys = sorted(sidecar.keys()) if sidecar else []
-        suggestions = did_you_mean(field_id, sidecar_keys)
-        repair_actions: list[RepairAction] = []
-        if suggestions:
-            repair_actions.append(
-                RepairAction(
-                    action="replace_field_ref",
-                    target=field_id,
-                    arg="field_ref",
-                    value=suggestions[0],
-                    safety=RepairSafety.AUTO_SAFE,
-                    why=f"closest match for {field_id!r}",
+def _field_fn(catalog: SemanticCatalog, field_id: str) -> Any:
+    resolver = catalog._resolver(connections=_NoConnectionService())
+    missing_ref_kinds = {
+        ErrorKind.DIMENSION_NOT_FOUND,
+        ErrorKind.NOT_FOUND,
+    }
+
+    def _resolve(table: Any) -> Any:
+        try:
+            return _validate_field_expr(resolver.dimension_on(field_id, table), field_id=field_id)
+        except SemanticRuntimeError as exc:
+            message = str(exc)
+            if (
+                exc.kind == ErrorKind.MATERIALIZE_FAILED
+                and "instead of an ibis expression" in message
+            ):
+                raise_observe_planning_error(
+                    code="field-expr-type-error",
+                    message=message,
+                    candidates={"field_id": field_id, "actual_type": "unknown"},
+                    repair=[],
                 )
-            )
-        raise_observe_planning_error(
-            code="field-ref-not-found",
-            message=f"Field callable {field_id!r} was not found.",
-            candidates={
-                "field": field_id,
-                "available_field_ids": sidecar_keys,
-                "did_you_mean": suggestions,
-            },
-            repair=repair_actions,
-        )
-    return fn
+            if exc.kind in missing_ref_kinds:
+                raise_observe_planning_error(
+                    code="field-ref-not-found",
+                    message=f"Field reference {field_id!r} was not found in observe plan scope.",
+                    candidates={"field_id": field_id},
+                    repair=[],
+                )
+            raise
+
+    return _resolve
 
 
 def _validate_field_expr(value: Any, *, field_id: str) -> Any:
@@ -708,21 +952,21 @@ def _join_table(
     current_table: Any,
     next_table: Any,
     *,
-    project: Any,
-    relationship: Any,
+    catalog: SemanticCatalog,
+    relationship: RelationshipInfo,
     current_entity: str,
     extra_predicates: list[Any] | None = None,
 ) -> tuple[Any, str]:
-    if relationship.from_entity == current_entity:
-        next_entity = relationship.to_entity
+    if _from_entity_id(relationship) == current_entity:
+        next_entity = _to_entity_id(relationship)
         left_fields = relationship.from_dimensions
         right_fields = relationship.to_dimensions
     else:
-        next_entity = relationship.from_entity
+        next_entity = _from_entity_id(relationship)
         left_fields = relationship.to_dimensions
         right_fields = relationship.from_dimensions
     predicates = [
-        _field_fn(project, left_field)(current_table) == _field_fn(project, right_field)(next_table)
+        _field_fn(catalog, left_field)(current_table) == _field_fn(catalog, right_field)(next_table)
         for left_field, right_field in zip(left_fields, right_fields, strict=True)
     ]
     if extra_predicates:
@@ -732,7 +976,7 @@ def _join_table(
 
 def _resolve_snapshot_as_of_root_time(
     *,
-    project: Any,
+    catalog: SemanticCatalog,
     session: Any,
     datasource_name: str,
     snapshot_dataset_id: str,
@@ -753,7 +997,7 @@ def _resolve_snapshot_as_of_root_time(
             repair=[],
         )
     target_tz = _resolved_target_timezone(snapshot_versioning)
-    time_field_fn = _field_fn(project, root_time_dimension.semantic_id)
+    time_field_fn = _field_fn(catalog, root_time_dimension.ref.ref)
     time_field_expr = time_field_fn(root_table)
     anchor_dates = _discover_anchor_dates(
         root_table=root_table,
@@ -811,7 +1055,7 @@ def _resolve_snapshot_as_of_root_time(
 
 def _resolve_snapshot_versioning(
     *,
-    project: Any,
+    catalog: SemanticCatalog,
     session: Any,
     datasource_name: str,
     snapshot_dataset_id: str,
@@ -851,7 +1095,7 @@ def _resolve_snapshot_versioning(
         }
         return next_table, meta, None
     return _resolve_snapshot_as_of_root_time(
-        project=project,
+        catalog=catalog,
         session=session,
         datasource_name=datasource_name,
         snapshot_dataset_id=snapshot_dataset_id,
@@ -879,7 +1123,7 @@ def _validity_open_end_predicate(table: Any, versioning: ValidityVersioningIR) -
 
 def _resolve_validity_as_of_predicate(
     *,
-    project: Any,
+    catalog: SemanticCatalog,
     current_table: Any,
     root_time_dimension: Any | None,
     validity_table: Any,
@@ -904,7 +1148,7 @@ def _resolve_validity_as_of_predicate(
         )
     valid_from_local = validity_versioning.valid_from.rsplit(".", 1)[-1]
     valid_to_local = validity_versioning.valid_to.rsplit(".", 1)[-1]
-    anchor = _field_fn(project, root_time_dimension.semantic_id)(current_table).cast("date")
+    anchor = _field_fn(catalog, root_time_dimension.ref.ref)(current_table).cast("date")
     valid_from = validity_table[valid_from_local]
     valid_to_raw = validity_table[valid_to_local]
     open_end = _validity_open_end_predicate(validity_table, validity_versioning)
@@ -972,10 +1216,10 @@ def _resolve_validity_versioning(
 
 def _aggregate_then_join_pre_aggregate(
     *,
-    project: Any,
+    catalog: SemanticCatalog,
     metric_ir: Any,
     unsafe_dataset_id: str,
-    relationship: Any,
+    relationship: RelationshipInfo,
     from_dataset: str,
     dataset_fns: dict[str, Any],
     backend: Any,
@@ -988,7 +1232,7 @@ def _aggregate_then_join_pre_aggregate(
     Each grain entry projects through ``_field_fn`` so the resulting table keeps
     the physical column names that downstream field bodies expect.
     """
-    if relationship.from_entity == unsafe_dataset_id:
+    if _from_entity_id(relationship) == unsafe_dataset_id:
         join_field_ids: tuple[str, ...] = tuple(relationship.from_dimensions)
     else:
         join_field_ids = tuple(relationship.to_dimensions)
@@ -999,13 +1243,14 @@ def _aggregate_then_join_pre_aggregate(
         if fid not in seen_ids:
             grain_field_ids.append(fid)
             seen_ids.add(fid)
-    other_fields = [f for f in resolved_fields.dimensions if f.entity == unsafe_dataset_id] + [
-        f for f in resolved_fields.where_fields.values() if f.entity == unsafe_dataset_id
+    other_fields = [f for f in resolved_fields.dimensions if _entity_id(f) == unsafe_dataset_id] + [
+        f for f in resolved_fields.where_fields.values() if _entity_id(f) == unsafe_dataset_id
     ]
     for f in other_fields:
-        if f.semantic_id not in seen_ids:
-            grain_field_ids.append(f.semantic_id)
-            seen_ids.add(f.semantic_id)
+        field_id = f.ref.ref
+        if field_id not in seen_ids:
+            grain_field_ids.append(field_id)
+            seen_ids.add(field_id)
 
     table = dataset_fns[unsafe_dataset_id](backend)
     projections: list[Any] = []
@@ -1013,7 +1258,7 @@ def _aggregate_then_join_pre_aggregate(
     join_field_id_set = set(join_field_ids)
     seen_columns: set[str] = set()
     for fid in grain_field_ids:
-        expr = _field_fn(project, fid)(table)
+        expr = _field_fn(catalog, fid)(table)
         column_name = expr.get_name()
         if column_name in seen_columns:
             continue
@@ -1025,7 +1270,7 @@ def _aggregate_then_join_pre_aggregate(
     merge_grain_meta = {
         "policy": "aggregate_then_join",
         "unsafe_dataset": unsafe_dataset_id,
-        "relationship": relationship.semantic_id,
+        "relationship": _relationship_id(relationship),
         "from_dataset": from_dataset,
         "merge_grain": grain_meta_entries,
     }
@@ -1034,17 +1279,19 @@ def _aggregate_then_join_pre_aggregate(
 
 def plan_base_observe(
     *,
-    project: Any,
+    catalog: SemanticCatalog | None = None,
     session: Any,
     metric_ir: Any,
     dataset_irs: dict[str, Any],
     dataset_fns: dict[str, Any],
-    dimensions: list[DimensionRef] | None,
+    dimensions: list[Any] | None,
     where: dict[Any, Any] | None,
     resolved_window: Any | None,
     time_dimension: str | None,
     allow_unqualified_outside_scope: bool = False,
 ) -> BaseObservePlan:
+    if catalog is None:
+        catalog = session.catalog
     root = resolve_metric_root(metric_ir)
     ensure_fold_time_dimension_matches(metric_ir, time_dimension)
     if metric_ir.additivity is None:
@@ -1055,7 +1302,7 @@ def plan_base_observe(
             repair=[],
         )
     resolved_fields = resolve_observe_fields(
-        project,
+        catalog,
         metric_ir,
         dimensions=dimensions,
         where=where,
@@ -1063,11 +1310,11 @@ def plan_base_observe(
         allow_unqualified_outside_scope=allow_unqualified_outside_scope,
     )
     root_time_dimension = _root_time_dimension(
-        project, root, explicit_time_dimension=resolved_fields.time_dimension
+        catalog, root, explicit_time_dimension=resolved_fields.time_dimension
     )
     required_datasets = {root, *metric_ir.entities}
-    required_datasets.update(field.entity for field in resolved_fields.dimensions)
-    required_datasets.update(field.entity for field in resolved_fields.where_fields.values())
+    required_datasets.update(_entity_id(field) for field in resolved_fields.dimensions)
+    required_datasets.update(_entity_id(field) for field in resolved_fields.where_fields.values())
 
     datasource_names = {dataset_irs[dataset_id].datasource_name for dataset_id in required_datasets}
     if len(datasource_names) != 1:
@@ -1079,8 +1326,8 @@ def plan_base_observe(
         )
     datasource_name = next(iter(datasource_names))
     _, backend = (
-        session._backend_cache.get_or_create(datasource_name),
-        session._backend_cache.get_or_create(datasource_name),
+        session._connection_runtime.get_or_create(datasource_name),
+        session._connection_runtime.get_or_create(datasource_name),
     )
     root_table = dataset_fns[root](backend)
     root_table = apply_window_to_dataset(
@@ -1092,15 +1339,17 @@ def plan_base_observe(
     joined_where: dict[str, Any] = {}
     raw_root_keys = set(resolved_fields.raw_root_where_keys)
     for raw_key, value in (where or {}).items():
-        key = raw_key.semantic_id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        key = _input_ref_id(raw_key)
         if key in raw_root_keys:
             # Root-phase raw key: forwarded as-is so apply_slice_to_dataset
             # resolves it via the dataset_ir physical-column fallback.
             root_where[key] = value
             continue
         field = resolved_fields.where_fields[key]
-        phase: Literal["root", "joined"] = "root" if field.entity == root else "joined"
-        planned_where.append(PlannedWhere(original_key=key, field=field, value=value, phase=phase))
+        phase: Literal["root", "joined"] = "root" if _entity_id(field) == root else "joined"
+        planned_where.append(
+            PlannedWhere(original_key=key, field=_planned_field(field), value=value, phase=phase)
+        )
         if phase == "root":
             root_where[field.name] = value
         else:
@@ -1118,18 +1367,18 @@ def plan_base_observe(
     pre_aggregated_tables: dict[str, Any] = {}
     for dataset_id in sorted(required_datasets - {root}):
         current_dataset = root
-        for relationship in unique_shortest_relationship_path(project, root, dataset_id):
-            safety = resolved_edge_safety(project, relationship, from_entity=current_dataset)
+        for relationship in unique_shortest_relationship_path(catalog, root, dataset_id):
+            safety = resolved_edge_safety(catalog, relationship, from_entity=current_dataset)
             if safety == JoinSafety.ONE_TO_MANY:
                 policy = getattr(metric_ir, "fanout_policy", "block")
                 if policy == "aggregate_then_join":
                     unsafe_dataset_id = (
-                        relationship.to_entity
-                        if relationship.from_entity == current_dataset
-                        else relationship.from_entity
+                        _to_entity_id(relationship)
+                        if _from_entity_id(relationship) == current_dataset
+                        else _from_entity_id(relationship)
                     )
                     pre_table, merge_grain_meta = _aggregate_then_join_pre_aggregate(
-                        project=project,
+                        catalog=catalog,
                         metric_ir=metric_ir,
                         unsafe_dataset_id=unsafe_dataset_id,
                         relationship=relationship,
@@ -1143,17 +1392,18 @@ def plan_base_observe(
                     safety = JoinSafety.MANY_TO_ONE
                 else:
                     candidate_safe_roots = sorted(
-                        {relationship.from_entity, relationship.to_entity} - {current_dataset}
+                        {_from_entity_id(relationship), _to_entity_id(relationship)}
+                        - {current_dataset}
                     )
                     raise_observe_planning_error(
                         code="unsafe-fanout",
                         message=(
-                            f"Traversal through {relationship.semantic_id!r} is one-to-many; "
+                            f"Traversal through {_relationship_id(relationship)!r} is one-to-many; "
                             "the metric must re-root, remodel the entity key, or opt into "
                             "fanout_policy='aggregate_then_join'."
                         ),
                         candidates={
-                            "relationship": relationship.semantic_id,
+                            "relationship": _relationship_id(relationship),
                             "safe_roots": candidate_safe_roots,
                             "fanout_policies": ["aggregate_then_join"],
                         },
@@ -1187,31 +1437,27 @@ def plan_base_observe(
                 raise_observe_planning_error(
                     code="unknown-join-safety",
                     message=(
-                        f"Join safety for {relationship.semantic_id!r} cannot be derived "
+                        f"Join safety for {_relationship_id(relationship)!r} cannot be derived "
                         "from dataset keys; planning fails."
                     ),
-                    candidates={"relationship": relationship.semantic_id},
+                    candidates={"relationship": _relationship_id(relationship)},
                     repair=[],
                 )
             next_dataset = (
-                relationship.to_entity
-                if relationship.from_entity == current_dataset
-                else relationship.from_entity
+                _to_entity_id(relationship)
+                if _from_entity_id(relationship) == current_dataset
+                else _from_entity_id(relationship)
             )
             if next_dataset not in materialized:
                 next_table = pre_aggregated_tables.get(next_dataset)
                 if next_table is None:
                     next_table = dataset_fns[next_dataset](backend)
-                next_dataset_meta = project.get_entity(next_dataset)
-                versioning = (
-                    getattr(next_dataset_meta, "versioning", None)
-                    if next_dataset_meta is not None
-                    else None
-                )
+                next_dataset_meta = _entity(catalog, next_dataset)
+                versioning = next_dataset_meta.versioning
                 mapping: dict[date, date] | None = None
                 if isinstance(versioning, SnapshotVersioningIR):
                     next_table, version_meta, mapping = _resolve_snapshot_versioning(
-                        project=project,
+                        catalog=catalog,
                         session=session,
                         datasource_name=datasource_name,
                         snapshot_dataset_id=next_dataset,
@@ -1239,7 +1485,7 @@ def plan_base_observe(
                             {"code": "validity_overlap_unverified", "dataset": next_dataset}
                         )
                         validity_predicate = _resolve_validity_as_of_predicate(
-                            project=project,
+                            catalog=catalog,
                             current_table=widened_table,
                             root_time_dimension=root_time_dimension,
                             validity_table=next_table,
@@ -1253,7 +1499,7 @@ def plan_base_observe(
                     widened_table, current_dataset = _join_table(
                         widened_table,
                         next_table,
-                        project=project,
+                        catalog=catalog,
                         relationship=relationship,
                         current_entity=current_dataset,
                         extra_predicates=extra_predicates,
@@ -1261,7 +1507,7 @@ def plan_base_observe(
                     materialized[next_dataset] = widened_table
                     edge_metadata.append(
                         {
-                            "relationship": relationship.semantic_id,
+                            "relationship": _relationship_id(relationship),
                             "from_dataset": pre_join_dataset,
                             "to_dataset": next_dataset,
                             "join_safety": safety.value,
@@ -1274,7 +1520,7 @@ def plan_base_observe(
                     # mapping is non-None only in as_of_root_time mode, which
                     # requires root_time_dimension to be non-None.
                     assert root_time_dimension is not None
-                    anchor_expr = _field_fn(project, root_time_dimension.semantic_id)(
+                    anchor_expr = _field_fn(catalog, root_time_dimension.ref.ref)(
                         widened_table
                     ).cast("date")
                     extra_predicates = [anchor_expr == next_table.anchor_date]
@@ -1282,7 +1528,7 @@ def plan_base_observe(
                 widened_table, current_dataset = _join_table(
                     widened_table,
                     next_table,
-                    project=project,
+                    catalog=catalog,
                     relationship=relationship,
                     current_entity=current_dataset,
                     extra_predicates=extra_predicates,
@@ -1293,7 +1539,7 @@ def plan_base_observe(
                 current_dataset = next_dataset
             edge_metadata.append(
                 {
-                    "relationship": relationship.semantic_id,
+                    "relationship": _relationship_id(relationship),
                     "from_dataset": pre_join_dataset,
                     "to_dataset": next_dataset,
                     "join_safety": safety.value,
@@ -1306,13 +1552,14 @@ def plan_base_observe(
         )
 
     planned_dimensions = [
-        PlannedDimension(field=field, column=field.name) for field in resolved_fields.dimensions
+        PlannedDimension(field=_planned_field(field), column=field.name)
+        for field in resolved_fields.dimensions
     ]
     for planned_dimension in planned_dimensions:
         widened_table = widened_table.mutate(
             **{
                 planned_dimension.column: _validate_field_expr(
-                    _field_fn(project, planned_dimension.field.semantic_id)(widened_table),
+                    _field_fn(catalog, planned_dimension.field.semantic_id)(widened_table),
                     field_id=planned_dimension.field.semantic_id,
                 ).name(planned_dimension.column)
             }
@@ -1370,7 +1617,7 @@ def plan_base_observe(
 
 def plan_observe(
     *,
-    project: Any,
+    catalog: SemanticCatalog | None = None,
     session: Any,
     metric_ir: Any,
     dataset_irs: dict[str, Any],
@@ -1379,10 +1626,13 @@ def plan_observe(
     where: Any,
     resolved_window: Any,
     time_dimension: Any,
+    component_metric_irs: dict[str, Any] | None = None,
 ) -> ObservePlan:
+    if catalog is None:
+        catalog = session.catalog
     if not metric_ir.is_derived:
         return plan_base_observe(
-            project=project,
+            catalog=catalog,
             session=session,
             metric_ir=metric_ir,
             dataset_irs=dataset_irs,
@@ -1393,7 +1643,7 @@ def plan_observe(
             time_dimension=time_dimension,
         )
     return _plan_derived_observe(
-        project=project,
+        catalog=catalog,
         session=session,
         metric_ir=metric_ir,
         dataset_irs=dataset_irs,
@@ -1402,12 +1652,11 @@ def plan_observe(
         where=where,
         resolved_window=resolved_window,
         time_dimension=time_dimension,
+        component_metric_irs=component_metric_irs,
     )
 
 
 def _component_dataset_adapters(
-    project: Any,
-    session: Any,
     component_ir: Any,
     parent_dataset_irs: dict[str, Any],
     parent_dataset_fns: dict[str, Any],
@@ -1422,23 +1671,18 @@ def _component_dataset_adapters(
     component_dataset_irs: dict[str, Any] = dict(parent_dataset_irs)
     component_dataset_fns: dict[str, Any] = dict(parent_dataset_fns)
     for entity_id in component_ir.entities:
-        if entity_id in component_dataset_irs:
-            continue
-        # _build_dataset_adapter lives in observe.py; import lazily to avoid
-        # circular import at module load time.
-        from marivo.analysis.intents.observe import _build_dataset_adapter
-
-        ds_ir = project.get_entity(entity_id)
-        if ds_ir is None:
+        if entity_id not in component_dataset_irs:
             raise_observe_planning_error(
                 code="derived-shared-planner-unsupported",
-                message=f"entity {entity_id!r} not found for component metric {component_ir.semantic_id!r}",
+                message=(
+                    f"entity {entity_id!r} adapter not provided for component metric "
+                    f"{component_ir.semantic_id!r}"
+                ),
                 candidates={"entity": entity_id},
                 repair=[],
             )
-        adapter = _build_dataset_adapter(project, ds_ir)
-        component_dataset_irs[entity_id] = adapter
-        component_dataset_fns[entity_id] = adapter.fn
+        if entity_id not in component_dataset_fns:
+            component_dataset_fns[entity_id] = component_dataset_irs[entity_id].fn
     return component_dataset_irs, component_dataset_fns
 
 
@@ -1446,7 +1690,7 @@ def _accumulate_unreachable_ref(
     exc: ObservePlanningError,
     component_id: str,
     *,
-    dimensions: list[DimensionRef] | None,
+    dimensions: list[Any] | None,
     where: dict[Any, Any] | None,
     axes_acc: dict[str, list[str]],
     where_acc: dict[str, list[str]],
@@ -1454,11 +1698,12 @@ def _accumulate_unreachable_ref(
     """Classify a field-ref-not-found/ambiguous error as a missing axis or missing filter."""
     msg = exc.message or ""
     for dim in dimensions or []:
-        if f"{dim.semantic_id!r}" in msg:
-            axes_acc.setdefault(dim.semantic_id, []).append(component_id)
+        dim_id = _input_ref_id(dim)
+        if f"{dim_id!r}" in msg:
+            axes_acc.setdefault(dim_id, []).append(component_id)
             return
     for raw_key in where or {}:
-        key = raw_key.semantic_id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        key = _input_ref_id(raw_key)
         if f"{key!r}" in msg:
             where_acc.setdefault(key, []).append(component_id)
             return
@@ -1469,7 +1714,7 @@ def _accumulate_path_unreachable(
     exc: ObservePlanningError,
     component_id: str,
     *,
-    dimensions: list[DimensionRef] | None,
+    dimensions: list[Any] | None,
     where: dict[Any, Any] | None,
     axes_acc: dict[str, list[str]],
     where_acc: dict[str, list[str]],
@@ -1485,19 +1730,20 @@ def _accumulate_path_unreachable(
     to_dataset = candidates.get("to_dataset") if isinstance(candidates, dict) else None
     # Try to match to a dimension
     for dim in dimensions or []:
+        dim_id = _input_ref_id(dim)
         # The dimension id may be qualified (e.g. 'sales.country') or unqualified.
         # We match on the local name part.
-        local_name = dim.semantic_id.rsplit(".", 1)[-1]
+        local_name = dim_id.rsplit(".", 1)[-1]
         if to_dataset is not None and local_name in to_dataset:
-            axes_acc.setdefault(dim.semantic_id, []).append(component_id)
+            axes_acc.setdefault(dim_id, []).append(component_id)
             return
     # Fallback: attribute to the first dimension if any
     for dim in dimensions or []:
-        axes_acc.setdefault(dim.semantic_id, []).append(component_id)
+        axes_acc.setdefault(_input_ref_id(dim), []).append(component_id)
         return
     # Try to match to a where filter
     for raw_key in where or {}:
-        key = raw_key.semantic_id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        key = _input_ref_id(raw_key)
         where_acc.setdefault(key, []).append(component_id)
         return
     raise exc
@@ -1506,14 +1752,14 @@ def _accumulate_path_unreachable(
 def _raise_component_axis_unreachable(
     missing_map: dict[str, list[str]],
     component_plans: list[ComponentPlan],
-    parent_dimensions: list[DimensionRef] | None,
+    parent_dimensions: list[Any] | None,
 ) -> None:
     dim_id, components_missing = next(iter(missing_map.items()))
     resolved = []
-    target = next((p for p in (parent_dimensions or []) if p.semantic_id == dim_id), None)
+    target = next((p for p in (parent_dimensions or []) if _input_ref_id(p) == dim_id), None)
     for cp in component_plans:
         for d in cp.base_plan.dimensions:
-            if target is not None and d.column == target.semantic_id.rsplit(".", 1)[-1]:
+            if target is not None and d.column == _input_ref_id(target).rsplit(".", 1)[-1]:
                 resolved.append(
                     {
                         "metric": cp.component_metric_ir.semantic_id,
@@ -1562,10 +1808,11 @@ def _raise_component_filter_unreachable(
 
 def _check_axis_comparability(
     component_plans: list[ComponentPlan],
-    parent_dimensions: list[DimensionRef] | None,
+    parent_dimensions: list[Any] | None,
 ) -> None:
     for dim in parent_dimensions or []:
-        col = dim.semantic_id.rsplit(".", 1)[-1]
+        dim_id = _input_ref_id(dim)
+        col = dim_id.rsplit(".", 1)[-1]
         per_component: dict[str, list[Any]] = {
             cp.component_metric_ir.semantic_id: [
                 d.field for d in cp.base_plan.dimensions if d.column == col
@@ -1576,9 +1823,9 @@ def _check_axis_comparability(
         if len(ids) > 1:
             raise_observe_planning_error(
                 code="component-axis-field-mismatch",
-                message=f"Dimension {dim.semantic_id!r} resolves to different field ids across components.",
+                message=f"Dimension {dim_id!r} resolves to different field ids across components.",
                 candidates={
-                    "dimension": dim.semantic_id,
+                    "dimension": dim_id,
                     "components": [
                         {"metric": cid, "resolved_field_id": fields[0].semantic_id}
                         for cid, fields in per_component.items()
@@ -1594,7 +1841,7 @@ def _check_filter_comparability(
     parent_where: dict[Any, Any] | None,
 ) -> None:
     for raw_key in parent_where or {}:
-        key = raw_key.semantic_id if isinstance(raw_key, DimensionRef) else str(raw_key)
+        key = _input_ref_id(raw_key)
         applied: dict[str, list[PlannedWhere]] = {
             cp.component_metric_ir.semantic_id: [
                 pw for pw in cp.base_plan.where if pw.original_key == key
@@ -1665,39 +1912,40 @@ def _check_version_comparability(component_plans: list[ComponentPlan]) -> None:
 
 def _plan_derived_observe(
     *,
-    project: Any,
+    catalog: SemanticCatalog,
     session: Any,
     metric_ir: Any,
     dataset_irs: dict[str, Any],
     dataset_fns: dict[str, Any],
-    dimensions: list[DimensionRef] | None,
+    dimensions: list[Any] | None,
     where: dict[Any, Any] | None,
     resolved_window: Any | None,
     time_dimension: Any,
+    component_metric_irs: dict[str, Any] | None,
 ) -> DerivedObservePlan:
     component_plans: list[ComponentPlan] = []
     component_unreachable_axes: dict[str, list[str]] = {}
     component_unreachable_where: dict[str, list[str]] = {}
 
     for role, component_id in metric_ir.decomposition.components.items():
-        component_ir = project.get_metric(component_id)
+        component_ref = _ref_id(component_id)
+        component_details = _metric(catalog, component_ref)
+        component_ir = (
+            component_metric_irs.get(component_ref) if component_metric_irs is not None else None
+        )
         if component_ir is None:
-            raise_observe_planning_error(
-                code="derived-shared-planner-unsupported",
-                message=f"component metric {component_id!r} not found",
-                candidates={"metric": component_id},
-                repair=[],
-            )
+            component_ir = _planned_metric(component_details)
         if component_ir.is_derived:
             raise_observe_planning_error(
                 code="nested-derived-unsupported",
-                message=f"component metric {component_id!r} is itself derived; nested derived is unsupported.",
-                candidates={"metric": component_id},
+                message=(
+                    f"component metric {component_ref!r} is itself derived; "
+                    "nested derived is unsupported."
+                ),
+                candidates={"metric": component_ref},
                 repair=[],
             )
         component_dataset_irs, component_dataset_fns = _component_dataset_adapters(
-            project,
-            session,
             component_ir,
             dataset_irs,
             dataset_fns,
@@ -1713,7 +1961,7 @@ def _plan_derived_observe(
             component_time_dimension = component_ir.fold_time_dimension
         try:
             base_plan = plan_base_observe(
-                project=project,
+                catalog=catalog,
                 session=session,
                 metric_ir=component_ir,
                 dataset_irs=component_dataset_irs,
@@ -1729,7 +1977,7 @@ def _plan_derived_observe(
             if "has no @ms.time_dimension" not in (_win_exc.message or ""):
                 raise
             base_plan = plan_base_observe(
-                project=project,
+                catalog=catalog,
                 session=session,
                 metric_ir=component_ir,
                 dataset_irs=component_dataset_irs,

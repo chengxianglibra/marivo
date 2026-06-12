@@ -11,8 +11,9 @@ import ast
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from marivo.semantic.reader import SemanticProject
+import marivo.semantic as ms
 
 ALLOWED_IMPORT_ROOTS: frozenset[str] = frozenset({"marivo", "os"})
 
@@ -57,11 +58,17 @@ class ReplayCheckResult:
     issues: tuple[ReplayCheckIssue, ...]
 
 
+def _catalog_metric_ids(catalog: Any) -> set[str]:
+    ids: set[str] = set()
+    for domain in catalog.list(kind="domain"):
+        ids.update(catalog.list(domain.ref, kind="metric").ids())
+    return ids
+
+
 def _load_metric_ids(workspace_dir: Path) -> frozenset[str]:
     """Load the embedded semantic model and return its metric semantic ids."""
-    project = SemanticProject(workspace_dir=workspace_dir)
-    project.load()
-    return frozenset(m.semantic_id for m in project.list_metrics())
+    catalog = ms.load(workspace_dir=workspace_dir)
+    return frozenset(_catalog_metric_ids(catalog))
 
 
 def _check_imports(tree: ast.Module) -> list[ReplayCheckIssue]:
@@ -111,15 +118,46 @@ def _intent_attr(func: ast.expr, session_vars: set[str]) -> str | None:
     return None
 
 
-def _is_metric_ref(func: ast.expr) -> bool:
-    if isinstance(func, ast.Name):
-        return func.id == "MetricRef"
-    if isinstance(func, ast.Attribute):
-        return func.attr == "MetricRef"
-    return False
+def _catalog_vars(tree: ast.Module, session_vars: set[str]) -> set[str]:
+    """Names bound to a session catalog or ``ms.load(...)`` result."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        value = node.value
+        is_catalog = False
+        if isinstance(value, ast.Attribute) and value.attr == "catalog":
+            is_catalog = isinstance(value.value, ast.Name) and value.value.id in session_vars
+        elif isinstance(value, ast.Call):
+            func = value.func
+            is_catalog = (
+                isinstance(func, ast.Attribute)
+                and func.attr == "load"
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "ms"
+            )
+        if is_catalog:
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    names.add(target.id)
+    return names
 
 
-def _metric_ref_literal(call: ast.Call) -> str | None:
+def _is_catalog_get(func: ast.expr, *, catalog_vars: set[str], session_vars: set[str]) -> bool:
+    if not (isinstance(func, ast.Attribute) and func.attr == "get"):
+        return False
+    value = func.value
+    if isinstance(value, ast.Name):
+        return value.id in catalog_vars
+    return (
+        isinstance(value, ast.Attribute)
+        and value.attr == "catalog"
+        and isinstance(value.value, ast.Name)
+        and value.value.id in session_vars
+    )
+
+
+def _catalog_get_literal(call: ast.Call) -> str | None:
     if call.args and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str):
         return call.args[0].value
     for kw in call.keywords:
@@ -132,17 +170,89 @@ def _metric_ref_literal(call: ast.Call) -> str | None:
     return None
 
 
+def _catalog_get_literal_from_expr(
+    expr: ast.expr,
+    *,
+    catalog_vars: set[str],
+    session_vars: set[str],
+    catalog_ref_bindings: dict[str, list[tuple[int, str]]],
+    lineno: int | None,
+) -> str | None:
+    if isinstance(expr, ast.Call) and _is_catalog_get(
+        expr.func,
+        catalog_vars=catalog_vars,
+        session_vars=session_vars,
+    ):
+        return _catalog_get_literal(expr)
+    if isinstance(expr, ast.Name):
+        candidates = catalog_ref_bindings.get(expr.id, [])
+        if lineno is None:
+            return candidates[-1][1] if candidates else None
+        previous = [literal for bind_line, literal in candidates if bind_line <= lineno]
+        return previous[-1] if previous else None
+    return None
+
+
+def _catalog_ref_bindings(
+    tree: ast.Module,
+    *,
+    catalog_vars: set[str],
+    session_vars: set[str],
+) -> dict[str, list[tuple[int, str]]]:
+    """Map simple ``name = catalog.get("literal")`` bindings to their ref."""
+    bindings: dict[str, list[tuple[int, str]]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        literal = _catalog_get_literal_from_expr(
+            node.value,
+            catalog_vars=catalog_vars,
+            session_vars=session_vars,
+            catalog_ref_bindings={},
+            lineno=None,
+        )
+        if literal is None:
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                bindings.setdefault(target.id, []).append((node.lineno, literal))
+    return {name: sorted(values) for name, values in bindings.items()}
+
+
 def _check_metric_refs(tree: ast.Module, metric_ids: frozenset[str]) -> list[ReplayCheckIssue]:
     issues: list[ReplayCheckIssue] = []
+    session_vars = _session_vars(tree)
+    catalog_vars = _catalog_vars(tree, session_vars)
+    catalog_ref_bindings = _catalog_ref_bindings(
+        tree,
+        catalog_vars=catalog_vars,
+        session_vars=session_vars,
+    )
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and _is_metric_ref(node.func):
-            literal = _metric_ref_literal(node)
+        if not isinstance(node, ast.Call):
+            continue
+        intent = _intent_attr(node.func, session_vars)
+        if intent not in {"observe", "promote_metric_frame"}:
+            continue
+        metric_exprs: list[ast.expr] = []
+        if intent == "observe" and node.args:
+            metric_exprs.append(node.args[0])
+        metric_exprs.extend(kw.value for kw in node.keywords if kw.arg == "metric")
+        for expr in metric_exprs:
+            literal = _catalog_get_literal_from_expr(
+                expr,
+                catalog_vars=catalog_vars,
+                session_vars=session_vars,
+                catalog_ref_bindings=catalog_ref_bindings,
+                lineno=node.lineno,
+            )
             if literal is None:
                 continue  # non-literal id cannot be statically resolved in v1
-            if literal not in metric_ids:
-                issues.append(
-                    ReplayCheckIssue("metric_ref", f"unresolved metric: {literal}", node.lineno)
-                )
+            if literal in metric_ids:
+                continue
+            issues.append(
+                ReplayCheckIssue("metric_ref", f"unresolved metric: {literal}", node.lineno)
+            )
     return issues
 
 

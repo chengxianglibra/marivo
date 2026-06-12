@@ -117,13 +117,12 @@ def test_semantic_kind_mismatch_has_compare_fix_template():
     assert "delta_frame" in rendered
     assert "metric_frame" in rendered
     assert "Fix:" in rendered
+    assert 'revenue = session.catalog.get("sales.revenue")' in rendered
     assert (
-        'cur  = session.observe(mv.MetricRef("sales.revenue"), '
-        'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
+        'cur  = session.observe(revenue, timescope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert (
-        'base = session.observe(mv.MetricRef("sales.revenue"), '
-        'timescope={"start": "2025-07-01", "end": "2025-10-01"})'
+        'base = session.observe(revenue, timescope={"start": "2025-07-01", "end": "2025-10-01"})'
     ) in rendered
     assert (
         '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
@@ -172,7 +171,7 @@ def test_window_invalid_has_window_fix_template():
     assert "last quarter" in rendered
     assert "Fix:" in rendered
     assert (
-        '  session.observe(mv.MetricRef("sales.revenue"), '
+        '  session.observe(session.catalog.get("sales.revenue"), '
         'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert 'session.observe("revenue", window=' not in rendered
@@ -190,7 +189,7 @@ def test_metric_not_found_has_list_metrics_fix_template():
     assert "Fix:" in rendered
     assert "  catalog.list(kind='metric')  # confirm the exact id" in rendered
     assert (
-        'session.observe(mv.MetricRef("<registered_metric_id>"), '
+        'session.observe(catalog.get("<registered_metric_id>"), '
         'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert 'session.observe("<registered_metric_id>", window=' not in rendered
@@ -276,7 +275,9 @@ def test_axis_not_in_panel_dimensions_renders_paste_ready_fix_snippet():
 
     rendered = str(err)
 
-    assert 'session.decompose(delta, axis=mv.DimensionRef("region"))' in rendered
+    assert "panel dimension column 'region'" in rendered
+    assert 'axis = session.catalog.get("<domain.entity.dimension>").ref' in rendered
+    assert "session.decompose(delta, axis=axis)" in rendered
     assert "region, country" in rendered
 
 

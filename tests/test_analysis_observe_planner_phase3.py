@@ -13,7 +13,7 @@ from marivo.analysis.intents.observe_errors import (
     ObservePlanningError,
     RepairSafety,
 )
-from marivo.analysis.refs import DimensionRef, MetricRef
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 @pytest.fixture(autouse=True)
@@ -102,8 +102,8 @@ def test_unsafe_fanout_repair_payload_lists_root_then_policy(tmp_path):
 
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
-            MetricRef("sales.gmv_with_items"),
-            dimensions=[DimensionRef("sales.order_items.qty")],
+            SemanticRef("sales.gmv_with_items", kind=SemanticKind.METRIC),
+            dimensions=[SemanticRef("sales.order_items.qty", kind=SemanticKind.DIMENSION)],
             session=_session(con),
         )
 
@@ -123,8 +123,8 @@ def test_aggregate_then_join_executes_one_to_many(tmp_path):
     _seed(con)
 
     frame = observe(
-        MetricRef("sales.gmv_with_items"),
-        dimensions=[DimensionRef("sales.order_items.qty")],
+        SemanticRef("sales.gmv_with_items", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("sales.order_items.qty", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -144,8 +144,8 @@ def test_aggregate_then_join_records_lineage(tmp_path):
     _seed(con)
 
     frame = observe(
-        MetricRef("sales.gmv_with_items"),
-        dimensions=[DimensionRef("sales.order_items.qty")],
+        SemanticRef("sales.gmv_with_items", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("sales.order_items.qty", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
     params = frame.meta.lineage.steps[0].params
@@ -166,8 +166,8 @@ def test_observe_does_not_accept_fanout_policy_kwarg(tmp_path):
 
     with pytest.raises(TypeError):
         observe(
-            MetricRef("sales.gmv_with_items"),
-            dimensions=[DimensionRef("sales.order_items.qty")],
+            SemanticRef("sales.gmv_with_items", kind=SemanticKind.METRIC),
+            dimensions=[SemanticRef("sales.order_items.qty", kind=SemanticKind.DIMENSION)],
             session=_session(con),
             fanout_policy="aggregate_then_join",  # type: ignore[call-arg]
         )

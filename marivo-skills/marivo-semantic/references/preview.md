@@ -51,11 +51,12 @@ After authoring and load, preview the semantic objects that will be handed to
 analysis. Previews use the internal connection service:
 
 ```python
-import marivo.analysis as mv
+import marivo.semantic as ms
 
-project.preview_dataset("sales.orders", limit=20)
-project.preview_field("sales.orders.order_date", limit=20)
-project.preview_metric("sales.revenue", limit=20)
+catalog = ms.load()
+catalog.preview("sales.orders", limit=20)
+catalog.preview("sales.orders.order_date", limit=20)
+catalog.preview("sales.revenue", limit=20)
 ```
 
 Preview failures are readiness blockers for affected handoff refs. Fix the

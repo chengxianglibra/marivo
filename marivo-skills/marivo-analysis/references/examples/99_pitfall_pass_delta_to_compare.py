@@ -19,12 +19,22 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
 cur = session.observe(
-    mv.MetricRef(METRIC_ID),
-    where={mv.DimensionRef("created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    session.catalog.get(METRIC_ID),
+    where={
+        session.catalog.get("sales.orders.created_at").ref: {
+            "op": "between",
+            "value": ["2026-07-01", "2026-09-30"],
+        }
+    },
 )
 base = session.observe(
-    mv.MetricRef(METRIC_ID),
-    where={mv.DimensionRef("created_at"): {"op": "between", "value": ["2025-07-01", "2025-09-30"]}},
+    session.catalog.get(METRIC_ID),
+    where={
+        session.catalog.get("sales.orders.created_at").ref: {
+            "op": "between",
+            "value": ["2025-07-01", "2025-09-30"],
+        }
+    },
 )
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 

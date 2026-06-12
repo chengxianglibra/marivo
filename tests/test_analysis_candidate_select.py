@@ -17,6 +17,8 @@ from marivo.analysis.intents._candidate_columns import (
     validate_shape_columns,
 )
 from marivo.analysis.lineage import Lineage
+from marivo.semantic.catalog import SemanticKind, SemanticRef
+from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -113,7 +115,7 @@ def _hand_built_candidate_set(session, *, shape: str, rows: list[dict[str, Any]]
     return CandidateSet(_df=df, meta=meta)
 
 
-def test_select_axis_returns_dimension_ref():
+def test_select_axis_returns_primitive_for_hand_built_short_axis():
     session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
@@ -124,8 +126,7 @@ def test_select_axis_returns_dimension_ref():
         ],
     )
     selected = cs.select(rank=1, attribute="axis")
-    assert isinstance(selected, mv.DimensionRef)
-    assert selected.semantic_id == "country"
+    assert selected == "country"
 
 
 def test_select_window_returns_absolute_window():
@@ -172,7 +173,7 @@ def test_select_baseline_window_for_period_shift():
     assert baseline.start.startswith("2026-02-03")
 
 
-def test_select_selector_returns_dimension_ref_keyed_dict():
+def test_select_selector_returns_primitive_keys_for_hand_built_short_selector():
     session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
@@ -188,9 +189,7 @@ def test_select_selector_returns_dimension_ref_keyed_dict():
     )
     selector = cs.select(rank=1, attribute="selector")
     assert isinstance(selector, dict)
-    assert mv.DimensionRef("country") in selector
-    assert selector[mv.DimensionRef("country")] == "US"
-    assert selector[mv.DimensionRef("platform")] == "mobile"
+    assert selector == {"country": "US", "platform": "mobile"}
 
 
 def test_select_keys_dot_path_returns_scalar():
@@ -306,17 +305,21 @@ def test_select_does_not_create_jobs_or_lineage():
     assert len(session.jobs()) == jobs_before
 
 
-def test_select_axis_feeds_decompose():
+def test_select_axis_returns_catalog_ref_for_discovered_driver_axis(tmp_path):
+    bootstrap_sales_project(tmp_path)
     session = session_attach.get_or_create(name="demo")
-    delta_df = pd.DataFrame({"country": ["US", "JP", "DE"], "delta": [10.0, 5.0, 0.5]})
+    delta_df = pd.DataFrame({"region": ["US", "JP", "DE"], "delta": [10.0, 5.0, 0.5]})
     src = _delta(session, delta_df, semantic_kind="segmented")
     axis_candidates = session.discover.driver_axes(
         src,
-        search_space=[mv.DimensionRef("country")],
+        search_space=[session.catalog.get("sales.orders.region").ref],
     )
     selected_axis = axis_candidates.select(rank=1, attribute="axis")
+    assert selected_axis == SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION)
+
     drivers = session.decompose(src, axis=selected_axis)
     assert drivers.meta.kind == "attribution_frame"
+    assert drivers.meta.driver_field == "region"
 
 
 def test_select_window_feeds_transform_window():
@@ -337,26 +340,53 @@ def test_select_window_feeds_transform_window():
     assert local.meta.kind == "metric_frame"
 
 
-def test_select_selector_feeds_transform_slice():
+def test_select_selector_feeds_transform_slice(tmp_path):
+    bootstrap_sales_project(tmp_path)
     session = session_attach.get_or_create(name="demo")
     delta_df = pd.DataFrame(
         {
-            "country": ["US", "US", "JP", "JP"],
-            "platform": ["mobile", "web", "mobile", "web"],
+            "region": ["US", "US", "JP", "JP"],
             "delta": [50.0, 1.0, -0.5, 0.2],
         }
     )
     src = _delta(session, delta_df, semantic_kind="segmented")
     src.meta.alignment["axes"] = {  # type: ignore[index]
-        "country": {"role": "dimension", "column": "country"},
-        "platform": {"role": "dimension", "column": "platform"},
+        "region": {"role": "dimension", "column": "region", "ref": "sales.orders.region"},
     }
     slice_cands = session.discover.interesting_slices(
         src,
-        search_space=[mv.DimensionRef("country"), mv.DimensionRef("platform")],
+        search_space=[session.catalog.get("sales.orders.region").ref],
         threshold=2.0,
     )
     selector = slice_cands.select(rank=1, attribute="selector")
+    assert selector == {
+        SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION): "US",
+    }
+    focus = session.transform.slice(src, where=selector)
+    assert focus.meta.kind == "delta_frame"
+
+
+def test_select_selector_without_search_space_returns_catalog_ref(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    session = session_attach.get_or_create(name="demo")
+    delta_df = pd.DataFrame(
+        {
+            "region": ["US", "US", "JP", "JP"],
+            "delta": [50.0, 1.0, -0.5, 0.2],
+        }
+    )
+    src = _delta(session, delta_df, semantic_kind="segmented")
+    src.meta.alignment["axes"] = {  # type: ignore[index]
+        "region": {"role": "dimension", "column": "region", "ref": "sales.orders.region"},
+    }
+    slice_cands = session.discover.interesting_slices(
+        src,
+        threshold=2.0,
+    )
+    selector = slice_cands.select(rank=1, attribute="selector")
+    assert selector == {
+        SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION): "US",
+    }
     focus = session.transform.slice(src, where=selector)
     assert focus.meta.kind == "delta_frame"
 

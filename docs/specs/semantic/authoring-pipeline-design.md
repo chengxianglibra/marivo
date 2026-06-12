@@ -33,9 +33,7 @@ NextCheck = Literal[
     "write_semantic_python",
     "reload_project",
     "inspect_authored_object",
-    "preview_dataset",
-    "preview_field",
-    "preview_metric",
+    "preview_semantic_ref",
     "parity_check",
     "readiness",
     "richness",
@@ -677,9 +675,7 @@ These APIs have independent use cases beyond the authoring pipeline:
 | `md.inspect_table` | Standalone source exploration without authoring |
 | `md.inspect_columns` | Standalone column inspection |
 | `inspect_authored_object` | Debugging helper for post-reload static inspection; readiness calls the equivalent checks during closeout |
-| `preview_dataset` | Debugging helper for inspecting bounded runtime rows; readiness runs required previews during closeout |
-| `preview_field` | Debugging helper for inspecting bounded runtime rows; readiness runs required previews during closeout |
-| `preview_metric` | Debugging helper for inspecting bounded runtime values; readiness runs required previews during closeout |
+| `catalog.preview(...)` | Debugging helper for inspecting bounded semantic entity, field, or metric runtime values; readiness runs required previews during closeout |
 | `parity_check` | Debugging helper for inspecting SQL-parity detail; readiness runs eligible parity checks and reports findings as warnings |
 | `readiness` | Single closeout and analysis-handoff gate |
 | `richness` | Debugging/advisory helper for richness-only reports; readiness folds richness gaps into warnings |

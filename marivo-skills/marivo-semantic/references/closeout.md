@@ -29,8 +29,8 @@ if report.status == "blocked":
 For runtime validation that requires datasource connectivity, use the
 dedicated APIs separately:
 
-- **Previews**: `collect_source_preview()`, `preview_dataset()`,
-  `preview_field()`, `preview_metric()`
+- **Previews**: `md.preview(...)` for raw sources, `catalog.preview(...)`
+  for semantic refs
 - **Parity**: `parity_check()`
 - **Richness**: `richness()`
 
@@ -50,6 +50,7 @@ Blocked readiness prevents analysis handoff. Missing
 
 For targeted inspection outside the normal closeout path:
 
-- `project.collect_source_preview(...)` — bounded raw preview
+- `md.preview(...)` — bounded raw preview
+- `catalog.preview(ref, ...)` — bounded semantic preview
 - `project.parity_check(ref, ...)` — SQL parity detail
 - `project.richness()` — demand-ranked richness gaps

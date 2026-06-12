@@ -12,16 +12,18 @@ from marivo.analysis.policies import (
     PromotionPolicy,
     PromotionSemanticAnchors,
 )
-from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
+from marivo.analysis.refs import ArtifactRef, CalendarRef
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 def test_refs_are_exported_and_preserve_ids():
     assert mv.AlignmentKind is AlignmentKind
-    assert mv.MetricRef("sales.revenue").semantic_id == "sales.revenue"
-    assert mv.DimensionRef("region").semantic_id == "region"
+    assert mv.SemanticRef("sales.revenue", kind=SemanticKind.METRIC).ref == "sales.revenue"
+    assert mv.SemanticRef("region", kind=SemanticKind.DIMENSION).ref == "region"
+    assert mv.SemanticRef is SemanticRef
     assert mv.CalendarRef("cn_holidays").id == "cn_holidays"
-    assert MetricRef("sales.revenue").semantic_id == "sales.revenue"
-    assert DimensionRef("region").semantic_id == "region"
+    assert SemanticRef("sales.revenue", kind=SemanticKind.METRIC).ref == "sales.revenue"
+    assert SemanticRef("region", kind=SemanticKind.DIMENSION).ref == "region"
     assert CalendarRef("cn_holidays").id == "cn_holidays"
 
 
@@ -32,9 +34,6 @@ def test_artifact_ref_is_exported_and_preserves_id():
 
 
 def test_refs_reject_empty_ids():
-    for ref_cls in (MetricRef, DimensionRef):
-        with pytest.raises(ValueError):
-            ref_cls(" ")
     for ref_cls in (CalendarRef, ArtifactRef):
         with pytest.raises(ValidationError):
             ref_cls(" ")
@@ -43,11 +42,6 @@ def test_refs_reject_empty_ids():
 def test_refs_reject_extra_fields_with_validation_error():
     with pytest.raises(ValidationError):
         CalendarRef(id="cn", extra=1)
-
-
-def test_metric_ref_requires_model_and_metric():
-    with pytest.raises(ValueError):
-        MetricRef("revenue")
 
 
 def test_alignment_policy_requires_calendar_for_calendar_backed_modes():
@@ -126,24 +120,104 @@ def test_promotion_policy_defaults_and_forbids_extra_fields():
 def test_promotion_policy_accepts_typed_anchors_only():
     policy = PromotionPolicy(
         semantic_anchors=PromotionSemanticAnchors(
-            metric=MetricRef("sales.revenue"),
-            subject=DimensionRef("account"),
-            time_axis=DimensionRef("order_day"),
+            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            subject=SemanticRef("account", kind=SemanticKind.DIMENSION),
+            time_axis=SemanticRef("order_day", kind=SemanticKind.DIMENSION),
             source_metric=ArtifactRef("frame_metric"),
             source_delta=ArtifactRef("frame_delta"),
             current=ArtifactRef("frame_current"),
             baseline=ArtifactRef("frame_baseline"),
-            axis=DimensionRef("country"),
+            axis=SemanticRef("country", kind=SemanticKind.DIMENSION),
         ),
         required_fields=["measure_column", "semantic_model"],
     )
 
-    assert policy.semantic_anchors.metric == MetricRef("sales.revenue")
+    assert policy.semantic_anchors.metric == "sales.revenue"
+    assert policy.semantic_anchors.subject == "account"
+    assert policy.semantic_anchors.time_axis == "order_day"
     assert policy.semantic_anchors.current == ArtifactRef("frame_current")
+    assert policy.semantic_anchors.axis == "country"
     assert policy.required_fields == ["measure_column", "semantic_model"]
 
     with pytest.raises(ValidationError):
         PromotionSemanticAnchors(metric={"id": "sales.revenue", "extra": 1})
+
+
+def test_promotion_semantic_anchors_store_plain_strings():
+    from marivo.semantic.catalog import SemanticKind, SemanticRef
+
+    anchors = PromotionSemanticAnchors(
+        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        subject=SemanticRef("sales.orders.country", kind=SemanticKind.DIMENSION),
+    )
+
+    assert anchors.metric == "sales.revenue"
+    assert anchors.subject == "sales.orders.country"
+
+
+def test_promotion_semantic_anchors_reject_wrong_ref_kinds():
+    from marivo.semantic.catalog import SemanticKind, SemanticRef
+
+    with pytest.raises(ValidationError):
+        PromotionSemanticAnchors(
+            metric=SemanticRef("sales.orders.country", kind=SemanticKind.DIMENSION)
+        )
+
+    with pytest.raises(ValidationError):
+        PromotionSemanticAnchors(subject=SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
+
+    with pytest.raises(ValidationError):
+        PromotionSemanticAnchors(subject=SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
+
+    with pytest.raises(ValidationError):
+        PromotionSemanticAnchors(
+            metric=SemanticRef("sales.orders.country", kind=SemanticKind.DIMENSION)
+        )
+
+
+def test_promotion_semantic_anchors_accept_semantic_object(semantic_project_factory):
+    from marivo.semantic.catalog import SemanticCatalog
+
+    project = semantic_project_factory(
+        {
+            "sales/__init__.py": "",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/model.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "@ms.dimension(entity=orders)\n"
+                "def country(orders):\n"
+                "    return orders.country\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), "
+                "name='revenue', verification_mode='python_native')\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    anchors = PromotionSemanticAnchors(
+        metric=catalog.get("sales.revenue"),
+        subject=catalog.get("sales.orders.country"),
+    )
+
+    assert anchors.metric == "sales.revenue"
+    assert anchors.subject == "sales.orders.country"
+
+
+def test_promotion_semantic_anchors_reject_arbitrary_objects():
+    class DuckTypedSemanticId:
+        semantic_id = "sales.revenue"
+
+    with pytest.raises(ValidationError):
+        PromotionSemanticAnchors(metric=123)  # type: ignore[arg-type]
+
+    with pytest.raises(ValidationError):
+        PromotionSemanticAnchors(subject=object())  # type: ignore[arg-type]
+
+    with pytest.raises(ValidationError):
+        PromotionSemanticAnchors(metric=DuckTypedSemanticId())  # type: ignore[arg-type]
 
 
 def test_promotion_failed_error_uses_metric_snippet_when_metric_field_is_later():

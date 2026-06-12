@@ -41,14 +41,14 @@ def _session(tmp_path: Path, *, name: str = "t"):
 
 
 def _compare(session):
-    from marivo.analysis.refs import MetricRef
+    from marivo.semantic.catalog import SemanticKind, SemanticRef
 
     cur = session.observe(
-        metric=MetricRef("sales.revenue"),
+        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-07"},
     )
     bas = session.observe(
-        metric=MetricRef("sales.revenue"),
+        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-04-24", "end": "2026-04-30"},
     )
     return session.compare(cur, bas)

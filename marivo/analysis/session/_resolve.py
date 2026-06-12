@@ -23,7 +23,7 @@ def resolve_frame_session(session_id: str, project_root: str) -> Session:
     if current_session is not None and current_session.id == session_id:
         return current_session
 
-    from marivo.analysis.session._runtime import _compile_backend_factory, _session_from_row
+    from marivo.analysis.session._runtime import _build_connection_runtime, _session_from_row
     from marivo.analysis.session._store import SessionStore
 
     store = SessionStore(project_root=Path(project_root))
@@ -35,5 +35,7 @@ def resolve_frame_session(session_id: str, project_root: str) -> Session:
             message=f"session {session_id!r} not found in project index",
             hint="The session may have been deleted. Re-create it with mv.session.get_or_create().",
         )
-    factory = _compile_backend_factory(None, None, use_datasources=True)
-    return _session_from_row(store, row, factory)
+    connection_runtime = _build_connection_runtime(
+        store.project_root, None, None, use_datasources=True
+    )
+    return _session_from_row(store, row, connection_runtime)

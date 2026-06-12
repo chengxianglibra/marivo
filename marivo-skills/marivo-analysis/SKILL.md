@@ -56,11 +56,12 @@ consistently for every install, check, and script run.
 ```python
 import marivo.analysis as mv
 
-mv.session.get_or_create(name="investigation")
+session = mv.session.get_or_create(name="investigation")
+axis = session.catalog.get("model.entity.time_dimension").ref
 
-session.observe(mv.MetricRef("model.metric"), timescope={"start": "...", "end": "..."})  # -> MetricFrame  (end is exclusive: [start, end))
+session.observe(session.catalog.get("model.metric"), timescope={"start": "...", "end": "..."})  # -> MetricFrame  (end is exclusive: [start, end))
 session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))      # -> DeltaFrame
-session.decompose(delta, axis=mv.DimensionRef("bucket_start"))                        # -> AttributionFrame
+session.decompose(delta, axis=axis)                                                # -> AttributionFrame
 session.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
 session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="window_bucket"))         # -> AssociationResult
 session.hypothesis_test(cur, base)                                                    # -> HypothesisTestResult
@@ -88,8 +89,8 @@ Multi-step scripts are quiet until you explicitly inspect:
 
 ```python
 session = mv.session.get_or_create(name="revenue_drop")
-cur = session.observe(mv.MetricRef("sales.revenue"), timescope="last_7d")
-base = session.observe(mv.MetricRef("sales.revenue"), timescope="previous_7d")
+cur = session.observe(session.catalog.get("sales.revenue"), timescope="last_7d")
+base = session.observe(session.catalog.get("sales.revenue"), timescope="previous_7d")
 delta = session.compare(cur, base)
 delta.show()            # deliberate inspection point
 ```
@@ -105,7 +106,7 @@ Derived ratio and weighted-average observations keep parent frames clean:
 (e.g., `failed_count`, `total_count` for a ratio).
 
 ```python
-rate = session.observe(mv.MetricRef("sales.failure_rate"))
+rate = session.observe(session.catalog.get("sales.failure_rate"))
 components = rate.components()
 components.show()
 ```
@@ -216,17 +217,18 @@ an explicit test/CI or runtime override; its signature is
 ```python
 import marivo.analysis as mv
 
-cur = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
-base = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
+cur = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
+base = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
-attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
+time_axis = session.catalog.get("<metric_time_dimension_id>").ref
+attribution = session.decompose(delta, axis=time_axis)
 attribution.show()
 ```
 
 ### Discover + select
 
 ```python
-series = session.observe(mv.MetricRef("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="day")
+series = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="day")
 candidates = session.discover.point_anomalies(series, threshold=1.0)
 window = candidates.select(rank=1, attribute="window")
 ```
@@ -234,8 +236,8 @@ window = candidates.select(rank=1, attribute="window")
 ### Correlate
 
 ```python
-a = session.observe(mv.MetricRef("<metric_a>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
-b = session.observe(mv.MetricRef("<metric_b>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
+a = session.observe(session.catalog.get("<metric_a>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
+b = session.observe(session.catalog.get("<metric_b>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
 result = session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 result.show()
 ```
@@ -246,9 +248,9 @@ result.show()
 scratch = session.explore_ibis(lambda con: con.table("orders"), datasource="warehouse")
 df = frame.to_pandas()
 scratch = session.from_pandas(df)
-promoted = session.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"),
+promoted = session.promote_metric_frame(scratch, metric=session.catalog.get("sales.revenue"),
                                    semantic_kind="segmented", measure_column="value",
-                                   axes={"country": mv.DimensionRef("country")},
+                                   axes={"country": session.catalog.get("sales.orders.country").ref},
                                    semantic_model="sales")
 ```
 
@@ -334,16 +336,17 @@ prev = session.get_frame("<ref>")
 import marivo.analysis as ap
 
 session = ap.session.get_or_create(name="sales_weekly_revenue")
+region = session.catalog.get("sales.orders.region").ref
 
 current = session.observe(
-    metric=ap.MetricRef("sales.revenue"),
+    metric=session.catalog.get("sales.revenue"),
     timescope={"start": "2026-05-01", "end": "2026-05-08"}, grain="day",
-    dimensions=[ap.DimensionRef("region")],
+    dimensions=[region],
 )
 baseline = session.observe(
-    metric=ap.MetricRef("sales.revenue"),
+    metric=session.catalog.get("sales.revenue"),
     timescope={"start": "2026-04-24", "end": "2026-05-01"}, grain="day",
-    dimensions=[ap.DimensionRef("region")],
+    dimensions=[region],
 )
 delta = session.compare(current, baseline, alignment=ap.AlignmentPolicy(kind="window_bucket"))
 delta.show()

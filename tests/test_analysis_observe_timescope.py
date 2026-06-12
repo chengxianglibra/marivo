@@ -7,8 +7,8 @@ import pytest
 
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.refs import MetricRef
 from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 @pytest.fixture(autouse=True)
@@ -147,7 +147,7 @@ def test_timescope_without_grain_stays_scalar(tmp_path):
     )
 
     frame = observe(
-        MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-25"},
         session=s,
     )
@@ -177,7 +177,7 @@ def test_timescope_with_grain_returns_time_series(tmp_path):
     )
 
     frame = observe(
-        MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-25"},
         grain="day",
         session=s,
@@ -208,7 +208,7 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
 
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
-            MetricRef("sales.net"),
+            SemanticRef("sales.net", kind=SemanticKind.METRIC),
             timescope={"start": "2026-05-01", "end": "2026-05-24"},
             grain="day",
             session=s,
@@ -229,7 +229,7 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
     )
 
     frame = observe(
-        MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-25"},
         grain="day",
         session=s,
@@ -259,7 +259,7 @@ def test_date_time_series_day_bucket_respects_session_tz(tmp_path):
     )
 
     frame = observe(
-        MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-02"},
         grain="day",
         session=s,

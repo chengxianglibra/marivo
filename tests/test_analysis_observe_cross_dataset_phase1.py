@@ -8,7 +8,7 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.observe_errors import ObservePlanningError
-from marivo.analysis.refs import DimensionRef, MetricRef
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 @pytest.fixture(autouse=True)
@@ -102,8 +102,8 @@ def test_segmented_cross_dataset_dimension_preserves_unmatched_root_rows(tmp_pat
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     frame = observe(
-        MetricRef("sales.revenue_by_user"),
-        dimensions=[DimensionRef("sales.users.tier")],
+        SemanticRef("sales.revenue_by_user", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("sales.users.tier", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -124,8 +124,8 @@ def test_cross_dataset_where_filters_after_left_join(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     frame = observe(
-        MetricRef("sales.revenue_by_user"),
-        where={DimensionRef("sales.users.country"): "US"},
+        SemanticRef("sales.revenue_by_user", kind=SemanticKind.METRIC),
+        where={SemanticRef("sales.users.country", kind=SemanticKind.DIMENSION): "US"},
         session=_session(con),
     )
 
@@ -140,10 +140,10 @@ def test_panel_cross_dataset_dimension_uses_root_time_axis(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     frame = observe(
-        MetricRef("sales.revenue_by_user"),
+        SemanticRef("sales.revenue_by_user", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-05"},
         grain="day",
-        dimensions=[DimensionRef("sales.users.tier")],
+        dimensions=[SemanticRef("sales.users.tier", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -225,8 +225,8 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
 
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
-            MetricRef("sales.order_total_with_items"),
-            dimensions=[DimensionRef("sales.order_items.item_name")],
+            SemanticRef("sales.order_total_with_items", kind=SemanticKind.METRIC),
+            dimensions=[SemanticRef("sales.order_items.item_name", kind=SemanticKind.DIMENSION)],
             session=_session(con),
         )
 
@@ -319,9 +319,9 @@ def test_snapshot_as_of_root_time_per_row_partition(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed_snapshot(con)
     frame = observe(
-        MetricRef("sales.revenue_by_profile"),
+        SemanticRef("sales.revenue_by_profile", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-03"},
-        dimensions=[DimensionRef("sales.user_profile_daily.tier")],
+        dimensions=[SemanticRef("sales.user_profile_daily.tier", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -337,8 +337,8 @@ def test_relationships_lineage_records_distinct_from_and_to_dataset(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     frame = observe(
-        MetricRef("sales.revenue_by_user"),
-        dimensions=[DimensionRef("sales.users.tier")],
+        SemanticRef("sales.revenue_by_user", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("sales.users.tier", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 

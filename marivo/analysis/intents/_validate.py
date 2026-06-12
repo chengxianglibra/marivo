@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.delta import DeltaFrame
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.policies import AlignmentPolicy
-    from marivo.analysis.refs import DimensionRef
 
 
 def raise_first(issues: list[AnalysisError]) -> None:
@@ -134,7 +133,7 @@ def validate_compare(
 
 def validate_decompose_columns(
     frame: DeltaFrame,
-    axis: DimensionRef,
+    axis_id: str,
     *,
     source_df: pd.DataFrame,
 ) -> list[AnalysisError]:
@@ -147,18 +146,18 @@ def validate_decompose_columns(
     )
 
     available_columns = [str(column) for column in source_df.columns]
-    normalized_axis = axis.semantic_id.rsplit(".", 1)[-1]
-    axis_column = _effective_component_axis_column(frame, axis, available_columns)
+    normalized_axis = axis_id.rsplit(".", 1)[-1]
+    axis_column = _effective_component_axis_column(frame, axis_id, available_columns)
     if axis_column is None:
         return [
             SemanticKindMismatchError(
                 message="decompose axis column does not exist in the DeltaFrame",
                 hint=(
-                    f"Use axis=mv.DimensionRef({normalized_axis!r}) if that column exists in "
-                    "the DeltaFrame."
+                    f"Use axis=session.catalog.get(<dimension_id>).ref for {normalized_axis!r} "
+                    "if that column exists in the DeltaFrame."
                 ),
                 details={
-                    "requested_axis": axis.semantic_id,
+                    "requested_axis": axis_id,
                     "normalized_axis": normalized_axis,
                     "available_columns": available_columns,
                 },

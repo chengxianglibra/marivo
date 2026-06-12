@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from marivo.datasource.metadata import TableMetadata
     from marivo.datasource.scan import ColumnProfile as ScanColumnProfile
     from marivo.datasource.scan import JoinKeyProbe, ScanReport
-    from marivo.semantic.reader import DomainSummary
 
 Severity = Literal["blocker", "warning", "info"]
 
@@ -156,10 +155,18 @@ class VersioningHints:
 
 
 @dataclass(frozen=True)
+class DomainBriefSummary:
+    name: str
+    description: str | None
+    default: bool
+    object_counts: dict[str, int]
+
+
+@dataclass(frozen=True)
 class DomainBrief:
     status: BriefStatus
     proposed_name: str
-    existing_domains: tuple[DomainSummary, ...]
+    existing_domains: tuple[DomainBriefSummary, ...]
     matches: tuple[RegisteredMatch, ...]
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]

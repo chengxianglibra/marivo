@@ -10,7 +10,7 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.observe_errors import ObservePlanningError
-from marivo.analysis.refs import DimensionRef, MetricRef
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 @pytest.fixture(autouse=True)
@@ -109,9 +109,9 @@ def test_snapshot_as_of_root_time_picks_per_row_partition(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed_snapshot_as_of(con)
     frame = observe(
-        MetricRef("sales.revenue_by_profile"),
+        SemanticRef("sales.revenue_by_profile", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-06"},
-        dimensions=[DimensionRef("sales.user_profile_daily.tier")],
+        dimensions=[SemanticRef("sales.user_profile_daily.tier", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -125,6 +125,24 @@ def test_snapshot_as_of_root_time_picks_per_row_partition(tmp_path):
     assert snapshot_version["resolved_partition_summary"]["partition_count"] == 2
 
 
+def test_snapshot_as_of_root_time_job_queries_include_planning_sql(tmp_path):
+    _bootstrap_snapshot_as_of(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_snapshot_as_of(con)
+    session = _session(con)
+
+    frame = observe(
+        SemanticRef("sales.revenue_by_profile", kind=SemanticKind.METRIC),
+        timescope={"start": "2026-07-01", "end": "2026-07-06"},
+        dimensions=[SemanticRef("sales.user_profile_daily.tier", kind=SemanticKind.DIMENSION)],
+        session=session,
+    )
+
+    job = session.job(frame.meta.produced_by_job)
+
+    assert len(job["queries"]) >= 3
+
+
 def test_snapshot_as_of_root_time_partition_missing(tmp_path):
     _bootstrap_snapshot_as_of(tmp_path)
     con = ibis.duckdb.connect(":memory:")
@@ -133,9 +151,9 @@ def test_snapshot_as_of_root_time_partition_missing(tmp_path):
 
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
-            MetricRef("sales.revenue_by_profile"),
+            SemanticRef("sales.revenue_by_profile", kind=SemanticKind.METRIC),
             timescope={"start": "2026-07-01", "end": "2026-07-06"},
-            dimensions=[DimensionRef("sales.user_profile_daily.tier")],
+            dimensions=[SemanticRef("sales.user_profile_daily.tier", kind=SemanticKind.DIMENSION)],
             session=_session(con),
         )
 
@@ -234,8 +252,8 @@ def test_snapshot_latest_when_root_has_no_time_field(tmp_path, monkeypatch):
     _seed_snapshot_latest_no_root_time(con)
 
     frame = observe(
-        MetricRef("sales.revenue_by_profile"),
-        dimensions=[DimensionRef("sales.user_profile_daily.tier")],
+        SemanticRef("sales.revenue_by_profile", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("sales.user_profile_daily.tier", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -346,8 +364,8 @@ def test_validity_latest_uses_open_end_predicate(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed_validity(con)
     frame = observe(
-        MetricRef("sales.revenue_by_tier"),
-        dimensions=[DimensionRef("sales.user_history.tier")],
+        SemanticRef("sales.revenue_by_tier", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("sales.user_history.tier", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -363,9 +381,9 @@ def test_validity_as_of_root_time_closed_open_boundary(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed_validity(con)
     frame = observe(
-        MetricRef("sales.revenue_by_tier"),
+        SemanticRef("sales.revenue_by_tier", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-06"},
-        dimensions=[DimensionRef("sales.user_history.tier")],
+        dimensions=[SemanticRef("sales.user_history.tier", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -462,9 +480,9 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
     )
 
     frame = observe(
-        MetricRef("sales.revenue_by_tier"),
+        SemanticRef("sales.revenue_by_tier", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-06"},
-        dimensions=[DimensionRef("sales.user_history.tier")],
+        dimensions=[SemanticRef("sales.user_history.tier", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -542,8 +560,8 @@ def test_derived_ratio_multi_dataset_components_with_country_dimension(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_derived_ratio(con)
     frame = observe(
-        MetricRef("sales.gmv_per_session"),
-        dimensions=[DimensionRef("sales.users.country")],
+        SemanticRef("sales.gmv_per_session", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("sales.users.country", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -607,8 +625,8 @@ def test_component_axis_unreachable_raises(tmp_path):
 
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
-            MetricRef("sales.gmv_per_session"),
-            dimensions=[DimensionRef("sales.users.country")],
+            SemanticRef("sales.gmv_per_session", kind=SemanticKind.METRIC),
+            dimensions=[SemanticRef("sales.users.country", kind=SemanticKind.DIMENSION)],
             session=_session(con),
         )
 
@@ -627,13 +645,13 @@ def test_component_filter_unreachable_raises(tmp_path):
 
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
-            MetricRef("sales.gmv_per_session"),
-            where={DimensionRef("sales.country"): "US"},
+            SemanticRef("sales.gmv_per_session", kind=SemanticKind.METRIC),
+            where={SemanticRef("sales.users.country", kind=SemanticKind.DIMENSION): "US"},
             session=_session(con),
         )
     details = exc_info.value.details
     assert details["code"] == "component-filter-unreachable"
-    assert details["candidates"]["filter_key"] == "sales.country"
+    assert details["candidates"]["filter_key"] == "sales.users.country"
     assert "sales.session_count" in details["candidates"]["missing_components"]
 
 
@@ -713,9 +731,9 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
 
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
-            MetricRef("sales.gmv_per_session"),
+            SemanticRef("sales.gmv_per_session", kind=SemanticKind.METRIC),
             timescope={"start": "2026-07-01", "end": "2026-07-05"},
-            dimensions=[DimensionRef("sales.user_profile_daily.tier")],
+            dimensions=[SemanticRef("sales.user_profile_daily.tier", kind=SemanticKind.DIMENSION)],
             session=_session(con),
         )
 
@@ -730,7 +748,7 @@ def test_derived_observe_registers_component_frames(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed_derived_ratio(con)
     session = _session(con)
-    mf = observe(MetricRef("sales.gmv_per_session"), session=session)
+    mf = observe(SemanticRef("sales.gmv_per_session", kind=SemanticKind.METRIC), session=session)
     # Component frames should be loadable from the store.
     if mf.meta.component_ref is not None:
         loaded = session.get_frame(mf.meta.component_ref)
@@ -782,7 +800,7 @@ def test_derived_components_can_span_datasources(tmp_path):
         name="demo",
         backends={"warehouse": lambda: warehouse, "analytics": lambda: analytics},
     )
-    frame = observe(MetricRef("sales.gmv_per_session"), session=session)
+    frame = observe(SemanticRef("sales.gmv_per_session", kind=SemanticKind.METRIC), session=session)
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(25.0)  # 100 / 4
     component_datasources = frame.meta.lineage.steps[0].params["lineage_metadata"][
         "component_datasources"

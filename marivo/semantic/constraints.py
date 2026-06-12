@@ -614,7 +614,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric", "relationship"),
         "Unqualified name lookups must resolve to a single object kind.",
         "Cross-kind name matches make registry lookups ambiguous.",
-        "Pass kind= to describe() or search(kind=...) to disambiguate.",
+        "Use catalog.list(parent, kind=...) to narrow candidates, then catalog.get(ref).",
         docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.BACKEND_FACTORY_AVAILABLE: _constraint(
@@ -622,9 +622,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "backend_factory_required",
         "runtime",
         ("SemanticProject",),
-        "Materialization and preview methods require a configured datasource.",
+        "Runtime preview requires a configured datasource.",
         "Datasource backends are resolved internally via DatasourceConnectionService.",
-        "Ensure datasources are configured under .marivo/ before calling materialization or preview methods.",
+        "Ensure datasources are configured under .marivo/ before calling catalog.preview(...).",
     ),
     ConstraintId.INSPECT_SOURCE_AVAILABLE: _constraint(
         ConstraintId.INSPECT_SOURCE_AVAILABLE,

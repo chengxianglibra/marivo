@@ -7,7 +7,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
-from marivo.analysis.executor.backend import BackendCache
 from marivo.analysis.executor.query_record import (
     QueryExecution,
     compute_sql_digest,
@@ -15,7 +14,16 @@ from marivo.analysis.executor.query_record import (
     normalize_sql,
 )
 from marivo.analysis.executor.runner import ExecutionResult, execute
+from marivo.analysis.session._connections import AnalysisConnectionRuntime
+from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 from tests.conftest import bootstrap_sales_project
+
+
+def _runtime(factory=None) -> AnalysisConnectionRuntime:
+    return AnalysisConnectionRuntime(
+        DatasourceConnectionService(backend_factory=factory, use_datasources=False)
+    )
 
 
 def test_query_execution_to_dict_round_trip() -> None:
@@ -95,7 +103,7 @@ def test_different_shape_produces_different_digest() -> None:
     assert compute_sql_digest(norm_a) != compute_sql_digest(norm_b)
 
 
-# --- BackendCache query capture buffer tests ---
+# --- AnalysisConnectionRuntime query capture buffer tests ---
 
 
 def _make_qe(datasource: str = "warehouse") -> QueryExecution:
@@ -117,14 +125,14 @@ def _make_qe(datasource: str = "warehouse") -> QueryExecution:
 
 
 def test_no_capture_open_by_default() -> None:
-    cache = BackendCache(factory=None)
+    cache = _runtime()
     qe = _make_qe()
     cache.record_query(qe)
     assert cache.take_captured_queries() == []
 
 
 def test_begin_record_drain_cycle() -> None:
-    cache = BackendCache(factory=None)
+    cache = _runtime()
     cache.begin_query_capture()
     qe = _make_qe()
     cache.record_query(qe)
@@ -135,7 +143,7 @@ def test_begin_record_drain_cycle() -> None:
 
 
 def test_drain_clears_buffer() -> None:
-    cache = BackendCache(factory=None)
+    cache = _runtime()
     cache.begin_query_capture()
     cache.record_query(_make_qe())
     cache.take_captured_queries()
@@ -143,7 +151,7 @@ def test_drain_clears_buffer() -> None:
 
 
 def test_second_begin_clears_previous() -> None:
-    cache = BackendCache(factory=None)
+    cache = _runtime()
     cache.begin_query_capture()
     cache.record_query(_make_qe())
     cache.begin_query_capture()
@@ -151,7 +159,7 @@ def test_second_begin_clears_previous() -> None:
 
 
 def test_multiple_queries() -> None:
-    cache = BackendCache(factory=None)
+    cache = _runtime()
     cache.begin_query_capture()
     cache.record_query(_make_qe("ds_a"))
     cache.record_query(_make_qe("ds_b"))
@@ -164,11 +172,11 @@ def test_multiple_queries() -> None:
 # --- execute() QueryExecution integration tests ---
 
 
-def _duckdb_cache() -> tuple[BackendCache, ibis.duckdb.DuckDBBackend]:
+def _duckdb_cache() -> tuple[AnalysisConnectionRuntime, ibis.duckdb.DuckDBBackend]:
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE t (x INTEGER)")
     con.raw_sql("INSERT INTO t VALUES (1), (2), (3)")
-    cache = BackendCache(factory=lambda _name: con)
+    cache = _runtime(lambda _name: con)
     return cache, con
 
 
@@ -238,7 +246,7 @@ def test_scalar_observe_has_queries(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
     frame = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
     )
     job_id = frame.meta.produced_by_job
@@ -276,16 +284,16 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
     frame = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-08-31"},
-        dimensions=[mv.DimensionRef("region")],
+        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
     )
     delta = s.compare(
         frame,
         frame,
         alignment=mv.AlignmentPolicy(kind="window_bucket"),
     )
-    attr = s.decompose(delta, axis=mv.DimensionRef("region"))
+    attr = s.decompose(delta, axis=SemanticRef("region", kind=SemanticKind.DIMENSION))
     job_id = attr.meta.produced_by_job
     assert job_id is not None
     job = s.job(job_id)
@@ -340,7 +348,7 @@ def test_time_series_observe_has_queries(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
     frame = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
         grain="day",
     )
@@ -380,7 +388,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
 
     # Scalar
     scalar = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
     )
     job = s.job(scalar.meta.produced_by_job)
@@ -393,7 +401,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
 
     # Time series
     ts = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
         grain="month",
     )
@@ -403,19 +411,19 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
 
     # Segmented
     seg = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
-        dimensions=[mv.DimensionRef("region")],
+        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
     )
     job = s.job(seg.meta.produced_by_job)
     assert len(job["queries"]) >= 1
 
     # Panel
     panel = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
         grain="month",
-        dimensions=[mv.DimensionRef("region")],
+        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
     )
     job = s.job(panel.meta.produced_by_job)
     assert len(job["queries"]) >= 1
@@ -444,11 +452,11 @@ def test_same_query_shape_same_digest(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
     f1 = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
     )
     f2 = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-08-01", "end": "2026-08-31"},
     )
     j1 = s.job(f1.meta.produced_by_job)
@@ -479,7 +487,7 @@ def test_evidence_chain_reaches_queries(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
     frame = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
     )
     job_id = frame.meta.produced_by_job
@@ -529,7 +537,7 @@ def test_failed_query_logs_and_no_queries_in_record(tmp_path, monkeypatch):
         pytest.raises(mv.errors.BackendError),
     ):
         s.observe(
-            mv.MetricRef("sales.revenue"),
+            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
             timescope={"start": "2026-07-01", "end": "2026-09-30"},
         )
 

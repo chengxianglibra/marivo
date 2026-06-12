@@ -3,9 +3,9 @@
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import SliceInvalidError
+from marivo.analysis.errors import SemanticKindMismatchError, SliceInvalidError
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.refs import DimensionRef, MetricRef
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
 
@@ -34,24 +34,25 @@ def _session_with_sales(tmp_path):
         ({"region": {"op": "==", "value": "NORTH"}}, 70.0),
         ({"region": {"op": "!=", "value": "NORTH"}}, 30.0),
         ({"region": {"op": "in", "value": ["NORTH", "SOUTH"]}}, 100.0),
-        ({"amount": {"op": ">", "value": 20.0}}, 70.0),
-        ({"amount": {"op": ">=", "value": 20.0}}, 90.0),
-        ({"amount": {"op": "<", "value": 30.0}}, 30.0),
-        ({"amount": {"op": "<=", "value": 30.0}}, 60.0),
-        ({"amount": {"op": "between", "value": [20.0, 40.0]}}, 90.0),
     ],
 )
 def test_observe_structured_slice_predicates(tmp_path, slice_spec, expected):
     session = _session_with_sales(tmp_path)
-    where = {DimensionRef(key): value for key, value in slice_spec.items()}
-    frame = observe(MetricRef("sales.revenue"), where=where, session=session)
+    where = {
+        SemanticRef(key, kind=SemanticKind.DIMENSION): value for key, value in slice_spec.items()
+    }
+    frame = observe(
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC), where=where, session=session
+    )
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(expected)
 
 
 def test_observe_equality_shorthand_still_works(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
-        MetricRef("sales.revenue"), where={DimensionRef("region"): "NORTH"}, session=session
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        where={SemanticRef("region", kind=SemanticKind.DIMENSION): "NORTH"},
+        session=session,
     )
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(70.0)
 
@@ -59,54 +60,60 @@ def test_observe_equality_shorthand_still_works(tmp_path):
 def test_in_predicate_with_set_is_json_safe_in_job_record(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
-        MetricRef("sales.revenue"),
-        where={DimensionRef("region"): {"op": "in", "value": {"NORTH"}}},
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        where={
+            SemanticRef("region", kind=SemanticKind.DIMENSION): {"op": "in", "value": {"NORTH"}}
+        },
         session=session,
     )
 
     job = next(item for item in session.jobs() if item.output_frame_ref == frame.ref)
     record = session.job(job.id)
-    assert record["params"]["where"] == {"region": {"op": "in", "value": ["NORTH"]}}
-    assert frame.meta.where == {"region": {"op": "in", "value": ["NORTH"]}}
+    expected = {"sales.orders.region": {"op": "in", "value": ["NORTH"]}}
+    assert record["params"]["where"] == expected
+    assert frame.meta.where == expected
 
 
 @pytest.mark.parametrize(
     "slice_spec",
     [
-        {"amount": {"op": "contains", "value": 10}},
-        {"amount": {"op": "in", "value": []}},
-        {"amount": {"op": "between", "value": [10]}},
-        {"amount": {"value": 10}},
-        {"amount": {"op": ">"}},
-        {"amount": {"op": [">"], "value": 10}},
         {"region": {"op": "==", "value": ["NORTH"]}},
         {"region": {"op": "!=", "value": {"NORTH"}}},
-        {"amount": {"op": ">", "value": [10]}},
-        {"amount": {"op": ">=", "value": (10,)}},
-        {"amount": {"op": "<", "value": {"threshold": 10}}},
-        {"amount": {"op": "<=", "value": {10}}},
         {"region": ["NORTH"]},
     ],
 )
 def test_invalid_structured_predicates_raise(tmp_path, slice_spec):
     session = _session_with_sales(tmp_path)
-    where = {DimensionRef(key): value for key, value in slice_spec.items()}
+    where = {
+        SemanticRef(key, kind=SemanticKind.DIMENSION): value for key, value in slice_spec.items()
+    }
     with pytest.raises(SliceInvalidError):
-        observe(MetricRef("sales.revenue"), where=where, session=session)
+        observe(
+            SemanticRef("sales.revenue", kind=SemanticKind.METRIC), where=where, session=session
+        )
 
 
-def test_mixed_set_in_predicate_is_json_safe_and_normalized(tmp_path):
+@pytest.mark.parametrize(
+    "slice_spec",
+    [
+        {"amount": {"op": ">", "value": 20.0}},
+        {"amount": {"op": ">=", "value": 20.0}},
+        {"amount": {"op": "<", "value": 30.0}},
+        {"amount": {"op": "<=", "value": 30.0}},
+        {"amount": {"op": "between", "value": [20.0, 40.0]}},
+        {"user_id": {"op": "in", "value": {100, "200"}}},
+    ],
+)
+def test_observe_rejects_physical_only_dimension_ref_slice_keys(tmp_path, slice_spec):
     session = _session_with_sales(tmp_path)
-    frame = observe(
-        MetricRef("sales.revenue"),
-        where={DimensionRef("user_id"): {"op": "in", "value": {100, "200"}}},
-        session=session,
-    )
-
-    job = next(item for item in session.jobs() if item.output_frame_ref == frame.ref)
-    record = session.job(job.id)
-    assert record["params"]["where"] == {"user_id": {"op": "in", "value": ["200", 100]}}
-    assert frame.meta.where == {"user_id": {"op": "in", "value": ["200", 100]}}
+    where = {
+        SemanticRef(key, kind=SemanticKind.DIMENSION): value for key, value in slice_spec.items()
+    }
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        observe(
+            SemanticRef("sales.revenue", kind=SemanticKind.METRIC), where=where, session=session
+        )
+    assert exc_info.value.details["expected_kind"] == "dimension"
 
 
 def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
@@ -114,8 +121,13 @@ def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
 
     with pytest.raises(SliceInvalidError):
         observe(
-            MetricRef("sales.revenue"),
-            where={DimensionRef("region"): {"op": "in", "value": [object()]}},
+            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            where={
+                SemanticRef("region", kind=SemanticKind.DIMENSION): {
+                    "op": "in",
+                    "value": [object()],
+                }
+            },
             session=session,
         )
 

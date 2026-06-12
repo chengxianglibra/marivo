@@ -11,7 +11,7 @@ from marivo.analysis.publish import (
 )
 
 # A sales model with model id "sales" and metric "sales.revenue".
-# Verified to load (status=ready, list_metrics -> ["sales.revenue"]) via
+# Verified to load (status=ready, catalog metric ref "sales.revenue") via
 # semantic_project_factory. The warehouse datasource file is required because the
 # dataset uses md.ref('warehouse') (the factory only auto-creates datasources for
 # quoted datasource='...' usages).
@@ -56,8 +56,9 @@ GOOD_SCRIPT = (
     '        raise SystemExit(f"missing required datasource env var: {_var}")\n'
     "\n"
     'session = mv.session.get_or_create(name="replay")\n'
+    "catalog = session.catalog\n"
     "cur = session.observe(\n"
-    '    mv.MetricRef("sales.revenue"),\n'
+    '    catalog.get("sales.revenue"),\n'
     '    timescope={"start": "2026-05-01", "end": "2026-05-08"},\n'
     ")\n"
     "print(cur.summary())\n"
@@ -139,6 +140,92 @@ def test_resolved_metric_ref_passes(tmp_path, semantic_project_factory):
     assert not any(i.check == "metric_ref" for i in result.issues)
 
 
+def test_inline_session_catalog_metric_ref_is_checked(tmp_path, semantic_project_factory):
+    semantic_project_factory(SALES_FILES)
+    src = GOOD_SCRIPT.replace(
+        'catalog.get("sales.revenue")', 'session.catalog.get("sales.unknown")'
+    )
+    result = static_check_replay(_write(tmp_path, src), workspace_dir=_workspace_dir(tmp_path))
+    assert any(i.check == "metric_ref" and "sales.unknown" in i.message for i in result.issues)
+
+
+def test_variable_bound_catalog_metric_ref_is_checked(tmp_path, semantic_project_factory):
+    semantic_project_factory(SALES_FILES)
+    src = GOOD_SCRIPT.replace(
+        'catalog.get("sales.revenue")',
+        "unknown_metric",
+    ).replace(
+        "cur = session.observe(\n",
+        'unknown_metric = catalog.get("sales.unknown")\ncur = session.observe(\n',
+    )
+    result = static_check_replay(_write(tmp_path, src), workspace_dir=_workspace_dir(tmp_path))
+    assert any(i.check == "metric_ref" and "sales.unknown" in i.message for i in result.issues)
+
+
+def test_variable_bound_catalog_metric_ref_passes(tmp_path, semantic_project_factory):
+    semantic_project_factory(SALES_FILES)
+    src = GOOD_SCRIPT.replace(
+        'catalog.get("sales.revenue")',
+        "revenue_metric",
+    ).replace(
+        "cur = session.observe(\n",
+        'revenue_metric = catalog.get("sales.revenue")\ncur = session.observe(\n',
+    )
+    result = static_check_replay(_write(tmp_path, src), workspace_dir=_workspace_dir(tmp_path))
+    assert not any(i.check == "metric_ref" for i in result.issues)
+
+
+def test_later_catalog_ref_rebinding_does_not_affect_earlier_metric_use(
+    tmp_path,
+    semantic_project_factory,
+):
+    semantic_project_factory(SALES_FILES)
+    src = GOOD_SCRIPT.replace(
+        'catalog.get("sales.revenue")',
+        "metric",
+    ).replace(
+        "cur = session.observe(\n",
+        'metric = catalog.get("sales.revenue")\ncur = session.observe(\n',
+    )
+    src += 'metric = catalog.get("sales.unknown")\n'
+    result = static_check_replay(_write(tmp_path, src), workspace_dir=_workspace_dir(tmp_path))
+    assert not any(i.check == "metric_ref" for i in result.issues)
+
+
+def test_non_catalog_get_is_not_checked_as_metric_ref(tmp_path, semantic_project_factory):
+    semantic_project_factory(SALES_FILES)
+    src = GOOD_SCRIPT + 'payload = {"sales.unknown": 1}\npayload.get("sales.unknown")\n'
+    result = static_check_replay(_write(tmp_path, src), workspace_dir=_workspace_dir(tmp_path))
+    assert result.ok is True
+    assert not any(i.check == "metric_ref" for i in result.issues)
+
+
+def test_dimension_catalog_get_is_not_checked_as_metric_ref(tmp_path, semantic_project_factory):
+    semantic_project_factory(SALES_FILES)
+    src = GOOD_SCRIPT + (
+        'base = session.observe(catalog.get("sales.revenue"), '
+        'timescope={"start": "2026-04-24", "end": "2026-05-01"})\n'
+        "delta = session.compare(cur, base)\n"
+        'axis = catalog.get("sales.orders.region").ref\n'
+        "drivers = session.decompose(delta, axis=axis)\n"
+    )
+    result = static_check_replay(_write(tmp_path, src), workspace_dir=_workspace_dir(tmp_path))
+    assert not any(i.check == "metric_ref" for i in result.issues)
+
+
+def test_promote_metric_frame_source_arg_is_not_checked_as_metric_ref(
+    tmp_path,
+    semantic_project_factory,
+):
+    semantic_project_factory(SALES_FILES)
+    src = GOOD_SCRIPT + (
+        "scratch = session.from_pandas(cur.to_pandas())\n"
+        'promoted = session.promote_metric_frame(scratch, metric=catalog.get("sales.revenue"))\n'
+    )
+    result = static_check_replay(_write(tmp_path, src), workspace_dir=_workspace_dir(tmp_path))
+    assert not any(i.check == "metric_ref" for i in result.issues)
+
+
 def test_undefined_frame_variable_is_flagged(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     bad = GOOD_SCRIPT + "delta = session.compare(ghost, cur)\n"
@@ -151,7 +238,7 @@ def test_defined_frame_variable_passes(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     ok_src = GOOD_SCRIPT + (
         "base = session.observe(\n"
-        '    mv.MetricRef("sales.revenue"),\n'
+        '    catalog.get("sales.revenue"),\n'
         '    timescope={"start": "2026-04-24", "end": "2026-05-01"},\n'
         ")\n"
         "delta = session.compare(cur, base)\n"
@@ -205,8 +292,9 @@ def test_multiple_issues_are_reported_together(tmp_path, semantic_project_factor
         "import marivo.analysis as mv\n"
         "import requests\n"  # disallowed import
         'session = mv.session.get_or_create(name="replay")\n'
+        "catalog = session.catalog\n"
         "cur = session.observe(\n"
-        '    mv.MetricRef("sales.unknown"),\n'  # unresolved metric
+        '    catalog.get("sales.unknown"),\n'  # unresolved metric
         '    timescope="last_month",\n'  # relative timescope
         ")\n"
         "delta = session.compare(ghost, cur)\n"  # undefined frame var

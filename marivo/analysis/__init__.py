@@ -40,7 +40,7 @@ from marivo.analysis.policies import (
     PromotionSemanticAnchors,
     SamplingPolicy,
 )
-from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
+from marivo.analysis.refs import ArtifactRef, CalendarRef
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary, ReportRegistration, Session
 from marivo.analysis.windows.spec import (
@@ -48,6 +48,7 @@ from marivo.analysis.windows.spec import (
     TimeScope,
     TimeScopeInput,
 )
+from marivo.semantic.catalog import SemanticObject, SemanticRef
 
 
 def __getattr__(name: str) -> _Any:
@@ -83,7 +84,6 @@ __all__ = [
     "ComponentFrame",
     "ConfidenceScope",
     "DeltaFrame",
-    "DimensionRef",
     "DiscoverSensitivity",
     "ExplorationResult",
     "FollowupAction",
@@ -96,12 +96,13 @@ __all__ = [
     "Lineage",
     "LineageStep",
     "MetricFrame",
-    "MetricRef",
     "PromotionPolicy",
     "PromotionSemanticAnchors",
     "QualityReport",
     "ReportRegistration",
     "SamplingPolicy",
+    "SemanticObject",
+    "SemanticRef",
     "Session",
     "SessionSummary",
     "SlicePredicate",

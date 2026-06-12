@@ -13,6 +13,7 @@ import marivo.analysis as mv
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.session.core import Session
 from marivo.introspection.surface import render
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 def _json_data(symbol: str | None = None) -> dict[str, Any]:
@@ -390,9 +391,8 @@ def test_mv_help_accepts_metric_ref(capsys: CaptureFixture[str]):
     import pytest
 
     from marivo.semantic.errors import SemanticError
-    from marivo.semantic.ir import MetricRef
 
-    ref = MetricRef("sales.revenue")
+    ref = SemanticRef("sales.revenue", kind=SemanticKind.METRIC)
     with pytest.raises(Exception) as exc_info:
         mv.help(ref)
     assert isinstance(exc_info.value, SemanticError)
@@ -400,8 +400,6 @@ def test_mv_help_accepts_metric_ref(capsys: CaptureFixture[str]):
 
 def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: CaptureFixture[str]):
     import pytest
-
-    from marivo.semantic.ir import MetricRef
 
     project = semantic_project_factory(
         {
@@ -419,10 +417,12 @@ def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: C
             ),
         }
     )
-    metric_ids = project.list_metrics().ids()
+    from marivo.semantic.catalog import SemanticCatalog
+
+    metric_ids = [ref.ref for ref in SemanticCatalog(project).list("sales", kind="metric").refs()]
     if not metric_ids:
         pytest.skip("no metrics in fixture")
-    ref = MetricRef(metric_ids[0])
+    ref = SemanticRef(metric_ids[0], kind=SemanticKind.METRIC)
     mv.help(ref, project=project)
     captured = capsys.readouterr()
     assert len(captured.out) > 0
@@ -463,8 +463,6 @@ def test_help_top_level_all_entries_have_summaries() -> None:
 
 
 def test_help_semantic_metric_ref_prints_unit(capsys, semantic_project_factory):
-    from marivo.semantic.ir import MetricRef
-
     project = semantic_project_factory(
         {
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
@@ -486,7 +484,7 @@ def test_help_semantic_metric_ref_prints_unit(capsys, semantic_project_factory):
             ),
         }
     )
-    mv.help(MetricRef("sales.revenue"), project=project)
+    mv.help(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), project=project)
     out = capsys.readouterr().out
     assert "unit: CNY" in out
 

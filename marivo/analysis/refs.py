@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from marivo.semantic.ir import DimensionRef, MetricRef
-
-__all__ = ["ArtifactRef", "CalendarRef", "DimensionRef", "MetricRef"]
+__all__ = ["ArtifactRef", "CalendarRef"]
 
 
 class _RefBase(BaseModel):

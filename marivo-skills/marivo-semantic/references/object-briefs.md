@@ -30,7 +30,7 @@ Status actions:
 | Field | Type | Purpose |
 | --- | --- | --- |
 | `proposed_name` | `str` | The domain name passed to the call |
-| `existing_domains` | `tuple[DomainSummary, ...]` | Already-registered domains with descriptions |
+| `existing_domains` | `tuple[DomainBriefSummary, ...]` | Already-registered domains with descriptions |
 | `matches` | `tuple[RegisteredMatch, ...]` | `name_exact` or `synonym_exact` matches |
 
 ## EntityBrief

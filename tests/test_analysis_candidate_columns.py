@@ -31,6 +31,7 @@ def test_candidate_columns_have_fixed_order() -> None:
         "baseline_window_start",
         "baseline_window_end",
         "axis",
+        "axis_semantic_id",
         "peer_scope_json",
         "recommended_followups_json",
     ]
@@ -62,6 +63,7 @@ def test_build_union_columns_fills_unused_fields_with_neutral_defaults() -> None
     assert df.loc[0, "source_refs_json"] == '["frame_src#axis=country"]'
     assert df.loc[0, "selector_json"] == ""
     assert df.loc[0, "keys_json"] == ""
+    assert pd.isna(df.loc[0, "axis_semantic_id"])
     assert df.loc[0, "peer_scope_json"] == ""
     assert df.loc[0, "recommended_followups_json"] == "[]"
     assert pd.isna(df.loc[0, "window_start"])
@@ -188,7 +190,7 @@ def test_validate_shape_columns_rejects_invalid_followup_payload() -> None:
             },
             {"keys_json"},
         ),
-        ("driver_axis", {"axis"}, set()),
+        ("driver_axis", {"axis"}, {"axis_semantic_id"}),
         ("slice", {"selector_json", "keys_json"}, {"window_start", "window_end"}),
         ("window", {"window_start", "window_end"}, {"keys_json"}),
         (

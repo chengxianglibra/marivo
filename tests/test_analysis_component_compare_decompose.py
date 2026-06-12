@@ -16,8 +16,8 @@ from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
-from marivo.analysis.refs import DimensionRef
 from marivo.analysis.session._runtime import persist_frame
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 @pytest.fixture(autouse=True)
@@ -331,7 +331,7 @@ def test_decompose_component_aware_ratio_delta_emits_value_and_mix_effects():
     )
     delta = session.compare(current, baseline)
 
-    attribution = session.decompose(delta, axis=DimensionRef("region"))
+    attribution = session.decompose(delta, axis=SemanticRef("region", kind=SemanticKind.DIMENSION))
 
     assert attribution.meta.method == "ratio_mix"
     assert attribution.meta.contribution_column == "contribution"
@@ -418,7 +418,7 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
     )
     delta = session.compare(current, baseline)
 
-    attribution = session.decompose(delta, axis=DimensionRef("region"))
+    attribution = session.decompose(delta, axis=SemanticRef("region", kind=SemanticKind.DIMENSION))
 
     assert attribution.meta.method == "weighted_mix"
     df = attribution.to_pandas()
@@ -460,7 +460,7 @@ def test_decompose_component_aware_ratio_with_no_valid_denominators_raises():
     delta = session.compare(current, baseline)
 
     with pytest.raises(ComponentDecompositionError):
-        session.decompose(delta, axis=DimensionRef("region"))
+        session.decompose(delta, axis=SemanticRef("region", kind=SemanticKind.DIMENSION))
 
 
 def test_compare_time_series_ratio_window_bucket_persists_component_delta():
@@ -690,7 +690,9 @@ def test_decompose_component_aware_time_series_ratio_delta_by_bucket():
     )
     delta = session.compare(current, baseline)
 
-    attribution = session.decompose(delta, axis=DimensionRef("bucket_start"))
+    attribution = session.decompose(
+        delta, axis=SemanticRef("bucket_start", kind=SemanticKind.DIMENSION)
+    )
 
     assert attribution.meta.method == "ratio_mix"
     df = attribution.to_pandas()
@@ -768,7 +770,7 @@ def test_decompose_component_aware_panel_ratio_delta_per_bucket():
     )
     delta = session.compare(current, baseline)
 
-    attribution = session.decompose(delta, axis=DimensionRef("region"))
+    attribution = session.decompose(delta, axis=SemanticRef("region", kind=SemanticKind.DIMENSION))
 
     df = attribution.to_pandas()
     assert list(df.columns) == [
@@ -890,7 +892,9 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
     compared.meta = compared.meta.model_copy(update={"component_ref": component.ref})
     compared.meta = persist_frame(session, compared)
 
-    attribution = session.decompose(compared, axis=DimensionRef("bucket_start"))
+    attribution = session.decompose(
+        compared, axis=SemanticRef("bucket_start", kind=SemanticKind.DIMENSION)
+    )
 
     assert "bucket_start_a" in attribution.to_pandas().columns
     assert attribution.meta.driver_field == "bucket_start_a"

@@ -4,7 +4,6 @@ and session.get_frame() recovers frames across script boundaries."""
 import ibis
 import pytest
 
-import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     FrameCacheCorruptedError,
@@ -13,6 +12,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.component import ComponentFrame
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 from tests.conftest import bootstrap_sales_project
 
 
@@ -55,11 +55,11 @@ def test_observe_idempotent_cache_hit(tmp_path):
     _seed(con)
     s = _make_session(tmp_path, con)
 
-    first = s.observe(mv.MetricRef("sales.revenue"))
+    first = s.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
     assert isinstance(first, MetricFrame)
 
     # Second call with identical inputs should return the cached frame.
-    second = s.observe(mv.MetricRef("sales.revenue"))
+    second = s.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
     assert isinstance(second, MetricFrame)
     assert second.ref == first.ref
 
@@ -69,14 +69,14 @@ def test_observe_cache_hit_after_reattach(tmp_path):
     _seed(con)
     s = _make_session(tmp_path, con)
 
-    first = s.observe(mv.MetricRef("sales.revenue"))
+    first = s.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
     ref = first.ref
 
     # Simulate a new script: reset process state and reattach.
     session_attach._reset_process_state()
     s2 = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    second = s2.observe(mv.MetricRef("sales.revenue"))
+    second = s2.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
     assert second.ref == ref
 
 
@@ -85,9 +85,9 @@ def test_observe_different_inputs_cache_miss(tmp_path):
     _seed(con)
     s = _make_session(tmp_path, con)
 
-    first = s.observe(mv.MetricRef("sales.revenue"))
+    first = s.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
     second = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-08-01"},
     )
     assert first.ref != second.ref
@@ -102,11 +102,11 @@ def test_compare_idempotent_cache_hit(tmp_path):
     s = _make_session(tmp_path, con)
 
     cur = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-10-01"},
     )
     base = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2025-07-01", "end": "2025-10-01"},
     )
     first = s.compare(cur, base)
@@ -125,7 +125,7 @@ def test_get_frame_returns_live_frame(tmp_path):
     _seed(con)
     s = _make_session(tmp_path, con)
 
-    original = s.observe(mv.MetricRef("sales.revenue"))
+    original = s.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
     loaded = s.get_frame(original.ref)
 
     assert isinstance(loaded, MetricFrame)
@@ -139,7 +139,7 @@ def test_get_frame_cross_script(tmp_path):
     _seed(con)
     s = _make_session(tmp_path, con)
 
-    original = s.observe(mv.MetricRef("sales.revenue"))
+    original = s.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
     ref = original.ref
 
     # Simulate a new script.
@@ -164,7 +164,7 @@ def test_get_frame_corrupted(tmp_path):
     _seed(con)
     s = _make_session(tmp_path, con)
 
-    original = s.observe(mv.MetricRef("sales.revenue"))
+    original = s.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
     ref = original.ref
 
     # Corrupt the parquet file.
@@ -183,7 +183,7 @@ def test_frame_summaries_contains_rich_metadata(tmp_path):
     _seed(con)
     s = _make_session(tmp_path, con)
 
-    s.observe(mv.MetricRef("sales.revenue"))
+    s.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
 
     summaries = s.frame_summaries()
     assert len(summaries) >= 1
@@ -254,10 +254,10 @@ def test_observe_derived_metric_cache_hit(tmp_path):
     _seed_failure_rate(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
-    first = s.observe(mv.MetricRef("sales.failure_rate"))
+    first = s.observe(SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC))
     assert isinstance(first, MetricFrame)
 
-    second = s.observe(mv.MetricRef("sales.failure_rate"))
+    second = s.observe(SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC))
     assert isinstance(second, MetricFrame)
     assert second.ref == first.ref
 
@@ -269,12 +269,12 @@ def test_observe_derived_metric_cache_hit_components_accessible(tmp_path):
     _seed_failure_rate(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
-    first = s.observe(mv.MetricRef("sales.failure_rate"))
+    first = s.observe(SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC))
     first_components = first.components()
     assert isinstance(first_components, ComponentFrame)
 
     # Second call returns cached frame
-    second = s.observe(mv.MetricRef("sales.failure_rate"))
+    second = s.observe(SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC))
     assert second.ref == first.ref
     # Components must still be accessible
     second_components = second.components()
@@ -289,7 +289,7 @@ def test_observe_derived_metric_components_after_reattach(tmp_path):
     _seed_failure_rate(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
-    frame = s.observe(mv.MetricRef("sales.failure_rate"))
+    frame = s.observe(SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC))
     ref = frame.ref
 
     # Simulate new process
@@ -309,7 +309,7 @@ def test_components_via_session_get_frame(tmp_path):
     _seed_failure_rate(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
-    frame = s.observe(mv.MetricRef("sales.failure_rate"))
+    frame = s.observe(SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC))
     ref = frame.ref
 
     loaded = s.get_frame(ref)
@@ -326,12 +326,12 @@ def test_compare_derived_metric_delta_components_after_cache_hit(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     cur = s.observe(
-        mv.MetricRef("sales.failure_rate"),
+        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-04"},
         grain="day",
     )
     base = s.observe(
-        mv.MetricRef("sales.failure_rate"),
+        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-04"},
         grain="day",
     )
@@ -356,7 +356,7 @@ def test_frame_summaries_returns_refs(tmp_path):
     _seed(con)
     s = _make_session(tmp_path, con)
 
-    s.observe(mv.MetricRef("sales.revenue"))
+    s.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
 
     refs = s.frame_summaries()
     assert len(refs) >= 1

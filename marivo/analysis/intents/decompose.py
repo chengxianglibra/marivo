@@ -27,7 +27,7 @@ from marivo.analysis.intents._derived import (
     resolve_session,
 )
 from marivo.analysis.intents._validate import raise_first, validate_decompose_columns
-from marivo.analysis.refs import DimensionRef
+from marivo.analysis.semantic_inputs import DimensionInput, normalize_dimension_boundary
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.core import Session, ensure_session_writable
 
@@ -57,8 +57,12 @@ def _panel_dimension_columns(frame: DeltaFrame) -> list[str]:
     return sorted(columns)
 
 
-def _resolve_axis_column(frame: DeltaFrame, axis: DimensionRef, columns: list[str]) -> str | None:
-    requested = axis.semantic_id
+def _normalize_axis_boundary(session: Session, axis: DimensionInput) -> str:
+    return normalize_dimension_boundary(session.catalog, axis, argument="axis")
+
+
+def _resolve_axis_column(frame: DeltaFrame, axis_id: str, columns: list[str]) -> str | None:
+    requested = axis_id
     if requested in columns:
         return requested
 
@@ -77,22 +81,27 @@ def _resolve_axis_column(frame: DeltaFrame, axis: DimensionRef, columns: list[st
             if requested in candidates:
                 return column
 
-    normalized = requested.rsplit(".", 1)[-1]
-    if normalized in columns:
-        return normalized
+    axis_leaf = requested.rsplit(".", 1)[-1]
+    if axis_leaf in columns:
+        return axis_leaf
     return None
 
 
 def _effective_component_axis_column(
     frame: DeltaFrame,
-    axis: DimensionRef,
+    axis_id: str,
     columns: list[str],
 ) -> str | None:
-    resolved = _resolve_axis_column(frame, axis, columns)
+    resolved = _resolve_axis_column(frame, axis_id, columns)
     if resolved is not None:
         return resolved
-    normalized = axis.semantic_id.rsplit(".", 1)[-1]
-    if normalized == "bucket_start" and "bucket_start_a" in columns:
+    axis_leaf = axis_id.rsplit(".", 1)[-1]
+    if frame.meta.semantic_kind == "time_series":
+        if "bucket_start" in columns:
+            return "bucket_start"
+        if "bucket_start_a" in columns:
+            return "bucket_start_a"
+    if axis_leaf == "bucket_start" and "bucket_start_a" in columns:
         return "bucket_start_a"
     return None
 
@@ -298,21 +307,14 @@ def _component_mix_output(
 def decompose(
     frame: DeltaFrame,
     *,
-    axis: DimensionRef,
+    axis: DimensionInput,
     session: Session | None = None,
 ) -> AttributionFrame:
     session = resolve_session(session)
     ensure_session_writable(session)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="decompose requires a DeltaFrame input")
-    if not isinstance(axis, DimensionRef):
-        raise SemanticKindMismatchError(
-            message="decompose requires axis=DimensionRef(...)",
-            details={
-                "expected_kind": "DimensionRef",
-                "got_kind": type(axis).__name__,
-            },
-        )
+    axis_id = _normalize_axis_boundary(session, axis)
     ensure_frame_in_session(frame, session=session, label="decompose frame")
     if frame.meta.semantic_kind not in {"scalar", "time_series", "segmented", "panel"}:
         raise SemanticKindMismatchError(
@@ -337,13 +339,13 @@ def decompose(
     started_at = datetime.now(UTC)
     started = monotonic()
     source_df = frame.to_pandas()
-    raise_first(validate_decompose_columns(frame, axis, source_df=source_df))
+    raise_first(validate_decompose_columns(frame, axis_id, source_df=source_df))
     value_column = require_numeric_column(source_df, "delta", purpose="decompose")
     available_columns = [str(column) for column in source_df.columns]
-    axis_column = _effective_component_axis_column(frame, axis, available_columns)
+    axis_column = _effective_component_axis_column(frame, axis_id, available_columns)
 
     if axis_column is None:
-        raise_first(validate_decompose_columns(frame, axis, source_df=source_df))
+        raise_first(validate_decompose_columns(frame, axis_id, source_df=source_df))
 
     assert axis_column is not None  # validated above; needed for type narrowing
 
@@ -351,7 +353,7 @@ def decompose(
     component = _load_delta_component_frame(frame, session=session)
     if component is not None:
         component_columns = [str(column) for column in component.to_pandas().columns]
-        component_axis_column = _effective_component_axis_column(frame, axis, component_columns)
+        component_axis_column = _effective_component_axis_column(frame, axis_id, component_columns)
         if component_axis_column is None:
             component_axis_column = axis_column
         bucket_column = None
@@ -372,7 +374,7 @@ def decompose(
         params = {
             "source_ref": frame.ref,
             "component_ref": component.ref,
-            "axis": {"semantic_id": str(axis)},
+            "axis": {"semantic_id": axis_id},
             "measure_column": "delta",
             "driver_field": axis_column,
             "value_column": "delta",
@@ -422,7 +424,7 @@ def decompose(
         output = grouped[[bucket_column, axis_column, "contribution", "pct_contribution", "rank"]]
         params = {
             "source_ref": frame.ref,
-            "axis": {"semantic_id": str(axis)},
+            "axis": {"semantic_id": axis_id},
             "measure_column": value_column,
             "bucket_column": bucket_column,
             "driver_field": axis_column,
@@ -465,7 +467,7 @@ def decompose(
 
     params = {
         "source_ref": frame.ref,
-        "axis": {"semantic_id": str(axis)},
+        "axis": {"semantic_id": axis_id},
         "measure_column": value_column,
     }
     return persist_attribution_frame(
