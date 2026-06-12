@@ -405,8 +405,6 @@ It maps to semantic authoring fields:
 - `ai_context.owner_notes`
 - `source_sql`
 - `source_dialect`
-- `source_document`
-- `source_notes`
 - `verification_mode`
 
 ### Runtime Evidence
@@ -627,7 +625,6 @@ Base metrics read datasets:
     verification_mode="sql_parity",
     source_sql="select sum(amount) from orders where pay_status = 1",
     source_dialect="trino",
-    source_document="kb://sales/revenue",
     ai_context={
         "business_definition": "Paid order revenue.",
         "guardrails": ["Excludes unpaid orders.", "Does not net out refunds."],

@@ -388,8 +388,6 @@ details.verification_mode
 details.parity_status
 details.source_sql
 details.source_dialect
-details.source_document
-details.source_notes
 ```
 
 For metrics, `details.datasets` is the full set of datasets that make the metric

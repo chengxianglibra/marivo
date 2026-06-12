@@ -184,15 +184,11 @@ def _build_metric_provenance(
     *,
     source_sql: str | None,
     source_dialect: str | None,
-    source_document: str | None,
-    source_notes: str | None,
     verification_mode: Literal["sql_parity", "python_native"] | None,
 ) -> ProvenanceIR:
     return ProvenanceIR(
         source_sql=source_sql,
         source_dialect=source_dialect,
-        source_document=source_document,
-        source_notes=source_notes,
         verification_mode=verification_mode,
     )
 
@@ -797,8 +793,6 @@ def metric(
     fold_time_dimension: TimeDimensionRef | str | None = None,
     source_sql: str | None = None,
     source_dialect: str | None = None,
-    source_document: str | None = None,
-    source_notes: str | None = None,
     verification_mode: Literal["sql_parity", "python_native"] | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
@@ -806,8 +800,8 @@ def metric(
 ) -> Callable[[Callable[..., Any]], MetricRef]:
     """Declare an entity-backed base metric.
 
-    ``source_sql`` / ``source_dialect`` / ``source_document`` / ``source_notes``
-    are persisted into ``Provenance`` on the IR.
+    ``source_sql`` / ``source_dialect`` are persisted into ``Provenance``
+    on the IR.
 
     Args:
         name: Metric name. Defaults to the function name.
@@ -816,8 +810,6 @@ def metric(
             / ``ms.weighted_average(...)`` builder.
         source_sql: Original SQL definition, persisted to provenance.
         source_dialect: SQL dialect tag for ``source_sql``.
-        source_document: External doc reference for the metric.
-        source_notes: Free-form provenance notes.
         verification_mode: ``"sql_parity"`` or ``"python_native"``. Required
             for loaded base metrics; ``"sql_parity"`` requires ``source_sql`` and
             ``source_dialect``.
@@ -880,8 +872,6 @@ def metric(
         prov_ir = _build_metric_provenance(
             source_sql=source_sql,
             source_dialect=source_dialect,
-            source_document=source_document,
-            source_notes=source_notes,
             verification_mode=verification_mode,
         )
 
@@ -929,8 +919,6 @@ def derived_metric(
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None,
     source_sql: str | None = None,
     source_dialect: str | None = None,
-    source_document: str | None = None,
-    source_notes: str | None = None,
     verification_mode: Literal["sql_parity", "python_native"] | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
@@ -946,8 +934,6 @@ def derived_metric(
         additivity: Must be omitted or ``"non_additive"``.
         source_sql: Original SQL definition, persisted to provenance.
         source_dialect: SQL dialect tag for ``source_sql``.
-        source_document: External doc reference for the metric.
-        source_notes: Free-form provenance notes.
         verification_mode: ``"sql_parity"`` or ``"python_native"``.
         domain: Override the active domain namespace with a ``DomainRef``.
         description: Free-text description.
@@ -994,8 +980,6 @@ def derived_metric(
     prov_ir = _build_metric_provenance(
         source_sql=source_sql,
         source_dialect=source_dialect,
-        source_document=source_document,
-        source_notes=source_notes,
         verification_mode=verification_mode,
     )
 

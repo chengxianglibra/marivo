@@ -232,8 +232,6 @@ class ProvenanceIR:
 
     source_sql: str | None = None
     source_dialect: str | None = None
-    source_document: str | None = None
-    source_notes: str | None = None
     verification_mode: Literal["sql_parity", "python_native"] | None = None
 
 
