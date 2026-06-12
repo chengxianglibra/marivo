@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-import pandas as pd
-import pytest
+from contextlib import contextmanager
+from unittest.mock import patch
 
-import marivo.semantic as ms
-from marivo.datasource.ir import TableSourceIR
+import ibis
+
 from marivo.datasource.metadata import ColumnMetadata, TableMetadata
+from marivo.semantic.dtos import SelectedColumnsPolicy, TableSource
 from marivo.semantic.reader import SemanticProject
 
 
-def _metadata(datasource: str, table: TableSourceIR) -> TableMetadata:
+def _fake_inspect_source(datasource, *, source, include_partitions=True):
     return TableMetadata(
         datasource=datasource,
-        table=table.table,
-        database=table.database,
+        table=source.table,
+        database=source.database,
         backend_type="duckdb",
         comment=None,
         columns=(
@@ -25,80 +26,48 @@ def _metadata(datasource: str, table: TableSourceIR) -> TableMetadata:
     )
 
 
-def test_inspect_columns_uses_fixed_five_row_sample_and_disconnects(tmp_path, monkeypatch):
+def _backend_factory(_name):
+    con = ibis.duckdb.connect(":memory:")
+    con.con.execute("CREATE TABLE orders (status VARCHAR, amount DOUBLE)")
+    con.con.execute("INSERT INTO orders VALUES ('paid',10.0),('paid',20.0),('void',5.0)")
+    return con
+
+
+class _FakeConnectionService:
+    def __init__(self, factory):
+        self._factory = factory
+
+    @property
+    def project_root(self):
+        return None
+
+    def session_backend(self, name):
+        return self._factory(name)
+
+    @contextmanager
+    def use_backend(self, name):
+        yield self._factory(name)
+
+    def close_all(self):
+        pass
+
+
+def test_inspect_column_context_profiles_selected_columns(tmp_path):
+    root = tmp_path / ".marivo" / "semantic"
+    root.mkdir(parents=True)
     project = SemanticProject(workspace_dir=tmp_path)
-    limits: list[int] = []
-    selected_columns: list[str] = []
-    disconnected: list[bool] = []
+    fake_service = _FakeConnectionService(_backend_factory)
 
-    class FakeTable:
-        def select(self, *columns):
-            selected_columns.extend(columns)
-            return self
-
-        def limit(self, limit):
-            limits.append(limit)
-            return self
-
-        def execute(self):
-            return pd.DataFrame(
-                {
-                    "status": ["paid", "paid", "void", "paid", "pending"],
-                    "amount": [10.0, 20.0, 5.0, None, 40.0],
-                }
-            )
-
-    class FakeBackend:
-        def table(self, table):
-            assert table == "orders"
-            return FakeTable()
-
-        def disconnect(self):
-            disconnected.append(True)
-
-    monkeypatch.setattr(project, "_inspect_metadata", _metadata)
-    monkeypatch.setattr(project, "_build_datasource_backend", lambda _datasource: FakeBackend())
-
-    evidence = project.inspect_columns(
-        "warehouse",
-        ms.table("orders"),
-        columns=("status", "amount"),
-    )
-
-    assert selected_columns == ["status", "amount"]
-    assert limits == [5]
-    assert disconnected == [True]
-    by_col = {item.column: item for item in evidence}
-    assert by_col["status"].sample_values == ("paid", "paid", "void", "paid", "pending")
-    assert by_col["amount"].min_value == 5.0
-    assert by_col["amount"].max_value == 40.0
-
-
-def test_inspect_columns_disconnects_when_sampling_raises(tmp_path, monkeypatch):
-    project = SemanticProject(workspace_dir=tmp_path)
-    disconnected: list[bool] = []
-
-    class FakeTable:
-        def select(self, *_columns):
-            return self
-
-        def limit(self, _limit):
-            return self
-
-        def execute(self):
-            raise RuntimeError("sample failed")
-
-    class FakeBackend:
-        def table(self, _table):
-            return FakeTable()
-
-        def disconnect(self):
-            disconnected.append(True)
-
-    monkeypatch.setattr(project, "_inspect_metadata", _metadata)
-    monkeypatch.setattr(project, "_build_datasource_backend", lambda _datasource: FakeBackend())
-
-    with pytest.raises(RuntimeError, match="sample failed"):
-        project.inspect_columns("warehouse", ms.table("orders"), columns=("status",))
-
-    assert disconnected == [True]
+    with (
+        patch.object(project, "_connection_service", return_value=fake_service),
+        patch("marivo.datasource.inspect_source", _fake_inspect_source),
+    ):
+        evidence = project.inspect_column_context(
+            datasource="warehouse",
+            source=TableSource(table="orders"),
+            columns=("status", "amount"),
+            sample_policy=SelectedColumnsPolicy(limit=100, columns=("status", "amount")),
+        )
+    by_col = {e.column: e for e in evidence}
+    assert by_col["status"].profile.distinct_count == 2
+    assert by_col["amount"].profile.min_value == 5.0

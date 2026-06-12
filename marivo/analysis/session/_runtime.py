@@ -180,13 +180,6 @@ def _session_from_row(
     project_root = store.project_root
     layout = PersistenceLayout(project_root=project_root, session_id=session_id)
     semantic_project = _build_semantic_project(project_root)
-    if factory is not None:
-        from marivo.datasource import inspect_source
-
-        semantic_project.bind_datasource_access(
-            inspect_source=inspect_source,
-            backend_factory=factory,
-        )
 
     resolved_tz = resolve_system_timezone()
     return Session(

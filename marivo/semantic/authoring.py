@@ -18,6 +18,8 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo.datasource.authoring import DatasourceRef
+from marivo.datasource.scan import file as _datasource_file
+from marivo.datasource.scan import table as _datasource_table
 from marivo.datasource.typing import _build_ai_context as _shared_build_ai_context
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
@@ -420,7 +422,7 @@ def domain(
 
 def table(name: str, /, *, database: str | tuple[str, ...] | None = None) -> TableSourceIR:
     """Build a structured table source for ``ms.entity(source=...)``."""
-    return TableSourceIR(table=name, database=database)
+    return _datasource_table(name, database=database)
 
 
 def file(
@@ -431,14 +433,15 @@ def file(
     **options: Any,
 ) -> FileSourceIR:
     """Build a structured file source for ``ms.entity(source=...)``."""
-    if format not in ("parquet", "csv"):
+    try:
+        return _datasource_file(path, format=format, **options)
+    except ValueError as exc:
         _raise(
             ErrorKind.INVALID_REF,
-            "ms.file(format=...) format must be 'parquet' or 'csv'.",
+            str(exc).replace("md.file", "ms.file"),
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
-    return FileSourceIR(path=path, format=format, options=dict(options))
 
 
 def entity(

@@ -23,7 +23,12 @@
 
 ## Authoring 快速路径
 
-目标态标准 agent authoring pipeline 使用每个 model 一个
+The stepwise authoring workflow for agents is defined in
+`docs/specs/semantic/stepwise-authoring-design.md`. That document owns the
+prepare/verify/readiness lifecycle and replaces the earlier three-phase
+authoring pipeline.
+
+目标态标准 stepwise authoring workflow 使用每个 model 一个
 `.marivo/semantic/<model>/_domain.py` 文件。agent 应在
 `.marivo/semantic/sales/_domain.py` 中完成从 dataset 到 metric 的声明；项目
 datasource 单独放在 `.marivo/datasource/warehouse.py`。底层 loader 仍可执行
@@ -113,10 +118,10 @@ semantic/
     _exports.py
 ```
 
-`docs/specs/semantic/authoring-pipeline-design.md` 定义的 agent authoring
-pipeline 只使用每个 model 的 `_domain.py` 单文件。Loader 仍可以执行同目录
-sibling `.py` 文件，但那是底层 loader 能力，不是当前标准 authoring pipeline
-的组织建议。
+`docs/specs/semantic/stepwise-authoring-design.md` 定义的 stepwise
+authoring workflow 只使用每个 model 的 `_domain.py` 单文件。Loader 仍可以
+执行同目录 sibling `.py` 文件，但那是底层 loader 能力，不是当前标准
+authoring pipeline 的组织建议。
 
 目标态 loader 规则是：
 
@@ -131,10 +136,10 @@ sibling `.py` 文件，但那是底层 loader 能力，不是当前标准 author
 - Python 文件是受信任本地代码，不做 sandbox。
 - 成功加载后 registry 进入 `ready`；失败时清空部分模型，进入 `errored`，并记录结构化 `load_errors`。
 
-文件组织应优先服务 agent 的增量修改。当前标准 authoring pipeline 选择把一个
-model 的声明集中在 `_domain.py`，按依赖顺序维护 dataset、field、time field、
-metric、relationship 和 derived metric。底层 loader 支持 sibling files，但
-多文件 authoring 需要单独说明 import order、default model scope 和 review
+文件组织应优先服务 agent 的增量修改。当前标准 stepwise authoring workflow 选择
+把一个 model 的声明集中在 `_domain.py`，按依赖顺序维护 dataset、field、time
+field、metric、relationship 和 derived metric。底层 loader 支持 sibling files，
+但多文件 authoring 需要单独说明 import order、default model scope 和 review
 边界，不能作为默认 agent 工作流。
 
 For agent-authored models, the normal authoring contract is one file:
@@ -144,7 +149,7 @@ For agent-authored models, the normal authoring contract is one file:
   _domain.py
 ```
 
-The loader may still execute sibling Python files as a lower-level capability, but the authoring pipeline in `authoring-pipeline-design.md` uses `_domain.py` as the single normal authoring file.
+The loader may still execute sibling Python files as a lower-level capability, but the stepwise authoring workflow in `stepwise-authoring-design.md` uses `_domain.py` as the single normal authoring file.
 
 ## Reader / Introspection
 
@@ -176,9 +181,9 @@ print(project.describe("sales.revenue", compile_sql=True))
 | `project.dependencies(name)` | 返回某个对象的上游 datasource / dataset / field / metric / relationship 依赖图 |
 | `project.dependents(name)` | 返回依赖某个对象的下游对象，供 agent 判断修改影响面 |
 | `project.describe(name, compile_sql=False, format="object")` | 读取 datasource / dataset / metric 的结构化摘要，可选择编译 SQL |
-| `project.materialize_dataset(name, backend_factory=...)` | 物化 dataset 到 Ibis table |
-| `project.materialize_field(name, backend_factory=...)` | 物化 field 到 Ibis expression |
-| `project.materialize_metric(name, backend_factory=...)` | 物化 metric 到 Ibis expression |
+| `project.materialize_dataset(name)` | 物化 dataset 到 Ibis table |
+| `project.materialize_field(name)` | 物化 field 到 Ibis expression |
+| `project.materialize_metric(name)` | 物化 metric 到 Ibis expression |
 | `project.load()` | 重新加载该项目 |
 | `project.richness(demand=None)` | 返回纯 advisory 的 demand-ranked semantic coverage/depth gap report，不阻塞 readiness |
 
@@ -217,16 +222,13 @@ Discovery methods (`list_metrics()`, `search()`, etc.) return
 
 ## Materialization
 
-Materialization 层把已注册的 Python 函数重新组合成 Ibis 对象。调用方提供 `backend_factory(datasource_name)`，语义层不自己构造连接：
+Materialization 层把已注册的 Python 函数重新组合成 Ibis 对象。Marivo 通过内部 datasource 连接服务自动解析 backend，调用方不再需要提供 `backend_factory`：
 
 ```python
 import marivo.semantic as ms
 
 project = ms.SemanticProject(root=".marivo/semantic")
-expr = project.materialize_metric(
-    "sales.revenue",
-    backend_factory=lambda datasource_name: con,
-)
+expr = project.materialize_metric("sales.revenue")
 value = expr.execute()
 ```
 
@@ -235,8 +237,8 @@ value = expr.execute()
 `describe(..., compile_sql=True)` 应能在不执行查询的情况下返回 Ibis repr、backend-compiled SQL、`source_sql` 和 parity status，帮助 agent 调试口径差异。编译契约：
 
 - compile target 默认来自 metric 依赖 datasource 的 `backend_type`。
-- 如果传入 backend/compiler factory，实际 backend dialect 必须与声明的 `backend_type` 一致，否则 fail closed。
-- 无 backend_factory 时，系统应使用 `backend_type` 对应的 dry compiler；若该 backend type 没有可用 compiler，返回结构化 `compile_error`，而不是执行查询。
+- 系统通过内部 datasource 连接服务获取 backend；实际 backend dialect 必须与声明的 `backend_type` 一致，否则 fail closed。
+- 无可用 backend 连接时，系统应使用 `backend_type` 对应的 dry compiler；若该 backend type 没有可用 compiler，返回结构化 `compile_error`，而不是执行查询。
 - 多 datasource metric 在 compile 和 parity 中默认 fail closed；后续 federation 需要单独设计。
 - 编译失败返回 `compiled_sql=null`、`compile_error={kind,message,refs}`；`strict=True` 时可 raise。
 

@@ -22,7 +22,7 @@ def resolve_project_root(start: Path | None = None) -> Path:
         ``.marivo`` (or the current directory when none exists).
 
     Example:
-        >>> from marivo.datasource._project import resolve_project_root
+        >>> from marivo.project import resolve_project_root
         >>> root = resolve_project_root()
 
     Constraints:

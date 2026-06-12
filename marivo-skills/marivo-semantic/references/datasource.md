@@ -79,6 +79,70 @@ endpoint/catalog or requires federation through Trino. For local JSON files,
 still choose DuckDB as the execution backend, but inspect runtime help before
 declaring `ms.file(...)`; do not invent unsupported file formats.
 
+## Datasource Inspection APIs
+
+All physical inspection lives in `marivo.datasource`. The semantic layer
+composes these primitives and never re-implements them.
+
+### ScanScope
+
+`ScanScope` controls partition pruning, row caps, and column caps for every
+data-touching operation. Use `md.ScanScope()` by default (latest partition,
+1000 rows, 50 columns). Pass an explicit `partition` mapping for targeted
+inspection. Pass `partition=None` only when the answer explicitly accepts an
+unpruned scan.
+
+```python
+scope = md.ScanScope()                                    # default: latest partition
+scope = md.ScanScope(partition={"dt": "20260611"})        # explicit partition
+scope = md.ScanScope(partition=None)                      # unpruned — only with justification
+```
+
+### md.inspect_table
+
+Pure metadata, zero row reads. Returns `TableMetadata` with columns, types,
+nullable flags, comments, partition info, and warnings.
+
+```python
+metadata = md.inspect_table("warehouse", md.table("orders", database="sales_mart"))
+```
+
+### md.inspect_columns
+
+One bounded scan, multi-column profiling. Returns `ColumnInspection` with
+`profiles`, `scan` report, and scope details. `columns=None` means all columns,
+capped by `scope.max_columns`.
+
+```python
+evidence = md.inspect_columns(
+    "warehouse",
+    md.table("orders"),
+    columns=("status", "amount"),
+    scope=md.ScanScope(partition={"dt": "20260611"}),
+)
+for col in evidence.profiles:
+    print(col.column, col.distinct_count, col.top_values)
+```
+
+### md.probe_join_keys
+
+Sample join-key overlap between two sides. Used internally by
+`prepare_relationship`, also available directly for diagnostics.
+
+```python
+probe = md.probe_join_keys(
+    from_side=md.JoinSide("warehouse", md.table("orders"), columns=("customer_id",)),
+    to_side=md.JoinSide("warehouse", md.table("customers"), columns=("customer_id",)),
+)
+print(probe.match_rate, probe.cardinality_estimate)
+```
+
+### md.inspect_source
+
+`md.inspect_source` is a convenience alias that wraps `md.inspect_table` and
+`md.inspect_columns`. For structured metadata-only or profiled inspection,
+prefer `md.inspect_table` and `md.inspect_columns` directly.
+
 ## Inspect configured datasources
 
 Use `md` from the installed project environment:
@@ -91,13 +155,9 @@ print(md.list())
 print(md.describe("warehouse"))
 print(md.test("warehouse"))
 
-metadata = md.inspect_source("warehouse", source=ms.table("orders"))
-print(metadata.to_dict())
+metadata = md.inspect_table("warehouse", source=ms.table("orders"))
+print(metadata.columns)
 ```
-
-`table.schema()` returns types but not comments. Prefer
-`md.inspect_source(...)` for table comments, column comments,
-nullable flags, partition hints, and warnings.
 
 ## DuckDB datasource
 
@@ -160,7 +220,7 @@ Inspect and author tables with `database="sales_mart"`:
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-metadata = md.inspect_source(
+metadata = md.inspect_table(
     "warehouse",
     source=ms.table("orders", database="sales_mart"),
 )

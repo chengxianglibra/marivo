@@ -4,18 +4,17 @@ from typing import get_args, get_type_hints
 
 import pytest
 
+import marivo.semantic as ms
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,
     AuthoringQuestion,
     AuthoringSourceInput,
     BoundedProfilePolicy,
-    ColumnContext,
     ColumnProfile,
     FileSource,
     MetadataOnlyPolicy,
     SelectedColumnsPolicy,
-    TableContext,
     TableSource,
     derive_status,
 )
@@ -169,63 +168,6 @@ def test_column_profile_to_dict_is_json_safe():
     }
 
 
-def test_table_context_to_dict_is_json_safe():
-    source = TableSourceIR(table="orders", database=("mart", "sales"))
-    context = TableContext(
-        datasource="warehouse",
-        table=source,
-        table_comment="orders fact",
-        columns=("order_id", "amount"),
-        column_comments={"amount": "Gross amount"},
-        metadata_warnings=("comments_unavailable: n/a",),
-    )
-
-    assert context.to_dict() == {
-        "datasource": "warehouse",
-        "table": {"kind": "table", "table": "orders", "database": ["mart", "sales"]},
-        "table_comment": "orders fact",
-        "columns": ["order_id", "amount"],
-        "column_comments": {"amount": "Gross amount"},
-        "metadata_warnings": ["comments_unavailable: n/a"],
-    }
-
-
-def test_column_context_to_dict_is_json_safe_and_intentionally_small():
-    source = TableSourceIR(table="orders")
-    context = ColumnContext(
-        datasource="warehouse",
-        table=source,
-        column="amount",
-        data_type="DOUBLE",
-        nullable=True,
-        comment="Gross amount",
-        sample_values=(10.0, None, 20.0),
-        null_count=1,
-        min_value=10.0,
-        max_value=20.0,
-        warnings=("bounded sample",),
-    )
-
-    assert context.to_dict() == {
-        "datasource": "warehouse",
-        "table": {"kind": "table", "table": "orders", "database": None},
-        "column": "amount",
-        "data_type": "DOUBLE",
-        "nullable": True,
-        "comment": "Gross amount",
-        "sample_values": [10.0, None, 20.0],
-        "null_count": 1,
-        "min_value": 10.0,
-        "max_value": 20.0,
-        "warnings": ["bounded sample"],
-    }
-    assert not hasattr(context, "distinct_count")
-    assert not hasattr(context, "top_values")
-    assert not hasattr(context, "empty_count")
-    assert not hasattr(context, "sample_row_count")
-    assert not hasattr(context, "approximate")
-
-
 def test_derive_status_blocked_on_blocker_issue():
     issue = AssessmentIssue(
         kind="missing_column",
@@ -280,3 +222,43 @@ def test_authoring_assessment_is_frozen():
     assessment = AuthoringAssessment(status="supported", facts=(), issues=(), questions=())
     with pytest.raises(AttributeError):
         assessment.status = "blocked"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Stepwise authoring: Brief DTO tests
+# ---------------------------------------------------------------------------
+
+
+def test_brief_status_replaces_review_status_for_stepwise_authoring() -> None:
+    from marivo.semantic.dtos import BriefStatus
+
+    assert set(get_args(BriefStatus)) == {"sufficient", "needs_input", "blocked"}
+
+
+def test_registered_match_is_explainable_not_fuzzy() -> None:
+    from marivo.semantic.dtos import RegisteredMatch
+
+    match = RegisteredMatch(ref="sales.orders", basis="same_source")
+
+    assert match.ref == "sales.orders"
+    assert match.basis == "same_source"
+    # basis is an enum-like literal, not a fuzzy keyword match
+    assert "keyword" not in set(get_args(type(match).__annotations__["basis"]))
+
+
+def test_verify_result_is_public_result_object() -> None:
+    from marivo.semantic.dtos import VerifyResult
+
+    result = VerifyResult(
+        status="passed",
+        ref="sales.orders",
+        kind="entity",
+        issues=(),
+        warnings=(),
+        scan=None,
+        auto_recorded=(),
+    )
+
+    assert repr(result) == "<VerifyResult status=passed ref=sales.orders kind=entity>"
+    assert "VerifyResult status=passed" in result.render()
+    assert ms.VerifyResult is VerifyResult

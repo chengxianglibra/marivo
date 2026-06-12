@@ -1,127 +1,323 @@
 from __future__ import annotations
 
-from pathlib import Path
+from contextlib import contextmanager
+from unittest.mock import patch
 
 import ibis
 
-import marivo.datasource as md
-import marivo.semantic as ms
-from marivo.semantic.dtos import ColumnContext, TableContext
-from marivo.semantic.ledger import LedgerStore
+from marivo.datasource.metadata import ColumnMetadata, TableMetadata
+from marivo.semantic.dtos import (
+    BoundedProfilePolicy,
+    MetadataOnlyPolicy,
+    SelectedColumnsPolicy,
+    TableSource,
+)
 from marivo.semantic.reader import SemanticProject
 
 
-def _seed_project(tmp_path: Path) -> SemanticProject:
-    db_path = tmp_path / "warehouse.duckdb"
-    con = ibis.duckdb.connect(str(db_path))
-    try:
-        con.con.execute(
-            "CREATE TABLE orders (order_id INT, status VARCHAR, amount DOUBLE, note VARCHAR)"
+def _fake_inspect_source(datasource, *, source, include_partitions=True):
+    return TableMetadata(
+        datasource=datasource,
+        table=source.table,
+        database=source.database,
+        backend_type="duckdb",
+        comment="orders fact",
+        columns=(
+            ColumnMetadata("order_id", "INTEGER", False, "Primary id", 1),
+            ColumnMetadata("amount", "DOUBLE", True, "Gross amount", 2),
+        ),
+        partitions=(),
+        warnings=(),
+    )
+
+
+def _fake_inspect_source_compound(datasource, *, source, include_partitions=True):
+    return TableMetadata(
+        datasource=datasource,
+        table=source.table,
+        database=source.database,
+        backend_type="duckdb",
+        comment="order lines fact",
+        columns=(
+            ColumnMetadata("order_id", "INTEGER", False, "Order id", 1),
+            ColumnMetadata("line_num", "INTEGER", False, "Line number", 2),
+            ColumnMetadata("amount", "DOUBLE", True, "Line amount", 3),
+        ),
+        partitions=(),
+        warnings=(),
+    )
+
+
+def _backend_factory(_name):
+    con = ibis.duckdb.connect(":memory:")
+    con.con.execute("CREATE TABLE orders (order_id INT, amount DOUBLE)")
+    con.con.execute("INSERT INTO orders VALUES (1, 10.0), (2, 20.0)")
+    return con
+
+
+def _backend_factory_compound(_name):
+    con = ibis.duckdb.connect(":memory:")
+    con.con.execute("CREATE TABLE order_lines (order_id INT, line_num INT, amount DOUBLE)")
+    con.con.execute("INSERT INTO order_lines VALUES (1, 1, 10.0), (1, 2, 20.0), (2, 1, 30.0)")
+    return con
+
+
+_ORDERS_DOMAIN_PY = """\
+import marivo.semantic as ms
+ms.domain(name="sales", default=True)
+
+orders = ms.entity(
+    name="orders",
+    datasource="warehouse",
+    source=ms.table("orders"),
+    primary_key=["order_id"],
+)
+
+@ms.dimension(entity=orders)
+def amount(table):
+    return table.amount
+"""
+
+_ORDER_LINES_DOMAIN_PY = """\
+import marivo.semantic as ms
+ms.domain(name="sales", default=True)
+
+lines = ms.entity(
+    name="order_lines",
+    datasource="warehouse",
+    source=ms.table("order_lines"),
+    primary_key=["order_id", "line_num"],
+)
+
+@ms.dimension(entity=lines)
+def amount(table):
+    return table.amount
+"""
+
+
+def _make_project(factory, model_py):
+    return factory({"sales/_domain.py": model_py})
+
+
+class _FakeConnectionService:
+    """Test double for DatasourceConnectionService that delegates to a factory."""
+
+    def __init__(self, factory):
+        self._factory = factory
+
+    @property
+    def project_root(self):
+        return None
+
+    def session_backend(self, name):
+        return self._factory(name)
+
+    @contextmanager
+    def use_backend(self, name):
+        yield self._factory(name)
+
+    def close_all(self):
+        pass
+
+
+def _patch_backend(project, factory_fn, *, inspect_fn=None):
+    """Return a context manager that patches both backend resolution paths."""
+
+    fake_service = _FakeConnectionService(factory_fn)
+    patches = [patch.object(project, "_connection_service", return_value=fake_service)]
+
+    if inspect_fn is not None:
+        patches.append(patch("marivo.datasource.inspect_source", inspect_fn))
+
+    # Return combined context manager
+    from contextlib import ExitStack
+
+    class _Combined:
+        def __enter__(self):
+            self._stack = ExitStack()
+            for p in patches:
+                self._stack.enter_context(p)
+            return self
+
+        def __exit__(self, *args):
+            return self._stack.__exit__(*args)
+
+    return _Combined()
+
+
+def test_inspect_source_context_returns_pack_and_persists(tmp_path):
+    root = tmp_path / ".marivo" / "semantic"
+    root.mkdir(parents=True)
+    project = SemanticProject(workspace_dir=tmp_path)
+    with _patch_backend(project, _backend_factory, inspect_fn=_fake_inspect_source):
+        pack = project.inspect_source_context(
+            datasource="warehouse",
+            source=TableSource(table="orders"),
+            sample_policy=BoundedProfilePolicy(limit=50),
         )
-        con.con.execute(
-            "INSERT INTO orders VALUES "
-            "(1, 'paid', 10.0, ''),"
-            "(2, 'paid', 20.0, 'vip'),"
-            "(3, 'refunded', NULL, 'late'),"
-            "(4, 'pending', 40.0, NULL),"
-            "(5, 'paid', 50.0, 'gift'),"
-            "(6, 'paid', 60.0, 'bulk'),"
-            "(7, 'paid', 999.0, 'outside-sample')"
+    assert pack.datasource == "warehouse"
+    assert {c.column for c in pack.column_profiles} == {"order_id", "amount"}
+
+
+def test_inspect_source_context_records_raw_preview_for_readiness(tmp_path):
+    root = tmp_path / ".marivo" / "semantic"
+    root.mkdir(parents=True)
+    project = SemanticProject(workspace_dir=tmp_path)
+    with _patch_backend(project, _backend_factory, inspect_fn=_fake_inspect_source):
+        project.inspect_source_context(
+            datasource="warehouse",
+            source=TableSource(table="orders"),
+            sample_policy=BoundedProfilePolicy(limit=50),
         )
-        con.con.execute("COMMENT ON TABLE orders IS 'orders fact'")
-        con.con.execute("COMMENT ON COLUMN orders.amount IS 'Gross amount'")
-    finally:
-        con.disconnect()
+    # the dataset-level raw preview ref is now visible to readiness plumbing
+    from marivo.semantic.ledger import LedgerStore
 
-    datasource_dir = tmp_path / ".marivo" / "datasource"
-    datasource_dir.mkdir(parents=True)
-    (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec("
-        "name='warehouse', backend_type='duckdb', path="
-        f"{str(db_path)!r})\n"
-        "md.datasource(warehouse)\n"
-    )
-    (tmp_path / ".marivo" / "semantic").mkdir(parents=True, exist_ok=True)
-    return SemanticProject(workspace_dir=tmp_path)
+    store = LedgerStore(project.semantic_root)
+    records = store.read_raw_previews()
+    assert any("orders" in record.ref for record in records)
 
 
-def test_inspect_table_returns_basic_metadata_without_preview_side_effect(tmp_path: Path) -> None:
-    project = _seed_project(tmp_path)
+def test_metadata_only_does_not_record_raw_preview(tmp_path):
+    root = tmp_path / ".marivo" / "semantic"
+    root.mkdir(parents=True)
+    project = SemanticProject(workspace_dir=tmp_path)
+    with _patch_backend(project, _backend_factory, inspect_fn=_fake_inspect_source):
+        project.inspect_source_context(
+            datasource="warehouse",
+            source=TableSource(table="orders"),
+            sample_policy=MetadataOnlyPolicy(),
+        )
+    # MetadataOnlyPolicy does not record raw preview evidence
+    from marivo.semantic.ledger import LedgerStore
 
-    result = project.inspect_table(md.ref("warehouse"), ms.table("orders"))
-
-    assert isinstance(result, TableContext)
-    assert result.datasource == "warehouse"
-    assert result.table == ms.table("orders")
-    assert result.table_comment == "orders fact"
-    assert result.columns == ("order_id", "status", "amount", "note")
-    assert result.column_comments["amount"] == "Gross amount"
-    assert LedgerStore(project.semantic_root).read_raw_previews() == ()
-
-
-def test_inspect_table_accepts_datasource_name_string(tmp_path: Path) -> None:
-    project = _seed_project(tmp_path)
-
-    result = project.inspect_table("warehouse", ms.table("orders"))
-
-    assert result.datasource == "warehouse"
-    assert result.columns[0] == "order_id"
+    store = LedgerStore(project.semantic_root)
+    records = store.read_raw_previews()
+    assert len(records) == 0
 
 
-def test_inspect_columns_defaults_to_all_columns_and_samples_five_rows(tmp_path: Path) -> None:
-    project = _seed_project(tmp_path)
-
-    result = project.inspect_columns("warehouse", ms.table("orders"))
-
-    assert all(isinstance(item, ColumnContext) for item in result)
-    assert [item.column for item in result] == ["order_id", "status", "amount", "note"]
-    by_column = {item.column: item for item in result}
-    assert by_column["status"].sample_values == (
-        "paid",
-        "paid",
-        "refunded",
-        "pending",
-        "paid",
-    )
-    assert by_column["amount"].null_count == 1
-    assert by_column["amount"].min_value == 10.0
-    assert by_column["amount"].max_value == 50.0
-    assert not hasattr(by_column["status"], "distinct_count")
-    assert not hasattr(by_column["status"], "top_values")
-    assert not hasattr(by_column["status"], "empty_count")
-    assert not hasattr(by_column["status"], "sample_row_count")
-    assert not hasattr(by_column["status"], "approximate")
+# -- auto-bridge: inspect -> record_primary_key_sample -------------------------
 
 
-def test_inspect_columns_can_select_columns_in_requested_order(tmp_path: Path) -> None:
-    project = _seed_project(tmp_path)
+def test_inspect_source_context_auto_records_primary_key_sample(
+    semantic_project_factory,
+):
+    project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
+    with _patch_backend(project, _backend_factory, inspect_fn=_fake_inspect_source):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
+        report = project.readiness()
+        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
 
-    result = project.inspect_columns(
-        "warehouse",
-        ms.table("orders"),
-        columns=("amount", "status"),
-    )
+        project.inspect_source_context(
+            datasource="warehouse",
+            source=TableSource(table="orders"),
+            sample_policy=BoundedProfilePolicy(limit=50),
+        )
+        report = project.readiness()
+        assert not any(w.kind == "primary_key_unsampled" for w in report.warnings)
 
-    assert [item.column for item in result] == ["amount", "status"]
-    assert result[0].comment == "Gross amount"
+
+def test_inspect_source_context_metadata_only_skips_auto_record(
+    semantic_project_factory,
+):
+    project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
+    with _patch_backend(project, _backend_factory, inspect_fn=_fake_inspect_source):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
+        project.inspect_source_context(
+            datasource="warehouse",
+            source=TableSource(table="orders"),
+            sample_policy=MetadataOnlyPolicy(),
+        )
+        report = project.readiness()
+        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
 
 
-def test_inspect_columns_returns_warning_context_for_missing_columns(tmp_path: Path) -> None:
-    project = _seed_project(tmp_path)
+def test_inspect_column_context_covers_primary_key(
+    semantic_project_factory,
+):
+    project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
+    with _patch_backend(project, _backend_factory, inspect_fn=_fake_inspect_source):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
+        report = project.readiness()
+        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
 
-    result = project.inspect_columns(
-        "warehouse",
-        ms.table("orders"),
-        columns=("missing_column",),
-    )
+        project.inspect_column_context(
+            datasource="warehouse",
+            source=TableSource(table="orders"),
+            columns=("order_id", "amount"),
+            sample_policy=SelectedColumnsPolicy(limit=100, columns=("order_id", "amount")),
+        )
+        report = project.readiness()
+        assert not any(w.kind == "primary_key_unsampled" for w in report.warnings)
 
-    assert len(result) == 1
-    missing = result[0]
-    assert missing.column == "missing_column"
-    assert missing.data_type == "UNKNOWN"
-    assert missing.sample_values == ()
-    assert missing.null_count is None
-    assert missing.min_value is None
-    assert missing.max_value is None
-    assert missing.warnings == ("column absent from source schema",)
+
+def test_inspect_column_context_does_not_cover_primary_key(
+    semantic_project_factory,
+):
+    project = _make_project(semantic_project_factory, _ORDERS_DOMAIN_PY)
+    with _patch_backend(project, _backend_factory, inspect_fn=_fake_inspect_source):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
+        project.inspect_column_context(
+            datasource="warehouse",
+            source=TableSource(table="orders"),
+            columns=("amount",),
+            sample_policy=SelectedColumnsPolicy(limit=100, columns=("amount",)),
+        )
+        report = project.readiness()
+        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
+
+
+def test_inspect_column_context_compound_key_partial(
+    semantic_project_factory,
+):
+    project = _make_project(semantic_project_factory, _ORDER_LINES_DOMAIN_PY)
+    with _patch_backend(
+        project, _backend_factory_compound, inspect_fn=_fake_inspect_source_compound
+    ):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="order_lines",
+        )
+        project.inspect_column_context(
+            datasource="warehouse",
+            source=TableSource(table="order_lines"),
+            columns=("order_id",),
+            sample_policy=SelectedColumnsPolicy(limit=100, columns=("order_id",)),
+        )
+        report = project.readiness()
+        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
+
+
+def test_inspect_column_context_compound_key_full(
+    semantic_project_factory,
+):
+    project = _make_project(semantic_project_factory, _ORDER_LINES_DOMAIN_PY)
+    with _patch_backend(
+        project, _backend_factory_compound, inspect_fn=_fake_inspect_source_compound
+    ):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="order_lines",
+        )
+        report = project.readiness()
+        assert any(w.kind == "primary_key_unsampled" for w in report.warnings)
+
+        project.inspect_column_context(
+            datasource="warehouse",
+            source=TableSource(table="order_lines"),
+            columns=("order_id", "line_num"),
+            sample_policy=SelectedColumnsPolicy(limit=100, columns=("order_id", "line_num")),
+        )
+        report = project.readiness()
+        assert not any(w.kind == "primary_key_unsampled" for w in report.warnings)

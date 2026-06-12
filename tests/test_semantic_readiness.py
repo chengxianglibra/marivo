@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import textwrap
+from contextlib import contextmanager
+from unittest.mock import patch
 
 import ibis
 import pytest
@@ -53,6 +55,34 @@ def _fake_inspect_source(datasource, *, source, include_partitions=True):
         columns=(),
         partitions=(),
         warnings=(),
+    )
+
+
+class _FakeConnectionService:
+    """Stubs DatasourceConnectionService for tests that need backend access."""
+
+    def __init__(self, factory):
+        self._factory = factory
+
+    @property
+    def project_root(self):
+        return None
+
+    def session_backend(self, name):
+        return self._factory(name)
+
+    @contextmanager
+    def use_backend(self, name):
+        yield self._factory(name)
+
+    def close_all(self):
+        pass
+
+
+def _patch_connection_service(project, factory):
+    """Return a context manager that patches project._connection_service with a fake."""
+    return patch.object(
+        project, "_connection_service", return_value=_FakeConnectionService(factory)
     )
 
 
@@ -210,37 +240,19 @@ def test_readiness_report_target_fields_are_json_safe() -> None:
     assert json.loads(json.dumps(payload))["analysis_ready_refs"] == ["sales.total_amount"]
 
 
-def test_project_readiness_blocks_when_backend_access_is_not_bound(
-    semantic_project_factory,
-) -> None:
-    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
-
-    report = project.readiness(refs=("sales.orders",))
-
-    assert report.status == "blocked"
-    blockers = [issue for issue in report.blockers if issue.kind == "datasource_unreachable"]
-    assert blockers
-    assert "project-bound backend access" in blockers[0].message
-    assert "bind_datasource_access" in blockers[0].message
-    assert "backend_factory" not in blockers[0].suggested_action
-    assert "sales.orders" in report.preview_summary.failed_previews
-
-
 def test_project_readiness_accepts_target_closeout_arguments(
     semantic_project_factory,
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
 
-    report = project.readiness(
-        refs=("sales.orders",),
-        demand=None,
-        preview_limit=20,
-        parity_rel_tol=1e-6,
-    )
+    with _patch_connection_service(project, backend_factory):
+        report = project.readiness(
+            refs=("sales.orders",),
+            demand=None,
+            preview_limit=20,
+            parity_rel_tol=1e-6,
+        )
 
     assert report.input_summary.refs == ("sales.orders",)
     assert report.preview_summary.required_previews
@@ -249,11 +261,9 @@ def test_project_readiness_accepts_target_closeout_arguments(
 
 def test_readiness_blocks_unknown_requested_ref(semantic_project_factory, backend_factory) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
 
-    report = project.readiness(refs=("sales.missing_metric",))
+    with _patch_connection_service(project, backend_factory):
+        report = project.readiness(refs=("sales.missing_metric",))
 
     assert report.status == "blocked"
     assert report.analysis_ready_refs == ()
@@ -299,11 +309,9 @@ def test_readiness_scoped_metric_ignores_unrelated_dataset_previews(
             """),
         }
     )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
 
-    report = project.readiness(refs=("sales.total_amount",))
+    with _patch_connection_service(project, backend_factory):
+        report = project.readiness(refs=("sales.total_amount",))
 
     assert "warehouse.orders" in report.preview_summary.required_previews
     assert "sales.total_amount" in report.preview_summary.required_previews
@@ -364,11 +372,8 @@ def test_readiness_scoped_metric_ignores_unrelated_datasource_reachability(
             raise RuntimeError("unused datasource should not be checked")
         return duckdb_backend
 
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=scoped_backend_factory
-    )
-
-    report = project.readiness(refs=("sales.total_amount",))
+    with _patch_connection_service(project, scoped_backend_factory):
+        report = project.readiness(refs=("sales.total_amount",))
 
     assert report.input_summary.datasources == ("warehouse",)
     assert not any("broken" in issue.refs for issue in report.blockers)
@@ -379,11 +384,9 @@ def test_parity_drift_is_warning_not_blocker(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _DRIFTED_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
 
-    report = project.readiness(refs=("sales.total_amount",), preview_limit=20)
+    with _patch_connection_service(project, backend_factory):
+        report = project.readiness(refs=("sales.total_amount",), preview_limit=20)
 
     assert "parity_drifted" in _issue_kinds(report.warnings)
     assert "parity_drifted" not in _issue_kinds(report.blockers)
@@ -394,15 +397,13 @@ def test_readiness_recomputes_parity_when_tolerance_changes(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _DRIFTED_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
 
-    permissive = project.readiness(
-        refs=("sales.total_amount",),
-        parity_rel_tol=3.0,
-    )
-    default = project.readiness(refs=("sales.total_amount",))
+    with _patch_connection_service(project, backend_factory):
+        permissive = project.readiness(
+            refs=("sales.total_amount",),
+            parity_rel_tol=3.0,
+        )
+        default = project.readiness(refs=("sales.total_amount",))
 
     assert permissive.parity_summary.verified_metrics == ("sales.total_amount",)
     assert default.parity_summary.drifted_metrics == ("sales.total_amount",)
@@ -534,16 +535,15 @@ def test_readiness_ready_after_required_preview_and_parity(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    project.collect_source_preview(
-        datasource="warehouse", table="orders", backend_factory=backend_factory
-    )
-    project.record_primary_key_sample("sales.orders")
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with _patch_connection_service(project, backend_factory):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
+        project.record_primary_key_sample("sales.orders")
+        project.parity_check("sales.total_amount")
 
-    report = project.readiness()
+        report = project.readiness()
 
     # The only blocker should be requires_raw_sql (auto-derived for sql_parity
     # metrics with source_sql).  Preview and parity checks are satisfied.
@@ -580,25 +580,24 @@ def test_readiness_folds_dataset_field_and_time_field_previews(
     from ibis.expr.types.relations import Table
 
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    project.collect_source_preview(
-        datasource="warehouse", table="orders", backend_factory=backend_factory
-    )
-    project.record_primary_key_sample("sales.orders")
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
-    execute_calls = 0
-    original_execute = Table.execute
+    with _patch_connection_service(project, backend_factory):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
+        project.record_primary_key_sample("sales.orders")
+        project.parity_check("sales.total_amount")
+        execute_calls = 0
+        original_execute = Table.execute
 
-    def counting_execute(self, *args, **kwargs):
-        nonlocal execute_calls
-        execute_calls += 1
-        return original_execute(self, *args, **kwargs)
+        def counting_execute(self, *args, **kwargs):
+            nonlocal execute_calls
+            execute_calls += 1
+            return original_execute(self, *args, **kwargs)
 
-    monkeypatch.setattr(Table, "execute", counting_execute)
+        monkeypatch.setattr(Table, "execute", counting_execute)
 
-    report = project.readiness()
+        report = project.readiness()
 
     # Status may be blocked due to requires_raw_sql (auto-derived), but
     # the preview folding behavior is what this test validates.
@@ -652,14 +651,13 @@ def test_readiness_folded_preview_falls_back_to_precise_field_blocker(
         }
     )
 
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    project.collect_source_preview(
-        datasource="warehouse", table="orders", backend_factory=backend_factory
-    )
+    with _patch_connection_service(project, backend_factory):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
 
-    report = project.readiness()
+        report = project.readiness()
 
     assert report.status == "blocked"
     assert "sales.orders" in report.preview_summary.completed_previews
@@ -675,14 +673,12 @@ def test_readiness_runs_live_raw_preview_without_collected_evidence(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    project.record_primary_key_sample("sales.orders")
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
-    # Do NOT call collect_source_preview -- raw preview will be missing.
+    with _patch_connection_service(project, backend_factory):
+        project.record_primary_key_sample("sales.orders")
+        project.parity_check("sales.total_amount")
+        # Do NOT call collect_source_preview -- raw preview will be missing.
 
-    report = project.readiness()
+        report = project.readiness()
 
     assert "missing_raw_preview" not in _issue_kinds(report.blockers)
     assert "warehouse.orders" in report.preview_summary.completed_previews
@@ -693,19 +689,16 @@ def test_readiness_live_preview_does_not_require_collected_source_preview_eviden
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    project.record_primary_key_sample("sales.orders")
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with _patch_connection_service(project, backend_factory):
+        project.record_primary_key_sample("sales.orders")
+        project.parity_check("sales.total_amount")
 
-    before = project.readiness()
-    project.collect_source_preview(
-        datasource="warehouse",
-        table="orders",
-        backend_factory=backend_factory,
-    )
-    after = project.readiness()
+        before = project.readiness()
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
+        after = project.readiness()
 
     assert "missing_raw_preview" not in _issue_kinds(before.blockers)
     assert "missing_raw_preview" not in _issue_kinds(after.blockers)
@@ -718,18 +711,15 @@ def test_readiness_uses_collected_physical_raw_preview_ref(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    project.record_primary_key_sample("sales.orders")
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
-    project.collect_source_preview(
-        datasource="warehouse",
-        table="orders",
-        backend_factory=backend_factory,
-    )
+    with _patch_connection_service(project, backend_factory):
+        project.record_primary_key_sample("sales.orders")
+        project.parity_check("sales.total_amount")
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
 
-    report = project.readiness()
+        report = project.readiness()
 
     # Status may be blocked by requires_raw_sql, but the raw preview is collected.
     assert "missing_raw_preview" not in _issue_kinds(report.blockers)
@@ -741,38 +731,35 @@ def test_readiness_live_raw_preview_overrides_persisted_failed_preview(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    project.record_primary_key_sample("sales.orders")
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
-    project.collect_source_preview(
-        datasource="warehouse",
-        table="orders",
-        backend_factory=backend_factory,
-    )
-    # Override with a failed preview record.
-    from datetime import UTC, datetime
-
-    from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
-
-    LedgerStore(project.semantic_root).write_raw_preview(
-        RawPreviewEvidence(
-            ref="warehouse.orders",
+    with _patch_connection_service(project, backend_factory):
+        project.record_primary_key_sample("sales.orders")
+        project.parity_check("sales.total_amount")
+        project.collect_source_preview(
             datasource="warehouse",
             table="orders",
-            database=None,
-            columns=(),
-            types={},
-            requested_limit=0,
-            returned_row_count=0,
-            sample_policy={},
-            collected_at=datetime.now(UTC).isoformat(),
-            status="failed",
         )
-    )
+        # Override with a failed preview record.
+        from datetime import UTC, datetime
 
-    report = project.readiness()
+        from marivo.semantic.ledger import LedgerStore, RawPreviewEvidence
+
+        LedgerStore(project.semantic_root).write_raw_preview(
+            RawPreviewEvidence(
+                ref="warehouse.orders",
+                datasource="warehouse",
+                table="orders",
+                database=None,
+                columns=(),
+                types={},
+                requested_limit=0,
+                returned_row_count=0,
+                sample_policy={},
+                collected_at=datetime.now(UTC).isoformat(),
+                status="failed",
+            )
+        )
+
+        report = project.readiness()
 
     assert "raw_preview_failed" not in _issue_kinds(report.blockers)
     assert "warehouse.orders" in report.preview_summary.completed_previews
@@ -784,11 +771,11 @@ def test_reload_preserves_collected_source_preview_evidence(
 ) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
 
-    project.collect_source_preview(
-        datasource="warehouse",
-        table="orders",
-        backend_factory=backend_factory,
-    )
+    with _patch_connection_service(project, backend_factory):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
 
     project.load()
 
@@ -807,24 +794,19 @@ def test_readiness_uses_persisted_source_preview_evidence_in_new_project_instanc
     from marivo.semantic.reader import SemanticProject
 
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    project.record_primary_key_sample("sales.orders")
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
-    project.collect_source_preview(
-        datasource="warehouse",
-        table="orders",
-        backend_factory=backend_factory,
-    )
+    with _patch_connection_service(project, backend_factory):
+        project.record_primary_key_sample("sales.orders")
+        project.parity_check("sales.total_amount")
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
 
     reloaded = SemanticProject(root=project.root)
     reloaded.load()
-    reloaded.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    reloaded.parity_check("sales.total_amount", backend_factory=backend_factory)
-    report = reloaded.readiness()
+    with _patch_connection_service(reloaded, backend_factory):
+        reloaded.parity_check("sales.total_amount")
+        report = reloaded.readiness()
 
     from marivo.semantic.ledger import LedgerStore
 
@@ -856,11 +838,9 @@ def test_readiness_warns_for_drifted_metric(
     backend_factory,
 ) -> None:
     project = _project(semantic_project_factory, _DRIFTED_DOMAIN_PY)
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
 
-    report = project.readiness()
+    with _patch_connection_service(project, backend_factory):
+        report = project.readiness()
 
     assert report.parity_summary.drifted_metrics == ("sales.total_amount",)
     assert "parity_drifted" in _issue_kinds(report.warnings)
@@ -901,19 +881,24 @@ def test_semantic_check_run_check_returns_json_ready_report(
     workspace_dir = project.workspace_dir
 
     # Record evidence via the project API so auto-collect can discover it.
-    project.collect_source_preview(
-        datasource="warehouse", table="orders", backend_factory=backend_factory
-    )
-    project.record_primary_key_sample("sales.orders")
+    with _patch_connection_service(project, backend_factory):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
+        project.record_primary_key_sample("sales.orders")
 
     from marivo.semantic.check import run_check
 
-    payload = run_check(
-        workspace_dir=workspace_dir,
-        readiness=True,
-        format="json",
-        backend_factory=backend_factory,
-    )
+    fake_service = _FakeConnectionService(backend_factory)
+    with patch(
+        "marivo.semantic.reader.SemanticProject._connection_service", return_value=fake_service
+    ):
+        payload = run_check(
+            workspace_dir=workspace_dir,
+            readiness=True,
+            format="json",
+        )
 
     assert payload["status"] == "blocked"
     assert payload["readiness"]["status"] == "blocked"
@@ -1458,33 +1443,32 @@ def test_semantic_check_main_prints_json(
     semantic_project_factory,
     backend_factory,
     capsys,
-    monkeypatch,
 ) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
 
     # Record evidence via the project API so auto-collect can discover it.
-    project.collect_source_preview(
-        datasource="warehouse", table="orders", backend_factory=backend_factory
-    )
-    project.record_primary_key_sample("sales.orders")
+    with _patch_connection_service(project, backend_factory):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+        )
+        project.record_primary_key_sample("sales.orders")
 
     import marivo.semantic.check as semantic_check
 
-    monkeypatch.setattr(
-        semantic_check,
-        "_default_backend_factory",
-        lambda: backend_factory,
-    )
-
-    exit_code = semantic_check.main(
-        [
-            "--workspace-dir",
-            str(project.workspace_dir),
-            "--format",
-            "json",
-            "--readiness",
-        ]
-    )
+    fake_service = _FakeConnectionService(backend_factory)
+    with patch(
+        "marivo.semantic.reader.SemanticProject._connection_service", return_value=fake_service
+    ):
+        exit_code = semantic_check.main(
+            [
+                "--workspace-dir",
+                str(project.workspace_dir),
+                "--format",
+                "json",
+                "--readiness",
+            ]
+        )
 
     assert exit_code == 1  # blocked due to requires_raw_sql
     captured = capsys.readouterr()
@@ -1635,16 +1619,55 @@ def test_readiness_auto_evidence_end_to_end(
             """),
         }
     )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
 
-    # Agent workflow: collect preview, record pk sample
-    project.collect_source_preview(datasource="warehouse", table="orders")
-    project.record_primary_key_sample("sales.orders")
+    with _patch_connection_service(project, backend_factory):
+        # Agent workflow: collect preview, record pk sample
+        project.collect_source_preview(datasource="warehouse", table="orders")
+        project.record_primary_key_sample("sales.orders")
 
-    # Single call, no manual evidence
-    report = project.readiness()
+        # Single call, no manual evidence
+        report = project.readiness()
 
     assert "warehouse.orders" in report.preview_summary.completed_previews
     assert "sales.orders" in report.input_summary.tables
+
+
+def test_readiness_reports_authoring_abandoned_candidates(
+    semantic_project_factory,
+) -> None:
+    from datetime import UTC, datetime
+
+    from marivo.semantic.ledger import DecisionRecord, LedgerStore, RejectedCandidate
+
+    project = semantic_project_factory(
+        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+    )
+    ledger = LedgerStore(project.semantic_root)
+    decided_at = datetime.now(UTC).isoformat()
+    ledger.record_decision(
+        "sales.missing_metric",
+        DecisionRecord(
+            decision_kind="authoring_abandoned",
+            chosen="abandoned",
+            agreement_confidence="high",
+            qualifying_sources=("structural",),
+            materiality="low",
+            blast_radius=0,
+            evidence_fingerprint="",
+            question_id=None,
+            decided_at=decided_at,
+        ),
+    )
+    ledger.write_rejected_candidate(
+        RejectedCandidate(
+            decision_kind="authoring_abandoned",
+            candidate="sales.missing_metric",
+            reason="No source evidence was available.",
+            evidence_fingerprint="",
+            rejected_at=decided_at,
+        )
+    )
+
+    report = project.readiness(refs=("sales",))
+
+    assert [candidate.candidate for candidate in report.abandoned] == ["sales.missing_metric"]

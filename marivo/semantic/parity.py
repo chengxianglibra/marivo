@@ -7,13 +7,11 @@ algorithm.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from marivo.semantic.errors import ErrorKind, SemanticParityError, _raise
 from marivo.semantic.ir import MetricIR, ParityStatus
-from marivo.semantic.materializer import IbisBackend
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
@@ -95,7 +93,6 @@ def parity_check(
     project: SemanticProject,
     metric_id: str,
     *,
-    backend_factory: Callable[[str], IbisBackend],
     rel_tol: float | None = None,
     abs_tol: float | None = None,
     force: bool = False,
@@ -190,7 +187,7 @@ def parity_check(
 
     # Execute the ibis metric -> single scalar
     try:
-        metric_expr = project.materialize_metric(metric_id, backend_factory=backend_factory)
+        metric_expr = project.materialize_metric(metric_id)
         actual_result = metric_expr.to_pandas()
         actual_val = _extract_scalar(actual_result, metric_id, "Metric")
     except SemanticParityError:
@@ -211,9 +208,10 @@ def parity_check(
 
     # Execute the source SQL -> single scalar
     try:
-        backend = backend_factory(datasource_id)
-        sql_result = backend.sql(metric_ir.provenance.source_sql)
-        sql_pandas = sql_result.to_pandas()
+        service = project._connection_service()
+        with service.use_backend(datasource_id) as backend:
+            sql_result = backend.sql(metric_ir.provenance.source_sql)
+            sql_pandas = sql_result.to_pandas()
         expected_val = _extract_scalar(sql_pandas, metric_id, "Source SQL")
     except SemanticParityError:
         raise

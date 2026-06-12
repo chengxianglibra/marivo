@@ -3,62 +3,106 @@
 ## Two Output Levels
 
 - **Fact**: An observed, verifiable piece of evidence (column type, null count,
-  sample top values).
+  sample top values). Facts live on typed Brief fields, not generic lists.
 - **Assessment**: A rule-based evaluation of whether authoring can proceed.
-  `AuthoringAssessment` contains `facts`, `issues`, and `questions`. Issues have
-  severity (`blocker`/`warning`/`info`); questions represent unresolved
-  business decisions.
+  Each `*Brief` carries `issues` and `questions`. Issues have severity
+  (`blocker`/`warning`/`info`); questions represent unresolved business
+  decisions.
 
-## Evidence DTOs
+## Brief DTOs
+
+Every `prepare_*` call returns a typed Brief with `status`, `issues`,
+`questions`, and kind-specific fact fields. See `references/object-briefs.md`
+for per-kind field tables.
 
 | DTO | Purpose |
 | --- | ------- |
-| `TableContext` | Basic table/file metadata from `inspect_table` |
-| `ColumnContext` | Fixed-sample column details from `inspect_columns` |
-| `TableSource` | Physical table source (table name, optional database) |
-| `FileSource` | Physical file source (path + format: parquet/csv/json) |
-| `DatasetSource` | Type alias: `TableSource \| FileSource` |
-| `MetadataOnlyPolicy` | No row reading, metadata-only profiling |
-| `BoundedProfilePolicy` | Reads rows with a limit |
-| `SelectedColumnsPolicy` | Reads selected columns with a limit |
-| `SamplePolicy` | Type alias: `MetadataOnlyPolicy \| BoundedProfilePolicy \| SelectedColumnsPolicy` |
-| `EvidenceFact` | Single observed fact |
-| `ColumnProfile` | Bounded-sample profile for one column |
-| `SourceEvidencePack` | Collected facts and profiles for a source |
-| `ColumnEvidence` | Deep-dive evidence for one source column |
-| `AssessmentIssue` | A single rule-based assessment issue |
+| `DomainBrief` | Domain preparation with reuse matches |
+| `EntityBrief` | Entity preparation with table metadata and column profiles |
+| `DimensionBrief` | Dimension preparation with value shape |
+| `TimeDimensionBrief` | Time dimension preparation with format inference |
+| `MetricBrief` | Metric preparation with measure profiles |
+| `RelationshipBrief` | Relationship preparation with join-key probe |
+| `CrossEntityMetricBrief` | Cross-entity metric preparation with join paths |
+| `DerivedMetricBrief` | Derived metric preparation with component facts |
+| `VerifyResult` | Post-authoring verification result |
 | `AuthoringQuestion` | An unresolved business decision |
-| `AuthoringAssessment` | Facts, issues, and questions from an authoring assessment |
+| `RegisteredMatch` | An already-registered candidate with match basis |
 
 ## Collecting Evidence
 
+Evidence is collected automatically by `prepare_*` APIs. `prepare_entity`
+calls `md.inspect_table` and `md.inspect_columns` internally; `prepare_relationship`
+calls `md.probe_join_keys` internally. The agent does not need to call these
+datasource APIs manually before preparing an object.
+
+For exploratory source inspection outside the prepare cycle, use `md` APIs
+directly:
+
 ```python
-# Table metadata
-table_context = project.inspect_table("warehouse", ms.table("orders"))
+metadata = md.inspect_table("warehouse", md.table("orders", database="sales_mart"))
+columns = md.inspect_columns("warehouse", md.table("orders"), columns=("status", "amount"))
+```
 
-# Column deep-dive
-evidence = project.inspect_columns(
-    "warehouse",
-    ms.table("orders"),
-    columns=("status", "amount"),
-)
+## AuthoringQuestion Mapping
 
-assessment = project.assess_authoring(
-    object_kind="entity",
-    subject_ref="sales.orders",
-    sources=(
-        ms.AuthoringSourceInput(
-            role="primary",
-            datasource="warehouse",
-            source=ms.TableSource(table="orders"),
-        ),
-    ),
+When the agent cannot answer a question from documented project knowledge, ask
+the user through the question tool:
+
+| `AuthoringQuestion` field | User question field |
+| --- | --- |
+| `prompt` + `reason` | question body |
+| `decision_kind` | header (mapped to a short label) |
+| `options` | options (top 4 by evidence support; remainder via free-text) |
+| `default_option` | listed first, marked recommended |
+
+Questions with `readiness_effect="blocks"` must be resolved before authoring.
+Advisory questions may proceed on defaults.
+
+## Confirmation Recording
+
+When the agent resolves a blocking `AuthoringQuestion` (from knowledge or user
+answer), record the resolution as a decision-ledger confirmation so reruns are
+traceable:
+
+```python
+project.record_decision(
+    decision_kind="entity_primary_key",
+    subject="sales.orders",
+    chosen="order_id",
+    agreement_confidence="high",
+    qualifying_sources=("user_confirmation",),
 )
 ```
 
+## Abandon Protocol
+
+When a candidate cannot reach sufficiency -- the user cannot answer a blocking
+question, or required evidence is unobtainable -- record abandonment:
+
+```python
+project.record_decision(
+    decision_kind="authoring_abandoned",
+    subject="sales.refund_amount",
+    chosen="abandoned",
+    agreement_confidence="high",
+    qualifying_sources=("user_confirmation",),
+    materiality="low",
+    blast_radius=0,
+)
+```
+
+Then skip the object and continue the ladder. Dependents are naturally stopped
+by hard gates with structured errors naming the missing prerequisite.
+
+Abandoned candidates appear in `ReadinessReport.abandoned` for transparency. A
+later session may re-prepare the same candidate; abandonment is not a permanent
+block.
+
 ## Auto-Recorded Decisions
 
-On load, Marivo auto-records `metric_decomposition` and `time_field_identity`
-decisions for authored metrics and time fields. These are the sole mechanism
-for writing `DecisionRecord` entries and satisfy the
-`dangerous_decision_recorded` rule in `inspect_authored_object`.
+On load, Marivo auto-records `metric_decomposition` and
+`time_dimension_identity` decisions for authored metrics and time dimensions.
+These happen during `verify_object`, replacing the manual "reload after
+authoring" rule. The auto-recorded entries satisfy the
+`dangerous_decision_recorded` check in `verify_object`.

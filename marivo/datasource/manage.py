@@ -7,17 +7,26 @@ import time
 from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
 from marivo.datasource import backends as _backends
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
 from marivo.datasource.authoring import DatasourceSpec
 from marivo.datasource.errors import DatasourceMissingError, DatasourcePreviewError
-from marivo.datasource.ir import EntitySourceIR
+from marivo.datasource.ir import EntitySourceIR, FileSourceIR, TableSourceIR
 from marivo.datasource.metadata import TableMetadata
 from marivo.datasource.metadata import inspect_source as _inspect_source
-from marivo.datasource.metadata import inspect_table as _inspect_table
+from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.scan import (
+    ColumnInspection,
+    ColumnProfile,
+    JoinKeyProbe,
+    JoinSide,
+    ScanReport,
+    ScanScope,
+)
 from marivo.preview import (
     PREVIEW_DEFAULT_LIMIT,
     PreviewFilter,
@@ -62,12 +71,17 @@ class DatasourceTestResult:
     latency_ms: int | None
 
 
-def register(spec: DatasourceSpec) -> DatasourceSummary:
+def register(
+    spec: DatasourceSpec,
+    *,
+    project_root: Path | None = None,
+) -> DatasourceSummary:
     """Create or replace a project datasource file from a DatasourceSpec.
 
     Args:
         spec: Validated datasource specification with name, backend_type,
             and connection fields.
+        project_root: Optional project root directory; defaults to cwd.
 
     Returns:
         A ``DatasourceSummary`` for the newly stored datasource.
@@ -80,7 +94,7 @@ def register(spec: DatasourceSpec) -> DatasourceSummary:
         The name must be a flat identifier (no dots).  Sensitive fields
         (password, token, key) must use ``*_env`` references, not literals.
     """
-    stored = _store.save_one(spec)
+    stored = _store.save_one(spec, project_root=project_root)
     return DatasourceSummary(
         name=stored.name, backend_type=stored.backend_type, description=stored.description
     )
@@ -388,34 +402,45 @@ def preview(
 
 def inspect_table(
     datasource: str,
+    source: EntitySourceIR | None = None,
     *,
-    table: str,
+    table: str | None = None,
     database: str | tuple[str, ...] | None = None,
     include_partitions: bool = True,
+    project_root: Path | None = None,
 ) -> TableMetadata:
     """Schema, comments, nullability, and partition metadata for a table.
 
     Args:
         datasource: Name of the project datasource.
-        table: Table name within the datasource.
+        source: An ``EntitySourceIR`` (from ``md.table()`` or ``md.file()``).
+            Pass either ``source`` or ``table``, not both.
+        table: Table name within the datasource (alternative to ``source``).
         database: Optional database/catalog path.
         include_partitions: Whether to include partition hints.
+        project_root: Optional project root directory; defaults to cwd.
 
     Returns:
         A ``TableMetadata`` with columns, warnings, and optional partitions.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.inspect_table("wh", table="orders")
+        >>> md.inspect_table("wh", md.table("orders"))
 
     Constraints:
         Opens and closes a backend connection internally.
     """
-    return _inspect_table(
+    if source is not None and table is not None:
+        raise TypeError("Pass either source or table, not both.")
+    if source is None:
+        if table is None:
+            raise TypeError("inspect_table requires a structured source or table name.")
+        source = TableSourceIR(table=table, database=database)
+    return _inspect_source(
         datasource,
-        table=table,
-        database=database,
+        source=source,
         include_partitions=include_partitions,
+        project_root=project_root,
     )
 
 
@@ -424,6 +449,7 @@ def inspect_source(
     *,
     source: EntitySourceIR,
     include_partitions: bool = True,
+    project_root: Path | None = None,
 ) -> TableMetadata:
     """Table metadata for a semantic entity source (table or file).
 
@@ -431,6 +457,7 @@ def inspect_source(
         datasource: Name of the project datasource.
         source: An ``EntitySourceIR`` describing the table or file.
         include_partitions: Whether to include partition hints.
+        project_root: Optional project root directory; defaults to cwd.
 
     Returns:
         A ``TableMetadata`` with columns, warnings, and optional partitions.
@@ -446,6 +473,460 @@ def inspect_source(
         datasource,
         source=source,
         include_partitions=include_partitions,
+        project_root=project_root,
+    )
+
+
+def inspect_columns(
+    datasource: str,
+    source: EntitySourceIR,
+    *,
+    columns: tuple[str, ...] | None = None,
+    scope: ScanScope | None = None,
+    project_root: Path | None = None,
+) -> ColumnInspection:
+    """Profile selected columns from a datasource source with bounded scan.
+
+    Args:
+        datasource: Name of the project datasource.
+        source: An ``EntitySourceIR`` (from ``md.table()`` or ``md.file()``).
+        columns: Column names to profile; ``None`` profiles all columns
+            (capped by ``scope.max_columns``).
+        scope: Bounded scan configuration; defaults to ``ScanScope()``.
+        project_root: Optional project root directory; defaults to cwd.
+
+    Returns:
+        A ``ColumnInspection`` with per-column profiles and a ``ScanReport``.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.inspect_columns(
+        ...     "wh",
+        ...     md.table("orders"),
+        ...     columns=("status", "amount"),
+        ...     scope=md.ScanScope(partition=None, max_rows=100),
+        ... )
+
+    Constraints:
+        The backend is always disconnected before returning, even on error.
+        Scan scope limits (max_rows, max_columns) are always enforced.
+    """
+    if scope is None:
+        scope = ScanScope()
+
+    metadata = _inspect_source(
+        datasource,
+        source=source,
+        include_partitions=False,
+        project_root=project_root,
+    )
+
+    # Determine which columns to profile.
+    all_column_names = tuple(column.name for column in metadata.columns)
+    requested = columns if columns is not None else all_column_names
+    selected_columns = requested[: scope.max_columns]
+
+    # Build column spec lookup from metadata.
+    column_specs: dict[str, tuple[str, bool | None, str | None]] = {
+        column.name: (column.type, column.nullable, column.comment) for column in metadata.columns
+    }
+
+    # Resolve partition for the scan report.
+    partition_resolution: str
+    partition_used: Mapping[str, str] | None = None
+    if scope.partition is None:
+        partition_resolution = "unpruned"
+    elif scope.partition == "latest":
+        partition_resolution = "latest"
+    else:
+        partition_resolution = "explicit"
+        partition_used = dict(scope.partition)
+
+    # Execute the bounded sample.
+    start = time.perf_counter()
+    frame = _execute_scoped_sample(
+        datasource,
+        source,
+        selected_columns=selected_columns,
+        scope=scope,
+        project_root=project_root,
+    )
+    elapsed = time.perf_counter() - start
+
+    rows_scanned = len(frame)
+    truncated = rows_scanned >= scope.max_rows
+    warnings: builtins.list[str] = []
+
+    # Profile each column.
+    profiles: builtins.list[ColumnProfile] = []
+    for column_name in selected_columns:
+        spec = column_specs.get(column_name)
+        if spec is None:
+            warnings.append(f"column {column_name!r} absent from source schema")
+            profiles.append(
+                ColumnProfile(
+                    column=column_name,
+                    data_type="UNKNOWN",
+                    nullable=None,
+                    comment=None,
+                    null_count=0,
+                    empty_count=0,
+                    distinct_count=0,
+                    top_values=(),
+                    sample_values=(),
+                    min_value=None,
+                    max_value=None,
+                )
+            )
+            continue
+
+        data_type, nullable, comment = spec
+        if column_name not in frame:
+            warnings.append(f"column {column_name!r} absent from bounded sample")
+            profiles.append(
+                ColumnProfile(
+                    column=column_name,
+                    data_type=data_type,
+                    nullable=nullable,
+                    comment=comment,
+                    null_count=0,
+                    empty_count=0,
+                    distinct_count=0,
+                    top_values=(),
+                    sample_values=(),
+                    min_value=None,
+                    max_value=None,
+                )
+            )
+            continue
+
+        profiles.append(_profile_column(frame, column_name, data_type, nullable, comment))
+
+    scan_report = ScanReport(
+        partition_used=partition_used,
+        partition_resolution=partition_resolution,  # type: ignore[arg-type]
+        rows_scanned=rows_scanned,
+        columns_scanned=tuple(selected_columns),
+        truncated=truncated,
+        elapsed_seconds=elapsed,
+        warnings=tuple(warnings),
+    )
+
+    return ColumnInspection(
+        datasource=datasource,
+        source=source
+        if isinstance(source, (TableSourceIR, FileSourceIR))
+        else TableSourceIR(table=str(source)),
+        profiles=tuple(profiles),
+        scan=scan_report,
+    )
+
+
+def _execute_scoped_sample(
+    datasource: str,
+    source: EntitySourceIR,
+    *,
+    selected_columns: tuple[str, ...],
+    scope: ScanScope,
+    project_root: Path | None,
+) -> Any:
+    """Execute a bounded sample against a datasource source and return a DataFrame."""
+    service = DatasourceConnectionService(project_root)
+    with service.use_backend(datasource) as backend:
+        expr: Any
+        if isinstance(source, TableSourceIR):
+            if source.database is None:
+                expr = backend.table(source.table)
+            else:
+                expr = backend.table(source.table, database=source.database)
+        elif isinstance(source, FileSourceIR):
+            reader_name = {
+                "parquet": "read_parquet",
+                "csv": "read_csv",
+                "json": "read_json",
+            }[source.format]
+            reader = getattr(backend, reader_name)
+            expr = reader(source.path, **source.options)
+        else:
+            raise TypeError(f"unsupported source type: {type(source).__name__}")
+
+        # Apply partition filter if scope has an explicit partition.
+        if (
+            scope.partition is not None
+            and scope.partition != "latest"
+            and isinstance(scope.partition, Mapping)
+        ):
+            for column, value in scope.partition.items():
+                if column in expr.columns:
+                    expr = expr.filter(expr[column] == value)
+
+        # Select requested columns and limit rows.
+        if selected_columns:
+            available = set(expr.columns)
+            present = [col for col in selected_columns if col in available]
+            if present:
+                expr = expr.select(*present)
+
+        expr = expr.limit(scope.max_rows)
+        return expr.execute()
+
+
+def _profile_column(
+    frame: Any,
+    column_name: str,
+    data_type: str,
+    nullable: bool | None,
+    comment: str | None,
+) -> ColumnProfile:
+    """Profile a single column from a pandas DataFrame."""
+    from collections import Counter
+
+    from marivo.preview import normalize_preview_cell
+
+    series = frame[column_name]
+    non_null = series.dropna()
+    null_count = int(series.isna().sum())
+
+    empty_count = 0
+    if series.dtype == object:
+        empty_count = int((series.dropna() == "").sum())
+
+    # Distinct count from non-null values.
+    distinct_count = int(non_null.nunique())
+
+    # Top values from non-null values.
+    counter = Counter(non_null)
+    top_values = tuple(
+        (normalize_preview_cell(value), count) for value, count in counter.most_common(10)
+    )
+
+    # Sample values (first 10 non-null).
+    sample_values = tuple(normalize_preview_cell(value) for value in non_null.head(10))
+
+    # Min/max for orderable types.
+    min_value: object | None = None
+    max_value: object | None = None
+    if not non_null.empty:
+        try:
+            min_value = normalize_preview_cell(non_null.min())
+            max_value = normalize_preview_cell(non_null.max())
+        except TypeError:
+            min_value = None
+            max_value = None
+
+    return ColumnProfile(
+        column=column_name,
+        data_type=data_type,
+        nullable=nullable,
+        comment=comment,
+        null_count=null_count,
+        empty_count=empty_count,
+        distinct_count=distinct_count,
+        top_values=top_values,
+        sample_values=sample_values,
+        min_value=min_value,
+        max_value=max_value,
+    )
+
+
+def _sample_distinct_keys(
+    side: JoinSide,
+    scope: ScanScope,
+    key_sample_size: int,
+    project_root: Path | None,
+) -> tuple[builtins.list[tuple[object, ...]], ScanReport]:
+    """Sample distinct key tuples from one join side.
+
+    Returns:
+        A pair of (distinct key tuples, scan report).
+    """
+    start = time.perf_counter()
+    frame = _execute_scoped_sample(
+        side.datasource,
+        side.source,
+        selected_columns=tuple(side.columns),
+        scope=scope,
+        project_root=project_root,
+    )
+    elapsed = time.perf_counter() - start
+
+    rows_scanned = len(frame)
+    truncated = rows_scanned >= scope.max_rows
+    warnings: builtins.list[str] = []
+
+    # Extract distinct key tuples.
+    key_columns = builtins.list(side.columns)
+    seen: set[tuple[object, ...]] = set()
+    distinct_keys: builtins.list[tuple[object, ...]] = []
+    for row_values in frame[key_columns].itertuples(index=False, name=None):
+        key_tuple = tuple(row_values)
+        if key_tuple not in seen:
+            seen.add(key_tuple)
+            distinct_keys.append(key_tuple)
+        if len(distinct_keys) >= key_sample_size:
+            break
+
+    partition_resolution: str
+    partition_used: Mapping[str, str] | None = None
+    if scope.partition is None:
+        partition_resolution = "unpruned"
+    elif scope.partition == "latest":
+        partition_resolution = "latest"
+    else:
+        partition_resolution = "explicit"
+        partition_used = dict(scope.partition)
+
+    scan_report = ScanReport(
+        partition_used=partition_used,
+        partition_resolution=partition_resolution,  # type: ignore[arg-type]
+        rows_scanned=rows_scanned,
+        columns_scanned=tuple(side.columns),
+        truncated=truncated,
+        elapsed_seconds=elapsed,
+        warnings=tuple(warnings),
+    )
+    return distinct_keys, scan_report
+
+
+def _count_matching_keys(
+    side: JoinSide,
+    key_tuples: builtins.list[tuple[object, ...]],
+    scope: ScanScope,
+    project_root: Path | None,
+) -> tuple[dict[tuple[object, ...], int], ScanReport]:
+    """Count how many rows on the to-side match each from-side key.
+
+    Returns:
+        A pair of (key -> count mapping, scan report).
+    """
+    start = time.perf_counter()
+    frame = _execute_scoped_sample(
+        side.datasource,
+        side.source,
+        selected_columns=tuple(side.columns),
+        scope=scope,
+        project_root=project_root,
+    )
+    elapsed = time.perf_counter() - start
+
+    rows_scanned = len(frame)
+    truncated = rows_scanned >= scope.max_rows
+    warnings: builtins.list[str] = []
+
+    # Build a lookup of key -> count from the to-side sample.
+    key_columns = builtins.list(side.columns)
+    from_key_set = set(key_tuples)
+    counts: dict[tuple[object, ...], int] = {}
+    for row_values in frame[key_columns].itertuples(index=False, name=None):
+        key_tuple = tuple(row_values)
+        if key_tuple in from_key_set:
+            counts[key_tuple] = counts.get(key_tuple, 0) + 1
+
+    partition_resolution: str
+    partition_used: Mapping[str, str] | None = None
+    if scope.partition is None:
+        partition_resolution = "unpruned"
+    elif scope.partition == "latest":
+        partition_resolution = "latest"
+    else:
+        partition_resolution = "explicit"
+        partition_used = dict(scope.partition)
+
+    scan_report = ScanReport(
+        partition_used=partition_used,
+        partition_resolution=partition_resolution,  # type: ignore[arg-type]
+        rows_scanned=rows_scanned,
+        columns_scanned=tuple(side.columns),
+        truncated=truncated,
+        elapsed_seconds=elapsed,
+        warnings=tuple(warnings),
+    )
+    return counts, scan_report
+
+
+def probe_join_keys(
+    *,
+    from_side: JoinSide,
+    to_side: JoinSide,
+    scope: ScanScope | None = None,
+    key_sample_size: int = 500,
+    project_root: Path | None = None,
+) -> JoinKeyProbe:
+    """Probe join compatibility between two sources on specified key columns.
+
+    Samples distinct keys from the from-side, then counts matching rows
+    on the to-side to estimate match rate and join cardinality.
+
+    Args:
+        from_side: The left side of the join, defining keys to probe.
+        to_side: The right side of the join, checked for key matches.
+        scope: Bounded scan configuration; defaults to ``ScanScope()``.
+        key_sample_size: Maximum distinct keys to sample from the from-side.
+        project_root: Optional project root directory; defaults to cwd.
+
+    Returns:
+        A ``JoinKeyProbe`` with match statistics and cardinality estimate.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.probe_join_keys(
+        ...     from_side=md.JoinSide("wh", md.table("orders"), columns=("customer_id",)),
+        ...     to_side=md.JoinSide("wh", md.table("customers"), columns=("customer_id",)),
+        ...     scope=md.ScanScope(partition=None, max_rows=100),
+        ...     project_root=project_root,
+        ... )
+
+    Constraints:
+        Both from-side and to-side may reference the same or different
+        datasources. Key comparison uses tuple equality. Matching is
+        performed client-side after a bounded sample.
+    """
+    if scope is None:
+        scope = ScanScope()
+
+    # Step 1: Sample distinct keys from the from-side.
+    distinct_keys, from_scan = _sample_distinct_keys(
+        from_side, scope, key_sample_size, project_root
+    )
+
+    # Step 2: Count matching keys from the to-side.
+    counts_by_key, to_scan = _count_matching_keys(to_side, distinct_keys, scope, project_root)
+
+    # Step 3: Compute metrics.
+    sampled_key_count = len(distinct_keys)
+    matched_key_count = sum(1 for key_tuple in distinct_keys if key_tuple in counts_by_key)
+    match_rate = matched_key_count / sampled_key_count if sampled_key_count > 0 else 0.0
+
+    max_rows_per_key = 0
+    total_rows = 0
+    for key_tuple in distinct_keys:
+        count = counts_by_key.get(key_tuple, 0)
+        total_rows += count
+        if count > max_rows_per_key:
+            max_rows_per_key = count
+
+    avg_rows_per_key = total_rows / sampled_key_count if sampled_key_count > 0 else 0.0
+
+    # Cardinality estimate.
+    if matched_key_count == 0:
+        cardinality_estimate: Literal["one_to_one", "many_to_one", "indeterminate"] = (
+            "indeterminate"
+        )
+    elif max_rows_per_key > 1:
+        cardinality_estimate = "many_to_one"
+    else:
+        cardinality_estimate = "one_to_one"
+
+    return JoinKeyProbe(
+        type_compatible=True,
+        sampled_key_count=sampled_key_count,
+        matched_key_count=matched_key_count,
+        match_rate=match_rate,
+        max_rows_per_key=max_rows_per_key,
+        avg_rows_per_key=avg_rows_per_key,
+        cardinality_estimate=cardinality_estimate,
+        from_scan=from_scan,
+        to_scan=to_scan,
     )
 
 

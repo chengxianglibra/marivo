@@ -1,4 +1,8 @@
-"""Closeout: readiness folds preview, parity, and richness signals."""
+"""Closeout: readiness folds preview, parity, and richness signals.
+
+Shows: readiness with ScanScope scope, abandoned candidates, and
+parity/richness reporting.
+"""
 
 from __future__ import annotations
 
@@ -9,9 +13,6 @@ from pathlib import Path
 import ibis
 
 import marivo.datasource as md
-import marivo.semantic as ms
-from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
-from marivo.semantic.ir import TableSourceIR
 
 DOMAIN = """
 import marivo.datasource as md
@@ -75,25 +76,6 @@ def drifted_revenue(table):
 """
 
 
-def fake_inspect_source(
-    datasource: str, *, source: TableSourceIR, include_partitions: bool = True
-) -> TableMetadata:
-    return TableMetadata(
-        datasource=datasource,
-        table=source.table,
-        database=source.database,
-        backend_type="duckdb",
-        comment="Orders fact table.",
-        columns=(
-            ColumnMetadata("order_id", "INTEGER", False, "Primary order id", 1),
-            ColumnMetadata("dt", "DATE", False, "Partition date", 2),
-            ColumnMetadata("amount", "DOUBLE", True, "Gross order amount", 3),
-        ),
-        partitions=(PartitionMetadata("dt", type="DATE"),),
-        warnings=(),
-    )
-
-
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
     db_path = root / "orders.duckdb"
@@ -115,19 +97,11 @@ with tempfile.TemporaryDirectory() as tmp:
         project = SemanticProject(root=root / ".marivo" / "semantic")
         project.load()
 
-        table_context = project.inspect_table("warehouse", ms.table("orders"))
-        column_contexts = project.inspect_columns(
-            "warehouse",
-            ms.table("orders"),
-            columns=("order_id", "amount"),
-        )
-        print("source schema columns:", len(table_context.columns))
-        print("sampled columns:", [column.column for column in column_contexts])
-
+        # readiness resolves backends internally via DatasourceConnectionService
         report = project.readiness(
             refs=("sales.orders", "sales.unverified_revenue", "sales.drifted_revenue"),
             demand=None,
-            preview_limit=20,
+            scope=md.ScanScope(),
         )
         print("readiness:", report.status)
         print("blockers:", [issue.kind for issue in report.blockers])
@@ -138,5 +112,6 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         print("parity_drifted:", "sales.drifted_revenue" in report.parity_summary.drifted_metrics)
         print("richness gaps:", len(report.richness_summary.gaps))
+        print("abandoned:", len(report.abandoned))
     finally:
         os.chdir(previous)

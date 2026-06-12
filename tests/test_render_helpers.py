@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marivo.introspection.render import format_bounded_card
+from marivo.analysis.frames.render import format_bounded_card
 
 
 def test_identity_only_card():

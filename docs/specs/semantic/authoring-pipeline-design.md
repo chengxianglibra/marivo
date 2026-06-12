@@ -1,13 +1,11 @@
 # Authoring Pipeline Design
 
-Status: superseded.
+> **Superseded for agent authoring:** use
+> `docs/specs/semantic/stepwise-authoring-design.md` for the active
+> stepwise prepare/verify/readiness workflow. This document remains only as
+> historical context for the previous pipeline.
 
-This design has been superseded by
-`docs/specs/semantic/stepwise-authoring-design.md`. The three-phase flow,
-`assess_authoring(...)`, `AuthoringSourceInput`, and the internal
-`check_authoring_inputs(...)` contract are replaced by the stepwise
-per-object ladder (`prepare_*` / `verify_object`). The persistence boundary
-and readiness closeout contract are carried forward into that document.
+Status: superseded.
 
 This document defines the target-state authoring pipeline for Marivo semantic
 layer construction. It replaces the `NextCheck`-driven choreography with a
@@ -29,8 +27,8 @@ The current authoring pipeline exposes a 13-step choreography via the
 
 ```python
 NextCheck = Literal[
-    "inspect_table",
-    "inspect_columns",
+    "inspect_source_context",
+    "inspect_column_context",
     "check_authoring_inputs",
     "write_semantic_python",
     "reload_project",
@@ -49,13 +47,13 @@ This design has several structural problems:
 
 1. **No state machine.** `AssessmentResult.next_checks` returns a tuple of
    `NextCheck` values, but there is no encoded transition logic. What comes
-   after `inspect_table`? The agent must infer from skill
+   after `inspect_source_context`? The agent must infer from skill
    documentation, not from code.
 
-2. **No data flow between steps.** `inspect_table` returns source
-   facts; the agent must extract schema and column context from it and
+2. **No data flow between steps.** `inspect_source_context` returns source
+   facts; the agent must extract schema and column profiles from it and
    manually feed them into `check_authoring_inputs(columns=...)` and
-   `inspect_columns(columns=...)`. Method signatures do not accept
+   `inspect_column_context(columns=...)`. Method signatures do not accept
    prior-step outputs as inputs.
 
 3. **Asymmetric write step.** `"write_semantic_python"` has no corresponding
@@ -119,20 +117,26 @@ candidate semantic objects they might produce.
 2. For each relevant table, collect source metadata:
 
 ```python
-source_facts = project.inspect_table(
-    "warehouse",
-    ms.table("orders", database="sales_mart"),
+project.bind_datasource_access(
+    inspect_source=md.inspect_source,
+    backend_factory=md.connect,
+)
+source_facts = project.inspect_source_context(
+    datasource="warehouse",
+    source=ms.TableSource(table="orders", database="sales_mart"),
+    sample_policy=ms.BoundedProfilePolicy(limit=100, max_profiled_columns=50),
 )
 ```
 
 3. The agent ranks columns from source facts (type, comments, nullable,
-   sampled values). Deep-dive a small set if needed:
+   partition hints, sampled values). Deep-dive a small set if needed:
 
 ```python
-columns = project.inspect_columns(
-    "warehouse",
-    ms.table("orders"),
+columns = project.inspect_column_context(
+    datasource="warehouse",
+    source=ms.TableSource(table="orders"),
     columns=("status", "amount"),
+    sample_policy=ms.BoundedProfilePolicy(limit=100),
 )
 ```
 
@@ -339,9 +343,10 @@ All semantic objects are validated after all code is written. Phase 3 uses
 checks refs, runs required backend previews, runs eligible parity checks, and
 folds richness findings into one `ReadinessReport`.
 
-`readiness(...)` depends on datasource-backed runtime access owned by the
-project. The agent must not pass a separate backend factory at readiness time.
-If the project has no backend access, readiness returns a blocker instead of a
+`readiness(...)` depends on backend access bound on the project, such as the
+backend factory registered through `project.bind_datasource_access(...)`. The
+agent must not pass a separate `backend_factory` at readiness time. If the
+project has no bound backend access, readiness returns a blocker instead of a
 fallback or degraded report.
 
 ```python
@@ -437,10 +442,12 @@ Source roles are interpreted as follows:
 | `to` | Relationship to-side source |
 | `component` | Source context for a metric component when the assessed object is component-driven but not a pure derived metric |
 
-If an agent needs exploratory judgment, it can call `inspect_table(...)` or
-`inspect_columns(...)` in Phase 1 and use the returned facts directly. Those
-observations are not durable truth. `inspect_columns(...)` always uses the
-fixed bounded sample defined by the public API.
+If an agent needs a non-default sample policy for exploratory judgment, it can
+call `inspect_source_context(..., sample_policy=...)` or
+`inspect_column_context(...)` in Phase 1 and use the returned facts directly.
+Those observations are not durable truth. `assess_authoring(...)` uses the
+default bounded inspection policy unless the future API explicitly adds a
+per-call inspection policy.
 
 Parameters:
 
@@ -667,8 +674,8 @@ These APIs have independent use cases beyond the authoring pipeline:
 
 | API | Reason |
 | --- | ------ |
-| `inspect_table` | Standalone table/file metadata exploration without authoring |
-| `inspect_columns` | Standalone column inspection |
+| `inspect_source_context` | Standalone source exploration without authoring |
+| `inspect_column_context` | Standalone column inspection |
 | `inspect_authored_object` | Debugging helper for post-reload static inspection; readiness calls the equivalent checks during closeout |
 | `preview_dataset` | Debugging helper for inspecting bounded runtime rows; readiness runs required previews during closeout |
 | `preview_field` | Debugging helper for inspecting bounded runtime rows; readiness runs required previews during closeout |
@@ -715,7 +722,7 @@ conflict with this document.
 The complete agent interaction removes manual static-check and runtime-check
 choreography:
 
-1. **Phase 1:** `inspect_table` + optional `inspect_columns`
+1. **Phase 1:** `inspect_source_context` + optional `inspect_column_context`
    (per source, not per object)
 2. **Phase 2:** `assess_authoring` per candidate object + file write (no
    reload)

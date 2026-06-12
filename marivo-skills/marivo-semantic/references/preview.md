@@ -5,37 +5,35 @@ meaning by itself.
 
 ## Source preview evidence
 
-`inspect_table(...)` reads source metadata only. `inspect_columns(...)` reads a
-fixed 5-row sample for selected columns and closes its datasource connection.
-Readiness runs required raw and semantic previews live through project-bound
-datasource access. Use bounded raw previews before declaring or revising
-datasets, time-like columns, amount columns, enum/status columns, and join keys.
+`prepare_entity` and `prepare_dimensions`/`prepare_time_dimension`/`prepare_metric`
+collect source evidence internally via `md.inspect_table` and `md.inspect_columns`.
+Readiness runs required raw and semantic previews live through the internal
+datasource connection service. Use bounded raw previews before declaring or
+revising datasets, time-like columns, amount columns, enum/status columns, and
+join keys.
 
-For debugging or targeted raw table inspection, `collect_source_preview` is still
-available:
+For debugging or targeted raw table inspection, use `md.inspect_columns`:
 
 ```python
-import marivo.analysis as mv
+import marivo.datasource as md
 
-backend_factory = lambda name: md.connect(name)
-preview = project.collect_source_preview(
-    datasource="warehouse",
-    table="orders",
-    backend_factory=backend_factory,
-    limit=20,
+evidence = md.inspect_columns(
+    "warehouse",
+    md.table("orders"),
+    columns=("status", "amount"),
+    scope=md.ScanScope(partition={"dt": "20260611"}),
 )
-print(preview.rows)
+for col in evidence.profiles:
+    print(col.column, col.distinct_count, col.top_values)
 ```
 
 For Trino without a default schema:
 
 ```python
-preview = project.collect_source_preview(
-    datasource="warehouse",
-    table="orders",
-    database="sales_mart",
-    backend_factory=backend_factory,
-    limit=20,
+evidence = md.inspect_columns(
+    "warehouse",
+    md.table("orders", database="sales_mart"),
+    scope=md.ScanScope(),
 )
 ```
 
@@ -43,25 +41,21 @@ Raw previews help validate time formats, enum values, nulls, amount signs,
 amount units, JSON-like strings, and join-key shape. They do not prove that a
 column is the correct business concept.
 
-Successful source previews record project-local preview metadata under
-`.marivo/semantic/.evidence/`. Normal closeout still uses
-`project.readiness(...)`, which reruns the required previews against the current
-bound datasource access. Marivo persists preview metadata only; raw sample rows
-are not written to the evidence file.
+Normal closeout uses `project.readiness(...)`, which reruns the required
+previews against the internal connection service. No separate
+connection parameter is needed.
 
 ## Semantic preview
 
 After authoring and load, preview the semantic objects that will be handed to
-analysis:
+analysis. Previews use the internal connection service:
 
 ```python
 import marivo.analysis as mv
 
-backend_factory = lambda name: md.connect(name)
-
-project.preview_dataset("sales.orders", backend_factory=backend_factory, limit=20)
-project.preview_field("sales.orders.order_date", backend_factory=backend_factory, limit=20)
-project.preview_metric("sales.revenue", backend_factory=backend_factory, limit=20)
+project.preview_dataset("sales.orders", limit=20)
+project.preview_field("sales.orders.order_date", limit=20)
+project.preview_metric("sales.revenue", limit=20)
 ```
 
 Preview failures are readiness blockers for affected handoff refs. Fix the

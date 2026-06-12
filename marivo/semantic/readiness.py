@@ -165,6 +165,7 @@ class ReadinessReport:
     parity_summary: ParitySummary
     richness_summary: RichnessSummary
     checked_at: str
+    abandoned: tuple[Any, ...] = ()
 
     def __repr__(self) -> str:
         issues = len(self.blockers) + len(self.warnings)
@@ -193,6 +194,12 @@ class ReadinessReport:
             lines.append(f"analysis_ready: {', '.join(shown)}")
             if len(ready) > 5:
                 lines.append(f"  ... {len(ready) - 5} more")
+        if self.abandoned:
+            lines.append(f"abandoned ({len(self.abandoned)}):")
+            for candidate in self.abandoned[:3]:
+                lines.append(f"  - {candidate.candidate}")
+            if len(self.abandoned) > 3:
+                lines.append(f"  ... {len(self.abandoned) - 3} more; call .to_dict() for full list")
         lines.append(f"checked_at: {self.checked_at}")
         lines.append("available:")
         for entry in (".render()", ".to_dict()"):
@@ -213,6 +220,7 @@ class ReadinessReport:
             "preview_summary": self.preview_summary.to_dict(),
             "parity_summary": self.parity_summary.to_dict(),
             "richness_summary": self.richness_summary.to_dict(),
+            "abandoned": [c.to_dict() for c in self.abandoned],
             "checked_at": self.checked_at,
         }
 
@@ -694,29 +702,29 @@ def _run_preview(
     project: SemanticProject,
     ref: str,
     kind: _SemanticKind,
-    backend_factory: Callable[[str], Any],
     *,
     limit: int,
 ) -> PreviewResult:
     if kind == _SemanticKind.ENTITY:
-        return project.preview_dataset(ref, backend_factory=backend_factory, limit=limit)
+        return project.preview_dataset(ref, limit=limit)
     if kind in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
-        return project.preview_field(ref, backend_factory=backend_factory, limit=limit)
+        return project.preview_field(ref, limit=limit)
     if kind == _SemanticKind.METRIC:
-        return project.preview_metric(ref, backend_factory=backend_factory, limit=limit)
+        return project.preview_metric(ref, limit=limit)
     raise ValueError(f"cannot preview semantic kind {kind}")
 
 
 def _run_raw_preview(
     *,
+    project: SemanticProject,
     ref: str,
     datasource: str,
     table: str,
     database: str | tuple[str, ...] | None,
-    backend_factory: Callable[[str], Any],
     preview_limit: int,
 ) -> PreviewResult:
-    backend = backend_factory(datasource)
+    service = project._connection_service()
+    backend = service.session_backend(datasource)
     preview_table = (
         backend.table(table) if database is None else backend.table(table, database=database)
     )
@@ -743,7 +751,6 @@ def _run_semantic_previews(
     semantic_required: Iterable[str],
     kinds: Mapping[str, _SemanticKind],
     objects: Mapping[str, object],
-    backend_factory: Callable[[str], Any],
     *,
     preview_limit: int,
 ) -> _SemanticPreviewRun:
@@ -753,10 +760,9 @@ def _run_semantic_previews(
     warnings: list[ReadinessIssue] = []
     preview_warnings: list[PreviewWarning] = []
     required = tuple(semantic_required)
-    materializer = Materializer(project, backend_factory)
-    metric_materializer = Materializer(
-        project, backend_factory, sample_size=METRIC_PREVIEW_SAMPLE_SIZE
-    )
+    factory = project._session_backend_factory()
+    materializer = Materializer(project, factory)
+    metric_materializer = Materializer(project, factory, sample_size=METRIC_PREVIEW_SAMPLE_SIZE)
 
     dataset_groups: dict[str, list[str]] = {}
     metric_refs: list[str] = []
@@ -790,7 +796,7 @@ def _run_semantic_previews(
                 project,
                 refs,
                 kinds,
-                backend_factory,
+                factory,
                 preview_limit=preview_limit,
             )
             completed.extend(fallback.completed)
@@ -820,7 +826,7 @@ def _run_semantic_previews(
             project,
             serial_refs,
             kinds,
-            backend_factory,
+            factory,
             preview_limit=preview_limit,
         )
         completed.extend(fallback.completed)
@@ -939,7 +945,6 @@ def _run_serial_semantic_previews(
                 project,
                 ref,
                 kind,
-                backend_factory,
                 limit=preview_limit,
             )
         except Exception as exc:
@@ -1005,6 +1010,16 @@ def _richness_warnings(gaps: Iterable[RichnessGap]) -> tuple[ReadinessIssue, ...
             gap.suggested_action,
         )
         for gap in gaps
+    )
+
+
+def _abandoned_candidates(project: SemanticProject) -> tuple[Any, ...]:
+    """Return authoring-abandoned rejected candidates from the project ledger."""
+    from marivo.semantic.ledger import LedgerStore
+
+    store = LedgerStore(project.semantic_root)
+    return tuple(
+        c for c in store.list_rejected_candidates() if c.decision_kind == "authoring_abandoned"
     )
 
 
@@ -1077,6 +1092,7 @@ def build_readiness_report(
                 skipped_metrics=(),
             ),
             richness_summary=RichnessSummary(gaps=()),
+            abandoned=_abandoned_candidates(project),
             checked_at=_checked_at(),
         )
 
@@ -1123,8 +1139,8 @@ def build_readiness_report(
                 "datasource_unreachable",
                 "blocker",
                 preview_refs,
-                "Required previews need project-bound backend access; call project.bind_datasource_access(...) before readiness closeout.",
-                "Bind datasource access with project.bind_datasource_access(...) and rerun readiness.",
+                "Required previews need datasource backend access; ensure datasources are configured under .marivo/.",
+                "Configure datasources and rerun readiness.",
             )
         )
         failed_previews.extend(preview_refs)
@@ -1139,11 +1155,11 @@ def build_readiness_report(
             issue_refs = (ref, *raw_ref_datasets.get(ref, ()))
             try:
                 preview = _run_raw_preview(
+                    project=project,
                     ref=ref,
                     datasource=datasource,
                     table=table,
                     database=database,
-                    backend_factory=backend_factory,
                     preview_limit=preview_limit,
                 )
             except Exception as exc:
@@ -1166,7 +1182,6 @@ def build_readiness_report(
             semantic_required,
             kinds,
             objects,
-            backend_factory,
             preview_limit=preview_limit,
         )
         completed_previews.extend(semantic_preview_run.completed)
@@ -1195,7 +1210,6 @@ def build_readiness_report(
             try:
                 parity_result = project.parity_check(
                     metric.semantic_id,
-                    backend_factory=backend_factory,
                     rel_tol=parity_rel_tol,
                     abs_tol=parity_abs_tol,
                     force=True,
@@ -1254,7 +1268,8 @@ def build_readiness_report(
             if backend_factory is None:
                 continue
             try:
-                backend_factory(datasource_ref)
+                service = project._connection_service()
+                service.session_backend(datasource_ref)
             except Exception as exc:
                 blockers.append(
                     _issue(
@@ -1423,5 +1438,6 @@ def build_readiness_report(
         richness_summary=RichnessSummary(
             gaps=tuple(_richness_gap_label(gap) for gap in scoped_richness_gaps)
         ),
+        abandoned=_abandoned_candidates(project),
         checked_at=_checked_at(),
     )

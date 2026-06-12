@@ -23,6 +23,8 @@ Tests cover:
 from __future__ import annotations
 
 import textwrap
+from contextlib import contextmanager
+from unittest.mock import patch
 
 import ibis
 import pytest
@@ -57,6 +59,50 @@ def backend_factory(duckdb_backend):
         return duckdb_backend
 
     return _factory
+
+
+# ---------------------------------------------------------------------------
+# Fake connection service for patching internal backend resolution
+# ---------------------------------------------------------------------------
+
+
+class _FakeConnectionService:
+    """Stubs DatasourceConnectionService using a test backend factory."""
+
+    def __init__(self, factory):
+        self._factory = factory
+
+    @property
+    def project_root(self):
+        return None
+
+    def session_backend(self, name: str):
+        return self._factory(name)
+
+    @contextmanager
+    def use_backend(self, name: str):
+        yield self._factory(name)
+
+    def close_all(self):
+        pass
+
+
+@contextmanager
+def _patch_project_backends(project, backend_factory):
+    """Patch project backend resolution so parity_check uses a test backend.
+
+    Patches two resolution paths:
+    - ``project._connection_service_instance`` for materialize_metric /
+      _session_backend_factory
+    - ``DatasourceConnectionService`` constructor inside parity_check()
+    """
+    fake_service = _FakeConnectionService(backend_factory)
+    project._connection_service_instance = fake_service
+    with patch(
+        "marivo.datasource.runtime.DatasourceConnectionService",
+        return_value=fake_service,
+    ):
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +254,8 @@ def test_base_metric_parity_ok(semantic_project_factory, backend_factory) -> Non
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )
-    result = project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        result = project.parity_check("sales.total_amount")
     assert result.ok is True
     assert result.expected == 300.0
     assert result.actual == 300.0
@@ -228,7 +275,8 @@ def test_base_metric_parity_fail(semantic_project_factory, backend_factory) -> N
             "sales/metrics.py": _DATASET_AND_MISMATCHED_METRIC_PY,
         }
     )
-    result = project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        result = project.parity_check("sales.total_amount")
     assert result.ok is False
     assert result.actual == 300.0
     assert result.expected == 999.0
@@ -248,9 +296,8 @@ def test_base_metric_parity_rel_tol(semantic_project_factory, backend_factory) -
         }
     )
     # 300 vs 999 — way off, but with rel_tol=2.0 (200%), isclose considers them close
-    result = project.parity_check(
-        "sales.total_amount", backend_factory=backend_factory, rel_tol=2.0
-    )
+    with _patch_project_backends(project, backend_factory):
+        result = project.parity_check("sales.total_amount", rel_tol=2.0)
     assert result.ok is True
     assert result.rel_tol == 2.0
 
@@ -284,9 +331,8 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
             "sales/metrics.py": small_mismatch_py,
         }
     )
-    result = project.parity_check(
-        "sales.total_amount", backend_factory=backend_factory, abs_tol=1.0
-    )
+    with _patch_project_backends(project, backend_factory):
+        result = project.parity_check("sales.total_amount", abs_tol=1.0)
     assert result.ok is True
     assert result.abs_tol == 1.0
 
@@ -304,8 +350,11 @@ def test_derived_metric_parity_raises(semantic_project_factory, backend_factory)
             "sales/metrics.py": _DERIVED_METRIC_PY,
         }
     )
-    with pytest.raises(SemanticParityError) as exc_info:
-        project.parity_check("sales.margin", backend_factory=backend_factory)
+    with (
+        _patch_project_backends(project, backend_factory),
+        pytest.raises(SemanticParityError) as exc_info,
+    ):
+        project.parity_check("sales.margin")
     assert exc_info.value.kind == ErrorKind.SOURCE_SQL_MISSING
 
 
@@ -428,7 +477,8 @@ def test_source_dialect_does_not_require_semantic_datasource_backend_type(
             "sales/metrics.py": _DIALECT_MISMATCH_PY,
         }
     )
-    result = project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        result = project.parity_check("sales.total_amount")
     assert isinstance(result.ok, bool)
 
 
@@ -463,8 +513,11 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
             "sales/metrics.py": cross_ds_py,
         }
     )
-    with pytest.raises(SemanticParityError) as exc_info:
-        project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with (
+        _patch_project_backends(project, backend_factory),
+        pytest.raises(SemanticParityError) as exc_info,
+    ):
+        project.parity_check("sales.total_amount")
     assert exc_info.value.kind == ErrorKind.CROSS_DATASOURCE_NOT_SUPPORTED
 
 
@@ -517,7 +570,8 @@ def test_status_parity_check_ok(semantic_project_factory, backend_factory) -> No
     assert status_before == ParityStatus.UNVERIFIED
 
     # Run parity check
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        project.parity_check("sales.total_amount")
 
     # After parity check ok, status should be VERIFIED
     status_after = propagated_parity_status(project, "sales.total_amount")
@@ -536,7 +590,8 @@ def test_status_parity_check_fail(semantic_project_factory, backend_factory) -> 
             "sales/metrics.py": _DATASET_AND_MISMATCHED_METRIC_PY,
         }
     )
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        project.parity_check("sales.total_amount")
 
     status = propagated_parity_status(project, "sales.total_amount")
     assert status == ParityStatus.DRIFTED
@@ -556,8 +611,9 @@ def test_derived_propagation_all_verified(semantic_project_factory, backend_fact
         }
     )
     # Run parity check on both components to make them verified
-    project.parity_check("sales.revenue", backend_factory=backend_factory)
-    project.parity_check("sales.cost", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        project.parity_check("sales.revenue")
+        project.parity_check("sales.cost")
 
     status = propagated_parity_status(project, "sales.margin")
     assert status == ParityStatus.VERIFIED
@@ -607,8 +663,9 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
             "sales/metrics.py": drifted_component_py,
         }
     )
-    project.parity_check("sales.revenue", backend_factory=backend_factory)
-    project.parity_check("sales.cost", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        project.parity_check("sales.revenue")
+        project.parity_check("sales.cost")
 
     status = propagated_parity_status(project, "sales.margin")
     assert status == ParityStatus.DRIFTED
@@ -628,7 +685,8 @@ def test_derived_propagation_one_unverified(semantic_project_factory, backend_fa
         }
     )
     # Verify only revenue, leave cost unverified
-    project.parity_check("sales.revenue", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        project.parity_check("sales.revenue")
 
     status = propagated_parity_status(project, "sales.margin")
     assert status == ParityStatus.UNVERIFIED
@@ -678,7 +736,8 @@ def test_derived_propagation_verified_and_python_native(
             "sales/metrics.py": mixed_py,
         }
     )
-    project.parity_check("sales.revenue", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        project.parity_check("sales.revenue")
 
     status = propagated_parity_status(project, "sales.margin")
     assert status == ParityStatus.VERIFIED
@@ -698,9 +757,10 @@ def test_parity_results_cached(semantic_project_factory, backend_factory) -> Non
         }
     )
     # First call
-    result1 = project.parity_check("sales.total_amount", backend_factory=backend_factory)
-    # Second call should return cached result
-    result2 = project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        result1 = project.parity_check("sales.total_amount")
+        # Second call should return cached result
+        result2 = project.parity_check("sales.total_amount")
     # Both should be the same object (cached)
     assert result1 is result2
 
@@ -713,7 +773,8 @@ def test_parity_results_cleared_on_reload(semantic_project_factory, backend_fact
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )
-    result1 = project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        result1 = project.parity_check("sales.total_amount")
     assert result1.ok is True
 
     project.load()
@@ -745,7 +806,8 @@ def test_list_metrics_provenance_status_filter(semantic_project_factory, backend
     assert not any(m.semantic_id == "sales.total_amount" for m in verified)
 
     # Run parity check
-    project.parity_check("sales.total_amount", backend_factory=backend_factory)
+    with _patch_project_backends(project, backend_factory):
+        project.parity_check("sales.total_amount")
 
     # After parity check: VERIFIED
     verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED)
@@ -768,6 +830,9 @@ def test_parity_check_metric_not_found(semantic_project_factory, backend_factory
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )
-    with pytest.raises(SemanticParityError) as exc_info:
-        project.parity_check("sales.nonexistent", backend_factory=backend_factory)
+    with (
+        _patch_project_backends(project, backend_factory),
+        pytest.raises(SemanticParityError) as exc_info,
+    ):
+        project.parity_check("sales.nonexistent")
     assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND

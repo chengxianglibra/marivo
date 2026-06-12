@@ -28,10 +28,16 @@ def _sales_orders_template_path():
 def semantic_project_factory(tmp_path):
     """Create a SemanticProject from a mapping of project-relative files."""
 
-    def _make(files: dict[str, str], load: bool = True, models: list[str] | None = None):
+    def _make(
+        files: dict[str, str],
+        load: bool = True,
+        models: list[str] | None = None,
+        workspace_dir=None,
+    ):
         from marivo.semantic.reader import SemanticProject
 
-        marivo_root = tmp_path / ".marivo"
+        effective_dir = workspace_dir if workspace_dir is not None else tmp_path
+        marivo_root = effective_dir / ".marivo"
         root = marivo_root / "semantic"
         root.mkdir(parents=True, exist_ok=True)
         for rel, src in files.items():
@@ -57,7 +63,7 @@ def semantic_project_factory(tmp_path):
                 f"md.datasource({datasource_name})\n"
             )
 
-        project = SemanticProject(workspace_dir=tmp_path)
+        project = SemanticProject(workspace_dir=effective_dir)
         if load:
             project.load(models=models)
         return project

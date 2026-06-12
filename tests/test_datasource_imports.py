@@ -90,3 +90,19 @@ def test_datasource_ref_uses_global_short_name() -> None:
     assert ref.semantic_id == "warehouse"
     assert ref.name == "warehouse"
     assert repr(ref) == "DatasourceRef('warehouse')"
+
+
+def test_datasource_public_exports() -> None:
+    import marivo.datasource as md
+
+    for name in (
+        "ScanScope",
+        "ScanReport",
+        "ColumnInspection",
+        "ColumnProfile",
+        "JoinSide",
+        "JoinKeyProbe",
+        "table",
+        "file",
+    ):
+        assert hasattr(md, name), f"marivo.datasource missing export: {name}"
