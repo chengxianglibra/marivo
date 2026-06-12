@@ -1,37 +1,41 @@
 # marivo-semantic pitfalls
 
-Known failure modes for evidence-driven semantic authoring.
+Known failure modes for stepwise semantic authoring.
 
 ## Treating sample facts as full-table truth
 
 Sample-derived values (`top_values`, `distinct_count`, `min_value`/`max_value`)
-are facts about the bounded sample only (`sample_scope="bounded_sample"`,
-`approximate=True`). Never treat them as full-column cardinality, complete
-enums, or global ranges. For exhaustive value sets, request user confirmation
-or inspect the full table outside the authoring workflow.
+are facts about the bounded sample only (`ScanScope`-controlled, approximate).
+Never treat them as full-column cardinality, complete enums, or global ranges.
+For exhaustive value sets, request user confirmation or inspect the full table
+outside the authoring workflow.
 
 ## Expecting a candidate worklist
 
 The project does not return a candidate worklist. Rank columns yourself from
-table and column context facts (type, comments, nullable, sampled values). Use
-`project.inspect_columns(...)` to deep-dive a small set of columns, then
-author directly.
+`EntityBrief` facts (type, comments, nullable, partition hints, sampled values).
+Deep-dive a small set with `md.inspect_columns(...)`, then author directly.
 
-## Passing ledger evidence as source inputs
+## Skipping prepare before authoring
 
-`project.assess_authoring(...)` checks whether the named semantic object has
-enough source context to author. It accepts bounded source roles through
-`sources=(ms.AuthoringSourceInput(...),)` and semantic dependencies through
-`semantic_refs=...`; it does not take ledger ids or ai_context fields as check
-inputs. Assess the object with the source/role shape directly.
+Every semantic object must be preceded by the matching `project.prepare_*` call.
+The prepare step collects datasource evidence and registry context, returning a
+Brief with `status`, `issues`, and `questions`. Skipping prepare means the agent
+authors without knowing whether the prerequisites are met, and `verify_object`
+will surface the same failures later at higher cost.
 
-## Forgetting to load before inspect_authored_object
+## Writing multiple objects before verifying
 
-After authoring `.marivo/semantic/<model>/*.py`, always call `ms.load()`
-before `project.inspect_authored_object(ref)`. Without load, the registry is
-stale and the inspection reflects the pre-authoring state. This also ensures
-auto-recorded `metric_decomposition` and `time_dimension_identity` decisions are
-present in the ledger.
+The per-object cycle requires: prepare -> write one object -> verify -> advance.
+Writing several objects before verifying defers the first error, making it
+harder to trace which object caused it. One object per cycle keeps the feedback
+loop tight.
+
+## Advancing past a failed verify_object
+
+After authoring, call `project.verify_object(ref)`. If it returns
+`status == "failed"`, fix the object and re-verify. The skill forbids advancing
+to the next ladder rung while a previous object fails verification.
 
 ## Using readiness/richness to compensate for missing authoring evidence
 
@@ -137,9 +141,9 @@ federation.
 ## Multi-file sprawl
 
 Avoid spreading one domain change across many small files when a focused entity,
-dimension, metric, or relationship edit would do. Sprawl makes load, review, and
-readiness harder because related definitions become difficult to inspect
-together.
+dimension, metric, or relationship edit would do. Default to one
+`_domain.py` per domain. Sprawl makes load, review, and readiness harder
+because related definitions become difficult to inspect together.
 
 ## Analysis handoff before readiness
 
@@ -159,3 +163,10 @@ status condition can silently drift from the source definition.
 Readiness may report advisory richness and parity warnings alongside blockers.
 Do not treat warning-only gaps as handoff blockers. Fix readiness blockers
 first, then report advisory gaps as recommended follow-up work.
+
+## Unpruned scan without justification
+
+Use `md.ScanScope()` by default, which resolves to the latest partition. Passing
+`partition=None` produces an unpruned scan that may be slow and may sample stale
+data. Only pass `partition=None` when the answer explicitly accepts an unpruned
+scan and the reason is documented.

@@ -1,15 +1,21 @@
 # Agent Semantic Layer Authoring Design
 
-Status: superseded for the normal agent workflow.
+> **Superseded for agent authoring:** use
+> `docs/specs/semantic/stepwise-authoring-design.md` for the active
+> stepwise prepare/verify/readiness workflow. This document remains only as
+> historical context for the previous pipeline.
+
+Status: superseded.
 
 The active normal workflow is defined in
-`docs/specs/semantic/authoring-pipeline-design.md`. The older phased workflow
+`docs/specs/semantic/stepwise-authoring-design.md`. The older phased workflow
 in this document is retained as background, but standalone check choreography is
 superseded. Current agents should use:
 
 1. Discovery and source inspection.
-2. `project.assess_authoring(...)` for each candidate object.
-3. A single `project.readiness(...)` closeout.
+2. `project.prepare_entity(...)` / `project.prepare_metric(...)` for each candidate object.
+3. `project.verify_object(...)` after writing.
+4. A single `project.readiness(...)` closeout.
 
 This document defines the end-to-end contract for Claude Code, Codex, and other
 coding agents that build Marivo semantic layers. It complements

@@ -47,6 +47,7 @@ DecisionKind = Literal[
     "relationship_join_keys",
     "relationship_semantics",
     "equivalent_column_choice",
+    "authoring_abandoned",
 ]
 
 _MATERIALITY_RANK: dict[Materiality, int] = {"low": 1, "medium": 2, "high": 3}
@@ -69,6 +70,7 @@ _FLOOR_TABLE: dict[DecisionKind, Materiality] = {
     "relationship_join_keys": "medium",
     "relationship_semantics": "high",
     "equivalent_column_choice": "low",
+    "authoring_abandoned": "low",
 }
 
 

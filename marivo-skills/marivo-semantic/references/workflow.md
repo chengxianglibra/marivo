@@ -1,228 +1,302 @@
 # marivo-semantic workflow
 
-This is the evidence-driven workflow for agents building reusable Marivo semantic
-objects. It is evidence-first, ledger-aware, and readiness-gated.
+This is the stepwise authoring ladder for agents building reusable Marivo
+semantic objects. Each rung produces exactly one object per cycle, verified
+before advancing.
 
-## Phase 1: Discovery and Source Inspection
+## The Eight-Rung Ladder
 
-```bash
-<venv>/bin/python - <<'PY'
-import marivo.semantic as ms
+Within one domain, build objects in this order:
 
-ms.help()
-catalog = ms.load()
-catalog.list().show()
-catalog.list("sales").show()
-catalog.list("sales.orders").show()
-PY
+```text
+1 domain
+2 entity                  (one per physical table, one at a time)
+3 dimension               (per entity, one column at a time)
+4 time_dimension          (per entity)
+5 metric                  (single-entity base metrics)
+6 relationship
+7 cross-entity base metric
+8 derived metric
 ```
 
-Reuse existing semantic refs when their definitions, guardrails, dependencies,
-and provenance match the requested intent. Search before authoring.
+Datasource registration is a prerequisite owned by `marivo.datasource`, not a
+ladder rung.
 
-Bind datasource access once after loading the project, then collect a
-`SourceEvidencePack` for each physical source. Choose the datasource backend
-from the physical source first: use native backends by default (Trino for
-Hive/Iceberg lakehouse, ClickHouse for ClickHouse tables, MySQL for MySQL tables,
-DuckDB for local files). Do not route ClickHouse or MySQL tables through a Trino
-catalog unless the user explicitly requires Trino federation.
+## The Per-Object Cycle
 
-```python
-import marivo.semantic as ms
+Every rung iterates the same cycle, one semantic object per iteration:
 
-project = ms.find_project()
-catalog = ms.load()
-table_context = project.inspect_table(
-    "warehouse",
-    ms.table("orders", database="sales_mart"),
-)
-column_contexts = project.inspect_columns("warehouse", ms.table("orders"))
+```text
+prepare_<kind>(...) -> Brief
+  |-- status == "blocked"      -> fix the blocker or abandon the candidate
+  |-- blocking questions open  -> answer from documented knowledge, or ask
+  |     the user; unanswerable -> abandon: record authoring_abandoned, skip
+  +-- status == "sufficient" and no open blocking question
+        -> append exactly ONE object to _domain.py
+        -> verify_object(ref)      (fix loop until passed)
+        -> next object
 ```
 
-Stop on insufficient evidence — fix datasource access or request missing context
-before continuing. `inspect_table` reads metadata only; `inspect_columns` reads
-a fixed 5-row sample and closes its datasource connection.
-
-For metadata only (no row reads):
+## Rung 1: Domain
 
 ```python
-table_context = project.inspect_table("warehouse", ms.table("orders"))
-```
+brief = project.prepare_domain(name="sales")
+if brief.status == "blocked":
+    brief.show()
+    raise SystemExit("Fix blockers before authoring the domain.")
 
-For Trino without a default schema, pass the schema as `database`:
-
-```python
-table_context = project.inspect_table(
-    "warehouse",
-    ms.table("orders", database="sales_mart"),
-)
-```
-
-### Column Deep Dives
-
-Deep-dive selected columns after source evidence:
-
-```python
-evidence = project.inspect_columns(
-    "warehouse",
-    ms.table("orders"),
-    columns=("status", "amount"),
-)
-for col in evidence:
-    print(col.column, col.data_type, col.sample_values)
-```
-
-Use this for time/enum/amount/join-key columns. Sample-derived values are facts
-about the fixed 5-row sample only — never treat them as full-table truth.
-
-Assess candidate authoring inputs before writing semantic files:
-
-```python
-assessment = project.assess_authoring(
-    object_kind="entity",
-    subject_ref="sales.orders",
-    sources=(
-        ms.AuthoringSourceInput(
-            role="primary",
-            datasource="warehouse",
-            source=ms.TableSource(table="orders"),
-        ),
-    ),
-)
-```
-
-## Phase 2: Assess and Author Each Candidate Object
-
-Call `project.assess_authoring(...)` before writing each candidate object. It
-collects current source context through project datasource configuration,
-checks the source roles and semantic refs, and returns facts, issues, and questions.
-
-```python
-assessment = project.assess_authoring(
-    object_kind="entity",
-    subject_ref="sales.orders",
-    sources=(
-        ms.AuthoringSourceInput(
-            role="primary",
-            datasource="warehouse",
-            source=ms.TableSource(table="orders"),
-        ),
-    ),
-)
-if assessment.status == "blocked":
-    # resolve blockers first
-    pass
-```
-
-Then author and load:
-
-```python
 # write .marivo/semantic/sales/_domain.py
-catalog = ms.load()
-project.inspect_authored_object("sales.orders")
 ```
 
-### Time Dimension Authoring
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
 
-Author time dimensions only after temporal evidence. If partition vs event-time
-conflict, surface the `AuthoringQuestion`:
+ms.domain(name="sales", description="Sales analytics")
+warehouse = md.ref("warehouse")
+```
+
+## Rung 2: Entity
+
+The physical-to-semantic bridge. `prepare_entity` calls `md.inspect_table` and
+`md.inspect_columns` internally, returning an `EntityBrief` with table metadata,
+column profiles, and primary-key candidates.
 
 ```python
-assessment = project.assess_authoring(
-    object_kind="time_dimension",
-    subject_ref="sales.orders.dt",
-    sources=(
-        ms.AuthoringSourceInput(
-            role="primary",
-            datasource="warehouse",
-            source=ms.TableSource(table="orders"),
-            columns=("dt",),
-        ),
-    ),
-    semantic_refs=("sales.orders",),
+entity_brief = project.prepare_entity(
+    datasource="warehouse",
+    source=md.table("orders", database="sales_mart"),
+    domain="sales",
+    scope=md.ScanScope(),
+)
+if entity_brief.status == "blocked":
+    entity_brief.show()
+    raise SystemExit("Fix blockers before authoring the entity.")
+```
+
+Write the entity, load, and verify:
+
+```python
+# append to .marivo/semantic/sales/_domain.py
+orders = ms.entity(
+    name="orders",
+    datasource=warehouse,
+    source=ms.table("orders", database="sales_mart"),
+    primary_key=["order_id"],
+    ai_context={
+        "business_definition": "One row per order.",
+        "guardrails": ["Exclude test orders when the table exposes a test flag."],
+    },
 )
 ```
 
-Reload so Marivo can auto-record `time_dimension_identity` decisions.
+```python
+project.load()
+verify = project.verify_object("sales.orders")
+if verify.status == "failed":
+    verify.show()
+    raise SystemExit("Fix the authored object before continuing.")
+```
 
-### Dimension Authoring
+## Rung 3: Dimensions
+
+Batch preparation for scan economy; author one dimension at a time.
 
 ```python
-assessment = project.assess_authoring(
-    object_kind="dimension",
-    subject_ref="sales.orders.amount",
-    sources=(
-        ms.AuthoringSourceInput(
-            role="primary",
-            datasource="warehouse",
-            source=ms.TableSource(table="orders"),
-            columns=("amount",),
-        ),
-    ),
-    semantic_refs=("sales.orders",),
+dim_briefs = project.prepare_dimensions(
+    entity="sales.orders",
+    columns=("region", "status"),
+    scope=md.ScanScope(),
 )
 ```
 
-### Metric Authoring
-
-Pass physical source roles and semantic dependencies into the assessment:
+Author each dimension individually, then verify:
 
 ```python
-assessment = project.assess_authoring(
-    object_kind="metric",
-    subject_ref="sales.revenue",
-    sources=(
-        ms.AuthoringSourceInput(
-            role="primary",
-            datasource="warehouse",
-            source=ms.TableSource(table="orders"),
-            columns=("amount", "paid"),
-        ),
-    ),
-    semantic_refs=("sales.orders",),
+@ms.dimension(entity=orders, name="region")
+def region(table):
+    return table.region
+```
+
+```python
+project.load()
+verify = project.verify_object("sales.orders.region")
+if verify.status == "failed":
+    verify.show()
+    raise SystemExit("Fix the authored dimension before continuing.")
+```
+
+## Rung 4: Time Dimension
+
+Single-column temporal probe with format inference and partition alignment.
+
+```python
+td_brief = project.prepare_time_dimension(
+    entity="sales.orders",
+    column="dt",
+    scope=md.ScanScope(),
 )
 ```
 
-After authoring and load, run `inspect_authored_object`. Final runtime
-preview, parity, and richness checks are composed by the readiness closeout.
-
-### Relationship Authoring
-
-Require relationship-intent evidence. Orphan/fanout/RI scans are optional
-diagnostics, not gates.
+For day/hour partition columns, preserve the raw value and declare
+`date_format`:
 
 ```python
-assessment = project.assess_authoring(
-    object_kind="relationship",
-    subject_ref="sales.orders_to_customers",
-    sources=(
-        ms.AuthoringSourceInput(
-            role="from",
-            datasource="warehouse",
-            source=ms.TableSource(table="orders"),
-            columns=("customer_id",),
-        ),
-        ms.AuthoringSourceInput(
-            role="to",
-            datasource="warehouse",
-            source=ms.TableSource(table="customers"),
-            columns=("customer_id",),
-        ),
-    ),
-    semantic_refs=("sales.orders", "sales.customers"),
+@ms.time_dimension(
+    entity=orders,
+    name="log_date",
+    data_type="string",
+    granularity="day",
+    date_format="%Y%m%d",
+    is_default=True,
+)
+def log_date(table):
+    return table.dt
+```
+
+Reload so Marivo can auto-record `time_dimension_identity` decisions, then
+verify:
+
+```python
+project.load()
+verify = project.verify_object("sales.orders.log_date")
+if verify.status == "failed":
+    verify.show()
+    raise SystemExit("Fix the authored time dimension before continuing.")
+```
+
+## Rung 5: Metrics
+
+```python
+metric_brief = project.prepare_metric(
+    entity="sales.orders",
+    measure_columns=("amount",),
+    scope=md.ScanScope(),
 )
 ```
 
-## Phase 3: Single Readiness Closeout
+Author and verify:
 
 ```python
-catalog = ms.load()
-revenue = catalog.get("sales.revenue")
-report = catalog.readiness(refs=[revenue.ref])
-if report.blocked:
-    report.show()
-    raise SystemExit
+@ms.metric(
+    entities=[orders],
+    additivity="additive",
+    decomposition=ms.sum(),
+    name="revenue",
+    verification_mode="sql_parity",
+    source_sql="SELECT SUM(amount) AS revenue FROM orders",
+    source_dialect="duckdb",
+    ai_context={
+        "business_definition": "Gross order amount before refunds.",
+        "guardrails": ["Validate refund exclusions before using as net revenue."],
+    },
+)
+def revenue(table):
+    return table.amount.sum()
+```
+
+```python
+project.load()
+verify = project.verify_object("sales.revenue")
+if verify.status == "failed":
+    verify.show()
+    raise SystemExit("Fix the authored metric before continuing.")
+```
+
+## Rung 6: Relationships
+
+`prepare_relationship` runs `md.probe_join_keys` internally using sources
+resolved from the two entity refs.
+
+```python
+rel_brief = project.prepare_relationship(
+    from_entity="sales.orders",
+    to_entity="sales.customers",
+    from_dimensions=("sales.orders.customer_id",),
+    to_dimensions=("sales.customers.customer_id",),
+    scope=md.ScanScope(),
+)
+```
+
+Author and verify:
+
+```python
+ms.relationship(
+    name="orders_to_customers",
+    from_entity=orders,
+    to_entity=customers,
+    from_dimensions=[order_customer_id],
+    to_dimensions=[customer_id],
+)
+```
+
+## Rung 7: Cross-Entity Base Metrics
+
+```python
+cross_brief = project.prepare_cross_entity_metric(
+    root_entity="sales.orders",
+    entities=("sales.orders", "sales.customers"),
+    measure_columns=("amount",),
+    scope=md.ScanScope(),
+)
+```
+
+## Rung 8: Derived Metrics
+
+Registry-only; no datasource access needed.
+
+```python
+derived_brief = project.prepare_derived_metric(
+    numerator="sales.revenue",
+    denominator="sales.orders_count",
+)
+```
+
+## Closeout
+
+After all objects pass `verify_object`, run `project.readiness(...)` once:
+
+```python
+report = project.readiness(refs=("sales.orders", "sales.revenue"))
+report.show()
+if report.status == "blocked":
+    raise SystemExit("Semantic project is not ready for analysis handoff.")
 ```
 
 Do not hand off to `marivo-analysis` while readiness is blocked. Richness gaps
 are reported as readiness warnings and summarized in `richness_summary`.
+Abandoned candidates appear in `report.abandoned`.
+
+## Abandon Protocol
+
+When a candidate cannot reach sufficiency:
+
+1. Record `authoring_abandoned` in the decision ledger.
+2. Skip the object and continue the ladder. Dependents are naturally stopped
+   by hard gates with structured errors naming the missing prerequisite.
+3. `ReadinessReport.abandoned` lists abandoned candidates for transparency.
+
+## Source Discovery
+
+Before the ladder starts, inspect the physical source using `md` APIs:
+
+```python
+metadata = md.inspect_table("warehouse", md.table("orders", database="sales_mart"))
+columns = md.inspect_columns("warehouse", md.table("orders"), columns=("status", "amount"))
+```
+
+Column deep-dives for time/enum/amount/join-key columns:
+
+```python
+evidence = md.inspect_columns(
+    "warehouse",
+    md.table("orders"),
+    columns=("status", "amount"),
+    scope=md.ScanScope(partition={"dt": "20260611"}),
+)
+for col in evidence.profiles:
+    print(col.column, col.distinct_count, col.top_values)
+```
+
+Sample-derived values are facts about the bounded sample only. Never treat them
+as full-column cardinality, complete enums, or global ranges.

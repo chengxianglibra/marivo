@@ -86,7 +86,6 @@ def run_check(
     workspace_dir: str | Path | None = None,
     readiness: bool = False,
     format: Literal["json", "text"] = "text",
-    backend_factory: Callable[[str], Any] | None = None,
 ) -> dict[str, object]:
     if workspace_dir is None:
         project = find_project()
@@ -115,14 +114,6 @@ def run_check(
     }
 
     if readiness:
-        factory = backend_factory
-        if factory is None:
-            factory = _default_backend_factory()
-        if factory is not None:
-            project.bind_datasource_access(
-                inspect_source=_default_inspect_source(),
-                backend_factory=factory,
-            )
         _run_parity_checks(project)
         report = project.readiness()
         payload["readiness"] = report.to_dict()

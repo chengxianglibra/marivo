@@ -869,6 +869,9 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
 
 def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     """DimensionRef returned by decorator should be callable after project load."""
+    from contextlib import contextmanager
+    from unittest.mock import patch
+
     import ibis
 
     con = ibis.duckdb.connect(":memory:")
@@ -902,11 +905,29 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     def factory(ds_id: str):
         return con
 
-    # Materialize the dataset first
-    table = project.materialize_dataset("sales.orders", backend_factory=factory)
+    class _FakeConnectionService:
+        @property
+        def project_root(self):
+            return None
 
-    # Materialize the field
-    field_expr = project.materialize_field("sales.orders.region", backend_factory=factory)
+        def session_backend(self, name):
+            return factory(name)
+
+        @contextmanager
+        def use_backend(self, name):
+            yield factory(name)
+
+        def close_all(self):
+            pass
+
+    fake_service = _FakeConnectionService()
+
+    with patch.object(project, "_connection_service", return_value=fake_service):
+        # Materialize the dataset first
+        table = project.materialize_dataset("sales.orders")
+
+        # Materialize the field
+        field_expr = project.materialize_field("sales.orders.region")
     assert field_expr is not None
 
 
@@ -1032,6 +1053,9 @@ def test_semantic_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) 
 def test_materialize_dataset_passes_short_table_name_through_for_trino(
     semantic_project_factory,
 ) -> None:
+    from contextlib import contextmanager
+    from unittest.mock import patch
+
     import ibis
 
     project = semantic_project_factory(
@@ -1067,7 +1091,25 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
             return backend
         return object()
 
-    result = project.materialize_dataset("sales.orders", backend_factory=factory)
+    class _FakeConnectionService:
+        @property
+        def project_root(self):
+            return None
+
+        def session_backend(self, name):
+            return factory(name)
+
+        @contextmanager
+        def use_backend(self, name):
+            yield factory(name)
+
+        def close_all(self):
+            pass
+
+    fake_service = _FakeConnectionService()
+
+    with patch.object(project, "_connection_service", return_value=fake_service):
+        result = project.materialize_dataset("sales.orders")
     assert isinstance(result, ibis.expr.types.Table)
     assert backend.calls == ["orders"]
 
@@ -1075,6 +1117,9 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
 def test_materialize_dataset_accepts_explicit_database_for_trino(
     semantic_project_factory,
 ) -> None:
+    from contextlib import contextmanager
+    from unittest.mock import patch
+
     import ibis
 
     project = semantic_project_factory(
@@ -1104,7 +1149,25 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
             return _FakeTrinoBackend()
         return object()
 
-    result = project.materialize_dataset("sales.orders", backend_factory=factory)
+    class _FakeConnectionService:
+        @property
+        def project_root(self):
+            return None
+
+        def session_backend(self, name):
+            return factory(name)
+
+        @contextmanager
+        def use_backend(self, name):
+            yield factory(name)
+
+        def close_all(self):
+            pass
+
+    fake_service = _FakeConnectionService()
+
+    with patch.object(project, "_connection_service", return_value=fake_service):
+        result = project.materialize_dataset("sales.orders")
     assert isinstance(result, ibis.expr.types.Table)
 
 

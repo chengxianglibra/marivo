@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import json
 import textwrap
+from contextlib import contextmanager
 
 import ibis
 import pytest
 
 from marivo.preview import PreviewLimitError, PreviewResult
 from marivo.semantic.discovery import DiscoveryResult, SelectionError
-from marivo.semantic.errors import ErrorKind, SemanticLoadFailed, SemanticRuntimeError
+from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.ir import (
     DimensionKind,
     EntityIR,
@@ -113,19 +114,38 @@ def backend_factory(duckdb_backend):
     return _factory
 
 
-def _fake_inspect_source(datasource, *, source, include_partitions=True):
-    from marivo.datasource.metadata import TableMetadata
+class _FakeConnectionService:
+    """Test double for DatasourceConnectionService that delegates to a factory."""
 
-    return TableMetadata(
-        datasource=datasource,
-        table=getattr(source, "table", "fake_table"),
-        database=None,
-        backend_type="duckdb",
-        comment=None,
-        columns=(),
-        partitions=(),
-        warnings=(),
-    )
+    def __init__(self, factory):
+        self._factory = factory
+
+    @property
+    def project_root(self):
+        return None
+
+    def session_backend(self, name: str):
+        return self._factory(name)
+
+    @contextmanager
+    def use_backend(self, name: str):
+        yield self._factory(name)
+
+    def close_all(self):
+        pass
+
+
+@contextmanager
+def _patch_project_backends(project, backend_factory):
+    """Patch project backend resolution so internal methods use a test backend.
+
+    Sets ``project._connection_service_instance`` so that
+    ``_session_backend_factory()`` and ``_connection_service()`` resolve
+    to the fake service backed by *backend_factory*.
+    """
+    fake_service = _FakeConnectionService(backend_factory)
+    project._connection_service_instance = fake_service
+    yield
 
 
 # ---------------------------------------------------------------------------
@@ -752,7 +772,8 @@ def test_preview_dataset_returns_bounded_rows(semantic_project_factory, backend_
         }
     )
 
-    preview = project.preview_dataset("sales.orders", backend_factory=backend_factory, limit=2)
+    with _patch_project_backends(project, backend_factory):
+        preview = project.preview_dataset("sales.orders", limit=2)
 
     assert isinstance(preview, PreviewResult)
     assert preview.kind == "semantic_dataset"
@@ -774,7 +795,8 @@ def test_preview_field_returns_values_with_context(
         }
     )
 
-    preview = project.preview_field("sales.orders.amount", backend_factory=backend_factory, limit=2)
+    with _patch_project_backends(project, backend_factory):
+        preview = project.preview_field("sales.orders.amount", limit=2)
 
     assert preview.kind == "semantic_field"
     assert preview.ref == "sales.orders.amount"
@@ -791,11 +813,11 @@ def test_preview_metric_returns_scalar_value(semantic_project_factory, backend_f
         }
     )
 
-    preview = project.preview_metric(
-        "sales.total_revenue",
-        backend_factory=backend_factory,
-        limit=20,
-    )
+    with _patch_project_backends(project, backend_factory):
+        preview = project.preview_metric(
+            "sales.total_revenue",
+            limit=20,
+        )
 
     assert preview.kind == "semantic_metric"
     assert preview.ref == "sales.total_revenue"
@@ -819,8 +841,8 @@ def test_preview_dataset_rejects_invalid_limit(semantic_project_factory, backend
         }
     )
 
-    with pytest.raises(PreviewLimitError):
-        project.preview_dataset("sales.orders", backend_factory=backend_factory, limit=0)
+    with _patch_project_backends(project, backend_factory), pytest.raises(PreviewLimitError):
+        project.preview_dataset("sales.orders", limit=0)
 
 
 def test_collect_source_preview_returns_datasource_preview_and_records_evidence(
@@ -834,13 +856,13 @@ def test_collect_source_preview_returns_datasource_preview_and_records_evidence(
         }
     )
 
-    preview = project.collect_source_preview(
-        datasource="warehouse",
-        table="orders",
-        backend_factory=backend_factory,
-        columns=("order_id", "amount"),
-        limit=2,
-    )
+    with _patch_project_backends(project, backend_factory):
+        preview = project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+            columns=("order_id", "amount"),
+            limit=2,
+        )
 
     assert isinstance(preview, PreviewResult)
     assert preview.kind == "datasource_table"
@@ -867,13 +889,13 @@ def test_collect_source_preview_persists_metadata_without_rows(
         }
     )
 
-    project.collect_source_preview(
-        datasource="warehouse",
-        table="orders",
-        backend_factory=backend_factory,
-        columns=("order_id", "amount"),
-        limit=2,
-    )
+    with _patch_project_backends(project, backend_factory):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+            columns=("order_id", "amount"),
+            limit=2,
+        )
 
     path = project.semantic_root / ".evidence" / "raw_previews.json"
     payload = json.loads(path.read_text())
@@ -909,20 +931,19 @@ def test_collect_source_preview_replaces_persisted_record_for_same_ref(
         }
     )
 
-    project.collect_source_preview(
-        datasource="warehouse",
-        table="orders",
-        backend_factory=backend_factory,
-        columns=("order_id",),
-        limit=1,
-    )
-    project.collect_source_preview(
-        datasource="warehouse",
-        table="orders",
-        backend_factory=backend_factory,
-        columns=("order_id", "amount"),
-        limit=2,
-    )
+    with _patch_project_backends(project, backend_factory):
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+            columns=("order_id",),
+            limit=1,
+        )
+        project.collect_source_preview(
+            datasource="warehouse",
+            table="orders",
+            columns=("order_id", "amount"),
+            limit=2,
+        )
 
     path = project.semantic_root / ".evidence" / "raw_previews.json"
     payload = json.loads(path.read_text())
@@ -945,120 +966,12 @@ def test_collect_source_preview_rejects_invalid_limit(
         }
     )
 
-    with pytest.raises(PreviewLimitError):
+    with _patch_project_backends(project, backend_factory), pytest.raises(PreviewLimitError):
         project.collect_source_preview(
             datasource="warehouse",
             table="orders",
-            backend_factory=backend_factory,
             limit=0,
         )
-
-
-# ---------------------------------------------------------------------------
-# bind_datasource_access
-# ---------------------------------------------------------------------------
-
-
-def test_bind_datasource_access_materialize(semantic_project_factory, backend_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
-    )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    table = project.materialize_dataset("sales.orders")
-    assert hasattr(table, "columns")
-
-
-def test_bind_datasource_access_preview(semantic_project_factory, backend_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
-    )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    result = project.preview_metric("sales.total_revenue", limit=2)
-    assert isinstance(result, PreviewResult)
-
-
-def test_bind_datasource_access_missing_raises(semantic_project_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
-    )
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        project.materialize_dataset("sales.orders")
-    assert exc_info.value.kind == ErrorKind.BACKEND_FACTORY_REQUIRED
-
-
-def test_bind_datasource_access_explicit_override(
-    semantic_project_factory, backend_factory
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
-    )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    table = project.materialize_dataset("sales.orders", backend_factory=backend_factory)
-    assert hasattr(table, "columns")
-
-
-def test_bind_datasource_access_preserved_across_reload(
-    semantic_project_factory, backend_factory
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
-    )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    project.load()
-    table = project.materialize_dataset("sales.orders")
-    assert hasattr(table, "columns")
-
-
-def test_readiness_uses_bound_factory(semantic_project_factory, backend_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
-    )
-    project.bind_datasource_access(
-        inspect_source=_fake_inspect_source, backend_factory=backend_factory
-    )
-    report = project.readiness()
-    assert report.status in ("ready", "ready_with_warnings", "warning", "blocked")
-
-
-def test_readiness_without_bound_factory(semantic_project_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/objects.py": _FULL_DOMAIN_PY,
-        }
-    )
-    report = project.readiness()
-    assert report.status == "blocked"
-    blockers = [issue for issue in report.blockers if issue.kind == "datasource_unreachable"]
-    assert blockers
-    assert "project-bound backend access" in blockers[0].message
-    assert "bind_datasource_access" in blockers[0].message
 
 
 # ---------------------------------------------------------------------------

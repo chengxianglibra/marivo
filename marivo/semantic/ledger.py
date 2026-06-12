@@ -320,6 +320,57 @@ class LedgerStore:
         data = json.loads(path.read_text())
         return tuple(data.get("primary_keys_sampled", ()))
 
+    def record_decision(self, semantic_id: str, record: DecisionRecord) -> None:
+        """Append a decision record to the object evidence for *semantic_id*.
+
+        Creates the object evidence file if it does not already exist.
+        """
+        obj = self.read_object(semantic_id)
+        if obj is None:
+            obj = ObjectEvidence(
+                semantic_id=semantic_id,
+                authored_at=record.decided_at,
+                decisions=(record,),
+                rejected_candidates=(),
+            )
+        else:
+            obj = ObjectEvidence(
+                semantic_id=obj.semantic_id,
+                authored_at=obj.authored_at,
+                decisions=(*obj.decisions, record),
+                rejected_candidates=obj.rejected_candidates,
+            )
+        self.write_object(obj)
+
+    def write_rejected_candidate(self, candidate: RejectedCandidate) -> None:
+        """Persist a rejected candidate alongside the relevant object evidence.
+
+        The candidate is stored under a dedicated rejected-candidates file keyed
+        by its candidate name so that list_rejected_candidates can enumerate
+        them without scanning every object evidence file.
+        """
+        path = self._rejected_candidates_path()
+        existing = list(self.list_rejected_candidates())
+        existing.append(candidate)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"rejected_candidates": [c.to_dict() for c in existing]}
+        path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+
+    def list_rejected_candidates(self) -> tuple[RejectedCandidate, ...]:
+        """Return all rejected candidates recorded in this project."""
+        path = self._rejected_candidates_path()
+        if not path.exists():
+            return ()
+        try:
+            payload = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return ()
+        raw = payload.get("rejected_candidates", [])
+        return tuple(RejectedCandidate.from_dict(item) for item in raw)
+
+    def _rejected_candidates_path(self) -> Path:
+        return self._root / ".evidence" / "rejected_candidates.json"
+
 
 def is_decision_stale(record: DecisionRecord, metadata: TableMetadata) -> bool:
     """True if recomputing the decision's structural fingerprint over current

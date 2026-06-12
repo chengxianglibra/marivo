@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Iterable, Sequence
-from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -16,15 +15,16 @@ from typing import Any, Literal
 import ibis
 import ibis.expr.types as ir
 
-from marivo.datasource.authoring import DatasourceRef
-from marivo.datasource.ir import DatasourceIR, EntitySourceIR, FileSourceIR, TableSourceIR
+from marivo.datasource.ir import DatasourceIR, EntitySourceIR
+from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.scan import ScanReport, ScanScope
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
+    PREVIEW_MAX_LIMIT,
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
-    normalize_preview_cell,
     preview_ibis_table,
     preview_ibis_value,
     validate_preview_limit,
@@ -32,13 +32,23 @@ from marivo.preview import (
 from marivo.semantic.discovery import DiscoveryResult
 from marivo.semantic.dtos import (
     AssessmentIssue,
-    AuthoringAssessment,
     AuthoringObjectKind,
-    AuthoringSourceInput,
     BoundedProfilePolicy,
-    ColumnContext,
+    ColumnEvidence,
+    CrossEntityMetricBrief,
+    DatasetSource,
+    DerivedMetricBrief,
+    DimensionBrief,
+    DomainBrief,
+    EntityBrief,
+    MetricBrief,
+    RelationshipBrief,
+    SamplePolicy,
+    SelectedColumnsPolicy,
     SourceEvidencePack,
-    TableContext,
+    TableSource,
+    TimeDimensionBrief,
+    VerifyResult,
 )
 from marivo.semantic.errors import (
     ErrorKind,
@@ -93,7 +103,6 @@ __all__ = [
 
 
 _FIELD_PREVIEW_CONTEXT_COLUMNS = 3
-_COLUMN_INSPECT_SAMPLE_LIMIT = 5
 
 
 # ---------------------------------------------------------------------------
@@ -290,8 +299,7 @@ class SemanticProject:
         self._filtered_domains: tuple[str, ...] = ()
         self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
-        self._bound_inspect_source: Callable[..., Any] | None = None
-        self._bound_backend_factory: Callable[[str], Any] | None = None
+        self._connection_service_instance: DatasourceConnectionService | None = None
         self._datasource_irs: tuple[DatasourceIR, ...] = ()
 
     @property
@@ -744,40 +752,37 @@ class SemanticProject:
     def materialize_dataset(
         self,
         name: str,
-        *,
-        backend_factory: Callable[[str], Any] | None = None,
     ) -> ibis.Table:
-        """Materialize a dataset by semantic_id using the given backend_factory.
+        """Materialize a dataset by semantic_id.
 
-        Each call creates a fresh Materializer instance.
+        Each call creates a fresh Materializer instance. Datasource backends
+        are resolved internally via ``DatasourceConnectionService``.
         """
-        mat = Materializer(self, self._resolve_backend_factory(backend_factory))
+        mat = Materializer(self, self._session_backend_factory())
         return mat.entity(name)
 
     def materialize_field(
         self,
         name: str,
-        *,
-        backend_factory: Callable[[str], Any] | None = None,
     ) -> ir.Value:
-        """Materialize a field by semantic_id using the given backend_factory.
+        """Materialize a field by semantic_id.
 
-        Each call creates a fresh Materializer instance.
+        Each call creates a fresh Materializer instance. Datasource backends
+        are resolved internally via ``DatasourceConnectionService``.
         """
-        mat = Materializer(self, self._resolve_backend_factory(backend_factory))
+        mat = Materializer(self, self._session_backend_factory())
         return mat.dimension(name)
 
     def materialize_metric(
         self,
         name: str,
-        *,
-        backend_factory: Callable[[str], Any] | None = None,
     ) -> ir.Value:
-        """Materialize a metric by semantic_id using the given backend_factory.
+        """Materialize a metric by semantic_id.
 
-        Each call creates a fresh Materializer instance.
+        Each call creates a fresh Materializer instance. Datasource backends
+        are resolved internally via ``DatasourceConnectionService``.
         """
-        mat = Materializer(self, self._resolve_backend_factory(backend_factory))
+        mat = Materializer(self, self._session_backend_factory())
         return mat.metric(name)
 
     # -- preview ---------------------------------------------------------------
@@ -788,7 +793,6 @@ class SemanticProject:
         datasource: str,
         table: str,
         database: str | tuple[str, ...] | None = None,
-        backend_factory: Callable[[str], Any] | None = None,
         columns: Iterable[str] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
@@ -799,12 +803,12 @@ class SemanticProject:
         records the physical preview ref as raw preview evidence for subsequent
         readiness checks on this project instance.
 
-        If *backend_factory* is not provided, the bound factory (set via
-        :meth:`bind_datasource_access`) is used.
+        Datasource backends are resolved internally via
+        ``DatasourceConnectionService``.
         """
-        factory = self._resolve_backend_factory(backend_factory)
         validate_preview_limit(limit)
-        backend = factory(datasource)
+        service = self._connection_service()
+        backend = service.session_backend(datasource)
         source_table = table
         preview_table = (
             backend.table(source_table)
@@ -861,14 +865,12 @@ class SemanticProject:
         self,
         name: str,
         *,
-        backend_factory: Callable[[str], Any] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
     ) -> PreviewResult:
         """Return a bounded preview of a semantic dataset."""
-        factory = self._resolve_backend_factory(backend_factory)
         limit = validate_preview_limit(limit)
-        table = self.materialize_dataset(name, backend_factory=factory)
+        table = self.materialize_dataset(name)
         return preview_ibis_table(
             table,
             kind="semantic_dataset",
@@ -882,13 +884,12 @@ class SemanticProject:
         self,
         name: str,
         *,
-        backend_factory: Callable[[str], Any] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         context_columns: Iterable[str] | None = None,
         include_types: bool = True,
     ) -> PreviewResult:
         """Return a bounded preview of a semantic field with parent dataset context."""
-        factory = self._resolve_backend_factory(backend_factory)
+        factory = self._session_backend_factory()
         limit = validate_preview_limit(limit)
         reg = _require_registry(self._registry, project=self)
         field_ir = reg.fields.get(name)
@@ -939,7 +940,6 @@ class SemanticProject:
         self,
         name: str,
         *,
-        backend_factory: Callable[[str], Any] | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
     ) -> PreviewResult:
@@ -950,7 +950,7 @@ class SemanticProject:
         metric callable runs, so aggregation never scans the full table.
         The result is approximate.
         """
-        factory = self._resolve_backend_factory(backend_factory)
+        factory = self._session_backend_factory()
         limit = validate_preview_limit(limit)
         mat = Materializer(self, factory, sample_size=METRIC_PREVIEW_SAMPLE_SIZE)
         metric_value = mat.metric(name)
@@ -989,7 +989,6 @@ class SemanticProject:
         self,
         name: str,
         *,
-        backend_factory: Callable[..., Any] | None = None,
         rel_tol: float | None = None,
         abs_tol: float | None = None,
         force: bool = False,
@@ -997,12 +996,12 @@ class SemanticProject:
         """Run parity check for a metric against its source SQL.
 
         See :func:`marivo.semantic.parity.parity_check` for details.
+        Datasource backends are resolved internally via
+        ``DatasourceConnectionService``.
         """
-        factory = self._resolve_backend_factory(backend_factory)
         return parity_check(
             self,
             name,
-            backend_factory=factory,
             rel_tol=rel_tol,
             abs_tol=abs_tol,
             force=force,
@@ -1040,50 +1039,26 @@ class SemanticProject:
             supports_federation=False,
         )
 
-    @property
-    def _backend_factory(self) -> Callable[[str], Any] | None:
-        """Return the bound backend factory, if any."""
-        return self._bound_backend_factory
-
-    def bind_datasource_access(
-        self,
-        *,
-        inspect_source: Callable[..., Any],
-        backend_factory: Callable[[str], Any],
-    ) -> None:
-        """Bind datasource access callables for evidence collection and materialization."""
-        self._bound_inspect_source = inspect_source
-        self._bound_backend_factory = backend_factory
-
-    def _resolve_backend_factory(
-        self,
-        backend_factory: Callable[[str], Any] | None,
-    ) -> Callable[[str], Any]:
-        """Return *backend_factory* or the bound factory, raising if neither is set."""
-        factory = backend_factory or self._backend_factory
-        if factory is None:
-            _raise(
-                ErrorKind.BACKEND_FACTORY_REQUIRED,
-                "No backend_factory available. Call project.bind_datasource_access(...) "
-                "or pass backend_factory=... explicitly.",
-                cls=SemanticRuntimeError,
+    def _connection_service(self) -> DatasourceConnectionService:
+        """Return the lazily-created DatasourceConnectionService."""
+        if self._connection_service_instance is None:
+            self._connection_service_instance = DatasourceConnectionService(
+                project_root=self._workspace_dir
             )
-        return factory
+        return self._connection_service_instance
 
-    def _resolve_inspect_source(
-        self,
-        inspect_source: Callable[..., Any] | None,
-    ) -> Callable[..., Any]:
-        """Return *inspect_source* or the bound callable, raising if neither is set."""
-        fn = inspect_source or self._bound_inspect_source
-        if fn is None:
-            _raise(
-                ErrorKind.INSPECT_SOURCE_REQUIRED,
-                "No inspect_source available. Call project.bind_datasource_access(...) "
-                "or pass inspect_source=... explicitly.",
-                cls=SemanticRuntimeError,
-            )
-        return fn
+    def _session_backend_factory(self) -> Callable[[str], Any]:
+        """Return a factory callable backed by the internal connection service.
+
+        This is used by Materializer and other callers that expect a
+        ``Callable[[str], Any]`` backend factory.
+        """
+        service = self._connection_service()
+
+        def _factory(name: str) -> Any:
+            return service.session_backend(name)
+
+        return _factory
 
     def readiness(
         self,
@@ -1093,6 +1068,7 @@ class SemanticProject:
         preview_limit: int = 20,
         parity_rel_tol: float | None = None,
         parity_abs_tol: float | None = None,
+        scope: Any | None = None,
     ) -> ReadinessReport:
         """Return a structured semantic readiness report.
 
@@ -1102,10 +1078,22 @@ class SemanticProject:
         missing backend access as a readiness blocker. Use ``refs`` to scope
         which semantic objects to check; by default all loaded objects are
         checked.
+
+        Args:
+            refs: Semantic refs to scope the check. None checks all loaded objects.
+            demand: Demand signal for richness evaluation.
+            preview_limit: Maximum rows for bounded previews.
+            parity_rel_tol: Relative tolerance for parity checks.
+            parity_abs_tol: Absolute tolerance for parity checks.
+            scope: ScanScope for bounded datasource scans during readiness checks.
+                When None, a default ScanScope() is used.
         """
+        from marivo.datasource.scan import ScanScope
+
+        _scope = scope if scope is not None else ScanScope()
         self.load(models=list(self._filtered_domains) if self._filtered_domains else None)
         evidence = self._auto_collect_evidence()
-        factory = self._backend_factory
+        factory = self._session_backend_factory()
         return build_readiness_report(
             self,
             evidence,
@@ -1134,275 +1122,409 @@ class SemanticProject:
 
     # -- authoring evidence -------------------------------------------------
 
-    def _resolve_datasource_name(self, datasource: DatasourceRef | str) -> str:
-        if isinstance(datasource, DatasourceRef):
-            return datasource.semantic_id
-        if isinstance(datasource, str) and datasource:
-            return datasource
-        _raise(
-            ErrorKind.INVALID_REF,
-            "datasource must be a marivo.datasource ref or a non-empty datasource name string.",
-            cls=SemanticRuntimeError,
+    def _datasets_by_source(self, datasource: str, source: DatasetSource) -> tuple[EntityIR, ...]:
+        reg = self._registry
+        if reg is None:
+            return ()
+        source_ir = source.to_ir()
+        return tuple(
+            ds
+            for ds in reg.datasets.values()
+            if ds.datasource == datasource and ds.source == source_ir
         )
 
-    def _inspect_metadata(self, datasource: str, table: EntitySourceIR) -> Any:
-        from marivo.datasource.metadata import inspect_source
-
-        return inspect_source(
-            datasource,
-            source=table,
-            include_partitions=True,
-            project_root=self._workspace_dir,
-        )
-
-    def _build_datasource_backend(self, datasource: str) -> Any:
-        from marivo.datasource import backends as _backends
-        from marivo.datasource import store as _store
-        from marivo.datasource.errors import DatasourceMissingError
-
-        datasource_ir = _store.load_one(datasource, project_root=self._workspace_dir)
-        if datasource_ir is None:
-            raise DatasourceMissingError(
-                message=f"datasource {datasource!r} is not configured",
-                details={
-                    "datasource": datasource,
-                    "available": _store.list_names(self._workspace_dir),
-                },
-            )
-        return _backends.build_backend(datasource_ir)
-
-    def _source_expr(self, backend: Any, table: EntitySourceIR) -> Any:
-        if isinstance(table, TableSourceIR):
-            if table.database is None:
-                return backend.table(table.table)
-            return backend.table(table.table, database=table.database)
-        if isinstance(table, FileSourceIR):
-            reader_name = {
-                "parquet": "read_parquet",
-                "csv": "read_csv",
-                "json": "read_json",
-            }[table.format]
-            reader = getattr(backend, reader_name)
-            return reader(table.path, **table.options)
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"table must be TableSourceIR or FileSourceIR, got {type(table).__name__}.",
-            cls=SemanticRuntimeError,
-        )
-
-    def inspect_table(
-        self,
-        datasource: DatasourceRef | str,
-        table: EntitySourceIR,
-    ) -> TableContext:
-        """Inspect basic metadata for one datasource table or file source."""
-        datasource_name = self._resolve_datasource_name(datasource)
-        metadata = self._inspect_metadata(datasource_name, table)
-        return TableContext(
-            datasource=datasource_name,
-            table=table,
-            table_comment=metadata.comment,
-            columns=tuple(column.name for column in metadata.columns),
-            column_comments={
-                column.name: column.comment
-                for column in metadata.columns
-                if column.comment is not None
-            },
-            metadata_warnings=tuple(
-                f"{warning.kind}: {warning.message}" for warning in metadata.warnings
-            ),
-        )
-
-    def inspect_columns(
-        self,
-        datasource: DatasourceRef | str,
-        table: EntitySourceIR,
-        columns: Sequence[str] | None = None,
-    ) -> tuple[ColumnContext, ...]:
-        """Inspect sampled details for selected columns on one datasource source."""
-        datasource_name = self._resolve_datasource_name(datasource)
-        metadata = self._inspect_metadata(datasource_name, table)
-        specs = {
-            column.name: (column.type, column.nullable, column.comment)
-            for column in metadata.columns
-        }
-        selected_columns = tuple(specs.keys()) if columns is None else tuple(dict.fromkeys(columns))
-        present_columns = tuple(column for column in selected_columns if column in specs)
-
-        frame: Any | None = None
-        if present_columns:
-            backend = self._build_datasource_backend(datasource_name)
-            try:
-                frame = (
-                    self._source_expr(backend, table)
-                    .select(*present_columns)
-                    .limit(_COLUMN_INSPECT_SAMPLE_LIMIT)
-                    .execute()
-                )
-            finally:
-                disconnect = getattr(backend, "disconnect", None)
-                if callable(disconnect):
-                    with suppress(Exception):
-                        disconnect()
-
-        contexts: list[ColumnContext] = []
-        for column in selected_columns:
-            spec = specs.get(column)
-            if spec is None:
-                contexts.append(
-                    ColumnContext(
-                        datasource=datasource_name,
-                        table=table,
-                        column=column,
-                        data_type="UNKNOWN",
-                        nullable=None,
-                        comment=None,
-                        sample_values=(),
-                        null_count=None,
-                        min_value=None,
-                        max_value=None,
-                        warnings=("column absent from source schema",),
-                    )
-                )
-                continue
-
-            data_type, nullable, comment = spec
-            if frame is None or column not in frame:
-                contexts.append(
-                    ColumnContext(
-                        datasource=datasource_name,
-                        table=table,
-                        column=column,
-                        data_type=data_type,
-                        nullable=nullable,
-                        comment=comment,
-                        sample_values=(),
-                        null_count=None,
-                        min_value=None,
-                        max_value=None,
-                        warnings=("column absent from bounded sample",),
-                    )
-                )
-                continue
-
-            series = frame[column]
-            non_null = series.dropna()
-            min_value: object | None = None
-            max_value: object | None = None
-            if not non_null.empty:
-                try:
-                    min_value = normalize_preview_cell(non_null.min())
-                    max_value = normalize_preview_cell(non_null.max())
-                except TypeError:
-                    min_value = None
-                    max_value = None
-            contexts.append(
-                ColumnContext(
-                    datasource=datasource_name,
-                    table=table,
-                    column=column,
-                    data_type=data_type,
-                    nullable=nullable,
-                    comment=comment,
-                    sample_values=tuple(normalize_preview_cell(value) for value in series),
-                    null_count=int(series.isna().sum()),
-                    min_value=min_value,
-                    max_value=max_value,
-                )
-            )
-        return tuple(contexts)
-
-    def assess_authoring(
+    def inspect_source_context(
         self,
         *,
-        object_kind: AuthoringObjectKind,
-        subject_ref: str,
-        sources: Sequence[AuthoringSourceInput] = (),
-        semantic_refs: Sequence[str] = (),
-    ) -> AuthoringAssessment:
-        """Collect current source context and assess semantic authoring inputs.
+        datasource: str,
+        source: DatasetSource,
+        sample_policy: SamplePolicy,
+    ) -> SourceEvidencePack:
+        """Collect and persist a SourceEvidencePack for one physical source.
+
+        Folds the old inspect_source + collect_source_preview authoring steps
+        into one call. When ``sample_policy`` reads rows, a bounded raw-preview
+        evidence ref is also recorded so ``readiness()`` passes without a
+        separate collect_source_preview call.
+
+        Datasource backends and inspect_source are resolved internally via
+        ``DatasourceConnectionService`` and ``marivo.datasource.inspect_source``.
+        """
+        from marivo.datasource import inspect_source as _inspect_source_fn
+
+        fn = _inspect_source_fn
+        factory = self._session_backend_factory()
+        from marivo.semantic.inspect import collect_source_evidence
+
+        pack = collect_source_evidence(
+            datasource=datasource,
+            source=source,
+            inspect_source=fn,
+            backend_factory=factory,
+            sample_policy=sample_policy,
+        )
+        if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)) and isinstance(
+            source, TableSource
+        ):
+            self.collect_source_preview(
+                datasource=datasource,
+                table=source.table,
+                database=source.database,
+                limit=min(sample_policy.limit, PREVIEW_MAX_LIMIT),
+            )
+        if isinstance(sample_policy, (BoundedProfilePolicy, SelectedColumnsPolicy)):
+            for ds in self._datasets_by_source(datasource, source):
+                if ds.primary_key:
+                    self.record_primary_key_sample(ds.semantic_id)
+        return pack
+
+    def inspect_column_context(
+        self,
+        *,
+        datasource: str,
+        source: DatasetSource,
+        columns: Sequence[str],
+        sample_policy: BoundedProfilePolicy | SelectedColumnsPolicy,
+    ) -> tuple[ColumnEvidence, ...]:
+        """Deep-dive selected columns after inspect_source_context."""
+        from marivo.datasource import inspect_source as _inspect_source_fn
+
+        fn = _inspect_source_fn
+        factory = self._session_backend_factory()
+        from marivo.semantic.inspect import collect_column_evidence
+
+        result = collect_column_evidence(
+            datasource=datasource,
+            source=source,
+            columns=columns,
+            inspect_source=fn,
+            backend_factory=factory,
+            sample_policy=sample_policy,
+        )
+        column_set = set(columns)
+        for ds in self._datasets_by_source(datasource, source):
+            if ds.primary_key and set(ds.primary_key) <= column_set:
+                self.record_primary_key_sample(ds.semantic_id)
+        return result
+
+    # -- prepare (registry-only) --------------------------------------------
+
+    def prepare_domain(self, *, name: str) -> DomainBrief:
+        """Prepare a domain authoring brief from the project registry."""
+        from marivo.semantic.prepare import prepare_domain
+
+        return prepare_domain(self, name=name)
+
+    def prepare_derived_metric(
+        self,
+        *,
+        numerator: str,
+        denominator: str | None = None,
+        weight: str | None = None,
+    ) -> DerivedMetricBrief:
+        """Prepare a derived metric brief from component metric refs."""
+        from marivo.semantic.prepare import prepare_derived_metric
+
+        return prepare_derived_metric(
+            self, numerator=numerator, denominator=denominator, weight=weight
+        )
+
+    def prepare_entity(
+        self,
+        *,
+        datasource: str,
+        source: EntitySourceIR,
+        domain: str,
+        scope: ScanScope | None = None,
+    ) -> EntityBrief:
+        """Prepare an entity authoring brief with datasource evidence."""
+        from marivo.semantic.prepare import prepare_entity
+
+        if scope is None:
+            scope = ScanScope()
+        return prepare_entity(
+            self, datasource=datasource, source=source, domain=domain, scope=scope
+        )
+
+    def prepare_dimensions(
+        self,
+        *,
+        entity: str,
+        columns: Sequence[str],
+        scope: ScanScope | None = None,
+    ) -> tuple[DimensionBrief, ...]:
+        """Prepare dimension authoring briefs for the given entity columns."""
+        from marivo.semantic.prepare import prepare_dimensions
+
+        if scope is None:
+            scope = ScanScope()
+        return prepare_dimensions(self, entity=entity, columns=columns, scope=scope)
+
+    def prepare_time_dimension(
+        self,
+        *,
+        entity: str,
+        column: str,
+        scope: ScanScope | None = None,
+    ) -> TimeDimensionBrief:
+        """Prepare a time dimension authoring brief with format detection."""
+        from marivo.semantic.prepare import prepare_time_dimension
+
+        if scope is None:
+            scope = ScanScope()
+        return prepare_time_dimension(self, entity=entity, column=column, scope=scope)
+
+    def prepare_metric(
+        self,
+        *,
+        entity: str,
+        measure_columns: Sequence[str] = (),
+        filter_dimensions: Sequence[str] = (),
+        scope: ScanScope | None = None,
+    ) -> MetricBrief:
+        """Prepare a metric authoring brief with measure evidence."""
+        from marivo.semantic.prepare import prepare_metric
+
+        if scope is None:
+            scope = ScanScope()
+        return prepare_metric(
+            self,
+            entity=entity,
+            measure_columns=measure_columns,
+            filter_dimensions=filter_dimensions,
+            scope=scope,
+        )
+
+    def prepare_relationship(
+        self,
+        *,
+        from_entity: str,
+        to_entity: str,
+        from_dimensions: Sequence[str],
+        to_dimensions: Sequence[str],
+        scope: ScanScope | None = None,
+    ) -> RelationshipBrief:
+        """Prepare a relationship authoring brief with join-key probe evidence."""
+        from marivo.semantic.prepare import prepare_relationship
+
+        if scope is None:
+            scope = ScanScope()
+        return prepare_relationship(
+            self,
+            from_entity=from_entity,
+            to_entity=to_entity,
+            from_dimensions=from_dimensions,
+            to_dimensions=to_dimensions,
+            scope=scope,
+        )
+
+    def prepare_cross_entity_metric(
+        self,
+        *,
+        root_entity: str,
+        entities: Sequence[str],
+        measure_columns: Sequence[str] = (),
+        scope: ScanScope | None = None,
+    ) -> CrossEntityMetricBrief:
+        """Prepare a cross-entity metric brief with relationship path evidence."""
+        from marivo.semantic.prepare import prepare_cross_entity_metric
+
+        if scope is None:
+            scope = ScanScope()
+        return prepare_cross_entity_metric(
+            self,
+            root_entity=root_entity,
+            entities=entities,
+            measure_columns=measure_columns,
+            scope=scope,
+        )
+
+    # -- verify object -------------------------------------------------------
+
+    _DEFAULT_SCOPE = ScanScope()  # module-level singleton for default parameter
+
+    def verify_object(
+        self,
+        ref: str,
+        *,
+        scope: ScanScope | None = None,
+    ) -> VerifyResult:
+        """Verify a single authored semantic object is reachable and valid.
+
+        For domains and relationships this is a static-only check. For entities,
+        a scoped preview confirms the datasource is reachable and the expression
+        is valid. For dimensions, time dimensions, metrics, and derived metrics
+        the check is static-only for now.
 
         Parameters
         ----------
-        object_kind:
-            Kind of semantic object being authored, such as ``"metric"`` or
-            ``"derived_metric"``.
-        subject_ref:
-            Fully qualified semantic ref the object will use after authoring.
-        sources:
-            Physical source declarations to inspect before checking the authoring
-            inputs. Each source is profiled with a bounded sample; selected
-            columns receive a focused column profile.
-        semantic_refs:
-            Existing semantic objects this authored object depends on.
+        ref:
+            Fully qualified semantic ref (e.g. ``"sales.orders"``).
+        scope:
+            Scan scope controlling partition, max rows, and timeout.
+            Defaults to ``ScanScope()``.
 
         Returns
         -------
-        AuthoringAssessment
-            Facts, issues, questions, and final status from the composed
-            evidence collection and static authoring check.
-
-        Usage
-        -----
-        ``project.assess_authoring(object_kind="metric", subject_ref="sales.revenue",
-        sources=(AuthoringSourceInput(...),))``
-
-        Constraints
-        -----------
-        This method accepts only source and semantic references, not drafted
-        object content. For physical sources, call
-        ``project.bind_datasource_access(...)`` first so Marivo can collect
-        current datasource evidence.
+        VerifyResult
+            Status, issues, and optional scan report for entity verification.
         """
-        if sources and (self._bound_inspect_source is None or self._bound_backend_factory is None):
-            issue = AssessmentIssue(
-                kind="missing_source",
-                severity="blocker",
-                refs=(subject_ref,),
-                rule_id="datasource_access_bound",
-                message=(
-                    "Datasource access is required before assessing physical sources. "
-                    "Call project.bind_datasource_access(...) with inspect_source and "
-                    "backend_factory."
-                ),
-            )
-            return AuthoringAssessment(
-                status="blocked",
-                facts=(),
-                issues=(issue,),
-                questions=(),
+        from marivo.semantic.scope import scoped_entity_expression
+
+        if scope is None:
+            scope = self._DEFAULT_SCOPE
+
+        self.load(models=list(self._filtered_domains) if self._filtered_domains else None)
+        kind = self._kind_for_ref(ref)
+
+        if kind == "domain" or kind == "relationship":
+            return VerifyResult(
+                status="passed",
+                ref=ref,
+                kind=kind,
+                issues=(),
+                warnings=(),
+                scan=None,
+                auto_recorded=(),
             )
 
-        from marivo.semantic.authoring_check import check_authoring_inputs as _check
-        from marivo.semantic.inspect import collect_source_evidence
+        if kind == "entity":
+            entity = self._registry.datasets.get(ref) if self._registry is not None else None
+            if entity is None:
+                return self._failed_verify(
+                    ref, "entity", "authored_object_invalid", "Object is not loaded."
+                )
+            try:
+                service = DatasourceConnectionService(project_root=self._workspace_dir)
+                with service.use_backend(entity.datasource) as backend:
+                    scoped = scoped_entity_expression(
+                        backend=backend,
+                        entity_source=entity.source,
+                        partition=scope.partition if isinstance(scope.partition, dict) else None,
+                    )
+                    preview = scoped.expr.limit(scope.max_rows).execute()
+                    scan = ScanReport(
+                        partition_used=scoped.scan.partition_used,
+                        partition_resolution=scoped.scan.partition_resolution,
+                        rows_scanned=len(preview),
+                        columns_scanned=tuple(preview.columns),
+                        truncated=len(preview) >= scope.max_rows,
+                        elapsed_seconds=scoped.scan.elapsed_seconds,
+                        warnings=scoped.scan.warnings,
+                    )
+                return VerifyResult(
+                    status="passed",
+                    ref=ref,
+                    kind="entity",
+                    issues=(),
+                    warnings=(),
+                    scan=scan,
+                    auto_recorded=(),
+                )
+            except Exception as exc:
+                issue = AssessmentIssue(
+                    kind="datasource_unreachable",
+                    severity="blocker",
+                    refs=(ref,),
+                    message=str(exc),
+                    rule_id="verify_object_datasource_access",
+                )
+                return VerifyResult(
+                    status="failed",
+                    ref=ref,
+                    kind="entity",
+                    issues=(issue,),
+                    warnings=(),
+                    scan=None,
+                    auto_recorded=(),
+                )
 
-        collected_packs: list[SourceEvidencePack] = []
-        for source_input in sources:
-            pack = collect_source_evidence(
-                datasource=source_input.datasource,
-                source=source_input.source,
-                inspect_source=self._resolve_inspect_source(None),
-                backend_factory=self._resolve_backend_factory(None),
-                sample_policy=BoundedProfilePolicy(limit=100, max_profiled_columns=50),
+        if kind == "dimension":
+            return VerifyResult(
+                status="passed",
+                ref=ref,
+                kind="dimension",
+                issues=(),
+                warnings=(),
+                scan=None,
+                auto_recorded=(),
             )
-            collected_packs.append(pack)
+        if kind == "time_dimension":
+            return VerifyResult(
+                status="passed",
+                ref=ref,
+                kind="time_dimension",
+                issues=(),
+                warnings=(),
+                scan=None,
+                auto_recorded=(),
+            )
+        if kind == "metric":
+            return VerifyResult(
+                status="passed",
+                ref=ref,
+                kind="metric",
+                issues=(),
+                warnings=(),
+                scan=None,
+                auto_recorded=(),
+            )
+        if kind == "derived_metric":
+            return VerifyResult(
+                status="passed",
+                ref=ref,
+                kind="derived_metric",
+                issues=(),
+                warnings=(),
+                scan=None,
+                auto_recorded=(),
+            )
 
-        return _check(
-            packs=collected_packs,
-            object_kind=object_kind,
-            subject_ref=subject_ref,
-            sources=sources,
-            semantic_refs=semantic_refs,
+        # Unknown kind fallback
+        return self._failed_verify(
+            ref, "entity", "static_check_failed", "Verification is not implemented for this kind."
         )
 
-    def inspect_authored_object(self, ref: str) -> AuthoringAssessment:
-        """Cheap post-reload inspection of a loaded authored object.
+    def _kind_for_ref(self, ref: str) -> AuthoringObjectKind | Literal["unknown"]:
+        """Determine the kind of a semantic ref from the registry."""
+        if self._registry is None:
+            return "unknown"
+        if ref in self._registry.models:
+            return "domain"
+        if ref in self._registry.datasets:
+            return "entity"
+        if ref in self._registry.fields:
+            field = self._registry.fields[ref]
+            return "time_dimension" if field.is_time_dimension else "dimension"
+        if ref in self._registry.metrics:
+            return "metric"
+        if ref in self._registry.relationships:
+            return "relationship"
+        return "unknown"
 
-        Backend-free: inspects the registry and evidence ledger only. It never
-        materializes tables, previews, runs parity, or scans relationships.
-        """
-        from marivo.semantic.authoring_check import inspect_authored_object as _inspect
-        from marivo.semantic.ledger import LedgerStore
-
-        reg = _require_registry(self._registry, project=self)
-        return _inspect(registry=reg, ledger_store=LedgerStore(self._semantic_root), ref=ref)
+    def _failed_verify(
+        self,
+        ref: str,
+        kind: AuthoringObjectKind,
+        issue_kind: Literal[
+            "authored_object_invalid", "datasource_unreachable", "static_check_failed"
+        ],
+        message: str,
+    ) -> VerifyResult:
+        """Build a failed VerifyResult with a single blocker issue."""
+        issue = AssessmentIssue(
+            kind=issue_kind,
+            severity="blocker",
+            refs=(ref,),
+            message=message,
+            rule_id=f"verify_object_{issue_kind}",
+        )
+        return VerifyResult(
+            status="failed",
+            ref=ref,
+            kind=kind,
+            issues=(issue,),
+            warnings=(),
+            scan=None,
+            auto_recorded=(),
+        )

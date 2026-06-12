@@ -25,6 +25,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
+from marivo.semantic.reader import SemanticProject
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -349,3 +350,63 @@ def test_analysis_skill_rejects_display_true_examples() -> None:
 def test_semantic_skill_teaches_mv_help_ref() -> None:
     skill = _read("marivo-skills/marivo-semantic/SKILL.md")
     assert "mv.help(" in skill
+
+
+# ---------------------------------------------------------------------------
+# Public surface has no backend_factory or binding choreography
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Superseded authoring symbols removed from public surface
+# ---------------------------------------------------------------------------
+
+
+def test_removed_stepwise_authoring_symbols_are_not_public() -> None:
+    removed = {
+        "AuthoringSourceInput",
+        "EvidenceFact",
+        "MetadataOnlyPolicy",
+        "BoundedProfilePolicy",
+        "SelectedColumnsPolicy",
+        "TableContext",
+        "ColumnContext",
+        "ColumnEvidence",
+        "SourceEvidencePack",
+    }
+
+    assert removed.isdisjoint(set(ms.__all__))
+    for name in removed:
+        assert not hasattr(ms, name), f"ms.{name} should be removed"
+
+    project = SemanticProject()
+    assert not hasattr(project, "assess_authoring")
+    assert not hasattr(project, "inspect_authored_object")
+    assert not hasattr(project, "inspect_table")
+    assert not hasattr(project, "inspect_columns")
+
+
+def test_semantic_authoring_public_surface_has_no_backend_factory_or_binding() -> None:
+    project = SemanticProject()
+
+    assert not hasattr(project, "bind_datasource_access")
+    for name in (
+        "materialize_dataset",
+        "materialize_field",
+        "materialize_metric",
+        "preview_dataset",
+        "preview_field",
+        "preview_metric",
+        "parity_check",
+        "readiness",
+    ):
+        method = getattr(project, name, None)
+        if method is None:
+            continue
+        signature = inspect.signature(method)
+        assert "backend_factory" not in signature.parameters, (
+            f"{name} still has backend_factory param"
+        )
+        assert "inspect_source" not in signature.parameters, (
+            f"{name} still has inspect_source param"
+        )

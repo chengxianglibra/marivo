@@ -83,25 +83,17 @@ _EXAMPLE_PARAMS = [
 def test_semantic_skill_points_to_standard_metadata_api() -> None:
     skill = _read("marivo-skills/marivo-semantic/SKILL.md")
     workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
+    datasource = _read("marivo-skills/marivo-semantic/references/datasource.md")
     evidence = _read("marivo-skills/marivo-semantic/references/evidence-and-ledger.md")
 
-    assert "project.inspect_table(" in skill
-    assert "project.inspect_columns(" in skill
-    assert "project.inspect_table(" in workflow
-    assert "project.inspect_columns(" in workflow
-    assert "inspect_source_context" not in skill
-    assert "inspect_column_context" not in skill
-    assert "inspect_source_context" not in workflow
-    assert "inspect_column_context" not in workflow
+    assert "md.inspect_table" in datasource
+    assert "md.inspect_columns" in datasource
+    assert "prepare_entity" in workflow
+    assert "ScanScope" in workflow
     assert "bind_datasource_access" not in workflow
-    assert "sample_policy=" not in workflow
-    assert "backend_factory=" not in workflow
-    assert "project.assess_authoring(" in workflow
-    assert "fixed 5-row sample" in workflow or "fixed 5-row sample" in skill
-    assert "non-negative integer count" in skill
+    assert "project.assess_authoring(" not in workflow
     assert "AuthoringQuestion" in evidence
-    assert "table.schema()` returns types but not comments" in skill
-    assert "target preview APIs until they exist" not in skill
+    assert "authoring_abandoned" in workflow
 
 
 def test_semantic_skill_uses_assess_authoring_not_next_checks() -> None:
@@ -123,8 +115,8 @@ def test_semantic_skill_uses_assess_authoring_not_next_checks() -> None:
         ]
     )
 
-    assert "project.assess_authoring(" in combined
-    assert "ms.AuthoringSourceInput(" in combined
+    assert "project.assess_authoring(" not in combined
+    assert "ms.AuthoringSourceInput(" not in combined
     assert "next_checks" not in combined
     assert "needs_evidence" not in combined
     assert "project.check_authoring_inputs(" not in combined
@@ -141,31 +133,12 @@ def test_superseded_specs_point_to_authoring_pipeline_design() -> None:
     ]
     for path in superseded_paths:
         spec = _read(path)
-        assert "docs/specs/semantic/authoring-pipeline-design.md" in spec
+        assert "docs/specs/semantic/stepwise-authoring-design.md" in spec
         assert "superseded" in spec.lower()
         assert "NextCheck" not in spec
         assert "next_checks" not in spec
         assert "needs_evidence" not in spec
         assert "project.check_authoring_inputs(" not in spec
-
-
-def test_semantic_workflow_assess_authoring_snippets_use_sources_shape() -> None:
-    workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
-    snippets = _extract_call_snippets(workflow, "project.assess_authoring")
-
-    assert snippets
-    forbidden = ("datasource=", "source=", "columns=", "ai_context=")
-    stale = {
-        parameter: [
-            snippet
-            for snippet in snippets
-            if parameter.rstrip("=") in _top_level_call_keyword_names(snippet)
-        ]
-        for parameter in forbidden
-    }
-    assert not any(stale.values()), stale
-    assert any("sources=(" in snippet for snippet in snippets)
-    assert "ms.AuthoringSourceInput(" in workflow
 
 
 def test_semantic_ai_context_help_describes_handoff_not_check_input() -> None:
@@ -218,7 +191,7 @@ def test_semantic_skill_prefers_native_datasource_backends() -> None:
     combined = "\n".join((skill, workflow, datasource, pitfalls))
     assert "Choose the native backend first" in datasource
     assert "can federate to another engine" in datasource
-    assert "Do not route ClickHouse" in workflow
+    assert "Federated backend chosen by habit" in pitfalls
     assert 'backend_type="clickhouse"' in combined
     assert 'backend_type="mysql"' in combined
     assert 'backend_type="duckdb"' in combined
@@ -262,21 +235,15 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "return table.dt" in single
     assert "return table.dt.cast" not in single
     assert 'required_prefix="log_date"' in single
-    assert "project.inspect_table(" in evidence
-    assert "project.inspect_columns(" in evidence
-    assert "inspect_source_context" not in evidence
-    assert "inspect_column_context" not in evidence
+    assert "project.prepare_entity(" in evidence
+    assert "md.ScanScope()" in evidence
     assert "bind_datasource_access" not in evidence
-    assert "sample_policy=" not in evidence
-    assert "ms.AuthoringSourceInput(" in evidence
-    assert "sources=(" in evidence
-    assert "project.assess_authoring(" in evidence
-    assert "project.inspect_table(" in closeout
-    assert "project.inspect_columns(" in closeout
-    assert "inspect_source_context" not in closeout
-    assert "inspect_column_context" not in closeout
+    assert "ms.AuthoringSourceInput(" not in evidence
+    assert "project.assess_authoring(" not in evidence
+    assert "project.verify_object(" in evidence
+    assert "project.readiness(" in closeout
+    assert "md.ScanScope()" in closeout
     assert "bind_datasource_access" not in closeout
-    assert "sample_policy=" not in closeout
     for text in (closeout_ref, preview_ref, closeout):
         assert "require_preview" not in text
         assert "require_evidence_ledger" not in text
@@ -359,6 +326,24 @@ def test_semantic_skill_example_executes(example: Path) -> None:
     assert failure is None, f"{failure.reason}: {failure.detail}" if failure else None
 
 
+def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
+    import marivo.datasource as md
+    from marivo.introspection.surface import render as surface_render
+    from marivo.semantic.help import _surface as semantic_surface
+
+    semantic_data = surface_render(semantic_surface(), None, "json")
+    datasource_data = md.help(format="json", print=False)
+
+    for name in ("prepare_entity", "prepare_metric", "VerifyResult", "DomainBrief"):
+        assert name in str(semantic_data), f"semantic help missing {name}"
+    for name in ("ScanScope", "inspect_columns", "probe_join_keys"):
+        assert name in str(datasource_data), f"datasource help missing {name}"
+    for removed in ("assess_authoring", "AuthoringSourceInput", "inspect_authored_object"):
+        assert removed not in str(semantic_data), (
+            f"semantic help still has removed symbol {removed}"
+        )
+
+
 def test_semantic_skill_md_caps_respected() -> None:
     run_skill_examples = _load_run_skill_examples()
     failures = [
@@ -367,3 +352,48 @@ def test_semantic_skill_md_caps_respected() -> None:
     ]
     failures = [f for f in failures if f is not None]
     assert not failures, [f"{f.reason}: {f.detail}" for f in failures]
+
+
+def test_superseded_semantic_docs_point_to_stepwise_design() -> None:
+    docs = {
+        "docs/specs/semantic/authoring-pipeline-design.md": "superseded",
+        "docs/specs/semantic/agent-semantic-layer-authoring-design.md": "superseded",
+        "docs/specs/semantic/skill-semantic-layer-authoring-design.md": "superseded",
+    }
+    for path, marker in docs.items():
+        text = (REPO_ROOT / path).read_text(encoding="utf-8").lower()
+        assert marker in text, f"{path} missing '{marker}' marker"
+        assert "stepwise-authoring-design.md" in text, (
+            f"{path} missing stepwise-authoring-design.md reference"
+        )
+
+
+def test_semantic_skill_uses_stepwise_ladder_contract() -> None:
+    paths = [
+        "marivo-skills/marivo-semantic/SKILL.md",
+        "marivo-skills/marivo-semantic/references/workflow.md",
+        "marivo-skills/marivo-semantic/references/datasource.md",
+        "marivo-skills/marivo-semantic/references/evidence-and-ledger.md",
+        "marivo-skills/marivo-semantic/references/closeout.md",
+        "marivo-skills/marivo-semantic/references/pitfalls.md",
+    ]
+    combined = "\n".join(Path(path).read_text(encoding="utf-8") for path in paths)
+
+    for required in (
+        "prepare_entity",
+        "prepare_metric",
+        "verify_object",
+        "ScanScope",
+        "authoring_abandoned",
+    ):
+        assert required in combined, f"skill references missing {required}"
+    for removed in (
+        "assess_authoring",
+        "AuthoringSourceInput",
+        "inspect_authored_object",
+        "bind_datasource_access",
+        "project.inspect_table",
+        "project.inspect_columns",
+        "backend_factory",
+    ):
+        assert removed not in combined, f"skill references still contain removed symbol {removed}"

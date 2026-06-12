@@ -19,56 +19,16 @@ Python path such as `<venv>/bin/python`.
 The current project should contain `.marivo/semantic/`. If it does not, create
 the project structure before authoring semantic objects.
 
-## Non-Negotiable Rules
+## Ladder Rules
 
-- Use runtime help as the authoritative per-object contract. For the object you
-  are about to author or call, inspect `ms.help('<name>')`;
-  examples: `ms.help('metric')`,
-  `ms.help('derived_metric')`,
-  `ms.help('decomposition')`, and
-  `ms.help('SemanticCatalog')`. The descriptor exposes
-  `signature`, `doc`, bounded `constraints`, runnable `examples`, `methods`,
-  and drill-down ids. Consult it per object when the contract matters; do not
-  turn help into a blanket ritual for each call.
-- Use `ms.load()` to obtain a `SemanticCatalog` for browsing and inspecting
-  loaded semantic objects. Do not construct `SemanticProject` directly for
-  read-only consumption.
-- Before authoring `*_env` credential fields on a `DatasourceSpec`, read
-  `~/.marivo/secrets.toml` to discover cached env var names. Reuse an existing
-  name when the same credential type is already cached (e.g., reuse
-  `TRINO_PASSWORD` for a second Trino datasource). Do not ask the user for a
-  secret that the cache already holds.
-- Python files under `.marivo/semantic/<domain>/` are the only semantic source of
-  truth.
-- Inspect source metadata before authoring with
-  `project.inspect_table(datasource, ms.table(...))`. Deep-dive selected fields
-  with `project.inspect_columns(datasource, ms.table(...), columns=(...))`;
-  datasource access is resolved from `.marivo/datasource` and closed by the
-  method.
-- Sample-derived values (`sample_values`, `min_value`/`max_value`) are facts
-  about the fixed 5-row sample only. Never treat them as complete enums or
-  global ranges.
-- Rank columns yourself from table and column context facts (type, comments,
-  nullable, sampled values). The project returns no candidate worklist. Deep-dive a small set with
-  `project.inspect_columns(...)`.
-- Before writing each candidate object, run `project.assess_authoring(...)` with
-  `sources=(ms.AuthoringSourceInput(...),)` and `semantic_refs=...` where relevant. Branch
-  on `AuthoringAssessment.status`, then inspect `issues` and `questions`; never string-parse
-  messages. Ask the user only for `AuthoringQuestion`s the assessment raises.
-- After authoring and `project.load()`, run `project.inspect_authored_object(ref)` (cheap,
-  backend-free) before any runtime preview/parity.
-- `blast_radius` is a non-negative integer count of distinct transitive dependents,
-  not a ref tuple/list or candidate list.
-- Ask users only for unresolved blockers or business decisions evidence cannot
-  settle.
-- Reload after authoring `@ms.metric` or `@ms.time_dimension` declarations so Marivo
-  can auto-record their object-level `metric_decomposition` and
-  `time_dimension_identity` decisions.
-- Do not hand off to `marivo-analysis` while readiness is blocked.
-- Run `project.readiness(...)` once at closeout. Richness gaps are folded into
-  readiness warnings and `richness_summary`.
-
-`table.schema()` returns types but not comments.
+- Follow the ladder: domain -> entity -> dimension -> time_dimension -> metric -> relationship -> cross-entity metric -> derived metric.
+- Before writing each object, call the matching `project.prepare_*` API and branch on the returned Brief status.
+- Write exactly one semantic object per cycle in `.marivo/semantic/<domain>/_domain.py`.
+- After writing one object, call `project.verify_object(ref)` and do not advance while it fails.
+- Use `md.ScanScope()` by default. Passing `partition=None` is allowed only when the answer explicitly accepts an unpruned scan.
+- Ask users only for blocking `AuthoringQuestion`s that cannot be answered from documented project knowledge.
+- Record abandonment with `authoring_abandoned` when a candidate cannot be safely authored.
+- Run `project.readiness(...)` at closeout and do not hand off to analysis while readiness is blocked.
 
 ## Inspecting semantic objects
 
@@ -94,42 +54,13 @@ mv.help(revenue, project=project)   # explicit project when not in CWD
 Read `_domain.py` only when you need to modify the semantic model, inspect
 implementation expressions, or debug authoring behavior.
 
-## Default Workflow
-
-Read `references/workflow.md` first. The short form is:
-
-1. Discovery/source inspection: discover the project and existing refs, bind datasource
-   access once, inspect source context, and deep-dive only the columns that matter.
-2. Assess and author each candidate object: call `project.assess_authoring(...)`,
-   resolve blockers/questions, author one `.marivo/semantic/<domain>/_domain.py` using ref
-   variables, load, and inspect the authored object.
-3. Closeout: call `project.readiness(...)` once for the target refs and hand off only when
-   it is not blocked.
-
-## Authoring Defaults
-
-- Default to one `.marivo/semantic/<domain>/_domain.py` per domain.
-- Use `md.ref("<datasource>")` for datasource references.
-- Use Python ref variables between semantic objects.
-- Prefer a partition time dimension such as `dt`, `log_date`, or `event_date` as
-  the entity `@ms.time_dimension`.
-- For sortable day/hour partition columns, keep the raw string/integer column
-  body and declare `date_format` as a Python strptime string (e.g. `"%Y%m%d"`);
-  use `required_prefix` (no `date_format`) for hour-only fields.
-- Use a non-partition business event time only when evidence establishes that
-  axis; record the reason in `description`, `ai_context`, and the ledger when
-  material.
-- Include `ai_context.business_definition` and `ai_context.guardrails` for
-  analyzable handoff refs.
-
 ## Reference Routing
 
 | Need | Read |
 | --- | --- |
-| End-to-end semantic construction | `references/workflow.md` |
-| Python declaration patterns | `references/authoring-patterns.md` |
-| Evidence, questions, confirmations, ledger | `references/evidence-and-ledger.md` |
-| Preview, parity, readiness | `references/closeout.md` |
-| Datasource selection and setup | `references/datasource.md` |
-| Preview behavior and failures | `references/preview.md` |
+| End-to-end ladder workflow | `references/workflow.md` |
+| Per-kind Brief fields and actions | `references/object-briefs.md` |
+| Datasource inspection and ScanScope | `references/datasource.md` |
+| Evidence, ledger, abandon protocol | `references/evidence-and-ledger.md` |
+| Readiness closeout | `references/closeout.md` |
 | Known failure modes | `references/pitfalls.md` |

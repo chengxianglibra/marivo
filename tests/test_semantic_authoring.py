@@ -341,6 +341,22 @@ def test_file_source_rejects_unsupported_format() -> None:
     assert "format must be 'parquet' or 'csv'" in exc_info.value.message
 
 
+def test_table_source_constructor() -> None:
+    """ms.table and ms.file produce correct IR objects."""
+    from marivo.semantic.ir import FileSourceIR, TableSourceIR
+
+    tbl = ms.table("orders", database="sales_mart")
+    assert isinstance(tbl, TableSourceIR)
+    assert tbl.table == "orders"
+    assert tbl.database == "sales_mart"
+
+    fl = ms.file("/data/orders.csv", format="csv", delimiter=",")
+    assert isinstance(fl, FileSourceIR)
+    assert fl.path == "/data/orders.csv"
+    assert fl.format == "csv"
+    assert fl.options == {"delimiter": ","}
+
+
 def test_dataset_decorator_body_is_rejected() -> None:
     _enter_ctx(default_domain="sales")
     try:

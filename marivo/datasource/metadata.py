@@ -887,11 +887,7 @@ def inspect_table(
     if datasource_ir is None:
         raise DatasourceMetadataError(
             message=f"datasource {datasource!r} is not configured",
-            details={
-                "datasource": datasource,
-                "table": table,
-                "available": _store.list_names(project_root),
-            },
+            details={"datasource": datasource, "table": table, "available": _store.list_names()},
         )
 
     try:
@@ -1028,7 +1024,7 @@ def inspect_source(
     if datasource_ir is None:
         raise DatasourceMetadataError(
             message=f"datasource {datasource!r} is not configured",
-            details={"datasource": datasource, "available": _store.list_names(project_root)},
+            details={"datasource": datasource, "available": _store.list_names()},
         )
     try:
         backend = _backends.build_backend(datasource_ir)
