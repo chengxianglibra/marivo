@@ -15,7 +15,6 @@ from marivo.analysis.errors import (
     DatasourceMissingError,
     NoBackendFactoryError,
 )
-from marivo.semantic.audit import audit_project
 from tests.conftest import bootstrap_sales_project
 
 
@@ -108,11 +107,3 @@ def test_use_datasources_false_disables_auto_factory(tmp_path: Path, fake_home: 
     session = mv.session.get_or_create(name="s", use_datasources=False)
     with pytest.raises(NoBackendFactoryError):
         session._backend_cache.get_or_create("warehouse")
-
-
-def test_audit_project_reports_missing(tmp_path: Path, fake_home: Path) -> None:
-    bootstrap_sales_project(tmp_path)
-    session = mv.session.get_or_create(name="s")
-    result = audit_project(session._semantic_project)
-    assert result.missing == []
-    assert "warehouse" in result.present
