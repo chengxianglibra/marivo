@@ -53,34 +53,9 @@ ReadinessEffect = Literal["blocks", "warns", "advisory"]
 FileFormat = Literal["parquet", "csv", "json"]
 
 
-@dataclass(frozen=True)
-class TableSource:
-    table: str
-    database: str | tuple[str, ...] | None = None
-
-    def to_dict(self) -> dict[str, object]:
-        database: str | list[str] | None = (
-            list(self.database) if isinstance(self.database, tuple) else self.database
-        )
-        return {"kind": "table", "table": self.table, "database": database}
-
-    def to_ir(self) -> TableSourceIR:
-        return TableSourceIR(table=self.table, database=self.database)
-
-
-@dataclass(frozen=True)
-class FileSource:
-    path: str
-    format: FileFormat
-
-    def to_dict(self) -> dict[str, object]:
-        return {"kind": "file", "path": self.path, "format": self.format}
-
-    def to_ir(self) -> FileSourceIR:
-        return FileSourceIR(path=self.path, format=self.format)
-
-
-DatasetSource = TableSource | FileSource
+TableSource = TableSourceIR
+FileSource = FileSourceIR
+DatasetSource = EntitySourceIR
 
 
 @dataclass(frozen=True)

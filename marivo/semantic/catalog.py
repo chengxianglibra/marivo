@@ -5,14 +5,15 @@ Public entrypoint: ms.load() -> SemanticCatalog
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NoReturn
+from typing import TYPE_CHECKING, Literal, NoReturn
 
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
-from marivo.semantic.dtos import DatasetSource, FileSource, TableSource
-from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+from marivo.preview import PREVIEW_DEFAULT_LIMIT, PreviewResult
+from marivo.semantic.dtos import DatasetSource
+from marivo.semantic.errors import ErrorKind, SemanticLoadFailed, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
     DimensionIR,
     DimensionKind,
@@ -22,15 +23,18 @@ from marivo.semantic.ir import (
     MetricIR,
     ParityStatus,
     RelationshipIR,
+    SampleIntervalIR,
     SnapshotVersioningIR,
     SourceLocation,
     SymbolKind,
+    ValidityVersioningIR,
 )
 from marivo.semantic.parity import propagated_parity_status
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.readiness import ReadinessReport
+    from marivo.semantic.resolver import SemanticResolver
     from marivo.semantic.validator import Registry
 
 # list[SemanticObject] return annotations inside SemanticCatalog shadow the
@@ -65,6 +69,10 @@ __all__ = [
 # Both share the same values: domain, datasource, entity, dimension,
 # time_dimension, metric, relationship.
 SemanticKind = SymbolKind
+AiContextView = AiContextIR
+SnapshotVersioning = SnapshotVersioningIR
+ValidityVersioning = ValidityVersioningIR
+DatasetVersioning = EntityVersioningIR
 
 
 @dataclass(frozen=True)
@@ -97,71 +105,6 @@ class SemanticRef:
 
     def __repr__(self) -> str:
         return f"SemanticRef({self.ref!r}, kind={str(self.kind)!r})"
-
-
-@dataclass(frozen=True)
-class AiContextView:
-    """Read-only view of the ai_context authored on a semantic object.
-
-    Args:
-        business_definition: Business meaning of the object.
-        guardrails: Usage constraints and safety rules.
-        synonyms: Alternative names for the object.
-        examples: Illustrative values or usage examples.
-        instructions: Agent-facing usage instructions.
-        owner_notes: Internal notes from the object owner.
-
-    Returns:
-        Frozen AiContextView with all authored ai_context fields.
-
-    Example:
-        >>> revenue = catalog.get("sales.revenue")
-        >>> revenue.context.business_definition
-        'Gross revenue from completed orders.'
-
-    Constraints:
-        ``business_definition`` and ``guardrails`` are the authoritative
-        source of business meaning. ``SemanticObject.description`` is a
-        short display summary only.
-    """
-
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    instructions: str | None
-    owner_notes: str | None
-
-
-# ---------------------------------------------------------------------------
-# Versioning types
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class SnapshotVersioning:
-    """Snapshot versioning metadata for a dataset."""
-
-    kind: Literal["snapshot"]
-    partition_field: str
-    grain: Literal["day"]
-    timezone: str | None = None
-    format: str | None = None
-
-
-@dataclass(frozen=True)
-class ValidityVersioning:
-    """SCD2 validity-window versioning metadata for a dataset."""
-
-    kind: Literal["validity"]
-    valid_from: str
-    valid_to: str
-    interval: Literal["closed_open", "closed_closed"]
-    open_end: tuple[Any, ...]
-    timezone: str | None = None
-
-
-DatasetVersioning = SnapshotVersioning | ValidityVersioning
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +204,7 @@ class TimeDimensionDetails:
     timezone: str | None
     required_prefix: str | None
     is_default: bool
+    sample_interval: SampleIntervalIR | None
 
 
 @dataclass(frozen=True)
@@ -281,6 +225,7 @@ class MetricDetails:
     root_entity: SemanticRef | None
     is_derived: bool
     component_metrics: tuple[SemanticRef, ...]
+    components: tuple[tuple[str, SemanticRef], ...]
     required_relationships: tuple[SemanticRef, ...]
     decomposition: Literal["sum", "ratio", "weighted_average"]
     additivity: Literal["additive", "semi_additive", "non_additive"] | None
@@ -381,7 +326,9 @@ class SemanticObject:
             >>> d.component_metrics
 
         Constraints:
-            The returned object never exposes internal IR instances.
+            The returned object exposes stable catalog value views and shared
+            immutable value types where the semantic and datasource layers
+            already use the same representation.
         """
         return self._details
 
@@ -511,50 +458,8 @@ def _validate_kind(kind_input: SemanticKindInput) -> SemanticKind:
     return SymbolKind(kind_str)
 
 
-def _ai_context_from_ir(ir: AiContextIR) -> AiContextView:
-    return AiContextView(
-        business_definition=ir.business_definition,
-        guardrails=ir.guardrails,
-        synonyms=ir.synonyms,
-        examples=ir.examples,
-        instructions=ir.instructions,
-        owner_notes=ir.owner_notes,
-    )
-
-
 def _normalize_location(loc: SourceLocation | DatasourceSourceLocation) -> SourceLocation:
     return SourceLocation(file=loc.file, line=loc.line)
-
-
-def _versioning_from_ir(
-    ir_v: EntityVersioningIR | None,
-) -> DatasetVersioning | None:
-    if ir_v is None:
-        return None
-    if isinstance(ir_v, SnapshotVersioningIR):
-        return SnapshotVersioning(
-            kind="snapshot",
-            partition_field=ir_v.partition_field,
-            grain=ir_v.grain,
-            timezone=ir_v.timezone,
-            format=ir_v.format,
-        )
-    return ValidityVersioning(
-        kind="validity",
-        valid_from=ir_v.valid_from,
-        valid_to=ir_v.valid_to,
-        interval=ir_v.interval,
-        open_end=ir_v.open_end,
-        timezone=ir_v.timezone,
-    )
-
-
-def _source_from_ir(source_ir: Any) -> DatasetSource:
-    from marivo.semantic.ir import TableSourceIR
-
-    if isinstance(source_ir, TableSourceIR):
-        return TableSource(table=source_ir.table, database=source_ir.database)
-    return FileSource(path=source_ir.path, format=source_ir.format)
 
 
 def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObject:
@@ -570,7 +475,7 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
         name=ds_ir.name,
         domain=None,
         description=ds_ir.description,
-        context=_ai_context_from_ir(ds_ir.ai_context),
+        context=ds_ir.ai_context,
         source_location=_normalize_location(ds_ir.location),
         parents=(),
         children=(),
@@ -583,7 +488,7 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
         name=ds_ir.name,
         domain=None,
         description=ds_ir.description,
-        context=_ai_context_from_ir(ds_ir.ai_context),
+        context=ds_ir.ai_context,
         source_location=_normalize_location(ds_ir.location),
         python_symbol=ds_ir.python_symbol,
         _details=details,
@@ -609,7 +514,7 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
         name=model_ir.name,
         domain=model_ir.name,
         description=model_ir.description,
-        context=_ai_context_from_ir(model_ir.ai_context),
+        context=model_ir.ai_context,
         source_location=model_ir.location,
         parents=(),
         children=children,
@@ -621,7 +526,7 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
         name=model_ir.name,
         domain=model_ir.name,
         description=model_ir.description,
-        context=_ai_context_from_ir(model_ir.ai_context),
+        context=model_ir.ai_context,
         source_location=model_ir.location,
         python_symbol="",
         _details=details,
@@ -650,22 +555,21 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
         for m in reg.metrics.values()
         if ds_ir.semantic_id in m.entities
     )
-    source = _source_from_ir(ds_ir.source)
     details = EntityDetails(
         ref=ref,
         kind=SemanticKind.ENTITY,
         name=ds_ir.name,
         domain=ds_ir.domain,
         description=ds_ir.description,
-        context=_ai_context_from_ir(ds_ir.ai_context),
+        context=ds_ir.ai_context,
         source_location=ds_ir.location,
         parents=(ds_ref,),
         children=children,
         dependents=metric_dependents,
         datasource=ds_ref,
-        source=source,
+        source=ds_ir.source,
         primary_key=ds_ir.primary_key,
-        versioning=_versioning_from_ir(ds_ir.versioning),
+        versioning=ds_ir.versioning,
     )
     return SemanticObject(
         ref=ref,
@@ -673,7 +577,7 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
         name=ds_ir.name,
         domain=ds_ir.domain,
         description=ds_ir.description,
-        context=_ai_context_from_ir(ds_ir.ai_context),
+        context=ds_ir.ai_context,
         source_location=ds_ir.location,
         python_symbol=ds_ir.python_symbol,
         _details=details,
@@ -692,7 +596,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             name=f_ir.name,
             domain=f_ir.domain,
             description=f_ir.description,
-            context=_ai_context_from_ir(f_ir.ai_context),
+            context=f_ir.ai_context,
             source_location=f_ir.location,
             parents=(ds_ref,),
             children=(),
@@ -704,6 +608,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             timezone=f_ir.timezone,
             required_prefix=f_ir.required_prefix,
             is_default=f_ir.is_default,
+            sample_interval=f_ir.sample_interval,
         )
     else:
         dimension_kind: Literal["categorical", "measure"] = (
@@ -715,7 +620,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             name=f_ir.name,
             domain=f_ir.domain,
             description=f_ir.description,
-            context=_ai_context_from_ir(f_ir.ai_context),
+            context=f_ir.ai_context,
             source_location=f_ir.location,
             parents=(ds_ref,),
             children=(),
@@ -729,7 +634,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
         name=f_ir.name,
         domain=f_ir.domain,
         description=f_ir.description,
-        context=_ai_context_from_ir(f_ir.ai_context),
+        context=f_ir.ai_context,
         source_location=f_ir.location,
         python_symbol=f_ir.python_symbol,
         _details=details,
@@ -745,6 +650,10 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
     component_refs = tuple(
         SemanticRef(ref=comp_ref, kind=SemanticKind.METRIC)
         for comp_ref in m_ir.decomposition.components.values()
+    )
+    components = tuple(
+        (role, SemanticRef(ref=comp_ref, kind=SemanticKind.METRIC))
+        for role, comp_ref in m_ir.decomposition.components.items()
     )
     required_rels: tuple[SemanticRef, ...] = ()
     if len(m_ir.entities) > 1:
@@ -768,7 +677,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         name=m_ir.name,
         domain=m_ir.domain,
         description=m_ir.description,
-        context=_ai_context_from_ir(m_ir.ai_context),
+        context=m_ir.ai_context,
         source_location=m_ir.location,
         parents=parents,
         children=(),
@@ -777,6 +686,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         root_entity=root_entity_ref,
         is_derived=m_ir.is_derived,
         component_metrics=component_refs,
+        components=components,
         required_relationships=required_rels,
         decomposition=m_ir.decomposition.kind,
         additivity=m_ir.additivity,
@@ -796,7 +706,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         name=m_ir.name,
         domain=m_ir.domain,
         description=m_ir.description,
-        context=_ai_context_from_ir(m_ir.ai_context),
+        context=m_ir.ai_context,
         source_location=m_ir.location,
         python_symbol=m_ir.python_symbol,
         _details=details,
@@ -813,7 +723,7 @@ def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticO
         name=r_ir.name,
         domain=r_ir.domain,
         description=r_ir.description,
-        context=_ai_context_from_ir(r_ir.ai_context),
+        context=r_ir.ai_context,
         source_location=r_ir.location,
         parents=(from_ref, to_ref),
         children=(),
@@ -829,7 +739,7 @@ def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticO
         name=r_ir.name,
         domain=r_ir.domain,
         description=r_ir.description,
-        context=_ai_context_from_ir(r_ir.ai_context),
+        context=r_ir.ai_context,
         source_location=r_ir.location,
         python_symbol="",
         _details=details,
@@ -848,7 +758,7 @@ class SemanticCatalog:
         project: A loaded SemanticProject instance (status must be 'ready').
 
     Returns:
-        SemanticCatalog with list(), get(), and readiness() methods.
+        SemanticCatalog with list(), get(), preview(), and readiness() methods.
 
     Example:
         >>> catalog = ms.load()
@@ -866,6 +776,37 @@ class SemanticCatalog:
         self._project = project
         self._reg = project._registry
 
+    @property
+    def semantic_root(self) -> Path:
+        """Return the semantic root path (.marivo/semantic/)."""
+        return self._project.semantic_root
+
+    @property
+    def workspace_dir(self) -> Path:
+        """Return the workspace directory path."""
+        return self._project.workspace_dir
+
+    def load(self) -> None:
+        """Reload the semantic project from disk and refresh the catalog registry."""
+        models = list(self._project._filtered_domains) if self._project._filtered_domains else None
+        result = self._project.load(models=models)
+        self._reg = self._project._registry
+        if result.status != "ready":
+            raise SemanticLoadFailed(result.errors)
+
+    def _require_ready(self) -> Registry:
+        reg = self._reg
+        if self._project.is_ready() and reg is not None:
+            return reg
+        errors = self._project.errors()
+        if errors:
+            raise SemanticLoadFailed(errors)
+        _raise(
+            ErrorKind.PROJECT_NOT_LOADED,
+            "Semantic catalog is not loaded. Call catalog.load() before browsing.",
+            cls=SemanticRuntimeError,
+        )
+
     def list(
         self,
         parent: SemanticRefInput | None = None,
@@ -877,7 +818,8 @@ class SemanticCatalog:
         Args:
             parent: Full semantic ref of the parent to browse under.
                 None returns top-level domains and datasources.
-                A domain ref (e.g. "sales") returns entities and metrics.
+                A domain ref (e.g. "sales") returns entities, metrics, and
+                relationships.
                 A dataset ref (e.g. "sales.orders") returns fields, time fields,
                 relationships, and a filtered metric view.
             kind: Optional kind filter. Accepts SemanticKind values or strings
@@ -895,8 +837,7 @@ class SemanticCatalog:
             Only full semantic refs are accepted as parents. Non-container refs
             (metric, field, time_field, relationship) raise an unsupported-parent error.
         """
-        reg = self._reg
-        assert reg is not None, "registry is None — project must be loaded"
+        reg = self._require_ready()
 
         validated_kind = _validate_kind(kind) if kind is not None else None
 
@@ -968,6 +909,10 @@ class SemanticCatalog:
             for m_ir in reg.metrics.values():
                 if m_ir.domain == model_name:
                     items.append(_build_metric_object(m_ir, reg, self._project))
+        if kind_filter is None or kind_filter == SemanticKind.RELATIONSHIP:
+            for r_ir in reg.relationships.values():
+                if r_ir.domain == model_name:
+                    items.append(_build_relationship_object(r_ir, reg))
         return items
 
     def _list_under_datasource(
@@ -1056,8 +1001,7 @@ class SemanticCatalog:
             Raises a typed not-found error when no object exists. Does not return None.
             Short names such as "revenue" raise the not-found error with browse guidance.
         """
-        reg = self._reg
-        assert reg is not None
+        reg = self._require_ready()
         ref_str = _to_ref_str(ref)
         obj = self._get_object(ref_str, reg)
         if obj is None:
@@ -1108,8 +1052,99 @@ class SemanticCatalog:
         Constraints:
             This is the required semantic gate before passing refs to analysis APIs.
         """
+        self._require_ready()
         str_refs = [_to_ref_str(r) for r in refs] if refs is not None else None
         return self._project.readiness(refs=str_refs)
+
+    def _resolver(
+        self,
+        *,
+        connections: object | None = None,
+        sample_size: int | None = None,
+    ) -> SemanticResolver:
+        """Return an internal resolver backed by Materializer."""
+        self._require_ready()
+        if connections is None:
+            connections = self._project._connection_service()
+        from marivo.semantic.resolver import SemanticResolver
+
+        return SemanticResolver(self, connections=connections, sample_size=sample_size)
+
+    def preview(
+        self,
+        ref: SemanticRefInput,
+        *,
+        limit: int = PREVIEW_DEFAULT_LIMIT,
+        include_types: bool = True,
+        context_columns: Iterable[str] | None = None,
+    ) -> PreviewResult:
+        """Return a bounded preview for an entity, dimension, time dimension, or metric.
+
+        Args:
+            ref: Full semantic ref string or SemanticRef to preview.
+            limit: Maximum number of preview rows to return.
+            include_types: Whether to include backend schema type strings.
+            context_columns: Optional parent-entity columns to include before a
+                dimension or time-dimension preview value.
+
+        Returns:
+            PreviewResult with bounded rows, display columns, warnings, and
+            sample policy metadata.
+
+        Example:
+            >>> catalog.preview("sales.orders.region", context_columns=("order_id",))
+            >>> catalog.preview("sales.revenue").warnings
+
+        Constraints:
+            ``context_columns`` is valid only for dimension and time-dimension
+            refs. Metric previews use the existing approximate pre-aggregate
+            sample behavior.
+        """
+        reg = self._require_ready()
+        ref_str = _to_ref_str(ref)
+        kind = self._resolve_kind_of(ref_str, reg)
+        if kind is None:
+            self._raise_not_found(ref_str)
+        if kind == SemanticKind.ENTITY:
+            if context_columns is not None:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    "catalog.preview(..., context_columns=...) is only valid for dimension refs.",
+                    cls=SemanticRuntimeError,
+                    refs=(ref_str,),
+                )
+            return self._project.preview_dataset(
+                ref_str,
+                limit=limit,
+                include_types=include_types,
+            )
+        if kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+            return self._project.preview_field(
+                ref_str,
+                limit=limit,
+                context_columns=context_columns,
+                include_types=include_types,
+            )
+        if kind == SemanticKind.METRIC:
+            if context_columns is not None:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    "catalog.preview(..., context_columns=...) is only valid for dimension refs.",
+                    cls=SemanticRuntimeError,
+                    refs=(ref_str,),
+                )
+            return self._project.preview_metric(
+                ref_str,
+                limit=limit,
+                include_types=include_types,
+            )
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            f"catalog.preview() does not support {kind} refs.",
+            cls=SemanticRuntimeError,
+            refs=(ref_str,),
+            details={"kind": str(kind)},
+        )
 
 
 def load(

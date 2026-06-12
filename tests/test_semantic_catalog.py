@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import textwrap
 
+import ibis
 import pytest
 
 import marivo.semantic as ms
@@ -249,9 +250,11 @@ def test_time_dimension_details_fields():
         timezone=None,
         required_prefix=None,
         is_default=True,
+        sample_interval=None,
     )
     assert d.granularity == "day"
     assert d.is_default is True
+    assert d.sample_interval is None
 
 
 def test_metric_details_fields():
@@ -270,6 +273,7 @@ def test_metric_details_fields():
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         is_derived=False,
         component_metrics=(),
+        components=(),
         required_relationships=(),
         decomposition="sum",
         additivity="additive",
@@ -286,6 +290,7 @@ def test_metric_details_fields():
     assert d.decomposition == "sum"
     assert d.is_derived is False
     assert d.component_metrics == ()
+    assert d.components == ()
     assert d.time_fold is None
     assert d.fold_time_dimension is None
 
@@ -331,6 +336,7 @@ def _make_metric_obj() -> SemanticObject:
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         is_derived=False,
         component_metrics=(),
+        components=(),
         required_relationships=(),
         decomposition="sum",
         additivity="additive",
@@ -549,6 +555,38 @@ def test_catalog_list_domain_includes_revenue_metric(semantic_project_factory):
     result = catalog.list("sales")
     refs = {obj.ref.ref for obj in result.objects}
     assert "sales.revenue" in refs
+
+
+def test_catalog_list_domain_relationships(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "users = ms.entity(name='users', datasource='warehouse', source=ms.table('users'))\n"
+                "@ms.dimension(entity=orders)\n"
+                "def user_id(table):\n"
+                "    return table.user_id\n"
+                "@ms.dimension(entity=users)\n"
+                "def id(table):\n"
+                "    return table.id\n"
+                "ms.relationship(\n"
+                "    name='orders_to_users',\n"
+                "    from_entity=orders,\n"
+                "    to_entity=users,\n"
+                "    from_dimensions=[user_id],\n"
+                "    to_dimensions=[id],\n"
+                ")\n"
+            ),
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    result = catalog.list("sales", kind="relationship")
+
+    assert result.ids() == ["sales.orders_to_users"]
+    assert all(str(obj.kind) == "relationship" for obj in result.objects)
 
 
 def test_catalog_list_accepts_semantic_ref_as_parent(semantic_project_factory):
@@ -797,12 +835,87 @@ def test_catalog_get_dataset_details_correct_datasource_ref(semantic_project_fac
     assert d.datasource.ref == "warehouse"
 
 
+def test_catalog_entity_details_source_uses_shared_ir_type(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    from marivo.datasource.ir import TableSourceIR
+
+    details = catalog.get("sales.orders").details()
+    assert isinstance(details, EntityDetails)
+    assert isinstance(details.source, TableSourceIR)
+    assert details.source.to_dict()["table"] == "orders"
+
+
 def test_catalog_get_metric_details_correct_dataset_ref(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     obj = catalog.get("sales.revenue")
     d = obj.details()
     assert isinstance(d, MetricDetails)
     assert any(r.ref == "sales.orders" for r in d.entities)
+
+
+def test_catalog_metric_details_components_are_role_keyed(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
+                "def revenue(table):\n"
+                "    return table.amount.sum()\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
+                "def order_count(table):\n"
+                "    return table.order_id.nunique()\n"
+                "conversion = ms.derived_metric(\n"
+                "    name='conversion',\n"
+                "    decomposition=ms.ratio(numerator=revenue, denominator=order_count),\n"
+                ")\n"
+            ),
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    details = catalog.get("sales.conversion").details()
+
+    assert isinstance(details, MetricDetails)
+    assert details.components == (
+        ("numerator", SemanticRef(ref="sales.revenue", kind=SemanticKind.METRIC)),
+        ("denominator", SemanticRef(ref="sales.order_count", kind=SemanticKind.METRIC)),
+    )
+
+
+def test_catalog_time_dimension_details_include_sample_interval(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "@ms.time_dimension(\n"
+                "    entity=orders,\n"
+                "    data_type='timestamp',\n"
+                "    granularity='minute',\n"
+                "    sample_interval=(5, 'minute'),\n"
+                ")\n"
+                "def sampled_at(table):\n"
+                "    return table.created_at\n"
+            ),
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    details = catalog.get("sales.orders.sampled_at").details()
+
+    assert isinstance(details, TimeDimensionDetails)
+    assert details.sample_interval is not None
+    assert details.sample_interval.to_token() == "5minute"
 
 
 def test_catalog_get_model_details_children_include_metrics(semantic_project_factory):
@@ -847,7 +960,9 @@ def test_ms_load_failure_raises_semantic_load_error(tmp_path):
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='wrong_name')\n"
     )
-    with pytest.raises(Exception):
+    from marivo.semantic.errors import SemanticLoadFailed
+
+    with pytest.raises(SemanticLoadFailed):
         ms.load(workspace_dir=tmp_path)
 
 
@@ -862,6 +977,197 @@ def test_ms_load_catalog_can_list(tmp_path):
     catalog = ms.load(workspace_dir=tmp_path)
     result = catalog.list()
     assert len(result.objects) >= 1
+
+
+def test_catalog_lifecycle_properties_delegate_to_project(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    assert catalog.semantic_root == project.semantic_root
+    assert catalog.workspace_dir == project.workspace_dir
+
+
+def test_catalog_load_reloads_project(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+    (project.semantic_root / "sales" / "datasets.py").write_text(
+        textwrap.dedent("""\
+            import marivo.semantic as ms
+            orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+
+            @ms.dimension(entity=orders, description="Sales region.")
+            def region(table):
+                return table.region
+
+            @ms.time_dimension(entity=orders, data_type="timestamp", granularity="day")
+            def created_at(table):
+                return table.created_at
+
+            @ms.metric(
+                entities=[orders],
+                additivity="additive",
+                decomposition=ms.sum(),
+                verification_mode="python_native",
+                description="Gross revenue.",
+            )
+            def revenue(table):
+                return table.amount.sum()
+
+            @ms.metric(
+                entities=[orders],
+                additivity="additive",
+                decomposition=ms.sum(),
+                verification_mode="python_native",
+                description="Gross profit.",
+            )
+            def profit(table):
+                return table.profit.sum()
+        """)
+    )
+    with pytest.raises(SemanticRuntimeError):
+        catalog.get("sales.profit")
+
+    catalog.load()
+
+    assert project.is_ready()
+    assert catalog.get("sales.profit").ref.ref == "sales.profit"
+
+
+def test_catalog_load_preserves_filtered_model_scope(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+            "ops/_domain.py": "import marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
+            ),
+        },
+        load=False,
+    )
+    project.load("sales")
+    catalog = SemanticCatalog(project)
+
+    catalog.load()
+
+    refs = {obj.ref.ref for obj in catalog.list().objects}
+    assert "sales" in refs
+    assert "ops" not in refs
+
+
+def test_catalog_access_after_failed_load_raises_semantic_load_failed(tmp_path):
+    semantic = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic.mkdir(parents=True)
+    (semantic / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='wrong_name')\n"
+    )
+
+    from marivo.semantic.errors import SemanticLoadFailed
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject(workspace_dir=tmp_path)
+    project.load()
+    catalog = SemanticCatalog(project)
+
+    with pytest.raises(SemanticLoadFailed):
+        catalog.list()
+
+
+def _preview_backend():
+    backend = ibis.duckdb.connect(":memory:")
+    backend.con.execute(
+        "CREATE TABLE orders (order_id INT, amount DOUBLE, region TEXT, created_at TIMESTAMP)"
+    )
+    backend.con.execute(
+        "INSERT INTO orders VALUES (1, 100.0, 'US', '2025-01-01'), (2, 200.0, 'EU', '2025-01-02')"
+    )
+    return backend
+
+
+class _PreviewConnectionService:
+    def __init__(self, backend):
+        self._backend = backend
+
+    def session_backend(self, name):
+        return self._backend
+
+    def close_all(self):
+        pass
+
+
+def _patch_preview_connections(project, backend):
+    from unittest.mock import patch
+
+    return patch.object(
+        project,
+        "_connection_service",
+        return_value=_PreviewConnectionService(backend),
+    )
+
+
+def test_catalog_preview_field_preserves_context_columns(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    backend = _preview_backend()
+    with _patch_preview_connections(project, backend):
+        preview = catalog.preview(
+            "sales.orders.region",
+            context_columns=("order_id",),
+            limit=2,
+        )
+
+    assert preview.ref == "sales.orders.region"
+    assert preview.columns[:2] == ("order_id", "region")
+
+
+def test_catalog_preview_metric_preserves_approximate_warning(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    backend = _preview_backend()
+    with _patch_preview_connections(project, backend):
+        preview = catalog.preview("sales.revenue", limit=2)
+
+    assert preview.ref == "sales.revenue"
+    assert any(w.kind == "approximate_preview" for w in preview.warnings)
+
+
+def test_catalog_preview_context_columns_rejected_for_metric(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.preview("sales.revenue", context_columns=("order_id",))
+
+    assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
+    assert "context_columns" in str(exc_info.value)
 
 
 def _write_minimal_project(tmp_path) -> None:

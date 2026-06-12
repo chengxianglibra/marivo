@@ -78,7 +78,9 @@ catalog.list("sales").show()
 catalog.list("sales.orders").show()
 
 revenue = catalog.get("sales.revenue")
-revenue.details().show()
+details = revenue.details()
+details.additivity
+details.entities
 
 report = catalog.readiness(refs=[revenue.ref])
 if report.blocked:
@@ -116,8 +118,8 @@ Failure example:
 ```python
 try:
     catalog = ms.load()
-except ms.SemanticLoadError as exc:
-    exc.show()
+except ms.errors.SemanticLoadFailed as exc:
+    print(exc)
     raise
 ```
 
@@ -146,7 +148,8 @@ Notes:
 - `list(..., kind=...)` accepts only validated strings or `SemanticKind` values.
   Unsupported values raise a typed error listing supported values.
 - `list(parent=None)` returns top-level models and datasources.
-- `list(parent="sales")` returns datasets and metrics under the model.
+- `list(parent="sales")` returns datasets/entities, metrics, and relationships
+  under the model.
 - `list(parent="sales.orders")` returns fields, time fields, relationships
   touching the dataset, and a filtered metric view containing only model-owned
   metrics that involve that dataset.
@@ -212,7 +215,7 @@ Common fields:
 obj.ref: SemanticRef
 obj.kind: SemanticKind
 obj.name: str
-obj.model: str | None
+obj.domain: str | None
 obj.description: str | None
 obj.context: AiContextView
 obj.source_location: SourceLocation
@@ -323,7 +326,7 @@ fields are:
 details.ref
 details.kind
 details.name
-details.model
+details.domain
 details.description
 details.context
 details.source_location
@@ -357,29 +360,31 @@ details.versioning          # None | SnapshotVersioning | ValidityVersioning
 Field:
 
 ```python
-details.dataset             # SemanticRef("sales.orders", kind="entity")
-details.field_kind          # "dimension" | "measure"
+details.entity              # SemanticRef("sales.orders", kind="entity")
+details.dimension_kind      # "categorical" | "measure"
 ```
 
 Time field:
 
 ```python
-details.dataset
+details.entity
 details.data_type
 details.granularity
 details.format
 details.timezone
 details.required_prefix
 details.is_default
+details.sample_interval
 ```
 
 Metric:
 
 ```python
-details.datasets
-details.root_dataset
+details.entities
+details.root_entity
 details.is_derived
 details.component_metrics
+details.components
 details.required_relationships
 details.decomposition
 details.additivity
@@ -390,19 +395,20 @@ details.source_sql
 details.source_dialect
 ```
 
-For metrics, `details.datasets` is the full set of datasets that make the metric
+For metrics, `details.entities` is the full set of entities that make the metric
 analyzable; `details.component_metrics` is empty for non-derived metrics and
-contains exact metric refs for derived metrics; `details.required_relationships`
-contains exact relationship refs needed for cross-dataset analysis. Metrics are
-retrieved by their canonical model-scoped metric ref.
+contains exact metric refs for derived metrics; `details.components` preserves
+role names such as `numerator` and `denominator`; `details.required_relationships`
+contains exact relationship refs needed for cross-entity analysis. Metrics are
+retrieved by their canonical domain-scoped metric ref.
 
 Relationship:
 
 ```python
-details.from_dataset
-details.to_dataset
-details.from_fields
-details.to_fields
+details.from_entity
+details.to_entity
+details.from_dimensions
+details.to_dimensions
 ```
 
 Datasource:
@@ -456,7 +462,7 @@ business definitions, guardrails, examples, instructions, or owner notes.
 catalog = ms.load()
 catalog.list().show()                              # top-level: models and datasources
 
-catalog.list("sales").show()                       # datasets and metrics
+catalog.list("sales").show()                       # datasets, metrics, relationships
 catalog.list("sales.orders").show()                # fields, time fields, relationships, filtered metrics
 catalog.list("sales.orders", kind="metric").show() # metrics analyzable from orders
 ```
@@ -468,12 +474,12 @@ separate kind-specific list methods.
 
 ```python
 revenue = catalog.get("sales.revenue")
-revenue.details().show()
+details = revenue.details()
 ```
 
 Object details are bounded and include:
 
-- ref, kind, model, name;
+- ref, kind, domain, name;
 - description;
 - `context` fields;
 - kind-specific typed details;
@@ -630,13 +636,14 @@ Add coverage for:
   omitted.
 - Load failure raises a typed error and does not return a catalog.
 - `catalog.list()` returns top-level models and datasources.
-- `catalog.list("sales")` returns datasets and metrics under the model.
+- `catalog.list("sales")` returns datasets/entities, metrics, and relationships
+  under the model.
 - `catalog.list("sales.orders")` returns fields, time fields, relationships
   touching the dataset, plus a filtered metric view for metrics involving the
   dataset.
 - `catalog.list("sales", kind="metric")` returns every metric owned by the model.
 - `catalog.list("sales.orders", kind="metric")` returns model-owned metrics whose
-  `details.datasets` include `sales.orders`.
+  `details.entities` include `sales.orders`.
 - A cross-dataset metric returned by multiple dataset-filtered lists has the same
   canonical model-scoped `SemanticRef` in every list.
 - Dataset-filtered metric browsing does not create dataset-qualified aliases;
@@ -652,8 +659,9 @@ Add coverage for:
 - `SemanticObject.description` matches authored `description`.
 - Object details include `description` and typed kind-specific fields, not a
   public `properties` mapping.
-- Derived metric details include component metric refs and backing dataset refs
-  in `details.component_metrics`, `details.datasets`, and `details.parents`.
+- Derived metric details include component metric refs and backing entity refs
+  in `details.component_metrics`, `details.components`, `details.entities`, and
+  `details.parents`.
 - Cross-dataset metric details include required relationship refs in
   `details.required_relationships` and `details.parents`.
 - Model details include metric refs in `details.children`; dataset details do

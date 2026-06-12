@@ -221,9 +221,41 @@ class Materializer:
         # Materialize parent entity first
         parent_table = self.entity(field_ir.entity)
 
-        # Call the sidecar callable with the parent table
+        value = self._call_field_callable(semantic_id, field_ir.name, callable_, parent_table)
+
+        self._dimension_cache[semantic_id] = value
+        return value
+
+    def dimension_on(self, semantic_id: str, table: ibis.Table) -> ir.Value:
+        """Apply a dimension callable to a caller-supplied table without caching."""
+        registry, sidecar = self._get_registry_and_sidecar()
+        field_ir = registry.fields.get(semantic_id)
+        if field_ir is None:
+            _raise(
+                ErrorKind.DIMENSION_NOT_FOUND,
+                f"Dimension {semantic_id!r} not found in registry.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        callable_ = sidecar.get(semantic_id)
+        if callable_ is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Dimension {semantic_id!r} has no sidecar callable.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        return self._call_field_callable(semantic_id, field_ir.name, callable_, table)
+
+    def _call_field_callable(
+        self,
+        semantic_id: str,
+        column_name: str,
+        callable_: Callable[[ibis.Table], Any],
+        table: ibis.Table,
+    ) -> ir.Value:
         try:
-            value = callable_(parent_table)
+            value = callable_(table)
         except NameError as exc:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
@@ -241,19 +273,17 @@ class Materializer:
             )
 
         if not isinstance(value, (ir.Value, ibis.Table)):
-            col_name = field_ir.name
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
                 f"Dimension {semantic_id!r} callable returned "
                 f"{type(value).__name__!r} instead of an ibis expression. "
                 f"This usually happens when a dimension name shadows an ibis "
                 f"Table method. Use bracket notation: "
-                f'table["{col_name}"] instead of table.{col_name}.',
+                f'table["{column_name}"] instead of table.{column_name}.',
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
 
-        self._dimension_cache[semantic_id] = value
         return value
 
     # -- metric ---------------------------------------------------------------
@@ -311,7 +341,55 @@ class Materializer:
             table = self.entity(ds_ref)
             tables.append(table)
 
-        # Call the sidecar callable with entity tables as positional args
+        return self._call_metric_callable(semantic_id, callable_, tuple(tables))
+
+    def metric_on(self, semantic_id: str, *tables: ibis.Table) -> ir.Value:
+        """Apply a base metric callable to caller-supplied tables without caching."""
+        registry, sidecar = self._get_registry_and_sidecar()
+        metric_ir = registry.metrics.get(semantic_id)
+        if metric_ir is None:
+            _raise(
+                ErrorKind.METRIC_NOT_FOUND,
+                f"Metric {semantic_id!r} not found in registry.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        if metric_ir.is_derived:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Cannot apply derived metric {semantic_id!r} with metric_on(); "
+                "drive derived decomposition component-by-component.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        if len(tables) != len(metric_ir.entities):
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Metric {semantic_id!r} expects {len(metric_ir.entities)} tables, "
+                f"got {len(tables)}.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+                details={
+                    "expected_tables": len(metric_ir.entities),
+                    "got_tables": len(tables),
+                },
+            )
+        callable_ = sidecar.get(semantic_id)
+        if callable_ is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Metric {semantic_id!r} has no sidecar callable.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        return self._call_metric_callable(semantic_id, callable_, tuple(tables))
+
+    def _call_metric_callable(
+        self,
+        semantic_id: str,
+        callable_: Callable[..., Any],
+        tables: tuple[ibis.Table, ...],
+    ) -> ir.Value:
         try:
             value = callable_(*tables)
         except NameError as exc:

@@ -35,11 +35,54 @@ def test_file_source_round_trips_through_ir():
     assert ir.path == "/data/orders.parquet"
 
 
+def test_table_source_is_shared_datasource_ir_type():
+    from marivo.datasource.ir import TableSourceIR
+    from marivo.semantic.dtos import TableSource
+
+    source = TableSource(table="orders", database="warehouse")
+
+    assert isinstance(source, TableSourceIR)
+    assert source.to_ir() is source
+    assert source.to_dict() == {
+        "kind": "table",
+        "table": "orders",
+        "database": "warehouse",
+    }
+
+
+def test_file_source_is_shared_datasource_ir_type():
+    from marivo.datasource.ir import FileSourceIR
+    from marivo.semantic.dtos import FileSource
+
+    source = FileSource(path="orders.parquet", format="parquet")
+
+    assert isinstance(source, FileSourceIR)
+    assert source.to_ir() is source
+    assert source.to_dict() == {
+        "kind": "file",
+        "path": "orders.parquet",
+        "format": "parquet",
+        "options": {},
+    }
+
+
 def test_file_source_supports_json():
     src = FileSource(path="/data/orders.json", format="json")
     ir = src.to_ir()
     assert isinstance(ir, FileSourceIR)
     assert ir.format == "json"
+
+
+def test_file_source_json_dict_round_trips_through_semantic_ir_parser():
+    from marivo.semantic.ir import source_from_dict
+
+    src = FileSource(path="/data/orders.json", format="json")
+
+    restored = source_from_dict(src.to_dict())
+
+    assert isinstance(restored, FileSourceIR)
+    assert restored.path == "/data/orders.json"
+    assert restored.format == "json"
 
 
 def test_dataset_source_cannot_mix_table_and_file_fields():
@@ -68,6 +111,7 @@ def test_file_source_to_dict_is_json_safe():
         "kind": "file",
         "path": "/data/orders.parquet",
         "format": "parquet",
+        "options": {},
     }
 
 
