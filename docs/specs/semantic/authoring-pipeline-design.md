@@ -1,6 +1,13 @@
 # Authoring Pipeline Design
 
-Status: draft design.
+Status: superseded.
+
+This design has been superseded by
+`docs/specs/semantic/stepwise-authoring-design.md`. The three-phase flow,
+`assess_authoring(...)`, `AuthoringSourceInput`, and the internal
+`check_authoring_inputs(...)` contract are replaced by the stepwise
+per-object ladder (`prepare_*` / `verify_object`). The persistence boundary
+and readiness closeout contract are carried forward into that document.
 
 This document defines the target-state authoring pipeline for Marivo semantic
 layer construction. It replaces the `NextCheck`-driven choreography with a
