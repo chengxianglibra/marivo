@@ -891,8 +891,6 @@ def test_metric_provenance_fields() -> None:
             verification_mode="sql_parity",
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="ansi",
-            source_document="docs/revenue.md",
-            source_notes="Excludes refunds",
         )
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -901,8 +899,6 @@ def test_metric_provenance_fields() -> None:
         prov = ir.provenance
         assert prov.source_sql == "SELECT SUM(amount) FROM orders"
         assert prov.source_dialect == "ansi"
-        assert prov.source_document == "docs/revenue.md"
-        assert prov.source_notes == "Excludes refunds"
         assert prov.verification_mode == "sql_parity"
     finally:
         _exit_ctx()
@@ -1157,7 +1153,6 @@ def test_derived_metric_returns_ref_and_pushes_body_free_ir() -> None:
                 denominator="sales.cost",
             ),
             additivity="non_additive",
-            source_document="metric-catalog.md",
             ai_context={"business_definition": "Revenue divided by cost."},
         )
 
@@ -1176,7 +1171,6 @@ def test_derived_metric_returns_ref_and_pushes_body_free_ir() -> None:
             "denominator": "sales.cost",
         }
         assert ir.provenance.verification_mode is None
-        assert ir.provenance.source_document == "metric-catalog.md"
         assert ir.body_ast_hash == _compute_decomposition_ast_hash(
             ms.ratio(
                 numerator="sales.revenue",

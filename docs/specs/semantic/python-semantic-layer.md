@@ -13,7 +13,7 @@
 - Python 文件是语义定义的 source of truth。agent 修改业务口径时应改 Python authoring 文件，而不是编辑生成物或运行时存储。
 - Datasource 是项目级可分享配置，定义在 `.marivo/datasource/*.py`；semantic model 只通过全局 datasource name 引用它。
 - 语义对象必须可被通用 agent 静态阅读：dataset、field、time field、metric、relationship、decomposition 和 provenance 都有显式 Python 声明。
-- 业务口径不能靠字段名、表名或自然语言自动猜测。agent 必须通过 decorated refs、函数签名、`source_sql` / `source_dialect` / `source_document`、parity result 和结构化错误来收敛。
+- 业务口径不能靠字段名、表名或自然语言自动猜测。agent 必须通过 decorated refs、函数签名、source_sql` / `source_dialect`、parity result 和结构化错误来收敛。
 - 归属、依赖和项目边界必须来自显式声明或显式 default model。model 不能由文件路径猜测，metric 不能由函数参数名推断 dataset，reader 不能靠 thread-local active project 隐式选项目。
 - Ibis 是 Python 语义层唯一表达计算口径的执行表达式层。SQL 可以作为 provenance 和 parity oracle 保留，但不作为主要 authoring 语言。
 - `analysis`、后续 operator、skill 或脚本只消费稳定 semantic refs 和 materialized Ibis 表达式，不直接依赖用户项目内的 Python 文件布局细节。
@@ -79,7 +79,6 @@ def is_paid(orders):
     verification_mode="sql_parity",
     source_sql="select sum(amount) as value from orders where pay_status = 1",
     source_dialect="duckdb",
-    source_document="kb://sales/revenue",
     ai_context={
         "business_definition": "Total order amount for paid orders only.",
         "guardrails": ["Excludes unpaid orders.", "Does not net out refunds."],
@@ -459,7 +458,6 @@ non-empty `datasets=[...]` and a single-return Ibis reduction body.
     verification_mode="sql_parity",
     source_sql="select sum(amount) as value from orders where pay_status = 1",
     source_dialect="duckdb",
-    source_document="kb://sales/revenue",
 )
 def revenue(order_rows):
     return order_rows.filter(is_paid(order_rows)).amount.sum()
@@ -653,7 +651,7 @@ reference datasets, fields, or time fields.
 ### Provenance
 
 Metric provenance kwargs are `verification_mode`, `source_sql`,
-`source_dialect`, `source_document`, and `source_notes`. Base metrics must
+and `source_dialect`. Base metrics must
 declare `verification_mode="sql_parity"` or `verification_mode="python_native"`.
 
 目标态 metric 始终有 computed verification status，但 authoring-time 必须显式声明验证模式。当 metric 被提升为正式分析口径、被 `analysis.observe()` 消费、进入 strict CI，或声明为可信业务对象时，不能靠缺省状态表达来源：
@@ -787,7 +785,7 @@ project.refactor.rename("dimension", "sales.orders.old_user_id", "sales.orders.u
 - 缺省 dry-run，输出 unified diff 和变更文件列表；只有 `--write` 才落盘。
 - 输入是 `<kind> <old-fqn> <new-fqn>`，`kind` 至少覆盖 `domain`、`datasource`、`entity`、`dimension`、`time_dimension`、`metric`、`relationship`。
 - 覆盖范围包括 decorator / metadata call 的 `name=`、`model=` 必要改动、`ms.ref(...)` 字符串、relationship endpoint refs、`from_fields` / `to_fields`、decomposition component refs、`_exports.py` re-export。
-- 不修改 `source_sql`、`source_document` 或自然语言 prose；这些字段需要人工 review。
+- 不修改 `source_sql` 或自然语言 prose；这些字段需要人工 review。
 
 ## 验证与失败语义
 
@@ -913,7 +911,7 @@ typed frames + session persistence + lineage
 - reader/introspection：`list_models`、`list_datasources`、`list_datasets`、`list_metrics`、`describe`、`help`。v1 现状的 reader 是 module-level free functions，依赖 context-local active project；v1.1 全部迁移到 `SemanticProject` methods（参见上方 §Reader / Introspection），free function 形态仅作为有显式 active project 的 REPL 糖保留。
 - materialization：dataset、field、metric 到 Ibis object。
 - validation：metric body AST 约束、missing refs、time prefix、relationship endpoint/columns/arity。
-- SQL provenance：`source_sql`、`source_dialect`、`source_document`、`source_notes`。
+- SQL provenance：`source_sql`、`source_dialect`。
 - parity helper：`compare_metric_to_source_sql` 和 `ParityResult`。
 - structured errors：decorator、assembly、runtime、parity、load errors。
 

@@ -290,8 +290,6 @@ class MetricDetails:
     parity_status: ParityStatus
     source_sql: str | None
     source_dialect: str | None
-    source_document: str | None
-    source_notes: str | None
     python_symbol: str
     time_fold: str | None
     fold_time_dimension: str | None
@@ -788,8 +786,6 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         parity_status=parity_status,
         source_sql=m_ir.provenance.source_sql,
         source_dialect=m_ir.provenance.source_dialect,
-        source_document=m_ir.provenance.source_document,
-        source_notes=m_ir.provenance.source_notes,
         python_symbol=m_ir.python_symbol,
         time_fold=m_ir.time_fold.label() if m_ir.time_fold is not None else None,
         fold_time_dimension=m_ir.fold_time_dimension,
