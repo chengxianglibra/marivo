@@ -2,7 +2,7 @@
 
 When to use: you have a segmented delta and want to focus on the segment
 with the strongest signal, then drill into that segment with transform.
-Output shape: CandidateSet[slice]; selector is a DimensionRef -> value map
+Output shape: CandidateSet[slice]; selector is a SemanticRef -> value map
 that feeds straight into transform.slice(...).
 """
 
@@ -16,15 +16,16 @@ ensure_loaded()
 import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
+region = session.catalog.get("sales.orders.region").ref
 current = session.observe(
-    mv.MetricRef(METRIC_ID),
+    session.catalog.get(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
-    dimensions=[mv.DimensionRef("region")],
+    dimensions=[region],
 )
 baseline = session.observe(
-    mv.MetricRef(METRIC_ID),
+    session.catalog.get(METRIC_ID),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
-    dimensions=[mv.DimensionRef("region")],
+    dimensions=[region],
 )
 delta = session.compare(
     current,
@@ -34,13 +35,13 @@ delta = session.compare(
 slice_cands = session.discover.interesting_slices(
     delta,
     value="delta",
-    search_space=[mv.DimensionRef("region")],
+    search_space=[region],
     threshold=0.5,
 )
 print(f"slices.row_count={slice_cands.meta.row_count}")
 if slice_cands.meta.row_count:
     selector = slice_cands.select(rank=1, attribute="selector")
-    rendered = {ref.semantic_id: value for ref, value in selector.items()}
+    rendered = {ref.ref: value for ref, value in selector.items()}
     print(f"selector={rendered}")
     focus = session.transform.slice(delta, where=selector)
     print(f"focus.kind={focus.meta.kind!r}")

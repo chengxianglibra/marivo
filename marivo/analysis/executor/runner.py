@@ -26,13 +26,13 @@ from marivo.analysis.errors import (
     TimezoneInvalidError,
     WindowInvalidError,
 )
-from marivo.analysis.executor.backend import BackendCache
 from marivo.analysis.executor.query_record import (
     QueryExecution,
     compute_sql_digest,
     gen_query_ref,
     normalize_sql,
 )
+from marivo.analysis.session._connections import AnalysisConnectionRuntime
 from marivo.analysis.timezone import zoneinfo_from_name
 from marivo.analysis.windows.grain import _TRUNCATE_CODE, Grain
 from marivo.analysis.windows.spec import AbsoluteWindow, is_date_only
@@ -687,7 +687,6 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
             if field.name == requested or field.semantic_id == requested:
                 return field
         candidates = [field.name for field in time_fields]
-        first_candidate = candidates[0] if candidates else "<time_dimension>"
         raise WindowInvalidError(
             message=(
                 f"time_dimension={requested!r} is not on dataset '{dataset_ir.name}'; "
@@ -697,9 +696,9 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
             details={
                 "candidates": candidates,
                 "fix_snippet": (
-                    'session.observe(mv.MetricRef("sales.revenue"), '
+                    'session.observe(session.catalog.get("sales.revenue"), '
                     'timescope={"start": "2026-07-01", "end": "2026-08-01"}, '
-                    f'time_dimension=mv.DimensionRef("{first_candidate}"))'
+                    'time_dimension=session.catalog.get("<domain.entity.time_dimension>").ref)'
                 ),
             },
         )
@@ -708,7 +707,6 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
     if len(defaults) == 1:
         return defaults[0]
     candidates = [field.name for field in time_fields]
-    first_candidate = candidates[0]
     raise WindowInvalidError(
         message=f"dataset '{dataset_ir.name}' has multiple time_dimensions: {candidates}",
         hint=(
@@ -719,9 +717,9 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
         details={
             "candidates": candidates,
             "fix_snippet": (
-                'session.observe(mv.MetricRef("sales.revenue"), '
+                'session.observe(session.catalog.get("sales.revenue"), '
                 'timescope={"start": "2026-07-01", "end": "2026-08-01"}, '
-                f'time_dimension=mv.DimensionRef("{first_candidate}"))'
+                'time_dimension=session.catalog.get("<domain.entity.time_dimension>").ref)'
             ),
         },
     )
@@ -1384,7 +1382,7 @@ def execute(
     expr: ibis.Expr,
     *,
     datasource_name: str,
-    cache: BackendCache,
+    cache: AnalysisConnectionRuntime,
     session_id: str | None = None,
 ) -> ExecutionResult:
     backend = cache.get_or_create(datasource_name)

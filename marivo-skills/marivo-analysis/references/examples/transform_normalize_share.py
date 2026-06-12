@@ -22,8 +22,8 @@ segmented_frame = session.promote_metric_frame(
             "revenue": [120.0, 80.0, 40.0],
         }
     ),
-    metric=mv.MetricRef(METRIC_ID),
-    axes={"country": mv.DimensionRef("country")},
+    metric=session.catalog.get(METRIC_ID),
+    axes={"country": session.catalog.get("sales.orders.region").ref},
     measure_column="revenue",
     semantic_kind="segmented",
     semantic_model="sales",

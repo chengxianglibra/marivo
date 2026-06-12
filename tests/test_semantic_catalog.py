@@ -75,6 +75,30 @@ def test_semantic_ref_is_frozen():
         ref.ref = "other"  # type: ignore[misc]
 
 
+def test_reader_project_no_longer_exposes_catalog_read_surface() -> None:
+    from marivo.semantic.reader import SemanticProject
+
+    removed = {
+        "list_domains",
+        "list_datasources",
+        "list_entities",
+        "list_dimensions",
+        "list_time_dimensions",
+        "list_metrics",
+        "list_relationships",
+        "get_entity",
+        "get_metric",
+        "materialize_dataset",
+        "materialize_field",
+        "materialize_metric",
+        "preview_dataset",
+        "preview_field",
+        "preview_metric",
+    }
+    for name in removed:
+        assert not hasattr(SemanticProject, name), name
+
+
 # --- AiContextView ---
 
 
@@ -1268,3 +1292,47 @@ def test_catalog_metric_details_unit_defaults_to_none(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     d = catalog.get("sales.revenue").details()
     assert d.unit is None
+
+
+def test_catalog_details_cover_required_ir_fields() -> None:
+    from dataclasses import fields
+
+    from marivo.semantic.catalog import (
+        DimensionDetails,
+        EntityDetails,
+        MetricDetails,
+        TimeDimensionDetails,
+    )
+    from marivo.semantic.ir import DimensionIR, EntityIR, MetricIR
+
+    coverage = {
+        EntityIR: {field.name for field in fields(EntityDetails)}
+        | {"ref", "kind", "parents", "children", "dependents", "source_location", "context"},
+        MetricIR: {field.name for field in fields(MetricDetails)}
+        | {"ref", "kind", "parents", "children", "dependents", "source_location", "context"},
+        DimensionIR: {field.name for field in fields(DimensionDetails)}
+        | {field.name for field in fields(TimeDimensionDetails)}
+        | {"ref", "kind", "parents", "children", "dependents", "source_location", "context"},
+    }
+    allowed_internal = {
+        EntityIR: {"location", "ai_context", "python_symbol", "semantic_id"},
+        MetricIR: {"location", "ai_context", "body_ast_hash", "provenance", "semantic_id"},
+        DimensionIR: {
+            "location",
+            "ai_context",
+            "is_time_dimension",
+            "kind",
+            "python_symbol",
+            "semantic_id",
+        },
+    }
+
+    for ir_type, detail_fields in coverage.items():
+        missing = {
+            field.name
+            for field in fields(ir_type)
+            if field.name not in detail_fields and field.name not in allowed_internal[ir_type]
+        }
+        assert not missing, (
+            f"{ir_type.__name__} fields missing from catalog details: {sorted(missing)}"
+        )

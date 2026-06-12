@@ -11,8 +11,8 @@ import pandas as pd
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.followups import _parse_item_followups
 from marivo.analysis.frames.candidate import CandidateSet, CandidateShape
-from marivo.analysis.refs import DimensionRef
 from marivo.analysis.windows import AbsoluteWindow
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 SelectField = Literal[
     "axis",
@@ -61,8 +61,8 @@ def select(
             ``keys``. Only attributes valid for the candidate's shape are accepted.
 
     Returns:
-        The typed value: ``DimensionRef`` for ``axis``, ``AbsoluteWindow`` for
-        ``window`` / ``baseline_window``, ``dict[DimensionRef, Any]`` for
+        The typed value: ``SemanticRef`` for ``axis``, ``AbsoluteWindow`` for
+        ``window`` / ``baseline_window``, ``dict[SemanticRef, Any]`` for
         ``selector``, otherwise a primitive (``float`` / ``str`` / ``list``).
 
     Raises:
@@ -114,7 +114,10 @@ def select(
         )
 
     if base_attr == "axis":
-        return DimensionRef(str(row["axis"]))
+        semantic_id = row.get("axis_semantic_id")
+        if isinstance(semantic_id, str) and semantic_id:
+            return SemanticRef(semantic_id, kind=SemanticKind.DIMENSION)
+        return str(row["axis"])
     if base_attr == "selector":
         raw = row["selector_json"]
         if not raw:
@@ -123,7 +126,7 @@ def select(
                 details={"shape": shape, "attribute": attribute},
             )
         decoded = json.loads(raw)
-        return {DimensionRef(name): value for name, value in decoded.items()}
+        return {_selector_key(name): value for name, value in decoded.items()}
     if base_attr == "window":
         return _absolute_window(row["window_start"], row["window_end"])
     if base_attr == "baseline_window":
@@ -156,6 +159,16 @@ def _select_dot_path(row: pd.Series, shape: CandidateShape, base_attr: str, key:
         )
     decoded = json.loads(raw)
     if key not in decoded:
+        matched_key = next(
+            (
+                candidate
+                for candidate in decoded
+                if isinstance(candidate, str) and candidate.rsplit(".", 1)[-1] == key
+            ),
+            None,
+        )
+        if matched_key is not None:
+            return decoded[matched_key]
         raise SemanticKindMismatchError(
             message=f"select(attribute='{base_attr}.{key}') key not present in row",
             details={
@@ -165,6 +178,12 @@ def _select_dot_path(row: pd.Series, shape: CandidateShape, base_attr: str, key:
             },
         )
     return decoded[key]
+
+
+def _selector_key(name: str) -> SemanticRef | str:
+    if name.count(".") >= 2:
+        return SemanticRef(name, kind=SemanticKind.DIMENSION)
+    return name
 
 
 def _absolute_window(start_value: Any, end_value: Any) -> AbsoluteWindow:

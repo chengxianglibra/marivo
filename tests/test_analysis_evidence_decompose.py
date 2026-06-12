@@ -8,10 +8,10 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +62,7 @@ def test_decompose_populates_surface1_and_decomposition_findings() -> None:
 
     attribution = session.decompose(
         _delta(session),
-        axis=mv.DimensionRef("country"),
+        axis=SemanticRef("country", kind=SemanticKind.DIMENSION),
     )
 
     assert attribution.meta.artifact_id is not None

@@ -4,8 +4,9 @@ import ibis
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.refs import DimensionRef, MetricRef
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 @pytest.fixture(autouse=True)
@@ -129,8 +130,8 @@ def test_observe_single_dimension_returns_segmented_frame(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        MetricRef("sales.revenue"),
-        dimensions=[DimensionRef("region")],
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -150,8 +151,11 @@ def test_observe_multi_dimension_segmented(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        MetricRef("sales.revenue"),
-        dimensions=[DimensionRef("region"), DimensionRef("channel")],
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        dimensions=[
+            SemanticRef("region", kind=SemanticKind.DIMENSION),
+            SemanticRef("channel", kind=SemanticKind.DIMENSION),
+        ],
         session=s,
     )
 
@@ -167,8 +171,8 @@ def test_observe_derived_metric_dimension_from_component_dataset(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        MetricRef("sales.failure_rate"),
-        dimensions=[DimensionRef("region")],
+        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -187,14 +191,14 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     full = observe(
-        MetricRef("sales.failure_rate"),
-        dimensions=[DimensionRef("region")],
+        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
         session=s,
     )
     windowed = observe(
-        MetricRef("sales.failure_rate"),
+        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-02", "end": "2026-08-02"},
-        dimensions=[DimensionRef("region")],
+        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -234,7 +238,7 @@ def test_observe_derived_metric_scalar_uses_component_datasets(tmp_path):
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    mf = observe(MetricRef("sales.failure_rate"), session=s)
+    mf = observe(SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC), session=s)
 
     assert mf.meta.semantic_kind == "scalar"
     assert mf.meta.measure["name"] == "failure_rate"
@@ -250,8 +254,8 @@ def test_observe_derived_metric_dimension_via_relationship(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        MetricRef("sales.failure_rate"),
-        dimensions=[DimensionRef("tier")],
+        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("tier", kind=SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -271,7 +275,7 @@ def test_observe_empty_dimensions_list_is_rejected(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        observe(MetricRef("sales.revenue"), dimensions=[], session=s)
+        observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), dimensions=[], session=s)
 
     assert "For time-series observations, omit dimensions or pass None" in str(exc_info.value)
 
@@ -286,13 +290,16 @@ def test_observe_duplicate_dimensions_are_rejected(tmp_path):
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
-            MetricRef("sales.revenue"),
-            dimensions=[DimensionRef("region"), DimensionRef("region")],
+            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            dimensions=[
+                SemanticRef("region", kind=SemanticKind.DIMENSION),
+                SemanticRef("region", kind=SemanticKind.DIMENSION),
+            ],
             session=s,
         )
 
-    assert exc_info.value.details["expected_kind"] == "unique DimensionRef ids"
-    assert exc_info.value.details["duplicate_dimensions"] == ["region"]
+    assert exc_info.value.details["expected_kind"] == "unique dimension ids"
+    assert exc_info.value.details["duplicate_dimensions"] == ["sales.orders.region"]
 
 
 def test_observe_segmented_multi_dataset_metric_with_root_dimension(tmp_path):
@@ -303,8 +310,8 @@ def test_observe_segmented_multi_dataset_metric_with_root_dimension(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     frame = observe(
-        MetricRef("sales.revenue_plus_user_count"),
-        dimensions=[DimensionRef("channel")],
+        SemanticRef("sales.revenue_plus_user_count", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("channel", kind=SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -314,22 +321,20 @@ def test_observe_segmented_multi_dataset_metric_with_root_dimension(tmp_path):
 
 
 def test_observe_segmented_multi_dataset_missing_dimension_is_blocked(tmp_path):
-    """Cross-dataset base metric with missing dimension field raises planner error."""
+    """Missing catalog dimension refs are rejected before planning."""
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con, with_users=False)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    from marivo.analysis.intents.observe_errors import ObservePlanningError
-
-    with pytest.raises(ObservePlanningError) as exc_info:
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
-            MetricRef("sales.revenue_plus_user_count"),
-            dimensions=[DimensionRef("missing")],
+            SemanticRef("sales.revenue_plus_user_count", kind=SemanticKind.METRIC),
+            dimensions=[SemanticRef("missing", kind=SemanticKind.DIMENSION)],
             session=s,
         )
 
-    assert exc_info.value.details["code"] == "field-ref-not-found"
+    assert exc_info.value.details["actual_kind"] == "not_found"
 
 
 def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
@@ -339,13 +344,13 @@ def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     by_region = observe(
-        MetricRef("sales.revenue"),
-        dimensions=[DimensionRef("region")],
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
         session=s,
     )
     by_channel = observe(
-        MetricRef("sales.revenue"),
-        dimensions=[DimensionRef("channel")],
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("channel", kind=SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -354,8 +359,8 @@ def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
     region_job = s.job(region_job_summary.id)
     channel_job = s.job(channel_job_summary.id)
 
-    assert region_job["params"]["dimensions"] == [{"semantic_id": "region"}]
-    assert channel_job["params"]["dimensions"] == [{"semantic_id": "channel"}]
+    assert region_job["params"]["dimensions"] == [{"semantic_id": "sales.orders.region"}]
+    assert channel_job["params"]["dimensions"] == [{"semantic_id": "sales.orders.channel"}]
     assert (
         by_region.meta.lineage.steps[0].params_digest
         != by_channel.meta.lineage.steps[0].params_digest
@@ -368,17 +373,15 @@ def test_observe_dimension_not_found(tmp_path):
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    from marivo.analysis.intents.observe_errors import ObservePlanningError
-
-    with pytest.raises(ObservePlanningError) as exc_info:
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
-            MetricRef("sales.revenue"),
-            dimensions=[DimensionRef("not_a_real_field")],
+            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            dimensions=[SemanticRef("not_a_real_field", kind=SemanticKind.DIMENSION)],
             session=s,
         )
 
-    assert exc_info.value.details["code"] == "field-ref-not-found"
-    assert "searched_datasets" in exc_info.value.details["candidates"]
+    assert exc_info.value.details["actual_kind"] == "not_found"
+    assert exc_info.value.details["ref"] == "not_a_real_field"
 
 
 def test_observe_dimension_rejects_bare_string(tmp_path):
@@ -391,12 +394,12 @@ def test_observe_dimension_rejects_bare_string(tmp_path):
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
-            MetricRef("sales.revenue"),
+            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
             dimensions=["region"],  # type: ignore[list-item]
             session=s,
         )
 
-    assert exc_info.value.details["expected_kind"] == "DimensionRef"
+    assert exc_info.value.details["expected_kind"] == "dimension"
 
 
 def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path):
@@ -406,8 +409,8 @@ def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path)
     session = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     frame = observe(
-        MetricRef("sales.failure_rate"),
-        dimensions=[DimensionRef("region")],
+        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
         session=session,
     )
 

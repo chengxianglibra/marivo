@@ -566,16 +566,12 @@ because agents need source locations to edit semantic definitions safely.
 
 ## Relationship to Existing Reader APIs
 
-The target public API does not expose these methods to agents:
+The target public API does not expose the legacy `SemanticProject` reader
+methods to agents, including:
 
 - `SemanticProject`
-- `project.list_models`
-- `project.list_datasources`
-- `project.list_datasets`
-- `project.list_fields`
-- `project.list_time_fields`
-- `project.list_metrics`
-- `project.list_relationships`
+- legacy domain, datasource, dataset, field, metric, and relationship list
+  methods
 - `project.get_*`
 - `project.describe`
 - `project.dependencies`
@@ -620,7 +616,7 @@ Update:
 Required doc changes:
 
 - replace `SemanticProject` normal entrypoint examples with `ms.load()`;
-- replace `project.list_*` examples with `catalog.list(...)`;
+- replace legacy reader list examples with `catalog.list(...)`;
 - replace `project.describe(...)` examples with `catalog.get(...).details()`;
 - keep `description=` examples but make them short display summaries;
 - state that business meaning and guardrails live in `ai_context`;

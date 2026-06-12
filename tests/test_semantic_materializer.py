@@ -10,7 +10,7 @@ Tests cover:
 - Cross-datasource fail: metric with datasets from different datasources -> error
 - Metric not found -> error
 - Dataset not found -> error
-- Materializer creates fresh instance per project.materialize_*() call
+- Resolver creates fresh Materializer instances for expression access
 - EntityRuntimeMetadata stored on project after materialize
 """
 
@@ -23,6 +23,7 @@ from unittest.mock import patch
 import ibis
 import pytest
 
+from marivo.semantic.catalog import SemanticCatalog, SemanticKind, SemanticRef
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
 from marivo.semantic.materializer import EntityRuntimeMetadata, Materializer
@@ -87,6 +88,22 @@ def _patch_connection_service(project, factory):
     return patch.object(project, "_connection_service", return_value=fake)
 
 
+def _materialize_dataset(project, ref: str):
+    return SemanticCatalog(project)._resolver().table(SemanticRef(ref, kind=SemanticKind.ENTITY))
+
+
+def _materialize_field(project, ref: str):
+    return (
+        SemanticCatalog(project)
+        ._resolver()
+        .dimension(SemanticRef(ref, kind=SemanticKind.DIMENSION))
+    )
+
+
+def _materialize_metric(project, ref: str):
+    return SemanticCatalog(project)._resolver().metric(SemanticRef(ref, kind=SemanticKind.METRIC))
+
+
 # ---------------------------------------------------------------------------
 # Model file templates
 # ---------------------------------------------------------------------------
@@ -134,7 +151,7 @@ def test_dataset_materialize(semantic_project_factory, backend_factory) -> None:
     assert project.is_ready()
 
     with _patch_connection_service(project, backend_factory):
-        table = project.materialize_dataset("sales.orders")
+        table = _materialize_dataset(project, "sales.orders")
     assert isinstance(table, ibis.Table)
     # The table should have the expected columns
     assert "amount" in table.columns
@@ -150,7 +167,7 @@ def test_dataset_materialize_returns_rows(semantic_project_factory, backend_fact
         }
     )
     with _patch_connection_service(project, backend_factory):
-        table = project.materialize_dataset("sales.orders")
+        table = _materialize_dataset(project, "sales.orders")
     df = table.to_pandas()
     assert len(df) == 2
     assert list(df["amount"]) == [100.0, 200.0]
@@ -178,7 +195,7 @@ def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
             return ibis.table({"amount": "float64"}, name=f"{database}.{name}")
 
     with _patch_connection_service(project, lambda _: _Backend()):
-        table = project.materialize_dataset("sales.orders")
+        table = _materialize_dataset(project, "sales.orders")
     assert table.get_name() == "sales_mart.orders"
 
 
@@ -204,7 +221,7 @@ def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
             return ibis.table({"amount": "float64"}, name="orders_file")
 
     with _patch_connection_service(project, lambda _: _Backend()):
-        table = project.materialize_dataset("sales.orders")
+        table = _materialize_dataset(project, "sales.orders")
     assert table.get_name() == "orders_file"
 
 
@@ -227,7 +244,7 @@ def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -
         _patch_connection_service(project, lambda _: object()),
         pytest.raises(SemanticRuntimeError) as exc_info,
     ):
-        project.materialize_dataset("sales.orders")
+        _materialize_dataset(project, "sales.orders")
 
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
     assert "does not support csv file sources" in exc_info.value.message
@@ -247,7 +264,7 @@ def test_field_materialize(semantic_project_factory, backend_factory) -> None:
         }
     )
     with _patch_connection_service(project, backend_factory):
-        field_expr = project.materialize_field("sales.orders.amount")
+        field_expr = _materialize_field(project, "sales.orders.amount")
     # ibis Value is the base of column expressions
     assert field_expr is not None
 
@@ -266,7 +283,7 @@ def test_metric_materialize_sum(semantic_project_factory, backend_factory) -> No
         }
     )
     with _patch_connection_service(project, backend_factory):
-        metric_expr = project.materialize_metric("sales.total_amount")
+        metric_expr = _materialize_metric(project, "sales.total_amount")
     assert metric_expr is not None
     # Execute the metric to verify the value
     result = metric_expr.to_pandas()
@@ -366,7 +383,7 @@ def test_materializer_metric_on_rejects_derived_metric(
 # ---------------------------------------------------------------------------
 
 
-def test_backend_cache_reuses_same_backend(semantic_project_factory) -> None:
+def test_backend_by_datasource_reuses_same_backend(semantic_project_factory) -> None:
     """Same datasource should reuse the same backend instance."""
     project = semantic_project_factory(
         {
@@ -391,8 +408,8 @@ def test_backend_cache_reuses_same_backend(semantic_project_factory) -> None:
 
     # Materialize dataset then metric — both use warehouse
     with _patch_connection_service(project, tracking_factory):
-        project.materialize_dataset("sales.orders")
-        project.materialize_metric("sales.total_amount")
+        _materialize_dataset(project, "sales.orders")
+        _materialize_metric(project, "sales.total_amount")
 
     # Backend factory should only have been called once per unique datasource
     # (each materialize_* call creates a new Materializer, but the factory is
@@ -404,7 +421,7 @@ def test_backend_cache_reuses_same_backend(semantic_project_factory) -> None:
     assert all(ds == "warehouse" for ds, _ in created_backends)
 
 
-def test_backend_cache_within_single_materializer(semantic_project_factory) -> None:
+def test_backend_by_datasource_within_single_materializer(semantic_project_factory) -> None:
     """Within one Materializer, the same datasource should only call factory once."""
     project = semantic_project_factory(
         {
@@ -509,7 +526,7 @@ def test_ibis_table_detection(semantic_project_factory, duckdb_backend) -> None:
         }
     )
     with _patch_connection_service(project, factory):
-        project.materialize_dataset("sales.orders")
+        _materialize_dataset(project, "sales.orders")
 
     meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
@@ -550,7 +567,7 @@ def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend)
         _patch_connection_service(project, factory),
         pytest.raises(SemanticRuntimeError) as exc_info,
     ):
-        project.materialize_metric("sales.cross_metric")
+        _materialize_metric(project, "sales.cross_metric")
 
     assert exc_info.value.kind == ErrorKind.CROSS_DATASOURCE_NOT_SUPPORTED
 
@@ -573,7 +590,7 @@ def test_metric_not_found(semantic_project_factory, backend_factory) -> None:
         _patch_connection_service(project, backend_factory),
         pytest.raises(SemanticRuntimeError) as exc_info,
     ):
-        project.materialize_metric("sales.nonexistent")
+        _materialize_metric(project, "sales.nonexistent")
 
     assert exc_info.value.kind == ErrorKind.METRIC_NOT_FOUND
 
@@ -591,7 +608,7 @@ def test_entity_not_found(semantic_project_factory, backend_factory) -> None:
         _patch_connection_service(project, backend_factory),
         pytest.raises(SemanticRuntimeError) as exc_info,
     ):
-        project.materialize_dataset("sales.nonexistent")
+        _materialize_dataset(project, "sales.nonexistent")
 
     assert exc_info.value.kind == ErrorKind.ENTITY_NOT_FOUND
 
@@ -609,7 +626,7 @@ def test_dimension_not_found(semantic_project_factory, backend_factory) -> None:
         _patch_connection_service(project, backend_factory),
         pytest.raises(SemanticRuntimeError) as exc_info,
     ):
-        project.materialize_field("sales.nonexistent")
+        _materialize_field(project, "sales.nonexistent")
 
     assert exc_info.value.kind == ErrorKind.DIMENSION_NOT_FOUND
 
@@ -648,7 +665,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
 
     # revenue_ratio = revenue / revenue = 1.0
     with _patch_connection_service(project, backend_factory):
-        result = project.materialize_metric("sales.revenue_ratio")
+        result = _materialize_metric(project, "sales.revenue_ratio")
     value = result.to_pandas()
     assert value == pytest.approx(1.0)
 
@@ -686,7 +703,7 @@ def test_derived_metric_has_no_materializer_sidecar_entry(
     assert "sales.revenue" in sidecar
     assert "sales.revenue_ratio" not in sidecar
     with _patch_connection_service(project, backend_factory):
-        result = project.materialize_metric("sales.revenue_ratio")
+        result = _materialize_metric(project, "sales.revenue_ratio")
     assert result.to_pandas() == pytest.approx(1.0)
 
 
@@ -723,7 +740,7 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
 
     # aov = revenue / count = 300 / 2 = 150.0
     with _patch_connection_service(project, backend_factory):
-        result = project.materialize_metric("sales.aov")
+        result = _materialize_metric(project, "sales.aov")
     value = result.to_pandas()
     assert value == pytest.approx(150.0)
 
@@ -765,7 +782,7 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
 
     # double_ratio = revenue_ratio / revenue_ratio = 1.0
     with _patch_connection_service(project, backend_factory):
-        result = project.materialize_metric("sales.double_ratio")
+        result = _materialize_metric(project, "sales.double_ratio")
     value = result.to_pandas()
     assert value == pytest.approx(1.0)
 
@@ -775,8 +792,8 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_fresh_materializer_per_call(semantic_project_factory) -> None:
-    """Each project.materialize_*() call should create a new Materializer."""
+def test_fresh_materializer_per_resolver_call(semantic_project_factory) -> None:
+    """Each resolver helper call should create a new Materializer."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -800,12 +817,12 @@ def test_fresh_materializer_per_call(semantic_project_factory) -> None:
 
     # First call creates a Materializer and calls factory
     with _patch_connection_service(project, tracking_factory):
-        project.materialize_dataset("sales.orders")
+        _materialize_dataset(project, "sales.orders")
     assert len(factory_calls) == 1
 
     # Second call creates a new Materializer, calls factory again (no cross-call cache)
     with _patch_connection_service(project, tracking_factory):
-        project.materialize_dataset("sales.orders")
+        _materialize_dataset(project, "sales.orders")
     assert len(factory_calls) == 2
 
 
@@ -832,7 +849,7 @@ def test_runtime_metadata_stored_on_project(semantic_project_factory, duckdb_bac
 
     # After materialization
     with _patch_connection_service(project, factory):
-        project.materialize_dataset("sales.orders")
+        _materialize_dataset(project, "sales.orders")
     meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
     assert isinstance(meta, EntityRuntimeMetadata)
@@ -854,7 +871,7 @@ def test_runtime_metadata_cleared_on_reload(semantic_project_factory, duckdb_bac
     )
 
     with _patch_connection_service(project, factory):
-        project.materialize_dataset("sales.orders")
+        _materialize_dataset(project, "sales.orders")
     assert project._runtime_metadata.get("sales.orders") is not None
 
     project.load()
@@ -891,7 +908,7 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
     )
 
     with _patch_connection_service(project, factory):
-        metric_expr = project.materialize_metric("sales.combined")
+        metric_expr = _materialize_metric(project, "sales.combined")
     result = metric_expr.to_pandas()
     # root-only aggregation on orders = 300.0
     assert result == pytest.approx(300.0)
@@ -919,7 +936,7 @@ def test_materialize_on_unloaded_project_raises(semantic_project_factory) -> Non
     )
     # Not loaded yet
     with _patch_connection_service(project, factory), pytest.raises(SemanticRuntimeError):
-        project.materialize_dataset("sales.orders")
+        _materialize_dataset(project, "sales.orders")
 
 
 def test_dataset_materialize_with_sample_size(semantic_project_factory) -> None:
@@ -1001,7 +1018,7 @@ def test_metric_callable_name_error_adds_import_hint(
         _patch_connection_service(project, backend_factory),
         pytest.raises(SemanticRuntimeError) as exc_info,
     ):
-        project.materialize_metric("sales.revenue")
+        _materialize_metric(project, "sales.revenue")
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
     assert "NameError" in exc_info.value.message
     assert "import ibis" in exc_info.value.message

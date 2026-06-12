@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from marivo.analysis.calendar.model import AlignPeriod, CalendarFallback
 from marivo.analysis.errors import (
     AlignmentPolicyValidationError,
 )
-from marivo.analysis.refs import ArtifactRef, CalendarRef, DimensionRef, MetricRef
+from marivo.analysis.refs import ArtifactRef, CalendarRef
+from marivo.semantic.catalog import SemanticKind, SemanticObject, SemanticRef
 
 AlignmentKind = Literal[
     "window_bucket",
@@ -19,6 +21,53 @@ AlignmentKind = Literal[
     "holiday_and_dow_aligned",
 ]
 WindowBucketMode = Literal["ordinal_bucket", "calendar_bucket"]
+SemanticAnchorInput = str | SemanticRef | SemanticObject
+
+
+_DIMENSION_ANCHOR_FIELDS = {"subject", "time_axis", "axis"}
+
+
+def _reject_anchor_kind(*, field_name: str, value: object, actual_kind: object) -> None:
+    expected = (
+        "metric"
+        if field_name == "metric"
+        else "dimension or time_dimension"
+        if field_name in _DIMENSION_ANCHOR_FIELDS
+        else "semantic"
+    )
+    raise ValueError(
+        f"{field_name} expected {expected} ref, got {type(value).__name__} kind={actual_kind}"
+    )
+
+
+def _validate_anchor_kind(value: object, *, field_name: str, kind: SemanticKind | None) -> None:
+    if field_name == "metric":
+        if kind != SemanticKind.METRIC:
+            _reject_anchor_kind(field_name=field_name, value=value, actual_kind=kind)
+        return
+    if field_name in _DIMENSION_ANCHOR_FIELDS and kind not in {
+        SemanticKind.DIMENSION,
+        SemanticKind.TIME_DIMENSION,
+    }:
+        _reject_anchor_kind(field_name=field_name, value=value, actual_kind=kind)
+
+
+def _semantic_anchor_id(value: SemanticAnchorInput | None, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, SemanticObject):
+        _validate_anchor_kind(value, field_name=field_name, kind=value.kind)
+        return value.ref.ref
+    if isinstance(value, SemanticRef):
+        _validate_anchor_kind(value, field_name=field_name, kind=value.kind)
+        return value.ref
+    if isinstance(value, Mapping):
+        raise ValueError(
+            f"expected str, SemanticRef, or SemanticObject, got {type(value).__name__}"
+        )
+    if isinstance(value, str):
+        return value
+    raise ValueError(f"expected str, SemanticRef, or SemanticObject, got {type(value).__name__}")
 
 
 class AlignmentPolicy(BaseModel):
@@ -86,14 +135,24 @@ class SamplingPolicy(BaseModel):
 class PromotionSemanticAnchors(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    metric: MetricRef | None = None
-    subject: DimensionRef | None = None
-    time_axis: DimensionRef | None = None
+    metric: str | None = None
+    subject: str | None = None
+    time_axis: str | None = None
     source_metric: ArtifactRef | None = None
     source_delta: ArtifactRef | None = None
     current: ArtifactRef | None = None
     baseline: ArtifactRef | None = None
-    axis: DimensionRef | None = None
+    axis: str | None = None
+
+    @field_validator("metric", "subject", "time_axis", "axis", mode="before")
+    @classmethod
+    def normalize_semantic_anchor(
+        cls, value: SemanticAnchorInput | None, info: ValidationInfo
+    ) -> str | None:
+        field_name = info.field_name
+        if field_name is None:
+            raise ValueError("semantic anchor field name is required")
+        return _semantic_anchor_id(value, field_name=field_name)
 
 
 class PromotionPolicy(BaseModel):

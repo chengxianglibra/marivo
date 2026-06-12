@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from marivo.semantic.catalog import EntityDetails, MetricDetails, SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
 
 
@@ -22,7 +23,7 @@ def test_base_metric_requires_additivity(semantic_project_factory):
     )
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_metric("sales.revenue")
+        SemanticCatalog(project).get("sales.revenue")
 
     error = exc_info.value.errors[0]
     assert error.kind == "missing_metric_additivity"
@@ -49,10 +50,11 @@ def test_single_dataset_metric_defaults_root_dataset(semantic_project_factory):
         }
     )
 
-    metric = project.get_metric("sales.revenue")
-    assert metric is not None
+    metric = SemanticCatalog(project).get("sales.revenue").details()
+    assert isinstance(metric, MetricDetails)
     assert metric.additivity == "additive"
-    assert metric.root_entity == "sales.orders"
+    assert metric.root_entity is not None
+    assert metric.root_entity.ref == "sales.orders"
 
 
 def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_factory):
@@ -77,7 +79,7 @@ def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_fa
     )
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_metric("sales.revenue")
+        SemanticCatalog(project).get("sales.revenue")
 
     error = exc_info.value.errors[0]
     assert error.kind == "missing_metric_root_dataset"
@@ -106,9 +108,10 @@ def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory)
         }
     )
 
-    metric = project.get_metric("sales.revenue")
-    assert metric is not None
-    assert metric.root_entity == "sales.orders"
+    metric = SemanticCatalog(project).get("sales.revenue").details()
+    assert isinstance(metric, MetricDetails)
+    assert metric.root_entity is not None
+    assert metric.root_entity.ref == "sales.orders"
 
 
 def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_project_factory):
@@ -136,7 +139,7 @@ def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_proje
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        project.get_metric("sales.bad_user_sum")
+        SemanticCatalog(project).get("sales.bad_user_sum")
 
     error = exc_info.value.errors[0]
     assert error.kind == "non_root_metric_aggregate"
@@ -167,8 +170,8 @@ def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
         }
     )
 
-    dataset = project.get_entity("sales.user_profile_daily")
-    assert dataset is not None
+    dataset = SemanticCatalog(project).get("sales.user_profile_daily").details()
+    assert isinstance(dataset, EntityDetails)
     assert dataset.versioning is not None
     assert dataset.versioning.kind == "snapshot"
     assert dataset.versioning.partition_field == "dt"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 if TYPE_CHECKING:
     from marivo.semantic.ir import _BaseRef
@@ -14,6 +14,12 @@ from marivo.introspection.schema import Descriptor
 from marivo.introspection.surface import Surface, render
 
 from .constraints import constraints_for_symbol, iter_constraints
+
+
+class _SemanticHelpIR(Protocol):
+    semantic_id: str
+    description: str | None
+
 
 _HELP_ONLY_ENTRIES: tuple[str, ...] = (
     "observe",
@@ -106,10 +112,10 @@ _SUMMARIES: dict[str, str] = {
     "CalendarRef": "calendar provider ref",
     "CandidateObjective": "literal values for CandidateSet objective field",
     "ConfidenceScope": "confidence scope attached to frame meta",
-    "DimensionRef": "semantic dimension ref for observe and decompose",
     "DiscoverSensitivity": "literal values for discover sensitivity parameter",
     "FollowupAction": "recommended follow-up action attached to frame meta",
-    "MetricRef": "semantic metric ref for observe",
+    "SemanticObject": "catalog object returned by session.catalog.get(...)",
+    "SemanticRef": "catalog ref returned by SemanticObject.ref",
     "PromotionPolicy": "promotion policy for promoted metric frames",
     "PromotionSemanticAnchors": "semantic anchor refs for PromotionPolicy",
     "SamplingPolicy": "sampling policy for compare and correlate",
@@ -169,7 +175,8 @@ def _discover_content() -> dict[str, object]:
         "summary": "session.discover objective helper matrix.",
         "objectives": objectives,
         "example": (
-            'session.discover.driver_axes(delta, search_space=[mv.DimensionRef("country")])'
+            'region = session.catalog.get("sales.orders.region").ref\n'
+            "session.discover.driver_axes(delta, search_space=[region])"
         ),
     }
 
@@ -394,6 +401,7 @@ _SESSION_IDENTITY_FIELDS: tuple[dict[str, str], ...] = (
     {"name": "tz", "summary": "session timezone"},
     {"name": "cwd", "summary": "working directory captured when the session was created"},
     {"name": "project_root", "summary": "project root that owns the session state"},
+    {"name": "catalog", "summary": "session semantic catalog for browsing project refs"},
 )
 
 
@@ -407,7 +415,8 @@ def _session_content(constraints: tuple[Constraint, ...]) -> dict[str, object]:
         "constraints": [constraint.to_summary_dict() for constraint in constraints],
         "example": (
             "session = mv.session.get_or_create(name='analysis')\n"
-            "metric = session.observe(mv.MetricRef('orders.revenue'), "
+            "revenue = session.catalog.get('orders.revenue')\n"
+            "metric = session.observe(revenue, "
             "timescope={'start': '2026-01-01', 'end': '2026-01-31'})"
         ),
     }
@@ -752,7 +761,7 @@ def help(
             - str -- print help for a named symbol or topic (e.g. "observe",
               "MetricFrame", "session").
             - _BaseRef -- print semantic-object help for an already-defined
-              Python semantic ref (MetricRef, EntityRef, etc.).
+              Python semantic authoring ref (metric, entity, etc.).
         project: Explicit SemanticProject for semantic ref resolution.
             Required when ``target`` is a ``_BaseRef`` and no project can be
             inferred from the current working directory.
@@ -770,10 +779,17 @@ def help(
         >>> mv.help()                       # top-level analysis help
         >>> mv.help("observe")              # intent help
         >>> mv.help("MetricFrame")          # frame type help
-        >>> mv.help(revenue_ref, project=p) # semantic-object help
+        >>> mv.help(revenue.ref, project=p) # semantic-object help
     """
+    from marivo.semantic.catalog import SemanticObject, SemanticRef
     from marivo.semantic.ir import _BaseRef as _BaseRefType
 
+    if isinstance(target, SemanticObject):
+        _help_catalog_ref(target.ref, project=project)
+        return
+    if isinstance(target, SemanticRef):
+        _help_catalog_ref(target, project=project)
+        return
     if isinstance(target, _BaseRefType):
         _help_semantic_ref(target, project=project)
         return
@@ -823,6 +839,74 @@ def _help_semantic_ref(
     _print_semantic_object_help(ref, resolved_project)
 
 
+def _help_catalog_ref(
+    ref: object,
+    *,
+    project: SemanticProject | None = None,
+) -> None:
+    """Resolve project and print bounded semantic-object help for a catalog ref."""
+    from marivo.semantic.catalog import SemanticKind, SemanticRef
+    from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+
+    if not isinstance(ref, SemanticRef):
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"mv.help expected SemanticRef or SemanticObject, got {type(ref).__name__}.",
+            cls=SemanticRuntimeError,
+        )
+
+    resolved_project = project
+    if resolved_project is None:
+        try:
+            import marivo.semantic as ms
+
+            resolved_project = ms.find_project()
+            if resolved_project is not None:
+                resolved_project.load()
+        except Exception:
+            resolved_project = None
+
+    if resolved_project is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            (
+                f"Cannot resolve project for mv.help({ref.ref!r}). "
+                "No loaded semantic project found. "
+                "Pass project=project explicitly: mv.help(ref, project=project)."
+            ),
+            cls=SemanticRuntimeError,
+        )
+
+    reg = getattr(resolved_project, "_registry", None)
+    if reg is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"Call ms.load() to load the semantic project before mv.help({ref.ref!r}).",
+            cls=SemanticRuntimeError,
+        )
+
+    ir = None
+    if ref.kind == SemanticKind.METRIC:
+        ir = reg.metrics.get(ref.ref)
+    elif ref.kind == SemanticKind.ENTITY:
+        ir = reg.datasets.get(ref.ref)
+    elif ref.kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
+        ir = reg.fields.get(ref.ref)
+
+    if ir is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            (
+                f"{ref.kind} {ref.ref!r} not found in loaded project. "
+                "Call catalog.list(kind='metric').ids() to see available ids."
+            ),
+            cls=SemanticRuntimeError,
+        )
+
+    lines = _semantic_ir_help_lines(ir, kind=str(ref.kind))
+    print("\n".join(lines))
+
+
 def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None:
     """Print bounded consumption context for a semantic ref."""
     from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
@@ -854,13 +938,21 @@ def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None
             cls=SemanticRuntimeError,
         )
 
+    lines = _semantic_ir_help_lines(ir, kind=str(ref.kind))
+    print("\n".join(lines))
+
+
+def _semantic_ir_help_lines(ir: object, *, kind: str) -> list[str]:
+    typed_ir = cast("_SemanticHelpIR", ir)
+    semantic_id = str(typed_ir.semantic_id)
     lines: list[str] = [
-        f"{ref.kind}: {ir.semantic_id}",
+        f"{kind}: {semantic_id}",
     ]
-    if ir.description:
-        lines.append(f"description: {ir.description}")
-    if getattr(ir, "unit", None):
-        lines.append(f"unit: {ir.unit}")
+    if typed_ir.description:
+        lines.append(f"description: {typed_ir.description}")
+    unit = getattr(ir, "unit", None)
+    if unit:
+        lines.append(f"unit: {unit}")
     ai = getattr(ir, "ai_context", None)
     if ai is not None:
         if getattr(ai, "business_definition", None):
@@ -876,6 +968,6 @@ def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None
     lines.append("")
     lines.append(
         f"use: catalog.list(kind='metric').ids() to enumerate; "
-        f"pass {ir.semantic_id!r} to session.observe(mv.MetricRef(...))"
+        f"pass catalog.get({semantic_id!r}) to session.observe(...)"
     )
-    print("\n".join(lines))
+    return lines

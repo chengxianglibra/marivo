@@ -4,9 +4,11 @@ Use this file when a Marivo Python analysis script fails with a structured
 exception. Fix the smallest script and re-run it with the active Python
 environment where `marivo` is installed.
 
-Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`, and
+Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension refs from
+`session.catalog.get("<dimension_id>").ref`, `mv.CalendarRef(...)`, and
 `mv.AlignmentPolicy(...)` at public operator boundaries. Do not pass bare
-strings directly to `observe`, `decompose`, or calendar-backed `compare`.
+strings directly to `observe`, `decompose`, `transform`, or calendar-backed
+`compare`.
 
 ## Wrong Python environment
 
@@ -34,8 +36,8 @@ Location: session.compare call
 Cause: got kind delta_frame, expected metric_frame; this usually means passing a compare result where an observe result is required.
 
 Fix:
-  cur  = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
-  base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
+  cur  = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+  base = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
   delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 
 Docs: marivo-skills/marivo-analysis/references/pitfalls.md
@@ -45,10 +47,11 @@ Docs: marivo-skills/marivo-analysis/references/pitfalls.md
 `DeltaFrame` to `session.decompose`.
 
 ```python
-cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
-base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
+cur = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+base = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
-attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
+created_at = session.catalog.get("sales.orders.created_at").ref
+attribution = session.decompose(delta, axis=created_at)
 ```
 
 Use explicit dict windows or structured slices in new examples and
@@ -78,8 +81,8 @@ when feeding Marivo intents.
 become a canonical frame.
 
 **Action:** Pass explicit typed refs and column names. For a metric frame, include
-`metric=mv.MetricRef("sales.revenue")`, `semantic_kind="segmented"`,
-`measure_column="value"`, `axes={"country": mv.DimensionRef("country")}`, and
+`metric=session.catalog.get("sales.revenue")`, `semantic_kind="segmented"`,
+`measure_column="value"`, `axes={"country": session.catalog.get("sales.orders.country").ref}`, and
 `semantic_model="sales"`. For delta and attribution promotion, include source
 artifact refs such as `mv.ArtifactRef("frame_delta")`.
 
@@ -212,7 +215,7 @@ import marivo.semantic as ms
 
 catalog = ms.load()
 catalog.list(kind="metric")
-cur = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+cur = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
 ```
 
 Metric ids are case-sensitive strings in `<model>.<metric>` form.
@@ -229,7 +232,7 @@ only through July 30; July 31 rows are missing.
 
 ```python
 session.observe(
-    mv.MetricRef("sales.revenue"),
+    session.catalog.get("sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-08-01"},  # includes all of July
 )
 ```
@@ -248,18 +251,18 @@ or a slice validation error while applying filters.
 
 ```python
 session.observe(
-    mv.MetricRef("sales.revenue"),
+    session.catalog.get("sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 
 session.observe(
-    mv.MetricRef("sales.revenue"),
-    where={mv.DimensionRef("created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    session.catalog.get("sales.revenue"),
+    where={session.catalog.get("sales.orders.created_at").ref: {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 ```
 
 Do not default to natural-language periods or bare quarter strings in new skill
-content. Wrap metric ids with `mv.MetricRef(...)`.
+content. Resolve metric ids with `session.catalog.get("<metric_id>")`.
 
 ## Discover returns CandidateSet
 
@@ -302,12 +305,13 @@ inspection, and `.to_pandas()` for downstream pandas work.
 TypeError: decompose() missing 1 required keyword-only argument: 'axis'
 ```
 
-**Action:** pass `axis=mv.DimensionRef("<column>")` for a grouping column that
-already exists in the `DeltaFrame`.
+**Action:** pass a catalog dimension or time-dimension ref for the axis represented
+in the `DeltaFrame`.
 
 ```python
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
-attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
+created_at = session.catalog.get("sales.orders.created_at").ref
+attribution = session.decompose(delta, axis=created_at)
 ```
 
 ## test / forecast / assess_quality
@@ -327,8 +331,8 @@ or call `candidates.as_<shape>()` to assert.
 
 ## `discover.driver_axes(...)` requires `search_space`
 
-`driver_axes` is the only objective that needs
-`search_space=[DimensionRef(...), ...]`. Without it, `session.discover.driver_axes`
+`driver_axes` is the only objective that needs catalog-backed refs such as
+`search_space=[session.catalog.get("sales.orders.region").ref, ...]`. Without it, `session.discover.driver_axes`
 raises
 `SemanticKindMismatchError` with `details["missing"] = "search_space"`.
 

@@ -6,7 +6,7 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import GrainUnsupportedError
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.refs import MetricRef
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +59,7 @@ def test_observe_five_minute_grain(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     frame = observe(
-        MetricRef("ops.hits"),
+        SemanticRef("ops.hits", kind=SemanticKind.METRIC),
         timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
         grain=(5, "minute"),
         session=s,
@@ -82,7 +82,7 @@ def test_observe_grain_finer_than_base_rejected(tmp_path):
 
     with pytest.raises(GrainUnsupportedError):
         observe(
-            MetricRef("ops.hits"),
+            SemanticRef("ops.hits", kind=SemanticKind.METRIC),
             timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
             grain=(30, "second"),
             session=s,
@@ -98,7 +98,7 @@ def test_resolved_window_and_promotion_store_grain_token(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     observe(
-        MetricRef("ops.hits"),
+        SemanticRef("ops.hits", kind=SemanticKind.METRIC),
         timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
         grain=(5, "minute"),
         session=s,

@@ -1,0 +1,193 @@
+"""Normalize semantic catalog objects at analysis operator boundaries."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import NoReturn
+
+from marivo.analysis.errors import MetricNotFoundError, SemanticKindMismatchError
+from marivo.analysis.intents._types import SliceValue
+from marivo.semantic.catalog import SemanticCatalog, SemanticKind, SemanticObject, SemanticRef
+from marivo.semantic.errors import SemanticRuntimeError
+
+SemanticInput = SemanticObject | SemanticRef
+MetricInput = SemanticInput
+DimensionInput = SemanticInput
+
+
+def _available_ids(catalog: SemanticCatalog, *, kind: SemanticKind) -> list[str]:
+    domains = [obj.ref for obj in catalog.list(kind=SemanticKind.DOMAIN)]
+    ids: list[str] = []
+    for domain_ref in domains:
+        ids.extend(catalog.list(domain_ref, kind=kind).ids())
+    return sorted(ids)
+
+
+def _available_dimension_ids(catalog: SemanticCatalog) -> list[str]:
+    domains = [obj.ref for obj in catalog.list(kind=SemanticKind.DOMAIN)]
+    ids: list[str] = []
+    for domain_ref in domains:
+        for entity in catalog.list(domain_ref, kind=SemanticKind.ENTITY):
+            ids.extend(catalog.list(entity.ref, kind=SemanticKind.DIMENSION).ids())
+            ids.extend(catalog.list(entity.ref, kind=SemanticKind.TIME_DIMENSION).ids())
+    return sorted(ids)
+
+
+def _ref_and_kind(value: object) -> tuple[str, SemanticKind | None, str]:
+    if isinstance(value, SemanticObject):
+        return value.ref.ref, value.kind, str(value.kind)
+    if isinstance(value, SemanticRef):
+        return value.ref, value.kind, str(value.kind)
+    return str(value), None, type(value).__name__
+
+
+def _reject_kind(
+    *,
+    ref: str,
+    actual_kind: str,
+    expected_kind: str,
+    argument: str,
+    available_ids: Sequence[str] | None = None,
+) -> NoReturn:
+    details: dict[str, object] = {
+        "argument": argument,
+        "ref": ref,
+        "expected_kind": expected_kind,
+        "actual_kind": actual_kind,
+    }
+    if available_ids is not None:
+        details["available_ids"] = list(available_ids)
+    raise SemanticKindMismatchError(
+        message=f"{argument} requires a catalog {expected_kind} SemanticRef or SemanticObject",
+        details=details,
+    )
+
+
+def _require_catalog_input(
+    value: object, *, argument: str, expected_kind: str
+) -> tuple[str, SemanticKind]:
+    ref, kind, actual = _ref_and_kind(value)
+    if kind is None:
+        _reject_kind(ref=ref, actual_kind=actual, expected_kind=expected_kind, argument=argument)
+    return ref, kind
+
+
+def normalize_metric_input(catalog: SemanticCatalog, metric: MetricInput) -> str:
+    """Return a metric semantic id from a catalog object/ref."""
+    ref, kind = _require_catalog_input(metric, argument="metric", expected_kind="metric")
+    if kind != SemanticKind.METRIC:
+        _reject_kind(ref=ref, actual_kind=str(kind), expected_kind="metric", argument="metric")
+    try:
+        obj = catalog.get(ref)
+    except SemanticRuntimeError as exc:
+        if exc.kind != "not_found":
+            raise
+        raise MetricNotFoundError(
+            message=f"metric {ref!r} not found",
+            hint="Use session.catalog.list(<domain>, kind='metric') to browse metric refs.",
+            details={
+                "metric": ref,
+                "metric_id": ref,
+                "available_ids": _available_ids(catalog, kind=SemanticKind.METRIC),
+            },
+        ) from exc
+    if obj.kind != SemanticKind.METRIC:
+        _reject_kind(ref=ref, actual_kind=str(obj.kind), expected_kind="metric", argument="metric")
+    return ref
+
+
+def normalize_dimension_input(
+    catalog: SemanticCatalog,
+    dimension: DimensionInput,
+    *,
+    argument: str = "dimension",
+) -> str:
+    """Return a dimension/time-dimension semantic id from a catalog object/ref."""
+    ref, kind = _require_catalog_input(dimension, argument=argument, expected_kind="dimension")
+    if kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+        _reject_kind(ref=ref, actual_kind=str(kind), expected_kind="dimension", argument=argument)
+    try:
+        obj = catalog.get(ref)
+    except SemanticRuntimeError as exc:
+        if exc.kind != "not_found":
+            raise
+        available_ids = _available_dimension_ids(catalog)
+        if "." not in ref:
+            candidates = [
+                candidate for candidate in available_ids if candidate.rsplit(".", 1)[-1] == ref
+            ]
+            if len(candidates) == 1:
+                return normalize_dimension_input(
+                    catalog,
+                    SemanticRef(candidates[0], kind=kind),
+                    argument=argument,
+                )
+            if len(candidates) > 1:
+                _reject_kind(
+                    ref=ref,
+                    actual_kind="ambiguous",
+                    expected_kind="dimension",
+                    argument=argument,
+                    available_ids=available_ids,
+                )
+        _reject_kind(
+            ref=ref,
+            actual_kind="not_found",
+            expected_kind="dimension",
+            argument=argument,
+            available_ids=available_ids,
+        )
+    if obj.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+        _reject_kind(
+            ref=ref, actual_kind=str(obj.kind), expected_kind="dimension", argument=argument
+        )
+    return ref
+
+
+def normalize_dimension_boundary(
+    catalog: SemanticCatalog,
+    dimension: DimensionInput,
+    *,
+    argument: str = "dimension",
+) -> str:
+    """Normalize catalog dimension inputs at public analysis boundaries."""
+    available_ids = _available_dimension_ids(catalog)
+    if not available_ids:
+        if isinstance(dimension, SemanticObject):
+            if dimension.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+                _reject_kind(
+                    ref=dimension.ref.ref,
+                    actual_kind=str(dimension.kind),
+                    expected_kind="dimension",
+                    argument=argument,
+                )
+            return dimension.ref.ref
+        if isinstance(dimension, SemanticRef) and dimension.kind in {
+            SemanticKind.DIMENSION,
+            SemanticKind.TIME_DIMENSION,
+        }:
+            return dimension.ref
+    return normalize_dimension_input(catalog, dimension, argument=argument)
+
+
+def normalize_dimension_inputs(
+    catalog: SemanticCatalog,
+    dimensions: Sequence[DimensionInput] | None,
+) -> list[str]:
+    """Normalize a dimension list to full semantic ids."""
+    return [
+        normalize_dimension_input(catalog, dim, argument="dimensions") for dim in dimensions or ()
+    ]
+
+
+def normalize_where_inputs(
+    catalog: SemanticCatalog,
+    where: Mapping[DimensionInput, SliceValue] | None,
+) -> dict[str, SliceValue]:
+    """Normalize where keys to full semantic ids."""
+    if where is None:
+        return {}
+    return {
+        normalize_dimension_input(catalog, key, argument="where"): value
+        for key, value in where.items()
+    }

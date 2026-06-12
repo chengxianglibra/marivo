@@ -15,6 +15,7 @@ from marivo.analysis.errors import (
     DatasourceMissingError,
     NoBackendFactoryError,
 )
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 from tests.conftest import bootstrap_sales_project
 
 
@@ -45,7 +46,7 @@ def test_session_uses_datasource_when_no_explicit_backend(tmp_path: Path, fake_h
     bootstrap_sales_project(tmp_path)
     session = mv.session.get_or_create(name="s")
     # Force backend creation via the cache; it should resolve through the project datasource.
-    backend = session._backend_cache.get_or_create("warehouse")
+    backend = session._connection_runtime.get_or_create("warehouse")
     assert backend is not None
     assert backend.list_tables() == []
 
@@ -59,7 +60,7 @@ def test_observe_uses_global_datasource_name(tmp_path: Path, fake_home: Path) ->
     md.register(_spec("warehouse", backend_type="duckdb", path=str(db_path)))
 
     session = mv.session.get_or_create(name="s")
-    frame = session.observe(mv.MetricRef("sales.revenue"))
+    frame = session.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
 
     assert frame.to_pandas().iloc[0, 0] == 10.0
     # The observe succeeded using the global datasource, meaning the frame
@@ -85,7 +86,7 @@ def test_explicit_backend_factory_overrides_datasource(tmp_path: Path, fake_home
         name="s",
         backend_factory=lambda name: sentinel,
     )
-    backend = session._backend_cache.get_or_create("warehouse")
+    backend = session._connection_runtime.get_or_create("warehouse")
     assert backend is sentinel
     assert "orders" in backend.list_tables()
 
@@ -95,7 +96,7 @@ def test_missing_datasource_raises_datasource_missing(tmp_path: Path, fake_home:
     (tmp_path / ".marivo" / "datasource" / "warehouse.py").unlink()
     session = mv.session.get_or_create(name="s")
     with pytest.raises(DatasourceMissingError) as exc_info:
-        session._backend_cache.get_or_create("warehouse")
+        session._connection_runtime.get_or_create("warehouse")
     rendered = str(exc_info.value)
     assert "warehouse" in rendered
     assert "md.register" in rendered
@@ -106,4 +107,4 @@ def test_use_datasources_false_disables_auto_factory(tmp_path: Path, fake_home: 
     md.register(_spec("warehouse", backend_type="duckdb", path=":memory:"))
     session = mv.session.get_or_create(name="s", use_datasources=False)
     with pytest.raises(NoBackendFactoryError):
-        session._backend_cache.get_or_create("warehouse")
+        session._connection_runtime.get_or_create("warehouse")

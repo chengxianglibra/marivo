@@ -5,10 +5,10 @@ This module owns:
 - ``current()`` which resolves the current session from process state or
   the persisted store pointer.
 - ``require_current_session()`` for callers that need a live session.
-- ``_compile_backend_factory`` and ``_build_semantic_project`` which are
+- ``_build_connection_runtime`` and ``_build_semantic_catalog`` which are
   runtime-only and must not be persisted.
 - ``_session_from_row`` which builds a live ``Session`` from store metadata
-  plus a runtime backend factory.
+  plus a runtime connection runtime.
 - ``persist_frame`` and ``persist_job_record`` which combine layout I/O
   with store registration.
 """
@@ -32,6 +32,7 @@ from marivo.analysis.timezone import resolve_system_timezone
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.base import BaseFrame
+    from marivo.analysis.session._connections import AnalysisConnectionRuntime
 
 from marivo.analysis.frames.base import BaseFrameMeta
 
@@ -90,8 +91,10 @@ def current() -> Session | None:
         store.clear_current_session_id()
         return None
 
-    factory = _compile_backend_factory(None, None, use_datasources=True)
-    session = _session_from_row(store, row, factory)
+    connection_runtime = _build_connection_runtime(
+        store.project_root, None, None, use_datasources=True
+    )
+    session = _session_from_row(store, row, connection_runtime)
     set_process_current(session)
     return session
 
@@ -112,51 +115,54 @@ def require_current_session() -> Session:
 # ---------------------------------------------------------------------------
 
 
+def _build_connection_runtime(
+    project_root: Path,
+    backends: dict[str, Callable[[], Any]] | None,
+    backend_factory: Callable[[str], Any] | None,
+    *,
+    use_datasources: bool = True,
+) -> AnalysisConnectionRuntime:
+    """Build the session-owned datasource connection runtime."""
+    if backends is not None and backend_factory is not None:
+        raise SessionStateError(
+            message="supply either backends={...} or backend_factory=..., not both",
+        )
+    from marivo.analysis.session._connections import AnalysisConnectionRuntime
+    from marivo.datasource.runtime import DatasourceConnectionService
+
+    return AnalysisConnectionRuntime(
+        DatasourceConnectionService(
+            project_root=project_root,
+            backends=backends,
+            backend_factory=backend_factory,
+            use_datasources=use_datasources,
+        )
+    )
+
+
 def _compile_backend_factory(
     backends: dict[str, Callable[[], Any]] | None,
     backend_factory: Callable[[str], Any] | None,
     *,
     use_datasources: bool = True,
-) -> Callable[[str], Any] | None:
-    """Merge explicit backends, a factory callable, and/or datasource auto-discovery.
-
-    Raises ``SessionStateError`` when both ``backends`` and ``backend_factory``
-    are supplied.
-    """
-    if backends is not None and backend_factory is not None:
-        raise SessionStateError(
-            message="supply either backends={...} or backend_factory=..., not both",
-        )
-    if backends is not None:
-        backend_map = dict(backends)
-
-        def from_mapping(name: str) -> Any:
-            return backend_map[name]()
-
-        return from_mapping
-    if backend_factory is not None:
-        return backend_factory
-    if use_datasources:
-        from marivo.datasource import connect as build_backend
-
-        def from_datasources(name: str) -> Any:
-            return build_backend(name)
-
-        return from_datasources
-    return None
+) -> AnalysisConnectionRuntime:
+    """Compatibility shim for internal callers not yet moved to connection runtimes."""
+    return _build_connection_runtime(
+        SessionStore().project_root,
+        backends,
+        backend_factory,
+        use_datasources=use_datasources,
+    )
 
 
-def _build_semantic_project(project_root: Path) -> Any:
-    """Build a ``SemanticProject`` from the project root.
-
-    Returns the project even if it is not ready; callers should check
-    ``is_ready()`` and handle errors as needed.
-    """
+def _build_semantic_catalog(project_root: Path) -> Any:
+    """Build a SemanticCatalog from the project root, preserving not-ready state."""
+    from marivo.semantic.catalog import SemanticCatalog
     from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject(workspace_dir=project_root)
     project.load()
-    return project
+    return SemanticCatalog(project)
 
 
 # ---------------------------------------------------------------------------
@@ -167,9 +173,9 @@ def _build_semantic_project(project_root: Path) -> Any:
 def _session_from_row(
     store: SessionStore,
     row: Sqlite3RowLike,
-    factory: Callable[[str], Any] | None,
+    connection_runtime: Any,
 ) -> Session:
-    """Build a live ``Session`` from a store row and a runtime backend factory.
+    """Build a live ``Session`` from a store row and a runtime connection runtime.
 
     Only persisted metadata is used: id, name, question, cwd, created_at,
     updated_at, default_calendar.  Timezone is resolved at attach/resume time
@@ -179,7 +185,7 @@ def _session_from_row(
     session_id = row["id"]
     project_root = store.project_root
     layout = PersistenceLayout(project_root=project_root, session_id=session_id)
-    semantic_project = _build_semantic_project(project_root)
+    semantic_catalog = _build_semantic_catalog(project_root)
 
     resolved_tz = resolve_system_timezone()
     return Session(
@@ -190,9 +196,9 @@ def _session_from_row(
         project_root=project_root,
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
-        backend_factory=factory,
+        connection_runtime=connection_runtime,
         layout=layout,
-        semantic_project=semantic_project,
+        semantic_catalog=semantic_catalog,
         store=store,
         tz=resolved_tz.tz,
         default_calendar=row["default_calendar"],

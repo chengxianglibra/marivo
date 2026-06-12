@@ -20,11 +20,11 @@ mv.help('MetricFrame.components')        # method signature and doc
 
 | Intent | Inputs | Output | Agent rule |
 | --- | --- | --- | --- |
-| `session.observe` | `mv.MetricRef("domain.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` (end is exclusive: `[start, end)`) or structured `where={dimension: {"op": ..., "value": ...}}`. |
+| `session.observe` | `session.catalog.get("domain.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` (end is exclusive: `[start, end)`) or structured `where={dimension: {"op": ..., "value": ...}}`. |
 | `session.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
-| `session.decompose` | `DeltaFrame`, `mv.DimensionRef("column")` | `AttributionFrame` | Always pass `axis=...`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
+| `session.decompose` | `DeltaFrame`, catalog dimension ref | `AttributionFrame` | Always pass `axis=session.catalog.get("<dimension_id>").ref`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
 | `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape` (from `marivo.analysis.frames.candidate`). |
-| `candidates.select(...)` | `CandidateSet` | typed value (`DimensionRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
+| `candidates.select(...)` | `CandidateSet` | typed value (`SemanticRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
 | `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="window_bucket")`; default lag is zero. |
 | `session.hypothesis_test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
 | `session.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
@@ -48,9 +48,11 @@ Frames are immutable. Use `frame.summary()` for a cheap read,
 `frame.to_pandas()` when you need a mutable copy. Use
 `frame.to_pandas().head(n)` only when you explicitly want pandas behavior.
 
-Use `mv.MetricRef(...)`, `mv.DimensionRef(...)`, `mv.CalendarRef(...)`, and
+Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension refs from
+`session.catalog.get("<dimension_id>").ref`, `mv.CalendarRef(...)`, and
 `mv.AlignmentPolicy(...)` at public operator boundaries. Do not pass bare
-strings directly to `observe`, `decompose`, or calendar-backed `compare`.
+strings directly to `observe`, `decompose`, `transform`, or calendar-backed
+`compare`.
 
 ## Minimal Patterns
 
@@ -58,22 +60,23 @@ strings directly to `observe`, `decompose`, or calendar-backed `compare`.
 import marivo.analysis as mv
 
 cur = session.observe(
-    mv.MetricRef("sales.revenue"),
+    session.catalog.get("sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 base = session.observe(
-    mv.MetricRef("sales.revenue"),
+    session.catalog.get("sales.revenue"),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
 )
 delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
-attribution = session.decompose(delta, axis=mv.DimensionRef("bucket_start"))
+created_at = session.catalog.get("sales.orders.created_at").ref
+attribution = session.decompose(delta, axis=created_at)
 print(attribution.summary())
 ```
 
 ```python
 series = session.observe(
-    mv.MetricRef("sales.revenue"),
-    where={mv.DimensionRef("created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    session.catalog.get("sales.revenue"),
+    where={session.catalog.get("sales.orders.created_at").ref: {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 candidates = session.discover.point_anomalies(series, threshold=1.0)
 print(candidates.meta.objective)  # "point_anomalies"
@@ -92,7 +95,7 @@ Marivo does not model directly.
 | Export a Marivo frame for mutable local analysis | `df = frame.to_pandas()` |
 | Import pandas or library output into the session | `scratch = session.from_pandas(df, description="feature engineering output")` |
 | Inspect scratch provenance | `scratch.meta.source_kind`, `scratch.meta.source_query`, `scratch.meta.source_datasource` |
-| Re-enter canonical metric flow only when a typed intent needs it | `session.promote_metric_frame(scratch, metric=mv.MetricRef("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": mv.DimensionRef("country")}, semantic_model="sales")` |
+| Re-enter canonical metric flow only when a typed intent needs it | `country = session.catalog.get("sales.orders.country").ref; session.promote_metric_frame(scratch, metric=session.catalog.get("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": country}, semantic_model="sales")` |
 | Re-enter delta flow only for typed change analysis | `session.promote_delta_frame(scratch, current=mv.ArtifactRef("frame_current"), baseline=mv.ArtifactRef("frame_baseline"), delta_column="delta", current_column="current", baseline_column="baseline")` |
 | Re-enter attribution flow only for typed driver output | `session.promote_attribution_frame(scratch, source_delta=mv.ArtifactRef("frame_delta"), driver_field="country", contribution_column="contribution")` |
 
@@ -133,7 +136,7 @@ scratch = session.from_pandas(df, description="share calculation")
 | --- | --- | --- | --- | --- |
 | `session.discover.point_anomalies` | `MetricFrame[time_series\|panel]` | `point_anomaly` | `zscore` | – |
 | `session.discover.period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | At least 4 time buckets in one series |
-| `session.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[DimensionRef(...), ...]` |
+| `session.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[session.catalog.get("sales.orders.region").ref, ...]` |
 | `session.discover.interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` | – (defaults to all dimension columns) |
 | `session.discover.interesting_windows` | `MetricFrame[time_series\|panel]` or `DeltaFrame[time_series\|panel]` | `window` | `rolling_zscore` | – |
 | `session.discover.cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
@@ -162,7 +165,7 @@ numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`
 
 Calendar alignment and timestamp bucketing use the Python process system timezone. If a naive warehouse timestamp physically stores UTC, declare it in the semantic layer with `@ms.time_dimension(..., timezone="UTC")`.
 
-Metric refs wrap exact ids such as `mv.MetricRef("model.metric")`. Do not guess
+Metric inputs come from exact catalog ids such as `session.catalog.get("model.metric")`. Do not guess
 ids from metric display names; call `catalog.list(kind="metric")` after loading the
 semantic project.
 
@@ -243,9 +246,9 @@ When a dataset has multiple time dimensions, choose one with top-level `time_dim
 
 ```python
 session.observe(
-    mv.MetricRef("sales.revenue"),
+    session.catalog.get("sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-08-01"},
-    time_dimension=mv.DimensionRef("create_date"),
+    time_dimension=session.catalog.get("sales.orders.create_date").ref,
 )
 ```
 

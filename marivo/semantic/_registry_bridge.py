@@ -1,9 +1,9 @@
 """Internal bridge from SemanticProject to IR-level registry access.
 
 This module exists so that internal consumers (observe planner, materializer,
-parity) can access IR objects without going through the public list_*/get_*
-DiscoveryResult surface on SemanticProject. Once those public methods are
-unexported, this bridge remains the sole internal access path.
+parity) can access IR objects without going through deleted SemanticProject
+catalog read wrappers. It remains the internal IR access path for runtime
+code that cannot consume catalog value objects.
 """
 
 from __future__ import annotations

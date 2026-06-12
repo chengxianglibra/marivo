@@ -279,6 +279,37 @@ def test_session_get_frame_ref_not_found():
 # ---------------------------------------------------------------------------
 
 
+def test_resolve_frame_session_uses_persisted_project_root_for_connection_runtime(
+    tmp_path, monkeypatch
+):
+    """Resolving a frame session from another cwd keeps datasource lookup project-scoped."""
+    project_a = tmp_path / "project_a"
+    project_b = tmp_path / "project_b"
+    project_a.mkdir()
+    project_b.mkdir()
+
+    monkeypatch.chdir(project_a)
+    session = session_attach.get_or_create(name="demo")
+    frame = make_metric_frame(
+        pd.DataFrame({"value": [1.0]}),
+        metric_id="custom.metric",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="custom",
+        session=session,
+    )
+    session_attach._reset_process_state()
+
+    monkeypatch.chdir(project_b)
+    from marivo.analysis.session._resolve import resolve_frame_session
+
+    resolved = resolve_frame_session(frame.meta.session_id, frame.meta.project_root)
+
+    assert resolved.project_root == project_a.resolve()
+    assert resolved._connection_runtime.service.project_root == project_a.resolve()
+
+
 def test_frame_file_without_artifacts_row_is_unreachable():
     """A frame file on disk without an artifacts store row cannot be loaded."""
     session = session_attach.get_or_create(name="demo")

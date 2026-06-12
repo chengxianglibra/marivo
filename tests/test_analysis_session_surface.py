@@ -29,6 +29,7 @@ EXPECTED_SESSION_IDENTITY_FIELDS = (
     "tz",
     "cwd",
     "project_root",
+    "catalog",
 )
 
 
@@ -70,6 +71,7 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "recent_jobs",
         "close",
         "is_read_only",
+        "catalog",
         "from_pandas",
         "explore_ibis",
         "promote_metric_frame",
@@ -82,6 +84,7 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "semantic_project",
         "backend_factory",
         "backend_cache",
+        "connection_runtime",
         "calendars",
         "known_calendars",
         "known_datasources",
@@ -92,9 +95,8 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "propositions",
         "assessments",
         "_layout",
-        "_backend_cache",
-        "_semantic_project",
-        "_backend_factory",
+        "_connection_runtime",
+        "_catalog",
         "_calendars",
         "_known_calendars",
         "_known_datasources",

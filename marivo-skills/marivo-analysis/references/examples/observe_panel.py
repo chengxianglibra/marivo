@@ -16,10 +16,10 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
 panel = session.observe(
-    mv.MetricRef(METRIC_ID),
+    session.catalog.get(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="day",
-    dimensions=[mv.DimensionRef("region")],
+    dimensions=[session.catalog.get("sales.orders.region").ref],
 )
 print(panel.summary())
 

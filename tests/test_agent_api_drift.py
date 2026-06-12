@@ -70,20 +70,27 @@ def _make_project(semantic_project_factory):
     )
 
 
+def _make_catalog(semantic_project_factory):
+    """Create a minimal loaded catalog for drift tests."""
+    from marivo.semantic.catalog import SemanticCatalog
+
+    return SemanticCatalog(_make_project(semantic_project_factory))
+
+
 # ---------------------------------------------------------------------------
 # No-stdout contract on public APIs
 # ---------------------------------------------------------------------------
 
 
-def test_list_metrics_is_silent(semantic_project_factory, capsys) -> None:
-    project = _make_project(semantic_project_factory)
-    project.list_metrics()
+def test_catalog_list_metrics_is_silent(semantic_project_factory, capsys) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    catalog.list("sales", kind="metric")
     assert capsys.readouterr().out == ""
 
 
-def test_list_datasources_is_silent(semantic_project_factory, capsys) -> None:
-    project = _make_project(semantic_project_factory)
-    project.list_datasources()
+def test_catalog_list_datasources_is_silent(semantic_project_factory, capsys) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    catalog.list(kind="datasource")
     assert capsys.readouterr().out == ""
 
 
@@ -150,26 +157,58 @@ def test_ms_help_raises_on_format_kwarg() -> None:
 
 
 # ---------------------------------------------------------------------------
-# display= removed from discovery methods
+# deleted SemanticProject catalog read methods stay removed
 # ---------------------------------------------------------------------------
 
 
-def test_list_metrics_no_display_parameter(semantic_project_factory) -> None:
-    project = _make_project(semantic_project_factory)
-    sig = inspect.signature(project.list_metrics)
-    assert "display" not in sig.parameters
+def test_reader_project_catalog_read_methods_are_removed() -> None:
+    removed = {
+        "list_domains",
+        "list_datasources",
+        "list_entities",
+        "list_dimensions",
+        "list_time_dimensions",
+        "list_metrics",
+        "list_relationships",
+    }
+
+    for name in removed:
+        assert not hasattr(SemanticProject, name), name
 
 
-def test_list_models_no_display_parameter(semantic_project_factory) -> None:
-    project = _make_project(semantic_project_factory)
-    sig = inspect.signature(project.list_domains)
-    assert "display" not in sig.parameters
+def test_current_semantic_docs_do_not_reference_removed_project_read_surface() -> None:
+    checked_paths = [
+        REPO_ROOT / "docs" / "specs" / "semantic" / "agent-semantic-layer-authoring-design.md",
+        REPO_ROOT / "docs" / "specs" / "semantic" / "authoring-pipeline-design.md",
+        REPO_ROOT / "docs" / "specs" / "semantic" / "python-semantic-layer.md",
+        REPO_ROOT / "docs" / "specs" / "semantic" / "stepwise-authoring-design.md",
+        REPO_ROOT / "marivo-skills" / "marivo-semantic" / "references" / "closeout.md",
+        REPO_ROOT / "marivo-skills" / "marivo-semantic" / "references" / "preview.md",
+        REPO_ROOT / "marivo" / "semantic" / "reader.py",
+        REPO_ROOT / "marivo" / "semantic" / "constraints.py",
+        REPO_ROOT / "marivo" / "semantic" / "catalog.py",
+    ]
+    removed_terms = (
+        "project.collect_source_preview",
+        "project.search",
+        "project.describe",
+        "project.dependencies",
+        "project.dependents",
+        "preview_dataset",
+        "preview_field",
+        "preview_metric",
+        "search(kind=...)",
+        "materialization or preview methods",
+    )
 
+    offenders: list[str] = []
+    for path in checked_paths:
+        text = path.read_text()
+        for term in removed_terms:
+            if term in text:
+                offenders.append(f"{path.relative_to(REPO_ROOT)}: {term}")
 
-def test_list_datasources_no_display_parameter(semantic_project_factory) -> None:
-    project = _make_project(semantic_project_factory)
-    sig = inspect.signature(project.list_datasources)
-    assert "display" not in sig.parameters
+    assert offenders == []
 
 
 # ---------------------------------------------------------------------------
@@ -196,13 +235,11 @@ def test_metric_frame_repr_is_one_line() -> None:
     assert "call .show() to inspect" in r
 
 
-def test_discovery_result_repr_is_one_line(semantic_project_factory) -> None:
-    project = _make_project(semantic_project_factory)
-    result = project.list_metrics()
+def test_semantic_object_list_repr_is_one_line(semantic_project_factory) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.list("sales", kind="metric")
     r = repr(result)
     assert r.count("\n") == 0
-    assert "DiscoveryResult" in r
-    assert "call .show() to inspect" in r
 
 
 def test_readiness_report_repr_is_one_line(semantic_project_factory) -> None:
@@ -255,15 +292,15 @@ def test_frame_show_prints_render_plus_newline(capsys) -> None:
     assert captured.out == frame.render() + "\n"
 
 
-def test_discovery_result_render_contains_available(semantic_project_factory) -> None:
-    project = _make_project(semantic_project_factory)
-    result = project.list_metrics()
-    assert "available:" in result.render()
+def test_semantic_object_list_render_contains_next_steps(semantic_project_factory) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.list("sales", kind="metric")
+    assert "next steps:" in result.render()
 
 
-def test_discovery_result_available_never_none(semantic_project_factory) -> None:
-    project = _make_project(semantic_project_factory)
-    result = project.list_metrics()
+def test_semantic_object_list_available_never_none(semantic_project_factory) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.list("sales", kind="metric")
     # "available: none" should never appear — the available: section lists
     # method entries, never the word "none"
     assert "available: none" not in result.render().lower()

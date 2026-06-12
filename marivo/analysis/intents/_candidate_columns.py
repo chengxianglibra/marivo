@@ -30,6 +30,7 @@ CANDIDATE_COLUMNS: list[str] = [
     "baseline_window_start",
     "baseline_window_end",
     "axis",
+    "axis_semantic_id",
     "peer_scope_json",
     "recommended_followups_json",
 ]
@@ -46,6 +47,7 @@ CANDIDATE_DTYPES: dict[str, str] = {
     "baseline_window_start": "datetime64[ns, UTC]",
     "baseline_window_end": "datetime64[ns, UTC]",
     "axis": "string",
+    "axis_semantic_id": "string",
     "peer_scope_json": "string",
     "recommended_followups_json": "string",
 }
@@ -77,7 +79,7 @@ REQUIRED_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
 ALLOWED_OPTIONAL_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
     "point_anomaly": {"keys_json", "baseline_window_start", "baseline_window_end"},
     "period_shift": {"keys_json"},
-    "driver_axis": set(),
+    "driver_axis": {"axis_semantic_id"},
     "slice": {"window_start", "window_end"},
     "window": {"keys_json"},
     "cross_sectional_outlier": {"peer_scope_json"},
@@ -121,6 +123,8 @@ def _row_to_record(row: dict[str, Any]) -> dict[str, Any]:
         record["direction"] = str(row["direction"])
     if "axis" in row and row["axis"] is not None:
         record["axis"] = str(row["axis"])
+    if "axis_semantic_id" in row and row["axis_semantic_id"] is not None:
+        record["axis_semantic_id"] = str(row["axis_semantic_id"])
 
     if "reason_codes" in row:
         record["reason_codes_json"] = _json_dumps(list(row["reason_codes"]))

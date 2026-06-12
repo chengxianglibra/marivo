@@ -17,7 +17,7 @@ Tests cover:
 - Derived propagation: one unverified -> UNVERIFIED
 - Derived propagation: mix of SQL parity verified + python_native -> VERIFIED
 - Parity results cached, cleared on reload
-- list_metrics(provenance_status=...) filter works
+- catalog metric details expose propagated parity status
 """
 
 from __future__ import annotations
@@ -92,8 +92,7 @@ def _patch_project_backends(project, backend_factory):
     """Patch project backend resolution so parity_check uses a test backend.
 
     Patches two resolution paths:
-    - ``project._connection_service_instance`` for materialize_metric /
-      _session_backend_factory
+    - ``project._connection_service_instance`` for internal backend resolution
     - ``DatasourceConnectionService`` constructor inside parity_check()
     """
     fake_service = _FakeConnectionService(backend_factory)
@@ -260,6 +259,26 @@ def test_base_metric_parity_ok(semantic_project_factory, backend_factory) -> Non
     assert result.expected == 300.0
     assert result.actual == 300.0
     assert result.error is None
+
+
+def test_parity_check_accepts_semantic_catalog(semantic_project_factory, backend_factory) -> None:
+    """Module-level parity_check should accept SemanticCatalog directly."""
+    from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.parity import parity_check
+
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    with _patch_project_backends(project, backend_factory):
+        result = parity_check(catalog, "sales.total_amount")
+
+    assert result.ok is True
+    assert project._parity_results["sales.total_amount"] is result
 
 
 # ---------------------------------------------------------------------------
@@ -785,36 +804,39 @@ def test_parity_results_cleared_on_reload(semantic_project_factory, backend_fact
 
 
 # ---------------------------------------------------------------------------
-# list_metrics(provenance_status=...) filter works
+# catalog metric details expose propagated parity status
 # ---------------------------------------------------------------------------
 
 
-def test_list_metrics_provenance_status_filter(semantic_project_factory, backend_factory) -> None:
-    """list_metrics(provenance_status=...) should filter by propagated status."""
+def test_catalog_metric_details_reflect_parity_status(
+    semantic_project_factory, backend_factory
+) -> None:
+    """Metric details should reflect propagated parity status."""
+    from marivo.semantic.catalog import MetricDetails, SemanticCatalog
+
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )
+    catalog = SemanticCatalog(project)
 
     # Before parity check: UNVERIFIED
-    unverified = project.list_metrics(provenance_status=ParityStatus.UNVERIFIED)
-    assert any(m.semantic_id == "sales.total_amount" for m in unverified)
-
-    verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED)
-    assert not any(m.semantic_id == "sales.total_amount" for m in verified)
+    metrics = catalog.list("sales", kind="metric").objects
+    assert any(metric.ref.ref == "sales.total_amount" for metric in metrics)
+    details = catalog.get("sales.total_amount").details()
+    assert isinstance(details, MetricDetails)
+    assert details.parity_status == ParityStatus.UNVERIFIED
 
     # Run parity check
     with _patch_project_backends(project, backend_factory):
         project.parity_check("sales.total_amount")
 
     # After parity check: VERIFIED
-    verified = project.list_metrics(provenance_status=ParityStatus.VERIFIED)
-    assert any(m.semantic_id == "sales.total_amount" for m in verified)
-
-    unverified = project.list_metrics(provenance_status=ParityStatus.UNVERIFIED)
-    assert not any(m.semantic_id == "sales.total_amount" for m in unverified)
+    details = catalog.get("sales.total_amount").details()
+    assert isinstance(details, MetricDetails)
+    assert details.parity_status == ParityStatus.VERIFIED
 
 
 # ---------------------------------------------------------------------------

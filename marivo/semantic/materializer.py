@@ -44,8 +44,8 @@ class EntityRuntimeMetadata:
 class Materializer:
     """Materializes semantic objects against an ibis backend.
 
-    Each ``project.materialize_*`` call creates a fresh Materializer
-    instance; the backend_factory is never held on the project.
+    Callers create fresh Materializer instances through resolver/runtime
+    helpers; the backend_factory is never held on the project.
     """
 
     def __init__(
@@ -58,7 +58,7 @@ class Materializer:
         self._project = project
         self._backend_factory = backend_factory
         self._sample_size = sample_size
-        self._backend_cache: dict[str, IbisBackend] = {}
+        self._backend_by_datasource: dict[str, IbisBackend] = {}
         self._entity_cache: dict[str, ibis.Table] = {}
         self._dimension_cache: dict[str, ir.Value] = {}
         self._metric_cache: dict[str, ir.Value] = {}
@@ -67,11 +67,11 @@ class Materializer:
 
     def _get_backend(self, datasource_semantic_id: str) -> IbisBackend:
         """Get or create a backend for the given datasource."""
-        if datasource_semantic_id not in self._backend_cache:
-            self._backend_cache[datasource_semantic_id] = self._backend_factory(
+        if datasource_semantic_id not in self._backend_by_datasource:
+            self._backend_by_datasource[datasource_semantic_id] = self._backend_factory(
                 datasource_semantic_id
             )
-        return self._backend_cache[datasource_semantic_id]
+        return self._backend_by_datasource[datasource_semantic_id]
 
     def _get_registry_and_sidecar(self) -> tuple[Registry, Sidecar]:
         """Get registry and sidecar, raising if project is not loaded."""

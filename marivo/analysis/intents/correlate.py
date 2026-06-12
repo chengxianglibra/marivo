@@ -212,7 +212,7 @@ def correlate(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session._semantic_project.semantic_root),
+            "semantic_project_root": str(session.catalog._project.semantic_root),
             "semantic_model": a.meta.semantic_model,
             "semantic_models": [a.meta.semantic_model, b.meta.semantic_model],
         },

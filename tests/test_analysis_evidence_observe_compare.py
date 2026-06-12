@@ -11,6 +11,7 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 from tests.conftest import bootstrap_sales_project
 
 
@@ -46,7 +47,7 @@ def test_observe_writes_artifact_metadata(tmp_path) -> None:
     session = mv.session.get_or_create(name="t", backends=_backends(con), use_datasources=False)
 
     frame = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
@@ -67,12 +68,12 @@ def test_compare_seeds_change_proposition_and_emits_followups(tmp_path) -> None:
     session = mv.session.get_or_create(name="t", backends=_backends(con), use_datasources=False)
 
     current = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
     baseline = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-04-24", "end": "2026-04-30"},
         session=session,
     )
@@ -95,12 +96,12 @@ def test_session_knowledge_returns_change_fact(tmp_path) -> None:
     _seed(con)
     session = mv.session.get_or_create(name="t", backends=_backends(con), use_datasources=False)
     current = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-07"},
         session=session,
     )
     baseline = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-04-24", "end": "2026-04-30"},
         session=session,
     )

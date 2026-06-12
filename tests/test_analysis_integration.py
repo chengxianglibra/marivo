@@ -5,6 +5,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 from tests.conftest import bootstrap_sales_project
 
 
@@ -40,11 +41,11 @@ def test_end_to_end_sales_observe_compare_load(tmp_path):
     assert not s.is_read_only
 
     q3 = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
     )
     q2 = s.observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-04-01", "end": "2026-06-30"},
     )
     d = s.compare(

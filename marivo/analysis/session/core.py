@@ -15,6 +15,7 @@ from marivo.analysis.timezone import resolve_system_timezone
 if TYPE_CHECKING:
     import pandas as pd
 
+    from marivo.analysis.escape_hatch import DimensionAnchorInput
     from marivo.analysis.evidence import (
         Assessment,
         EvidenceTrace,
@@ -43,14 +44,13 @@ if TYPE_CHECKING:
         ReportPackageValidationResult,
     )
     from marivo.analysis.publish.report_publish import PublishReportResult
-    from marivo.analysis.refs import ArtifactRef, DimensionRef, MetricRef
+    from marivo.analysis.refs import ArtifactRef
+    from marivo.analysis.semantic_inputs import DimensionInput, MetricInput
     from marivo.analysis.session._store import SessionStore
     from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
-    from marivo.semantic.reader import SemanticProject
+    from marivo.semantic.catalog import SemanticCatalog
 
 SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
-
-BackendFactory = Callable[[str], Any]
 
 
 @dataclass(frozen=True)
@@ -92,9 +92,9 @@ class ReportRegistration:
 
 class Session:
     __slots__ = (
-        "_backend_cache",
-        "_backend_factory",
         "_calendars",
+        "_catalog",
+        "_connection_runtime",
         "_created_at",
         "_cwd",
         "_default_calendar",
@@ -105,7 +105,6 @@ class Session:
         "_name",
         "_project_root",
         "_question",
-        "_semantic_project",
         "_store",
         "_tz",
         "_updated_at",
@@ -120,14 +119,13 @@ class Session:
         project_root: Path,
         created_at: datetime,
         updated_at: datetime,
-        backend_factory: BackendFactory | None,
+        connection_runtime: Any,
         layout: PersistenceLayout,
-        semantic_project: SemanticProject,
+        semantic_catalog: SemanticCatalog,
         store: SessionStore,
         tz: tzinfo | None = None,
         default_calendar: str | None = None,
         calendars: Any = None,
-        backend_cache: Any = None,
         judgment_store: JudgmentStore | None = None,
         judgment_store_unavailable: bool = False,
     ) -> None:
@@ -138,20 +136,15 @@ class Session:
         self._project_root = project_root
         self._created_at = created_at
         self._updated_at = updated_at
-        self._backend_factory = backend_factory
+        self._connection_runtime = connection_runtime
         self._layout = layout
-        self._semantic_project = semantic_project
+        self._catalog = semantic_catalog
         self._store = store
         self._tz = tz if tz is not None else resolve_system_timezone().tz
         self._default_calendar = default_calendar
         self._calendars = calendars
-        self._backend_cache = backend_cache
         self._judgment_store = judgment_store
         self._judgment_store_unavailable = judgment_store_unavailable
-        if self._backend_cache is None:
-            from marivo.analysis.executor.backend import BackendCache
-
-            self._backend_cache = BackendCache(self._backend_factory)
         if self._calendars is None:
             from marivo.analysis.calendar.loader import CalendarCache
 
@@ -190,6 +183,11 @@ class Session:
         return self._project_root
 
     @property
+    def catalog(self) -> SemanticCatalog:
+        """Return the session semantic catalog."""
+        return self._catalog
+
+    @property
     def created_at(self) -> datetime:
         return self._created_at
 
@@ -209,11 +207,17 @@ class Session:
     def is_read_only(self) -> bool:
         """Whether this session can execute queries against datasources.
 
-        Returns ``True`` when no backend factory is configured, meaning the
-        session can read persisted artifacts but cannot run new analysis that
-        touches a datasource.
+        Returns ``True`` when no datasource resolution path is configured,
+        meaning the session can read persisted artifacts but cannot run new
+        analysis that touches a datasource.
         """
-        return self._backend_factory is None
+        service = getattr(self._connection_runtime, "service", None)
+        if service is None:
+            return False
+        has_overrides = bool(getattr(service, "_backend_overrides", {}))
+        has_factory = getattr(service, "_backend_factory", None) is not None
+        uses_datasources = bool(getattr(service, "_use_datasources", False))
+        return not (has_overrides or has_factory or uses_datasources)
 
     def jobs(self) -> list[JobSummary]:
         """Return lightweight summaries for every recorded job, oldest first.
@@ -322,8 +326,8 @@ class Session:
         if self._judgment_store is not None:
             self._judgment_store.close()
             self._judgment_store = None
-        if self._backend_cache is not None:
-            self._backend_cache.close_all()
+        if self._connection_runtime is not None:
+            self._connection_runtime.close_all()
 
     # -- Report methods -----------------------------------------------------
 
@@ -580,25 +584,25 @@ class Session:
 
     def observe(
         self,
-        metric: MetricRef,
+        metric: MetricInput,
         *,
         timescope: TimeScopeInput = None,
         grain: GrainInput = None,
-        dimensions: list[DimensionRef] | None = None,
-        where: dict[DimensionRef, SliceValue] | None = None,
-        time_dimension: DimensionRef | None = None,
+        dimensions: list[DimensionInput] | None = None,
+        where: dict[DimensionInput, SliceValue] | None = None,
+        time_dimension: DimensionInput | None = None,
         expect_shape: SemanticShape | None = None,
     ) -> MetricFrame:
         """Materialize a metric into a typed MetricFrame.
 
         When to use: starting point for any metric analysis workflow.
 
-        Resolves ``metric`` against the active semantic project, applies the
+        Resolves ``metric`` against the active semantic catalog, applies the
         optional ``timescope`` / ``grain`` / ``dimensions`` / ``where`` filters, executes against
         the session's backend, and persists the result as a MetricFrame on disk.
 
         Args:
-            metric: Wrap the registered metric id with ``mv.MetricRef("<domain>.<metric>")``.
+            metric: Catalog metric object or ``SemanticRef`` from ``session.catalog``.
                 Bare strings are rejected.
             timescope: Half-open time range ``{"start": ..., "end": ...}`` — start is
                 inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
@@ -607,12 +611,12 @@ class Session:
                 series or panel depending on ``dimensions``.
             dimensions: Segment axes. In v1 all dimensions must resolve to the same
                 entity as ``metric``.
-            where: Pre-aggregation row filter. Keys are ``mv.DimensionRef(...)`` for
+            where: Pre-aggregation row filter. Keys are catalog dimension objects/refs for
                 the filtered dimension; values are either a scalar (``==``), a list
                 (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
                 ``==, !=, in, >, >=, <, <=, between``.
             time_dimension: Pick the entity time axis as
-                ``mv.DimensionRef("<time_dimension>")`` when an entity declares multiple
+                a catalog time-dimension object/ref when an entity declares multiple
                 ``@ms.time_dimension`` columns. Omit when the entity has a single (or
                 default) time dimension.
             expect_shape: Optional guard. If set, observe predicts the output shape
@@ -621,18 +625,22 @@ class Session:
 
         Raises:
             MetricNotFoundError: The metric id is unknown or not ``<domain>.<metric>``.
-            SemanticKindMismatchError: ``metric`` is not a ``MetricRef``, ``time_dimension``
-                is not a ``DimensionRef``, or a ``where`` key is not a ``DimensionRef``.
+            SemanticKindMismatchError: ``metric`` is not a catalog metric object/ref,
+                ``time_dimension`` is not a catalog dimension object/ref, or a ``where``
+                key is not a catalog dimension object/ref.
             ObservePlanningError: Planning failed (e.g. cross-datasource plan, missing
                 path, ambiguous dimension). Check ``details["code"]`` for the specific
                 error code.
 
         Example:
+            >>> catalog = session.catalog
+            >>> revenue = catalog.get("sales.revenue")
+            >>> country = catalog.get("sales.orders.country").ref
             >>> frame = session.observe(
-            ...     mv.MetricRef("sales.revenue"),
+            ...     revenue,
             ...     timescope={"start": "2026-07-01", "end": "2026-10-01"},
             ...     grain="day",
-            ...     dimensions=[mv.DimensionRef("country")],
+            ...     dimensions=[country],
             ... )
             >>> frame.summary()
         """
@@ -678,8 +686,9 @@ class Session:
             CrossSessionFrameError: A frame belongs to a different session.
 
         Example:
-            >>> cur  = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
-            >>> base = session.observe(mv.MetricRef("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
+            >>> revenue = session.catalog.get("sales.revenue")
+            >>> cur  = session.observe(revenue, timescope={"start": "2026-07-01", "end": "2026-10-01"})
+            >>> base = session.observe(revenue, timescope={"start": "2025-07-01", "end": "2025-10-01"})
             >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
         """
         from marivo.analysis.intents.compare import compare
@@ -690,7 +699,7 @@ class Session:
         self,
         frame: DeltaFrame,
         *,
-        axis: DimensionRef,
+        axis: DimensionInput,
     ) -> AttributionFrame:
         """Attribute a DeltaFrame's movement across a chosen segment axis.
 
@@ -701,18 +710,17 @@ class Session:
 
         Args:
             frame: A DeltaFrame produced by ``session.compare``.
-            axis: The segment column to attribute over, wrapped in ``mv.DimensionRef``.
-                Dotted ids such as ``"model.field"`` resolve to the persisted
-                DeltaFrame column ``"field"`` when present.
+            axis: Catalog dimension ref/object to attribute over. Dotted ids
+                resolve to the persisted DeltaFrame column leaf when present.
 
         Raises:
-            SemanticKindMismatchError: ``frame`` is not a DeltaFrame, or ``axis`` is not a DimensionRef.
+            SemanticKindMismatchError: ``frame`` is not a DeltaFrame, or ``axis`` is not a catalog dimension.
             AxisNotInPanelDimensionsError: ``axis`` is not a segment column of the panel.
             CrossSessionFrameError: ``frame`` belongs to a different session.
 
         Example:
             >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
-            >>> attribution = session.decompose(delta, axis=mv.DimensionRef("country"))
+            >>> attribution = session.decompose(delta, axis=session.catalog.get("sales.orders.country").ref)
             >>> attribution.summary()
         """
         from marivo.analysis.intents.decompose import decompose
@@ -806,7 +814,7 @@ class Session:
 
         Example:
             >>> history = session.observe(
-            ...     mv.MetricRef("sales.revenue"),
+            ...     session.catalog.get("sales.revenue"),
             ...     timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
             ... )
             >>> forecast = session.forecast(history, horizon=30)
@@ -1001,11 +1009,11 @@ class Session:
         source: ExplorationResult | pd.DataFrame,
         *,
         policy: PromotionPolicy | None = None,
-        metric: MetricRef | None = None,
+        metric: MetricInput | None = None,
         semantic_kind: SemanticKind | None = None,
         measure_column: str | None = None,
-        axes: dict[str, DimensionRef] | None = None,
-        time_axis: str | DimensionRef | None = None,
+        axes: dict[str, DimensionAnchorInput] | None = None,
+        time_axis: str | DimensionAnchorInput | None = None,
         semantic_model: str | None = None,
         window: object | None = None,
         where: dict[str, Any] | None = None,
@@ -1030,8 +1038,8 @@ class Session:
                 Falls back to ``policy.semantic_anchors.metric``.
             semantic_kind: One of "scalar", "time_series", "segmented", "panel".
             measure_column: Column name holding the numeric measure values.
-            axes: Mapping of column name to DimensionRef for dimension axes.
-            time_axis: Column name or DimensionRef for the time dimension.
+            axes: Mapping of column name to a catalog dimension ref for dimension axes.
+            time_axis: Column name or catalog dimension ref for the time dimension.
                 Falls back to ``policy.semantic_anchors.time_axis``.
             semantic_model: Name of the semantic model this metric belongs to.
             window: Absolute time window specification.
@@ -1049,7 +1057,7 @@ class Session:
         Example:
             >>> mf = session.promote_metric_frame(
             ...     exploration_result,
-            ...     metric=MetricRef("revenue"),
+            ...     metric=session.catalog.get("sales.revenue"),
             ...     semantic_kind="time_series",
             ...     measure_column="total_revenue",
             ...     semantic_model="sales",
@@ -1079,7 +1087,7 @@ class Session:
         policy: PromotionPolicy | None = None,
         current: ArtifactRef | None = None,
         baseline: ArtifactRef | None = None,
-        metric: MetricRef | None = None,
+        metric: MetricInput | None = None,
         semantic_kind: SemanticKind | None = None,
         semantic_model: str | None = None,
         delta_column: str | None = None,
@@ -1293,7 +1301,7 @@ class SessionDiscoverNamespace:
         self,
         source: DeltaFrame,
         *,
-        search_space: list[DimensionRef],
+        search_space: list[DimensionInput],
         value: str | None = None,
         limit: int | None = None,
     ) -> CandidateSet:
@@ -1316,7 +1324,7 @@ class SessionDiscoverNamespace:
         self,
         source: MetricFrame | DeltaFrame,
         *,
-        search_space: list[DimensionRef] | None = None,
+        search_space: list[DimensionInput] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = None,
@@ -1365,7 +1373,7 @@ class SessionDiscoverNamespace:
         self,
         source: MetricFrame,
         *,
-        peer_scope: list[DimensionRef] | None = None,
+        peer_scope: list[DimensionInput] | None = None,
         value: str | None = None,
         threshold: float | None = None,
     ) -> CandidateSet:
@@ -1404,20 +1412,20 @@ class SessionTransformNamespace:
 
         return transform.filter(frame, predicate=predicate, session=self._session)
 
-    def slice(self, frame: object, *, where: dict[DimensionRef, Any]) -> MetricFrame | DeltaFrame:
+    def slice(self, frame: object, *, where: dict[DimensionInput, Any]) -> MetricFrame | DeltaFrame:
         """Filter rows by exact axis values.
 
-        ``where`` maps ``mv.DimensionRef(...)`` axes to the value(s) to keep.
+        ``where`` maps catalog dimension refs/objects to the value(s) to keep.
         Unlike ``filter``, operates on raw axis values without a callable.
         """
         from marivo.analysis.intents.transform import transform
 
         return transform.slice(frame, where=where, session=self._session)
 
-    def rollup(self, frame: object, *, drop_axes: list[DimensionRef]) -> MetricFrame | DeltaFrame:
+    def rollup(self, frame: object, *, drop_axes: list[DimensionInput]) -> MetricFrame | DeltaFrame:
         """Aggregate to coarser segments by dropping axes.
 
-        Removes the listed ``mv.DimensionRef(...)`` dimensions and re-aggregates
+        Removes the listed catalog dimensions and re-aggregates
         measures over the remaining axes.
         """
         from marivo.analysis.intents.transform import transform

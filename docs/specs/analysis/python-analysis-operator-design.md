@@ -184,11 +184,11 @@ ordinal bucket 数不等会在 runtime 报错。
 
 所有 semantic 入口必须来自 catalog-resolved typed ref，不允许让 agent 猜字符串名称。
 
-| Ref | 用途 |
+| Catalog ref | 用途 |
 | --- | --- |
-| `MetricRef` | 指标定义 |
+| `SemanticObject | SemanticRef` (`kind="metric"`) | 指标定义 |
 | `EntityRef` | 事件表、事实表、entity table 等数据集 |
-| `DimensionRef` | 可切分维度或 semantic axis |
+| `SemanticObject | SemanticRef` (`kind="dimension" | "time_dimension"`) | 可切分维度或 semantic axis |
 | `CalendarRef` / `FiscalCalendarRef` | 日历和财务日历 |
 | `CampaignWindowRef` | 活动窗口 |
 
@@ -204,8 +204,8 @@ PromotionPolicy 的 `semantic_anchors` 也应携带这些 typed refs。若 agent
 
 ```python
 delta = analysis.compare(current, baseline)          # delta_frame
-drivers = analysis.decompose(delta, axis=DimensionRef("country")) # attribution_frame
-candidates = analysis.discover.driver_axes(delta, search_space=[DimensionRef("country")]) # candidate_set
+drivers = analysis.decompose(delta, axis=session.catalog.get("sales.orders.country").ref) # attribution_frame
+candidates = analysis.discover.driver_axes(delta, search_space=[session.catalog.get("sales.orders.country").ref]) # candidate_set
 ```
 
 ### Shape-aware 签名
@@ -214,10 +214,10 @@ Core operator 的契约必须同时声明 family 和 shape。Shape alias 不是�
 
 | Operator | Shape-aware signature |
 | --- | --- |
-| `observe` | `observe(MetricRef, ...) -> MetricFrame[scalar | time_series | segmented | panel]` |
+| `observe` | `observe(SemanticObject | SemanticRef, ...) -> MetricFrame[scalar | time_series | segmented | panel]` |
 | `transform.<op>` | `transform.topk(...)`, `transform.rollup(...)`, etc. preserve `Frame[T] -> Frame[T]` |
 | `compare` | `compare(MetricFrame[T], MetricFrame[T], alignment=AlignmentPolicy) -> DeltaFrame[shape_for(T)]` |
-| `decompose` | `decompose(DeltaFrame[T], axis=DimensionRef) -> AttributionFrame` |
+| `decompose` | `decompose(DeltaFrame[T], axis=SemanticObject | SemanticRef) -> AttributionFrame` |
 | `discover.point_anomalies` | `discover.point_anomalies(MetricFrame[time_series | panel]) -> CandidateSet[point_anomaly]` |
 | `discover.period_shifts` | `discover.period_shifts(DeltaFrame[time_series_delta | panel_delta]) -> CandidateSet[period_shift]` |
 | `discover.driver_axes` | `discover.driver_axes(DeltaFrame[*], search_space=[...]) -> CandidateSet[driver_axis]` |
@@ -240,7 +240,7 @@ analysis.decompose(delta, axis="auto")
 如果 `axis="auto"` 有时返回候选维度、有时返回 attribution，它就混合了两个语义。核心层应拆成：
 
 ```python
-axis_candidates = analysis.discover.driver_axes(delta, search_space=[DimensionRef("country")])
+axis_candidates = analysis.discover.driver_axes(delta, search_space=[session.catalog.get("sales.orders.country").ref])
 selected_axis = analysis.select(axis_candidates, rank=1, attribute="axis")
 drivers = analysis.decompose(delta, axis=selected_axis)
 ```
@@ -251,7 +251,7 @@ drivers = analysis.decompose(delta, axis=selected_axis)
 drivers = analysis.composites.auto_decompose(
     delta,
     objective="largest_explainable_delta",
-    search_space=[DimensionRef("country"), DimensionRef("platform"), DimensionRef("channel")],
+    search_space=[session.catalog.get("sales.orders.country").ref, session.catalog.get("sales.orders.platform").ref, session.catalog.get("sales.orders.channel").ref],
 )
 ```
 
@@ -413,7 +413,7 @@ join and not validated in Phase 2.
 
 ```python
 dau = analysis.observe(
-    metric=MetricRef("dau"),
+    metric=session.catalog.get("analytics.dau"),
     time="last_30d",
     grain="day",
 )
@@ -487,7 +487,7 @@ Sampled folded MetricFrames set `reaggregatable=False`. `transform.rollup(...)` 
 ```python
 mobile_dau = analysis.transform.slice(
     dau,
-    where={DimensionRef("platform"): "mobile"},
+    where={session.catalog.get("sales.orders.platform").ref: "mobile"},
 )
 
 top_declines = analysis.transform.topk(
@@ -513,8 +513,8 @@ delta_frame
 示例：
 
 ```python
-current = analysis.observe(metric=MetricRef("gmv"), time="this_week", grain="day")
-baseline = analysis.observe(metric=MetricRef("gmv"), time="previous_week", grain="day")
+current = analysis.observe(metric=session.catalog.get("sales.gmv"), time="this_week", grain="day")
+baseline = analysis.observe(metric=session.catalog.get("sales.gmv"), time="previous_week", grain="day")
 delta = analysis.compare(
     current,
     baseline,
@@ -539,7 +539,7 @@ attribution_frame
 示例：
 
 ```python
-country_drivers = analysis.decompose(delta, axis=DimensionRef("country"))
+country_drivers = analysis.decompose(delta, axis=session.catalog.get("sales.orders.country").ref)
 ```
 
 ### `discover`
@@ -562,7 +562,7 @@ anomalies = analysis.discover.point_anomalies(
 
 axis_candidates = analysis.discover.driver_axes(
     delta,
-    search_space=[DimensionRef("country"), DimensionRef("platform"), DimensionRef("channel")],
+    search_space=[session.catalog.get("sales.orders.country").ref, session.catalog.get("sales.orders.platform").ref, session.catalog.get("sales.orders.channel").ref],
 )
 ```
 
@@ -643,9 +643,9 @@ next_30d = analysis.forecast(dau, horizon="30d")
 示例：
 
 ```python
-history = analysis.observe(metric=MetricRef("gmv"), time="last_365d", grain="day")
+history = analysis.observe(metric=session.catalog.get("sales.gmv"), time="last_365d", grain="day")
 forecast = analysis.forecast(history, horizon="30d")
-actual = analysis.observe(metric=MetricRef("gmv"), time="next_30d", grain="day")
+actual = analysis.observe(metric=session.catalog.get("sales.gmv"), time="next_30d", grain="day")
 ```
 
 ### `assess_quality`
@@ -856,18 +856,18 @@ Session 是 agent-driven analysis 的主路径。每一步都产出 artifact 或
 session = analysis.session.get_or_create(name="dau_driver_analysis")
 
 current = session.observe(
-    metric=MetricRef("analytics.dau"),
+    metric=session.catalog.get("analytics.dau"),
     timescope={"start": "2026-05-01", "end": "2026-05-07"}, grain="day",
 )
 baseline = session.observe(
-    metric=MetricRef("analytics.dau"),
+    metric=session.catalog.get("analytics.dau"),
     timescope={"start": "2026-04-24", "end": "2026-04-30"}, grain="day",
 )
 delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
 
 axis_candidates = session.discover.driver_axes(
     delta,
-    search_space=[DimensionRef("country"), DimensionRef("platform"), DimensionRef("channel")],
+    search_space=[session.catalog.get("sales.orders.country").ref, session.catalog.get("sales.orders.platform").ref, session.catalog.get("sales.orders.channel").ref],
 )
 
 selected_axis = axis_candidates.select(rank=1, attribute="axis")
@@ -904,7 +904,7 @@ Materialized projection 中的 `select(...)` 是读取方法，不是 plan expre
 session = analysis.session.get_or_create(name="revenue_windows")
 
 metric = session.observe(
-    metric=MetricRef("sales.revenue"),
+    metric=session.catalog.get("sales.revenue"),
     timescope={"start": "2026-01-01", "end": "2026-03-31"}, grain="day",
 )
 summary = metric.summary()
@@ -920,11 +920,11 @@ candidates = session.discover.interesting_windows(metric)
 ### 2. 解释一次变化
 
 ```python
-current = session.observe(metric=MetricRef("dau"), time="this_week", grain="day")
-baseline = session.observe(metric=MetricRef("dau"), time="previous_week", grain="day")
+current = session.observe(metric=session.catalog.get("analytics.dau"), time="this_week", grain="day")
+baseline = session.observe(metric=session.catalog.get("analytics.dau"), time="previous_week", grain="day")
 
 delta = session.compare(current, baseline)
-drivers = session.decompose(delta, axis=DimensionRef("channel"))
+drivers = session.decompose(delta, axis=session.catalog.get("sales.orders.channel").ref)
 quality = session.assess_quality(drivers)
 ```
 
@@ -942,10 +942,10 @@ delta = session.compare(current, baseline)
 axis_candidates = session.discover.driver_axes(
     delta,
     search_space=[
-        DimensionRef("country"),
-        DimensionRef("platform"),
-        DimensionRef("channel"),
-        DimensionRef("app_version"),
+        session.catalog.get("sales.orders.country").ref,
+        session.catalog.get("sales.orders.platform").ref,
+        session.catalog.get("sales.orders.channel").ref,
+        session.catalog.get("sales.orders.app_version").ref,
     ],
 )
 
@@ -966,10 +966,10 @@ drivers = session.composites.auto_decompose(
     delta,
     objective="largest_explainable_delta",
     search_space=[
-        DimensionRef("country"),
-        DimensionRef("platform"),
-        DimensionRef("channel"),
-        DimensionRef("app_version"),
+        session.catalog.get("sales.orders.country").ref,
+        session.catalog.get("sales.orders.platform").ref,
+        session.catalog.get("sales.orders.channel").ref,
+        session.catalog.get("sales.orders.app_version").ref,
     ],
 )
 ```
@@ -977,7 +977,7 @@ drivers = session.composites.auto_decompose(
 ### 4. 找异常并复查
 
 ```python
-series = session.observe(metric=MetricRef("conversion_rate"), time="last_180d", grain="day")
+series = session.observe(metric=session.catalog.get("growth.conversion_rate"), time="last_180d", grain="day")
 anomalies = session.discover.point_anomalies(
     series,
     threshold=1.0,
@@ -999,15 +999,15 @@ local_series = session.transform.window(series, window=window)
 ```python
 delta = session.compare(current, baseline)
 
-country_attr = session.decompose(delta, axis=DimensionRef("country"))
+country_attr = session.decompose(delta, axis=session.catalog.get("sales.orders.country").ref)
 top_country = country_attr.projection().select(rank=1, attribute="keys.country")
 
 country_delta = session.transform.slice(
     delta,
-    where={DimensionRef("country"): top_country},
+    where={session.catalog.get("sales.orders.country").ref: top_country},
 )
 
-city_attr = session.decompose(country_delta, axis=DimensionRef("city"))
+city_attr = session.decompose(country_delta, axis=session.catalog.get("sales.orders.city").ref)
 ```
 
 用途：
@@ -1018,8 +1018,8 @@ city_attr = session.decompose(country_delta, axis=DimensionRef("city"))
 ### 6. 检验一个明确假设
 
 ```python
-current = session.observe(metric=MetricRef("avg_watch_time"), time="this_week", grain="day")
-baseline = session.observe(metric=MetricRef("avg_watch_time"), time="previous_week", grain="day")
+current = session.observe(metric=session.catalog.get("video.avg_watch_time"), time="this_week", grain="day")
+baseline = session.observe(metric=session.catalog.get("video.avg_watch_time"), time="previous_week", grain="day")
 
 result = session.hypothesis_test(
     current,
@@ -1038,9 +1038,9 @@ result = session.hypothesis_test(
 ### 7. 预测并识别风险
 
 ```python
-history = session.observe(metric=MetricRef("gmv"), time="last_365d", grain="day")
+history = session.observe(metric=session.catalog.get("sales.gmv"), time="last_365d", grain="day")
 forecast = session.forecast(history, horizon="30d")
-actual = session.observe(metric=MetricRef("gmv"), time="next_30d", grain="day")
+actual = session.observe(metric=session.catalog.get("sales.gmv"), time="next_30d", grain="day")
 ```
 
 用途：
@@ -1194,8 +1194,8 @@ metric = analysis.promote_metric_frame(
     scratch,
     policy=PromotionPolicy(
         semantic_anchors={
-            "metric": MetricRef("revenue"),
-            "time_axis": DimensionRef("event_date"),
+            "metric": session.catalog.get("sales.revenue"),
+            "time_axis": session.catalog.get("sales.orders.event_date").ref,
         },
         on_missing="fail_closed",
     ),
@@ -1248,10 +1248,10 @@ focused_delta = analysis.promote_delta_frame(
 
 | 算子 | 输入 | 固定输出 | 作用 |
 | --- | --- | --- | --- |
-| `observe` | `MetricRef` + scope | `MetricFrame[scalar | time_series | segmented | panel]` | 读取指标观测 |
+| `observe` | `SemanticObject | SemanticRef` + scope | `MetricFrame[scalar | time_series | segmented | panel]` | 读取指标观测 |
 | `transform` | `Frame[T]` | same family / shape as input | family-preserving 改写 |
 | `compare` | `MetricFrame[T]`, `MetricFrame[T]` | `DeltaFrame[shape_for(T)]` | 计算差异 |
-| `decompose` | `DeltaFrame[T]`, `DimensionRef` | `attribution_frame` | 解释差异贡献 |
+| `decompose` | `DeltaFrame[T]`, `SemanticObject | SemanticRef` | `attribution_frame` | 解释差异贡献 |
 | `discover` | shape-compatible artifact + objective | `CandidateSet[objective_shape]` | 发现候选点、窗口、slice、axis |
 | `correlate` | `MetricFrame[T]`, `MetricFrame[T]` | `AssociationResult[single_lag | lag_sweep]` | 估计关联 |
 | `hypothesis_test` | `MetricFrame[T]` inputs + hypothesis + `SamplingPolicy` | `hypothesis_test_result` | 检验统计假设 |
@@ -1305,7 +1305,7 @@ focused_delta = analysis.promote_delta_frame(
 
 ### 待纳入的 decompose 扩展
 
-- `decompose` 签名扩展为 `axis=DimensionRef | DynamicAxisRef`，待 `register_dynamic_axis` 落地后启用
+- `decompose` 签名扩展为 `axis=SemanticObject | SemanticRef | DynamicAxisRef`，待 `register_dynamic_axis` 落地后启用
 - 多轴联合归因 composite `cross_axis_attribution`
 
 ### Domain frame contract
@@ -1374,7 +1374,7 @@ funnel = session.composites.funnel(
         StageRef("activate"),
         StageRef("purchase"),
     ],
-    dimensions=[DimensionRef("channel"), DimensionRef("country")],
+    dimensions=[session.catalog.get("sales.orders.channel").ref, session.catalog.get("sales.orders.country").ref],
 )
 
 dropoff_metric = session.materialize_metric_frame(

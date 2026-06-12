@@ -43,7 +43,7 @@ def test_get_or_create_rebinds_backend_factory_on_attach(tmp_path):
 
     s = session_facade.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
-    assert s._backend_cache.get_or_create("warehouse") is con
+    assert s._connection_runtime.get_or_create("warehouse") is con
 
 
 def test_current_returns_none_when_no_session(tmp_path):

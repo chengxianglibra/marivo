@@ -11,7 +11,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn
 
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
-from marivo.preview import PREVIEW_DEFAULT_LIMIT, PreviewResult
+from marivo.preview import (
+    METRIC_PREVIEW_SAMPLE_SIZE,
+    PREVIEW_DEFAULT_LIMIT,
+    PreviewResult,
+    PreviewSamplePolicy,
+    PreviewWarning,
+    preview_ibis_table,
+    preview_ibis_value,
+    validate_preview_limit,
+)
 from marivo.semantic.dtos import DatasetSource
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
@@ -1032,9 +1041,8 @@ class SemanticCatalog:
         """Run structural readiness check for the given semantic refs.
 
         Performs pure in-memory checks without datasource connectivity.
-        For runtime validation (previews, parity, richness), use the
-        dedicated APIs: ``collect_source_preview()``, ``parity_check()``,
-        and ``richness()``.
+        For runtime validation, use ``catalog.preview(...)``,
+        ``project.parity_check(...)``, and ``project.richness()``.
 
         Args:
             refs: Semantic refs to check. Resolves the full dependency closure
@@ -1105,6 +1113,9 @@ class SemanticCatalog:
         kind = self._resolve_kind_of(ref_str, reg)
         if kind is None:
             self._raise_not_found(ref_str)
+        resolver = self._resolver(
+            sample_size=METRIC_PREVIEW_SAMPLE_SIZE if kind == SemanticKind.METRIC else None
+        )
         if kind == SemanticKind.ENTITY:
             if context_columns is not None:
                 _raise(
@@ -1113,16 +1124,48 @@ class SemanticCatalog:
                     cls=SemanticRuntimeError,
                     refs=(ref_str,),
                 )
-            return self._project.preview_dataset(
-                ref_str,
-                limit=limit,
+            preview_limit = validate_preview_limit(limit)
+            table = resolver.table(SemanticRef(ref_str, kind=SemanticKind.ENTITY))
+            return preview_ibis_table(
+                table,
+                kind="semantic_dataset",
+                ref=ref_str,
+                limit=preview_limit,
+                sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
                 include_types=include_types,
             )
         if kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
-            return self._project.preview_field(
-                ref_str,
-                limit=limit,
-                context_columns=context_columns,
+            preview_limit = validate_preview_limit(limit)
+            field_ir = reg.fields[ref_str]
+            parent_table = resolver.table(SemanticRef(field_ir.entity, kind=SemanticKind.ENTITY))
+            field_value = resolver.dimension(SemanticRef(ref_str, kind=kind))
+            field_column_name = ref_str.rsplit(".", 1)[-1]
+            if context_columns is None:
+                selected_context = tuple(
+                    column for column in parent_table.columns if column != field_column_name
+                )[:3]
+            else:
+                selected_context = tuple(context_columns)
+            missing_context = [
+                column for column in selected_context if column not in parent_table.columns
+            ]
+            if missing_context:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"Field preview context columns are not present on parent dataset: {missing_context}",
+                    cls=SemanticRuntimeError,
+                    refs=(ref_str,),
+                )
+            preview_table = parent_table.select(
+                *[parent_table[column] for column in selected_context],
+                field_value.name(field_column_name),
+            )
+            return preview_ibis_table(
+                preview_table,
+                kind="semantic_field",
+                ref=ref_str,
+                limit=preview_limit,
+                sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
                 include_types=include_types,
             )
         if kind == SemanticKind.METRIC:
@@ -1133,10 +1176,36 @@ class SemanticCatalog:
                     cls=SemanticRuntimeError,
                     refs=(ref_str,),
                 )
-            return self._project.preview_metric(
-                ref_str,
-                limit=limit,
+            preview_limit = validate_preview_limit(limit)
+            metric_value = resolver.metric(SemanticRef(ref_str, kind=SemanticKind.METRIC))
+            result = preview_ibis_value(
+                metric_value,
+                kind="semantic_metric",
+                ref=ref_str,
+                limit=preview_limit,
+                column_name="value",
+                sample_policy=PreviewSamplePolicy(
+                    method="pre_aggregate_limit", limit=preview_limit
+                ),
                 include_types=include_types,
+            )
+            return PreviewResult(
+                kind=result.kind,
+                ref=result.ref,
+                columns=result.columns,
+                types=result.types,
+                rows=result.rows,
+                requested_limit=result.requested_limit,
+                returned_row_count=result.returned_row_count,
+                is_truncated=result.is_truncated,
+                warnings=(
+                    *result.warnings,
+                    PreviewWarning(
+                        kind="approximate_preview",
+                        message=f"metric computed on {METRIC_PREVIEW_SAMPLE_SIZE} row sample, result is approximate",
+                    ),
+                ),
+                sample_policy=result.sample_policy,
             )
         _raise(
             ErrorKind.MATERIALIZE_FAILED,

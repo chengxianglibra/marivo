@@ -7,7 +7,7 @@ import copy
 import hashlib
 import json
 import secrets
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from time import monotonic
@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.errors import (
     CrossSessionFrameError,
+    SemanticKindMismatchError,
     TransformArgError,
     TransformDimensionNotFoundError,
     TransformOpUnsupportedError,
@@ -36,7 +37,10 @@ from marivo.analysis.evidence.types import Subject, TriggeredByFollowup
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.refs import DimensionRef
+from marivo.analysis.semantic_inputs import DimensionInput
+from marivo.analysis.semantic_inputs import (
+    normalize_dimension_boundary as normalize_catalog_dimension_boundary,
+)
 from marivo.analysis.session._runtime import (
     persist_job_record,
     register_frame_artifact,
@@ -49,6 +53,7 @@ from marivo.analysis.windows import (
     make_absolute_window,
     normalize_timescope_input,
 )
+from marivo.semantic.catalog import SemanticKind, SemanticObject, SemanticRef
 
 TransformOp = Literal["filter", "slice", "rollup", "topk", "bottomk", "rank", "normalize", "window"]
 TransformFrame = MetricFrame | DeltaFrame
@@ -237,17 +242,57 @@ def _transform_dispatch(
     )
 
 
-def _require_dimension_refs(values: Iterable[Any], *, argument: str) -> None:
-    for value in values:
-        if not isinstance(value, DimensionRef):
+def _normalize_dimension_boundary(session: Session, value: DimensionInput, *, argument: str) -> str:
+    try:
+        return normalize_catalog_dimension_boundary(session.catalog, value, argument=argument)
+    except SemanticKindMismatchError as exc:
+        ref = exc.details.get("ref", type(value).__name__)
+        raise TransformDimensionNotFoundError(
+            message=f"transform {argument} dimension {ref!r} is not present",
+            hint="Transform dimension refs must resolve to declared catalog dimensions.",
+            details={
+                "argument": argument,
+                "dimension": ref,
+                "available_ids": exc.details.get("available_ids", []),
+            },
+        ) from exc
+
+
+def _normalize_where_boundary(
+    session: Session,
+    where: dict[DimensionInput, Any] | None,
+) -> dict[str, Any]:
+    if where is None:
+        return {}
+    for key in where:
+        if isinstance(key, str):
             raise TransformArgError(
-                message=f"transform {argument} requires DimensionRef entries",
-                hint=f"Wrap axis ids with mv.DimensionRef(...) for {argument}.",
-                details={
-                    "expected_kind": "DimensionRef",
-                    "got_kind": type(value).__name__,
-                },
+                message="transform slice(where=...) requires catalog dimension refs",
+                hint="Pass where={session.catalog.get('sales.orders.country').ref: 'US'}.",
+                details={"expected_kind": "DimensionInput", "got_kind": "str"},
             )
+    return {
+        _normalize_dimension_boundary(session, key, argument="where"): value
+        for key, value in where.items()
+    }
+
+
+def _normalize_drop_axes_boundary(
+    session: Session,
+    drop_axes: list[DimensionInput] | None,
+) -> list[str]:
+    if drop_axes is None:
+        return []
+    for axis in drop_axes:
+        if isinstance(axis, str):
+            raise TransformArgError(
+                message="transform rollup(drop_axes=...) requires catalog dimension refs",
+                hint="Pass drop_axes=[session.catalog.get('sales.orders.country').ref].",
+                details={"expected_kind": "DimensionInput", "got_kind": "str"},
+            )
+    return [
+        _normalize_dimension_boundary(session, axis, argument="drop_axes") for axis in drop_axes
+    ]
 
 
 class TransformAPI:
@@ -266,21 +311,28 @@ class TransformAPI:
         self,
         frame: object,
         *,
-        where: dict[DimensionRef, Any],
+        where: dict[DimensionInput, Any],
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
-        _require_dimension_refs(where.keys(), argument="slice(where=...)")
-        return _transform_dispatch(frame, op="slice", where=where, session=session)
+        resolved_session = session if session is not None else require_current_session()
+        where_by_id = _normalize_where_boundary(resolved_session, where)
+        return _transform_dispatch(frame, op="slice", where=where_by_id, session=resolved_session)
 
     def rollup(
         self,
         frame: object,
         *,
-        drop_axes: list[DimensionRef],
+        drop_axes: list[DimensionInput],
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
-        _require_dimension_refs(drop_axes, argument="rollup(drop_axes=...)")
-        return _transform_dispatch(frame, op="rollup", drop_axes=drop_axes, session=session)
+        resolved_session = session if session is not None else require_current_session()
+        drop_axis_ids = _normalize_drop_axes_boundary(resolved_session, drop_axes)
+        return _transform_dispatch(
+            frame,
+            op="rollup",
+            drop_axes=drop_axis_ids,
+            session=resolved_session,
+        )
 
     def topk(
         self,
@@ -369,8 +421,10 @@ def _params_digest(params: dict[str, Any]) -> str:
 
 
 def _normalize_param_value(value: Any) -> Any:
-    if isinstance(value, DimensionRef):
-        return {"type": "DimensionRef", "semantic_id": value.semantic_id}
+    if isinstance(value, SemanticObject):
+        return {"ref": value.ref.ref, "kind": str(value.kind)}
+    if isinstance(value, SemanticRef):
+        return {"ref": value.ref, "kind": str(value.kind)}
     if isinstance(value, pd.Timestamp):
         return value.isoformat()
     if isinstance(value, (datetime, date)):
@@ -398,8 +452,10 @@ def _normalize_param_value(value: Any) -> Any:
 def _axis_names(value: Any) -> set[str]:
     if value is None:
         return set()
-    if isinstance(value, DimensionRef):
-        return {value.semantic_id}
+    if isinstance(value, SemanticObject):
+        return {value.ref.ref}
+    if isinstance(value, SemanticRef):
+        return {value.ref}
     if isinstance(value, str):
         return {value}
     if isinstance(value, (list, tuple, set)):
@@ -408,6 +464,46 @@ def _axis_names(value: Any) -> set[str]:
             names.update(_axis_names(item))
         return names
     return set()
+
+
+def _dimension_input_id(value: DimensionInput) -> str:
+    if isinstance(value, SemanticObject):
+        if value.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+            raise TransformArgError(
+                message="transform dimension input requires a dimension or time_dimension object",
+                details={"actual_kind": str(value.kind), "ref": value.ref.ref},
+            )
+        return value.ref.ref
+    if value.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+        raise TransformArgError(
+            message="transform dimension input requires a dimension or time_dimension ref",
+            details={"actual_kind": str(value.kind), "ref": value.ref},
+        )
+    return value.ref
+
+
+def _axis_matches(axis_id: str, axis_meta: Any, requested: str) -> bool:
+    candidates = {axis_id, axis_id.rsplit(".", 1)[-1]}
+    if isinstance(axis_meta, dict):
+        column = axis_meta.get("column")
+        ref = axis_meta.get("ref")
+        if isinstance(column, str):
+            candidates.add(column)
+        if isinstance(ref, str):
+            candidates.add(ref)
+            candidates.add(ref.rsplit(".", 1)[-1])
+    return requested in candidates or requested.rsplit(".", 1)[-1] in candidates
+
+
+def _resolve_axis_id(
+    axes: dict[str, Any], requested: str, *, role: str | None = None
+) -> str | None:
+    for axis_id, axis_meta in axes.items():
+        if role is not None and (not isinstance(axis_meta, dict) or axis_meta.get("role") != role):
+            continue
+        if _axis_matches(str(axis_id), axis_meta, requested):
+            return str(axis_id)
+    return None
 
 
 def _recompute_axes(frame: TransformFrame, *, drop_axes: Any = None) -> dict[str, Any]:
@@ -420,7 +516,7 @@ def _recompute_axes(frame: TransformFrame, *, drop_axes: Any = None) -> dict[str
     for axis_name in _axis_names(drop_axes):
         axes.pop(axis_name, None)
         for key, axis in list(axes.items()):
-            if isinstance(axis, dict) and axis.get("column") == axis_name:
+            if _axis_matches(str(key), axis, axis_name):
                 axes.pop(key, None)
     return axes
 
@@ -481,35 +577,37 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
     if not isinstance(drop_axes, list) or not drop_axes:
         raise TransformArgError(
             message="transform(op='rollup') requires a non-empty drop_axes list",
-            hint="Pass drop_axes=['time'] or drop_axes=[DimensionRef('country')].",
+            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.get("<dimension_id>").ref].',
             details={"op": "rollup", "argument": "drop_axes"},
         )
 
     axes = _frame_axes(frame)
     drop_ids: set[str] = set()
     for item in drop_axes:
-        if isinstance(item, DimensionRef):
-            axis = axes.get(item.semantic_id)
-            if not isinstance(axis, dict) or axis.get("role") != "dimension":
+        if isinstance(item, SemanticRef | SemanticObject):
+            dimension_id = _dimension_input_id(item)
+            axis_id = _resolve_axis_id(axes, dimension_id, role="dimension")
+            if axis_id is None:
                 raise TransformDimensionNotFoundError(
-                    message=f"transform(op='rollup') dimension {item.semantic_id!r} is not present",
-                    hint="Rollup DimensionRef targets must reference existing dimension axes.",
-                    details={"op": "rollup", "dimension": item.semantic_id, "axes": axes},
+                    message=f"transform(op='rollup') dimension {dimension_id!r} is not present",
+                    hint="Rollup catalog refs must reference existing dimension axes.",
+                    details={"op": "rollup", "dimension": dimension_id, "axes": axes},
                 )
-            drop_ids.add(item.semantic_id)
+            drop_ids.add(axis_id)
             continue
         if isinstance(item, str):
-            if item not in axes:
+            axis_id = _resolve_axis_id(axes, item)
+            if axis_id is None:
                 raise TransformDimensionNotFoundError(
                     message=f"transform(op='rollup') axis {item!r} is not present",
                     hint="Rollup string targets must match existing axis ids such as 'time'.",
                     details={"op": "rollup", "axis": item, "axes": axes},
                 )
-            drop_ids.add(item)
+            drop_ids.add(axis_id)
             continue
         raise TransformArgError(
-            message="transform(op='rollup') drop_axes items must be DimensionRef or str",
-            hint="Pass drop_axes=['time'] or drop_axes=[DimensionRef('country')].",
+            message="transform(op='rollup') drop_axes items must be catalog dimension refs or str",
+            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.get("<dimension_id>").ref].',
             details={
                 "op": "rollup",
                 "argument": "drop_axes",
@@ -1233,25 +1331,29 @@ _OP_DISPATCH["normalize"] = _op_normalize
 def _resolve_slice_column(
     frame: TransformFrame, df: pd.DataFrame, key: Any
 ) -> tuple[str, str | None]:
-    if isinstance(key, DimensionRef):
-        axis = _frame_axes(frame).get(key.semantic_id)
+    if isinstance(key, SemanticRef | SemanticObject):
+        axes = _frame_axes(frame)
+        dimension_id = _dimension_input_id(key)
+        axis_id = _resolve_axis_id(axes, dimension_id, role="dimension")
+        axis = axes.get(axis_id) if axis_id is not None else None
         if not isinstance(axis, dict) or axis.get("role") != "dimension":
             raise TransformDimensionNotFoundError(
-                message=f"transform(op='slice') dimension {key.semantic_id!r} is not present",
-                hint="Slice DimensionRef keys must reference existing dimension axes.",
-                details={"op": "slice", "dimension": key.semantic_id},
+                message=f"transform(op='slice') dimension {dimension_id!r} is not present",
+                hint="Slice catalog ref keys must reference existing dimension axes.",
+                details={"op": "slice", "dimension": dimension_id},
             )
         column = axis.get("column")
         if not isinstance(column, str) or column not in df.columns:
             raise TransformDimensionNotFoundError(
-                message=f"transform(op='slice') dimension {key.semantic_id!r} column is not present",
-                hint="Slice DimensionRef keys must reference persisted frame columns.",
-                details={"op": "slice", "dimension": key.semantic_id, "column": column},
+                message=f"transform(op='slice') dimension {dimension_id!r} column is not present",
+                hint="Slice catalog ref keys must reference persisted frame columns.",
+                details={"op": "slice", "dimension": dimension_id, "column": column},
             )
-        return column, key.semantic_id
+        return column, dimension_id
     if isinstance(key, str):
         axes = _frame_axes(frame)
-        dimension_id: str | None = None
+        dimension_key_id: str | None = None
+        matched_axis_id = _resolve_axis_id(axes, key)
         axis_columns = {
             column
             for axis in axes.values()
@@ -1260,12 +1362,12 @@ def _resolve_slice_column(
             if isinstance(column, str) and column
         }
         for axis_name, axis in axes.items():
-            if not isinstance(axis, dict) or axis.get("column") != key:
+            if not isinstance(axis, dict) or str(axis_name) != matched_axis_id:
                 continue
             if axis.get("role") == "dimension":
-                dimension_id = axis_name
+                dimension_key_id = key if "." in key else str(axis_name)
             break
-        if key not in axis_columns:
+        if matched_axis_id is None:
             raise TransformDimensionNotFoundError(
                 message=f"transform(op='slice') column {key!r} is not an axis column",
                 hint="Slice string keys must match an existing time or dimension axis column.",
@@ -1276,16 +1378,25 @@ def _resolve_slice_column(
                     "axes": axes,
                 },
             )
+        axis = axes[matched_axis_id]
+        column = axis.get("column") if isinstance(axis, dict) else None
+        if not isinstance(column, str):
+            column = key
         if key not in df.columns:
+            if column in df.columns:
+                return column, dimension_key_id
             raise TransformDimensionNotFoundError(
-                message=f"transform(op='slice') axis column {key!r} is not present",
+                message=f"transform(op='slice') axis column {column!r} is not present",
                 hint="Slice string keys must reference persisted frame axis columns.",
-                details={"op": "slice", "column": key, "axes": axes},
+                details={"op": "slice", "column": column, "axes": axes},
             )
-        return key, dimension_id
+        return key, dimension_key_id
     raise TransformArgError(
-        message="transform(op='slice') where keys must be DimensionRef or str",
-        hint=("Use where={DimensionRef('country'): 'US'} or where={'revenue': (10, 20)}."),
+        message="transform(op='slice') where keys must be catalog dimension refs or str",
+        hint=(
+            'Use where={session.catalog.get("<dimension_id>").ref: "US"} '
+            "or where={'revenue': (10, 20)}."
+        ),
         details={"op": "slice", "actual_key_type": type(key).__name__},
     )
 
@@ -1694,13 +1805,16 @@ def _op_slice(
     if not isinstance(where, dict) or not where:
         raise TransformArgError(
             message="transform(op='slice') requires a non-empty where dict",
-            hint=("Pass where={DimensionRef('country'): 'US'} or where={'revenue': (10, 20)}."),
+            hint=(
+                'Pass where={session.catalog.get("<dimension_id>").ref: "US"} '
+                "or where={'revenue': (10, 20)}."
+            ),
             details={"op": "slice", "argument": "where"},
         )
 
     df = frame.to_pandas()
     mask = pd.Series(True, index=df.index)
-    locked_single_value_dims: list[tuple[DimensionRef, str, Any]] = []
+    locked_single_value_dims: list[tuple[str, str, Any]] = []
 
     for key, value in where.items():
         column, dimension_id = _resolve_slice_column(frame, df, key)
@@ -1754,9 +1868,7 @@ def _op_slice(
             clause = series == value
             if dimension_id is not None:
                 selector_value = _normalize_param_value(value)
-                locked_single_value_dims.append(
-                    (DimensionRef(dimension_id), column, selector_value)
-                )
+                locked_single_value_dims.append((dimension_id, column, selector_value))
         mask &= clause
 
     new_df = df[mask].reset_index(drop=True)
@@ -1769,9 +1881,7 @@ def _op_slice(
         ]
         if drop_columns:
             new_df = new_df.drop(columns=drop_columns)
-        selector = {
-            dimension.semantic_id: value for dimension, _, value in locked_single_value_dims
-        }
+        selector = {dimension: value for dimension, _, value in locked_single_value_dims}
         meta_overrides = {
             "axes": new_axes,
             "semantic_kind": _semantic_kind_from_axes(new_axes),
@@ -1924,7 +2034,7 @@ def _persist_transform_frame(
             "duration_ms": int((monotonic() - started_monotonic) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session._semantic_project.semantic_root),
+            "semantic_project_root": str(session.catalog.semantic_root),
             "semantic_model": parent.meta.semantic_model,
         },
     )

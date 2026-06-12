@@ -23,8 +23,11 @@ from marivo.analysis.publish import (
     SourceProvenance,
 )
 from marivo.analysis.session._layout import PersistenceLayout
+from marivo.analysis.session._runtime import _build_connection_runtime
 from marivo.analysis.session._store import SessionStore
 from marivo.analysis.session.core import Session
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.reader import SemanticProject
 
 
 def _now():
@@ -225,9 +228,14 @@ def _session(tmp_path, *, read_only: bool = False) -> Session:
         project_root=tmp_path,
         created_at=_now(),
         updated_at=_now(),
-        backend_factory=None if read_only else (lambda name: object()),
+        connection_runtime=_build_connection_runtime(
+            tmp_path,
+            None if read_only else {"fake": lambda: object()},
+            None,
+            use_datasources=False,
+        ),
         layout=layout,
-        semantic_project=None,
+        semantic_catalog=SemanticCatalog(SemanticProject(workspace_dir=tmp_path)),
         store=store,
     )
 

@@ -51,7 +51,12 @@ from marivo.analysis.intents._discover_scorers import (
 )
 from marivo.analysis.intents._types import DiscoverSensitivity
 from marivo.analysis.lineage import LineageStep
-from marivo.analysis.refs import DimensionRef
+from marivo.analysis.semantic_inputs import (
+    DimensionInput,
+)
+from marivo.analysis.semantic_inputs import (
+    normalize_dimension_boundary as normalize_catalog_dimension_boundary,
+)
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_writable
 
@@ -136,6 +141,21 @@ def _is_valid_objective(objective: str) -> TypeGuard[CandidateObjective]:
     return objective in _VALID_OBJECTIVES
 
 
+def _normalize_dimension_boundary(session: Session, value: DimensionInput, *, argument: str) -> str:
+    return normalize_catalog_dimension_boundary(session.catalog, value, argument=argument)
+
+
+def _normalize_dimension_inputs_boundary(
+    session: Session,
+    values: list[DimensionInput] | None,
+    *,
+    argument: str,
+) -> list[str] | None:
+    if values is None:
+        return None
+    return [_normalize_dimension_boundary(session, value, argument=argument) for value in values]
+
+
 def _discover_dispatch(
     source: object,
     *,
@@ -145,8 +165,8 @@ def _discover_dispatch(
     threshold: float | None = None,
     sensitivity: DiscoverSensitivity = "balanced",
     limit: int | None = None,
-    search_space: list[DimensionRef] | None = None,
-    peer_scope: list[DimensionRef] | None = None,
+    search_space: list[DimensionInput] | None = None,
+    peer_scope: list[DimensionInput] | None = None,
     session: Session | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> CandidateSet:
@@ -191,6 +211,16 @@ def _discover_dispatch(
     """
     session = resolve_session(session)
     ensure_session_writable(session)
+    search_space_ids = _normalize_dimension_inputs_boundary(
+        session,
+        search_space,
+        argument="search_space",
+    )
+    peer_scope_ids = _normalize_dimension_inputs_boundary(
+        session,
+        peer_scope,
+        argument="peer_scope",
+    )
 
     if not isinstance(source, MetricFrame | DeltaFrame):
         raise SemanticKindMismatchError(
@@ -230,8 +260,8 @@ def _discover_dispatch(
         threshold=threshold,
         sensitivity=sensitivity,
         limit=limit,
-        search_space=search_space,
-        peer_scope=peer_scope,
+        search_space=search_space_ids,
+        peer_scope=peer_scope_ids,
     )
     df = build_union_columns(shape, rows)
     validate_shape_columns(shape, df)
@@ -334,7 +364,7 @@ def _discover_dispatch(
             "duration_ms": int((monotonic() - started) * 1000),
             "status": "succeeded",
             "error": None,
-            "semantic_project_root": str(session._semantic_project.semantic_root),
+            "semantic_project_root": str(session.catalog.semantic_root),
             "semantic_model": source.meta.semantic_model,
         },
     )
@@ -381,7 +411,7 @@ class DiscoverAPI:
         self,
         source: DeltaFrame,
         *,
-        search_space: list[DimensionRef],
+        search_space: list[DimensionInput],
         value: str | None = None,
         limit: int | None = None,
         session: Session | None = None,
@@ -399,7 +429,7 @@ class DiscoverAPI:
         self,
         source: MetricFrame | DeltaFrame,
         *,
-        search_space: list[DimensionRef] | None = None,
+        search_space: list[DimensionInput] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = None,
@@ -435,7 +465,7 @@ class DiscoverAPI:
         self,
         source: MetricFrame,
         *,
-        peer_scope: list[DimensionRef] | None = None,
+        peer_scope: list[DimensionInput] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         session: Session | None = None,
@@ -507,8 +537,8 @@ def _run_scorer(
     threshold: float | None,
     sensitivity: str,
     limit: int | None,
-    search_space: list[DimensionRef] | None,
-    peer_scope: list[DimensionRef] | None,
+    search_space: list[str] | None,
+    peer_scope: list[str] | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if objective == "point_anomalies":
         _threshold_info = _OBJECTIVE_THRESHOLD[objective]
@@ -569,7 +599,8 @@ def _run_scorer(
             value,
             purpose="discover",
         )
-        axes = [ref.semantic_id for ref in search_space]
+        axes = _dimension_columns_for_ids(source, search_space)
+        semantic_id_by_column = _semantic_ids_by_column(source, search_space)
         rows = score_driver_axes(
             df,
             source_ref=source.ref,
@@ -578,9 +609,11 @@ def _run_scorer(
             bucket_column=bucket_column if bucket_column in df.columns else None,
             limit=limit,
         )
+        _attach_axis_semantic_ids(rows, semantic_id_by_column)
         driver_params: dict[str, Any] = {
             "value": value,
-            "search_space": axes,
+            "search_space": search_space,
+            "search_space_columns": axes,
             "limit": limit,
         }
         return rows, driver_params
@@ -605,7 +638,12 @@ def _run_scorer(
             value,
             purpose="discover",
         )
-        axes = [ref.semantic_id for ref in (search_space or [])] or dim_columns
+        axes = _dimension_columns_for_ids(source, search_space or []) or dim_columns
+        semantic_id_by_column = _semantic_ids_by_column(
+            source,
+            search_space or [],
+            available_columns=axes,
+        )
         rows = score_interesting_slices(
             df,
             source_ref=source.ref,
@@ -615,10 +653,12 @@ def _run_scorer(
             measure_kind=measure_kind,
             limit=limit,
         )
+        _attach_selector_semantic_ids(rows, semantic_id_by_column)
         slice_params: dict[str, Any] = {
             "value": value,
             "threshold": threshold_value,
-            "search_space": axes,
+            "search_space": search_space or [],
+            "search_space_columns": axes,
             "limit": limit,
         }
         return rows, slice_params
@@ -672,7 +712,7 @@ def _run_scorer(
             value,
             purpose="discover",
         )
-        peer_axes = [ref.semantic_id for ref in (peer_scope or [])]
+        peer_axes = _dimension_columns_for_ids(source, peer_scope or [])
         rows = score_cross_sectional_outliers(
             df,
             source_ref=source.ref,
@@ -820,6 +860,100 @@ def _resolve_frame_axes(
         ]
 
     return time_column, sorted(dim_columns)
+
+
+def _axis_matches(axis_id: str, axis_meta: Any, requested: str) -> bool:
+    candidates = {axis_id, axis_id.rsplit(".", 1)[-1]}
+    if isinstance(axis_meta, dict):
+        column = axis_meta.get("column")
+        ref = axis_meta.get("ref")
+        if isinstance(column, str):
+            candidates.add(column)
+        if isinstance(ref, str):
+            candidates.add(ref)
+            candidates.add(ref.rsplit(".", 1)[-1])
+    return requested in candidates or requested.rsplit(".", 1)[-1] in candidates
+
+
+def _dimension_columns_for_ids(
+    source: MetricFrame | DeltaFrame, dimension_ids: list[str]
+) -> list[str]:
+    if not dimension_ids:
+        return []
+    axes = source.meta.alignment.get("axes") if isinstance(source, DeltaFrame) else source.meta.axes
+    columns: list[str] = []
+    df_columns = set(source.to_pandas().columns)
+    for dimension_id in dimension_ids:
+        matched_column: str | None = None
+        if isinstance(axes, dict):
+            for axis_id, axis_meta in axes.items():
+                if not isinstance(axis_meta, dict) or axis_meta.get("role") != "dimension":
+                    continue
+                if not _axis_matches(str(axis_id), axis_meta, dimension_id):
+                    continue
+                column = axis_meta.get("column")
+                if isinstance(column, str):
+                    matched_column = column
+                    break
+        if matched_column is None:
+            axis_leaf = dimension_id.rsplit(".", 1)[-1]
+            matched_column = dimension_id if dimension_id in df_columns else axis_leaf
+        columns.append(matched_column)
+    return columns
+
+
+def _semantic_ids_by_column(
+    source: MetricFrame | DeltaFrame,
+    dimension_ids: list[str],
+    *,
+    available_columns: list[str] | None = None,
+) -> dict[str, str]:
+    axes = source.meta.alignment.get("axes") if isinstance(source, DeltaFrame) else source.meta.axes
+    allowed_columns = set(available_columns or ())
+    mapping: dict[str, str] = {}
+    if isinstance(axes, dict):
+        for axis_id, axis_meta in axes.items():
+            if not isinstance(axis_meta, dict) or axis_meta.get("role") != "dimension":
+                continue
+            column = axis_meta.get("column")
+            if not isinstance(column, str) or (allowed_columns and column not in allowed_columns):
+                continue
+            ref = axis_meta.get("ref")
+            if isinstance(ref, str) and ref:
+                mapping[column] = ref
+            elif isinstance(axis_id, str) and axis_id.count(".") >= 2:
+                mapping[column] = axis_id
+
+    columns = _dimension_columns_for_ids(source, dimension_ids)
+    mapping.update(
+        {column: semantic_id for semantic_id, column in zip(dimension_ids, columns, strict=False)}
+    )
+    return mapping
+
+
+def _attach_axis_semantic_ids(
+    rows: list[dict[str, Any]],
+    semantic_id_by_column: dict[str, str],
+) -> None:
+    for row in rows:
+        axis = row.get("axis")
+        if isinstance(axis, str) and axis in semantic_id_by_column:
+            row["axis_semantic_id"] = semantic_id_by_column[axis]
+
+
+def _attach_selector_semantic_ids(
+    rows: list[dict[str, Any]],
+    semantic_id_by_column: dict[str, str],
+) -> None:
+    if not semantic_id_by_column:
+        return
+    for row in rows:
+        selector = row.get("selector")
+        if not isinstance(selector, dict):
+            continue
+        row["selector"] = {
+            semantic_id_by_column.get(str(key), str(key)): value for key, value in selector.items()
+        }
 
 
 def _delta_axes(source: DeltaFrame) -> tuple[str, list[str]]:

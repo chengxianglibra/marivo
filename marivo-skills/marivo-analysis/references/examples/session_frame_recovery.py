@@ -17,7 +17,7 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
 frame_a = session.observe(
-    mv.MetricRef(METRIC_ID), timescope={"start": "2026-07-01", "end": "2026-10-01"}
+    session.catalog.get(METRIC_ID), timescope={"start": "2026-07-01", "end": "2026-10-01"}
 )
 ref = frame_a.ref
 print(f"ref={ref!r}")
@@ -36,7 +36,7 @@ print(f"recovered ref={recovered.ref!r} kind={recovered.meta.kind!r}")
 
 # The recovered frame is fully functional.
 base = session.observe(
-    mv.MetricRef(METRIC_ID), timescope={"start": "2025-07-01", "end": "2025-10-01"}
+    session.catalog.get(METRIC_ID), timescope={"start": "2025-07-01", "end": "2025-10-01"}
 )
 delta = session.compare(recovered, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 print(delta.summary())

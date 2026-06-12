@@ -14,6 +14,7 @@ from marivo.semantic.errors import ErrorKind, SemanticParityError, _raise
 from marivo.semantic.ir import MetricIR, ParityStatus
 
 if TYPE_CHECKING:
+    from marivo.semantic.catalog import SemanticCatalog
     from marivo.semantic.reader import SemanticProject
 
 __all__ = [
@@ -90,7 +91,7 @@ def _get_metric_or_raise(project: SemanticProject, metric_id: str) -> MetricIR:
 
 
 def parity_check(
-    project: SemanticProject,
+    project: SemanticProject | SemanticCatalog,
     metric_id: str,
     *,
     rel_tol: float | None = None,
@@ -108,12 +109,17 @@ def parity_check(
 
     Returns ParityResult on success or value mismatch.
     """
+    from marivo.semantic.catalog import SemanticCatalog, SemanticKind, SemanticRef
+
+    catalog = project if isinstance(project, SemanticCatalog) else SemanticCatalog(project)
+    cache_project = catalog._project
+
     # Check cache first
-    cached = project._parity_results.get(metric_id)
+    cached = cache_project._parity_results.get(metric_id)
     if cached is not None and not force:
         return cached
 
-    metric_ir = _get_metric_or_raise(project, metric_id)
+    metric_ir = _get_metric_or_raise(cache_project, metric_id)
 
     # Derived metrics don't support direct SQL parity
     if metric_ir.is_derived:
@@ -155,7 +161,7 @@ def parity_check(
         )
 
     # Validate single datasource
-    reg = project._registry
+    reg = cache_project._registry
     assert reg is not None  # Already validated above
 
     datasource_ids: set[str] = set()
@@ -187,7 +193,8 @@ def parity_check(
 
     # Execute the ibis metric -> single scalar
     try:
-        metric_expr = project.materialize_metric(metric_id)
+        resolver = catalog._resolver()
+        metric_expr = resolver.metric(SemanticRef(metric_id, kind=SemanticKind.METRIC))
         actual_result = metric_expr.to_pandas()
         actual_val = _extract_scalar(actual_result, metric_id, "Metric")
     except SemanticParityError:
@@ -208,7 +215,7 @@ def parity_check(
 
     # Execute the source SQL -> single scalar
     try:
-        service = project._connection_service()
+        service = cache_project._connection_service()
         with service.use_backend(datasource_id) as backend:
             sql_result = backend.sql(metric_ir.provenance.source_sql)
             sql_pandas = sql_result.to_pandas()
@@ -241,7 +248,7 @@ def parity_check(
     )
 
     # Cache the result
-    project._parity_results[metric_id] = result
+    cache_project._parity_results[metric_id] = result
 
     return result
 

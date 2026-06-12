@@ -12,17 +12,19 @@ from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 ensure_loaded()
 
 import marivo.analysis as mv  # noqa: E402
+from marivo.semantic import SemanticKind, SemanticRef  # noqa: E402
 
 session = mv.session.current()
+region = session.catalog.get("sales.orders.region").ref
 current = session.observe(
-    mv.MetricRef(METRIC_ID),
+    session.catalog.get(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
-    dimensions=[mv.DimensionRef("region")],
+    dimensions=[region],
 )
 baseline = session.observe(
-    mv.MetricRef(METRIC_ID),
+    session.catalog.get(METRIC_ID),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
-    dimensions=[mv.DimensionRef("region")],
+    dimensions=[region],
 )
 delta = session.compare(
     current,
@@ -33,15 +35,15 @@ delta = session.compare(
 axis_candidates = session.discover.driver_axes(
     delta,
     value="delta",
-    search_space=[mv.DimensionRef("region")],
+    search_space=[region],
 )
 top_axis = axis_candidates.select(rank=1, attribute="axis")
-assert isinstance(top_axis, mv.DimensionRef)
-print(f"top_axis={top_axis.semantic_id}")
+assert top_axis == SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION)
+print(f"top_axis={top_axis.ref}")
 
 drivers = session.decompose(delta, axis=top_axis)
 print(f"drivers.kind={drivers.meta.kind!r}")
 
 # Expected output:
-# top_axis=region
+# top_axis=sales.orders.region
 # drivers.kind='attribution_frame'

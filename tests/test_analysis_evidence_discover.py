@@ -7,9 +7,9 @@ import sqlite3
 import pandas as pd
 import pytest
 
-import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.frames.metric import MetricFrame
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -73,7 +73,7 @@ def test_discover_non_anomaly_objective_commits_without_seeding() -> None:
 
     candidates = session.discover.interesting_slices(
         frame,
-        search_space=[mv.DimensionRef("country")],
+        search_space=[SemanticRef("country", kind=SemanticKind.DIMENSION)],
         threshold=1.0,
     )
 

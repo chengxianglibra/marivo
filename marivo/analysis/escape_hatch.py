@@ -24,7 +24,8 @@ from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._derived import compose_lineage
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy, PromotionPolicy
-from marivo.analysis.refs import ArtifactRef, DimensionRef, MetricRef
+from marivo.analysis.refs import ArtifactRef
+from marivo.analysis.semantic_inputs import DimensionInput, MetricInput
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session._runtime import persist_frame, require_current_session
 from marivo.analysis.session.core import ensure_session_writable
@@ -33,6 +34,10 @@ from marivo.analysis.windows import (
     dump_window,
     normalize_absolute_window_input,
 )
+from marivo.semantic.catalog import SemanticKind as CatalogSemanticKind
+from marivo.semantic.catalog import SemanticObject, SemanticRef
+
+DimensionAnchorInput = DimensionInput
 
 if TYPE_CHECKING:
     from marivo.analysis.session.core import Session
@@ -146,15 +151,12 @@ def _validate_metric_in_catalog(
     available_columns: list[str],
     source_refs: list[str],
 ) -> None:
-    sp = getattr(session, "_semantic_project", None)
-    if sp is None or not sp.is_ready():
-        return
-    available_metric_ids = sorted(ir.semantic_id for ir in sp.list_metrics())
+    available_metric_ids = sorted(_catalog_metric_ids(session.catalog))
     # An empty workspace loads as "ready" with zero metrics; promotion in
     # catalog-less sessions stays unvalidated.
     if not available_metric_ids:
         return
-    if sp.get_metric(metric_id) is not None:
+    if metric_id in available_metric_ids:
         return
     raise PromotionFailedError(
         message=f"cannot promote scratch result to {target_kind}",
@@ -167,6 +169,20 @@ def _validate_metric_in_catalog(
             "available_metric_ids": available_metric_ids,
         },
     )
+
+
+def _catalog_metric_ids(catalog: Any) -> set[str]:
+    ids: set[str] = set()
+    try:
+        domains = list(catalog.list(kind=CatalogSemanticKind.DOMAIN))
+    except Exception:
+        return ids
+    for domain in domains:
+        try:
+            ids.update(catalog.list(domain.ref, kind=CatalogSemanticKind.METRIC).ids())
+        except Exception:
+            continue
+    return ids
 
 
 def _load_metric_ref(ref: ArtifactRef | None, *, session: Session) -> MetricFrame | None:
@@ -292,30 +308,75 @@ def _raise_delta_metadata_mismatch(
     )
 
 
-def _axis_meta(axes: dict[str, DimensionRef] | None) -> dict[str, dict[str, str]]:
+def _metric_anchor_id(ref: MetricInput) -> str:
+    if isinstance(ref, SemanticObject):
+        return ref.ref.ref
+    return ref.ref
+
+
+def _dimension_anchor_id(ref: DimensionAnchorInput) -> str:
+    if isinstance(ref, SemanticObject):
+        return ref.ref.ref
+    return ref.ref
+
+
+def _dimension_anchor_kind(ref: DimensionAnchorInput) -> CatalogSemanticKind | None:
+    return ref.kind
+
+
+def _validate_dimension_anchors(
+    *,
+    axes: dict[str, DimensionAnchorInput] | None,
+    time_axis: str | DimensionAnchorInput | None,
+    available_columns: list[str],
+    source_refs: list[str],
+) -> None:
+    ambiguous: list[str] = []
+    for column, ref in (axes or {}).items():
+        kind = _dimension_anchor_kind(ref)
+        if kind not in {CatalogSemanticKind.DIMENSION, CatalogSemanticKind.TIME_DIMENSION}:
+            ambiguous.append(f"axis_ref_kind:{column}:{_dimension_anchor_id(ref)}:{kind}")
+    if isinstance(time_axis, SemanticRef | SemanticObject):
+        kind = _dimension_anchor_kind(time_axis)
+        if kind not in {CatalogSemanticKind.DIMENSION, CatalogSemanticKind.TIME_DIMENSION}:
+            ambiguous.append(f"time_axis_ref_kind:{_dimension_anchor_id(time_axis)}:{kind}")
+    if ambiguous:
+        _raise_promotion_failed(
+            target_kind="metric_frame",
+            missing=[],
+            ambiguous=ambiguous,
+            available_columns=available_columns,
+            source_refs=source_refs,
+        )
+
+
+def _axis_meta(axes: dict[str, DimensionAnchorInput] | None) -> dict[str, dict[str, str]]:
     return {
-        column: {"role": "dimension", "column": column, "ref": ref.semantic_id}
+        column: {"role": "dimension", "column": column, "ref": _dimension_anchor_id(ref)}
         for column, ref in (axes or {}).items()
     }
 
 
-def _time_axis_column_and_ref(time_axis: str | DimensionRef | None) -> tuple[str, str] | None:
+def _time_axis_column_and_ref(
+    time_axis: str | DimensionAnchorInput | None,
+) -> tuple[str, str] | None:
     if time_axis is None:
         return None
-    if isinstance(time_axis, DimensionRef):
-        return time_axis.semantic_id, time_axis.semantic_id
+    if isinstance(time_axis, SemanticRef | SemanticObject):
+        axis_id = _dimension_anchor_id(time_axis)
+        return axis_id, axis_id
     return time_axis, time_axis
 
 
 def _axis_identifiers(
     *,
-    axes: dict[str, DimensionRef] | None,
+    axes: dict[str, DimensionAnchorInput] | None,
     time_axis_meta: tuple[str, str] | None,
 ) -> set[str]:
     identifiers: set[str] = set()
     for column, ref in (axes or {}).items():
         identifiers.add(column)
-        identifiers.add(ref.semantic_id)
+        identifiers.add(_dimension_anchor_id(ref))
     if time_axis_meta is not None:
         time_column, time_ref = time_axis_meta
         identifiers.update({"time", time_column, time_ref})
@@ -327,7 +388,7 @@ def _validate_metric_shape_columns(
     *,
     semantic_kind: SemanticKind,
     measure_column: str,
-    axes: dict[str, DimensionRef] | None,
+    axes: dict[str, DimensionAnchorInput] | None,
     time_axis_meta: tuple[str, str] | None,
     source_refs: list[str],
 ) -> None:
@@ -408,7 +469,7 @@ def _resolve_metric_window(
 def _validate_semantic_shape(
     *,
     semantic_kind: SemanticKind,
-    axes: dict[str, DimensionRef] | None,
+    axes: dict[str, DimensionAnchorInput] | None,
     time_axis_meta: tuple[str, str] | None,
     available_columns: list[str],
     source_refs: list[str],
@@ -449,7 +510,7 @@ def _validate_semantic_shape(
 
 def _validate_axis_collisions(
     *,
-    axes: dict[str, DimensionRef] | None,
+    axes: dict[str, DimensionAnchorInput] | None,
     time_axis_meta: tuple[str, str] | None,
     available_columns: list[str],
     source_refs: list[str],
@@ -466,8 +527,9 @@ def _validate_axis_collisions(
         seen.add(column)
         if column in reserved_axis_ids:
             collisions.append(column)
-        if ref.semantic_id in reserved_axis_ids:
-            collisions.append(ref.semantic_id)
+        ref_id = _dimension_anchor_id(ref)
+        if ref_id in reserved_axis_ids:
+            collisions.append(ref_id)
     if collisions:
         _raise_promotion_failed(
             target_kind="metric_frame",
@@ -535,7 +597,7 @@ def explore_ibis(
 ) -> ExplorationResult:
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
-    backend = resolved_session._backend_cache.get_or_create(datasource)
+    backend = resolved_session._connection_runtime.session_backend(datasource)
     try:
         expr = query_builder(backend)
     except NameError as exc:
@@ -553,7 +615,7 @@ def explore_ibis(
     result = execute(
         expr,
         datasource_name=datasource,
-        cache=resolved_session._backend_cache,
+        cache=resolved_session._connection_runtime,
         session_id=resolved_session.id,
     )
     source_refs = [ref.id for ref in sources or []]
@@ -600,11 +662,11 @@ def promote_metric_frame(
     *,
     policy: PromotionPolicy | None = None,
     session: Session | None = None,
-    metric: MetricRef | None = None,
+    metric: MetricInput | None = None,
     semantic_kind: SemanticKind | None = None,
     measure_column: str | None = None,
-    axes: dict[str, DimensionRef] | None = None,
-    time_axis: str | DimensionRef | None = None,
+    axes: dict[str, DimensionAnchorInput] | None = None,
+    time_axis: str | DimensionAnchorInput | None = None,
     semantic_model: str | None = None,
     window: object | None = None,
     where: dict[str, Any] | None = None,
@@ -614,10 +676,12 @@ def promote_metric_frame(
     resolved_policy = _policy_or_default(policy)
     scratch = _source_to_scratch(source, session=resolved_session)
     df = scratch.to_pandas()
-    metric_ref = metric or resolved_policy.semantic_anchors.metric
+    metric_id = (
+        _metric_anchor_id(metric) if metric is not None else resolved_policy.semantic_anchors.metric
+    )
     time_axis_ref = time_axis or resolved_policy.semantic_anchors.time_axis
     missing: list[str] = []
-    if metric_ref is None:
+    if metric_id is None:
         missing.append("metric")
     if semantic_kind is None:
         missing.append("semantic_kind")
@@ -638,15 +702,21 @@ def promote_metric_frame(
             available_columns=list(map(str, df.columns)),
             source_refs=[scratch.ref],
         )
-    assert metric_ref is not None
+    assert metric_id is not None
     assert semantic_kind is not None
     assert measure_column is not None
     assert semantic_model is not None
-    time_axis_meta = _time_axis_column_and_ref(time_axis_ref)
     available_columns = list(map(str, df.columns))
     source_refs = [scratch.ref]
+    _validate_dimension_anchors(
+        axes=axes,
+        time_axis=time_axis_ref,
+        available_columns=available_columns,
+        source_refs=source_refs,
+    )
+    time_axis_meta = _time_axis_column_and_ref(time_axis_ref)
     _validate_metric_in_catalog(
-        metric_ref.semantic_id,
+        metric_id,
         session=resolved_session,
         target_kind="metric_frame",
         available_columns=available_columns,
@@ -695,7 +765,7 @@ def promote_metric_frame(
                 time_meta["time_dimension"] = resolved_window.time_dimension
         resolved_axes = {"time": time_meta, **resolved_axes}
     promotion_params = {
-        "metric_id": metric_ref.semantic_id,
+        "metric_id": metric_id,
         "semantic_kind": semantic_kind,
         "semantic_model": semantic_model,
         "measure_column": measure_column,
@@ -730,7 +800,7 @@ def promote_metric_frame(
             ],
             external_inputs=sorted({*scratch.lineage.external_inputs, scratch.ref}),
         ),
-        metric_id=metric_ref.semantic_id,
+        metric_id=metric_id,
         axes=resolved_axes,
         measure={"name": measure_column},
         window=dump_window(resolved_window),
@@ -753,7 +823,7 @@ def promote_delta_frame(
     session: Session | None = None,
     current: ArtifactRef | None = None,
     baseline: ArtifactRef | None = None,
-    metric: MetricRef | None = None,
+    metric: MetricInput | None = None,
     semantic_kind: SemanticKind | None = None,
     semantic_model: str | None = None,
     delta_column: str | None = None,
@@ -773,7 +843,7 @@ def promote_delta_frame(
     inherited_metric = current_frame.meta.metric_id if current_frame is not None else None
     inherited_kind = current_frame.meta.semantic_kind if current_frame is not None else None
     inherited_model = current_frame.meta.semantic_model if current_frame is not None else None
-    metric_id = metric.semantic_id if metric is not None else inherited_metric
+    metric_id = _metric_anchor_id(metric) if metric is not None else inherited_metric
     final_kind = semantic_kind or inherited_kind
     final_model = semantic_model or inherited_model
     missing: list[str] = []
@@ -827,7 +897,9 @@ def promote_delta_frame(
     override_mismatches = [
         frame.ref
         for frame in [current_frame, baseline_frame]
-        if frame is not None and metric is not None and frame.meta.metric_id != metric.semantic_id
+        if frame is not None
+        and metric is not None
+        and frame.meta.metric_id != _metric_anchor_id(metric)
     ]
     if override_mismatches:
         _raise_delta_metadata_mismatch(

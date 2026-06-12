@@ -1,7 +1,6 @@
-"""SemanticProject reader API for marivo.semantic v1.1.
+"""SemanticProject lifecycle and internal semantic runtime helpers.
 
-All read-only access to the loaded semantic model goes through
-``SemanticProject`` methods.  Free-function readers are removed.
+Agent-facing semantic reading goes through ``ms.load()`` and ``SemanticCatalog``.
 """
 
 from __future__ import annotations
@@ -12,23 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-import ibis
-import ibis.expr.types as ir
-
 from marivo.datasource.ir import DatasourceIR, EntitySourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.scan import ScanReport, ScanScope
-from marivo.preview import (
-    METRIC_PREVIEW_SAMPLE_SIZE,
-    PREVIEW_DEFAULT_LIMIT,
-    PreviewResult,
-    PreviewSamplePolicy,
-    PreviewWarning,
-    preview_ibis_table,
-    preview_ibis_value,
-    validate_preview_limit,
-)
-from marivo.semantic.discovery import DiscoveryResult
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringObjectKind,
@@ -51,16 +36,11 @@ from marivo.semantic.errors import (
     _raise,
 )
 from marivo.semantic.ir import (
-    DimensionKind,
-    EntityIR,
-    EntityProvenance,
-    MetricIR,
-    ParityStatus,
     SymbolKind,
 )
 from marivo.semantic.loader import LoadResult, load_project
-from marivo.semantic.materializer import EntityRuntimeMetadata, Materializer
-from marivo.semantic.parity import ParityResult, parity_check, propagated_parity_status
+from marivo.semantic.materializer import EntityRuntimeMetadata
+from marivo.semantic.parity import ParityResult, parity_check
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
@@ -74,120 +54,11 @@ from marivo.semantic.richness import (
 from marivo.semantic.validator import Registry, Sidecar
 
 __all__ = [
-    "DatasourceSummary",
-    "DimensionSummary",
-    "DomainSummary",
-    "EntitySummary",
-    "MetricSummary",
     "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",
     "SemanticProject",
 ]
-
-
-_FIELD_PREVIEW_CONTEXT_COLUMNS = 3
-
-
-# ---------------------------------------------------------------------------
-# Summary types
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class DomainSummary:
-    """Summary of a domain returned by ``project.list_domains()``."""
-
-    name: str
-    description: str | None
-    default: bool
-    object_counts: dict[str, int]  # kind -> count
-
-
-@dataclass(frozen=True)
-class DatasourceSummary:
-    """Summary of a datasource returned by ``project.list_datasources()``."""
-
-    semantic_id: str
-    name: str
-    backend_type: str
-    description: str | None
-
-
-@dataclass(frozen=True)
-class EntitySummary:
-    """Summary of an entity returned by ``project.list_entities()``."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    datasource: str
-    description: str | None
-    entity_provenance: EntityProvenance | None  # None = not yet materialized
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.semantic_id!r})"
-
-
-@dataclass(frozen=True)
-class MetricSummary:
-    """Summary of a metric returned by ``project.list_metrics()``."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    description: str | None
-    decomposition_kind: Literal["sum", "ratio", "weighted_average"]
-    is_derived: bool
-    parity_status: ParityStatus
-    python_symbol: str
-    time_fold: str | None
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.semantic_id!r})"
-
-
-@dataclass(frozen=True)
-class DimensionSummary:
-    """Summary of a dimension returned by ``project.list_dimensions()`` / ``project.list_time_dimensions()``."""
-
-    semantic_id: str
-    domain: str
-    entity: str
-    name: str
-    description: str | None
-    is_time_dimension: bool
-    kind: DimensionKind
-    data_type: str | None
-    granularity: str | None
-    is_default: bool
-    format: str | None = None
-    timezone: str | None = None
-    required_prefix: str | None = None
-    sample_interval: Any | None = None
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.semantic_id!r})"
-
-
-@dataclass(frozen=True)
-class RelationshipSummary:
-    """Summary of a relationship returned by ``project.list_relationships()``."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    from_entity: str
-    to_entity: str
-    from_dimensions: tuple[str, ...]
-    to_dimensions: tuple[str, ...]
-    description: str | None
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.semantic_id!r})"
-
-
-# Deprecated aliases
 
 
 # ---------------------------------------------------------------------------
@@ -215,10 +86,6 @@ def _require_registry(
     )
 
 
-def _semantic_leaf_name(semantic_id: str) -> str:
-    return semantic_id.rsplit(".", 1)[-1]
-
-
 @dataclass(frozen=True)
 class _DepNode:
     """Lightweight internal node for dependency traversal."""
@@ -232,8 +99,6 @@ class SemanticProject:
     """Primary reader for a loaded semantic project.
 
     For agent-facing reading, use ms.load() which returns a SemanticCatalog.
-    The list_* methods are internal helpers for the authoring and
-    materialization workflow.
 
     Usage::
 
@@ -242,10 +107,7 @@ class SemanticProject:
         project = SemanticProject(workspace_dir="/path/to/project")
         result = project.load()
         if project.is_ready():
-            domains = project.list_domains()
-            domains.show()   # print bounded preview
-            for d in domains:
-                ...
+            ...
     """
 
     def __init__(
@@ -346,285 +208,6 @@ class SemanticProject:
         """Return warnings from the last load attempt."""
         return self._warnings
 
-    # -- listings -----------------------------------------------------------
-
-    def list_domains(self) -> DiscoveryResult[DomainSummary]:
-        """Return all domain summaries.
-
-        Internal helper — agents should use catalog.list() or catalog.get() instead.
-
-        Returns:
-            DiscoveryResult[DomainSummary] — iterate, call .ids(), .show(), etc.
-        """
-        reg = _require_registry(self._registry, project=self)
-        results: list[DomainSummary] = []
-        for model_ir in reg.models.values():
-            # Compute object counts for this model
-            obj_counts: dict[str, int] = {}
-            obj_counts["entity"] = sum(
-                1 for d in reg.datasets.values() if d.domain == model_ir.name
-            )
-            obj_counts["dimension"] = sum(
-                1
-                for f in reg.fields.values()
-                if f.entity.startswith(f"{model_ir.name}.") and not f.is_time_dimension
-            )
-            obj_counts["time_dimension"] = sum(
-                1
-                for f in reg.fields.values()
-                if f.entity.startswith(f"{model_ir.name}.") and f.is_time_dimension
-            )
-            obj_counts["metric"] = sum(1 for m in reg.metrics.values() if m.domain == model_ir.name)
-            obj_counts["datasource"] = 0
-            obj_counts["relationship"] = sum(
-                1 for r in reg.relationships.values() if r.domain == model_ir.name
-            )
-            results.append(
-                DomainSummary(
-                    name=model_ir.name,
-                    description=model_ir.description,
-                    default=model_ir.default,
-                    object_counts=obj_counts,
-                )
-            )
-        return DiscoveryResult(results, item_type_name="DomainSummary", has_ids=False)
-
-    def list_datasources(self) -> DiscoveryResult[DatasourceSummary]:
-        """Return all datasource summaries.
-
-        Internal helper — agents should use catalog.list() or catalog.get() instead.
-
-        Returns:
-            DiscoveryResult[DatasourceSummary] — iterate, call .ids(), .show(), etc.
-        """
-        irs = self._datasource_irs or (
-            tuple(self._registry.datasources.values()) if self._registry is not None else ()
-        )
-        results = [
-            DatasourceSummary(
-                semantic_id=ds_ir.semantic_id,
-                name=ds_ir.name,
-                backend_type=ds_ir.backend_type,
-                description=ds_ir.description,
-            )
-            for ds_ir in irs
-        ]
-        return DiscoveryResult(results, item_type_name="DatasourceSummary")
-
-    def list_entities(self, *, domain: str | None = None) -> DiscoveryResult[EntitySummary]:
-        """Return entity summaries, optionally filtered by domain name.
-
-        Internal helper — agents should use catalog.list() or catalog.get() instead.
-
-        Args:
-            domain: Optional domain name to filter entities.
-
-        Returns:
-            DiscoveryResult[EntitySummary] — iterate, call .ids(), .show(), etc.
-        """
-        reg = _require_registry(self._registry, project=self)
-        datasets = list(reg.datasets.values())
-        if domain is not None:
-            datasets = [d for d in datasets if d.domain == domain]
-        results = [
-            EntitySummary(
-                semantic_id=d.semantic_id,
-                domain=d.domain,
-                name=d.name,
-                datasource=d.datasource,
-                description=d.description,
-                entity_provenance=(
-                    self._runtime_metadata[d.semantic_id].entity_provenance
-                    if d.semantic_id in self._runtime_metadata
-                    else None
-                ),
-            )
-            for d in datasets
-        ]
-        return DiscoveryResult(results, item_type_name="EntitySummary")
-
-    def list_dimensions(
-        self,
-        *,
-        domain: str | None = None,
-        entity: str | None = None,
-    ) -> DiscoveryResult[DimensionSummary]:
-        """Return dimension summaries, optionally filtered by domain or entity.
-
-        Internal helper — agents should use catalog.list() or catalog.get() instead.
-
-        Dimensions are all @ms.dimension declarations that are not time dimensions.
-        For time dimensions, use list_time_dimensions().
-
-        Args:
-            domain: Optional domain name to filter dimensions.
-            entity: Optional entity semantic_id to filter dimensions.
-
-        Returns:
-            DiscoveryResult[DimensionSummary] — iterate, call .ids(), .show(), etc.
-        """
-        reg = _require_registry(self._registry, project=self)
-        irs = [f for f in reg.fields.values() if not f.is_time_dimension]
-        if domain is not None:
-            irs = [f for f in irs if f.domain == domain]
-        if entity is not None:
-            irs = [f for f in irs if f.entity == entity]
-        results = [
-            DimensionSummary(
-                semantic_id=f.semantic_id,
-                domain=f.domain,
-                entity=f.entity,
-                name=f.name,
-                description=f.description,
-                is_time_dimension=f.is_time_dimension,
-                kind=f.kind,
-                data_type=f.data_type,
-                granularity=f.granularity,
-                is_default=f.is_default,
-                format=f.format,
-                timezone=f.timezone,
-                required_prefix=f.required_prefix,
-                sample_interval=f.sample_interval,
-            )
-            for f in irs
-        ]
-        return DiscoveryResult(results, item_type_name="DimensionSummary")
-
-    def list_time_dimensions(
-        self,
-        *,
-        domain: str | None = None,
-        entity: str | None = None,
-    ) -> DiscoveryResult[DimensionSummary]:
-        """Return time dimension summaries, optionally filtered by domain or entity.
-
-        Internal helper — agents should use catalog.list() or catalog.get() instead.
-
-        Args:
-            domain: Optional domain name to filter time dimensions.
-            entity: Optional entity semantic_id to filter time dimensions.
-
-        Returns:
-            DiscoveryResult[DimensionSummary] — iterate, call .ids(), .show(), etc.
-        """
-        reg = _require_registry(self._registry, project=self)
-        irs = [f for f in reg.fields.values() if f.is_time_dimension]
-        if domain is not None:
-            irs = [f for f in irs if f.domain == domain]
-        if entity is not None:
-            irs = [f for f in irs if f.entity == entity]
-        results = [
-            DimensionSummary(
-                semantic_id=f.semantic_id,
-                domain=f.domain,
-                entity=f.entity,
-                name=f.name,
-                description=f.description,
-                is_time_dimension=f.is_time_dimension,
-                kind=f.kind,
-                data_type=f.data_type,
-                granularity=f.granularity,
-                is_default=f.is_default,
-                format=f.format,
-                timezone=f.timezone,
-                required_prefix=f.required_prefix,
-                sample_interval=f.sample_interval,
-            )
-            for f in irs
-        ]
-        return DiscoveryResult(results, item_type_name="DimensionSummary")
-
-    def list_metrics(
-        self,
-        *,
-        entity: str | None = None,
-        decomposition: Literal["sum", "ratio", "weighted_average"] | None = None,
-        provenance_status: ParityStatus | None = None,
-    ) -> DiscoveryResult[MetricSummary]:
-        """Return metric summaries, optionally filtered.
-
-        Internal helper — agents should use catalog.list() or catalog.get() instead.
-
-        Args:
-            entity: Optional entity semantic_id to filter metrics.
-            decomposition: Optional decomposition kind to filter metrics.
-            provenance_status: Optional parity status to filter metrics.
-
-        Returns:
-            DiscoveryResult[MetricSummary] — iterate, call .ids(), .show(), etc.
-        """
-        reg = _require_registry(self._registry, project=self)
-        metrics = list(reg.metrics.values())
-        if entity is not None:
-            metrics = [m for m in metrics if entity in m.entities]
-        if decomposition is not None:
-            metrics = [m for m in metrics if m.decomposition.kind == decomposition]
-        if provenance_status is not None:
-            metrics = [
-                m
-                for m in metrics
-                if propagated_parity_status(self, m.semantic_id) == provenance_status
-            ]
-        results = [
-            MetricSummary(
-                semantic_id=m.semantic_id,
-                domain=m.domain,
-                name=m.name,
-                description=m.description,
-                decomposition_kind=m.decomposition.kind,
-                is_derived=m.is_derived,
-                parity_status=propagated_parity_status(self, m.semantic_id),
-                python_symbol=m.python_symbol,
-                time_fold=m.time_fold.label() if m.time_fold is not None else None,
-            )
-            for m in metrics
-        ]
-        return DiscoveryResult(results, item_type_name="MetricSummary")
-
-    def list_relationships(
-        self, *, domain: str | None = None
-    ) -> DiscoveryResult[RelationshipSummary]:
-        """Return relationship summaries, optionally filtered by domain.
-
-        Internal helper — agents should use catalog.list() or catalog.get() instead.
-
-        Args:
-            domain: Optional domain name to filter relationships.
-
-        Returns:
-            DiscoveryResult[RelationshipSummary] — iterate, call .ids(), .show(), etc.
-        """
-        reg = _require_registry(self._registry, project=self)
-        rel_irs = list(reg.relationships.values())
-        if domain is not None:
-            rel_irs = [r for r in rel_irs if r.domain == domain]
-        results = [
-            RelationshipSummary(
-                semantic_id=r.semantic_id,
-                domain=r.domain,
-                name=r.name,
-                from_entity=r.from_entity,
-                to_entity=r.to_entity,
-                from_dimensions=r.from_dimensions,
-                to_dimensions=r.to_dimensions,
-                description=r.description,
-            )
-            for r in rel_irs
-        ]
-        return DiscoveryResult(results, item_type_name="RelationshipSummary")
-
-    # -- single-object accessors -------------------------------------------
-
-    def get_entity(self, name: str) -> EntityIR | None:
-        """Return an entity IR by semantic_id, or None if not found."""
-        reg = _require_registry(self._registry, project=self)
-        return reg.datasets.get(name)
-
-    def get_metric(self, name: str) -> MetricIR | None:
-        """Return a metric IR by semantic_id, or None if not found."""
-        reg = _require_registry(self._registry, project=self)
-        return reg.metrics.get(name)
-
     # -- dependency graph (internal) -----------------------------------------
 
     def _dependents(self, name: str) -> _DepNode:
@@ -705,168 +288,6 @@ class SemanticProject:
             seen |= self._flatten_ids(node)
         return len(seen - set(refs))
 
-    # -- materialize --------------------------------------------------------
-
-    def materialize_dataset(
-        self,
-        name: str,
-    ) -> ibis.Table:
-        """Materialize a dataset by semantic_id.
-
-        Each call creates a fresh Materializer instance. Datasource backends
-        are resolved internally via ``DatasourceConnectionService``.
-        """
-        mat = Materializer(self, self._session_backend_factory())
-        return mat.entity(name)
-
-    def materialize_field(
-        self,
-        name: str,
-    ) -> ir.Value:
-        """Materialize a field by semantic_id.
-
-        Each call creates a fresh Materializer instance. Datasource backends
-        are resolved internally via ``DatasourceConnectionService``.
-        """
-        mat = Materializer(self, self._session_backend_factory())
-        return mat.dimension(name)
-
-    def materialize_metric(
-        self,
-        name: str,
-    ) -> ir.Value:
-        """Materialize a metric by semantic_id.
-
-        Each call creates a fresh Materializer instance. Datasource backends
-        are resolved internally via ``DatasourceConnectionService``.
-        """
-        mat = Materializer(self, self._session_backend_factory())
-        return mat.metric(name)
-
-    # -- preview ---------------------------------------------------------------
-
-    def preview_dataset(
-        self,
-        name: str,
-        *,
-        limit: int = PREVIEW_DEFAULT_LIMIT,
-        include_types: bool = True,
-    ) -> PreviewResult:
-        """Return a bounded preview of a semantic dataset."""
-        limit = validate_preview_limit(limit)
-        table = self.materialize_dataset(name)
-        return preview_ibis_table(
-            table,
-            kind="semantic_dataset",
-            ref=name,
-            limit=limit,
-            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
-            include_types=include_types,
-        )
-
-    def preview_field(
-        self,
-        name: str,
-        *,
-        limit: int = PREVIEW_DEFAULT_LIMIT,
-        context_columns: Iterable[str] | None = None,
-        include_types: bool = True,
-    ) -> PreviewResult:
-        """Return a bounded preview of a semantic field with parent dataset context."""
-        factory = self._session_backend_factory()
-        limit = validate_preview_limit(limit)
-        reg = _require_registry(self._registry, project=self)
-        field_ir = reg.fields.get(name)
-        if field_ir is None:
-            _raise(
-                ErrorKind.DIMENSION_NOT_FOUND,
-                f"Dimension {name!r} not found in registry.",
-                cls=SemanticRuntimeError,
-                refs=(name,),
-            )
-
-        mat = Materializer(self, factory)
-        parent_table = mat.entity(field_ir.entity)
-        field_value = mat.dimension(name)
-        field_column_name = _semantic_leaf_name(name)
-
-        if context_columns is None:
-            selected_context = tuple(
-                column for column in parent_table.columns if column != field_column_name
-            )[:_FIELD_PREVIEW_CONTEXT_COLUMNS]
-        else:
-            selected_context = tuple(context_columns)
-
-        missing_context = [
-            column for column in selected_context if column not in parent_table.columns
-        ]
-        if missing_context:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Field preview context columns are not present on parent dataset: {missing_context}",
-                cls=SemanticRuntimeError,
-                refs=(name,),
-            )
-
-        projections = [parent_table[column] for column in selected_context]
-        projections.append(field_value.name(field_column_name))
-        preview_table = parent_table.select(*projections)
-        return preview_ibis_table(
-            preview_table,
-            kind="semantic_field",
-            ref=name,
-            limit=limit,
-            sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
-            include_types=include_types,
-        )
-
-    def preview_metric(
-        self,
-        name: str,
-        *,
-        limit: int = PREVIEW_DEFAULT_LIMIT,
-        include_types: bool = True,
-    ) -> PreviewResult:
-        """Return a bounded preview of a semantic metric.
-
-        Metric previews use a pre-aggregate-limit strategy: input datasets
-        are bounded to ``METRIC_PREVIEW_SAMPLE_SIZE`` rows before the
-        metric callable runs, so aggregation never scans the full table.
-        The result is approximate.
-        """
-        factory = self._session_backend_factory()
-        limit = validate_preview_limit(limit)
-        mat = Materializer(self, factory, sample_size=METRIC_PREVIEW_SAMPLE_SIZE)
-        metric_value = mat.metric(name)
-        result = preview_ibis_value(
-            metric_value,
-            kind="semantic_metric",
-            ref=name,
-            limit=limit,
-            column_name="value",
-            sample_policy=PreviewSamplePolicy(method="pre_aggregate_limit", limit=limit),
-            include_types=include_types,
-        )
-        result_with_warning = PreviewResult(
-            kind=result.kind,
-            ref=result.ref,
-            columns=result.columns,
-            types=result.types,
-            rows=result.rows,
-            requested_limit=result.requested_limit,
-            returned_row_count=result.returned_row_count,
-            is_truncated=result.is_truncated,
-            warnings=(
-                *result.warnings,
-                PreviewWarning(
-                    kind="approximate_preview",
-                    message=f"metric computed on {METRIC_PREVIEW_SAMPLE_SIZE} row sample, result is approximate",
-                ),
-            ),
-            sample_policy=result.sample_policy,
-        )
-        return result_with_warning
-
     # -- parity -------------------------------------------------------------
 
     def parity_check(
@@ -927,9 +348,8 @@ class SemanticProject:
         and load warnings forwarding. Use ``refs`` to scope which semantic
         objects to check; by default all loaded objects are checked.
 
-        For runtime validation (previews, parity checks, richness gaps), use
-        the dedicated APIs: ``collect_source_preview()``, ``parity_check()``,
-        and ``richness()``.
+        For runtime validation, use ``catalog.preview(...)``,
+        ``project.parity_check(...)``, and ``project.richness()``.
 
         Args:
             refs: Semantic refs to scope the check. None checks all loaded objects.

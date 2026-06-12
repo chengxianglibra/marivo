@@ -32,6 +32,7 @@ from marivo.semantic.dtos import (
     DimensionBrief,
     DimensionValueFact,
     DomainBrief,
+    DomainBriefSummary,
     EntityBrief,
     FormatCandidate,
     JoinPathFact,
@@ -42,7 +43,7 @@ from marivo.semantic.dtos import (
     TimeDimensionBrief,
     VersioningHints,
 )
-from marivo.semantic.reader import DomainSummary, SemanticProject
+from marivo.semantic.reader import SemanticProject, _require_registry
 
 # Module-level default for ScanScope to avoid B008 function-call-in-default-argument
 _DEFAULT_SCOPE = ScanScope()
@@ -67,18 +68,38 @@ _COMMON_DATE_FORMATS: tuple[tuple[str, str], ...] = (
 
 def prepare_domain(project: SemanticProject, *, name: str) -> DomainBrief:
     """Prepare a domain authoring brief from the project registry."""
-    domains = project.list_domains()
+    reg = _require_registry(project._registry, project=project)
+    domains = sorted(reg.models)
     domain_summaries = tuple(
-        DomainSummary(
-            name=d.name,
-            description=d.description,
-            default=d.default,
-            object_counts=d.object_counts,
+        DomainBriefSummary(
+            name=domain_name,
+            description=reg.models[domain_name].description,
+            default=reg.models[domain_name].default,
+            object_counts={
+                "entity": sum(1 for d in reg.datasets.values() if d.domain == domain_name),
+                "dimension": sum(
+                    1
+                    for f in reg.fields.values()
+                    if f.domain == domain_name and not f.is_time_dimension
+                ),
+                "time_dimension": sum(
+                    1
+                    for f in reg.fields.values()
+                    if f.domain == domain_name and f.is_time_dimension
+                ),
+                "metric": sum(1 for m in reg.metrics.values() if m.domain == domain_name),
+                "datasource": 0,
+                "relationship": sum(
+                    1 for r in reg.relationships.values() if r.domain == domain_name
+                ),
+            },
         )
-        for d in domains.items
+        for domain_name in domains
     )
     matches = tuple(
-        RegisteredMatch(ref=d.name, basis="name_exact") for d in domains.items if d.name == name
+        RegisteredMatch(ref=domain_name, basis="name_exact")
+        for domain_name in domains
+        if domain_name == name
     )
     status: BriefStatus = "needs_input" if matches else "sufficient"
     return DomainBrief(

@@ -83,8 +83,8 @@ def test_analysis_exports_public_surface_by_layer() -> None:
     import marivo.analysis as mv
 
     construction_types = {
-        "MetricRef",
-        "DimensionRef",
+        "SemanticRef",
+        "SemanticObject",
         "CalendarRef",
         "ArtifactRef",
         "TimeScope",
@@ -109,6 +109,14 @@ def test_analysis_exports_public_surface_by_layer() -> None:
     for name in construction_types | core_runtime_result_types | namespaces:
         assert name in mv.__all__, name
         assert hasattr(mv, name), name
+
+
+def test_analysis_no_longer_exports_metric_or_dimension_refs() -> None:
+    import marivo.analysis as mv
+
+    for name in ("Metric" + "Ref", "Dimension" + "Ref"):
+        assert name not in mv.__all__
+        assert not hasattr(mv, name)
 
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:

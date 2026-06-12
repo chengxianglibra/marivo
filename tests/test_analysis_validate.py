@@ -21,7 +21,7 @@ from marivo.analysis.intents._validate import (
 )
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
-from marivo.analysis.refs import CalendarRef, DimensionRef
+from marivo.analysis.refs import CalendarRef
 from marivo.analysis.validation import ValidationIssue
 
 
@@ -230,15 +230,13 @@ def _delta(
 
 def test_validate_decompose_ok_segmented_returns_empty():
     frame = _delta(df=pd.DataFrame({"region": ["n", "s"], "delta": [1.0, 2.0]}))
-    issues = validate_decompose_columns(frame, DimensionRef("region"), source_df=frame.to_pandas())
+    issues = validate_decompose_columns(frame, "region", source_df=frame.to_pandas())
     assert issues == []
 
 
 def test_validate_decompose_axis_column_missing():
     frame = _delta(df=pd.DataFrame({"region": ["n"], "delta": [1.0]}))
-    issues = validate_decompose_columns(
-        frame, DimensionRef("nonexistent"), source_df=frame.to_pandas()
-    )
+    issues = validate_decompose_columns(frame, "nonexistent", source_df=frame.to_pandas())
     assert isinstance(issues[0], SemanticKindMismatchError)
     assert "axis column does not exist" in issues[0].message
     assert issues[0].details["requested_axis"] == "nonexistent"
@@ -246,7 +244,7 @@ def test_validate_decompose_axis_column_missing():
 
 def test_validate_decompose_delta_not_numeric():
     frame = _delta(df=pd.DataFrame({"region": ["n", "s"], "delta": ["x", "y"]}))
-    issues = validate_decompose_columns(frame, DimensionRef("region"), source_df=frame.to_pandas())
+    issues = validate_decompose_columns(frame, "region", source_df=frame.to_pandas())
     assert isinstance(issues[0], SemanticKindMismatchError)
     assert "not numeric" in issues[0].message
 
@@ -263,9 +261,7 @@ def test_validate_decompose_panel_axis_not_a_dimension():
             }
         },
     )
-    issues = validate_decompose_columns(
-        frame, DimensionRef("bucket_start"), source_df=frame.to_pandas()
-    )
+    issues = validate_decompose_columns(frame, "bucket_start", source_df=frame.to_pandas())
     assert isinstance(issues[0], AxisNotInPanelDimensionsError)
     assert issues[0].details["axis"] == "bucket_start"
     assert "region" in issues[0].details["available_dimensions"]

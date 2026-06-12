@@ -82,7 +82,7 @@ def get_or_create(
         >>> session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
     """
     from marivo.analysis.session._runtime import (
-        _compile_backend_factory as _compile,
+        _build_connection_runtime,
     )
     from marivo.analysis.session._runtime import (
         _session_from_row as _from_row,
@@ -92,8 +92,13 @@ def get_or_create(
     )
     from marivo.analysis.session._store import SessionStore as _Store
 
-    factory = _compile(backends, backend_factory, use_datasources=use_datasources)
     store = _Store()
+    connection_runtime = _build_connection_runtime(
+        store.project_root,
+        backends,
+        backend_factory,
+        use_datasources=use_datasources,
+    )
 
     row = store.get_or_insert_session(
         name=name,
@@ -157,7 +162,7 @@ def get_or_create(
     store.set_current_session_id(row["id"])
 
     # Build the live Session object
-    session = _from_row(store, row, factory)
+    session = _from_row(store, row, connection_runtime)
 
     # Set process current
     _set_proc(session)

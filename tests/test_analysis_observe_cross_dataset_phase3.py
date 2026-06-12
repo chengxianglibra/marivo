@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.refs import DimensionRef, MetricRef
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 
 
 @pytest.fixture(autouse=True)
@@ -100,8 +100,8 @@ def test_segmented_observe_aggregate_then_join(tmp_path):
     _seed(con)
 
     frame = observe(
-        MetricRef("sales.gmv_by_category"),
-        dimensions=[DimensionRef("sales.order_items.category")],
+        SemanticRef("sales.gmv_by_category", kind=SemanticKind.METRIC),
+        dimensions=[SemanticRef("sales.order_items.category", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
     df = frame.to_pandas().set_index("category")
@@ -118,10 +118,10 @@ def test_panel_observe_aggregate_then_join(tmp_path):
     _seed(con)
 
     frame = observe(
-        MetricRef("sales.gmv_by_category"),
+        SemanticRef("sales.gmv_by_category", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-05"},
         grain="day",
-        dimensions=[DimensionRef("sales.order_items.category")],
+        dimensions=[SemanticRef("sales.order_items.category", kind=SemanticKind.DIMENSION)],
         session=_session(con),
     )
     df = frame.to_pandas()

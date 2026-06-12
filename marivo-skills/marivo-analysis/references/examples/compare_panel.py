@@ -17,16 +17,16 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
 cur = session.observe(
-    mv.MetricRef(METRIC_ID),
+    session.catalog.get(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="day",
-    dimensions=[mv.DimensionRef("region")],
+    dimensions=[session.catalog.get("sales.orders.region").ref],
 )
 prev = session.observe(
-    mv.MetricRef(METRIC_ID),
+    session.catalog.get(METRIC_ID),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
     grain="day",
-    dimensions=[mv.DimensionRef("region")],
+    dimensions=[session.catalog.get("sales.orders.region").ref],
 )
 delta = session.compare(cur, prev, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 print(delta.summary())

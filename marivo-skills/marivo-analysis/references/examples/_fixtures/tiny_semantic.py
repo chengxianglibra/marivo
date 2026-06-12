@@ -70,7 +70,7 @@ def _session_root() -> Path:
     return _SESSION_ROOT
 
 
-def _bootstrap_semantic_project(root: Path) -> None:
+def _bootstrap_semantic_layer(root: Path) -> None:
     """Write a minimal semantic project to disk so the loader can find it."""
     datasource_dir = root / ".marivo" / "datasource"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -141,7 +141,7 @@ def _backends() -> dict[str, Any]:
 def ensure_loaded(*, default_calendar: str | None = None) -> Any:
     """Register the tiny semantic domain and attach a writable examples session."""
     root = _session_root()
-    _bootstrap_semantic_project(root)
+    _bootstrap_semantic_layer(root)
     with _temporary_cwd(root):
         return mv.session.get_or_create(
             name=SESSION_NAME,

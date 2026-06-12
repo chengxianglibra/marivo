@@ -8,6 +8,7 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
+from marivo.semantic.catalog import SemanticKind, SemanticRef
 from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
@@ -27,12 +28,12 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
     )
 
     cur = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-09-01", "end": "2026-09-30"},
         session=session,
     )
     base = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-08-01", "end": "2026-08-31"},
         session=session,
     )
@@ -69,12 +70,12 @@ def test_e2e_replay_artifact_id_stability(tmp_path) -> None:
         name="t", backends=sales_backends(con), use_datasources=False
     )
     cur = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=session,
     )
     cur2 = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=session,
     )
@@ -89,7 +90,7 @@ def test_e2e_observe_populates_quality_and_confidence_scope(tmp_path) -> None:
     )
 
     cur = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-09-01", "end": "2026-09-30"},
         session=session,
     )
@@ -114,12 +115,12 @@ def test_e2e_compare_populates_quality_and_confidence_scope(tmp_path) -> None:
     )
 
     cur = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-09-01", "end": "2026-09-30"},
         session=session,
     )
     base = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-08-01", "end": "2026-08-31"},
         session=session,
     )
@@ -139,7 +140,7 @@ def test_e2e_observe_time_series_coverage(tmp_path) -> None:
     )
 
     series = observe(
-        mv.MetricRef("sales.revenue"),
+        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         grain="month",
         session=session,

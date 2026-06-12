@@ -8,7 +8,6 @@ import ibis
 import pytest
 
 from marivo.analysis.errors import BackendError, SliceInvalidError, WindowInvalidError
-from marivo.analysis.executor.backend import BackendCache
 from marivo.analysis.executor.runner import (
     ExecutionResult,
     apply_slice_to_dataset,
@@ -16,9 +15,18 @@ from marivo.analysis.executor.runner import (
     apply_window_to_dataset,
     execute,
 )
+from marivo.analysis.session._connections import AnalysisConnectionRuntime
 from marivo.analysis.windows.spec import AbsoluteWindow
 from marivo.datasource import manage as datasource_registry
+from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
+
+
+def _runtime(factory=None) -> AnalysisConnectionRuntime:
+    return AnalysisConnectionRuntime(
+        DatasourceConnectionService(backend_factory=factory, use_datasources=False)
+    )
+
 
 # ---------------------------------------------------------------------------
 # Helper: build a SemanticProject with files on disk so the loader works
@@ -79,11 +87,29 @@ def _build_dataset_adapter(sp: SemanticProject, dataset_semantic_id: str) -> obj
 
     The runner expects dataset_ir.fn(backend), dataset_ir.fields, etc.
     """
-    from marivo.analysis.intents.observe import _build_dataset_adapter as _build
+    from marivo.analysis.intents.observe import _build_entity_adapter
+    from marivo.semantic.catalog import EntityDetails, SemanticCatalog
 
-    dataset_ir = sp.get_entity(dataset_semantic_id)
-    assert dataset_ir is not None, f"Dataset {dataset_semantic_id} not found"
-    return _build(sp, dataset_ir)
+    class _NoConnectionService:
+        def session_backend(self, name: str) -> object:
+            raise RuntimeError(f"runner adapter test must pass backend directly for {name!r}")
+
+    catalog = SemanticCatalog(sp)
+    details = catalog.get(dataset_semantic_id).details()
+    assert isinstance(details, EntityDetails)
+    resolver = catalog._resolver(connections=_NoConnectionService())
+    adapter = _build_entity_adapter(catalog, resolver, details)
+
+    def _source_fn(backend):
+        source = details.source
+        if source.kind == "table":
+            if source.database is None:
+                return backend.table(source.table)
+            return backend.table(source.table, database=source.database)
+        raise RuntimeError(f"Unsupported source kind for test dataset {dataset_semantic_id!r}")
+
+    adapter.fn = _source_fn
+    return adapter
 
 
 def _seed_backend(table_name: str = "orders") -> ibis.duckdb.DuckDBBackend:
@@ -154,7 +180,7 @@ def test_apply_window_dataset_without_time_field_raises(tmp_path):
 def test_execute_returns_dataframe_with_timing():
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1),(2),(3);")
-    cache = BackendCache(lambda name: con)
+    cache = _runtime(lambda name: con)
     result = execute(con.table("t").x.sum(), datasource_name="warehouse", cache=cache)
     assert isinstance(result, ExecutionResult)
     assert result.row_count >= 1
@@ -171,7 +197,7 @@ def test_execute_persists_backend_env_sourced_secrets_once_after_success(
             return 1
 
     backend = FakeBackend()
-    cache = BackendCache(lambda name: backend)
+    cache = _runtime(lambda name: backend)
     monkeypatch.setattr(
         datasource_registry._secrets,
         "persist_backend_env_sourced",
@@ -198,7 +224,7 @@ def test_execute_prefixes_compiled_sql_with_session_comment():
 
     backend = FakeBackend()
     original_compile = backend.compile
-    cache = BackendCache(lambda name: backend)
+    cache = _runtime(lambda name: backend)
 
     execute(object(), datasource_name="warehouse", cache=cache, session_id="sess_abc123")
 
@@ -219,7 +245,7 @@ def test_execute_without_session_id_leaves_compiled_sql_unmodified():
             return 1
 
     backend = FakeBackend()
-    cache = BackendCache(lambda name: backend)
+    cache = _runtime(lambda name: backend)
 
     execute(object(), datasource_name="warehouse", cache=cache)
 
@@ -239,7 +265,7 @@ def test_execute_sanitizes_session_id_in_sql_comment():
             return 1
 
     backend = FakeBackend()
-    cache = BackendCache(lambda name: backend)
+    cache = _runtime(lambda name: backend)
 
     execute(object(), datasource_name="warehouse", cache=cache, session_id="sess_bad*/\nnext")
 
@@ -251,7 +277,7 @@ def test_execute_wraps_backend_errors():
         def execute(self, expr):
             raise RuntimeError("backend exploded")
 
-    cache = BackendCache(lambda name: FakeBackend())
+    cache = _runtime(lambda name: FakeBackend())
     with pytest.raises(BackendError):
         execute(object(), datasource_name="warehouse", cache=cache)
 
@@ -265,7 +291,7 @@ def test_execute_does_not_persist_backend_env_sourced_secrets_after_failure(
         def execute(self, expr):
             raise RuntimeError("backend exploded")
 
-    cache = BackendCache(lambda name: FakeBackend())
+    cache = _runtime(lambda name: FakeBackend())
     monkeypatch.setattr(
         datasource_registry._secrets,
         "persist_backend_env_sourced",
