@@ -74,7 +74,6 @@ def test_all_list_matches_expected() -> None:
         "AuthoringAssessment",
         "AuthoringQuestion",
         "BriefStatus",
-        "ColumnProfile",
         "ComponentFact",
         "CrossEntityMetricBrief",
         "DatasetSource",
