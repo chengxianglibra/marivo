@@ -253,9 +253,13 @@ def _normalize_sample_interval(
         "year": 7,
     }
     if rank[granularity] > rank[unit]:
+        allowed = [g for g, r in sorted(rank.items(), key=lambda kv: kv[1]) if r <= rank[unit]]
+        allowed_list = ", ".join(repr(g) for g in allowed)
         _raise(
             ErrorKind.INVALID_SAMPLE_INTERVAL,
-            "time dimension physical granularity cannot be coarser than sample_interval.",
+            f"time dimension {semantic_id!r}: physical granularity {granularity!r} cannot "
+            f"be coarser than sample_interval unit {unit!r}. Set granularity to {unit!r} or "
+            f"finer (one of: {allowed_list}).",
             refs=(semantic_id,),
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
