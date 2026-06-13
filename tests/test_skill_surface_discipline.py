@@ -98,17 +98,22 @@ def _is_separator_row(cells: list[str]) -> bool:
 
 def _first_column_token(cell: str) -> str:
     stripped = cell.strip()
-    for pattern in (
+    wrapper_patterns = (
         r"`([^`]+)`",
         r"<code>(.*?)</code>",
         r"\[([^\]]+)\]\([^)]+\)",
-        r"\*\*([^*]+)\*\*",
-        r"\*([^*]+)\*",
-        r"__([^_]+)__",
-        r"_([^_]+)_",
-    ):
-        if match := re.match(pattern, stripped):
-            return match.group(1).strip()
+        r"\*\*(.*?)\*\*",
+        r"\*(.*?)\*",
+        r"__(.*?)__",
+        r"_(.*?)_",
+    )
+    previous = None
+    while stripped and stripped != previous:
+        previous = stripped
+        for pattern in wrapper_patterns:
+            if match := re.fullmatch(pattern, stripped):
+                stripped = match.group(1).strip()
+                break
     return re.split(r"\s+-\s+|\s+|\(", stripped.strip("` "), maxsplit=1)[0].strip("` ")
 
 
@@ -277,6 +282,40 @@ def test_table_detector_handles_no_leading_pipe_and_decorated_tokens() -> None:
         len(tokens & _public_error_catalog_tokens()) >= _ERROR_MATCH_THRESHOLD for tokens in tables
     )
     assert hit
+
+
+def test_table_detector_unwraps_linked_code_tokens() -> None:
+    text = (
+        "Token | Recovery\n"
+        "--- | ---\n"
+        "[`MetricNotFoundError`](#x) | Load metric metadata\n"
+        "[<code>component-axis-unreachable</code>](#x) | Check dimensions\n"
+    )
+    tables = _table_first_column_tokens(text)
+    assert tables == [
+        {
+            "Token",
+            "MetricNotFoundError",
+            "component-axis-unreachable",
+        }
+    ]
+
+
+def test_table_detector_unwraps_emphasized_code_tokens() -> None:
+    text = (
+        "Token | Recovery\n"
+        "--- | ---\n"
+        "**`MetricNotFoundError`** | Load metric metadata\n"
+        "*<code>component-axis-unreachable</code>* | Check dimensions\n"
+    )
+    tables = _table_first_column_tokens(text)
+    assert tables == [
+        {
+            "Token",
+            "MetricNotFoundError",
+            "component-axis-unreachable",
+        }
+    ]
 
 
 def test_table_detector_preserves_bare_hyphenated_error_codes() -> None:
