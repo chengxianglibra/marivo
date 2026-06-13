@@ -198,6 +198,18 @@ def test_authoring_assessment_is_frozen():
 # ---------------------------------------------------------------------------
 
 
+_BRIEF_NAMES = [
+    "DomainBrief",
+    "EntityBrief",
+    "DimensionBrief",
+    "TimeDimensionBrief",
+    "MetricBrief",
+    "RelationshipBrief",
+    "CrossEntityMetricBrief",
+    "DerivedMetricBrief",
+]
+
+
 def test_brief_status_replaces_review_status_for_stepwise_authoring() -> None:
     from marivo.semantic.dtos import BriefStatus
 
@@ -209,18 +221,8 @@ def test_every_brief_field_has_a_description() -> None:
 
     import marivo.semantic as ms
 
-    brief_names = [
-        "DomainBrief",
-        "EntityBrief",
-        "DimensionBrief",
-        "TimeDimensionBrief",
-        "MetricBrief",
-        "RelationshipBrief",
-        "CrossEntityMetricBrief",
-        "DerivedMetricBrief",
-    ]
     missing: list[str] = []
-    for name in brief_names:
+    for name in _BRIEF_NAMES:
         cls = getattr(ms, name)
         for f in dataclasses.fields(cls):
             if not f.metadata.get("description"):
@@ -229,14 +231,24 @@ def test_every_brief_field_has_a_description() -> None:
 
 
 def test_help_emits_brief_field_descriptions() -> None:
+    import dataclasses
+
+    import marivo.semantic as ms
     from marivo.introspection.surface import render
     from marivo.semantic.help import _surface
 
-    data = render(_surface(), "EntityBrief", "json")
+    for name in _BRIEF_NAMES:
+        cls = getattr(ms, name)
+        data = render(_surface(), name, "json")
+        fields = {f["name"]: f for f in data.get("fields", [])}
+        missing = [
+            f.name for f in dataclasses.fields(cls) if not fields.get(f.name, {}).get("description")
+        ]
+        assert not missing, f"Help fields without a description for {name}: {missing}"
+
+    data = render(_surface(), "CrossEntityMetricBrief", "json")
     fields = {f["name"]: f for f in data.get("fields", [])}
-    assert fields["status"].get("description")
-    assert fields["datasource"].get("description")
-    assert fields["scan"].get("description")
+    assert fields["entities"]["description"] == "Target entity refs to join from the root entity."
 
 
 def test_registered_match_is_explainable_not_fuzzy() -> None:
