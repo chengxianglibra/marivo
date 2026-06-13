@@ -98,8 +98,17 @@ def _is_separator_row(cells: list[str]) -> bool:
 
 def _first_column_token(cell: str) -> str:
     stripped = cell.strip()
-    if match := re.match(r"`([^`]+)`", stripped):
-        return match.group(1).strip()
+    for pattern in (
+        r"`([^`]+)`",
+        r"<code>(.*?)</code>",
+        r"\[([^\]]+)\]\([^)]+\)",
+        r"\*\*([^*]+)\*\*",
+        r"\*([^*]+)\*",
+        r"__([^_]+)__",
+        r"_([^_]+)_",
+    ):
+        if match := re.match(pattern, stripped):
+            return match.group(1).strip()
     return re.split(r"\s+-\s+|\s+|\(", stripped.strip("` "), maxsplit=1)[0].strip("` ")
 
 
@@ -243,9 +252,31 @@ def test_table_detector_handles_no_leading_pipe_and_decorated_tokens() -> None:
         "--- | ---\n"
         "`status` (required) | str\n"
         "`MetricNotFoundError` - observe failure | str\n"
+        "**SemanticKindMismatchError** | str\n"
+        "*WindowInvalidError* | str\n"
+        "__TimezoneInvalidError__ | str\n"
+        "_DataTypeMismatchError_ | str\n"
+        "[component-axis-unreachable](#x) | str\n"
+        "<code>nested-derived-unsupported</code> | str\n"
     )
     tables = _table_first_column_tokens(text)
-    assert tables == [{"Field", "status", "MetricNotFoundError"}]
+    assert tables == [
+        {
+            "Field",
+            "status",
+            "MetricNotFoundError",
+            "SemanticKindMismatchError",
+            "WindowInvalidError",
+            "TimezoneInvalidError",
+            "DataTypeMismatchError",
+            "component-axis-unreachable",
+            "nested-derived-unsupported",
+        }
+    ]
+    hit = any(
+        len(tokens & _public_error_catalog_tokens()) >= _ERROR_MATCH_THRESHOLD for tokens in tables
+    )
+    assert hit
 
 
 def test_table_detector_preserves_bare_hyphenated_error_codes() -> None:
