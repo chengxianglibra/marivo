@@ -859,8 +859,13 @@ authoring surface, and the decision ledger.
 
 ## Documentation, Help, and Typing Impact
 
-- New public functions carry full docstrings (purpose, parameters, return,
-  example, constraints) and concrete types — no `Any`, no ambiguous unions.
+- New public functions carry full function documentation/docstrings as
+  appropriate (purpose, parameters, return, example, constraints) and concrete
+  types — no `Any`, no ambiguous unions.
+- Public Brief dataclass fields carry glosses in
+  `field(metadata={"description": ...})`; `describe()` reads that metadata and
+  `ms.help('<Brief>')` renders it, so Brief field contracts do not live in
+  function docstrings.
 - `ms.help` / `describe` cover every new public symbol (`prepare_metric`,
   `ScanScope`, `verify_object`, each Brief, …).
 - `agent-guide.md` is unaffected (repository-wide rules unchanged).
