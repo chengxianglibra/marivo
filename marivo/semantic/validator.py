@@ -792,20 +792,18 @@ def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]
             )
             continue
         if metric_ir.fold_time_dimension is None:
-            if len(sampled_fields) == 1:
-                object.__setattr__(metric_ir, "fold_time_dimension", sampled_fields[0].semantic_id)
-            else:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.AMBIGUOUS_FOLD_TIME_DIMENSION,
-                        message=f"Metric {metric_id!r} must declare fold_time_dimension because multiple sampled axes exist.",
-                        refs=(metric_id,),
-                        details={
-                            "metric": metric_id,
-                            "sampled_time_dimensions": [f.semantic_id for f in sampled_fields],
-                        },
-                    )
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.MISSING_FOLD_TIME_DIMENSION,
+                    message=f"Metric {metric_id!r} with time_fold must declare fold_time_dimension.",
+                    refs=(metric_id,),
+                    constraint_id=ConstraintId.FOLD_TIME_DIMENSION_REQUIRED,
+                    details={
+                        "metric": metric_id,
+                        "sampled_time_dimensions": [f.semantic_id for f in sampled_fields],
+                    },
                 )
+            )
             continue
         matching = [
             field for field in sampled_fields if field.semantic_id == metric_ir.fold_time_dimension

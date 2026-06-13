@@ -86,6 +86,7 @@ class ConstraintId(StrEnum):
     TIME_FOLD_SEMI_ADDITIVE = "time_fold_requires_semi_additive"
     TIME_FOLD_SAMPLED_TIME_FIELD = "time_fold_requires_sampled_time_field"
     TIME_FOLD_MISSING = "missing_time_fold"
+    FOLD_TIME_DIMENSION_REQUIRED = "fold_time_dimension_required"
     FOLD_TIME_DIMENSION_INVALID = "invalid_fold_time_dimension"
 
 
@@ -715,6 +716,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Semi-additive metrics on sampled entities must declare a time_fold.",
         "Without a fold, sampled semi-additive metrics would double-count intra-day observations.",
         "Add time_fold='mean' (or another fold kind) to the metric declaration.",
+    ),
+    ConstraintId.FOLD_TIME_DIMENSION_REQUIRED: _constraint(
+        ConstraintId.FOLD_TIME_DIMENSION_REQUIRED,
+        "missing_fold_time_dimension",
+        "assembly",
+        ("metric",),
+        "Semi-additive metrics with time_fold must declare fold_time_dimension.",
+        "The fold operation must bind to the sampled time axis used for filtering, sample points, and buckets.",
+        "Set fold_time_dimension to a sampled time dimension on the metric root entity.",
     ),
     ConstraintId.FOLD_TIME_DIMENSION_INVALID: _constraint(
         ConstraintId.FOLD_TIME_DIMENSION_INVALID,

@@ -580,7 +580,7 @@ def upstream_bw(bw_samples):
     return bw_samples.upstream_kbps.sum()
 ```
 
-The metric body expresses the spatial aggregate inside one sample point. `time_fold` expresses how the sample-point series is reduced to the requested observe grain. P95-style folds use `time_fold=("quantile", 0.95)` and are always recomputed from base samples for the requested grain.
+The metric body expresses the spatial aggregate inside one sample point. `time_fold` expresses how the sample-point series is reduced to the requested observe grain. `fold_time_dimension` is required and binds the sampled axis used for filtering, sample points, and buckets. P95-style folds use `time_fold=("quantile", 0.95)` and are always recomputed from base samples for the requested grain.
 
 ### Relationship
 
