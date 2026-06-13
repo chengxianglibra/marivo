@@ -11,11 +11,17 @@ See docs/superpowers/specs/2026-06-13-skill-library-surface-coordination-design.
 from __future__ import annotations
 
 import dataclasses
+import inspect
+import re
 from pathlib import Path
+from types import ModuleType
 
 import marivo.analysis as ma
+import marivo.analysis.errors as analysis_errors
 import marivo.datasource as md
+import marivo.datasource.errors as datasource_errors
 import marivo.semantic as ms
+import marivo.semantic.errors as semantic_errors
 
 _SKILLS_ROOT = Path(__file__).resolve().parent.parent / "marivo-skills"
 
@@ -47,43 +53,74 @@ def _public_dataclasses() -> dict[str, frozenset[str]]:
 
 
 def _public_error_names() -> frozenset[str]:
-    errors_mod = getattr(ma, "errors", None)
     names: set[str] = set()
-    for module in (errors_mod, getattr(ms, "errors", None), getattr(md, "errors", None)):
-        if module is None:
-            continue
-        for symbol in getattr(module, "__all__", ()):
-            if symbol.endswith("Error"):
-                names.add(symbol)
+    for module in (analysis_errors, semantic_errors, datasource_errors):
+        names.update(_public_exception_names(module))
     return frozenset(names)
+
+
+def _public_exception_names(module: ModuleType) -> set[str]:
+    names: set[str] = set()
+    for symbol, obj in inspect.getmembers(module, inspect.isclass):
+        if symbol.startswith("_"):
+            continue
+        if issubclass(obj, Exception) and (
+            symbol.endswith("Error") or obj.__module__ == module.__name__
+        ):
+            names.add(symbol)
+    return names
+
+
+def _table_cells(stripped_line: str) -> list[str] | None:
+    if "|" not in stripped_line:
+        return None
+    cells = [c.strip() for c in stripped_line.strip("|").split("|")]
+    if len(cells) < 2:
+        return None
+    return cells
+
+
+def _is_separator_row(cells: list[str]) -> bool:
+    return all(cell and set(cell) <= {"-", ":"} for cell in cells)
+
+
+def _first_column_token(cell: str) -> str:
+    stripped = cell.strip()
+    if match := re.match(r"`([^`]+)`", stripped):
+        return match.group(1).strip()
+    return re.split(r"\s+|\s*-\s*|\(", stripped.strip("` "), maxsplit=1)[0].strip("` ")
 
 
 def _table_first_column_tokens(text: str) -> list[set[str]]:
     """Return, per contiguous markdown table, the set of first-column tokens.
 
     A first-column token is the first ``|``-delimited cell, stripped of code
-    backticks and surrounding whitespace. Separator rows (---) are skipped.
+    backticks, common decorations, and surrounding whitespace. Separator rows
+    (---) are skipped.
     """
 
     tables: list[set[str]] = []
     current: set[str] | None = None
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
         stripped = line.strip()
-        if stripped.startswith("|"):
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
-            if not cells:
-                continue
-            first = cells[0].strip("` ").strip()
-            if set(first) <= {"-", ":"}:  # separator row
-                continue
-            if current is None:
-                current = set()
-            if first:
-                current.add(first)
-        else:
+        cells = _table_cells(stripped)
+        if cells is None:
             if current is not None:
                 tables.append(current)
                 current = None
+            continue
+        if current is None and not stripped.startswith("|"):
+            next_cells = _table_cells(lines[index + 1].strip()) if index + 1 < len(lines) else None
+            if next_cells is None or not _is_separator_row(next_cells):
+                continue
+        first = _first_column_token(cells[0])
+        if _is_separator_row(cells):
+            continue
+        if current is None:
+            current = set()
+        if first:
+            current.add(first)
     if current is not None:
         tables.append(current)
     return tables
@@ -154,6 +191,10 @@ def test_brief_fields_carry_descriptions_for_help() -> None:
 # --- Detector unit tests: prove the heuristics actually catch transcription ---
 
 
+def test_public_error_names_discovers_analysis_errors_without_all() -> None:
+    assert "SemanticKindMismatchError" in _public_error_names()
+
+
 def test_field_table_detector_flags_transcription() -> None:
     field_map = {"WidgetBrief": frozenset({"alpha", "beta", "gamma", "delta"})}
     text = (
@@ -175,3 +216,36 @@ def test_field_table_detector_ignores_unrelated_table() -> None:
     tables = _table_first_column_tokens(text)
     hit = any(len(tokens & field_map["WidgetBrief"]) >= _FIELD_MATCH_THRESHOLD for tokens in tables)
     assert not hit
+
+
+def test_table_detector_handles_no_leading_pipe_and_decorated_tokens() -> None:
+    text = (
+        "Field | Type\n"
+        "--- | ---\n"
+        "`status` (required) | str\n"
+        "`MetricNotFoundError` - observe failure | str\n"
+    )
+    tables = _table_first_column_tokens(text)
+    assert tables == [{"Field", "status", "MetricNotFoundError"}]
+
+
+def test_error_catalog_detector_flags_transcription() -> None:
+    error_names = frozenset(
+        {
+            "AlphaError",
+            "BetaError",
+            "GammaError",
+            "DeltaError",
+        }
+    )
+    text = (
+        "Error | Recovery\n"
+        "--- | ---\n"
+        "AlphaError | Fix alpha\n"
+        "BetaError | Fix beta\n"
+        "GammaError | Fix gamma\n"
+        "DeltaError | Fix delta\n"
+    )
+    tables = _table_first_column_tokens(text)
+    hit = any(len(tokens & error_names) >= _ERROR_MATCH_THRESHOLD for tokens in tables)
+    assert hit

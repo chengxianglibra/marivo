@@ -50,12 +50,10 @@ columns = md.inspect_columns("warehouse", md.table("orders"), columns=("status",
 When the agent cannot answer a question from documented project knowledge, ask
 the user through the question tool:
 
-| `AuthoringQuestion` field | User question field |
-| --- | --- |
-| `prompt` + `reason` | question body |
-| `decision_kind` | header (mapped to a short label) |
-| `options` | options (top 4 by evidence support; remainder via free-text) |
-| `default_option` | listed first, marked recommended |
+Use `ms.help('AuthoringQuestion')` for the field contract. For the question
+tool, combine the prompt and reason into the question body, map the decision
+kind to a short header, offer the top evidence-supported options plus free
+text, and list the default option first as recommended.
 
 Questions with `readiness_effect="blocks"` must be resolved before authoring.
 Advisory questions may proceed on defaults.
