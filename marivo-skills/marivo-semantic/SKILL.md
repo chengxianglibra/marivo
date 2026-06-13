@@ -59,7 +59,7 @@ implementation expressions, or debug authoring behavior.
 | Need | Read |
 | --- | --- |
 | End-to-end ladder workflow | `references/workflow.md` |
-| Per-kind Brief fields and actions | `references/object-briefs.md` |
+| Brief status actions and ladder order | `references/object-briefs.md` |
 | Datasource inspection and ScanScope | `references/datasource.md` |
 | Evidence, ledger, abandon protocol | `references/evidence-and-ledger.md` |
 | Readiness closeout | `references/closeout.md` |
