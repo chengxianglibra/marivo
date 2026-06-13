@@ -114,7 +114,7 @@ def _first_column_token(cell: str) -> str:
             if match := re.fullmatch(pattern, stripped):
                 stripped = match.group(1).strip()
                 break
-    return re.split(r"\s+-\s+|\s+|\(", stripped.strip("` "), maxsplit=1)[0].strip("` ")
+    return re.split(r"\s+-\s+|:\s+|\s+|\(", stripped.strip("` "), maxsplit=1)[0].strip("` ")
 
 
 def _table_first_column_tokens(text: str) -> list[set[str]]:
@@ -152,6 +152,29 @@ def _table_first_column_tokens(text: str) -> list[set[str]]:
     return tables
 
 
+def _bullet_list_tokens(text: str) -> list[set[str]]:
+    """Return, per contiguous markdown bullet list, normalized leading tokens."""
+
+    lists: list[set[str]] = []
+    current: set[str] | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        match = re.match(r"[-*]\s+(.+)", stripped)
+        if match is None:
+            if current is not None:
+                lists.append(current)
+                current = None
+            continue
+        first = _first_column_token(match.group(1))
+        if current is None:
+            current = set()
+        if first:
+            current.add(first)
+    if current is not None:
+        lists.append(current)
+    return lists
+
+
 def test_no_public_dataclass_field_tables_in_skills() -> None:
     field_map = _public_dataclasses()
     violations: list[str] = []
@@ -172,8 +195,8 @@ def test_no_public_dataclass_field_tables_in_skills() -> None:
 
 
 def test_no_error_catalog_in_skills() -> None:
-    # Target catalog *tables* keyed by error name or structured code, not prose
-    # that names errors during recovery guidance (pitfalls.md legitimately
+    # Target catalog tables/lists keyed by error name or structured code, not
+    # prose that names errors during recovery guidance (pitfalls.md legitimately
     # discusses errors).
     error_tokens = _public_error_catalog_tokens()
     assert error_tokens, "expected to discover public error names/codes from the surfaces"
@@ -182,12 +205,13 @@ def test_no_error_catalog_in_skills() -> None:
         rel = str(path.relative_to(_SKILLS_ROOT))
         if (rel, "ERROR_CATALOG") in _ALLOWLIST:
             continue
-        tables = _table_first_column_tokens(path.read_text(encoding="utf-8"))
-        for tokens in tables:
+        text = path.read_text(encoding="utf-8")
+        groups = _table_first_column_tokens(text) + _bullet_list_tokens(text)
+        for tokens in groups:
             present = tokens & error_tokens
             if len(present) >= _ERROR_MATCH_THRESHOLD:
                 violations.append(
-                    f"{rel}: a table catalogs {len(present)} public error tokens "
+                    f"{rel}: a table/list catalogs {len(present)} public error tokens "
                     f"({sorted(present)}) -- structured errors teach the fix at raise "
                     f"time; do not catalog them in a table"
                 )
@@ -363,5 +387,19 @@ def test_error_code_catalog_detector_flags_transcription() -> None:
     tables = _table_first_column_tokens(text)
     hit = any(
         len(tokens & _public_error_catalog_tokens()) >= _ERROR_MATCH_THRESHOLD for tokens in tables
+    )
+    assert hit
+
+
+def test_error_code_bullet_list_detector_flags_transcription() -> None:
+    text = (
+        "- `component-axis-unreachable`: Check dimensions\n"
+        "- `component-filter-unreachable`: Check filters\n"
+        "- `component-version-mismatch`: Check versions\n"
+        "- `nested-derived-unsupported`: Flatten metric\n"
+    )
+    lists = _bullet_list_tokens(text)
+    hit = any(
+        len(tokens & _public_error_catalog_tokens()) >= _ERROR_MATCH_THRESHOLD for tokens in lists
     )
     assert hit
