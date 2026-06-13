@@ -32,16 +32,20 @@ mv.help('MetricFrame.components')        # method signature and doc
 
 ## Frame Flow
 
-| Frame | Created by | Valid next step |
-| --- | --- | --- |
-| `MetricFrame` | `session.observe`, `session.promote_metric_frame` for validated scratch re-entry | `session.compare`, `session.discover.<objective>`, `session.correlate` |
-| `DeltaFrame` | `session.compare` | `session.decompose` |
-| `CandidateSet` | `session.discover.<objective>` | `candidates.select(...)` to pull a typed field; otherwise terminal. Inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `AssociationResult` | `session.correlate` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `HypothesisTestResult` | `session.hypothesis_test` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `ForecastFrame` | `session.forecast` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `QualityReport` | `session.assess_quality` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
-| `AttributionFrame` | `session.decompose` | Usually terminal; inspect with `.summary()`, `.preview(limit=...)`, or `.to_pandas()` |
+| Frame | Created by |
+| --- | --- |
+| `MetricFrame` | `session.observe`, `session.promote_metric_frame` for validated scratch re-entry |
+| `DeltaFrame` | `session.compare` |
+| `CandidateSet` | `session.discover.<objective>` |
+| `AssociationResult` | `session.correlate` |
+| `HypothesisTestResult` | `session.hypothesis_test` |
+| `ForecastFrame` | `session.forecast` |
+| `QualityReport` | `session.assess_quality` |
+| `AttributionFrame` | `session.decompose` |
+
+For the valid next step from any frame, read `next_intents` via
+`mv.help('<Frame>')` (e.g. `mv.help('DeltaFrame')`). Inspect any frame with
+`.summary()`, `.preview(limit=n)`, or `.to_pandas()`.
 
 Frames are immutable. Use `frame.summary()` for a cheap read,
 `frame.preview(limit=n)` for a bounded row projection, and
