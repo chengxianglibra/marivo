@@ -257,32 +257,14 @@ promoted = session.promote_metric_frame(scratch, metric=session.catalog.get("sal
 ## Cross-dataset observe
 
 For cross-dataset base metrics, use the normal `session.observe(...)` surface.
-Do not pass join policy or route arguments. If planning fails, read the
-structured repair error (`schema_version`, `code`, `candidates`, `repair`).
+Do not pass join policy or route arguments.
 
-For derived metrics (ratio, weighted-average), each component is planned
-independently. Derived dispatch enforces comparability across components.
-If a derived observe fails, the repair code identifies which component and
-which check failed:
-
-- `component-axis-unreachable`: a parent dimension is reachable from one
-  component but not another. Make every component reach the dimension or
-  drop it.
-- `component-axis-field-mismatch`: components resolve the same dimension
-  to different semantic field ids. Conform the dimension on a single field.
-- `component-filter-unreachable`: a parent `where` filter is reachable from
-  one component but not another. Make every component reach the field or
-  drop the filter.
-- `component-filter-field-mismatch`: components resolve the same filter
-  key to different semantic field ids.
-- `component-version-mismatch`: a versioned dataset has different mode,
-  anchor, partition, or mapping digest across components. Make every
-  component pin the same version.
-- `snapshot-partition-missing`: at least one root anchor has no `p <=
-  anchor` partition. Either widen `timescope` so available partitions
-  cover all anchors, or backfill missing partitions.
-- `nested-derived-unsupported`: a derived component is itself derived.
-  Replace it with its base components.
+Derived metrics (ratio, weighted-average) plan each component independently and
+enforce comparability across components. When planning fails, the raised error
+is the contract: read its structured fields (`schema_version`, `code`,
+`candidates`, `repair`) and apply the `repair` instruction. The `code`
+identifies which component and which check failed; do not rely on a transcribed
+list here — the error text is authoritative and current.
 
 ## Standard workflow
 
@@ -368,27 +350,9 @@ for followup in delta.meta.recommended_followups:
 - `references/upload-html-report.md` — `marivo-upload-report` command for S3 publishing
 - `../marivo-semantic/references/datasource.md` — datasource definition
 
-## Error → example reference
+## On error
 
-When an intent raises one of the structured errors below, open the listed
-example to see the correct pattern.
-
-| Error kind | What it means | See |
-|---|---|---|
-| `MetricNotFound` | Unknown metric id, missing `<model>.<metric>`, or semantic project not loaded | `references/examples/01_observe_single_window.py` |
-| Wrong Python environment | `marivo` import is missing because the system interpreter was used | `references/pitfalls.md` (Wrong Python environment) |
-| `SemanticKindMismatch` (compare) | Passed a `DeltaFrame` where a `MetricFrame` was expected | `references/examples/99_pitfall_pass_delta_to_compare.py` |
-| `SegmentDimensionMismatch` | `compare` got two `segmented` frames with different segment columns | `references/examples/compare_segmented.py` |
-| `PanelGrainMismatch` | `compare` got two `panel` frames with different time grain | `references/examples/compare_panel.py` |
-| `AlignmentPolicyNotApplicable` | Alignment kind not allowed for the frame's semantic kind | `references/examples/compare_segmented.py` |
-| `CrossSessionFrame` | A frame was produced in another session; return to the original task session | `references/examples/session_timezone.py`, `references/pitfalls.md` |
-| `FrameRefNotFound` | No persisted frame with this ref in the current session; check `session.frame_summaries()` for available refs | `references/examples/session_frame_recovery.py` |
-| `AxisNotInPanelDimensions` | `decompose(axis=...)` axis is not a segment column of the panel | `references/examples/03_decompose_attribution.py` |
-| `ForecastShapeUnsupported` / `ForecastInsufficientHistory` | Bad shape, NaN values, or too little history | `references/examples/06_forecast_horizon.py` |
-| `TestPolicyError` / `TestShapeNotTestable` | Unsupported hypothesis, bad alpha, or scalar frame | `references/examples/05_test_hypothesis.py` |
-| `QualityShapeUnsupported` | Passed a non-MetricFrame to `assess_quality` | `references/examples/07_assess_metric_quality.py` |
-| `SemanticKindMismatch` (discover missing `search_space`) | `driver_axes` objective without a `search_space` | `references/examples/08_discover_driver_axes.py` |
-| `TransformOpUnsupported` / `TransformArgError` | Unknown op or missing op-specific kwargs | `references/examples/transform_slice.py`, `transform_rollup_panel.py` |
-| `WindowInvalid` | Malformed timescope/window dict | `references/examples/observe_timescope.py` |
-| `NoBackendFactory` | No usable project datasource or explicit backend override | `references/backend-setup.md` |
-| `FrameMutation` | Tried to mutate a frame in place | `references/pitfalls.md` (Mutating a frame directly) |
+Errors are structured and teach the fix at raise time: read `schema_version`,
+`code`/`kind`, the available ids (`candidates`), and the `repair`/fix snippet,
+then apply it. For worked recovery patterns see `references/pitfalls.md`; for the
+runnable shape of any intent see the matching `references/examples/NN_*.py`.
