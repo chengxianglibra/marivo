@@ -531,6 +531,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "time_fold_requires_semi_additive",
     "time_fold_requires_sampled_time_field",
     "missing_time_fold",
+    "missing_semi_additive_time_axis",
     "missing_fold_time_dimension",
     "ambiguous_fold_time_dimension",
     "invalid_fold_time_dimension",

@@ -35,6 +35,7 @@ from marivo.semantic.ir import (
     ProvenanceIR,
     RelationshipIR,
     SampleIntervalIR,
+    SnapshotVersioningIR,
     SourceLocation,
     TableSourceIR,
     TimeFoldIR,
@@ -1250,3 +1251,63 @@ def test_metric_time_fold_requires_explicit_fold_time_dimension() -> None:
 
     errors, _warnings = assembly_validate(registry)
     assert [err.kind for err in errors] == [ErrorKind.MISSING_FOLD_TIME_DIMENSION]
+
+
+def test_non_sampled_semi_additive_metric_requires_time_axis() -> None:
+    registry = _make_registry()
+    registry.metrics["sales.inventory"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.inventory",
+        name="inventory",
+        additivity="semi_additive",
+        time_fold=None,
+    )
+
+    errors, _warnings = assembly_validate(registry)
+
+    assert [err.kind for err in errors] == [ErrorKind.MISSING_SEMI_ADDITIVE_TIME_AXIS]
+
+
+def test_non_sampled_semi_additive_metric_accepts_entity_versioning() -> None:
+    registry = _make_registry()
+    registry.datasets["sales.orders"] = dataclasses.replace(
+        registry.datasets["sales.orders"],
+        primary_key=("order_date",),
+        versioning=SnapshotVersioningIR(
+            kind="snapshot",
+            partition_field="order_date",
+            grain="day",
+            timezone="UTC",
+            format="%Y-%m-%d",
+        ),
+    )
+    registry.metrics["sales.inventory"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.inventory",
+        name="inventory",
+        additivity="semi_additive",
+        time_fold=None,
+    )
+
+    errors, _warnings = assembly_validate(registry)
+
+    assert errors == []
+
+
+def test_non_sampled_semi_additive_metric_accepts_default_time_dimension() -> None:
+    registry = _make_registry()
+    registry.fields["sales.orders.order_date"] = dataclasses.replace(
+        registry.fields["sales.orders.order_date"],
+        is_default=True,
+    )
+    registry.metrics["sales.inventory"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.inventory",
+        name="inventory",
+        additivity="semi_additive",
+        time_fold=None,
+    )
+
+    errors, _warnings = assembly_validate(registry)
+
+    assert errors == []

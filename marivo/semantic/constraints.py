@@ -86,6 +86,7 @@ class ConstraintId(StrEnum):
     TIME_FOLD_SEMI_ADDITIVE = "time_fold_requires_semi_additive"
     TIME_FOLD_SAMPLED_TIME_FIELD = "time_fold_requires_sampled_time_field"
     TIME_FOLD_MISSING = "missing_time_fold"
+    SEMI_ADDITIVE_TIME_AXIS_REQUIRED = "semi_additive_time_axis_required"
     FOLD_TIME_DIMENSION_REQUIRED = "fold_time_dimension_required"
     FOLD_TIME_DIMENSION_INVALID = "invalid_fold_time_dimension"
 
@@ -716,6 +717,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Semi-additive metrics on sampled entities must declare a time_fold.",
         "Without a fold, sampled semi-additive metrics would double-count intra-day observations.",
         "Add time_fold='mean' (or another fold kind) to the metric declaration.",
+    ),
+    ConstraintId.SEMI_ADDITIVE_TIME_AXIS_REQUIRED: _constraint(
+        ConstraintId.SEMI_ADDITIVE_TIME_AXIS_REQUIRED,
+        "missing_semi_additive_time_axis",
+        "assembly",
+        ("metric",),
+        "Non-sampled semi-additive metrics must declare snapshot or time-axis semantics.",
+        "Semi-additive metrics need an explicit time context: sampled sequences use sample_interval with time_fold and fold_time_dimension; snapshot/status facts use entity versioning or a default time dimension.",
+        "Add versioning=ms.snapshot(...)/ms.validity(...) on the root entity, mark one root time dimension is_default=True, or model the metric as a sampled fold.",
     ),
     ConstraintId.FOLD_TIME_DIMENSION_REQUIRED: _constraint(
         ConstraintId.FOLD_TIME_DIMENSION_REQUIRED,

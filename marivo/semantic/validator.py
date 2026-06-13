@@ -735,6 +735,15 @@ def _sampled_time_fields_for_entity(registry: Registry, entity_id: str) -> list[
     ]
 
 
+def _has_default_time_dimension(registry: Registry, entity_id: str) -> bool:
+    return any(
+        field.entity == entity_id
+        and field.is_time_dimension
+        and getattr(field, "is_default", False)
+        for field in registry.fields.values()
+    )
+
+
 def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]) -> None:
     for metric_id, metric_ir in registry.metrics.items():
         root = metric_ir.root_entity or (
@@ -779,6 +788,28 @@ def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]
                 )
             )
             continue
+        if (
+            metric_ir.additivity == "semi_additive"
+            and not sampled_fields
+            and metric_ir.time_fold is None
+            and root is not None
+            and root in registry.datasets
+        ):
+            root_entity = registry.datasets[root]
+            if root_entity.versioning is None and not _has_default_time_dimension(registry, root):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.MISSING_SEMI_ADDITIVE_TIME_AXIS,
+                        message=(
+                            f"Non-sampled semi-additive metric {metric_id!r} must declare "
+                            "snapshot or time-axis semantics on its root entity."
+                        ),
+                        refs=(metric_id, root),
+                        constraint_id=ConstraintId.SEMI_ADDITIVE_TIME_AXIS_REQUIRED,
+                        details={"metric": metric_id, "root_entity": root},
+                    )
+                )
+                continue
         if metric_ir.time_fold is None:
             continue
         if not sampled_fields:

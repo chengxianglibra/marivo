@@ -387,3 +387,45 @@ Rules:
 - `time_fold` is a metric definition choice, not an observe parameter.
 - P95-style folds use `time_fold=("quantile", 0.95)` and are always
   recomputed from base samples for the requested grain.
+- Do not author bare `additivity="semi_additive"`. If the metric is not a
+  sampled fold, declare root entity `versioning=ms.snapshot(...)` /
+  `ms.validity(...)` or mark one root time dimension with `is_default=True`.
+
+For already-summarized snapshot/status facts such as daily inventory, omit
+`time_fold` and bind the time semantics through entity versioning or a default
+time dimension:
+
+```python
+inventory_daily = ms.entity(
+    name="inventory_daily",
+    datasource=warehouse,
+    source=ms.table("inventory_daily"),
+    primary_key=["sku_id", "warehouse_id", "dt"],
+    versioning=ms.snapshot(
+        partition_field="dt",
+        grain="day",
+        timezone="UTC",
+        format="%Y%m%d",
+    ),
+)
+
+@ms.time_dimension(
+    entity=inventory_daily,
+    name="snapshot_date",
+    data_type="string",
+    granularity="day",
+    date_format="%Y%m%d",
+    is_default=True,
+)
+def snapshot_date(inventory_daily):
+    return inventory_daily.dt
+
+@ms.metric(
+    entities=[inventory_daily],
+    additivity="semi_additive",
+    decomposition=ms.sum(),
+    verification_mode="python_native",
+)
+def on_hand_units(inventory_daily):
+    return inventory_daily.on_hand_units.sum()
+```
