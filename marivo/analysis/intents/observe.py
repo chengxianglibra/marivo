@@ -310,7 +310,7 @@ def _add_fold_metadata_to_component_df(
     """Transform wide-format component df to long format with fold metadata columns.
 
     Each component role becomes a separate row with component_metric_id, time_fold,
-    and fold_time_dimension columns.
+    and status_time_dimension columns.
     """
     pandas = __import__("pandas")
     role_columns = _component_parent_columns(metric_ir)
@@ -326,7 +326,7 @@ def _add_fold_metadata_to_component_df(
                 if getattr(cp.component_metric_ir, "time_fold", None)
                 else None
             ),
-            "fold_time_dimension": getattr(cp.component_metric_ir, "fold_time_dimension", None),
+            "status_time_dimension": getattr(cp.component_metric_ir, "status_time_dimension", None),
         }
     # Melt the wide-format df into long format
     long_frames: list[Any] = []
@@ -336,14 +336,14 @@ def _add_fold_metadata_to_component_df(
             {
                 "component_metric_id": col_name,
                 "time_fold": None,
-                "fold_time_dimension": None,
+                "status_time_dimension": None,
             },
         )
         subset = df[[*merge_keys, col_name, metric_name]].copy()
         subset = subset.rename(columns={col_name: "value"})
         subset["component_metric_id"] = meta["component_metric_id"]
         subset["time_fold"] = meta["time_fold"]
-        subset["fold_time_dimension"] = meta["fold_time_dimension"]
+        subset["status_time_dimension"] = meta["status_time_dimension"]
         long_frames.append(subset)
     result = pandas.concat(long_frames, ignore_index=True)
     if merge_keys:
@@ -611,8 +611,8 @@ def _execute_sampled_base(
 
     Returns (result, axes, semantic_kind, coverage_df_or_None).
     """
-    assert metric_ir.fold_time_dimension is not None
-    time_dimension_ir = _resolve_fold_time_field(catalog, metric_ir.fold_time_dimension)
+    assert metric_ir.status_time_dimension is not None
+    time_dimension_ir = _resolve_fold_time_field(catalog, metric_ir.status_time_dimension)
     root_adapter = _build_entity_adapter(
         catalog,
         resolver,
@@ -622,13 +622,13 @@ def _execute_sampled_base(
     if root_time_adapter is None:
         # Try by iterating time dimensions
         for _fname, fadapter in root_adapter.fields.items():
-            if fadapter.is_time and fadapter.semantic_id == metric_ir.fold_time_dimension:
+            if fadapter.is_time and fadapter.semantic_id == metric_ir.status_time_dimension:
                 root_time_adapter = fadapter
                 break
     if root_time_adapter is None:
         raise MetricNotFoundError(
-            message=f"time field adapter for '{metric_ir.fold_time_dimension}' not found",
-            details={"fold_time_dimension": metric_ir.fold_time_dimension},
+            message=f"time field adapter for '{metric_ir.status_time_dimension}' not found",
+            details={"status_time_dimension": metric_ir.status_time_dimension},
         )
     sample_interval = root_time_adapter.sample_interval
     assert sample_interval is not None
@@ -759,12 +759,12 @@ def _execute_sampled_base(
     return result, axes, semantic_kind, coverage_df
 
 
-def _resolve_fold_time_field(catalog: Any, fold_time_dimension_id: str) -> TimeDimensionDetails:
-    details = _field_details(catalog, fold_time_dimension_id)
+def _resolve_fold_time_field(catalog: Any, status_time_dimension_id: str) -> TimeDimensionDetails:
+    details = _field_details(catalog, status_time_dimension_id)
     if not isinstance(details, TimeDimensionDetails):
         raise SemanticKindMismatchError(
-            message=f"fold time dimension {fold_time_dimension_id!r} is not a time dimension",
-            details={"fold_time_dimension": fold_time_dimension_id},
+            message=f"status time dimension {status_time_dimension_id!r} is not a time dimension",
+            details={"status_time_dimension": status_time_dimension_id},
         )
     return details
 
@@ -983,8 +983,8 @@ def _execute_folded_component(
     Returns (component_df, coverage_df_or_None).
     """
     component_metric_ir = cp.component_metric_ir
-    assert component_metric_ir.fold_time_dimension is not None
-    time_dimension_ir = _resolve_fold_time_field(catalog, component_metric_ir.fold_time_dimension)
+    assert component_metric_ir.status_time_dimension is not None
+    time_dimension_ir = _resolve_fold_time_field(catalog, component_metric_ir.status_time_dimension)
     root_adapter = _build_entity_adapter(
         catalog,
         resolver,
@@ -993,13 +993,16 @@ def _execute_folded_component(
     root_time_adapter = root_adapter.fields.get(time_dimension_ir.name)
     if root_time_adapter is None:
         for _fname, fadapter in root_adapter.fields.items():
-            if fadapter.is_time and fadapter.semantic_id == component_metric_ir.fold_time_dimension:
+            if (
+                fadapter.is_time
+                and fadapter.semantic_id == component_metric_ir.status_time_dimension
+            ):
                 root_time_adapter = fadapter
                 break
     if root_time_adapter is None:
         raise MetricNotFoundError(
-            message=f"time field adapter for '{component_metric_ir.fold_time_dimension}' not found",
-            details={"fold_time_dimension": component_metric_ir.fold_time_dimension},
+            message=f"time field adapter for '{component_metric_ir.status_time_dimension}' not found",
+            details={"status_time_dimension": component_metric_ir.status_time_dimension},
         )
     sample_interval = root_time_adapter.sample_interval
     assert sample_interval is not None
@@ -1367,11 +1370,11 @@ def _execute_derived(
     axes: dict[str, Any] = {}
     if has_time and plan.component_plans and resolved_window is not None:
         # Resolve time dimension for axes metadata.
-        # Prefer the fold_time_dimension from any folded component, otherwise
+        # Prefer the status_time_dimension from any folded component, otherwise
         # fall back to the standard time dimension resolution.
         fold_time_dim_name: str | None = None
         for cp in plan.component_plans:
-            cp_fold = getattr(cp.component_metric_ir, "fold_time_dimension", None)
+            cp_fold = getattr(cp.component_metric_ir, "status_time_dimension", None)
             if cp_fold is not None:
                 fold_time_dim_name = cp_fold
                 break
@@ -1431,14 +1434,14 @@ def _resolve_backend_type(datasource_name: str, project_root: str) -> str | None
 def _build_fold_meta(metric_ir: Any, catalog: Any) -> dict[str, Any]:
     """Build fold metadata dict for a folded metric's MetricFrameMeta."""
     sample_interval_token_val: str | None = None
-    if metric_ir.fold_time_dimension is not None:
-        tf = _resolve_fold_time_field(catalog, metric_ir.fold_time_dimension)
+    if metric_ir.status_time_dimension is not None:
+        tf = _resolve_fold_time_field(catalog, metric_ir.status_time_dimension)
         si = getattr(tf, "sample_interval", None)
         if si is not None:
             sample_interval_token_val = sample_interval_token(si)
     return {
         "time_fold": metric_ir.time_fold.label(),
-        "fold_time_dimension": metric_ir.fold_time_dimension,
+        "status_time_dimension": metric_ir.status_time_dimension,
         "sample_interval": sample_interval_token_val,
     }
 
@@ -1454,12 +1457,12 @@ def _build_derived_fold_meta(derived_plan: DerivedObservePlan, catalog: Any) -> 
         fold_entry: dict[str, Any] = {
             "component_metric_id": cp_ir.semantic_id,
             "time_fold": cp_ir.time_fold.label(),
-            "fold_time_dimension": cp_ir.fold_time_dimension,
+            "status_time_dimension": cp_ir.status_time_dimension,
         }
         component_folds.append(fold_entry)
         # Capture sample_interval from the first folded component
-        if sample_interval_token_val is None and cp_ir.fold_time_dimension is not None:
-            tf = _resolve_fold_time_field(catalog, cp_ir.fold_time_dimension)
+        if sample_interval_token_val is None and cp_ir.status_time_dimension is not None:
+            tf = _resolve_fold_time_field(catalog, cp_ir.status_time_dimension)
             si = getattr(tf, "sample_interval", None)
             if si is not None:
                 sample_interval_token_val = sample_interval_token(si)
@@ -1615,11 +1618,11 @@ def observe(
     )
     is_time_series = resolved_window is not None and resolved_window.grain is not None
 
-    # For folded metrics, inject fold_time_dimension into the window if not
-    # already specified so that downstream resolution picks the correct time axis.
+    # For semi-additive metrics, inject status_time_dimension into the window if
+    # not already specified so downstream resolution picks the status axis.
     if (
-        getattr(metric_ir, "time_fold", None) is not None
-        and metric_ir.fold_time_dimension is not None
+        getattr(metric_ir, "additivity", None) == "semi_additive"
+        and metric_ir.status_time_dimension is not None
         and time_dimension_id is None
         and resolved_window is not None
         and resolved_window.time_dimension is None
@@ -1627,12 +1630,11 @@ def observe(
         resolved_window, original_timescope = _resolve_timescope(
             timescope,
             grain=grain,
-            time_dimension=metric_ir.fold_time_dimension,
+            time_dimension=metric_ir.status_time_dimension,
         )
 
-    # For derived metrics with folded components, inject the first component's
-    # fold_time_dimension into the window so the planner resolves the correct
-    # time axis when entities have multiple time dimensions.
+    # For derived metrics with semi-additive components, inject the first
+    # component's status_time_dimension so the planner resolves the status axis.
     if (
         metric_ir.is_derived
         and time_dimension_id is None
@@ -1644,15 +1646,19 @@ def observe(
             assert isinstance(_comp_details, MetricDetails)
             _comp_ir = _planned_metric(_comp_details)
             if (
-                getattr(_comp_ir, "time_fold", None) is not None
-                and getattr(_comp_ir, "fold_time_dimension", None) is not None
+                getattr(_comp_ir, "additivity", None) == "semi_additive"
+                and getattr(_comp_ir, "status_time_dimension", None) is not None
             ):
                 resolved_window, original_timescope = _resolve_timescope(
                     timescope,
                     grain=grain,
-                    time_dimension=_comp_ir.fold_time_dimension,
+                    time_dimension=_comp_ir.status_time_dimension,
                 )
                 break
+
+    planner_time_dimension_id = (
+        resolved_window.time_dimension if resolved_window is not None else time_dimension_id
+    )
 
     started_at = datetime.now(UTC)
     started = monotonic()
@@ -1709,7 +1715,7 @@ def observe(
                 dimensions=dimension_refs,
                 where=where_by_id,
                 resolved_window=resolved_window,
-                time_dimension=time_dimension_id,
+                time_dimension=planner_time_dimension_id,
                 component_metric_irs=component_metric_irs,
             )
             # plan_observe always returns DerivedObservePlan for derived metrics
@@ -1884,7 +1890,7 @@ def observe(
             dimensions=dimension_refs,
             where=where_by_id,
             resolved_window=resolved_window,
-            time_dimension=time_dimension_id,
+            time_dimension=planner_time_dimension_id,
         )
         primary_datasource = plan.datasource_name
 

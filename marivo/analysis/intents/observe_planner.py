@@ -24,7 +24,7 @@ from marivo.analysis.intents.observe_errors import (
     RepairSafety,
     raise_observe_planning_error,
 )
-from marivo.analysis.intents.sampled_fold import ensure_fold_time_dimension_matches
+from marivo.analysis.intents.sampled_fold import ensure_status_time_dimension_matches
 from marivo.analysis.semantic_inputs import DimensionInput
 from marivo.analysis.windows.spec import is_date_only
 from marivo.introspection._fuzzy import did_you_mean
@@ -74,7 +74,7 @@ class BaseObservePlan:
     lineage_metadata: dict[str, Any]
     warnings: list[dict[str, Any]]
     datasource_name: str
-    fold_time_dimension: str | None = None
+    status_time_dimension: str | None = None
     time_fold: Any | None = None
 
 
@@ -224,8 +224,8 @@ class _MetricDetailsAdapter:
         return _TimeFoldDetailsAdapter(self.details.time_fold)
 
     @property
-    def fold_time_dimension(self) -> str | None:
-        return self.details.fold_time_dimension
+    def status_time_dimension(self) -> str | None:
+        return self.details.status_time_dimension
 
     @property
     def unit(self) -> str | None:
@@ -1293,7 +1293,7 @@ def plan_base_observe(
     if catalog is None:
         catalog = session.catalog
     root = resolve_metric_root(metric_ir)
-    ensure_fold_time_dimension_matches(metric_ir, time_dimension)
+    ensure_status_time_dimension_matches(metric_ir, time_dimension)
     if metric_ir.additivity is None:
         raise_observe_planning_error(
             code="missing-additivity",
@@ -1606,11 +1606,11 @@ def plan_base_observe(
             "snapshots": snapshot_metadata,
             "version_resolutions": version_resolutions,
             "time_fold": metric_ir.time_fold.label() if metric_ir.time_fold is not None else None,
-            "fold_time_dimension": metric_ir.fold_time_dimension,
+            "status_time_dimension": metric_ir.status_time_dimension,
         },
         warnings=plan_warnings,
         datasource_name=datasource_name,
-        fold_time_dimension=metric_ir.fold_time_dimension,
+        status_time_dimension=metric_ir.status_time_dimension,
         time_fold=metric_ir.time_fold,
     )
 
@@ -1950,15 +1950,15 @@ def _plan_derived_observe(
             dataset_irs,
             dataset_fns,
         )
-        # When a component metric has a fold_time_dimension, use it as the
+        # When a component metric has a status_time_dimension, use it as the
         # time dimension for planning so the planner resolves the correct
         # time axis when the entity has multiple time dimensions.
         component_time_dimension = time_dimension
         if (
-            getattr(component_ir, "fold_time_dimension", None) is not None
+            getattr(component_ir, "status_time_dimension", None) is not None
             and component_time_dimension is None
         ):
-            component_time_dimension = component_ir.fold_time_dimension
+            component_time_dimension = component_ir.status_time_dimension
         try:
             base_plan = plan_base_observe(
                 catalog=catalog,

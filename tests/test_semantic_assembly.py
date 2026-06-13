@@ -1206,13 +1206,14 @@ def test_sampled_semi_additive_metric_without_time_fold_fails() -> None:
         entities=("sales.bandwidth_samples",),
         additivity="semi_additive",
         time_fold=None,
+        status_time_dimension="sales.bandwidth_samples.sample_ts",
     )
 
     errors, _warnings = assembly_validate(registry)
     assert [err.kind for err in errors] == [ErrorKind.MISSING_TIME_FOLD]
 
 
-def test_metric_time_fold_requires_explicit_fold_time_dimension() -> None:
+def test_semi_additive_metric_requires_explicit_status_time_dimension() -> None:
     registry = _make_registry()
     registry.datasets["sales.bandwidth_samples"] = dataclasses.replace(
         registry.datasets["sales.orders"],
@@ -1246,14 +1247,14 @@ def test_metric_time_fold_requires_explicit_fold_time_dimension() -> None:
         entities=("sales.bandwidth_samples",),
         additivity="semi_additive",
         time_fold=TimeFoldIR(kind="mean"),
-        fold_time_dimension=None,
+        status_time_dimension=None,
     )
 
     errors, _warnings = assembly_validate(registry)
-    assert [err.kind for err in errors] == [ErrorKind.MISSING_FOLD_TIME_DIMENSION]
+    assert [err.kind for err in errors] == [ErrorKind.MISSING_STATUS_TIME_DIMENSION]
 
 
-def test_non_sampled_semi_additive_metric_requires_time_axis() -> None:
+def test_non_sampled_semi_additive_metric_requires_status_time_dimension() -> None:
     registry = _make_registry()
     registry.metrics["sales.inventory"] = dataclasses.replace(
         registry.metrics["sales.revenue"],
@@ -1265,10 +1266,10 @@ def test_non_sampled_semi_additive_metric_requires_time_axis() -> None:
 
     errors, _warnings = assembly_validate(registry)
 
-    assert [err.kind for err in errors] == [ErrorKind.MISSING_SEMI_ADDITIVE_TIME_AXIS]
+    assert [err.kind for err in errors] == [ErrorKind.MISSING_STATUS_TIME_DIMENSION]
 
 
-def test_non_sampled_semi_additive_metric_accepts_entity_versioning() -> None:
+def test_non_sampled_semi_additive_metric_rejects_implicit_entity_versioning_axis() -> None:
     registry = _make_registry()
     registry.datasets["sales.orders"] = dataclasses.replace(
         registry.datasets["sales.orders"],
@@ -1291,10 +1292,10 @@ def test_non_sampled_semi_additive_metric_accepts_entity_versioning() -> None:
 
     errors, _warnings = assembly_validate(registry)
 
-    assert errors == []
+    assert [err.kind for err in errors] == [ErrorKind.MISSING_STATUS_TIME_DIMENSION]
 
 
-def test_non_sampled_semi_additive_metric_accepts_default_time_dimension() -> None:
+def test_non_sampled_semi_additive_metric_rejects_implicit_default_time_dimension_axis() -> None:
     registry = _make_registry()
     registry.fields["sales.orders.order_date"] = dataclasses.replace(
         registry.fields["sales.orders.order_date"],
@@ -1310,4 +1311,52 @@ def test_non_sampled_semi_additive_metric_accepts_default_time_dimension() -> No
 
     errors, _warnings = assembly_validate(registry)
 
+    assert [err.kind for err in errors] == [ErrorKind.MISSING_STATUS_TIME_DIMENSION]
+
+
+def test_non_sampled_semi_additive_metric_accepts_status_time_dimension() -> None:
+    registry = _make_registry()
+    registry.metrics["sales.inventory"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.inventory",
+        name="inventory",
+        additivity="semi_additive",
+        time_fold=None,
+        status_time_dimension="sales.orders.order_date",
+    )
+
+    errors, _warnings = assembly_validate(registry)
+
     assert errors == []
+
+
+def test_metric_time_fold_requires_sampled_status_time_dimension() -> None:
+    registry = _make_registry()
+    registry.metrics["sales.inventory"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.inventory",
+        name="inventory",
+        additivity="semi_additive",
+        time_fold=TimeFoldIR(kind="mean"),
+        status_time_dimension="sales.orders.order_date",
+    )
+
+    errors, _warnings = assembly_validate(registry)
+
+    assert [err.kind for err in errors] == [ErrorKind.TIME_FOLD_REQUIRES_SAMPLED_TIME_FIELD]
+
+
+def test_metric_status_time_dimension_must_be_time_dimension_on_root_entity() -> None:
+    registry = _make_registry()
+    registry.metrics["sales.inventory"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.inventory",
+        name="inventory",
+        additivity="semi_additive",
+        time_fold=None,
+        status_time_dimension="sales.orders.amount",
+    )
+
+    errors, _warnings = assembly_validate(registry)
+
+    assert [err.kind for err in errors] == [ErrorKind.INVALID_STATUS_TIME_DIMENSION]

@@ -309,14 +309,14 @@ def test_metric_details_fields():
         source_dialect=None,
         python_symbol="revenue",
         time_fold=None,
-        fold_time_dimension=None,
+        status_time_dimension=None,
     )
     assert d.decomposition == "sum"
     assert d.is_derived is False
     assert d.component_metrics == ()
     assert d.components == ()
     assert d.time_fold is None
-    assert d.fold_time_dimension is None
+    assert d.status_time_dimension is None
 
 
 def test_relationship_details_fields():
@@ -372,7 +372,7 @@ def _make_metric_obj() -> SemanticObject:
         source_dialect=None,
         python_symbol="revenue",
         time_fold=None,
-        fold_time_dimension=None,
+        status_time_dimension=None,
     )
     return SemanticObject(
         ref=ref,

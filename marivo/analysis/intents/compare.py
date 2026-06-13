@@ -138,7 +138,7 @@ def _component_fold_payload(
         {
             "component_metric_id": row.get("component_metric_id"),
             "time_fold": row.get("time_fold"),
-            "fold_time_dimension": row.get("fold_time_dimension"),
+            "status_time_dimension": row.get("status_time_dimension"),
         }
         for row in rows
         if row.get("time_fold") is not None

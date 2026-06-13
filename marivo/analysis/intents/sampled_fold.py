@@ -45,7 +45,7 @@ class FoldExecutionMetadata:
     time_fold: str
     fold_kind: FoldKind
     fold_q: float | None
-    fold_time_dimension: str
+    status_time_dimension: str
     sample_interval: str
     reaggregatable: bool
     quantile_mode: str | None = None
@@ -111,26 +111,26 @@ def ensure_sampled_grain_supported(
         )
 
 
-def ensure_fold_time_dimension_matches(
+def ensure_status_time_dimension_matches(
     metric_ir: Any, requested_time_dimension: str | None
 ) -> None:
-    if metric_ir.time_fold is None:
+    if getattr(metric_ir, "additivity", None) != "semi_additive":
         return
-    bound = metric_ir.fold_time_dimension
+    bound = metric_ir.status_time_dimension
     if bound is None:
         raise_observe_planning_error(
-            code="fold-time-dimension-unresolved",
-            message=f"Metric {metric_ir.semantic_id!r} has time_fold but no resolved fold_time_dimension.",
+            code="status-time-dimension-unresolved",
+            message=f"Metric {metric_ir.semantic_id!r} has no resolved status_time_dimension.",
             candidates={"metric": metric_ir.semantic_id},
             repair=[],
         )
     if requested_time_dimension is not None and requested_time_dimension != bound:
         raise_observe_planning_error(
-            code="fold-time-dimension-mismatch",
-            message=f"Metric {metric_ir.semantic_id!r} is bound to sampled time axis {bound!r}.",
+            code="status-time-dimension-mismatch",
+            message=f"Metric {metric_ir.semantic_id!r} is bound to status time axis {bound!r}.",
             candidates={
                 "requested_time_dimension": requested_time_dimension,
-                "fold_time_dimension": bound,
+                "status_time_dimension": bound,
             },
             repair=[],
         )
@@ -139,7 +139,7 @@ def ensure_fold_time_dimension_matches(
 def sample_set_digest(
     *,
     root_entity: str,
-    fold_time_dimension: str,
+    status_time_dimension: str,
     window: dict[str, Any] | None,
     dimensions: list[str],
     where: dict[str, Any],
@@ -147,7 +147,7 @@ def sample_set_digest(
 ) -> str:
     payload = {
         "root_entity": root_entity,
-        "fold_time_dimension": fold_time_dimension,
+        "status_time_dimension": status_time_dimension,
         "window": window,
         "dimensions": sorted(dimensions),
         "where": where,
@@ -192,8 +192,8 @@ def sample_point_table(
     time_meta = time_field_ir.time_meta
     if time_meta is None:
         raise_observe_planning_error(
-            code="fold-time-dimension-missing-metadata",
-            message=f"fold time dimension {time_field_ir.semantic_id!r} has no time metadata.",
+            code="status-time-dimension-missing-metadata",
+            message=f"status time dimension {time_field_ir.semantic_id!r} has no time metadata.",
             candidates={"time_dimension": time_field_ir.semantic_id},
             repair=[],
         )
@@ -207,7 +207,7 @@ def sample_point_table(
         )
         return table.mutate(sample_point=sample_point)
     raise_observe_planning_error(
-        code="fold-time-dimension-unsupported-type",
+        code="status-time-dimension-unsupported-type",
         message="sampled folds require a datetime or timestamp sampled time dimension.",
         candidates={"time_dimension": time_field_ir.semantic_id, "data_type": time_meta.data_type},
         repair=[],

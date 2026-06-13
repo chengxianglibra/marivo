@@ -554,7 +554,7 @@ def gmv_with_items(orders, order_items):
 
 ### Sampled Semi-Additive Metrics
 
-Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inventory, or device-reported rates. The time dimension declares physical precision with `granularity` and reporting cadence with `sample_interval`; the metric declares the business fold and the sampled axis it folds over.
+Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inventory, or device-reported rates. The time dimension declares physical precision with `granularity` and reporting cadence with `sample_interval`; the metric declares the business status axis and fold.
 
 ```python
 @ms.time_dimension(
@@ -571,7 +571,7 @@ def sample_ts(bw_samples):
     entities=[bw_samples],
     additivity="semi_additive",
     time_fold="mean",
-    fold_time_dimension=sample_ts,
+    status_time_dimension=sample_ts,
     decomposition=ms.sum(),
     unit="kbit/s",
     verification_mode="python_native",
@@ -580,13 +580,14 @@ def upstream_bw(bw_samples):
     return bw_samples.upstream_kbps.sum()
 ```
 
-The metric body expresses the spatial aggregate inside one sample point. `time_fold` expresses how the sample-point series is reduced to the requested observe grain. `fold_time_dimension` is required and binds the sampled axis used for filtering, sample points, and buckets. P95-style folds use `time_fold=("quantile", 0.95)` and are always recomputed from base samples for the requested grain.
+The metric body expresses the spatial aggregate inside one sample point. `status_time_dimension` binds the metric's business as-of/status time axis. `sample_interval` on that time dimension means the axis is a fixed-cadence sampled series, and `time_fold` expresses how the sample-point series is reduced to the requested observe grain. P95-style folds use `time_fold=("quantile", 0.95)` and are always recomputed from base samples for the requested grain.
 
 Not every semi-additive metric is sampled. Already-summarized snapshot or
-status facts, such as daily inventory, omit `time_fold` but must still bind
-their time semantics through root entity versioning or a default time
-dimension. A bare `additivity="semi_additive"` metric with neither sampled
-folding nor snapshot/default-time semantics is invalid.
+status facts, such as daily inventory, omit `time_fold` but must still declare
+`status_time_dimension` on the metric. `versioning=ms.snapshot(...)` /
+`ms.validity(...)` and `is_default=True` time dimensions can document entity
+behavior, but they do not replace the metric-level status axis. A bare
+`additivity="semi_additive"` metric without `status_time_dimension` is invalid.
 
 ```python
 inventory_daily = ms.entity(
@@ -616,12 +617,19 @@ def snapshot_date(inventory_daily):
 @ms.metric(
     entities=[inventory_daily],
     additivity="semi_additive",
+    status_time_dimension=snapshot_date,
     decomposition=ms.sum(),
     verification_mode="python_native",
 )
 def on_hand_units(inventory_daily):
     return inventory_daily.on_hand_units.sum()
 ```
+
+`status_time_dimension` must be the business time at which the metric value is
+valid, such as `snapshot_date`, `as_of_date`, or `state_date`. Do not use
+`created_at`, `updated_at`, or `ingest_time` unless that field is truly the
+business as-of time for the status fact; technical write times make historical
+as-of queries drift when data is backfilled or reprocessed.
 
 ### Relationship
 

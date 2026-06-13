@@ -790,7 +790,7 @@ def metric(
     unit: str | None = None,
     decomposition: DecompositionBuilder,
     time_fold: str | tuple[Literal["quantile"], float] | None = None,
-    fold_time_dimension: TimeDimensionRef | str | None = None,
+    status_time_dimension: TimeDimensionRef | str | None = None,
     source_sql: str | None = None,
     source_dialect: str | None = None,
     verification_mode: Literal["sql_parity", "python_native"] | None = None,
@@ -827,8 +827,11 @@ def metric(
             ``"max"``, ``"first"``, ``"last"``, or ``("quantile", q)``).
             Requires ``additivity="semi_additive"``. time_fold is a metric
             definition choice, not an observe parameter.
-        fold_time_dimension: The sampled time dimension that provides the
-            sample axis. Required when ``time_fold`` is set.
+        status_time_dimension: The root entity time dimension that represents
+            this semi-additive metric's business status/as-of axis. Required for
+            base ``additivity="semi_additive"`` metrics. When that time
+            dimension declares ``sample_interval``, the metric must also declare
+            ``time_fold``.
 
     Returns:
         A decorator that returns a ``MetricRef``.
@@ -898,9 +901,9 @@ def metric(
             fanout_policy=fanout_policy,
             unit=unit,
             time_fold=_normalize_time_fold(time_fold, semantic_id=semantic_id),
-            fold_time_dimension=(
-                _resolve_ref_string(fold_time_dimension)
-                if fold_time_dimension is not None
+            status_time_dimension=(
+                _resolve_ref_string(status_time_dimension)
+                if status_time_dimension is not None
                 else None
             ),
         )
