@@ -978,7 +978,7 @@ def test_metric_pushes_callable() -> None:
         _exit_ctx()
 
 
-def test_metric_accepts_time_fold_and_fold_time_dimension() -> None:
+def test_metric_accepts_time_fold_and_status_time_dimension() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -987,7 +987,7 @@ def test_metric_accepts_time_fold_and_fold_time_dimension() -> None:
             additivity="semi_additive",
             decomposition=ms.sum(),
             time_fold=("quantile", 0.95),
-            fold_time_dimension="sales.bandwidth_samples.sample_ts",
+            status_time_dimension="sales.bandwidth_samples.sample_ts",
         )
         def upstream_p95(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -997,7 +997,7 @@ def test_metric_accepts_time_fold_and_fold_time_dimension() -> None:
         assert ir.time_fold is not None
         assert ir.time_fold.kind == "quantile"
         assert ir.time_fold.q == 0.95
-        assert ir.fold_time_dimension == "sales.bandwidth_samples.sample_ts"
+        assert ir.status_time_dimension == "sales.bandwidth_samples.sample_ts"
     finally:
         _exit_ctx()
 

@@ -35,10 +35,10 @@ ObserveErrorCode = Literal[
     "nested-derived-unsupported",
     "sampled-grain-floor-unsupported-unit",
     "grain-finer-than-sampled-floor",
-    "fold-time-dimension-unresolved",
-    "fold-time-dimension-mismatch",
-    "fold-time-dimension-missing-metadata",
-    "fold-time-dimension-unsupported-type",
+    "status-time-dimension-unresolved",
+    "status-time-dimension-mismatch",
+    "status-time-dimension-missing-metadata",
+    "status-time-dimension-unsupported-type",
 ]
 
 

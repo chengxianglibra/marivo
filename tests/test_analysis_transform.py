@@ -1546,7 +1546,7 @@ def _bootstrap_bandwidth_for_rollup(tmp_path):
         "    decomposition=ms.sum(),\n"
         "    verification_mode='python_native',\n"
         "    time_fold=('quantile', 0.95),\n"
-        "    fold_time_dimension=sample_ts,\n"
+        "    status_time_dimension=sample_ts,\n"
         ")\n"
         "def upstream_bw_p95(bandwidth_samples):\n"
         "    return bandwidth_samples.upstream_bw_var.sum()\n"

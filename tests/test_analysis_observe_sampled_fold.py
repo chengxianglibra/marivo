@@ -109,7 +109,7 @@ def _bootstrap_bandwidth(tmp_path):
         "    decomposition=ms.sum(),\n"
         "    verification_mode='python_native',\n"
         "    time_fold='mean',\n"
-        "    fold_time_dimension=sample_ts,\n"
+        "    status_time_dimension=sample_ts,\n"
         ")\n"
         "def upstream_bw(bandwidth_samples):\n"
         "    return bandwidth_samples.upstream_bw.sum()\n"
@@ -121,7 +121,7 @@ def _bootstrap_bandwidth(tmp_path):
         "    decomposition=ms.sum(),\n"
         "    verification_mode='python_native',\n"
         "    time_fold='min',\n"
-        "    fold_time_dimension=sample_ts,\n"
+        "    status_time_dimension=sample_ts,\n"
         ")\n"
         "def upstream_bw_min(bandwidth_samples):\n"
         "    return bandwidth_samples.upstream_bw_var.sum()\n"
@@ -133,7 +133,7 @@ def _bootstrap_bandwidth(tmp_path):
         "    decomposition=ms.sum(),\n"
         "    verification_mode='python_native',\n"
         "    time_fold='max',\n"
-        "    fold_time_dimension=sample_ts,\n"
+        "    status_time_dimension=sample_ts,\n"
         ")\n"
         "def upstream_bw_max(bandwidth_samples):\n"
         "    return bandwidth_samples.upstream_bw_var.sum()\n"
@@ -145,7 +145,7 @@ def _bootstrap_bandwidth(tmp_path):
         "    decomposition=ms.sum(),\n"
         "    verification_mode='python_native',\n"
         "    time_fold='first',\n"
-        "    fold_time_dimension=sample_ts,\n"
+        "    status_time_dimension=sample_ts,\n"
         ")\n"
         "def upstream_bw_first(bandwidth_samples):\n"
         "    return bandwidth_samples.upstream_bw_var.sum()\n"
@@ -157,7 +157,7 @@ def _bootstrap_bandwidth(tmp_path):
         "    decomposition=ms.sum(),\n"
         "    verification_mode='python_native',\n"
         "    time_fold='last',\n"
-        "    fold_time_dimension=sample_ts,\n"
+        "    status_time_dimension=sample_ts,\n"
         ")\n"
         "def upstream_bw_last(bandwidth_samples):\n"
         "    return bandwidth_samples.upstream_bw_var.sum()\n"
@@ -169,7 +169,7 @@ def _bootstrap_bandwidth(tmp_path):
         "    decomposition=ms.sum(),\n"
         "    verification_mode='python_native',\n"
         "    time_fold=('quantile', 0.95),\n"
-        "    fold_time_dimension=sample_ts,\n"
+        "    status_time_dimension=sample_ts,\n"
         ")\n"
         "def upstream_bw_p95(bandwidth_samples):\n"
         "    return bandwidth_samples.upstream_bw_var.sum()\n"
@@ -181,7 +181,7 @@ def _bootstrap_bandwidth(tmp_path):
         "    decomposition=ms.sum(),\n"
         "    verification_mode='python_native',\n"
         "    time_fold='mean',\n"
-        "    fold_time_dimension=sample_ts,\n"
+        "    status_time_dimension=sample_ts,\n"
         ")\n"
         "def reserved_bw(bandwidth_samples):\n"
         "    return bandwidth_samples.reserved_bw.sum()\n"
@@ -219,7 +219,7 @@ def test_folded_metric_rejects_observe_with_different_time_dimension(
             time_dimension=SemanticRef("sales.bandwidth_samples.dt", kind=SemanticKind.DIMENSION),
         )
 
-    assert exc_info.value.details["code"] == "fold-time-dimension-mismatch"
+    assert exc_info.value.details["code"] == "status-time-dimension-mismatch"
 
 
 def test_sampled_mean_fold_aggregates_space_then_time(sampled_bandwidth_project) -> None:
@@ -238,6 +238,7 @@ def test_sampled_mean_fold_aggregates_space_then_time(sampled_bandwidth_project)
         {"province": "shanghai", "upstream_bw": 90.0},
     ]
     assert frame.meta.fold["time_fold"] == "mean"
+    assert frame.meta.fold["status_time_dimension"] == "sales.bandwidth_samples.sample_ts"
     assert frame.meta.reaggregatable is False
 
 

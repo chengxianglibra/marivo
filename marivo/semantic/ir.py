@@ -321,7 +321,7 @@ class MetricIR:
     fanout_policy: Literal["block", "aggregate_then_join"] = "block"
     unit: str | None = None
     time_fold: TimeFoldIR | None = None
-    fold_time_dimension: str | None = None
+    status_time_dimension: str | None = None
 
 
 @dataclass(frozen=True)

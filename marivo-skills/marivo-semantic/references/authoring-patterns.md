@@ -340,7 +340,7 @@ declaration. Backfill after the user answers.
 Use sampled folds for periodic snapshot facts such as bandwidth, capacity,
 inventory, or device-reported rates. The time dimension declares physical
 precision with `granularity` and reporting cadence with `sample_interval`;
-the metric declares the business fold and the sampled axis it folds over.
+the metric declares the business status axis and fold.
 
 ```python
 import marivo.datasource as md
@@ -370,7 +370,7 @@ def sample_ts(bw_samples):
     entities=[bw_samples],
     additivity="semi_additive",
     time_fold="mean",
-    fold_time_dimension=sample_ts,
+    status_time_dimension=sample_ts,
     decomposition=ms.sum(),
     unit="kbit/s",
     verification_mode="python_native",
@@ -381,19 +381,19 @@ def upstream_bw(bw_samples):
 
 Rules:
 
-- `time_fold` requires `additivity="semi_additive"`.
-- `fold_time_dimension` is required and binds the sampled time axis used for filtering,
-  sample points, and buckets.
+- Base `additivity="semi_additive"` metrics always require
+  `status_time_dimension`.
+- `status_time_dimension` binds the business status/as-of time axis.
+- `time_fold` requires that `status_time_dimension` declares `sample_interval`.
 - `time_fold` is a metric definition choice, not an observe parameter.
 - P95-style folds use `time_fold=("quantile", 0.95)` and are always
   recomputed from base samples for the requested grain.
-- Do not author bare `additivity="semi_additive"`. If the metric is not a
-  sampled fold, declare root entity `versioning=ms.snapshot(...)` /
-  `ms.validity(...)` or mark one root time dimension with `is_default=True`.
+- Do not author bare `additivity="semi_additive"` and do not use technical write
+  times such as `created_at`, `updated_at`, or `ingest_time` as the status axis
+  unless they are truly the business as-of time.
 
 For already-summarized snapshot/status facts such as daily inventory, omit
-`time_fold` and bind the time semantics through entity versioning or a default
-time dimension:
+`time_fold` but still bind the metric to its status time dimension:
 
 ```python
 inventory_daily = ms.entity(
@@ -423,6 +423,7 @@ def snapshot_date(inventory_daily):
 @ms.metric(
     entities=[inventory_daily],
     additivity="semi_additive",
+    status_time_dimension=snapshot_date,
     decomposition=ms.sum(),
     verification_mode="python_native",
 )

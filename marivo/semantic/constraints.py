@@ -82,13 +82,11 @@ class ConstraintId(StrEnum):
     CATALOG_PARENT_BROWSABLE = "catalog_parent_browsable"
     SAMPLE_INTERVAL_VALID = "sample_interval_valid"
     TIME_FOLD_VALID = "time_fold_valid"
-    TIME_FOLD_BINDING = "time_fold_binding"
     TIME_FOLD_SEMI_ADDITIVE = "time_fold_requires_semi_additive"
     TIME_FOLD_SAMPLED_TIME_FIELD = "time_fold_requires_sampled_time_field"
     TIME_FOLD_MISSING = "missing_time_fold"
-    SEMI_ADDITIVE_TIME_AXIS_REQUIRED = "semi_additive_time_axis_required"
-    FOLD_TIME_DIMENSION_REQUIRED = "fold_time_dimension_required"
-    FOLD_TIME_DIMENSION_INVALID = "invalid_fold_time_dimension"
+    STATUS_TIME_DIMENSION_REQUIRED = "status_time_dimension_required"
+    STATUS_TIME_DIMENSION_INVALID = "invalid_status_time_dimension"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -682,15 +680,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Fold kinds define how sampled time series are compressed into a single representative value.",
         "Use time_fold='mean', 'min', 'max', 'first', 'last', or ('quantile', q) with 0 < q < 1.",
     ),
-    ConstraintId.TIME_FOLD_BINDING: _constraint(
-        ConstraintId.TIME_FOLD_BINDING,
-        "ambiguous_fold_time_dimension",
-        "assembly",
-        ("metric",),
-        "Semi-additive metrics with time_fold must bind to a sampled time dimension.",
-        "When the root entity has multiple sampled time axes, fold_time_dimension must disambiguate.",
-        "Bind folded metrics to a sampled time dimension with fold_time_dimension=... when the root entity has multiple sampled axes.",
-    ),
     ConstraintId.TIME_FOLD_SEMI_ADDITIVE: _constraint(
         ConstraintId.TIME_FOLD_SEMI_ADDITIVE,
         "time_fold_requires_semi_additive",
@@ -705,9 +694,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "time_fold_requires_sampled_time_field",
         "assembly",
         ("metric",),
-        "Semi-additive metrics with time_fold require a sampled time dimension on the root entity.",
-        "The fold operation compresses intra-day samples into a single daily value.",
-        "Declare a time dimension with sample_interval on the root entity before using time_fold.",
+        "time_fold requires status_time_dimension to reference a sampled time dimension.",
+        "The fold operation compresses sampled status points, so the bound status axis must declare sample_interval.",
+        "Set status_time_dimension to a root entity time dimension with sample_interval, or remove time_fold for non-sampled status metrics.",
     ),
     ConstraintId.TIME_FOLD_MISSING: _constraint(
         ConstraintId.TIME_FOLD_MISSING,
@@ -718,32 +707,23 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Without a fold, sampled semi-additive metrics would double-count intra-day observations.",
         "Add time_fold='mean' (or another fold kind) to the metric declaration.",
     ),
-    ConstraintId.SEMI_ADDITIVE_TIME_AXIS_REQUIRED: _constraint(
-        ConstraintId.SEMI_ADDITIVE_TIME_AXIS_REQUIRED,
-        "missing_semi_additive_time_axis",
+    ConstraintId.STATUS_TIME_DIMENSION_REQUIRED: _constraint(
+        ConstraintId.STATUS_TIME_DIMENSION_REQUIRED,
+        "missing_status_time_dimension",
         "assembly",
         ("metric",),
-        "Non-sampled semi-additive metrics must declare snapshot or time-axis semantics.",
-        "Semi-additive metrics need an explicit time context: sampled sequences use sample_interval with time_fold and fold_time_dimension; snapshot/status facts use entity versioning or a default time dimension.",
-        "Add versioning=ms.snapshot(...)/ms.validity(...) on the root entity, mark one root time dimension is_default=True, or model the metric as a sampled fold.",
+        "Semi-additive metrics must declare status_time_dimension.",
+        "The status time dimension is the business as-of axis that the metric cannot be summed across directly. sampled metrics additionally declare time_fold.",
+        "Set status_time_dimension to the root entity time dimension that represents the metric's business status/as-of time.",
     ),
-    ConstraintId.FOLD_TIME_DIMENSION_REQUIRED: _constraint(
-        ConstraintId.FOLD_TIME_DIMENSION_REQUIRED,
-        "missing_fold_time_dimension",
+    ConstraintId.STATUS_TIME_DIMENSION_INVALID: _constraint(
+        ConstraintId.STATUS_TIME_DIMENSION_INVALID,
+        "invalid_status_time_dimension",
         "assembly",
         ("metric",),
-        "Semi-additive metrics with time_fold must declare fold_time_dimension.",
-        "The fold operation must bind to the sampled time axis used for filtering, sample points, and buckets.",
-        "Set fold_time_dimension to a sampled time dimension on the metric root entity.",
-    ),
-    ConstraintId.FOLD_TIME_DIMENSION_INVALID: _constraint(
-        ConstraintId.FOLD_TIME_DIMENSION_INVALID,
-        "invalid_fold_time_dimension",
-        "assembly",
-        ("metric",),
-        "fold_time_dimension must reference a sampled time dimension on the root entity.",
-        "The fold operation targets a specific sampled time axis.",
-        "Use fold_time_dimension with a time dimension that has sample_interval declared.",
+        "status_time_dimension must reference a time dimension on the metric root entity.",
+        "A semi-additive metric's status axis must be a declared root entity time dimension; time_fold additionally requires that axis to be sampled.",
+        "Use a root entity @ms.time_dimension(...) ref as status_time_dimension.",
     ),
 }
 

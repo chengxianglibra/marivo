@@ -725,31 +725,11 @@ def _filtered_domain_ref_warning(
     )
 
 
-def _sampled_time_fields_for_entity(registry: Registry, entity_id: str) -> list[DimensionIR]:
-    return [
-        field
-        for field in registry.fields.values()
-        if field.entity == entity_id
-        and field.is_time_dimension
-        and field.sample_interval is not None
-    ]
-
-
-def _has_default_time_dimension(registry: Registry, entity_id: str) -> bool:
-    return any(
-        field.entity == entity_id
-        and field.is_time_dimension
-        and getattr(field, "is_default", False)
-        for field in registry.fields.values()
-    )
-
-
 def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]) -> None:
     for metric_id, metric_ir in registry.metrics.items():
         root = metric_ir.root_entity or (
             metric_ir.entities[0] if len(metric_ir.entities) == 1 else None
         )
-        sampled_fields = _sampled_time_fields_for_entity(registry, root) if root else []
         if metric_ir.is_derived:
             if metric_ir.time_fold is not None:
                 errors.append(
@@ -771,83 +751,73 @@ def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]
                 )
             )
             continue
-        if (
-            metric_ir.additivity == "semi_additive"
-            and sampled_fields
-            and metric_ir.time_fold is None
-        ):
+        if metric_ir.additivity != "semi_additive":
+            continue
+
+        status_time_dimension = metric_ir.status_time_dimension
+        if status_time_dimension is None:
             errors.append(
                 SemanticLoadError(
-                    kind=ErrorKind.MISSING_TIME_FOLD,
-                    message=f"Sampled semi-additive metric {metric_id!r} must declare time_fold.",
+                    kind=ErrorKind.MISSING_STATUS_TIME_DIMENSION,
+                    message=f"Semi-additive metric {metric_id!r} must declare status_time_dimension.",
                     refs=(metric_id,),
-                    details={
-                        "metric": metric_id,
-                        "sampled_time_dimensions": [f.semantic_id for f in sampled_fields],
-                    },
-                )
-            )
-            continue
-        if (
-            metric_ir.additivity == "semi_additive"
-            and not sampled_fields
-            and metric_ir.time_fold is None
-            and root is not None
-            and root in registry.datasets
-        ):
-            root_entity = registry.datasets[root]
-            if root_entity.versioning is None and not _has_default_time_dimension(registry, root):
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.MISSING_SEMI_ADDITIVE_TIME_AXIS,
-                        message=(
-                            f"Non-sampled semi-additive metric {metric_id!r} must declare "
-                            "snapshot or time-axis semantics on its root entity."
-                        ),
-                        refs=(metric_id, root),
-                        constraint_id=ConstraintId.SEMI_ADDITIVE_TIME_AXIS_REQUIRED,
-                        details={"metric": metric_id, "root_entity": root},
-                    )
-                )
-                continue
-        if metric_ir.time_fold is None:
-            continue
-        if not sampled_fields:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.TIME_FOLD_REQUIRES_SAMPLED_TIME_FIELD,
-                    message=f"Metric {metric_id!r} declares time_fold but its root entity has no sampled time dimension.",
-                    refs=(metric_id,),
+                    constraint_id=ConstraintId.STATUS_TIME_DIMENSION_REQUIRED,
                     details={"metric": metric_id, "root_entity": root},
                 )
             )
             continue
-        if metric_ir.fold_time_dimension is None:
+
+        status_field = registry.fields.get(status_time_dimension)
+        if (
+            status_field is None
+            or not status_field.is_time_dimension
+            or root is None
+            or status_field.entity != root
+        ):
             errors.append(
                 SemanticLoadError(
-                    kind=ErrorKind.MISSING_FOLD_TIME_DIMENSION,
-                    message=f"Metric {metric_id!r} with time_fold must declare fold_time_dimension.",
-                    refs=(metric_id,),
-                    constraint_id=ConstraintId.FOLD_TIME_DIMENSION_REQUIRED,
+                    kind=ErrorKind.INVALID_STATUS_TIME_DIMENSION,
+                    message=(
+                        f"Metric {metric_id!r} status_time_dimension must reference a "
+                        "time dimension on its root entity."
+                    ),
+                    refs=(metric_id, status_time_dimension),
+                    constraint_id=ConstraintId.STATUS_TIME_DIMENSION_INVALID,
                     details={
                         "metric": metric_id,
-                        "sampled_time_dimensions": [f.semantic_id for f in sampled_fields],
+                        "root_entity": root,
+                        "status_time_dimension": status_time_dimension,
                     },
                 )
             )
             continue
-        matching = [
-            field for field in sampled_fields if field.semantic_id == metric_ir.fold_time_dimension
-        ]
-        if not matching:
+
+        if status_field.sample_interval is not None and metric_ir.time_fold is None:
             errors.append(
                 SemanticLoadError(
-                    kind=ErrorKind.INVALID_FOLD_TIME_DIMENSION,
-                    message=f"Metric {metric_id!r} fold_time_dimension must reference a sampled time dimension on its root entity.",
-                    refs=(metric_id, metric_ir.fold_time_dimension),
+                    kind=ErrorKind.MISSING_TIME_FOLD,
+                    message=f"Sampled semi-additive metric {metric_id!r} must declare time_fold.",
+                    refs=(metric_id, status_time_dimension),
                     details={
                         "metric": metric_id,
-                        "fold_time_dimension": metric_ir.fold_time_dimension,
+                        "sampled_time_dimension": status_time_dimension,
+                    },
+                )
+            )
+            continue
+
+        if metric_ir.time_fold is not None and status_field.sample_interval is None:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.TIME_FOLD_REQUIRES_SAMPLED_TIME_FIELD,
+                    message=(
+                        f"Metric {metric_id!r} declares time_fold but its "
+                        "status_time_dimension is not sampled."
+                    ),
+                    refs=(metric_id, status_time_dimension),
+                    details={
+                        "metric": metric_id,
+                        "status_time_dimension": status_time_dimension,
                     },
                 )
             )

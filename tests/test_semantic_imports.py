@@ -25,7 +25,7 @@ import marivo.semantic as ms
 from marivo.introspection.surface import render as surface_render
 from marivo.semantic import errors as errors_mod
 from marivo.semantic import typing as typing_mod
-from marivo.semantic.constraints import get_constraint, iter_constraints
+from marivo.semantic.constraints import ConstraintId, get_constraint, iter_constraints
 from marivo.semantic.ir import (
     AiContextIR,
     DatasourceIR,
@@ -531,10 +531,8 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "time_fold_requires_semi_additive",
     "time_fold_requires_sampled_time_field",
     "missing_time_fold",
-    "missing_semi_additive_time_axis",
-    "missing_fold_time_dimension",
-    "ambiguous_fold_time_dimension",
-    "invalid_fold_time_dimension",
+    "missing_status_time_dimension",
+    "invalid_status_time_dimension",
 }
 
 _EXPECTED_RUNTIME_KINDS = {
@@ -580,6 +578,15 @@ def test_error_kind_runtime_kinds() -> None:
 def test_error_kind_parity_kinds() -> None:
     values = {k.value for k in errors_mod.ErrorKind if k.value in _EXPECTED_PARITY_KINDS}
     assert values == _EXPECTED_PARITY_KINDS
+
+
+def test_constraint_ids_all_registered() -> None:
+    missing = [
+        constraint_id.value
+        for constraint_id in ConstraintId
+        if get_constraint(constraint_id) is None
+    ]
+    assert missing == []
 
 
 def test_error_kind_all_covered() -> None:
@@ -935,7 +942,7 @@ def test_help_time_fold_documents_sampled_semantics(capsys) -> None:
     ms.help("time_fold")
     out = capsys.readouterr().out
     assert "sampled semi-additive" in out
-    assert "fold_time_dimension" in out
+    assert "status_time_dimension" in out
     assert "('quantile', q)" in out
 
 

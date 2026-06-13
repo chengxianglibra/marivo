@@ -247,7 +247,7 @@ class MetricDetails:
     source_dialect: str | None
     python_symbol: str
     time_fold: str | None
-    fold_time_dimension: str | None
+    status_time_dimension: str | None
 
 
 @dataclass(frozen=True)
@@ -734,7 +734,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         source_dialect=m_ir.provenance.source_dialect,
         python_symbol=m_ir.python_symbol,
         time_fold=m_ir.time_fold.label() if m_ir.time_fold is not None else None,
-        fold_time_dimension=m_ir.fold_time_dimension,
+        status_time_dimension=m_ir.status_time_dimension,
     )
     return SemanticObject(
         ref=ref,

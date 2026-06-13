@@ -376,7 +376,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
                 components={role: component.ref for role, component in details.components},
             ),
             time_fold=None,
-            fold_time_dimension=details.fold_time_dimension,
+            status_time_dimension=details.status_time_dimension,
             unit=details.unit,
         )
 
