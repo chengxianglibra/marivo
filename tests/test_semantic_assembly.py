@@ -1211,7 +1211,7 @@ def test_sampled_semi_additive_metric_without_time_fold_fails() -> None:
     assert [err.kind for err in errors] == [ErrorKind.MISSING_TIME_FOLD]
 
 
-def test_metric_time_fold_auto_binds_single_sampled_axis() -> None:
+def test_metric_time_fold_requires_explicit_fold_time_dimension() -> None:
     registry = _make_registry()
     registry.datasets["sales.bandwidth_samples"] = dataclasses.replace(
         registry.datasets["sales.orders"],
@@ -1249,8 +1249,4 @@ def test_metric_time_fold_auto_binds_single_sampled_axis() -> None:
     )
 
     errors, _warnings = assembly_validate(registry)
-    assert errors == []
-    assert (
-        registry.metrics["sales.upstream_bw"].fold_time_dimension
-        == "sales.bandwidth_samples.sample_ts"
-    )
+    assert [err.kind for err in errors] == [ErrorKind.MISSING_FOLD_TIME_DIMENSION]

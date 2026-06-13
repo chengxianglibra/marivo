@@ -382,7 +382,7 @@ def upstream_bw(bw_samples):
 Rules:
 
 - `time_fold` requires `additivity="semi_additive"`.
-- `fold_time_dimension` binds the sampled time axis used for filtering,
+- `fold_time_dimension` is required and binds the sampled time axis used for filtering,
   sample points, and buckets.
 - `time_fold` is a metric definition choice, not an observe parameter.
 - P95-style folds use `time_fold=("quantile", 0.95)` and are always

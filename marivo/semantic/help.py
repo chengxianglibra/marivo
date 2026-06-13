@@ -236,7 +236,7 @@ def _time_fold_content() -> dict[str, object]:
         "folds": ["mean", "min", "max", "first", "last", "('quantile', q)"],
         "rules": [
             "time_fold requires additivity='semi_additive'",
-            "fold_time_dimension binds the sampled axis used for filtering, sample points, and buckets",
+            "fold_time_dimension is required and binds the sampled axis used for filtering, sample points, and buckets",
             "fold is a metric definition choice, not an observe parameter",
         ],
     }
