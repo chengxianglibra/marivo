@@ -62,7 +62,14 @@ def _public_error_names() -> frozenset[str]:
 
 
 def _public_error_catalog_tokens() -> frozenset[str]:
-    return _public_error_names() | _public_structured_error_codes()
+    error_names = _public_error_names()
+    return error_names | _public_error_kind_tokens(error_names) | _public_structured_error_codes()
+
+
+def _public_error_kind_tokens(error_names: frozenset[str]) -> frozenset[str]:
+    kind_tokens = {name[:-5] if name.endswith("Error") else name for name in error_names}
+    kind_tokens.update(kind.value for kind in semantic_errors.ErrorKind)
+    return frozenset(kind_tokens)
 
 
 def _public_exception_names(module: ModuleType) -> set[str]:
@@ -159,7 +166,7 @@ def _bullet_list_tokens(text: str) -> list[set[str]]:
     current: set[str] | None = None
     for line in text.splitlines():
         stripped = line.strip()
-        match = re.match(r"[-*]\s+(.+)", stripped)
+        match = re.match(r"(?:[-*]|\d+[.)])\s+(.+)", stripped)
         if match is None:
             if current is not None:
                 lists.append(current)
@@ -250,6 +257,13 @@ def test_public_error_catalog_tokens_discovers_observe_codes() -> None:
     tokens = _public_error_catalog_tokens()
     assert "component-axis-unreachable" in tokens
     assert "nested-derived-unsupported" in tokens
+
+
+def test_public_error_catalog_tokens_discovers_analysis_error_kinds() -> None:
+    tokens = _public_error_catalog_tokens()
+    assert "MetricNotFound" in tokens
+    assert "SemanticKindMismatch" in tokens
+    assert "NoBackendFactory" in tokens
 
 
 def test_field_table_detector_flags_transcription() -> None:
@@ -397,6 +411,36 @@ def test_error_code_bullet_list_detector_flags_transcription() -> None:
         "- `component-filter-unreachable`: Check filters\n"
         "- `component-version-mismatch`: Check versions\n"
         "- `nested-derived-unsupported`: Flatten metric\n"
+    )
+    lists = _bullet_list_tokens(text)
+    hit = any(
+        len(tokens & _public_error_catalog_tokens()) >= _ERROR_MATCH_THRESHOLD for tokens in lists
+    )
+    assert hit
+
+
+def test_analysis_error_kind_catalog_detector_flags_transcription() -> None:
+    text = (
+        "Error kind | What it means\n"
+        "--- | ---\n"
+        "MetricNotFound | Unknown metric id\n"
+        "SemanticKindMismatch | Wrong frame semantic kind\n"
+        "SegmentDimensionMismatch | Segment columns differ\n"
+        "PanelGrainMismatch | Panel grains differ\n"
+    )
+    tables = _table_first_column_tokens(text)
+    hit = any(
+        len(tokens & _public_error_catalog_tokens()) >= _ERROR_MATCH_THRESHOLD for tokens in tables
+    )
+    assert hit
+
+
+def test_ordered_error_list_detector_flags_transcription() -> None:
+    text = (
+        "1. `MetricNotFound`: Unknown metric id\n"
+        "2. `SemanticKindMismatch`: Wrong frame semantic kind\n"
+        "3. `SegmentDimensionMismatch`: Segment columns differ\n"
+        "4. `PanelGrainMismatch`: Panel grains differ\n"
     )
     lists = _bullet_list_tokens(text)
     hit = any(
