@@ -73,10 +73,10 @@ def publish_report_package(
 ) -> PublishReportResult:
     """Validate and publish a staged report package to a publish target.
 
-    The package directory must already contain the canonical report files (a
-    materialized adapter, e.g. ``index.html``, plus the core JSON files). The
-    library validates and publishes deterministically; it does not author
-    narrative, HTML, or replay scripts.
+    The package directory must already contain the canonical report files (the
+    core JSON files, plus any materialized adapter files). The library validates
+    and publishes deterministically; it does not author narrative or replay
+    scripts.
     """
     package_root = Path(package_dir)
 

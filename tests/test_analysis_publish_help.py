@@ -12,7 +12,6 @@ def test_publish_help_lists_names() -> None:
         "Dataset",
         "MarivoReportArtifact",
         "ReportSpec",
-        "render_report_html",
         "validate_report_artifact",
     ]:
         assert name in text

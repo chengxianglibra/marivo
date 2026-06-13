@@ -16,10 +16,6 @@ from marivo.analysis.publish.replay_check import (
     ReplayCheckResult,
     static_check_replay,
 )
-from marivo.analysis.publish.report_html_adapter import (
-    render_report_html,
-    to_html_report_payload,
-)
 from marivo.analysis.publish.report_mcp_adapter import (
     to_mcp_artifact_payload,
 )
@@ -81,12 +77,10 @@ __all__ = [
     "help",
     "help_text",
     "load_report_artifact",
-    "render_report_html",
     "resolve_publish_config",
     "resolve_publish_prefix",
     "scan_package_for_secrets",
     "static_check_replay",
-    "to_html_report_payload",
     "to_mcp_artifact_payload",
     "validate_report_artifact",
 ]
