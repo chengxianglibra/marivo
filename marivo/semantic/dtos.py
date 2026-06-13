@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from marivo.render import format_bounded_card, result_repr
 from marivo.semantic.ir import (
     EntitySourceIR,
     FileSourceIR,
@@ -94,11 +95,34 @@ class AuthoringQuestion:
     readiness_effect: ReadinessEffect = "blocks"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class AuthoringAssessment:
     status: ReviewStatus
     issues: tuple[AssessmentIssue, ...]
     questions: tuple[AuthoringQuestion, ...]
+
+    def _repr_identity(self) -> str:
+        return (
+            f"AuthoringAssessment status={self.status} "
+            f"issues={len(self.issues)} questions={len(self.questions)}"
+        )
+
+    def render(self) -> str:
+        issue_rows = [[str(issue.kind), str(issue.severity)] for issue in self.issues]
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            columns=["issue", "severity"],
+            rows=issue_rows,
+            row_count=len(self.issues),
+            preview_truncation_hint="inspect .issues / .questions",
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 def derive_status(
@@ -162,8 +186,37 @@ class DomainBriefSummary:
     object_counts: dict[str, int]
 
 
-@dataclass(frozen=True)
-class DomainBrief:
+class _BriefResult:
+    """Shared AgentResult rendering for authoring briefs.
+
+    Subclasses are frozen dataclasses that expose ``status``, ``questions``,
+    and ``issues`` and implement ``_repr_identity``. This mixin is local to
+    the brief family; it is not a cross-module result base.
+    """
+
+    status: BriefStatus
+    questions: tuple[AuthoringQuestion, ...]
+    issues: tuple[AssessmentIssue, ...]
+
+    def _repr_identity(self) -> str:
+        raise NotImplementedError
+
+    def render(self) -> str:
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=f"questions={len(self.questions)} issues={len(self.issues)}",
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
+class DomainBrief(_BriefResult):
     status: BriefStatus
     proposed_name: str
     existing_domains: tuple[DomainBriefSummary, ...]
@@ -171,9 +224,12 @@ class DomainBrief:
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
 
+    def _repr_identity(self) -> str:
+        return f"DomainBrief proposed_name={self.proposed_name} status={self.status}"
 
-@dataclass(frozen=True)
-class EntityBrief:
+
+@dataclass(frozen=True, repr=False)
+class EntityBrief(_BriefResult):
     status: BriefStatus
     datasource: str
     source: EntitySourceIR  # from marivo.datasource.ir
@@ -188,6 +244,9 @@ class EntityBrief:
     issues: tuple[AssessmentIssue, ...]
     scan: ScanReport  # from marivo.datasource.scan
 
+    def _repr_identity(self) -> str:
+        return f"EntityBrief domain={self.domain} datasource={self.datasource} status={self.status}"
+
 
 @dataclass(frozen=True)
 class FormatCandidate:
@@ -196,8 +255,8 @@ class FormatCandidate:
     backend_caveats: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class DimensionBrief:
+@dataclass(frozen=True, repr=False)
+class DimensionBrief(_BriefResult):
     status: BriefStatus
     entity: str
     column: str
@@ -210,9 +269,12 @@ class DimensionBrief:
     issues: tuple[AssessmentIssue, ...]
     scan: ScanReport  # from marivo.datasource.scan
 
+    def _repr_identity(self) -> str:
+        return f"DimensionBrief entity={self.entity} column={self.column} status={self.status}"
 
-@dataclass(frozen=True)
-class TimeDimensionBrief:
+
+@dataclass(frozen=True, repr=False)
+class TimeDimensionBrief(_BriefResult):
     status: BriefStatus
     entity: str
     column: str
@@ -227,6 +289,9 @@ class TimeDimensionBrief:
     issues: tuple[AssessmentIssue, ...]
     scan: ScanReport
 
+    def _repr_identity(self) -> str:
+        return f"TimeDimensionBrief entity={self.entity} column={self.column} status={self.status}"
+
 
 @dataclass(frozen=True)
 class DimensionValueFact:
@@ -234,8 +299,8 @@ class DimensionValueFact:
     top_values: tuple[tuple[object, int], ...]
 
 
-@dataclass(frozen=True)
-class MetricBrief:
+@dataclass(frozen=True, repr=False)
+class MetricBrief(_BriefResult):
     status: BriefStatus
     entity: str
     measure_profiles: tuple[ScanColumnProfile, ...]
@@ -246,9 +311,12 @@ class MetricBrief:
     issues: tuple[AssessmentIssue, ...]
     scan: ScanReport
 
+    def _repr_identity(self) -> str:
+        return f"MetricBrief entity={self.entity} status={self.status}"
 
-@dataclass(frozen=True)
-class RelationshipBrief:
+
+@dataclass(frozen=True, repr=False)
+class RelationshipBrief(_BriefResult):
     status: BriefStatus
     from_entity: str
     to_entity: str
@@ -260,6 +328,9 @@ class RelationshipBrief:
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
 
+    def _repr_identity(self) -> str:
+        return f"RelationshipBrief from={self.from_entity} to={self.to_entity} status={self.status}"
+
 
 @dataclass(frozen=True)
 class JoinPathFact:
@@ -270,8 +341,8 @@ class JoinPathFact:
     fanout_risk: bool
 
 
-@dataclass(frozen=True)
-class CrossEntityMetricBrief:
+@dataclass(frozen=True, repr=False)
+class CrossEntityMetricBrief(_BriefResult):
     status: BriefStatus
     root_entity: str
     entities: tuple[str, ...]
@@ -282,6 +353,9 @@ class CrossEntityMetricBrief:
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
     scan: ScanReport
+
+    def _repr_identity(self) -> str:
+        return f"CrossEntityMetricBrief root_entity={self.root_entity} status={self.status}"
 
 
 @dataclass(frozen=True)
@@ -294,8 +368,8 @@ class ComponentFact:
     unit: str | None
 
 
-@dataclass(frozen=True)
-class DerivedMetricBrief:
+@dataclass(frozen=True, repr=False)
+class DerivedMetricBrief(_BriefResult):
     status: BriefStatus
     decomposition_kind: Literal["ratio", "weighted_average"]
     components: tuple[ComponentFact, ...]
@@ -304,6 +378,9 @@ class DerivedMetricBrief:
     matches: tuple[RegisteredMatch, ...]
     questions: tuple[AuthoringQuestion, ...]
     issues: tuple[AssessmentIssue, ...]
+
+    def _repr_identity(self) -> str:
+        return f"DerivedMetricBrief decomposition={self.decomposition_kind} status={self.status}"
 
 
 @dataclass(frozen=True)

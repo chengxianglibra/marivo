@@ -35,9 +35,10 @@ from marivo.preview import (
     PreviewSamplePolicy,
     preview_ibis_table,
 )
+from marivo.render import format_bounded_card, result_repr
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class DatasourceSummary:
     """Summary row for one configured project datasource."""
 
@@ -50,6 +51,22 @@ class DatasourceSummary:
         """Stable id used by discovery surfaces; equals ``name``."""
         return self.name
 
+    def _repr_identity(self) -> str:
+        return f"DatasourceSummary name={self.name} backend={self.backend_type}"
+
+    def render(self) -> str:
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=self.description,
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
+
 
 @dataclass(frozen=True)
 class DatasourceDescription:
@@ -61,7 +78,7 @@ class DatasourceDescription:
     env_refs: dict[str, str]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class DatasourceTestResult:
     """Result of a datasource connectivity round-trip."""
 
@@ -69,6 +86,23 @@ class DatasourceTestResult:
     ok: bool
     error: str | None
     latency_ms: int | None
+
+    def _repr_identity(self) -> str:
+        latency = "n/a" if self.latency_ms is None else f"{self.latency_ms}ms"
+        return f"DatasourceTestResult name={self.name} ok={self.ok} latency={latency}"
+
+    def render(self) -> str:
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=self.error,
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 def register(

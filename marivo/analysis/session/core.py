@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.analysis.session._layout import PersistenceLayout, read_job_record
 from marivo.analysis.timezone import resolve_system_timezone
+from marivo.render import format_bounded_card, result_repr
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -53,7 +54,7 @@ if TYPE_CHECKING:
 SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class JobSummary:
     id: str
     intent: str
@@ -62,8 +63,24 @@ class JobSummary:
     duration_ms: int
     output_frame_ref: str | None
 
+    def _repr_identity(self) -> str:
+        return f"JobSummary id={self.id} intent={self.intent} status={self.status}"
 
-@dataclass(frozen=True)
+    def render(self) -> str:
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=f"duration={self.duration_ms}ms frame={self.output_frame_ref}",
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
 class FrameSummaryEntry:
     ref: str
     kind: str
@@ -71,6 +88,22 @@ class FrameSummaryEntry:
     semantic_kind: str | None
     semantic_model: str | None
     created_at: str | None
+
+    def _repr_identity(self) -> str:
+        return f"FrameSummaryEntry ref={self.ref} kind={self.kind}"
+
+    def render(self) -> str:
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=f"metric={self.metric_id} created={self.created_at}",
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 @dataclass(frozen=True)

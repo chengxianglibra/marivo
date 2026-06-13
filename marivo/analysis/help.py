@@ -817,9 +817,9 @@ def _help_semantic_ref(
     resolved_project = project
     if resolved_project is None:
         try:
-            import marivo.semantic as ms
+            from marivo.semantic.loader import find_project
 
-            resolved_project = ms.find_project()
+            resolved_project = find_project()
             if resolved_project is not None:
                 resolved_project.load()
         except Exception:
@@ -858,9 +858,9 @@ def _help_catalog_ref(
     resolved_project = project
     if resolved_project is None:
         try:
-            import marivo.semantic as ms
+            from marivo.semantic.loader import find_project
 
-            resolved_project = ms.find_project()
+            resolved_project = find_project()
             if resolved_project is not None:
                 resolved_project.load()
         except Exception:

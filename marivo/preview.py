@@ -9,6 +9,8 @@ from typing import Any, Literal, TypedDict
 
 import pandas as pd
 
+from marivo.render import format_bounded_card, result_repr
+
 PreviewKind = Literal[
     "datasource_table",
     "semantic_dataset",
@@ -72,7 +74,7 @@ class PreviewSamplePolicy:
     filters: tuple[PreviewFilter, ...] = ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class PreviewResult:
     kind: PreviewKind
     ref: str
@@ -89,6 +91,30 @@ class PreviewResult:
             limit=PREVIEW_DEFAULT_LIMIT,
         )
     )
+
+    def _repr_identity(self) -> str:
+        return (
+            f"PreviewResult kind={self.kind} ref={self.ref} "
+            f"rows={self.returned_row_count}/{self.requested_limit}"
+        )
+
+    def render(self) -> str:
+        preview_rows = [[str(row.get(col, "")) for col in self.columns] for row in self.rows]
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=f"truncated={self.is_truncated}",
+            columns=list(self.columns),
+            rows=preview_rows,
+            row_count=self.returned_row_count,
+            preview_truncation_hint="call preview(limit=...)",
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 def validate_preview_limit(

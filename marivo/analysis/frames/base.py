@@ -20,6 +20,7 @@ from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.followups import BlockingIssue, ConfidenceScope, FollowupAction
 from marivo.analysis.frames.render import format_bounded_card
 from marivo.analysis.lineage import Lineage
+from marivo.render import result_repr
 
 _RENDER_PREVIEW_ROWS = 5
 _RENDER_MAX_COLUMNS = 8
@@ -116,6 +117,23 @@ class FrameSummary(BaseModel):
     produced_by_job: str | None
     lineage_oneliner: str
     semantic_shape: str | None = None
+
+    def _repr_identity(self) -> str:
+        return f"FrameSummary kind={self.kind} ref={self.ref} rows={self.row_count}"
+
+    def render(self) -> str:
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=self.lineage_oneliner,
+            columns=list(self.columns),
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 class FramePreview(BaseModel):

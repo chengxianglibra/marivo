@@ -72,7 +72,6 @@ _SUMMARIES: dict[str, str] = {
     "entity": "declare an entity over a structured source",
     "errors": "SemanticError hierarchy and ErrorKind enum",
     "file": "file source for ms.entity(source=...)",
-    "find_project": "internal — use ms.load() instead",
     "help": "this introspection entry point",
     "help_text": "return semantic help text without printing",
     "load": "load a semantic project and return a SemanticCatalog — the normal agent entrypoint",

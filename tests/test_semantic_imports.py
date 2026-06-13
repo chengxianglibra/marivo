@@ -120,7 +120,6 @@ def test_all_list_matches_expected() -> None:
         "ValidityVersioning",
         "VerifyResult",
         "VersioningHints",
-        "find_project",
         "help_text",
         "load",
         "domain",
@@ -760,19 +759,6 @@ def test_ai_context_accessible_from_ms() -> None:
 # ---------------------------------------------------------------------------
 # Loader module
 # ---------------------------------------------------------------------------
-
-
-def test_find_project_exists() -> None:
-    assert callable(ms.find_project)
-
-
-def test_find_project_returns_none_without_project() -> None:
-    """find_project should return None when no .marivo/semantic/ is found."""
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmp:
-        result = ms.find_project(start_dir=tmp)
-        assert result is None
 
 
 def test_loader_context_dataclass() -> None:

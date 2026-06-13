@@ -2,8 +2,46 @@
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 _MAX_PREVIEW_COLUMNS = 8
 _MAX_PREVIEW_ROWS = 5
+
+
+@runtime_checkable
+class AgentResult(Protocol):
+    """Structural protocol every terminal result type satisfies.
+
+    A terminal result is an object an agent stops to read or ``print()``s.
+    Conformance is verified by the contract test, not by inheritance.
+    """
+
+    def render(self) -> str: ...
+
+    def show(self) -> None: ...
+
+    def __repr__(self) -> str: ...
+
+
+def result_repr(identity: str) -> str:
+    """Return the single-line bounded repr for a terminal result.
+
+    Args:
+        identity: The type-and-id identity line (same value passed as
+            ``identity`` to ``format_bounded_card``).
+
+    Returns:
+        A single-line string of the form
+        ``"<{identity}; call .show() to inspect>"``.
+
+    Example:
+        >>> result_repr("MetricFrame ref=frame_ab12 rows=7")
+        '<MetricFrame ref=frame_ab12 rows=7; call .show() to inspect>'
+
+    Constraints:
+        identity must not contain a newline.
+    """
+    return f"<{identity}; call .show() to inspect>"
 
 
 def format_bounded_card(

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from marivo.datasource.ir import FileSourceIR, TableSourceIR
+from marivo.render import format_bounded_card, result_repr
 
 ScanPartition = Mapping[str, str] | Literal["latest"] | None
 PartitionResolution = Literal["explicit", "latest", "none", "unpruned"]
@@ -47,7 +48,7 @@ class ScanScope:
             raise ValueError("ScanScope.timeout_seconds must be positive when provided.")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class ScanReport:
     """Summary of a completed datasource scan.
 
@@ -69,30 +70,31 @@ class ScanReport:
     elapsed_seconds: float
     warnings: tuple[str, ...]
 
-    def __repr__(self) -> str:
+    def _repr_identity(self) -> str:
         return (
-            f"<ScanReport rows={self.rows_scanned} "
+            f"ScanReport rows={self.rows_scanned} "
             f"columns={len(self.columns_scanned)} "
-            f"partition={self.partition_resolution}>"
+            f"partition={self.partition_resolution}"
         )
 
     def render(self) -> str:
-        """Render a human-readable summary of the scan result."""
         partition = (
             "none"
             if self.partition_used is None
             else ", ".join(f"{key}={value}" for key, value in self.partition_used.items())
         )
         warnings = "none" if not self.warnings else "; ".join(self.warnings[:3])
-        return (
-            f"ScanReport rows={self.rows_scanned} "
-            f"columns={len(self.columns_scanned)} "
-            f"partition={self.partition_resolution} ({partition}) "
-            f"truncated={self.truncated} warnings={warnings}"
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=f"partition={partition} truncated={self.truncated} warnings={warnings}",
+            columns=list(self.columns_scanned),
+            available=(".render()", ".show()"),
         )
 
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
     def show(self) -> None:
-        """Print the rendered scan report to stdout."""
         print(self.render())
 
 
@@ -127,7 +129,7 @@ class ColumnProfile:
     max_value: object | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class ColumnInspection:
     """Column inspection result for a single datasource source.
 
@@ -142,6 +144,22 @@ class ColumnInspection:
     source: TableSourceIR | FileSourceIR
     profiles: tuple[ColumnProfile, ...]
     scan: ScanReport
+
+    def _repr_identity(self) -> str:
+        return f"ColumnInspection datasource={self.datasource} columns={len(self.profiles)}"
+
+    def render(self) -> str:
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            columns=[profile.column for profile in self.profiles],
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 @dataclass(frozen=True)

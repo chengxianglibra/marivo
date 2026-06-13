@@ -94,7 +94,6 @@ from marivo.semantic.ir import (
     RelationshipRef,
     TimeDimensionRef,
 )
-from marivo.semantic.loader import find_project
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
@@ -307,7 +306,6 @@ __all__ = [
     "entity",
     "errors",
     "file",
-    "find_project",
     "help",
     "help_text",
     "load",
