@@ -831,6 +831,28 @@ def test_time_dimension_rejects_invalid_sample_interval_unit() -> None:
         _exit_ctx()
 
 
+def test_time_dimension_coarser_granularity_error_suggests_fix() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_dimension(
+                entity="sales.bandwidth_samples",
+                data_type="timestamp",
+                granularity="day",
+                sample_interval=(5, "minute"),
+            )
+            def sample_ts(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
+        message = str(exc_info.value)
+        assert "Set granularity to 'minute' or finer" in message
+        assert "'second', 'minute'" in message
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # ms.metric() decorator
 # ---------------------------------------------------------------------------
