@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+from marivo.render import format_bounded_card, result_repr
+
 _DOT_MARIVO = ".marivo"
 
 _SCHEMA = """
@@ -107,7 +109,7 @@ def resolve_project_root(start: Path | None = None) -> Path:
     return base
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class SessionSummary:
     """Lightweight session metadata returned by list_sessions."""
 
@@ -119,6 +121,25 @@ class SessionSummary:
     job_count: int
     frame_count: int
     report_count: int
+
+    def _repr_identity(self) -> str:
+        return f"SessionSummary id={self.id} name={self.name}"
+
+    def render(self) -> str:
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=(
+                f"jobs={self.job_count} frames={self.frame_count} "
+                f"reports={self.report_count} updated={self.updated_at}"
+            ),
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 def _gen_session_id() -> str:

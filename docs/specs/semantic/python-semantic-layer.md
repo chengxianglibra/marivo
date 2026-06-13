@@ -691,7 +691,7 @@ if result.errors:
 - 默认列出所有字符串 refs 和 unverified metrics，作为 agent 需要复核的 warning。
 - 支持 `.venv/bin/python -m marivo.semantic.check --format=json --readiness` 输出结构化 errors / warnings / readiness report / parity summary，便于 agent 稳定解析。
 
-需要探索对象时，再用项目显式 API。agent 进入一个新 repo 后的默认入口是 `ms.find_project()`；找不到时不要猜 root，应提示初始化或显式传入 project root。
+需要探索对象时，再用项目显式 API。agent 进入一个新 repo 后的默认入口是 `ms.load()`（内部经 `find_project` 向上查找 `.marivo/semantic/`，该函数不是公开 API）；找不到时不要猜 root，应提示初始化或显式传入 project root。
 
 ### 2. 声明最小业务对象
 
@@ -931,7 +931,7 @@ typed frames + session persistence + lineage
 - `check` 缺省向上查找 `.marivo/semantic/`，支持 `--strict-provenance`，并默认提示字符串 refs。
 - 提供 semantic refactor rename 工具，减少 agent 手工重命名字符串 refs。
 - Loader 采用 two-pass collect / resolve；合法 ref 不受 sibling filename sort order 影响。
-- `find_project()` 向上查找 `.marivo/semantic/`，作为 agent 进入新 repo 的第一步。
+- 内部 loader 的 `find_project` 向上查找 `.marivo/semantic/`，由公开入口 `ms.load()` 调用；它本身不是公开 API。
 - Reader 增加 catalog browsing、single-object details、preview 和 readiness handoff。
 - `describe(..., compile_sql=True)` 返回结构化对象，包含 Ibis repr、compiled SQL、source SQL、dependencies、source location 和 parity status；`format="text"` 只作阅读糖。
 - `name=` 是 semantic identity；Python 符号名只是 local alias，check/describe 显示二者映射。

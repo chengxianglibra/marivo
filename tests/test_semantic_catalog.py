@@ -423,6 +423,18 @@ def _make_list() -> SemanticObjectList:
     )
 
 
+def test_semantic_object_conforms_to_agent_result():
+    from tests.test_agent_result_protocol import assert_conforms
+
+    assert_conforms(_make_metric_obj())
+
+
+def test_semantic_object_list_conforms_to_agent_result():
+    from tests.test_agent_result_protocol import assert_conforms
+
+    assert_conforms(_make_list())
+
+
 def test_semantic_object_list_objects_property():
     lst = _make_list()
     assert len(lst.objects) == 1

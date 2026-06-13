@@ -21,6 +21,7 @@ from marivo.preview import (
     preview_ibis_value,
     validate_preview_limit,
 )
+from marivo.render import format_bounded_card, result_repr
 from marivo.semantic.dtos import DatasetSource
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
@@ -280,7 +281,7 @@ SemanticObjectDetails = (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class SemanticObject:
     """Single read shape for all loaded semantic objects.
 
@@ -340,6 +341,24 @@ class SemanticObject:
             already use the same representation.
         """
         return self._details
+
+    def _repr_identity(self) -> str:
+        return f"SemanticObject kind={self.kind} ref={self.ref.ref}"
+
+    def render(self) -> str:
+        """Return a bounded plain-text object card without a trailing newline."""
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=self.description,
+            available=(".details()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        """Print render() output and return None."""
+        print(self.render())
 
 
 class SemanticObjectList:
@@ -427,6 +446,14 @@ class SemanticObjectList:
             "  result.refs()                   # obtain all SemanticRef values for analysis handoff"
         )
         return "\n".join(lines).rstrip("\n")
+
+    def _repr_identity(self) -> str:
+        label = self._parent_label or "catalog"
+        filter_note = f" kind={self._kind_filter}" if self._kind_filter else ""
+        return f"SemanticObjectList parent={label}{filter_note} count={len(self._items)}"
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
 
     def show(self) -> None:
         """Print render() output and return None."""

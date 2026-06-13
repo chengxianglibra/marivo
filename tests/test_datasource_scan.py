@@ -44,7 +44,9 @@ def test_scan_report_render_is_bounded() -> None:
         warnings=(),
     )
 
-    assert repr(report) == "<ScanReport rows=20 columns=2 partition=explicit>"
+    assert repr(report) == (
+        "<ScanReport rows=20 columns=2 partition=explicit; call .show() to inspect>"
+    )
     assert "dt=20260612" in report.render()
 
 
