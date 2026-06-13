@@ -191,9 +191,10 @@ def test_no_public_dataclass_field_tables_in_skills() -> None:
         for type_name, field_names in field_map.items():
             if (rel, type_name) in _ALLOWLIST:
                 continue
+            threshold = min(_FIELD_MATCH_THRESHOLD, len(field_names))
             for tokens in tables:
                 overlap = tokens & field_names
-                if len(overlap) >= _FIELD_MATCH_THRESHOLD:
+                if len(overlap) >= threshold:
                     violations.append(
                         f"{rel}: table restates {len(overlap)} fields of {type_name} "
                         f"({sorted(overlap)}) -- point to help('{type_name}') instead"
@@ -278,6 +279,21 @@ def test_field_table_detector_flags_transcription() -> None:
     )
     tables = _table_first_column_tokens(text)
     hit = any(len(tokens & field_map["WidgetBrief"]) >= _FIELD_MATCH_THRESHOLD for tokens in tables)
+    assert hit
+
+
+def test_field_table_detector_flags_complete_small_dataclass() -> None:
+    field_map = {"TinyBrief": frozenset({"status", "issues", "questions"})}
+    text = (
+        "| Field | Type |\n"
+        "| --- | --- |\n"
+        "| status | str |\n"
+        "| issues | list |\n"
+        "| questions | list |\n"
+    )
+    tables = _table_first_column_tokens(text)
+    threshold = min(_FIELD_MATCH_THRESHOLD, len(field_map["TinyBrief"]))
+    hit = any(len(tokens & field_map["TinyBrief"]) >= threshold for tokens in tables)
     assert hit
 
 
