@@ -19,11 +19,11 @@ that clearly came from the system Python instead of the project virtualenv.
 Use the project virtualenv entrypoints directly:
 
 ```bash
-.venv/bin/python -c 'import marivo.analysis as mv; mv.help()'
+<venv>/bin/python -c 'import marivo.analysis as mv; mv.help()'
 ```
 
-If this skill is being used outside the Marivo source checkout, replace `.venv`
-with that project's actual virtualenv path.
+Marivo is expected to be installed in the project virtualenv via pip. Replace
+`<venv>` with that environment path.
 
 ## Passing a DeltaFrame back into compare
 

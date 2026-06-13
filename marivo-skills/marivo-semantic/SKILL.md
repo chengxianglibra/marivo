@@ -11,10 +11,11 @@ objects. For metric-centered analysis on an already-ready model, use
 
 ## Runtime Assumptions
 
-This skill is written for pip-installed Marivo in an ordinary project. Do not
-assume the Marivo source checkout, repo fixtures, `make`, or a fixed `.venv`
-name. Identify the project Python environment first, then use its explicit
-Python path such as `<venv>/bin/python`.
+This skill is written for an ordinary project that depends on Marivo as a
+pip-installed Python library; the current workspace is not expected to contain
+the Marivo package source. Do not rely on repo fixtures, `make`, or a fixed
+`.venv` name. Identify the project Python environment first, then use its
+explicit Python path such as `<venv>/bin/python`.
 
 The current project should contain `.marivo/semantic/`. If it does not, create
 the project structure before authoring semantic objects.
