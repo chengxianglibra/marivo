@@ -86,6 +86,7 @@ class ErrorKind(StrEnum):
     TIME_FOLD_REQUIRES_SEMI_ADDITIVE = "time_fold_requires_semi_additive"
     TIME_FOLD_REQUIRES_SAMPLED_TIME_FIELD = "time_fold_requires_sampled_time_field"
     MISSING_TIME_FOLD = "missing_time_fold"
+    MISSING_SEMI_ADDITIVE_TIME_AXIS = "missing_semi_additive_time_axis"
     MISSING_FOLD_TIME_DIMENSION = "missing_fold_time_dimension"
     AMBIGUOUS_FOLD_TIME_DIMENSION = "ambiguous_fold_time_dimension"
     INVALID_FOLD_TIME_DIMENSION = "invalid_fold_time_dimension"

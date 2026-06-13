@@ -582,6 +582,47 @@ def upstream_bw(bw_samples):
 
 The metric body expresses the spatial aggregate inside one sample point. `time_fold` expresses how the sample-point series is reduced to the requested observe grain. `fold_time_dimension` is required and binds the sampled axis used for filtering, sample points, and buckets. P95-style folds use `time_fold=("quantile", 0.95)` and are always recomputed from base samples for the requested grain.
 
+Not every semi-additive metric is sampled. Already-summarized snapshot or
+status facts, such as daily inventory, omit `time_fold` but must still bind
+their time semantics through root entity versioning or a default time
+dimension. A bare `additivity="semi_additive"` metric with neither sampled
+folding nor snapshot/default-time semantics is invalid.
+
+```python
+inventory_daily = ms.entity(
+    name="inventory_daily",
+    datasource=warehouse,
+    source=ms.table("inventory_daily"),
+    primary_key=["sku_id", "warehouse_id", "dt"],
+    versioning=ms.snapshot(
+        partition_field="dt",
+        grain="day",
+        timezone="UTC",
+        format="%Y%m%d",
+    ),
+)
+
+@ms.time_dimension(
+    entity=inventory_daily,
+    name="snapshot_date",
+    data_type="string",
+    granularity="day",
+    date_format="%Y%m%d",
+    is_default=True,
+)
+def snapshot_date(inventory_daily):
+    return inventory_daily.dt
+
+@ms.metric(
+    entities=[inventory_daily],
+    additivity="semi_additive",
+    decomposition=ms.sum(),
+    verification_mode="python_native",
+)
+def on_hand_units(inventory_daily):
+    return inventory_daily.on_hand_units.sum()
+```
+
 ### Relationship
 
 relationship 描述 dataset 之间的连接路径：

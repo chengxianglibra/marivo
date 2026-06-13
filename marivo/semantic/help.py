@@ -237,6 +237,7 @@ def _time_fold_content() -> dict[str, object]:
         "rules": [
             "time_fold requires additivity='semi_additive'",
             "fold_time_dimension is required and binds the sampled axis used for filtering, sample points, and buckets",
+            "non-sampled semi_additive metrics require root entity versioning or one default time dimension",
             "fold is a metric definition choice, not an observe parameter",
         ],
     }
