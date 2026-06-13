@@ -401,7 +401,7 @@ def test_dataclass_field_infos_empty_for_non_dataclass() -> None:
     assert dataclass_field_infos(Plain) == ()
 
 
-def test_field_infos_prefers_pydantic_then_dataclass() -> None:
+def test_field_infos_falls_back_to_dataclass_fields() -> None:
     from dataclasses import dataclass, field
 
     from marivo.introspection.describe import field_infos
@@ -413,6 +413,15 @@ def test_field_infos_prefers_pydantic_then_dataclass() -> None:
     infos = field_infos(Sample)
     assert [f.name for f in infos] == ["name"]
     assert infos[0].description == "d"
+
+
+def test_field_infos_preserves_pydantic_fields() -> None:
+    from marivo.introspection.describe import field_infos
+
+    infos = field_infos(_PydanticWithFieldAndValidator)
+    assert infos == pydantic_fields(_PydanticWithFieldAndValidator)
+    assert [f.name for f in infos] == ["name", "count", "tag"]
+    assert infos[0].description == "item name"
 
 
 def test_pydantic_validators_filtered_from_public_methods() -> None:
@@ -436,6 +445,38 @@ def test_describe_object_populates_fields_for_pydantic_model() -> None:
     assert descriptor.kind == "class"
     assert len(descriptor.fields) == 3
     assert "validate_name" not in {m.name for m in descriptor.methods}
+
+
+def test_describe_object_renders_dataclass_field_descriptions() -> None:
+    from dataclasses import dataclass, field
+
+    @dataclass(frozen=True)
+    class Sample:
+        name: str = field(metadata={"description": "the name"})
+        flag: bool = field(default=False, metadata={"description": "is enabled"})
+
+    descriptor = describe_object(
+        surface="test.surface",
+        symbol="Sample",
+        obj=Sample,
+        summary="sample dataclass",
+        constraints=(),
+        examples=(),
+        see_also=(),
+    )
+
+    data = render_json(descriptor)
+    assert data["kind"] == "class"
+    assert data["fields"] == [
+        {"name": "name", "annotation": "str", "required": True, "description": "the name"},
+        {
+            "name": "flag",
+            "annotation": "bool",
+            "required": False,
+            "default": "False",
+            "description": "is enabled",
+        },
+    ]
 
 
 def test_render_json_includes_fields() -> None:

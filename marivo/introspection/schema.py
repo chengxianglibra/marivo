@@ -14,7 +14,7 @@ Kind = Literal["callable", "class", "frame", "module", "topic", "surface", "type
 
 @dataclass(frozen=True)
 class FieldInfo:
-    """L1 field summary for Pydantic model descriptors."""
+    """L1 field summary for class descriptors with structured fields."""
 
     name: str
     annotation: str
