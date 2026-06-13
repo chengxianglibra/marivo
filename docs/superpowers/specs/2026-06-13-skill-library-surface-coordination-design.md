@@ -88,9 +88,13 @@ How the two surfaces hand off to each other:
    detail inline. A skill references a contract **by pointer, never by copy.**
 3. **Glosses migrate into code.** Where a skill genuinely adds value by glossing
    a contract — for example the per-field "Purpose" prose in the Brief tables —
-   that gloss moves into the code (field docstrings consumed by `describe()`),
-   so the library becomes the single source for it too. The skill then drops the
-   transcription and lets `help()` carry the gloss.
+   that gloss moves into the code so the library becomes its single source. The
+   Briefs are frozen dataclasses, and `describe()` only extracted structured
+   fields from Pydantic models, so this requires a small introspection
+   capability: `describe()` learns to read dataclass field metadata
+   (`field(metadata={"description": ...})`) and emit it as `FieldInfo`. Each
+   Brief field then carries its gloss in metadata, `help('<Brief>')` renders a
+   structured fielded view, and the skill drops the transcription.
 
 This keeps the skill thin and durable: it changes only when the *process*
 changes, not when a field is renamed.
@@ -111,8 +115,9 @@ types from the dataclass, so the tables are redundant and drift-prone.
   `sufficient` → what the agent does) — this is process.
 - **Keep** the ladder ordering guidance.
 - **Repoint** field detail to `ms.help('<Brief>')`.
-- **Migrate** any per-field "Purpose" gloss worth keeping into field docstrings
-  on the Brief dataclasses, so `describe()` can emit it.
+- **Migrate** the per-field "Purpose" gloss into `field(metadata={"description":
+  ...})` on the Brief dataclasses, after teaching `describe()` to read dataclass
+  field metadata, so `help('<Brief>')` emits the fielded view with gloss.
 
 ### `marivo-skills/marivo-analysis/references/cheatsheet.md`
 
@@ -155,8 +160,8 @@ guards.
   type field names).
 - No transcribed `*Error` / error-code catalog in skill markdown (flag tables or
   lists whose entries match public exception names beyond a small threshold).
-- Public Brief and result-type fields carry docstrings, so the library can emit
-  the gloss that the skills used to carry.
+- Public Brief fields carry a `description` in their dataclass metadata, so the
+  library can emit the gloss that the skills used to carry.
 
 **Allowlist:** a pinned set of deliberate exceptions, consistent with the
 existing snapshot tests. Any intentional contract mention in a skill is a
