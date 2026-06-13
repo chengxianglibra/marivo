@@ -17,17 +17,14 @@ Use `marivo-semantic` instead when the task is authoring semantic models.
 
 ## Python Environment
 
-Do not use bare `python`, `python3`, `pip`, or `pip3` commands.
-In this Marivo source checkout, use these exact entrypoints:
+Marivo is a pip-installed Python library in the current project environment;
+the current workspace is not expected to contain the Marivo package source. Do
+not rely on repo fixtures, `make`, or a fixed `.venv` path.
 
-```bash
-.venv/bin/python
-.venv/bin/pip
-```
-
-If this skill is copied into another project, first identify that project's
-virtualenv path, then use `<venv>/bin/python` and `<venv>/bin/pip`
-consistently for every install, check, and script run.
+Do not use bare `python`, `python3`, `pip`, or `pip3` commands. First identify
+the project virtualenv path, then use `<venv>/bin/python` and `<venv>/bin/pip`
+consistently for every install, check, and script run. If the project has no
+virtualenv yet, create or activate one before using this skill.
 
 ## How to start
 
@@ -268,7 +265,7 @@ list here — the error text is authoritative and current.
 
 ## Standard workflow
 
-1. `.venv/bin/python -c 'import marivo.analysis as mv; mv.help()'` — verify install.
+1. `<venv>/bin/python -c 'import marivo.analysis as mv; mv.help()'` — verify install.
 2. Confirm metric ids from the semantic layer.
 3. Start or attach the task session with
    `mv.session.get_or_create(name="<stable_task_name>")`.
