@@ -15,9 +15,11 @@ import inspect
 import re
 from pathlib import Path
 from types import ModuleType
+from typing import get_args
 
 import marivo.analysis as ma
 import marivo.analysis.errors as analysis_errors
+import marivo.analysis.intents.observe_errors as observe_errors
 import marivo.datasource as md
 import marivo.datasource.errors as datasource_errors
 import marivo.semantic as ms
@@ -59,6 +61,10 @@ def _public_error_names() -> frozenset[str]:
     return frozenset(names)
 
 
+def _public_error_catalog_tokens() -> frozenset[str]:
+    return _public_error_names() | _public_structured_error_codes()
+
+
 def _public_exception_names(module: ModuleType) -> set[str]:
     names: set[str] = set()
     for symbol, obj in inspect.getmembers(module, inspect.isclass):
@@ -69,6 +75,12 @@ def _public_exception_names(module: ModuleType) -> set[str]:
         ):
             names.add(symbol)
     return names
+
+
+def _public_structured_error_codes() -> frozenset[str]:
+    return frozenset(
+        code for code in get_args(observe_errors.ObserveErrorCode) if isinstance(code, str)
+    )
 
 
 def _table_cells(stripped_line: str) -> list[str] | None:
@@ -88,7 +100,7 @@ def _first_column_token(cell: str) -> str:
     stripped = cell.strip()
     if match := re.match(r"`([^`]+)`", stripped):
         return match.group(1).strip()
-    return re.split(r"\s+|\s*-\s*|\(", stripped.strip("` "), maxsplit=1)[0].strip("` ")
+    return re.split(r"\s+-\s+|\s+|\(", stripped.strip("` "), maxsplit=1)[0].strip("` ")
 
 
 def _table_first_column_tokens(text: str) -> list[set[str]]:
@@ -146,10 +158,11 @@ def test_no_public_dataclass_field_tables_in_skills() -> None:
 
 
 def test_no_error_catalog_in_skills() -> None:
-    # Target catalog *tables* keyed by error name, not prose that names errors
-    # during recovery guidance (pitfalls.md legitimately discusses errors).
-    error_names = _public_error_names()
-    assert error_names, "expected to discover public *Error names from the surfaces"
+    # Target catalog *tables* keyed by error name or structured code, not prose
+    # that names errors during recovery guidance (pitfalls.md legitimately
+    # discusses errors).
+    error_tokens = _public_error_catalog_tokens()
+    assert error_tokens, "expected to discover public error names/codes from the surfaces"
     violations: list[str] = []
     for path in _markdown_files():
         rel = str(path.relative_to(_SKILLS_ROOT))
@@ -157,10 +170,10 @@ def test_no_error_catalog_in_skills() -> None:
             continue
         tables = _table_first_column_tokens(path.read_text(encoding="utf-8"))
         for tokens in tables:
-            present = tokens & error_names
+            present = tokens & error_tokens
             if len(present) >= _ERROR_MATCH_THRESHOLD:
                 violations.append(
-                    f"{rel}: a table catalogs {len(present)} public error types "
+                    f"{rel}: a table catalogs {len(present)} public error tokens "
                     f"({sorted(present)}) -- structured errors teach the fix at raise "
                     f"time; do not catalog them in a table"
                 )
@@ -193,6 +206,12 @@ def test_brief_fields_carry_descriptions_for_help() -> None:
 
 def test_public_error_names_discovers_analysis_errors_without_all() -> None:
     assert "SemanticKindMismatchError" in _public_error_names()
+
+
+def test_public_error_catalog_tokens_discovers_observe_codes() -> None:
+    tokens = _public_error_catalog_tokens()
+    assert "component-axis-unreachable" in tokens
+    assert "nested-derived-unsupported" in tokens
 
 
 def test_field_table_detector_flags_transcription() -> None:
@@ -229,6 +248,17 @@ def test_table_detector_handles_no_leading_pipe_and_decorated_tokens() -> None:
     assert tables == [{"Field", "status", "MetricNotFoundError"}]
 
 
+def test_table_detector_preserves_bare_hyphenated_error_codes() -> None:
+    text = (
+        "Code | Recovery\n"
+        "--- | ---\n"
+        "component-axis-unreachable | Check dimensions\n"
+        "`nested-derived-unsupported` - observe failure | Flatten metric\n"
+    )
+    tables = _table_first_column_tokens(text)
+    assert tables == [{"Code", "component-axis-unreachable", "nested-derived-unsupported"}]
+
+
 def test_error_catalog_detector_flags_transcription() -> None:
     error_names = frozenset(
         {
@@ -248,4 +278,20 @@ def test_error_catalog_detector_flags_transcription() -> None:
     )
     tables = _table_first_column_tokens(text)
     hit = any(len(tokens & error_names) >= _ERROR_MATCH_THRESHOLD for tokens in tables)
+    assert hit
+
+
+def test_error_code_catalog_detector_flags_transcription() -> None:
+    text = (
+        "Code | Recovery\n"
+        "--- | ---\n"
+        "component-axis-unreachable | Check dimensions\n"
+        "component-filter-unreachable | Check filters\n"
+        "component-version-mismatch | Check versions\n"
+        "nested-derived-unsupported | Flatten metric\n"
+    )
+    tables = _table_first_column_tokens(text)
+    hit = any(
+        len(tokens & _public_error_catalog_tokens()) >= _ERROR_MATCH_THRESHOLD for tokens in tables
+    )
     assert hit
