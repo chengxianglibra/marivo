@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 from collections.abc import Mapping
 from types import ModuleType
@@ -142,6 +143,51 @@ def pydantic_fields(cls: type) -> tuple[FieldInfo, ...]:
     return tuple(fields)
 
 
+def dataclass_field_infos(cls: type) -> tuple[FieldInfo, ...]:
+    """Extract field metadata from a dataclass type."""
+
+    if not dataclasses.is_dataclass(cls):
+        return ()
+
+    fields: list[FieldInfo] = []
+    for field in dataclasses.fields(cls):
+        if isinstance(field.type, str):
+            annotation = field.type
+        else:
+            annotation = getattr(field.type, "__name__", str(field.type))
+
+        has_default = field.default is not dataclasses.MISSING
+        has_default_factory = field.default_factory is not dataclasses.MISSING
+        default: str | None = None
+        if has_default:
+            default = repr(field.default)
+        elif has_default_factory:
+            default = getattr(field.default_factory, "__name__", repr(field.default_factory))
+
+        metadata_description = field.metadata.get("description")
+        description = metadata_description if isinstance(metadata_description, str) else None
+
+        fields.append(
+            FieldInfo(
+                name=field.name,
+                annotation=annotation,
+                required=not has_default and not has_default_factory,
+                default=default,
+                description=description,
+            )
+        )
+    return tuple(fields)
+
+
+def field_infos(cls: type) -> tuple[FieldInfo, ...]:
+    """Extract field metadata from supported class field systems."""
+
+    fields = pydantic_fields(cls)
+    if fields:
+        return fields
+    return dataclass_field_infos(cls)
+
+
 def _is_pydantic_validator(cls: type, name: str) -> bool:
     """Return True if name is a Pydantic field_validator or model_validator on cls."""
     if not issubclass(cls, BaseModel):
@@ -202,7 +248,7 @@ def describe_object(
                 constraints=constraints,
                 examples=examples,
                 see_also=see_also,
-                fields=pydantic_fields(cls),
+                fields=field_infos(cls),
                 methods=public_methods(cls, include_inherited=True),
                 next_intents=_string_tuple(getattr(cls, "_NEXT_INTENTS", ())),
                 constructed_by=constructed_by.get(symbol) if constructed_by else None,
@@ -217,7 +263,7 @@ def describe_object(
             constraints=constraints,
             examples=examples,
             see_also=see_also,
-            fields=pydantic_fields(cls),
+            fields=field_infos(cls),
             methods=public_methods(cls),
         )
 

@@ -357,6 +357,64 @@ def test_pydantic_fields_returns_empty_for_non_basemodel() -> None:
     assert pydantic_fields(_OwnDoc) == ()
 
 
+def test_dataclass_field_infos_reads_metadata_description() -> None:
+    from dataclasses import dataclass, field
+
+    from marivo.introspection.describe import dataclass_field_infos
+
+    @dataclass(frozen=True)
+    class Sample:
+        name: str = field(metadata={"description": "the name"})
+        count: int = field(metadata={"description": "how many"})
+
+    infos = dataclass_field_infos(Sample)
+    assert [f.name for f in infos] == ["name", "count"]
+    assert infos[0].annotation == "str"
+    assert infos[0].required is True
+    assert infos[0].default is None
+    assert infos[0].description == "the name"
+    assert infos[1].description == "how many"
+
+
+def test_dataclass_field_infos_handles_missing_description_and_defaults() -> None:
+    from dataclasses import dataclass, field
+
+    from marivo.introspection.describe import dataclass_field_infos
+
+    @dataclass(frozen=True)
+    class Sample:
+        flag: bool = field(default=False)
+
+    infos = dataclass_field_infos(Sample)
+    assert infos[0].name == "flag"
+    assert infos[0].required is False
+    assert infos[0].default == "False"
+    assert infos[0].description is None
+
+
+def test_dataclass_field_infos_empty_for_non_dataclass() -> None:
+    from marivo.introspection.describe import dataclass_field_infos
+
+    class Plain:
+        pass
+
+    assert dataclass_field_infos(Plain) == ()
+
+
+def test_field_infos_prefers_pydantic_then_dataclass() -> None:
+    from dataclasses import dataclass, field
+
+    from marivo.introspection.describe import field_infos
+
+    @dataclass(frozen=True)
+    class Sample:
+        name: str = field(metadata={"description": "d"})
+
+    infos = field_infos(Sample)
+    assert [f.name for f in infos] == ["name"]
+    assert infos[0].description == "d"
+
+
 def test_pydantic_validators_filtered_from_public_methods() -> None:
     from marivo.introspection.describe import public_methods
 
