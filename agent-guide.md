@@ -64,6 +64,32 @@ Rules for this surface:
 - Public API functions must not accept or return `Any` or other ambiguous types;
   every parameter and return annotation must be a concrete, specific type.
 
+## Agent-Facing Surface Principles
+
+The library is consumed primarily by agents through a write-run-read loop.
+These rules govern every public surface change:
+
+- Errors teach: every typed error states what was expected, what was
+  received, and the concrete next step. Suggestions are built from real
+  state (e.g. catalog contents), never hardcoded. No silent fallback.
+- One path per capability: each task has exactly one public entry point.
+  Nothing described as "internal — use X instead" may appear in `__all__`.
+- `__repr__` is the floor: every public result type has a bounded,
+  single-line repr carrying kind and identity, pointing to `.show()` for
+  detail. Default dataclass reprs are not acceptable on public result types.
+- Terminal results (objects an agent stops to read) implement the shared
+  result protocol: bounded `.show()` output, deterministic ordering, and
+  closing affordance hints generated from real state.
+- Surface growth is gated: public `__all__` sets are pinned by a snapshot
+  test. A new public result type must join an existing family (naming and
+  protocol) or justify a new one. Type aliases and module-internal handoff
+  types stay out of the top-level help index.
+- Discovery is progressive and bounded: `help()` is a short index grouped
+  by family; `describe(symbol)` includes a minimal runnable example.
+- Prefer one entry shape with closed, kind-dispatched variants over
+  optional-field mega-classes: precise types fail loudly, optional-field
+  unions fail silently.
+
 ## Tests
 
 - Use shared fixtures in `tests/conftest.py` and `tests/shared_fixtures.py`
