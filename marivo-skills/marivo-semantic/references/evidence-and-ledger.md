@@ -12,8 +12,9 @@
 ## Brief DTOs
 
 Every `prepare_*` call returns a typed Brief with `status`, `issues`,
-`questions`, and kind-specific fact fields. See `references/object-briefs.md`
-for per-kind field tables.
+`questions`, and kind-specific fact fields. Use `ms.help('<Brief>')` for field
+names, types, and descriptions; use `references/object-briefs.md` for status
+actions and ladder process.
 
 | DTO | Purpose |
 | --- | ------- |
