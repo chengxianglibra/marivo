@@ -8,7 +8,7 @@ This reference lists the fields agents may read from
 
 All typed facts share these fields:
 
-| Field | Type | Notes |
+| Projection field | Type | Notes |
 | --- | --- | --- |
 | `id` | `str` | Proposition-backed fact id. |
 | `kind` | `str` | One of `change`, `driver`, `tested_hypothesis`, `forecast`, `association`. |
@@ -24,7 +24,7 @@ All typed facts share these fields:
 
 Returned by `knowledge.facts(kind="change")`.
 
-| Field | Type | Notes |
+| Projection field | Type | Notes |
 | --- | --- | --- |
 | `direction` | `increase \| decrease \| flat \| undefined` | Direction of the measured change. |
 | `magnitude` | `float \| None` | Absolute magnitude when available. |
@@ -36,7 +36,7 @@ Returned by `knowledge.facts(kind="change")`.
 
 Returned by `knowledge.facts(kind="driver")`.
 
-| Field | Type | Notes |
+| Projection field | Type | Notes |
 | --- | --- | --- |
 | `dimension` | `str` | Driver dimension. |
 | `dimension_keys` | `dict[str, str \| int \| float \| bool \| None]` | Segment key values. |
@@ -49,7 +49,7 @@ Returned by `knowledge.facts(kind="driver")`.
 
 Returned by `knowledge.facts(kind="tested_hypothesis")`.
 
-| Field | Type | Notes |
+| Projection field | Type | Notes |
 | --- | --- | --- |
 | `hypothesis_family` | `difference \| association` | Tested hypothesis family. |
 | `alternative` | `two_sided \| greater \| less` | Alternative hypothesis. |
@@ -62,7 +62,7 @@ Returned by `knowledge.facts(kind="tested_hypothesis")`.
 
 Returned by `knowledge.facts(kind="forecast")`.
 
-| Field | Type | Notes |
+| Projection field | Type | Notes |
 | --- | --- | --- |
 | `forecast_window` | `TimeWindow` | Forecasted window. |
 | `horizon_index` | `int` | Horizon step index. |
@@ -73,7 +73,7 @@ Returned by `knowledge.facts(kind="forecast")`.
 
 Returned by `knowledge.facts(kind="association")`.
 
-| Field | Type | Notes |
+| Projection field | Type | Notes |
 | --- | --- | --- |
 | `left_subject` | `dict[str, Any]` | Left-side subject payload. |
 | `right_subject` | `dict[str, Any]` | Right-side subject payload. |
@@ -88,7 +88,7 @@ Returned by `knowledge.facts(kind="association")`.
 
 Returned by `knowledge.open_items(kind="anomaly")`.
 
-| Field | Type | Notes |
+| Projection field | Type | Notes |
 | --- | --- | --- |
 | `id` | `str` | Open item id. |
 | `kind` | `anomaly` | Open item kind. |
@@ -104,7 +104,7 @@ Returned by `knowledge.open_items(kind="anomaly")`.
 
 Returned by `knowledge.open_items(kind="question")`.
 
-| Field | Type | Notes |
+| Projection field | Type | Notes |
 | --- | --- | --- |
 | `id` | `str` | Open item id. |
 | `kind` | `question` | Open item kind. |
@@ -121,7 +121,7 @@ Returned by `knowledge.open_items(kind="question")`.
 
 Returned by `knowledge.blocked_followups()`.
 
-| Field | Type | Notes |
+| Projection field | Type | Notes |
 | --- | --- | --- |
 | `action_id` | `str` | Followup action id. |
 | `operator` | `str \| None` | Target operator when applicable. |
