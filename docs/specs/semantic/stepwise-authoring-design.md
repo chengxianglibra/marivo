@@ -802,8 +802,9 @@ Questions with `readiness_effect="blocks"` must be resolved before authoring;
   discipline (never pass `partition=None` without stating why).
 - **references/workflow.md** — rewritten as the eight-rung ladder with the
   per-object cycle, including runnable per-rung examples.
-- **references/object-briefs.md** (new) — per-kind Brief field tables,
-  sufficiency criteria, question-mapping table.
+- **references/object-briefs.md** (new) — Brief status actions, ladder/process
+  guidance, sufficiency criteria, and question-mapping rules. Per-field Brief
+  contracts live in `ms.help('<Brief>')`.
 - **references/datasource.md** — `md.inspect_table` / `md.inspect_columns` /
   `md.probe_join_keys` / `ScanScope` usage.
 - **references/evidence-and-ledger.md** — gains the abandon protocol and
