@@ -777,6 +777,10 @@ question, or required evidence is unobtainable:
 When the agent cannot answer a question from documented knowledge, it asks the
 user through its question tool (AskUserQuestion in Claude Code):
 
+Field names and details remain runtime-owned; use `ms.help('AuthoringQuestion')`
+for the authoritative field contract. This table only maps those fields to the
+agent's user-question tool.
+
 | `AuthoringQuestion` field | User question field |
 | --- | --- |
 | `prompt` + `reason` | question body |
