@@ -204,6 +204,41 @@ def test_brief_status_replaces_review_status_for_stepwise_authoring() -> None:
     assert set(get_args(BriefStatus)) == {"sufficient", "needs_input", "blocked"}
 
 
+def test_every_brief_field_has_a_description() -> None:
+    import dataclasses
+
+    import marivo.semantic as ms
+
+    brief_names = [
+        "DomainBrief",
+        "EntityBrief",
+        "DimensionBrief",
+        "TimeDimensionBrief",
+        "MetricBrief",
+        "RelationshipBrief",
+        "CrossEntityMetricBrief",
+        "DerivedMetricBrief",
+    ]
+    missing: list[str] = []
+    for name in brief_names:
+        cls = getattr(ms, name)
+        for f in dataclasses.fields(cls):
+            if not f.metadata.get("description"):
+                missing.append(f"{name}.{f.name}")
+    assert not missing, f"Brief fields without a description: {missing}"
+
+
+def test_help_emits_brief_field_descriptions() -> None:
+    from marivo.introspection.surface import render
+    from marivo.semantic.help import _surface
+
+    data = render(_surface(), "EntityBrief", "json")
+    fields = {f["name"]: f for f in data.get("fields", [])}
+    assert fields["status"].get("description")
+    assert fields["datasource"].get("description")
+    assert fields["scan"].get("description")
+
+
 def test_registered_match_is_explainable_not_fuzzy() -> None:
     from marivo.semantic.dtos import RegisteredMatch
 
