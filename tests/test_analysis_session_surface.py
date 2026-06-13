@@ -199,6 +199,8 @@ _DELETED_API_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("publish_report_package", re.compile(r"publish_report_package")),
     ("materialize_html_adapter", re.compile(r"materialize_html_adapter")),
     ("materialize_mcp_adapter", re.compile(r"materialize_mcp_adapter")),
+    ("render_report_html", re.compile(r"render_report_html")),
+    ("to_html_report_payload", re.compile(r"to_html_report_payload")),
 ]
 
 _EXCLUDED_DIRS = {

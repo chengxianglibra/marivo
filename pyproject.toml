@@ -31,9 +31,6 @@ Homepage = "https://github.com/lumendata/marivo"
 Repository = "https://github.com/lumendata/marivo"
 Issues = "https://github.com/lumendata/marivo/issues"
 
-[project.scripts]
-marivo-upload-report = "marivo.analysis.scripts.upload_html_report:main"
-
 [project.optional-dependencies]
 duckdb = ["duckdb>=1.2.2", "pyarrow>=15.0.0", "pyarrow-hotfix>=0.6"]
 mysql = ["PyMySQL>=1.1"]
@@ -114,9 +111,6 @@ ignore = [
     "B017",    # allow assertRaises(Exception)
     "RUF059",  # allow unused unpacked variables
 ]
-"marivo/analysis/scripts/upload_html_report.py" = [
-    "N803",    # boto3 S3 API requires PascalCase kwargs (Bucket, Key, Body, ...)
-]
 
 [tool.ruff.lint.isort]
 known-first-party = ["marivo"]
@@ -136,7 +130,7 @@ show_error_codes = true
 pretty = true
 
 [[tool.mypy.overrides]]
-module = ["ibis.*", "boto3.*", "botocore.*"]
+module = ["ibis.*"]
 ignore_missing_imports = true
 
 [tool.coverage.run]

@@ -34,8 +34,6 @@ _SUMMARIES: dict[str, str] = {
     "SourceProvenance": "source provenance metadata for a dataset or artifact",
     "export_report_json_schema": "export the JSON Schema for the report artifact model",
     "load_report_artifact": "load a report artifact from a package directory",
-    "render_report_html": "render a standalone HTML string from a report artifact",
-    "to_html_report_payload": "build the HTML renderer payload without writing files",
     "to_mcp_artifact_payload": "build the MCP adapter payload without writing files",
     "validate_report_artifact": "validate a report artifact and return issues",
 }

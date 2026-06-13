@@ -205,16 +205,6 @@ def test_analysis_exports_report_mcp_adapter_surface() -> None:
     assert callable(to_mcp_artifact_payload)
 
 
-def test_analysis_exports_report_html_adapter_surface() -> None:
-    from marivo.analysis.publish import (
-        render_report_html,
-        to_html_report_payload,
-    )
-
-    assert callable(to_html_report_payload)
-    assert callable(render_report_html)
-
-
 def test_analysis_does_not_export_publish_or_meta_types() -> None:
     import marivo.analysis as mv
 
@@ -246,11 +236,8 @@ def test_analysis_does_not_export_publish_or_meta_types() -> None:
         # Publish functions (directory-based APIs replaced by session methods)
         "export_report_json_schema",
         "load_report_artifact",
-        "materialize_html_adapter",
         "materialize_mcp_adapter",
         "publish_report_package",
-        "render_report_html",
-        "to_html_report_payload",
         "to_mcp_artifact_payload",
         "validate_report_artifact",
         "write_report_artifact",
@@ -279,7 +266,6 @@ def test_analysis_publish_does_not_export_directory_materialization_helpers() ->
 
     removed = [
         "write_report_artifact",
-        "materialize_html_adapter",
         "materialize_mcp_adapter",
         "publish_report_package",
     ]

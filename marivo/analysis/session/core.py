@@ -369,8 +369,7 @@ class Session:
         artifact: MarivoReportArtifact,
         *,
         report_id: str | None = None,
-        adapter: Literal["html", "mcp", "package"] = "html",
-        script_source_dir: str | Path | None = None,
+        adapter: Literal["mcp", "package"] = "package",
     ) -> ReportRegistration:
         """Persist a report package under this session and register it in the store.
 
@@ -383,15 +382,10 @@ class Session:
                 is generated with the ``rpt_`` prefix.
             adapter: Materialization adapter to use:
 
-                - ``"html"`` writes the canonical package plus ``index.html``
-                  via :func:`materialize_html_adapter`.
+                - ``"package"`` (default) writes only the canonical JSON
+                  package via :func:`write_report_artifact`.
                 - ``"mcp"`` writes the canonical package plus MCP adapter files
                   via :func:`materialize_mcp_adapter`.
-                - ``"package"`` writes only the canonical JSON package via
-                  :func:`write_report_artifact`.
-
-            script_source_dir: Optional directory to resolve script refs from
-                when using the ``"html"`` adapter.
 
         Returns:
             A :class:`ReportRegistration` with the report id, package dir,
@@ -402,7 +396,7 @@ class Session:
                 directory name.
 
         Example:
-            >>> registration = session.save_report(artifact, adapter="html")
+            >>> registration = session.save_report(artifact)
             >>> registration.report_id
             'rpt_abc123'
         """
@@ -415,15 +409,7 @@ class Session:
         pkg_dir = report_dir(self._layout, resolved_id)
 
         # Materialize package files to disk.
-        if adapter == "html":
-            from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
-
-            updated = materialize_html_adapter(
-                artifact,
-                pkg_dir,
-                script_source_dir=script_source_dir,
-            )
-        elif adapter == "mcp":
+        if adapter == "mcp":
             from marivo.analysis.publish.report_mcp_adapter import materialize_mcp_adapter
 
             updated = materialize_mcp_adapter(artifact, pkg_dir)
@@ -437,11 +423,7 @@ class Session:
 
         # Determine the primary entrypoint from the updated manifest.
         entrypoints = updated.manifest.entrypoints
-        entrypoint = ""
-        if "html" in entrypoints:
-            entrypoint = entrypoints["html"]
-        elif entrypoints:
-            entrypoint = next(iter(entrypoints.values()))
+        entrypoint = next(iter(entrypoints.values())) if entrypoints else ""
 
         # Compute package hash after files are written.
         content_hash = compute_package_hash(pkg_dir)

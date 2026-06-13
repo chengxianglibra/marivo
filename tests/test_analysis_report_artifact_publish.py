@@ -30,11 +30,11 @@ def test_report_manifest_publish_fields_round_trip() -> None:
 
 
 def _staged_package(tmp_path):
-    """Materialize a valid report package (manifest, core files, datasets, index.html)."""
-    from marivo.analysis.publish.report_html_adapter import materialize_html_adapter
+    """Materialize a valid canonical report package (manifest, core files, datasets)."""
+    from marivo.analysis.publish.report_package import write_report_artifact
 
     package_dir = tmp_path / "staging"
-    materialize_html_adapter(_valid_artifact(), package_dir)
+    write_report_artifact(_valid_artifact(), package_dir)
     return package_dir
 
 
@@ -54,7 +54,6 @@ def test_publish_report_package_writes_user_scoped_layout(tmp_path) -> None:
 
     dest = base / "marivo/users/alice/analysis-reports/revenue_review/exp_20260605_120000"
     assert (dest / "manifest.json").is_file()
-    assert (dest / "index.html").is_file()
     assert (dest / "datasets" / "headline_metrics.json").is_file()
     assert result.exported_by == "alice"
     assert result.exported_at == "2026-06-06T00:00:00Z"
@@ -169,8 +168,16 @@ def test_publish_rejects_missing_entrypoint(tmp_path) -> None:
     from marivo.analysis.publish.report_publish import publish_report_package
 
     package_dir = tmp_path / "staging"
-    # write_report_artifact does NOT create index.html, but the manifest declares it.
-    write_report_artifact(_valid_artifact(), package_dir)
+    artifact = _valid_artifact()
+    # Declare an entrypoint file that is never written to the package.
+    artifact = artifact.model_copy(
+        update={
+            "manifest": artifact.manifest.model_copy(
+                update={"entrypoints": {"report": "missing.html"}}
+            )
+        }
+    )
+    write_report_artifact(artifact, package_dir)
 
     with pytest.raises(ReportPublishValidationError):
         publish_report_package(

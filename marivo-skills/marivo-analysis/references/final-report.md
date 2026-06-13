@@ -84,7 +84,7 @@ make the user infer the conclusion from raw rows or a chart alone.
 Every reader-facing number in a claim, KPI, chart label, or numeric callout
 should resolve through `value_refs` to a bounded dataset cell or to an
 artifact/evidence field. Do not restate the same number as a second source of
-truth in prose, adapter manifests, or HTML.
+truth in prose or adapter manifests.
 
 Value formats: the `percent` format expects values already expressed in
 percentage points (store `89.8` for `89.8%`, not `0.898`). Use `number` or
@@ -101,26 +101,11 @@ position, or it must declare a `series` channel
 (`fields={"x": ..., "y": ..., "series": ...}`) so a bar chart can group bars by
 series. Never feed a decomposition dataset that mixes dimensions (for example
 `query_type` and `source` rows sharing one timestamp) into a single x/y chart;
-filter to one dimension or split into separate charts. The HTML renderer rejects
-a chart whose x values repeat without a `series` channel.
+filter to one dimension or split into separate charts.
 
-Report language: pass `language="zh-Hans"` (or matching BCP 47 locale code)
-to `render_report_html` or `session.save_report(artifact, adapter=...)` to localize the report's chrome and the Audit Trail
-headings/labels from built-in catalogs
-(`marivo/analysis/publish/locales/`, English fallback) and to emit
-`<html lang>` accordingly. Use script-based tags (`zh-Hans`, `zh-Hant`) rather
-than bare `zh` or region-only forms — the catalog lookup applies progressive
-prefix fallback so `zh-Hans-CN` resolves to the `zh-Hans` catalog, but a bare
-`zh` will not auto-pick a script variant. The renderer stamps the value onto
-`manifest.language` for the written package; authored titles and narrative
-text are not translated. You can also set `manifest.language` directly when
-constructing the artifact — the keyword argument overrides it for the render.
-To add a language, add a `<lang>.json` catalog — never hardcode non-English
-labels in Python.
-
-Output locations: agent-generated analysis scripts and rendered HTML reports
+Output locations: agent-generated analysis scripts and rendered reports
 belong under the session directory, not at the project root. Use
-`session.save_report(artifact, adapter="html")` to persist and register a
+`session.save_report(artifact)` to persist and register a
 report package in one call. The package bytes live under the session directory
 at `<project_root>/.marivo/analysis/sessions/<session_id>/reports/<report_id>/`.
 To publish a registered report outside the workspace, call
@@ -132,7 +117,7 @@ import marivo.analysis as mv
 session = mv.session.get_or_create(name="investigation")
 
 # Persist and register the report package in the session store.
-registration = session.save_report(artifact, adapter="html")
+registration = session.save_report(artifact)
 # registration.report_id  -> e.g. "rpt_abc123"
 # registration.package_dir -> absolute path to the on-disk package
 
@@ -140,9 +125,7 @@ registration = session.save_report(artifact, adapter="html")
 result = session.publish_report(registration.report_id, target="/published")
 ```
 
-When `adapter="html"` is used, every script referenced in `script_refs` is
-copied into the report package, making `<a href="scripts/...">` links
-functional after publishing. Paths in `script_refs` stay relative (e.g.
+Paths in `script_refs` stay relative (e.g.
 `"scripts/step_observe.py"`); they resolve against
 `session.layout.session_dir` for validation (see below).
 
@@ -212,48 +195,14 @@ Marivo report package. It must not connect to live datasources. It must not
 recompute main claims. It must not replace `grounding.json` / `flow.json` as the
 audit source of truth.
 
-## HTML adapter handoff
-
-When the selected delivery surface is a standalone HTML report, use the Marivo
-HTML adapter after the core report artifact validates:
-
-1. Build and validate the `MarivoReportArtifact`.
-2. Call `session.save_report(artifact, adapter="html")` to persist the package
-   with `index.html` and register it in the session store.
-   The returned `ReportRegistration` records the report id and package directory.
-3. When the agent needs to inspect the exact renderer payload, call
-   `mv.publish.to_html_report_payload(artifact)` for an in-memory payload, or
-   `mv.publish.render_report_html(artifact)` for the standalone HTML string.
-
-The standalone HTML surface opens directly from `index.html` and uses frozen
-datasets, grounding, flow steps, evidence objects, and source provenance from
-the Marivo report package. It must not connect to live datasources.
-It must not recompute executive-summary claims. It should keep the main reading
-path answer-first, with source, SQL, script, dataset, and evidence details
-available through links or expandable panels instead of crowding out the
-narrative.
-
-The standalone HTML surface renders evidence-bearing blocks inline so proof sits
-next to the conclusion it supports:
-
-- `claim_evidence` blocks render as expandable proof panels next to a finding.
-- `step_trace` blocks render the step -> artifact -> source chain with jump links.
-- `source_code` blocks render a SQL or script drawer.
-
-Set `collapsed_by_default` on these blocks to control whether the panel starts
-expanded or collapsed. The surface supports bounded interaction only: chart tooltips,
-table pagination, and local search over already-packaged content. These
-interactions never run live queries, never create new aggregations, and never
-recompute executive-summary claims.
-
 ## Publishing handoff
 
 When the report package should be shared outside the local workspace, use
-session-scoped publish after the artifact validates and has been saved with
-an adapter (for example `adapter="html"`):
+session-scoped publish after the artifact validates and has been saved as a
+package:
 
 1. Build and validate the `MarivoReportArtifact`.
-2. Call `session.save_report(artifact, adapter="html")` to persist the package
+2. Call `session.save_report(artifact)` to persist the package
    directory and register it in the session store. The returned
    `ReportRegistration` contains `report_id` and `package_dir`.
 3. Call `session.publish_report(report_id, exported_by=..., target=...)` to
@@ -270,11 +219,8 @@ The publish destination is user-scoped: the resolved path must include the
 `exported_by` segment, and existing targets are immutable by default (pass
 `overwrite=True` to replace one). The library never publishes secrets,
 credentials, or row-level frames that the manifest data policy omits. Publishing
-is deterministic and library-owned; it does not author narrative, HTML, or
+is deterministic and library-owned; it does not author narrative or
 replay scripts.
-
-For direct S3 upload of an HTML report package, see
-`references/upload-html-report.md`.
 
 ## Discovery and anomaly reports
 

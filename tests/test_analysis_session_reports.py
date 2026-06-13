@@ -303,10 +303,18 @@ def test_save_report_writes_package_bytes_before_inserting_store_row(tmp_path) -
 def test_save_report_records_entrypoint_package_hash_and_relative_dir(tmp_path) -> None:
     s = _session(tmp_path)
     artifact = _valid_artifact()
+    # An artifact that declares an entrypoint has it recorded on the registration.
+    artifact = artifact.model_copy(
+        update={
+            "manifest": artifact.manifest.model_copy(
+                update={"entrypoints": {"report": "report.json"}}
+            )
+        }
+    )
     registration = s.save_report(artifact)
 
     # Check the immutable dataclass fields
-    assert registration.entrypoint  # should be non-empty
+    assert registration.entrypoint == "report.json"
     assert registration.content_hash.startswith("sha256:")
     assert registration.package_dir.is_absolute()
 
@@ -317,16 +325,6 @@ def test_save_report_records_entrypoint_package_hash_and_relative_dir(tmp_path) 
     assert row["package_hash"] == registration.content_hash
     # package_dir in store is project-relative
     assert row["package_dir"]
-
-
-def test_save_report_html_adapter_writes_index_html(tmp_path) -> None:
-    s = _session(tmp_path)
-    artifact = _valid_artifact()
-    registration = s.save_report(artifact, adapter="html")
-
-    assert (registration.package_dir / "index.html").is_file()
-    html = (registration.package_dir / "index.html").read_text(encoding="utf-8")
-    assert "<html" in html.lower()
 
 
 def test_save_report_mcp_adapter_writes_adapter_files(tmp_path) -> None:
@@ -376,7 +374,7 @@ def test_validate_report_missing_report_id_raises_with_guidance(tmp_path) -> Non
 def test_validate_report_validates_registered_package(tmp_path) -> None:
     s = _session(tmp_path)
     artifact = _valid_artifact()
-    registration = s.save_report(artifact, adapter="html")
+    registration = s.save_report(artifact)
 
     result = s.validate_report(registration.report_id)
     assert result.ok is True
@@ -390,7 +388,7 @@ def test_validate_report_validates_registered_package(tmp_path) -> None:
 def test_publish_report_resolves_package_dir_from_store_and_publishes(tmp_path) -> None:
     s = _session(tmp_path)
     artifact = _valid_artifact()
-    registration = s.save_report(artifact, adapter="html")
+    registration = s.save_report(artifact)
 
     base = tmp_path / "published"
     result = s.publish_report(
@@ -409,7 +407,7 @@ def test_publish_report_resolves_package_dir_from_store_and_publishes(tmp_path) 
 def test_publish_report_records_published_url(tmp_path) -> None:
     s = _session(tmp_path)
     artifact = _valid_artifact()
-    registration = s.save_report(artifact, adapter="html")
+    registration = s.save_report(artifact)
 
     base = tmp_path / "published"
     result = s.publish_report(
@@ -428,7 +426,7 @@ def test_publish_report_records_published_url(tmp_path) -> None:
 def test_publish_report_result_includes_required_fields(tmp_path) -> None:
     s = _session(tmp_path)
     artifact = _valid_artifact()
-    registration = s.save_report(artifact, adapter="html")
+    registration = s.save_report(artifact)
 
     base = tmp_path / "published"
     result = s.publish_report(
@@ -456,14 +454,21 @@ def test_publish_report_missing_report_id_raises(tmp_path) -> None:
         s.publish_report("nonexistent_report", target=str(tmp_path / "out"))
 
 
-def test_publish_report_validates_package_before_publishing(tmp_path) -> None:
+def test_publish_report_rejects_declared_entrypoint_missing(tmp_path) -> None:
     from marivo.analysis.errors import ReportPublishValidationError
 
     s = _session(tmp_path)
     artifact = _valid_artifact()
+    # Declare an entrypoint file that no adapter writes; publish must reject it.
+    artifact = artifact.model_copy(
+        update={
+            "manifest": artifact.manifest.model_copy(
+                update={"entrypoints": {"report": "missing.html"}}
+            )
+        }
+    )
     registration = s.save_report(artifact, adapter="package")
 
-    # Package adapter does not write index.html; publish should fail validation
     base = tmp_path / "published"
     with pytest.raises(ReportPublishValidationError):
         s.publish_report(
@@ -482,12 +487,6 @@ def test_publish_does_not_export_write_report_artifact() -> None:
     import marivo.analysis.publish as pub
 
     assert not hasattr(pub, "write_report_artifact")
-
-
-def test_publish_does_not_export_materialize_html_adapter() -> None:
-    import marivo.analysis.publish as pub
-
-    assert not hasattr(pub, "materialize_html_adapter")
 
 
 def test_publish_does_not_export_materialize_mcp_adapter() -> None:
