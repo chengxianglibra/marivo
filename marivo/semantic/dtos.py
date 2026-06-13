@@ -415,7 +415,9 @@ class JoinPathFact:
 class CrossEntityMetricBrief(_BriefResult):
     status: BriefStatus = field(metadata={"description": _STATUS_DOC})
     root_entity: str = field(metadata={"description": "Root entity ref the metric is measured on."})
-    entities: tuple[str, ...] = field(metadata={"description": "All participating entity refs."})
+    entities: tuple[str, ...] = field(
+        metadata={"description": "Target entity refs to join from the root entity."}
+    )
     join_paths: tuple[JoinPathFact, ...] = field(
         metadata={"description": "Relationship paths between participating entities."}
     )
