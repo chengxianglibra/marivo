@@ -41,6 +41,14 @@ class TopLevelEntry:
 
 
 @dataclass(frozen=True)
+class FamilyFold:
+    """A folded family of related public symbols in top-level surface help."""
+
+    label: str
+    members: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Descriptor:
     """Internal descriptor rendered by surface adapters."""
 
@@ -58,5 +66,6 @@ class Descriptor:
     next_intents: tuple[str, ...] = ()
     constructed_by: str | None = None
     entries: tuple[TopLevelEntry, ...] = ()
+    families: tuple[FamilyFold, ...] = ()
     content: dict[str, Any] = field(default_factory=dict)
     did_you_mean: tuple[str, ...] = ()

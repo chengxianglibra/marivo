@@ -17,7 +17,27 @@ from marivo.introspection.describe import (
     resolve_method_descriptor,
 )
 from marivo.introspection.render import render_json, render_text
-from marivo.introspection.schema import Descriptor, Kind, TopLevelEntry
+from marivo.introspection.schema import Descriptor, FamilyFold, Kind, TopLevelEntry
+
+_FAMILY_SUFFIXES: tuple[tuple[str, str], ...] = (
+    ("Details", "Detail shapes"),
+    ("Brief", "Briefs"),
+    ("Ref", "References"),
+    ("Frame", "Frames"),
+    ("Input", "Type aliases"),
+    ("IR", "Internal IR types"),
+    ("Metadata", "Metadata types"),
+)
+_OTHER_FAMILY = "Other types"
+_FAMILY_ORDER: tuple[str, ...] = (*(label for _, label in _FAMILY_SUFFIXES), _OTHER_FAMILY)
+_ENUMERATED_KINDS: frozenset[Kind] = frozenset({"callable", "module", "topic"})
+
+
+def _family_label(name: str) -> str:
+    for suffix, label in _FAMILY_SUFFIXES:
+        if name.endswith(suffix):
+            return label
+    return _OTHER_FAMILY
 
 
 @dataclass(frozen=True)
@@ -34,6 +54,7 @@ class Surface:
     type_aliases: set[str] = field(default_factory=set)
     constructed_by: Mapping[str, str] = field(default_factory=dict)
     see_also: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    pinned_entries: tuple[str, ...] = ()
 
 
 def _catalog_by_id(surface: Surface) -> dict[str, Constraint]:
@@ -58,20 +79,28 @@ def _entry_kind(surface: Surface, name: str) -> Kind:
 
 
 def _top_level_descriptor(surface: Surface) -> Descriptor:
-    entries = tuple(
-        TopLevelEntry(
-            name=name,
-            kind=_entry_kind(surface, name),
-            summary=surface.summaries.get(name, ""),
-        )
-        for name in surface.all_names
+    entries: list[TopLevelEntry] = []
+    folded: dict[str, list[str]] = {}
+    for name in surface.all_names:
+        kind = _entry_kind(surface, name)
+        if kind in _ENUMERATED_KINDS or name in surface.pinned_entries:
+            entries.append(
+                TopLevelEntry(name=name, kind=kind, summary=surface.summaries.get(name, ""))
+            )
+        else:
+            folded.setdefault(_family_label(name), []).append(name)
+    families = tuple(
+        FamilyFold(label=label, members=tuple(folded[label]))
+        for label in _FAMILY_ORDER
+        if label in folded
     )
     return Descriptor(
         surface=surface.name,
         kind="surface",
         symbol=None,
         summary=f"{surface.name} help surface. Call help('<name>') for details.",
-        entries=entries,
+        entries=tuple(entries),
+        families=families,
     )
 
 
@@ -202,6 +231,12 @@ def _resolve_descriptor(surface: Surface, symbol: str | None) -> Descriptor:
     if obj is not None:
         return _symbol_descriptor(surface, symbol, obj)
     return _unknown_descriptor(surface, symbol)
+
+
+def top_level_families(surface: Surface) -> tuple[FamilyFold, ...]:
+    """Return the folded families for a surface's top-level help index."""
+
+    return _top_level_descriptor(surface).families
 
 
 def render(surface: Surface, symbol: str | None, format: str) -> dict[str, Any] | str:

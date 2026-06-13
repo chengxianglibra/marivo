@@ -144,11 +144,10 @@ def test_semantic_ai_context_help_describes_handoff_not_check_input() -> None:
     from marivo.introspection.surface import render as surface_render
 
     help_mod = __import__(ms.help.__module__, fromlist=["_surface"])
-    help_data = cast("dict[str, Any]", surface_render(help_mod._surface(), None, "json"))
-    help_entries = help_data["entries"]
-    ai_context_summary = next(
-        entry["summary"] for entry in help_entries if entry["name"] == "AiContext"
-    )
+    # AiContext folds into a family in the top-level index; its summary is
+    # reached via describe (single-symbol render), not the directory listing.
+    ai_context = cast("dict[str, Any]", surface_render(help_mod._surface(), "AiContext", "json"))
+    ai_context_summary = cast("str", ai_context["summary"])
 
     assert "agent-facing" in ai_context_summary.lower() or "handoff" in ai_context_summary.lower()
 

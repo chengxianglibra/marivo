@@ -5,7 +5,8 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any, cast
 
-from marivo.introspection.surface import Surface, render
+from marivo.introspection.render import format_family_block
+from marivo.introspection.surface import Surface, render, top_level_families
 
 _SUMMARIES: dict[str, str] = {
     "DataPolicy": "row-level data inclusion policy for a report package",
@@ -80,6 +81,7 @@ def _format_top_level_text() -> str:
     lines = ["marivo.analysis.publish - top-level entries:", ""]
     for entry in entries:
         lines.append(f"  mv.publish.{entry['name']:<28} [{entry['kind']}]  {entry['summary']}")
+    lines.extend(format_family_block(top_level_families(_surface()), help_call="mv.publish.help"))
     lines.append("")
     lines.append('Call mv.publish.help("<name>") for detail on any entry.')
     lines.append("")

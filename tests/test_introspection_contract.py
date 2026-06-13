@@ -190,7 +190,9 @@ def test_top_level_listing_matches_public_surface(
     assert data["surface"] == surface_name
     assert data["kind"] == "surface"
     entry_names = {entry["name"] for entry in data["entries"]}
-    assert entry_names == set(module.__all__) | extra_names
+    folded_names = {name for fam in data.get("families", []) for name in fam["members"]}
+    assert entry_names.isdisjoint(folded_names)
+    assert entry_names | folded_names == set(module.__all__) | extra_names
     assert _json_size(data) < 12_000
 
 

@@ -191,10 +191,24 @@ New `tests/test_public_surface.py`:
 
 Excluded types (`*Ref` / `*Details` / value types / `*Input`) remain in
 `__all__` but are **not** enumerated item-by-item in the top-level help
-index. The top level folds them by family (e.g. "`*Details` × 8 — see
-describe('MetricDetails')"), satisfying Principle 5's "type aliases stay out
-of the top-level help index". This is a help-rendering change only; it does
-not alter `__all__`.
+index. The top level folds them by family, satisfying Principle 5's "type
+aliases stay out of the top-level help index". This is a help-rendering change
+only; it does not alter `__all__`.
+
+**Implemented** (follow-up to this spec). A shared suffix→family classifier in
+`marivo/introspection/surface.py` (`_FAMILY_SUFFIXES`) partitions each
+surface's `__all__`: names whose `Kind` is `callable`/`module`/`topic`, plus a
+small per-surface `pinned_entries` set of core result types
+(`SemanticCatalog`/`SemanticObject`/`SemanticObjectList` for semantic,
+`Session` for analysis), are enumerated; every other public symbol folds into
+a family (References, Detail shapes, Briefs, Frames, Type aliases, Internal IR
+types, Metadata types, or Other types). `FamilyFold` + `Descriptor.families`
+(`marivo/introspection/schema.py`) carry the folds; `render_json` emits a
+`families` key and `format_family_block` (`marivo/introspection/render.py`)
+renders the shared one-line-per-family text block appended by each surface's
+`_format_top_level_text`. The resulting partition is pinned per surface by
+`tests/test_help_folding.py`, so any new public symbol's classification is a
+reviewed decision — the same gating philosophy as `tests/test_public_surface.py`.
 
 ## Testing
 
