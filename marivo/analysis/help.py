@@ -10,8 +10,9 @@ if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
 
 from marivo.introspection.constraints import Constraint
+from marivo.introspection.render import format_family_block
 from marivo.introspection.schema import Descriptor
-from marivo.introspection.surface import Surface, render
+from marivo.introspection.surface import Surface, render, top_level_families
 
 from .constraints import constraints_for_symbol, iter_constraints
 
@@ -723,6 +724,7 @@ def _surface() -> Surface:
         type_aliases=_TYPE_ALIASES,
         constructed_by=_CONSTRUCTED_BY,
         see_also=_SEE_ALSO,
+        pinned_entries=("Session",),
     )
 
 
@@ -734,6 +736,7 @@ def _format_top_level_text() -> str:
         name = entry["name"]
         label = f"help:{name}" if name in _HELP_ONLY_ENTRIES else f"mv.{name}"
         lines.append(f"  {label:<27} [{entry['kind']}]  {entry['summary']}")
+    lines.extend(format_family_block(top_level_families(_surface()), help_call="mv.help"))
     lines.append("")
     lines.append('Call mv.help("<name>") for detail on any entry.')
     return "\n".join(lines)

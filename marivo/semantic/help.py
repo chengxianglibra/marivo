@@ -5,8 +5,9 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any, cast
 
+from marivo.introspection.render import format_family_block
 from marivo.introspection.schema import Descriptor
-from marivo.introspection.surface import Surface, render
+from marivo.introspection.surface import Surface, render, top_level_families
 from marivo.semantic.constraints import iter_constraints
 
 _SUMMARIES: dict[str, str] = {
@@ -304,6 +305,7 @@ def _surface() -> Surface:
             "decomposition": _decomposition_topic(),
             "time_fold": _time_fold_topic(),
         },
+        pinned_entries=("SemanticCatalog", "SemanticObject", "SemanticObjectList"),
     )
 
 
@@ -313,6 +315,7 @@ def _format_top_level_text() -> str:
     lines = ["marivo.semantic - top-level entries:", ""]
     for entry in entries:
         lines.append(f"  ms.{entry['name']:<18} [{entry['kind']}]  {entry['summary']}")
+    lines.extend(format_family_block(top_level_families(_surface()), help_call="ms.help"))
     lines.append("")
     lines.append('Call ms.help("<name>") for detail on any entry.')
     return "\n".join(lines)

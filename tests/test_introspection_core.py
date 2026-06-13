@@ -322,7 +322,9 @@ def test_surface_top_level_entries_are_derived_from_all_names() -> None:
     data = render(surface, None, "json")
     assert isinstance(data, dict)
     assert data["kind"] == "surface"
-    assert data["entries"] == [{"name": "_OwnDoc", "kind": "class", "summary": "class summary"}]
+    # A plain class with no callable kind folds into a family.
+    assert data["entries"] == []
+    assert data["families"] == [{"label": "Other types", "members": ["_OwnDoc"]}]
     assert "test.surface" in render(surface, None, "text")
 
 
@@ -418,3 +420,48 @@ def test_render_text_includes_fields() -> None:
     assert "name [str] required" in text
     assert "count [int] optional default=0" in text
     assert "-- item name" in text
+
+
+def test_family_fold_carries_label_and_members() -> None:
+    from marivo.introspection.schema import Descriptor, FamilyFold
+
+    fold = FamilyFold(label="References", members=("DimensionRef", "MetricRef"))
+    assert fold.label == "References"
+    assert fold.members == ("DimensionRef", "MetricRef")
+
+    descriptor = Descriptor(
+        surface="test.surface",
+        kind="surface",
+        symbol=None,
+        summary="s",
+        families=(fold,),
+    )
+    assert descriptor.families == (fold,)
+
+
+def test_render_json_includes_families() -> None:
+    from marivo.introspection.render import render_json
+    from marivo.introspection.schema import Descriptor, FamilyFold
+
+    descriptor = Descriptor(
+        surface="test.surface",
+        kind="surface",
+        symbol=None,
+        summary="s",
+        families=(FamilyFold(label="References", members=("ARef", "BRef")),),
+    )
+    data = render_json(descriptor)
+    assert data["families"] == [{"label": "References", "members": ["ARef", "BRef"]}]
+
+
+def test_format_family_block_lists_members() -> None:
+    from marivo.introspection.render import format_family_block
+    from marivo.introspection.schema import FamilyFold
+
+    block = format_family_block(
+        (FamilyFold(label="References", members=("ARef", "BRef")),),
+        help_call="ms.help",
+    )
+    text = "\n".join(block)
+    assert "Families (call ms.help('<name>') for any member):" in text
+    assert "References (2): ARef, BRef" in text

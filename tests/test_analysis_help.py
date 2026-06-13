@@ -219,7 +219,11 @@ def test_help_json_top_level_is_canonical() -> None:
     assert result["surface"] == "marivo.analysis"
     assert result["kind"] == "surface"
     entries = cast("list[dict[str, Any]]", result["entries"])
-    assert {entry["name"] for entry in entries} == set(mv.__all__) | _HELP_ONLY_ENTRIES
+    families = cast("list[dict[str, Any]]", result["families"])
+    enumerated = {entry["name"] for entry in entries}
+    folded = {name for fam in families for name in fam["members"]}
+    assert enumerated.isdisjoint(folded)
+    assert enumerated | folded == set(mv.__all__) | _HELP_ONLY_ENTRIES
 
 
 def test_help_rejects_removed_load_frame_symbol() -> None:

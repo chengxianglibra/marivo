@@ -4,7 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from marivo.introspection.schema import SCHEMA_VERSION, Descriptor
+from marivo.introspection.schema import SCHEMA_VERSION, Descriptor, FamilyFold
+
+
+def format_family_block(families: tuple[FamilyFold, ...], *, help_call: str) -> list[str]:
+    """Render folded families as a compact, one-line-per-family text block."""
+
+    if not families:
+        return []
+    lines = ["", f"Families (call {help_call}('<name>') for any member):"]
+    for fold in families:
+        lines.append(f"  {fold.label} ({len(fold.members)}): {', '.join(fold.members)}")
+    return lines
 
 
 def render_json(descriptor: Descriptor) -> dict[str, Any]:
@@ -53,6 +64,10 @@ def render_json(descriptor: Descriptor) -> dict[str, Any]:
             }
             for entry in descriptor.entries
         ]
+        if descriptor.families:
+            data["families"] = [
+                {"label": fold.label, "members": list(fold.members)} for fold in descriptor.families
+            ]
     if descriptor.kind == "topic":
         data["content"] = descriptor.content
     if descriptor.kind == "unknown":
@@ -75,6 +90,7 @@ def render_text(descriptor: Descriptor) -> str:
         lines.append("Entries:")
         for entry in descriptor.entries:
             lines.append(f"- {entry.name} ({entry.kind}): {entry.summary}")
+    lines.extend(format_family_block(descriptor.families, help_call=f"{descriptor.surface}.help"))
     if descriptor.methods:
         lines.append("")
         lines.append("Methods:")

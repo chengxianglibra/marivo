@@ -327,8 +327,15 @@ def test_help_json_top_level_returns_compact_directory() -> None:
         assert "summary" in entry
         assert "kind" in entry
         assert entry["kind"] in {"callable", "class", "module", "topic", "surface", "unknown"}
+    families = cast("list[dict[str, Any]]", result.get("families", []))
+    folded_names = {name for fam in families for name in fam["members"]}
     entry_names = {e["name"] for e in entries}
-    assert entry_names == set(ms.__all__) | {"constraints", "decomposition", "time_fold"}
+    assert entry_names.isdisjoint(folded_names)
+    assert entry_names | folded_names == set(ms.__all__) | {
+        "constraints",
+        "decomposition",
+        "time_fold",
+    }
     assert "entity" in entry_names
     assert "metric" in entry_names
     assert "derived_metric" in entry_names
