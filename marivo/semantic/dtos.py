@@ -29,6 +29,7 @@ IssueKind = Literal[
     "static_check_failed",
     "authored_object_invalid",
     "unreachable_entity",
+    "ibis_attribute_shadowing",
 ]
 
 ReviewStatus = Literal[
