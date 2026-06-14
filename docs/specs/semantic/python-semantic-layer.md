@@ -11,7 +11,7 @@
 目标态满足以下要求：
 
 - Python 文件是语义定义的 source of truth。agent 修改业务口径时应改 Python authoring 文件，而不是编辑生成物或运行时存储。
-- Datasource 是项目级可分享配置，定义在 `marivo/datasources/*.py`；semantic model 只通过全局 datasource name 引用它。
+- Datasource 是项目级可分享配置，定义在 `models/datasources/*.py`；semantic model 只通过全局 datasource name 引用它。
 - 语义对象必须可被通用 agent 静态阅读：dataset、field、time field、metric、relationship、decomposition 和 provenance 都有显式 Python 声明。
 - 业务口径不能靠字段名、表名或自然语言自动猜测。agent 必须通过 decorated refs、函数签名、source_sql` / `source_dialect`、parity result 和结构化错误来收敛。
 - 归属、依赖和项目边界必须来自显式声明或显式 default model。model 不能由文件路径猜测，metric 不能由函数参数名推断 dataset，reader 不能靠 thread-local active project 隐式选项目。
@@ -29,14 +29,14 @@ prepare/verify/readiness lifecycle and replaces the earlier three-phase
 authoring pipeline.
 
 目标态标准 stepwise authoring workflow 使用每个 model 一个
-`marivo/semantic/<model>/_domain.py` 文件。agent 应在
-`marivo/semantic/sales/_domain.py` 中完成从 dataset 到 metric 的声明；项目
-datasource 单独放在 `marivo/datasources/warehouse.py`。底层 loader 仍可执行
+`models/semantic/<model>/_domain.py` 文件。agent 应在
+`models/semantic/sales/_domain.py` 中完成从 dataset 到 metric 的声明；项目
+datasource 单独放在 `models/datasources/warehouse.py`。底层 loader 仍可执行
 同目录 sibling `.py` 文件，但这是更低层能力，不是当前正常 agent-authored
 文件组织建议。
 
 ```python
-# marivo/datasources/warehouse.py
+# models/datasources/warehouse.py
 import marivo.datasource as md
 
 warehouse = md.DatasourceSpec(
@@ -48,7 +48,7 @@ md.datasource(warehouse)
 ```
 
 ```python
-# marivo/semantic/sales/_domain.py
+# models/semantic/sales/_domain.py
 import marivo.datasource as md
 import marivo.semantic as ms
 
@@ -144,7 +144,7 @@ field、metric、relationship 和 derived metric。底层 loader 支持 sibling 
 For agent-authored models, the normal authoring contract is one file:
 
 ```text
-marivo/semantic/<model>/
+models/semantic/<model>/
   _domain.py
 ```
 
@@ -186,7 +186,7 @@ API 形态。`ms.help()` 打印帮助文本并返回 None。
 `ms.help("constraints")` 是 authoring / validation
 约束目录的统一入口，不另设并行 helper。
 
-`find_project()` 的 project 判定只要求 `marivo/semantic/` 目录存在。空目录也算语义项目：`SemanticProject` 可返回，load 后 registry 为 `ready`，`catalog.list().objects` 返回空 tuple。如果 `marivo/semantic/` 存在但不是目录，必须 fail closed。
+`find_project()` 的 project 判定只要求 `models/semantic/` 目录存在。空目录也算语义项目：`SemanticProject` 可返回，load 后 registry 为 `ready`，`catalog.list().objects` 返回空 tuple。如果 `models/semantic/` 存在但不是目录，必须 fail closed。
 
 Use `catalog.list(...)` to browse by domain and kind, then `catalog.get(ref).details()` for structured object inspection. The catalog surface is deterministic and does not depend on fuzzy or embedding-based recall.
 
@@ -255,7 +255,7 @@ decorated Python ref 时，使用当前实现格式的字符串 ref，例如
 
 ### Datasource
 
-Datasource 是项目级配置，不属于任何 semantic model。它定义在 `marivo/datasources/*.py`，可随 `marivo/semantic/` 一起复制到其他分析项目复用。
+Datasource 是项目级配置，不属于任何 semantic model。它定义在 `models/datasources/*.py`，可随 `models/semantic/` 一起复制到其他分析项目复用。
 
 ```python
 import marivo.datasource as md
@@ -636,7 +636,7 @@ as-of queries drift when data is backfilled or reprocessed.
 relationship 描述 dataset 之间的连接路径：
 
 ```python
-# marivo/semantic/sales/_domain.py
+# models/semantic/sales/_domain.py
 import marivo.semantic as ms
 
 ms.domain(name="sales")
@@ -731,7 +731,7 @@ if result.errors:
 
 `project.load()` / 后续 check helper 要求：
 
-- 缺省向上查找最近的 `marivo/semantic/`，找不到时 fail closed 并提示显式传入 project root。
+- 缺省向上查找最近的 `models/semantic/`，找不到时 fail closed 并提示显式传入 project root。
 - 使用 fresh interpreter 加载项目，避免 namespace package 和模块缓存影响修复循环。
 - 打印所有 decorator / load / assembly errors，包含结构化 kind、refs、location、hint 和人类可读摘要。
 - 非零退出码表示存在未解决错误。
@@ -740,7 +740,7 @@ if result.errors:
 - 默认列出所有字符串 refs 和 unverified metrics，作为 agent 需要复核的 warning。
 - 支持 `.venv/bin/python -m marivo.semantic.check --format=json --readiness` 输出结构化 errors / warnings / readiness report / parity summary，便于 agent 稳定解析。
 
-需要探索对象时，再用项目显式 API。agent 进入一个新 repo 后的默认入口是 `ms.load()`（内部经 `find_project` 向上查找 `marivo/semantic/`，该函数不是公开 API）；找不到时不要猜 root，应提示初始化或显式传入 project root。
+需要探索对象时，再用项目显式 API。agent 进入一个新 repo 后的默认入口是 `ms.load()`（内部经 `find_project` 向上查找 `models/semantic/`，该函数不是公开 API）；找不到时不要猜 root，应提示初始化或显式传入 project root。
 
 ### 2. 声明最小业务对象
 
@@ -843,7 +843,7 @@ decorator 执行时检查局部声明是否自洽：
 - metric 函数体不满足单 return 表达式约束。
 - metric body 调用 decorated metric 函数、legacy component-body calls, or Ibis SQL escape hatches.
 
-`outside_loader_context` 错误必须带可执行 hint：把定义移动到 `<project_root>/marivo/semantic/<model>/<file>.py`，然后用 `SemanticProject(root="<project_root>/marivo/semantic").load()` 重新加载；如果是在 notebook 中探索，使用 scratch Ibis expressions，只有注册对象才走 semantic loader。
+`outside_loader_context` 错误必须带可执行 hint：把定义移动到 `<project_root>/models/semantic/<model>/<file>.py`，然后用 `SemanticProject(root="<project_root>/marivo/semantic").load()` 重新加载；如果是在 notebook 中探索，使用 scratch Ibis expressions，只有注册对象才走 semantic loader。
 
 常见 structured error 到 agent action 的映射应足够机械：
 
@@ -855,7 +855,7 @@ decorator 执行时检查局部声明是否自洽：
 | `cross_model_reference` | 优先通过 `_exports.py` 导入；没有 `_exports.py` 时可直接 import sibling file 或使用显式 `ms.ref(...)` |
 | `invalid_decomposition` | 检查 `ms.ratio(...)` / `ms.weighted_average(...)` 的 components 是否都指向已注册 metric |
 | `invalid_component_body` | 删除 metric body 内的 component-body call，改用 `ms.derived_metric(...)` |
-| `outside_loader_context` | 把定义移到 `<root>/marivo/semantic/<model>/<file>.py`；notebook 探索改用 scratch Ibis 表达式 |
+| `outside_loader_context` | 把定义移到 `<root>/models/semantic/<model>/<file>.py`；notebook 探索改用 scratch Ibis 表达式 |
 | `unverified_provenance` | 若要进入 strict workflow，补 `source_sql` triple、改为 `python_native`，或先停止并确认业务口径 |
 | `sql_escape_hatch` | 把 raw SQL 移到后端持久视图并通过 `ms.table(...)` 暴露；metric body 保持 Ibis expression |
 
@@ -940,7 +940,7 @@ typed frames + session persistence + lineage
 
 ## v1 已落地边界
 
-当前 `marivo/semantic` 已经提供以下能力：
+当前 `models/semantic` 已经提供以下能力：
 
 - `SemanticProject`、project-scoped registry、context-local active registry。
 - decorators：`domain`、`datasource`、`entity`、`dimension`、`time_dimension`、`metric`、`relationship`。
@@ -977,10 +977,10 @@ typed frames + session persistence + lineage
 - Dimension / time_dimension 不要求 provenance status；缺失 provenance 在 describe 中显示为 `null`。
 - Dataset 不支持 Python body SQL view；持久化 SQL view 应作为普通 table source authoring。
 - 提供 Python-only check helper，显式加载 `SemanticProject` 并返回结构化 errors / warnings。
-- `check` 缺省向上查找 `marivo/semantic/`，支持 `--strict-provenance`，并默认提示字符串 refs。
+- `check` 缺省向上查找 `models/semantic/`，支持 `--strict-provenance`，并默认提示字符串 refs。
 - 提供 semantic refactor rename 工具，减少 agent 手工重命名字符串 refs。
 - Loader 采用 two-pass collect / resolve；合法 ref 不受 sibling filename sort order 影响。
-- 内部 loader 的 `find_project` 向上查找 `marivo/semantic/`，由公开入口 `ms.load()` 调用；它本身不是公开 API。
+- 内部 loader 的 `find_project` 向上查找 `models/semantic/`，由公开入口 `ms.load()` 调用；它本身不是公开 API。
 - Reader 增加 catalog browsing、single-object details、preview 和 readiness handoff。
 - `describe(..., compile_sql=True)` 返回结构化对象，包含 Ibis repr、compiled SQL、source SQL、dependencies、source location 和 parity status；`format="text"` 只作阅读糖。
 - `name=` 是 semantic identity；Python 符号名只是 local alias，check/describe 显示二者映射。

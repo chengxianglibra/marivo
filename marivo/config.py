@@ -12,9 +12,9 @@ from pathlib import Path
 
 PROJECT_MANIFEST = "marivo.toml"
 
-AUTHORED_DIR = "marivo"
-DATASOURCES_DIR = "marivo/datasources"
-SEMANTIC_DIR = "marivo/semantic"
+AUTHORED_DIR = "models"
+DATASOURCES_DIR = "models/datasources"
+SEMANTIC_DIR = "models/semantic"
 
 STATE_DIR = ".marivo"
 EVIDENCE_DIR = ".marivo/evidence"

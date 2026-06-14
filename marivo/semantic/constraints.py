@@ -170,7 +170,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ),
         "Decorators require an active semantic loader context.",
         "Semantic declarations register into the project loader registry, not global process state.",
-        "Put declarations under marivo/semantic/<model>/ and load them with ms.load().",
+        "Put declarations under models/semantic/<model>/ and load them with ms.load().",
         example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.ACTIVE_DOMAIN_REQUIRED: _constraint(
@@ -302,7 +302,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("ms.load()",),
         "Each domain directory needs a _domain.py file that calls ms.domain().",
         "The loader uses _domain.py to establish the domain namespace.",
-        "Create marivo/semantic/<domain>/_domain.py with ms.domain(name='<domain>').",
+        "Create models/semantic/<domain>/_domain.py with ms.domain(name='<domain>').",
         example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.DOMAIN_FILE_MATCHES_DIRECTORY: _constraint(
@@ -417,14 +417,14 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("project",),
         "Project files must follow the semantic project layout.",
         "The loader imports known files and accumulates structured semantic declarations.",
-        "Check marivo/semantic/<model>/ files for syntax, import, or organization issues.",
+        "Check models/semantic/<model>/ files for syntax, import, or organization issues.",
     ),
     ConstraintId.PROJECT_ROOT_VALID: _constraint(
         ConstraintId.PROJECT_ROOT_VALID,
         "invalid_project",
         "assembly",
         ("project",),
-        "The project root must contain marivo/semantic/.",
+        "The project root must contain models/semantic/.",
         "ms.load() needs a concrete semantic root to load declarations.",
         "Point --project at the project root, not the semantic directory itself.",
     ),
@@ -625,7 +625,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SemanticProject",),
         "Runtime preview requires a configured datasource.",
         "Datasource backends are resolved internally via DatasourceConnectionService.",
-        "Ensure datasources are configured under marivo/datasources/ before calling catalog.preview(...).",
+        "Ensure datasources are configured under models/datasources/ before calling catalog.preview(...).",
     ),
     ConstraintId.INSPECT_SOURCE_AVAILABLE: _constraint(
         ConstraintId.INSPECT_SOURCE_AVAILABLE,
@@ -634,7 +634,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SemanticProject",),
         "Source inspection methods require a configured datasource.",
         "inspect_source maps datasource+source to TableMetadata for schema discovery.",
-        "Ensure datasources are configured under marivo/datasources/ before calling source inspection methods.",
+        "Ensure datasources are configured under models/datasources/ before calling source inspection methods.",
     ),
     ConstraintId.PROJECT_LOADED_REQUIRED: _constraint(
         ConstraintId.PROJECT_LOADED_REQUIRED,

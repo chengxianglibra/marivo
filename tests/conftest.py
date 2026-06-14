@@ -39,7 +39,7 @@ def semantic_project_factory(tmp_path):
         effective_dir = workspace_dir if workspace_dir is not None else tmp_path
         # Write project manifest for discovery
         (effective_dir / "marivo.toml").write_text('[project]\nname = "test"\n')
-        marivo_root = effective_dir / "marivo"
+        marivo_root = effective_dir / "models"
         root = marivo_root / "semantic"
         root.mkdir(parents=True, exist_ok=True)
         for rel, src in files.items():
@@ -77,9 +77,9 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
     """Create a ready semantic project on disk for analysis tests."""
     # Write project manifest for discovery
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / "marivo" / "datasources"
+    datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

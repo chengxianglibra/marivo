@@ -32,7 +32,7 @@ def _artifact_paths(project_dir: Path) -> dict[str, Path]:
     """Return all artifact paths that init checks or creates."""
     return {
         "marivo.toml": project_dir / PROJECT_MANIFEST,
-        "marivo/": project_dir / AUTHORED_DIR,
+        "models/": project_dir / AUTHORED_DIR,
         ".marivo/": project_dir / STATE_DIR,
         ".claude/skills/marivo-semantic": project_dir / CLAUDE_SKILLS_DIR / SKILL_SEMANTIC,
         ".claude/skills/marivo-analysis": project_dir / CLAUDE_SKILLS_DIR / SKILL_ANALYSIS,

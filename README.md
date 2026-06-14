@@ -71,7 +71,7 @@ python3 -m venv .venv
 
 There is no separate server deployment step. Deploy a Marivo project by
 installing the library in the runtime where the agent runs, checking in the
-`marivo/datasources/` and `marivo/semantic/` declarations, and providing any
+`models/datasources/` and `models/semantic/` declarations, and providing any
 datasource secrets through environment variables referenced by `*_env` fields.
 
 ## Quick Start
@@ -79,12 +79,12 @@ datasource secrets through environment variables referenced by `*_env` fields.
 ### Create a Project
 
 A minimal project has a `marivo.toml` manifest, datasource declarations under
-`marivo/datasources/`, and semantic declarations under `marivo/semantic/`:
+`models/datasources/`, and semantic declarations under `models/semantic/`:
 
 ```text
 your-project/
   marivo.toml
-  marivo/
+  models/
     datasources/
       warehouse.py
     semantic/
@@ -92,7 +92,7 @@ your-project/
         _domain.py
 ```
 
-Declare a datasource in `marivo/datasources/warehouse.py`:
+Declare a datasource in `models/datasources/warehouse.py`:
 
 ```python
 import marivo.datasource as md
@@ -110,7 +110,7 @@ md.datasource(
 )
 ```
 
-Declare semantic objects in `marivo/semantic/sales/_domain.py`:
+Declare semantic objects in `models/semantic/sales/_domain.py`:
 
 ```python
 import marivo.datasource as md
@@ -278,7 +278,7 @@ frame = session.promote_metric_frame(
 ## Semantic Authoring
 
 The semantic layer is authored by agents in Python files under
-`marivo/semantic/<domain>/`, then reviewed and refined by humans.
+`models/semantic/<domain>/`, then reviewed and refined by humans.
 Marivo provides several capabilities to help agents author correctly:
 
 - **`ms.help()`** — discover the full authoring surface; `ms.help("metric")`

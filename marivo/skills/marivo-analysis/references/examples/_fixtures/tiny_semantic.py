@@ -10,7 +10,7 @@ Provides:
 ``ensure_loaded()`` is idempotent: calling it twice within one process reuses
 the registered semantic domain and keeps the ``examples`` session attached.
 
-This fixture creates a temporary project on disk under marivo/semantic/
+This fixture creates a temporary project on disk under models/semantic/
 and uses the standard loader pipeline to build the semantic domain.
 """
 # mypy: disable-error-code=import-untyped
@@ -73,14 +73,14 @@ def _session_root() -> Path:
 def _bootstrap_semantic_layer(root: Path) -> None:
     """Write a minimal semantic project to disk so the loader can find it."""
     (root / "marivo.toml").write_text('[project]\nname = "examples"\n')
-    datasource_dir = root / "marivo" / "datasources"
+    datasource_dir = root / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / f"{DATASOURCE_NAME}.py").write_text(
         "import marivo.datasource as md\n"
         f"{DATASOURCE_NAME} = md.DatasourceSpec(name='{DATASOURCE_NAME}', backend_type='duckdb', path=':memory:')\n"
         f"md.datasource({DATASOURCE_NAME})\n"
     )
-    semantic_dir = root / "marivo" / "semantic" / DOMAIN_NAME
+    semantic_dir = root / "models" / "semantic" / DOMAIN_NAME
     semantic_dir.mkdir(parents=True, exist_ok=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(

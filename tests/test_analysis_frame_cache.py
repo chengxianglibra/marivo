@@ -198,9 +198,9 @@ def test_frame_summaries_contains_rich_metadata(tmp_path):
 
 
 def _bootstrap_failure_rate(tmp_path):
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / "marivo" / "datasources"
+    datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

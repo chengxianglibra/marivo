@@ -76,7 +76,7 @@ def _execute_file(
 
 
 def load_datasources(root: Path) -> DatasourceLoadResult:
-    """Load datasource declarations from ``marivo/datasources/``."""
+    """Load datasource declarations from ``models/datasources/``."""
     errors: list[Exception] = []
     if not root.exists():
         return DatasourceLoadResult(datasources=(), errors=())

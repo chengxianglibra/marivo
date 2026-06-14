@@ -18,13 +18,13 @@ def test_metric_ir_has_fanout_policy_default_block():
 def test_metric_authoring_accepts_fanout_policy(tmp_path, monkeypatch):
     from marivo.semantic.loader import load_project
 
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    datasource_dir = tmp_path / "marivo" / "datasources"
+    datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -50,7 +50,7 @@ def test_metric_authoring_accepts_fanout_policy(tmp_path, monkeypatch):
         "    return orders.amount.sum()\n"
     )
     monkeypatch.chdir(tmp_path)
-    project = load_project(tmp_path / "marivo" / "semantic")
+    project = load_project(tmp_path / "models" / "semantic")
     assert project.status == "ready", project.errors
     assert project.registry is not None
     metric = project.registry.metrics["sales.gmv_with_items"]
@@ -67,9 +67,9 @@ def test_error_kinds_and_constraint_id_present():
 
 
 def _bootstrap_min(tmp_path):
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / "marivo" / "datasources"
+    datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -104,7 +104,7 @@ def test_validator_rejects_fanout_policy_on_non_additive_metric(tmp_path, monkey
         "    return orders.user_id.nunique()\n"
     )
     monkeypatch.chdir(tmp_path)
-    project = load_project(tmp_path / "marivo" / "semantic")
+    project = load_project(tmp_path / "models" / "semantic")
     assert project.status == "errored"
     kinds = {err.kind for err in project.errors}
     assert ErrorKind.INVALID_METRIC_FANOUT_POLICY in kinds
@@ -129,7 +129,7 @@ def test_derived_metric_keeps_default_fanout_policy(tmp_path, monkeypatch):
         ")\n"
     )
     monkeypatch.chdir(tmp_path)
-    project = load_project(tmp_path / "marivo" / "semantic")
+    project = load_project(tmp_path / "models" / "semantic")
     assert project.status == "ready", project.errors
     assert project.registry is not None
     metric = project.registry.metrics["sales.aov"]

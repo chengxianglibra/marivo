@@ -918,7 +918,7 @@ def test_reader_project_load_works() -> None:
     from marivo.semantic.reader import SemanticProject
 
     with tempfile.TemporaryDirectory() as tmp:
-        semantic_root = Path(tmp) / "marivo" / "semantic"
+        semantic_root = Path(tmp) / "models" / "semantic"
         semantic_root.mkdir(parents=True)
         project = SemanticProject(root=semantic_root)
         result = project.load()
@@ -933,7 +933,7 @@ def test_reader_project_load_reloads() -> None:
     from marivo.semantic.reader import SemanticProject
 
     with tempfile.TemporaryDirectory() as tmp:
-        semantic_root = Path(tmp) / "marivo" / "semantic"
+        semantic_root = Path(tmp) / "models" / "semantic"
         semantic_root.mkdir(parents=True)
         project = SemanticProject(root=semantic_root)
         result = project.load()

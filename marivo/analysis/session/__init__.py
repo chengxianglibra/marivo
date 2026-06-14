@@ -72,7 +72,7 @@ def get_or_create(
         backend_factory: Single callable taking a datasource name and returning
             an ibis backend for dynamic resolution.
         use_datasources: When True (default), auto-discovers datasource
-            definitions from ``marivo/datasources/*.py``.
+            definitions from ``models/datasources/*.py``.
 
     Raises:
         SessionStateError: Both ``backends`` and ``backend_factory`` were

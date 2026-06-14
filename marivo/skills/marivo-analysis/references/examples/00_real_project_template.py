@@ -1,7 +1,7 @@
 # marivo-example: template
 """Template: start an analysis from a real Marivo project.
 
-Copy this into a project that already has `marivo/semantic/` definitions.
+Copy this into a project that already has `models/semantic/` definitions.
 Replace the session name, metric id, calendar, and timescope values
 with the project-specific analysis target.
 """

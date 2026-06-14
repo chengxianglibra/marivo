@@ -20,7 +20,7 @@ def _chdir(tmp_path, monkeypatch):
 
 
 def _bootstrap_sales(tmp_path):
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -64,7 +64,7 @@ def test_observe_time_type_hints_match_supported_input_forms():
 
 
 def _bootstrap_multi_dataset(tmp_path):
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -105,7 +105,7 @@ def _seed_multi_dataset(con):
 
 
 def _bootstrap_date_field(tmp_path):
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)

@@ -26,9 +26,9 @@ def test_creates_marivo_toml_with_project_name(tmp_path: Path) -> None:
     assert data["project"]["name"] == tmp_path.name
 
 
-def test_creates_marivo_dir(tmp_path: Path) -> None:
+def test_creates_models_dir(tmp_path: Path) -> None:
     init_project(project_dir=tmp_path)
-    assert (tmp_path / "marivo").is_dir()
+    assert (tmp_path / "models").is_dir()
 
 
 def test_creates_dot_marivo_dir(tmp_path: Path) -> None:
@@ -96,8 +96,8 @@ def test_fails_if_marivo_toml_exists(tmp_path: Path) -> None:
     assert exc_info.value.code == 1
 
 
-def test_fails_if_marivo_dir_exists(tmp_path: Path) -> None:
-    (tmp_path / "marivo").mkdir()
+def test_fails_if_models_dir_exists(tmp_path: Path) -> None:
+    (tmp_path / "models").mkdir()
     with pytest.raises(SystemExit) as exc_info:
         init_project(project_dir=tmp_path)
     assert exc_info.value.code == 1
@@ -123,10 +123,10 @@ def test_force_overwrites_marivo_toml(tmp_path: Path) -> None:
     assert data["project"]["name"] == tmp_path.name
 
 
-def test_force_overwrites_marivo_dir(tmp_path: Path) -> None:
-    (tmp_path / "marivo").mkdir()
+def test_force_overwrites_models_dir(tmp_path: Path) -> None:
+    (tmp_path / "models").mkdir()
     init_project(force=True, project_dir=tmp_path)
-    assert (tmp_path / "marivo").is_dir()
+    assert (tmp_path / "models").is_dir()
 
 
 def test_force_removes_skill_symlinks(tmp_path: Path) -> None:

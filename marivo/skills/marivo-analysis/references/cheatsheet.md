@@ -189,7 +189,7 @@ maintain or rely on a transcribed repair-code catalog here.
 ## Backend Setup
 
 Analysis intents that execute against live semantic datasets need a session
-backend. In a real project, register `marivo/datasources/*.py` definitions and
+backend. In a real project, register `models/datasources/*.py` definitions and
 use the default session entrypoint:
 
 ```python

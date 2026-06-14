@@ -374,7 +374,7 @@ def domain(
 
     A domain groups entities, dimensions, metrics, and relationships under a single
     qualified name (``<domain>.<object>``). Must be called at module top-level
-    inside a ``marivo/semantic/<model>/*.py`` project file.
+    inside a ``models/semantic/<model>/*.py`` project file.
 
     Args:
         name: Domain namespace, e.g. ``"sales"``.
@@ -460,7 +460,7 @@ def entity(
     Args:
         name: Entity name.
         datasource: Datasource ref returned by ``md.ref(...)`` or a global
-            datasource name string declared in ``marivo/datasources/*.py``.
+            datasource name string declared in ``models/datasources/*.py``.
         source: Structured physical source, usually ``ms.table(...)`` or
             ``ms.file(...)``.
         primary_key: Optional list of column names forming the primary key.

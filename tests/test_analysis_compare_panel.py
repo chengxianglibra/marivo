@@ -47,7 +47,7 @@ def _seed(con):
 
 
 def _bootstrap_sales(tmp_path):
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)

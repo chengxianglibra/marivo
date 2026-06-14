@@ -147,7 +147,7 @@ def _make_ctx() -> AiContextView:
 
 
 def _make_loc() -> SourceLocation:
-    return SourceLocation(file="marivo/semantic/sales/_domain.py", line=5)
+    return SourceLocation(file="models/semantic/sales/_domain.py", line=5)
 
 
 # --- Kind-specific details ---
@@ -991,7 +991,7 @@ def test_ms_load_defaults_to_cwd(tmp_path, monkeypatch):
 
 
 def test_ms_load_failure_raises_semantic_load_error(tmp_path):
-    semantic = tmp_path / "marivo" / "semantic" / "sales"
+    semantic = tmp_path / "models" / "semantic" / "sales"
     semantic.mkdir(parents=True)
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='wrong_name')\n"
@@ -1146,7 +1146,7 @@ def test_catalog_load_with_models_changes_filter(semantic_project_factory):
 
 
 def test_catalog_access_after_failed_load_raises_semantic_load_failed(tmp_path):
-    semantic = tmp_path / "marivo" / "semantic" / "sales"
+    semantic = tmp_path / "models" / "semantic" / "sales"
     semantic.mkdir(parents=True)
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='wrong_name')\n"
@@ -1250,8 +1250,8 @@ def test_catalog_preview_context_columns_rejected_for_metric(semantic_project_fa
 
 
 def _write_minimal_project(tmp_path) -> None:
-    semantic = tmp_path / "marivo" / "semantic" / "sales"
-    ds = tmp_path / "marivo" / "datasources"
+    semantic = tmp_path / "models" / "semantic" / "sales"
+    ds = tmp_path / "models" / "datasources"
     semantic.mkdir(parents=True)
     ds.mkdir(parents=True)
     (ds / "warehouse.py").write_text(
@@ -1274,13 +1274,13 @@ def _write_minimal_project(tmp_path) -> None:
 def _write_multi_domain_project(tmp_path) -> None:
     """Write a project with both 'sales' and 'ops' domains."""
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    ds = tmp_path / "marivo" / "datasources"
+    ds = tmp_path / "models" / "datasources"
     ds.mkdir(parents=True, exist_ok=True)
     (ds / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
         "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
     )
-    sales = tmp_path / "marivo" / "semantic" / "sales"
+    sales = tmp_path / "models" / "semantic" / "sales"
     sales.mkdir(parents=True, exist_ok=True)
     (sales / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
@@ -1293,7 +1293,7 @@ def _write_multi_domain_project(tmp_path) -> None:
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )
-    ops = tmp_path / "marivo" / "semantic" / "ops"
+    ops = tmp_path / "models" / "semantic" / "ops"
     ops.mkdir(parents=True, exist_ok=True)
     (ops / "_domain.py").write_text("import marivo.semantic as ms\nms.domain(name='ops')\n")
     (ops / "datasets.py").write_text(

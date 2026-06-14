@@ -84,7 +84,7 @@ with tempfile.TemporaryDirectory() as tmp:
     con.raw_sql("INSERT INTO orders VALUES (1, DATE '2026-01-01', 10.0)")
     con.disconnect()
 
-    semantic_dir = root / "marivo" / "semantic" / "sales"
+    semantic_dir = root / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "_domain.py").write_text(DOMAIN)
 
@@ -94,7 +94,7 @@ with tempfile.TemporaryDirectory() as tmp:
         md.register(md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)))
         from marivo.semantic.reader import SemanticProject
 
-        project = SemanticProject(root=root / "marivo" / "semantic")
+        project = SemanticProject(root=root / "models" / "semantic")
         project.load()
 
         # Structural readiness: pure in-memory check, no backend required.
