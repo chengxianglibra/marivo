@@ -48,8 +48,8 @@ assert "marivo.analysis" not in sys.modules
 
 
 def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
-    import marivo.datasource as md
     from marivo.datasource.ir import DatasourceIR
+    from marivo.datasource.loader import load_datasources
 
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True)
@@ -58,7 +58,7 @@ def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
         "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
     )
 
-    result = md.load_datasources(datasource_dir)
+    result = load_datasources(datasource_dir)
 
     assert result.errors == ()
     assert isinstance(result.datasources[0], DatasourceIR)

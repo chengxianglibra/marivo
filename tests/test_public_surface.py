@@ -183,7 +183,6 @@ DATASOURCE_PUBLIC = {
     "inspect_source",
     "inspect_table",
     "list",
-    "load_datasources",
     "preview",
     "probe_join_keys",
     "ref",
