@@ -46,7 +46,7 @@ _SUMMARIES: dict[str, str] = {
     "inspect_source": "table metadata for a semantic entity source (table or file)",
     "inspect_table": "schema, comments, nullability, and partition metadata for a table",
     "list": "list configured project datasources as DatasourceSummary rows",
-    "load_datasources": "load project datasource declarations from marivo/datasources/ files",
+    "load_datasources": "load project datasource declarations from models/datasources/ files",
     "preview": "bounded, filtered preview of one datasource table",
     "probe_join_keys": "probe join compatibility between two sources on specified key columns",
     "ref": "reference a global project datasource by short name",

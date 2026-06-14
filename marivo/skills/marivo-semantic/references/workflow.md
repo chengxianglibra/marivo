@@ -45,7 +45,7 @@ if brief.status == "blocked":
     brief.show()
     raise SystemExit("Fix blockers before authoring the domain.")
 
-# write marivo/semantic/sales/_domain.py
+# write models/semantic/sales/_domain.py
 ```
 
 ```python
@@ -77,7 +77,7 @@ if entity_brief.status == "blocked":
 Write the entity, load, and verify:
 
 ```python
-# append to marivo/semantic/sales/_domain.py
+# append to models/semantic/sales/_domain.py
 orders = ms.entity(
     name="orders",
     datasource=warehouse,

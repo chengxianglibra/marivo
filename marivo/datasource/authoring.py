@@ -166,7 +166,7 @@ def _require_ctx() -> DatasourceLoaderContext:
     ctx = _DATASOURCE_CTX.get()
     if ctx is None:
         raise DatasourceFieldInvalidError(
-            message="md.datasource can only be called while loading marivo/datasources/ files",
+            message="md.datasource can only be called while loading models/datasources/ files",
             details={"datasource": "<unknown>", "field": "<context>", "reason": "outside loader"},
         )
     return ctx

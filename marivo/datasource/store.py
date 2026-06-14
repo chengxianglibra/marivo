@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from marivo.config import DATASOURCES_DIR
 from marivo.datasource.authoring import DatasourceSpec
 from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.ir import DatasourceIR
@@ -15,7 +16,7 @@ from marivo.project import resolve_project_root
 
 def datasource_dir(project_root: Path | None = None) -> Path:
     root = project_root or resolve_project_root()
-    return root / "marivo" / "datasources"
+    return root / DATASOURCES_DIR
 
 
 def datasource_path(name: str, project_root: Path | None = None) -> Path:

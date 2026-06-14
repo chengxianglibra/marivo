@@ -51,7 +51,7 @@ def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
     import marivo.datasource as md
     from marivo.datasource.ir import DatasourceIR
 
-    datasource_dir = tmp_path / "marivo" / "datasources"
+    datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

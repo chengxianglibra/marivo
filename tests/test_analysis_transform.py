@@ -44,7 +44,7 @@ def _chdir(tmp_path, monkeypatch):
 
 
 def _bootstrap_sales(tmp_path, *, with_country=False):
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -1499,7 +1499,7 @@ def test_transform_metric_frame_drops_component_contract(tmp_path):
 
 def _bootstrap_bandwidth_for_rollup(tmp_path):
     """Bootstrap a bandwidth semantic project for rollup gate tests."""
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)

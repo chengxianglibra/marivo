@@ -93,7 +93,7 @@ def test_explicit_backend_factory_overrides_datasource(tmp_path: Path, fake_home
 
 def test_missing_datasource_raises_datasource_missing(tmp_path: Path, fake_home: Path) -> None:
     bootstrap_sales_project(tmp_path)
-    (tmp_path / "marivo" / "datasources" / "warehouse.py").unlink()
+    (tmp_path / "models" / "datasources" / "warehouse.py").unlink()
     session = mv.session.get_or_create(name="s")
     with pytest.raises(DatasourceMissingError) as exc_info:
         session._connection_runtime.get_or_create("warehouse")

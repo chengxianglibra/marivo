@@ -70,7 +70,7 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             kind=ErrorKind.DUPLICATE_NAME,
             message=error.message,
             refs=refs,
-            hint="Keep each datasource name unique under marivo/datasources/.",
+            hint="Keep each datasource name unique under models/datasources/.",
         )
     if isinstance(error, DatasourceLoadError):
         path = error.details.get("path")
@@ -79,7 +79,7 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             kind=ErrorKind.INVALID_PROJECT,
             message=error.message,
             refs=refs,
-            hint=error.hint or "Check marivo/datasources/*.py datasource declarations.",
+            hint=error.hint or "Check models/datasources/*.py datasource declarations.",
         )
     if isinstance(error, DatasourceConfigError):
         datasource = error.details.get("datasource")
@@ -88,12 +88,12 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             kind=ErrorKind.ORGANIZATION_ERROR,
             message=error.message,
             refs=refs,
-            hint=error.hint or "Check marivo/datasources/*.py datasource declarations.",
+            hint=error.hint or "Check models/datasources/*.py datasource declarations.",
         )
     return SemanticLoadError(
         kind=ErrorKind.ORGANIZATION_ERROR,
         message=str(error),
-        hint="Check marivo/datasources/*.py datasource declarations.",
+        hint="Check models/datasources/*.py datasource declarations.",
     )
 
 

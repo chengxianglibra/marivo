@@ -5,7 +5,7 @@ by semantic models from a pip-installed Marivo project.
 
 ## Project datasource files
 
-Semantic files reference datasources declared under `marivo/datasources/*.py`.
+Semantic files reference datasources declared under `models/datasources/*.py`.
 Use `md.ref("<name>")` in semantic files:
 
 ```python

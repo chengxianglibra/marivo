@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from marivo.config import SEMANTIC_DIR
 from marivo.datasource.ir import DatasourceIR, EntitySourceIR, source_to_dict
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.scan import ScanReport, ScanScope
@@ -178,7 +179,7 @@ class SemanticProject:
                 env = os.environ.get("MARIVO_PROJECT_ROOT")
                 workspace_dir = env if env else "."
             self._workspace_dir = Path(workspace_dir).resolve()
-            self._semantic_root = self._workspace_dir / "marivo" / "semantic"
+            self._semantic_root = self._workspace_dir / SEMANTIC_DIR
         self._status: str = "unloaded"  # unloaded | ready | errored
         self._errors: tuple[SemanticError, ...] = ()
         self._warnings: tuple[StructuredWarning, ...] = ()
@@ -193,7 +194,7 @@ class SemanticProject:
 
     @property
     def semantic_root(self) -> Path:
-        """Return the semantic root path (marivo/semantic/)."""
+        """Return the semantic root path (models/semantic/)."""
         return self._semantic_root
 
     @property

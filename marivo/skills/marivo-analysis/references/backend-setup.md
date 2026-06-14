@@ -13,13 +13,13 @@ project datasources or uses explicit backend overrides for tests/CI.
 
 1. `backends={name: callable}` if provided.
 2. `backend_factory=lambda name: ...` if provided.
-3. Project datasource files in `marivo/datasources/*.py` by default.
+3. Project datasource files in `models/datasources/*.py` by default.
 4. With `use_datasources=False` and no explicit factory, materialization fails
    with `NoBackendFactoryError`.
 
 ## Project Datasource Session
 
-Use this when the project already has the required `marivo/datasources/*.py`
+Use this when the project already has the required `models/datasources/*.py`
 files and any referenced secret env vars are exported.
 
 ```python
@@ -29,7 +29,7 @@ session = mv.session.get_or_create(name="analysis")
 ```
 
 If a datasource is missing or invalid, switch to `marivo-semantic` and
-repair `marivo/datasources/<name>.py` before continuing the analysis.
+repair `models/datasources/<name>.py` before continuing the analysis.
 
 ## Explicit Factory
 

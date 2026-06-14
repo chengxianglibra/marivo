@@ -34,7 +34,7 @@ def _seed(con):
 
 
 def _bootstrap(tmp_path, *, root: str = "orders"):
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -155,7 +155,7 @@ def test_panel_cross_dataset_dimension_uses_root_time_axis(tmp_path):
 def test_one_to_many_traversal_is_blocked(tmp_path):
     """When root=orders but a dimension requires a one-to-many join,
     the planner must block the traversal with unsafe-fanout."""
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -234,7 +234,7 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
 
 
 def _bootstrap_snapshot(tmp_path):
-    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)

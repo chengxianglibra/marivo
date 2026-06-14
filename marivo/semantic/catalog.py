@@ -814,7 +814,7 @@ class SemanticCatalog:
 
     @property
     def semantic_root(self) -> Path:
-        """Return the semantic root path (marivo/semantic/)."""
+        """Return the semantic root path (models/semantic/)."""
         return self._project.semantic_root
 
     @property

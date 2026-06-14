@@ -31,7 +31,7 @@ def test_set_returns_summary(project_root: Path) -> None:
     summary = md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
     assert summary.name == "wh"
     assert summary.backend_type == "duckdb"
-    assert (project_root / "marivo" / "datasources" / "wh.py").is_file()
+    assert (project_root / "models" / "datasources" / "wh.py").is_file()
 
 
 def test_register_rejects_legacy_name_and_kwargs(project_root: Path) -> None:

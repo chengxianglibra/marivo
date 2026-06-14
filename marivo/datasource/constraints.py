@@ -111,9 +111,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "DatasourceFieldInvalid",
         "decorator",
         ("datasource",),
-        "md.datasource can only register while loading marivo/datasources/ files.",
+        "md.datasource can only register while loading models/datasources/ files.",
         "Datasource declarations are collected by the project loader, not registered into global process state.",
-        "Put datasource declarations under marivo/datasources/*.py and load them with md.load_datasources(...).",
+        "Put datasource declarations under models/datasources/*.py and load them with md.load_datasources(...).",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_UNIQUE_NAME: _constraint(
@@ -133,7 +133,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("load_datasources",),
         "Datasource files must load as valid datasource declarations.",
         "Project datasource metadata is executable Python collected by the loader; syntax or runtime failures prevent deterministic datasource discovery.",
-        "Open the failing marivo/datasources/ file, fix the reported error, then rerun md.load_datasources(...).",
+        "Open the failing models/datasources/ file, fix the reported error, then rerun md.load_datasources(...).",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_CONFIGURED: _constraint(

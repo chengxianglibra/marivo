@@ -261,7 +261,7 @@ def test_sys_path_injected_during_load(semantic_project_factory, tmp_path) -> No
     """sys.path should be modified during load and cleaned up after."""
     import sys
 
-    root = tmp_path / "marivo" / "semantic"
+    root = tmp_path / "models" / "semantic"
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -950,7 +950,7 @@ def test_find_project_in_current_dir(tmp_path) -> None:
     from marivo.semantic.loader import find_project
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    sem_dir = tmp_path / "marivo" / "semantic"
+    sem_dir = tmp_path / "models" / "semantic"
     sem_dir.mkdir(parents=True)
     project = find_project(start_dir=tmp_path)
     assert project is not None
@@ -962,7 +962,7 @@ def test_find_project_in_parent_dir(tmp_path) -> None:
     from marivo.semantic.loader import find_project
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    sem_dir = tmp_path / "marivo" / "semantic"
+    sem_dir = tmp_path / "models" / "semantic"
     sem_dir.mkdir(parents=True)
     child_dir = tmp_path / "subdir" / "deep"
     child_dir.mkdir(parents=True)
@@ -980,7 +980,7 @@ def test_find_project_returns_none_when_not_found(tmp_path) -> None:
 
 
 def test_find_project_finds_marivo_toml_without_semantic(tmp_path) -> None:
-    """find_project should succeed when marivo.toml exists but marivo/semantic/ does not."""
+    """find_project should succeed when marivo.toml exists but models/semantic/ does not."""
     from marivo.semantic.loader import find_project
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
@@ -995,7 +995,7 @@ def test_load_raises_when_semantic_is_a_file(tmp_path) -> None:
     from marivo.semantic.errors import SemanticLoadError
 
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    marivo_dir = tmp_path / "marivo"
+    marivo_dir = tmp_path / "models"
     marivo_dir.mkdir()
     # Create 'semantic' as a file, not a directory
     (marivo_dir / "semantic").write_text("not a directory")
@@ -1016,7 +1016,7 @@ def test_reader_project_default_workspace_dir_is_cwd(monkeypatch, tmp_path) -> N
     monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
     project = SemanticProject()
     assert project.workspace_dir == tmp_path.resolve()
-    assert project.semantic_root == tmp_path.resolve() / "marivo" / "semantic"
+    assert project.semantic_root == tmp_path.resolve() / "models" / "semantic"
 
 
 def test_reader_project_env_var_overrides_cwd(monkeypatch, tmp_path) -> None:
@@ -1046,11 +1046,11 @@ def test_reader_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) ->
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
     (scripts_dir / "deploy.sh").write_text("#!/bin/bash\necho deploy")
-    semantic_dir = tmp_path / "marivo" / "semantic"
+    semantic_dir = tmp_path / "models" / "semantic"
     semantic_dir.mkdir(parents=True)
     project = SemanticProject(workspace_dir=tmp_path)
     result = project.load()
-    # scripts/ should NOT appear as a model dir — only marivo/semantic/ is scanned
+    # scripts/ should NOT appear as a model dir — only models/semantic/ is scanned
     assert result.status == "ready"
     assert len(SemanticCatalog(project).list().objects) == 0
 

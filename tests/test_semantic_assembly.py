@@ -787,7 +787,7 @@ def semantic_project_factory(tmp_path):
 
     def _make(files: dict[str, str], load: bool = True) -> SemanticProject:
         (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-        marivo_root = tmp_path / "marivo"
+        marivo_root = tmp_path / "models"
         root = marivo_root / "semantic"
         root.mkdir(parents=True, exist_ok=True)
         datasource_root = marivo_root / "datasources"
