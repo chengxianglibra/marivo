@@ -65,9 +65,9 @@ answer), record the resolution as a decision-ledger confirmation so reruns are
 traceable:
 
 ```python
-project.record_decision(
-    decision_kind="entity_primary_key",
+ms.record_decision(
     subject="sales.orders",
+    decision_kind="entity_primary_key",
     chosen="order_id",
     agreement_confidence="high",
     qualifying_sources=("user_confirmation",),
@@ -80,14 +80,12 @@ When a candidate cannot reach sufficiency -- the user cannot answer a blocking
 question, or required evidence is unobtainable -- record abandonment:
 
 ```python
-project.record_decision(
-    decision_kind="authoring_abandoned",
+ms.record_decision(
     subject="sales.refund_amount",
+    decision_kind="authoring_abandoned",
     chosen="abandoned",
     agreement_confidence="high",
     qualifying_sources=("user_confirmation",),
-    materiality="low",
-    blast_radius=0,
 )
 ```
 

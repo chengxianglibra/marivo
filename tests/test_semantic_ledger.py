@@ -184,7 +184,7 @@ def test_ledger_store_read_missing_object_is_none(tmp_path):
 def test_ledger_types_exported():
     import marivo.semantic as ms
 
-    assert "DecisionRecord" not in ms.__all__
+    assert "DecisionRecord" in ms.__all__
     assert "RejectedCandidate" not in ms.__all__
 
 
@@ -306,3 +306,167 @@ def test_decision_stale_when_comment_changes():
 
 def test_decision_without_cited_source_is_never_stale():
     assert lg.is_decision_stale(_decision("sha256:x", cited_source=None), _metadata()) is False
+
+
+def test_record_decision_standalone_creates_new_ledger_entry(
+    semantic_project_factory,
+) -> None:
+    import os
+    from pathlib import Path
+
+    import marivo.semantic as ms
+
+    project = semantic_project_factory(
+        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+    )
+    # ms.record_decision() discovers the project from CWD.
+    previous = Path.cwd()
+    os.chdir(project.workspace_dir)
+    try:
+        ms.record_decision(
+            subject="sales.orders",
+            decision_kind="entity_primary_key",
+            chosen="order_id",
+            agreement_confidence="high",
+            qualifying_sources=("user_confirmation",),
+        )
+    finally:
+        os.chdir(previous)
+
+    store = lg.LedgerStore(project.state_root)
+    obj = store.read_object("sales.orders")
+    assert obj is not None
+    assert len(obj.decisions) == 1
+    assert obj.decisions[0].decision_kind == "entity_primary_key"
+    assert obj.decisions[0].chosen == "order_id"
+    assert obj.decisions[0].evidence_fingerprint == "agent_recorded"
+
+
+def test_record_decision_standalone_replaces_existing_decision_by_kind(
+    semantic_project_factory,
+) -> None:
+    import os
+    from pathlib import Path
+
+    import marivo.semantic as ms
+
+    project = semantic_project_factory(
+        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+    )
+    previous = Path.cwd()
+    os.chdir(project.workspace_dir)
+    try:
+        # First decision
+        ms.record_decision(
+            subject="sales.orders",
+            decision_kind="entity_primary_key",
+            chosen="order_id",
+            agreement_confidence="high",
+            qualifying_sources=("user_confirmation",),
+        )
+        # Second decision with same kind replaces the first
+        ms.record_decision(
+            subject="sales.orders",
+            decision_kind="entity_primary_key",
+            chosen="id",
+            agreement_confidence="low",
+            qualifying_sources=("auto_inferred",),
+            blast_radius=3,
+        )
+    finally:
+        os.chdir(previous)
+
+    store = lg.LedgerStore(project.state_root)
+    obj = store.read_object("sales.orders")
+    assert obj is not None
+    assert len(obj.decisions) == 1
+    assert obj.decisions[0].chosen == "id"
+    assert obj.decisions[0].agreement_confidence == "low"
+    assert obj.decisions[0].blast_radius == 3
+    assert obj.decisions[0].materiality == "high"
+
+
+def test_record_decision_standalone_preserves_unrelated_decisions_on_replace(
+    semantic_project_factory,
+) -> None:
+    import os
+    from pathlib import Path
+
+    import marivo.semantic as ms
+
+    project = semantic_project_factory(
+        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+    )
+    previous = Path.cwd()
+    os.chdir(project.workspace_dir)
+    try:
+        # Record two different decision kinds
+        ms.record_decision(
+            subject="sales.orders",
+            decision_kind="entity_primary_key",
+            chosen="order_id",
+            agreement_confidence="high",
+            qualifying_sources=("user_confirmation",),
+        )
+        ms.record_decision(
+            subject="sales.orders",
+            decision_kind="entity_grain",
+            chosen="one_row_per_order",
+            agreement_confidence="high",
+            qualifying_sources=("schema_inspection",),
+        )
+        # Replace only the primary key decision
+        ms.record_decision(
+            subject="sales.orders",
+            decision_kind="entity_primary_key",
+            chosen="id",
+            agreement_confidence="low",
+            qualifying_sources=("auto_inferred",),
+        )
+    finally:
+        os.chdir(previous)
+
+    store = lg.LedgerStore(project.state_root)
+    obj = store.read_object("sales.orders")
+    assert obj is not None
+    assert len(obj.decisions) == 2
+    kinds = [d.decision_kind for d in obj.decisions]
+    assert kinds.count("entity_primary_key") == 1
+    assert kinds.count("entity_grain") == 1
+    # The replaced primary key decision has the new chosen value
+    pk = next(d for d in obj.decisions if d.decision_kind == "entity_primary_key")
+    assert pk.chosen == "id"
+
+
+def test_record_decision_standalone_normalizes_list_to_tuple(
+    semantic_project_factory,
+) -> None:
+    import os
+    from pathlib import Path
+
+    import marivo.semantic as ms
+
+    project = semantic_project_factory(
+        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+    )
+    previous = Path.cwd()
+    os.chdir(project.workspace_dir)
+    try:
+        ms.record_decision(
+            subject="sales.orders",
+            decision_kind="entity_primary_key",
+            chosen="order_id",
+            agreement_confidence="high",
+            qualifying_sources=["user_confirmation"],
+            cited_columns=["order_id", "customer_id"],
+        )
+    finally:
+        os.chdir(previous)
+
+    store = lg.LedgerStore(project.state_root)
+    obj = store.read_object("sales.orders")
+    assert obj is not None
+    d = obj.decisions[0]
+    assert isinstance(d.qualifying_sources, tuple)
+    assert isinstance(d.cited_columns, tuple)
+    assert d.cited_columns == ("order_id", "customer_id")

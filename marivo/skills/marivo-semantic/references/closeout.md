@@ -5,7 +5,6 @@ Closeout decides whether semantic refs are ready for `marivo-analysis`.
 ## Reload
 
 ```python
-project.load()
 catalog = ms.load()
 ```
 
@@ -18,7 +17,7 @@ enrichment issues (missing `business_definition` / `guardrails`), and load
 warnings forwarding.
 
 ```python
-report = project.readiness(
+report = ms.readiness(
     refs=("sales.orders", "sales.revenue"),
 )
 report.show()
@@ -52,5 +51,5 @@ For targeted inspection outside the normal closeout path:
 
 - `md.preview(...)` — bounded raw preview
 - `catalog.preview(ref, ...)` — bounded semantic preview
-- `project.parity_check(ref, ...)` — SQL parity detail
-- `project.richness()` — demand-ranked richness gaps
+- `ms.parity_check(ref, ...)` — SQL parity detail
+- `ms.richness()` — demand-ranked richness gaps

@@ -455,7 +455,7 @@ class SemanticProject:
         objects to check; by default all loaded objects are checked.
 
         For runtime validation, use ``catalog.preview(...)``,
-        ``project.parity_check(...)``, and ``project.richness()``.
+        ``ms.parity_check(...)``, and ``ms.richness()``.
 
         Args:
             refs: Semantic refs to scope the check. None checks all loaded objects.
@@ -973,5 +973,5 @@ class SemanticProject:
                 f"{caller} requires entity {ref!r} to pass verify_object first.",
                 cls=LadderOrderError,
                 refs=(ref,),
-                hint=f"Call project.verify_object({ref!r}) before {caller}.",
+                hint=f"Call ms.verify_object({ref!r}) before {caller}.",
             )

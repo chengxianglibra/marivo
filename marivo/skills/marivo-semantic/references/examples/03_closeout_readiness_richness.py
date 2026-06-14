@@ -13,6 +13,7 @@ from pathlib import Path
 import ibis
 
 import marivo.datasource as md
+import marivo.semantic as ms
 
 DOMAIN = """
 import marivo.datasource as md
@@ -92,13 +93,9 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         os.chdir(root)
         md.register(md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)))
-        from marivo.semantic.reader import SemanticProject
-
-        project = SemanticProject(root=root / "models" / "semantic")
-        project.load()
 
         # Structural readiness: pure in-memory check, no backend required.
-        report = project.readiness(
+        report = ms.readiness(
             refs=("sales.orders", "sales.unverified_revenue", "sales.drifted_revenue"),
         )
         print("readiness:", report.status)
@@ -107,7 +104,7 @@ with tempfile.TemporaryDirectory() as tmp:
         print("abandoned:", len(report.abandoned))
 
         # Richness is a separate advisory API.
-        richness = project.richness()
+        richness = ms.richness()
         print("richness gaps:", len(richness.gaps))
     finally:
         os.chdir(previous)
