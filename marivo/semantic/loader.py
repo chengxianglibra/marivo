@@ -138,7 +138,7 @@ def _discover_model_dirs(root: Path) -> list[Path]:
         return []
     dirs = []
     for child in sorted(root.iterdir()):
-        if child.is_dir() and not child.name.startswith("."):
+        if child.is_dir() and not child.name.startswith(".") and child.name != "__pycache__":
             dirs.append(child)
     return dirs
 
