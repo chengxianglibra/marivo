@@ -611,7 +611,7 @@ def inspect_columns(
             warnings.append(f"column {column_name!r} absent from source schema")
             profiles.append(
                 ColumnProfile(
-                    column=column_name,
+                    name=column_name,
                     data_type="UNKNOWN",
                     nullable=None,
                     comment=None,
@@ -631,7 +631,7 @@ def inspect_columns(
             warnings.append(f"column {column_name!r} absent from bounded sample")
             profiles.append(
                 ColumnProfile(
-                    column=column_name,
+                    name=column_name,
                     data_type=data_type,
                     nullable=nullable,
                     comment=comment,
@@ -761,7 +761,7 @@ def _profile_column(
             max_value = None
 
     return ColumnProfile(
-        column=column_name,
+        name=column_name,
         data_type=data_type,
         nullable=nullable,
         comment=comment,

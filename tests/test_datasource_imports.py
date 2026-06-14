@@ -100,8 +100,10 @@ def test_datasource_public_exports() -> None:
         "ScanReport",
         "ColumnInspection",
         "ColumnProfile",
+        "DatasourceCatalog",
         "JoinSide",
         "JoinKeyProbe",
+        "load",
         "table",
         "file",
     ):

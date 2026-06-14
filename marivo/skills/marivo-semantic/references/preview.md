@@ -5,7 +5,7 @@ meaning by itself.
 
 ## Source preview evidence
 
-`prepare_entity` and `prepare_dimensions`/`prepare_time_dimension`/`prepare_metric`
+`prepare_entity` and `prepare_dimension`/`prepare_time_dimension`/`prepare_metric`
 collect source evidence internally via `md.inspect_table` and `md.inspect_columns`.
 Readiness runs required raw and semantic previews live through the internal
 datasource connection service. Use bounded raw previews before declaring or

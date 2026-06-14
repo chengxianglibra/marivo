@@ -2,7 +2,7 @@
 
 Registry-only functions (``prepare_domain``, ``prepare_derived_metric``) inspect
 the semantic registry alone.  Data-backed functions (``prepare_entity``,
-``prepare_dimensions``, ``prepare_time_dimension``, ``prepare_metric``) use
+``prepare_dimension``, ``prepare_time_dimension``, ``prepare_metric``) use
 datasource inspection to surface evidence for authoring decisions.
 """
 
@@ -245,7 +245,7 @@ def prepare_entity(
     )
     source_key = source_to_dict(source)
     matches = _entity_matches(project, datasource=datasource, source_key=source_key, domain=domain)
-    time_like = tuple(profile.column for profile in inspection.profiles if _looks_temporal(profile))
+    time_like = tuple(profile.name for profile in inspection.profiles if _looks_temporal(profile))
     issues: tuple[AssessmentIssue, ...] = ()
     questions: tuple[AuthoringQuestion, ...] = ()
     return EntityBrief(
@@ -298,7 +298,7 @@ def prepare_dimensions(
         scope=scope,
         project_root=project.workspace_dir,
     )
-    profile_by_name = {profile.column: profile for profile in inspection.profiles}
+    profile_by_name = {profile.name: profile for profile in inspection.profiles}
     briefs: list[DimensionBrief] = []
     for column in columns:
         profile = profile_by_name.get(column)
@@ -323,6 +323,39 @@ def prepare_dimensions(
             )
         )
     return tuple(briefs)
+
+
+def prepare_dimension(
+    project: SemanticProject,
+    *,
+    entity: str,
+    column: str,
+    scope: ScanScope = _DEFAULT_SCOPE,
+) -> DimensionBrief:
+    """Prepare a dimension authoring brief for one entity column.
+
+    Profiles the column data from the datasource and checks for matches
+    against existing dimensions.
+
+    Args:
+        project: The loaded semantic project.
+        entity: Qualified entity reference (e.g. ``"sales.orders"``).
+        column: Column name to prepare a dimension brief for.
+        scope: Bounded scan configuration.
+
+    Returns:
+        A ``DimensionBrief`` with status, profile, and match evidence.
+    """
+    briefs = prepare_dimensions(project, entity=entity, columns=(column,), scope=scope)
+    # prepare_dimensions always returns one brief per input column.
+    if not briefs:
+        from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
+
+        raise SemanticRuntimeError(
+            kind=ErrorKind.MATERIALIZE_FAILED,
+            message=f"prepare_dimension produced no brief for column {column!r} on {entity!r}.",
+        )
+    return briefs[0]
 
 
 def prepare_time_dimension(
@@ -357,7 +390,7 @@ def prepare_time_dimension(
         project_root=project.workspace_dir,
     )
     profile = inspection.profiles[0] if inspection.profiles else _unknown_profile(column)
-    detected = _detect_time_formats(profile) if profile.column == column else ()
+    detected = _detect_time_formats(profile) if profile.name == column else ()
     existing_time_dims = _existing_time_dimensions(project, entity)
     issues: list[AssessmentIssue] = []
     questions: tuple[AuthoringQuestion, ...] = ()
@@ -655,7 +688,7 @@ def _primary_key_candidates(inspection: ColumnInspection) -> tuple[PrimaryKeyCan
             ratio = profile.distinct_count / total_rows if total_rows > 0 else 0.0
             candidates.append(
                 PrimaryKeyCandidate(
-                    columns=(profile.column,),
+                    columns=(profile.name,),
                     sampled_unique=True,
                     distinct_ratio=ratio,
                 )
@@ -699,7 +732,7 @@ def _missing_column_issue(entity: str, column: str) -> tuple[AssessmentIssue, ..
 def _unknown_profile(column: str) -> ScanColumnProfile:
     """Return a placeholder ColumnProfile for an unknown column."""
     return ScanColumnProfile(
-        column=column,
+        name=column,
         data_type="UNKNOWN",
         nullable=None,
         comment=None,

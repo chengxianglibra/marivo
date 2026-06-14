@@ -6,6 +6,7 @@ import pytest
 
 import marivo.datasource as md
 from marivo.semantic import ledger as lg
+from marivo.semantic.dtos import DimensionBrief
 from marivo.semantic.errors import LadderOrderError
 
 
@@ -128,11 +129,11 @@ def test_verify_object_entity_auto_records_verified(
 # -- Ladder guard rail tests -------------------------------------------------
 
 
-def test_prepare_dimensions_raises_without_verify(tmp_path: Path, semantic_project_factory) -> None:
+def test_prepare_dimension_raises_without_verify(tmp_path: Path, semantic_project_factory) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    with pytest.raises(LadderOrderError, match="prepare_dimensions"):
-        project.prepare_dimensions(entity="sales.orders", columns=["region"])
+    with pytest.raises(LadderOrderError, match="prepare_dimension"):
+        project.prepare_dimension(entity="sales.orders", column="region")
 
 
 def test_prepare_time_dimension_raises_without_verify(
@@ -151,13 +152,13 @@ def test_prepare_metric_raises_without_verify(tmp_path: Path, semantic_project_f
         project.prepare_metric(entity="sales.orders", measure_columns=["amount"])
 
 
-def test_prepare_dimensions_works_after_verify(tmp_path: Path, semantic_project_factory) -> None:
+def test_prepare_dimension_works_after_verify(tmp_path: Path, semantic_project_factory) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
     project.verify_object("sales.orders")
 
-    result = project.prepare_dimensions(entity="sales.orders", columns=["region"])
-    assert isinstance(result, tuple)
+    result = project.prepare_dimension(entity="sales.orders", column="region")
+    assert isinstance(result, DimensionBrief)
 
 
 def test_prepare_metric_works_after_verify(tmp_path: Path, semantic_project_factory) -> None:
@@ -215,7 +216,7 @@ def test_ladder_error_message_teaches(tmp_path: Path, semantic_project_factory) 
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
     with pytest.raises(LadderOrderError) as exc_info:
-        project.prepare_dimensions(entity="sales.orders", columns=["region"])
+        project.prepare_dimension(entity="sales.orders", column="region")
 
     err = exc_info.value
     assert err.kind == "ladder_order"
@@ -257,8 +258,8 @@ def test_stale_verification_raises_after_source_change(
     # but the entity now points to a different table, so it's stale
     assert not project2._is_entity_verified("sales.orders")
 
-    with pytest.raises(LadderOrderError, match="prepare_dimensions"):
-        project2.prepare_dimensions(entity="sales.orders", columns=["region"])
+    with pytest.raises(LadderOrderError, match="prepare_dimension"):
+        project2.prepare_dimension(entity="sales.orders", column="region")
 
 
 def test_unknown_entity_skips_guard(tmp_path: Path, semantic_project_factory) -> None:
@@ -271,4 +272,4 @@ def test_unknown_entity_skips_guard(tmp_path: Path, semantic_project_factory) ->
     from marivo.semantic.errors import SemanticRuntimeError
 
     with pytest.raises(SemanticRuntimeError):
-        project.prepare_dimensions(entity="sales.nonexistent", columns=["x"])
+        project.prepare_dimension(entity="sales.nonexistent", column="x")

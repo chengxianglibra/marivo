@@ -154,20 +154,37 @@ def prepare_entity(
     return project.prepare_entity(datasource=datasource, source=source, domain=domain, scope=scope)
 
 
-def prepare_dimensions(
+def prepare_dimension(
     *,
     entity: str,
-    columns: tuple[str, ...] | list[str],
+    column: str,
     scope: ScanScope | None = None,
-) -> tuple[DimensionBrief, ...]:
-    """Prepare dimension authoring briefs for the given entity columns."""
+) -> DimensionBrief:
+    """Prepare a dimension authoring brief for one entity column.
+
+    Profiles the column data from the datasource and checks for matches
+    against existing dimensions.
+
+    Args:
+        entity: Qualified entity reference (e.g. ``"sales.orders"``).
+        column: Column name to prepare a dimension brief for.
+        scope: Bounded scan configuration.
+
+    Returns:
+        A single ``DimensionBrief`` with status, profile, and match evidence.
+
+    Example:
+        >>> import marivo.semantic as ms
+        >>> brief = ms.prepare_dimension(entity="sales.orders", column="region")
+        >>> brief.status
+    """
     from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject()
     project.load()
     if scope is None:
         scope = ScanScope()
-    return project.prepare_dimensions(entity=entity, columns=columns, scope=scope)
+    return project.prepare_dimension(entity=entity, column=column, scope=scope)
 
 
 def prepare_time_dimension(
@@ -558,7 +575,7 @@ __all__ = [
     "parity_check",
     "prepare_cross_entity_metric",
     "prepare_derived_metric",
-    "prepare_dimensions",
+    "prepare_dimension",
     "prepare_domain",
     "prepare_entity",
     "prepare_metric",

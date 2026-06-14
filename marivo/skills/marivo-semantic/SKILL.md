@@ -26,7 +26,7 @@ the project structure before authoring semantic objects.
 - Before writing each object, call the matching `ms.prepare_*` API and branch on the returned Brief status.
 - Write exactly one semantic object per cycle in `models/semantic/<domain>/_domain.py`.
 - After writing one object, call `ms.verify_object(ref)` and do not advance while it fails.
-- **`verify_object` is enforced:** `ms.prepare_dimensions`, `ms.prepare_time_dimension`, `ms.prepare_metric`, `ms.prepare_relationship`, and `ms.prepare_cross_entity_metric` raise `LadderOrderError` if their entity arguments have not passed `ms.verify_object`. You must verify the entity before these calls.
+- **`verify_object` is enforced:** `ms.prepare_dimension`, `ms.prepare_time_dimension`, `ms.prepare_metric`, `ms.prepare_relationship`, and `ms.prepare_cross_entity_metric` raise `LadderOrderError` if their entity arguments have not passed `ms.verify_object`. You must verify the entity before these calls.
 - Use `md.ScanScope()` by default. Passing `partition=None` is allowed only when the answer explicitly accepts an unpruned scan.
 - Ask users only for blocking `AuthoringQuestion`s that cannot be answered from documented project knowledge.
 - Record abandonment with `ms.record_decision(decision_kind="authoring_abandoned", ...)` when a candidate cannot be safely authored.

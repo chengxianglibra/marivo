@@ -68,13 +68,12 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
     assert verify.status == "passed", f"Entity verify failed: {verify.issues}"
 
     # -- Rung 3: Dimension - prepare, author, verify --------------------------
-    dim_briefs = project.prepare_dimensions(
+    dim_brief = project.prepare_dimension(
         entity="sales.orders",
-        columns=("customer_id",),
+        column="customer_id",
         scope=md.ScanScope(partition=None),
     )
-    assert len(dim_briefs) == 1
-    assert dim_briefs[0].status == "sufficient"
+    assert dim_brief.status == "sufficient"
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8") + "@ms.dimension(entity=orders)\n"

@@ -114,6 +114,7 @@ def test_datasource_fold_partition() -> None:
     assert set(fams["Other types"]) == {
         "ColumnInspection",
         "ColumnProfile",
+        "DatasourceCatalog",
         "DatasourceConnectionService",
         "DatasourceDescription",
         "DatasourceSourceLocation",

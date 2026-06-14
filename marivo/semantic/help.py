@@ -79,7 +79,7 @@ _SUMMARIES: dict[str, str] = {
     "metric": "declare a dataset-backed aggregate metric",
     "prepare_cross_entity_metric": "prepare a cross-entity metric brief",
     "prepare_derived_metric": "prepare a derived metric brief from component metrics",
-    "prepare_dimensions": "prepare dimension briefs for one entity",
+    "prepare_dimension": "prepare a dimension brief for one entity column",
     "prepare_domain": "prepare a domain authoring brief",
     "prepare_entity": "prepare an entity authoring brief from a datasource source",
     "prepare_metric": "prepare a single-entity metric brief",

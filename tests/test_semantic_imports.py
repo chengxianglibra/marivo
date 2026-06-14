@@ -134,7 +134,7 @@ def test_all_list_matches_expected() -> None:
         "metric",
         "parity_check",
         "prepare_derived_metric",
-        "prepare_dimensions",
+        "prepare_dimension",
         "prepare_domain",
         "prepare_entity",
         "prepare_cross_entity_metric",
