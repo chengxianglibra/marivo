@@ -20,6 +20,11 @@ STATE_DIR = ".marivo"
 EVIDENCE_DIR = ".marivo/evidence"
 ANALYSIS_DIR = ".marivo/analysis"
 
+CLAUDE_SKILLS_DIR = ".claude/skills"
+CODEX_SKILLS_DIR = ".codex/skills"
+SKILL_SEMANTIC = "marivo-semantic"
+SKILL_ANALYSIS = "marivo-analysis"
+
 
 # ---------------------------------------------------------------------------
 # Project configuration

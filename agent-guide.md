@@ -119,7 +119,7 @@ When working on a task, read the right docs first:
 | Python semantic declarations | `docs/specs/semantic/python-semantic-layer.md` |
 | Python analysis operators | `docs/specs/analysis/python-analysis-operator-design.md` |
 | Python evidence surface | `docs/specs/analysis/python-track-evidence-surface.md` |
-| Agent usage examples | `marivo-skills/marivo-semantic/` or `marivo-skills/marivo-analysis/` |
+| Agent usage examples | `marivo/skills/marivo-semantic/` or `marivo/skills/marivo-analysis/` |
 
 ## Documentation Updates
 

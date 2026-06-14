@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Walk retained marivo-skills examples and validate them."""
+"""Walk retained marivo/skills examples and validate them."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 SKILL_DIRS = (
-    "marivo-skills/marivo-semantic",
-    "marivo-skills/marivo-analysis",
+    "marivo/skills/marivo-semantic",
+    "marivo/skills/marivo-analysis",
 )
 EXAMPLE_TIMEOUT_SECONDS = 30
 SKILL_MD_MAX_LINES = 600

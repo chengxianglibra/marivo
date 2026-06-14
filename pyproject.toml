@@ -24,12 +24,16 @@ dependencies = [
     "pandas>=2.2.0",
     "pydantic>=2.9.0",
     "scipy>=1.13.0",
+    "tomli_w>=1.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/lumendata/marivo"
 Repository = "https://github.com/lumendata/marivo"
 Issues = "https://github.com/lumendata/marivo/issues"
+
+[project.scripts]
+marivo = "marivo.cli:main"
 
 [project.optional-dependencies]
 duckdb = ["duckdb>=1.2.2", "pyarrow>=15.0.0", "pyarrow-hotfix>=0.6"]
@@ -66,6 +70,7 @@ include = ["marivo*"]
 
 [tool.setuptools.package-data]
 "marivo.analysis.publish" = ["locales/*.json"]
+"marivo.skills" = ["**/*"]
 
 [tool.ruff]
 line-length = 100

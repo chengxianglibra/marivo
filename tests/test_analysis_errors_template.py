@@ -19,7 +19,7 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
             "location": "session.compare call",
             "cause": "param a was invalid",
             "fix_snippet": 'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))',
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         },
     )
 
@@ -34,7 +34,7 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
         '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
         in rendered
     )
-    assert "Docs: marivo-skills/marivo-analysis/references/pitfalls.md" in rendered
+    assert "Docs: marivo/skills/marivo-analysis/references/pitfalls.md" in rendered
 
 
 def test_base_template_omits_missing_optional_sections():
@@ -310,7 +310,7 @@ def test_no_backend_factory_default_template_fields_populated() -> None:
     assert "datasource='tiny_orders' resolved to None or a non-ibis object" in rendered
     assert "md.register" in rendered
     assert "@ms.datasource" not in rendered
-    assert "Docs: marivo-skills/marivo-semantic/references/datasource.md" in rendered
+    assert "Docs: marivo/skills/marivo-semantic/references/datasource.md" in rendered
 
 
 def test_no_backend_factory_without_details_uses_session_backend_template() -> None:
@@ -334,7 +334,7 @@ def test_no_backend_factory_without_details_uses_session_backend_template() -> N
     assert "mv.session.get_or_create" in rendered
     assert "md.register" in rendered
     assert "backend_factory=" in rendered
-    assert "Docs: marivo-skills/marivo-semantic/references/datasource.md" in rendered
+    assert "Docs: marivo/skills/marivo-semantic/references/datasource.md" in rendered
 
 
 def test_segment_dimension_mismatch_renders_cause_and_fix():
@@ -354,7 +354,7 @@ def test_segment_dimension_mismatch_renders_cause_and_fix():
     assert "Extra in current: country" in rendered
     assert "Extra in baseline: region" in rendered
     assert "Fix:" in rendered
-    assert "Docs: marivo-skills/marivo-analysis/references/pitfalls.md" in rendered
+    assert "Docs: marivo/skills/marivo-analysis/references/pitfalls.md" in rendered
 
 
 def test_segment_dimension_mismatch_shows_set_differences():

@@ -40,7 +40,7 @@ Fix:
   base = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
   delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
 
-Docs: marivo-skills/marivo-analysis/references/pitfalls.md
+Docs: marivo/skills/marivo-analysis/references/pitfalls.md
 ```
 
 **Action:** pass two `MetricFrame`s into `session.compare`, then pass the resulting

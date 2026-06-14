@@ -277,4 +277,4 @@ make test TESTS=tests/test_calendar_align.py
   目标态能力明确标注为目标态。
 - 示例不使用 bare `python` / `pytest` / `mypy` / `ruff`。
 - 移除 public 时区参数等签名变化，需同步更新
-  `marivo-skills/marivo-*/references/examples/` 下示例。
+  `marivo/skills/marivo-*/references/examples/` 下示例。

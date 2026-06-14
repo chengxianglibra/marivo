@@ -28,8 +28,8 @@ typecheck:
 
 examples-check:
 	@for examples_dir in \
-		marivo-skills/marivo-semantic/references/examples \
-		marivo-skills/marivo-analysis/references/examples; do \
+		marivo/skills/marivo-semantic/references/examples \
+		marivo/skills/marivo-analysis/references/examples; do \
 		EXAMPLE_TYPECHECK_FILES=$$(mktemp); \
 		find "$$examples_dir" -type f \( -name '*.py' -o -name '*.pyi' \) -print0 > "$$EXAMPLE_TYPECHECK_FILES"; \
 		if [ -s "$$EXAMPLE_TYPECHECK_FILES" ]; then \

@@ -15,7 +15,7 @@ The maintained documentation describes the Python-native Marivo library only.
 
 Executable agent examples live under:
 
-- `../marivo-skills/marivo-semantic`
-- `../marivo-skills/marivo-analysis`
+- `../marivo/skills/marivo-semantic`
+- `../marivo/skills/marivo-analysis`
 
 Run `make examples-check` after public symbol, signature, exception, or example changes.

@@ -794,7 +794,7 @@ Questions with `readiness_effect="blocks"` must be resolved before authoring;
 
 ## Skill Contract
 
-`marivo-skills/marivo-semantic/` is restructured around the ladder:
+`marivo/skills/marivo-semantic/` is restructured around the ladder:
 
 - **SKILL.md** stays short and routing-focused. Non-negotiables shrink to:
   ladder order; prepare-before-author; one object per write;
@@ -888,7 +888,7 @@ authoring surface, and the decision ledger.
 The switch from the superseded pipeline counts as complete only when all of
 the following hold in the same change set or an explicitly sequenced series:
 
-1. No file under `marivo-skills/marivo-semantic/` references a removed symbol
+1. No file under `marivo/skills/marivo-semantic/` references a removed symbol
    (`assess_authoring`, `AuthoringSourceInput`, `inspect_authored_object`,
    `bind_datasource_access`, project-level `inspect_table` /
    `inspect_columns`, `backend_factory=`).

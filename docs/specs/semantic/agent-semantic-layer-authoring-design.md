@@ -942,7 +942,7 @@ Evidence used:
 
 ## Skill Updates
 
-`marivo-skills/marivo-semantic/SKILL.md` should stay short and route the agent
+`marivo/skills/marivo-semantic/SKILL.md` should stay short and route the agent
 through the authoring loop. Detailed procedures should move to references:
 
 - `references/workflow.md`
