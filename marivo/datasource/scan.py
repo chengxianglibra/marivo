@@ -24,7 +24,7 @@ class ScanScope:
     """Agent-safe scan configuration with bounded defaults.
 
     Defaults are chosen to keep automated scans safe and fast: at most
-    1000 rows, 50 columns, and a 30-second timeout.
+    1000 rows, 100 columns, and a 30-second timeout.
 
     Attributes:
         partition: Partition filter; ``"latest"`` (default), an explicit
@@ -36,7 +36,7 @@ class ScanScope:
 
     partition: ScanPartition = "latest"
     max_rows: int = 1000
-    max_columns: int = 50
+    max_columns: int = 100
     timeout_seconds: int | None = 30
 
     def __post_init__(self) -> None:

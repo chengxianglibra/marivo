@@ -560,6 +560,19 @@ def inspect_columns(
     requested = columns if columns is not None else all_column_names
     selected_columns = requested[: scope.max_columns]
 
+    warnings: builtins.list[str] = []
+
+    # Warn when columns are truncated by max_columns.
+    if len(requested) > scope.max_columns:
+        truncated_count = len(requested) - len(selected_columns)
+        truncated_names = requested[scope.max_columns :]
+        warnings.append(
+            f"column list truncated by max_columns={scope.max_columns}: "
+            f"{truncated_count} columns not profiled "
+            f"(first omitted: {', '.join(str(c) for c in truncated_names[:3])}); "
+            f"pass scope=ScanScope(max_columns={len(requested)}) to profile all columns"
+        )
+
     # Build column spec lookup from metadata.
     column_specs: dict[str, tuple[str, bool | None, str | None]] = {
         column.name: (column.type, column.nullable, column.comment) for column in metadata.columns
@@ -589,7 +602,6 @@ def inspect_columns(
 
     rows_scanned = len(frame)
     truncated = rows_scanned >= scope.max_rows
-    warnings: builtins.list[str] = []
 
     # Profile each column.
     profiles: builtins.list[ColumnProfile] = []
