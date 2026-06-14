@@ -197,7 +197,7 @@ def test_readiness_reports_authoring_abandoned_candidates(
     project = semantic_project_factory(
         {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
     )
-    ledger = LedgerStore(project.semantic_root)
+    ledger = LedgerStore(project.state_root)
     decided_at = datetime.now(UTC).isoformat()
     ledger.record_decision(
         "sales.missing_metric",
@@ -356,7 +356,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
     # the underlying readiness check for "no decision" state.
     from marivo.semantic.ledger import LedgerStore
 
-    LedgerStore(project.root)._object_path("sales.revenue").unlink(missing_ok=True)
+    LedgerStore(project.state_root)._object_path("sales.revenue").unlink(missing_ok=True)
 
     issues = _evidence_ledger_blockers(project)
     refs = {ref for issue in issues for ref in issue.refs}
@@ -381,7 +381,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
         }
     )
     # Write DecisionRecord directly to LedgerStore (same pattern as auto_record)
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.state_root)
     store.write_object(
         lg.ObjectEvidence(
             semantic_id="sales.revenue",
@@ -442,7 +442,7 @@ def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_proje
         question_id="q-metric-decomposition",
         decided_at="2026-06-01T00:00:00+00:00",
     )
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.state_root)
     store.write_object(
         lg.ObjectEvidence(
             semantic_id="sales.revenue",
@@ -482,7 +482,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
         question_id="q-metric-decomposition",
         decided_at="2026-06-01T00:00:00+00:00",
     )
-    store = lg.LedgerStore(project.root)
+    store = lg.LedgerStore(project.state_root)
     store.write_object(
         lg.ObjectEvidence(
             semantic_id="sales.revenue",

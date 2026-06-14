@@ -37,7 +37,7 @@ def test_record_decision_appends_to_object_ledger(semantic_project_factory):
         question_id=None,
         decided_at="2026-05-31T10:00:00+00:00",
     )
-    store = lg.LedgerStore(project.semantic_root)
+    store = lg.LedgerStore(project.state_root)
     store.write_object(
         lg.ObjectEvidence(
             semantic_id="sales.revenue",
@@ -76,7 +76,7 @@ def test_record_decision_accumulates(semantic_project_factory):
         question_id=None,
         decided_at="t2",
     )
-    store = lg.LedgerStore(project.semantic_root)
+    store = lg.LedgerStore(project.state_root)
     store.write_object(
         lg.ObjectEvidence(
             semantic_id="sales.revenue",
@@ -103,7 +103,7 @@ def test_decision_upsert_replaces_same_question_id(semantic_project_factory):
         question_id="q-metric-decomposition",
         decided_at="2026-06-01T00:00:00+00:00",
     )
-    store = lg.LedgerStore(project.semantic_root)
+    store = lg.LedgerStore(project.state_root)
     store.write_object(
         lg.ObjectEvidence(
             semantic_id="sales.revenue",
