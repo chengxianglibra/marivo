@@ -13,6 +13,8 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal
 
+import ibis
+
 from marivo.datasource.ir import FileSourceIR, TableSourceIR, source_to_dict
 from marivo.datasource.scan import (
     ColumnInspection,
@@ -49,6 +51,42 @@ from marivo.semantic.reader import SemanticProject, _require_registry
 
 # Module-level default for ScanScope to avoid B008 function-call-in-default-argument
 _DEFAULT_SCOPE = ScanScope()
+
+# ---------------------------------------------------------------------------
+# ibis Table attribute shadowing detection
+# ---------------------------------------------------------------------------
+
+# ibis Table public method/property names that shadow column dot-access.
+# Built once at import from the installed ibis version so the list stays
+# accurate across ibis upgrades.
+_IBIS_TABLE_ATTR_NAMES: frozenset[str] = frozenset(
+    name
+    for name in dir(ibis.Table)
+    if not name.startswith("_")
+    if callable(getattr(ibis.Table, name, None))
+    or isinstance(getattr(ibis.Table, name, None), property)
+)
+
+
+def _ibis_shadowing_issue(
+    entity: str,
+    column: str,
+) -> AssessmentIssue | None:
+    """Return an advisory issue if *column* shadows an ibis Table attribute."""
+    if column not in _IBIS_TABLE_ATTR_NAMES:
+        return None
+    return AssessmentIssue(
+        kind="ibis_attribute_shadowing",
+        severity="warning",
+        refs=(f"{entity}.{column}",),
+        message=(
+            f"Column {column!r} shadows an ibis Table attribute. "
+            f'Use bracket notation: table["{column}"] instead of table.{column} '
+            f"in decorator bodies."
+        ),
+        rule_id="ibis_attribute_shadowing",
+    )
+
 
 # ---------------------------------------------------------------------------
 # Common date formats used by _looks_temporal and _detect_time_formats
@@ -265,10 +303,13 @@ def prepare_dimensions(
     for column in columns:
         profile = profile_by_name.get(column)
         is_missing = profile is None or profile.data_type == "UNKNOWN"
-        issues = _missing_column_issue(entity, column) if is_missing else ()
+        issues = list(_missing_column_issue(entity, column) if is_missing else ())
+        shadow_issue = _ibis_shadowing_issue(entity, column)
+        if shadow_issue is not None:
+            issues.append(shadow_issue)
         briefs.append(
             DimensionBrief(
-                status=derive_brief_status(issues=issues, questions=()),
+                status=derive_brief_status(issues=tuple(issues), questions=()),
                 entity=entity,
                 column=column,
                 profile=profile or _unknown_profile(column),
@@ -277,7 +318,7 @@ def prepare_dimensions(
                 else "free_text",
                 matches=_dimension_matches(project, entity=entity, column=column),
                 questions=(),
-                issues=issues,
+                issues=tuple(issues),
                 scan=inspection.scan,
             )
         )
@@ -318,10 +359,13 @@ def prepare_time_dimension(
     profile = inspection.profiles[0] if inspection.profiles else _unknown_profile(column)
     detected = _detect_time_formats(profile) if profile.column == column else ()
     existing_time_dims = _existing_time_dimensions(project, entity)
-    issues: tuple[AssessmentIssue, ...] = ()
+    issues: list[AssessmentIssue] = []
     questions: tuple[AuthoringQuestion, ...] = ()
+    shadow_issue = _ibis_shadowing_issue(entity, column)
+    if shadow_issue is not None:
+        issues.append(shadow_issue)
     return TimeDimensionBrief(
-        status=derive_brief_status(issues=issues, questions=questions),
+        status=derive_brief_status(issues=tuple(issues), questions=questions),
         entity=entity,
         column=column,
         profile=profile,
@@ -332,7 +376,7 @@ def prepare_time_dimension(
         cadence_estimate=None,
         existing_time_dimensions=existing_time_dims,
         questions=questions,
-        issues=issues,
+        issues=tuple(issues),
         scan=inspection.scan,
     )
 
@@ -392,17 +436,21 @@ def prepare_metric(
         )
         for dim in filter_dimensions
     )
-    issues: tuple[AssessmentIssue, ...] = ()
+    issues: list[AssessmentIssue] = []
+    for measure_col in measure_columns:
+        shadow_issue = _ibis_shadowing_issue(entity, measure_col)
+        if shadow_issue is not None:
+            issues.append(shadow_issue)
     questions: tuple[AuthoringQuestion, ...] = ()
     return MetricBrief(
-        status=derive_brief_status(issues=issues, questions=questions),
+        status=derive_brief_status(issues=tuple(issues), questions=questions),
         entity=entity,
         measure_profiles=measure_profiles,
         filter_dimension_values=filter_values,
         time_dimensions=time_dimensions,
         matches=(),
         questions=questions,
-        issues=issues,
+        issues=tuple(issues),
         scan=scan,
     )
 

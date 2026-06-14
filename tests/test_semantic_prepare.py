@@ -159,6 +159,152 @@ def test_prepare_dimensions_blocks_unknown_column(tmp_path: Path, semantic_proje
     assert brief.issues[0].kind == "missing_column"
 
 
+def test_prepare_dimensions_warns_on_shadowing_column(
+    tmp_path: Path, semantic_project_factory
+) -> None:
+    import ibis
+
+    import marivo.datasource as md
+
+    db_path = tmp_path / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.create_table(
+        "orders",
+        {"order_id": [1, 2], "schema": ["web", "mobile"], "region": ["US", "EU"]},
+    )
+    con.disconnect()
+
+    md.register(
+        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        project_root=tmp_path,
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales')\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+            )
+        },
+        workspace_dir=tmp_path,
+    )
+    project.load()
+    project.verify_object("sales.orders")
+
+    briefs = project.prepare_dimensions(
+        entity="sales.orders",
+        columns=("schema", "region"),
+        scope=md.ScanScope(partition=None),
+    )
+
+    # schema column should have a shadowing warning
+    schema_brief = briefs[0]
+    assert schema_brief.column == "schema"
+    assert schema_brief.status == "sufficient"  # warning does not block
+    shadow_issues = [i for i in schema_brief.issues if i.kind == "ibis_attribute_shadowing"]
+    assert len(shadow_issues) == 1
+    assert shadow_issues[0].severity == "warning"
+    assert 'table["schema"]' in shadow_issues[0].message
+
+    # region column should have no shadowing warning
+    region_brief = briefs[1]
+    assert region_brief.column == "region"
+    assert region_brief.status == "sufficient"
+    shadow_issues = [i for i in region_brief.issues if i.kind == "ibis_attribute_shadowing"]
+    assert len(shadow_issues) == 0
+
+
+def test_prepare_time_dimension_warns_on_shadowing_column(
+    tmp_path: Path, semantic_project_factory
+) -> None:
+    import ibis
+
+    import marivo.datasource as md
+
+    db_path = tmp_path / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.create_table(
+        "events",
+        {"event_id": [1, 2], "count": [10, 20]},
+    )
+    con.disconnect()
+
+    md.register(
+        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        project_root=tmp_path,
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales')\n"
+                "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
+            )
+        },
+        workspace_dir=tmp_path,
+    )
+    project.load()
+    project.verify_object("sales.events")
+
+    brief = project.prepare_time_dimension(
+        entity="sales.events",
+        column="count",
+        scope=md.ScanScope(partition=None),
+    )
+
+    assert brief.column == "count"
+    assert brief.status == "sufficient"  # warning does not block
+    shadow_issues = [i for i in brief.issues if i.kind == "ibis_attribute_shadowing"]
+    assert len(shadow_issues) == 1
+    assert shadow_issues[0].severity == "warning"
+    assert 'table["count"]' in shadow_issues[0].message
+
+
+def test_prepare_metric_warns_on_shadowing_measure_column(
+    tmp_path: Path, semantic_project_factory
+) -> None:
+    import ibis
+
+    import marivo.datasource as md
+
+    db_path = tmp_path / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.create_table(
+        "orders",
+        {"order_id": [1, 2], "amount": [100.0, 200.0], "info": ["a", "b"]},
+    )
+    con.disconnect()
+
+    md.register(
+        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        project_root=tmp_path,
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales')\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+            )
+        },
+        workspace_dir=tmp_path,
+    )
+    project.load()
+    project.verify_object("sales.orders")
+
+    brief = project.prepare_metric(
+        entity="sales.orders",
+        measure_columns=("info", "amount"),
+        scope=md.ScanScope(partition=None),
+    )
+
+    assert brief.status == "sufficient"  # warning does not block
+    shadow_issues = [i for i in brief.issues if i.kind == "ibis_attribute_shadowing"]
+    assert len(shadow_issues) == 1
+    assert shadow_issues[0].severity == "warning"
+    assert 'table["info"]' in shadow_issues[0].message
+
+
 # ---------------------------------------------------------------------------
 # Relationship and cross-entity prepare APIs (Task 8)
 # ---------------------------------------------------------------------------
