@@ -250,7 +250,7 @@ come from runtime help; do not invent `ms.count()` or `ms.mean()`.
     additivity="additive",
     decomposition=ms.sum(),
     name="orders_count",
-verification_mode="python_native",)
+)
 def orders_count(table):
     return table.order_id.count()
 ```
@@ -263,7 +263,7 @@ Mean/average metrics are body-free derived metrics, not `ms.mean()`:
     additivity="additive",
     decomposition=ms.sum(),
     name="gross_revenue",
-verification_mode="python_native",)
+)
 def gross_revenue(table):
     return table.amount.sum()
 
@@ -372,7 +372,6 @@ def sample_ts(bw_samples):
     status_time_dimension=sample_ts,
     decomposition=ms.sum(),
     unit="kbit/s",
-    verification_mode="python_native",
 )
 def upstream_bw(bw_samples):
     return bw_samples.upstream_kbps.sum()
@@ -424,7 +423,6 @@ def snapshot_date(inventory_daily):
     additivity="semi_additive",
     status_time_dimension=snapshot_date,
     decomposition=ms.sum(),
-    verification_mode="python_native",
 )
 def on_hand_units(inventory_daily):
     return inventory_daily.on_hand_units.sum()
