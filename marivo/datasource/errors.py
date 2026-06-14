@@ -106,7 +106,7 @@ class DatasourceFieldInvalidError(DatasourceError):
         field_ref = field_name if isinstance(field_name, str) and field_name else "<field>"
         reason_ref = reason if isinstance(reason, str) and reason else "invalid value"
         return {
-            "location": f".marivo/datasource entry {ds_ref!r} field {field_ref!r}",
+            "location": f"marivo/datasources/ entry {ds_ref!r} field {field_ref!r}",
             "cause": reason_ref,
             "doc": "marivo-skills/marivo-semantic/references/datasource.md",
         }
@@ -116,7 +116,7 @@ class DatasourceLoadError(DatasourceError):
     def _template_fields(self) -> dict[str, str]:
         path = self.details.get("path")
         reason = self.details.get("reason")
-        path_ref = path if isinstance(path, str) and path else ".marivo/datasource"
+        path_ref = path if isinstance(path, str) and path else "marivo/datasources/"
         reason_ref = reason if isinstance(reason, str) and reason else "invalid datasource file"
         return {
             "location": path_ref,
@@ -130,7 +130,7 @@ class DatasourceDuplicateError(DatasourceError):
         datasource = self.details.get("datasource")
         ds_ref = datasource if isinstance(datasource, str) and datasource else "<datasource>"
         return {
-            "location": f".marivo/datasource entry {ds_ref!r}",
+            "location": f"marivo/datasources/ entry {ds_ref!r}",
             "cause": "duplicate datasource name",
             "doc": "marivo-skills/marivo-semantic/references/datasource.md",
         }
@@ -153,7 +153,7 @@ class DatasourceMissingError(DatasourceError):
             else "datasource not found; no datasources are configured yet."
         )
         return {
-            "location": ".marivo/datasource",
+            "location": "marivo/datasources/",
             "cause": f"datasource {ds_ref!r} is not configured; {available_line}",
             "fix_snippet": (
                 "import marivo.datasource as md\n"
@@ -192,7 +192,7 @@ class DatasourceEnvVarMissingError(DatasourceError):
         var_ref = env_var if isinstance(env_var, str) and env_var else "UNKNOWN_SECRET_ENV"
         field_ref = field_name if isinstance(field_name, str) and field_name else "secret_field"
         return {
-            "location": f".marivo/datasource entry {ds_ref!r} field {field_ref!r}",
+            "location": f"marivo/datasources/ entry {ds_ref!r} field {field_ref!r}",
             "cause": (
                 f"datasource field {field_ref!r} resolves to env var {var_ref!r}, "
                 "but that variable is not set in os.environ and is not present in "
@@ -233,7 +233,7 @@ class DatasourceSchemaVersionError(DatasourceError):
         path = self.details.get("path")
         got_ref = str(got) if got is not None else "<missing>"
         expected_ref = str(expected) if expected is not None else "<expected>"
-        path_ref = path if isinstance(path, str) and path else ".marivo/datasource"
+        path_ref = path if isinstance(path, str) and path else "marivo/datasources/"
         return {
             "location": path_ref,
             "cause": (

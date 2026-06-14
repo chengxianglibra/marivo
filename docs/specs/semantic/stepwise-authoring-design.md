@@ -75,7 +75,7 @@ closeout) has four structural gaps for agent-driven modeling:
 Carried forward unchanged from the superseded pipeline design. Marivo
 persists only durable project artifacts:
 
-- authored semantic Python files under `.marivo/semantic/<domain>/_domain.py`;
+- authored semantic Python files under `marivo/semantic/<domain>/_domain.py`;
 - explicit decision-ledger records (user confirmations, dangerous choices,
   abandoned candidates);
 - datasource definitions and project configuration.
@@ -174,7 +174,7 @@ accepts a backend factory, backend instance, or `inspect_source` callable.
 
 All backend connection construction and lifecycle management live inside
 `marivo.datasource`, behind an internal connection service that resolves
-specs from `.marivo/datasource`. Connections are an implementation detail,
+specs from `marivo/datasources/`. Connections are an implementation detail,
 not a public-API currency:
 
 - **No public parameter.** `backend_factory=`, `inspect_source=`, and backend

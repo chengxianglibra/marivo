@@ -50,7 +50,7 @@ discover project
   -> hand off stable refs to analysis
 ```
 
-The source of truth remains Python files under `.marivo/semantic/<model>/`.
+The source of truth remains Python files under `marivo/semantic/<model>/`.
 Preview rows, knowledge-base snippets, and agent reasoning are evidence used to
 author and validate the semantic layer; they are not a second semantic DSL.
 
@@ -172,7 +172,7 @@ backend = md.connect("warehouse")
 Target APIs for richer inspection are described later in this document.
 
 Use `md.DatasourceSpec(...)` plus `md.datasource(spec)` in
-`.marivo/datasource/<name>.py` when authoring datasource files directly. Use
+`marivo/datasources/<name>.py` when authoring datasource files directly. Use
 `md.register(md.DatasourceSpec(...))` when a script or agent wants
 Marivo to create or replace the datasource file through the public registry API.
 Semantic model files should reference project datasources with `md.ref(...)`;
@@ -234,8 +234,9 @@ evidence to author the semantic layer.
 Python files remain the source of truth:
 
 ```text
-.marivo/
-  datasource/
+marivo.toml
+marivo/
+  datasources/
     warehouse.py
   semantic/
     sales/

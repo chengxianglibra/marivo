@@ -149,7 +149,7 @@ def remove(name: str) -> bool:
         True
 
     Constraints:
-        Only the project-local ``.marivo/datasource/<name>.py`` file is removed.
+        Only the project-local ``marivo/datasources/<name>.py`` file is removed.
     """
     return _store.delete_one(name)
 
