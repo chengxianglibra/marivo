@@ -20,7 +20,7 @@ def _chdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_datasource_dir_uses_project_marivo(tmp_path: Path) -> None:
-    assert datasource_store.datasource_dir(tmp_path) == tmp_path / ".marivo" / "datasource"
+    assert datasource_store.datasource_dir(tmp_path) == tmp_path / "marivo" / "datasources"
 
 
 def test_load_all_empty_when_no_file() -> None:
@@ -132,7 +132,7 @@ def test_save_rejects_path_unsafe_name(name: str) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_store.save_one(_spec(name, backend_type="duckdb", path=":memory:"))
     assert exc_info.value.details["field"] == "<name>"
-    assert not (Path.cwd() / ".marivo" / "datasource" / "foo").exists()
+    assert not (Path.cwd() / "marivo" / "datasources" / "foo").exists()
 
 
 def test_delete_one_returns_true_when_removed() -> None:

@@ -14,7 +14,7 @@ from marivo.project import resolve_project_root
 
 def datasource_dir(project_root: Path | None = None) -> Path:
     root = project_root or resolve_project_root()
-    return root / ".marivo" / "datasource"
+    return root / "marivo" / "datasources"
 
 
 def datasource_path(name: str, project_root: Path | None = None) -> Path:

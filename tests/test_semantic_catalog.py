@@ -147,7 +147,7 @@ def _make_ctx() -> AiContextView:
 
 
 def _make_loc() -> SourceLocation:
-    return SourceLocation(file=".marivo/semantic/sales/_domain.py", line=5)
+    return SourceLocation(file="marivo/semantic/sales/_domain.py", line=5)
 
 
 # --- Kind-specific details ---
@@ -991,7 +991,7 @@ def test_ms_load_defaults_to_cwd(tmp_path, monkeypatch):
 
 
 def test_ms_load_failure_raises_semantic_load_error(tmp_path):
-    semantic = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic = tmp_path / "marivo" / "semantic" / "sales"
     semantic.mkdir(parents=True)
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='wrong_name')\n"
@@ -1103,7 +1103,7 @@ def test_catalog_load_preserves_filtered_model_scope(semantic_project_factory):
 
 
 def test_catalog_access_after_failed_load_raises_semantic_load_failed(tmp_path):
-    semantic = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic = tmp_path / "marivo" / "semantic" / "sales"
     semantic.mkdir(parents=True)
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='wrong_name')\n"
@@ -1207,8 +1207,8 @@ def test_catalog_preview_context_columns_rejected_for_metric(semantic_project_fa
 
 
 def _write_minimal_project(tmp_path) -> None:
-    semantic = tmp_path / ".marivo" / "semantic" / "sales"
-    ds = tmp_path / ".marivo" / "datasource"
+    semantic = tmp_path / "marivo" / "semantic" / "sales"
+    ds = tmp_path / "marivo" / "datasources"
     semantic.mkdir(parents=True)
     ds.mkdir(parents=True)
     (ds / "warehouse.py").write_text(
@@ -1291,7 +1291,7 @@ def test_catalog_metric_details_unit_passthrough(semantic_project_factory):
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _UNIT_DATASETS_PY,
-            "datasource/warehouse.py": _WAREHOUSE_PY,
+            "datasources/warehouse.py": _WAREHOUSE_PY,
         }
     )
     catalog = SemanticCatalog(project)

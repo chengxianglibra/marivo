@@ -174,13 +174,13 @@ def _read_object_evidence(path: Path) -> ObjectEvidence:
 
 
 class LedgerStore:
-    """Canonical-JSON file IO under <semantic_root>/<model>/_evidence/."""
+    """Canonical-JSON file IO under <state_root>/evidence/<model>/."""
 
-    def __init__(self, semantic_root: str | Path) -> None:
-        self._root = Path(semantic_root)
+    def __init__(self, state_root: str | Path) -> None:
+        self._root = Path(state_root)
 
     def _evidence_dir(self, model: str) -> Path:
-        return self._root / model / "_evidence"
+        return self._root / "evidence" / model
 
     def _object_path(self, semantic_id: str) -> Path:
         return self._evidence_dir(_model_of(semantic_id)) / "objects" / f"{semantic_id}.json"
@@ -198,7 +198,7 @@ class LedgerStore:
 
     def iter_object_records(self) -> tuple[ObjectEvidence, ...]:
         records: list[ObjectEvidence] = []
-        for objects_dir in sorted(self._root.glob("*/_evidence/objects")):
+        for objects_dir in sorted(self._root.glob("evidence/*/objects")):
             for path in sorted(objects_dir.glob("*.json")):
                 records.append(_read_object_evidence(path))
         return tuple(records)
@@ -252,7 +252,7 @@ class LedgerStore:
         return tuple(RejectedCandidate.from_dict(item) for item in raw)
 
     def _rejected_candidates_path(self) -> Path:
-        return self._root / ".evidence" / "rejected_candidates.json"
+        return self._root / "evidence" / "rejected_candidates.json"
 
 
 def is_decision_stale(record: DecisionRecord, metadata: TableMetadata) -> bool:

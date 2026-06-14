@@ -96,8 +96,8 @@ def revenue(table):
 
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
-    semantic_dir = root / ".marivo" / "semantic" / "sales"
-    datasource_dir = root / ".marivo" / "datasource"
+    semantic_dir = root / "marivo" / "semantic" / "sales"
+    datasource_dir = root / "marivo" / "datasources"
     semantic_dir.mkdir(parents=True)
     datasource_dir.mkdir(parents=True)
     (datasource_dir / "warehouse.py").write_text(

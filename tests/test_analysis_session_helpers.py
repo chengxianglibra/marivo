@@ -56,7 +56,7 @@ def test_current_returns_none_when_no_process_or_store_current(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     assert mv.session.current() is None
 
 
@@ -69,7 +69,7 @@ def test_get_or_create_creates_and_marks_current(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     s = mv.session.get_or_create(name="s", use_datasources=False)
     assert s.name == "s"
     current = mv.session.current()
@@ -81,7 +81,7 @@ def test_get_or_create_resumes_same_id_and_marks_current(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     s1 = mv.session.get_or_create(name="s", use_datasources=False)
     s2 = mv.session.get_or_create(name="s", use_datasources=False)
     assert s1.id == s2.id
@@ -93,7 +93,7 @@ def test_question_only_written_on_first_create(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     s1 = mv.session.get_or_create(name="s", question="why?", use_datasources=False)
     assert s1.question == "why?"
     s2 = mv.session.get_or_create(name="s", question="different?", use_datasources=False)
@@ -105,7 +105,7 @@ def test_default_calendar_restored_on_resume(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     s1 = mv.session.get_or_create(name="s", default_calendar="fiscal", use_datasources=False)
     assert s1.default_calendar == "fiscal"
     # Resume without explicit default_calendar -> should keep persisted value
@@ -117,7 +117,7 @@ def test_default_calendar_updated_when_explicitly_passed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     mv.session.get_or_create(name="s", default_calendar="fiscal", use_datasources=False)
     s = mv.session.get_or_create(name="s", default_calendar="standard", use_datasources=False)
     assert s.default_calendar == "standard"
@@ -127,7 +127,7 @@ def test_backends_and_backend_factory_both_raises_session_state_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     with pytest.raises(mv.errors.SessionStateError):
         mv.session.get_or_create(
             name="s",
@@ -146,7 +146,7 @@ def test_list_returns_count_fields_and_no_state_field(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     mv.session.get_or_create(name="s1", use_datasources=False)
     mv.session.get_or_create(name="s2", use_datasources=False)
     summaries = mv.session.list()
@@ -167,7 +167,7 @@ def test_list_returns_count_fields_and_no_state_field(
 
 def test_delete_missing_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     # Should not raise
     mv.session.delete("nonexistent")
 
@@ -176,7 +176,7 @@ def test_delete_clears_current_and_allows_new_get_or_create(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     s1 = mv.session.get_or_create(name="s", use_datasources=False)
     old_id = s1.id
     mv.session.delete("s")
@@ -200,7 +200,7 @@ def test_delete_interrupted_after_store_cleared(
     from marivo.analysis.session._store import SessionStore
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".marivo").mkdir()
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     s1 = mv.session.get_or_create(name="s", use_datasources=False)
     old_id = s1.id
 

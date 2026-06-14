@@ -17,14 +17,14 @@ the Marivo package source. Do not rely on repo fixtures, `make`, or a fixed
 `.venv` name. Identify the project Python environment first, then use its
 explicit Python path such as `<venv>/bin/python`.
 
-The current project should contain `.marivo/semantic/`. If it does not, create
+The current project should contain `marivo/semantic/`. If it does not, create
 the project structure before authoring semantic objects.
 
 ## Ladder Rules
 
 - Follow the ladder: domain -> entity -> dimension -> time_dimension -> metric -> relationship -> cross-entity metric -> derived metric.
 - Before writing each object, call the matching `project.prepare_*` API and branch on the returned Brief status.
-- Write exactly one semantic object per cycle in `.marivo/semantic/<domain>/_domain.py`.
+- Write exactly one semantic object per cycle in `marivo/semantic/<domain>/_domain.py`.
 - After writing one object, call `project.verify_object(ref)` and do not advance while it fails.
 - Use `md.ScanScope()` by default. Passing `partition=None` is allowed only when the answer explicitly accepts an unpruned scan.
 - Ask users only for blocking `AuthoringQuestion`s that cannot be answered from documented project knowledge.

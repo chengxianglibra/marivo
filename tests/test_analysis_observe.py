@@ -44,9 +44,9 @@ def _seed(con):
 
 
 def _bootstrap_sales_with_country_dimension(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -99,13 +99,13 @@ def _backends(con):
 
 
 def _bootstrap_sales_with_two_time_fields(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -131,13 +131,13 @@ def _bootstrap_sales_with_two_time_fields(tmp_path):
 
 
 def _bootstrap_sales_with_default_time_field(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -174,13 +174,13 @@ def _seed_two_time_fields(con):
 
 
 def _bootstrap_sales_with_string_partition_time_field(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -214,13 +214,13 @@ def _seed_string_partition_orders(con):
 
 
 def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -243,13 +243,13 @@ def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
 
 
 def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -632,9 +632,9 @@ def test_observe_legacy_dimension_ref_where_must_be_declared(tmp_path):
 
 
 def _bootstrap_sales_with_out_of_scope_amount_dimension(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -803,9 +803,9 @@ def test_observe_frame_survives_reattach(tmp_path):
 
 
 def _bootstrap_failure_rate(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -943,13 +943,13 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
 
 
 def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -1015,13 +1015,13 @@ def test_observe_strptime_day_format_time_series(tmp_path):
 
 
 def _bootstrap_sales_with_string_timestamp_timezone(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -1080,13 +1080,13 @@ def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypa
 
 
 def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

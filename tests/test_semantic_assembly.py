@@ -786,10 +786,11 @@ def semantic_project_factory(tmp_path):
     """Factory that creates a SemanticProject from a dict of files."""
 
     def _make(files: dict[str, str], load: bool = True) -> SemanticProject:
-        marivo_root = tmp_path / ".marivo"
+        (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+        marivo_root = tmp_path / "marivo"
         root = marivo_root / "semantic"
         root.mkdir(parents=True, exist_ok=True)
-        datasource_root = marivo_root / "datasource"
+        datasource_root = marivo_root / "datasources"
         datasource_root.mkdir(parents=True, exist_ok=True)
         (datasource_root / "wh.py").write_text(
             "import marivo.datasource as md\n"

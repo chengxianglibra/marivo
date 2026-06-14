@@ -70,7 +70,7 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             kind=ErrorKind.DUPLICATE_NAME,
             message=error.message,
             refs=refs,
-            hint="Keep each datasource name unique under .marivo/datasource.",
+            hint="Keep each datasource name unique under marivo/datasources/.",
         )
     if isinstance(error, DatasourceLoadError):
         path = error.details.get("path")
@@ -79,7 +79,7 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             kind=ErrorKind.INVALID_PROJECT,
             message=error.message,
             refs=refs,
-            hint=error.hint or "Check .marivo/datasource/*.py datasource declarations.",
+            hint=error.hint or "Check marivo/datasources/*.py datasource declarations.",
         )
     if isinstance(error, DatasourceConfigError):
         datasource = error.details.get("datasource")
@@ -88,12 +88,12 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             kind=ErrorKind.ORGANIZATION_ERROR,
             message=error.message,
             refs=refs,
-            hint=error.hint or "Check .marivo/datasource/*.py datasource declarations.",
+            hint=error.hint or "Check marivo/datasources/*.py datasource declarations.",
         )
     return SemanticLoadError(
         kind=ErrorKind.ORGANIZATION_ERROR,
         message=str(error),
-        hint="Check .marivo/datasource/*.py datasource declarations.",
+        hint="Check marivo/datasources/*.py datasource declarations.",
     )
 
 
@@ -419,7 +419,7 @@ def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResu
     sys.path.insert(0, path_entry)
     try:
         _ensure_package(module_prefix, root)
-        datasource_result = load_datasources(root.parent / "datasource")
+        datasource_result = load_datasources(root.parent / "datasources")
         for error in datasource_result.errors:
             errors.append(_wrap_datasource_error(error))
         model_dirs = _discover_model_dirs(root)
@@ -485,25 +485,26 @@ def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResu
 def find_project(start_dir: str | Path = ".") -> Any:
     """Discover a semantic project by walking up from *start_dir*.
 
-    Looks for a ``.marivo/`` directory.  Returns a
+    Looks for a ``marivo.toml`` file.  Returns a
     ``SemanticProject`` on success, or ``None`` if no project is found.
 
-    If ``.marivo`` exists but is a non-directory file,
+    If ``marivo.toml`` exists but is a non-file entry,
     raises ``SemanticLoadError`` with ``INVALID_PROJECT``.
     """
+    from marivo.config import PROJECT_MANIFEST
     from marivo.semantic.reader import SemanticProject
 
     current = Path(start_dir).resolve()
 
     while True:
-        marivo_dir = current / ".marivo"
-        if marivo_dir.exists():
-            if not marivo_dir.is_dir():
+        manifest = current / PROJECT_MANIFEST
+        if manifest.exists():
+            if not manifest.is_file():
                 _raise(
                     ErrorKind.INVALID_PROJECT,
-                    f"{marivo_dir} exists but is not a directory.",
+                    f"{manifest} exists but is not a file.",
                     cls=SemanticLoadError,
-                    refs=(str(marivo_dir),),
+                    refs=(str(manifest),),
                 )
             return SemanticProject(workspace_dir=current)
 

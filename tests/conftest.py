@@ -37,11 +37,13 @@ def semantic_project_factory(tmp_path):
         from marivo.semantic.reader import SemanticProject
 
         effective_dir = workspace_dir if workspace_dir is not None else tmp_path
-        marivo_root = effective_dir / ".marivo"
+        # Write project manifest for discovery
+        (effective_dir / "marivo.toml").write_text('[project]\nname = "test"\n')
+        marivo_root = effective_dir / "marivo"
         root = marivo_root / "semantic"
         root.mkdir(parents=True, exist_ok=True)
         for rel, src in files.items():
-            full = marivo_root / rel if rel.startswith("datasource/") else root / rel
+            full = marivo_root / rel if rel.startswith("datasources/") else root / rel
             full.parent.mkdir(parents=True, exist_ok=True)
             full.write_text(src)
 
@@ -52,7 +54,7 @@ def semantic_project_factory(tmp_path):
             if "." not in match.group("name")
         }
         for datasource_name in declared_datasources:
-            datasource_file = marivo_root / "datasource" / f"{datasource_name}.py"
+            datasource_file = marivo_root / "datasources" / f"{datasource_name}.py"
             if datasource_file.exists():
                 continue
             datasource_file.parent.mkdir(parents=True, exist_ok=True)
@@ -73,9 +75,11 @@ def semantic_project_factory(tmp_path):
 
 def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
     """Create a ready semantic project on disk for analysis tests."""
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    # Write project manifest for discovery
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

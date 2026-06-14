@@ -159,7 +159,7 @@ _SALES_PROJECT_V = "v1"
 
 
 def sales_project_template(*, with_time: bool = True) -> Path:
-    """Cached directory tree with .marivo/semantic/sales/ project files.
+    """Cached directory tree with marivo/semantic/sales/ project files.
 
     Bump _SALES_PROJECT_V when the project files change.
     """
@@ -168,9 +168,10 @@ def sales_project_template(*, with_time: bool = True) -> Path:
     if cache.exists():
         return cache
 
-    semantic_dir = cache / ".marivo" / "semantic" / "sales"
+    (cache / "marivo.toml").write_text('[project]\nname = "test"\n')
+    semantic_dir = cache / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = cache / ".marivo" / "datasource"
+    datasource_dir = cache / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -209,12 +210,13 @@ def sales_project_template(*, with_time: bool = True) -> Path:
 
 
 def bootstrap_sales_project_from_template(tmp_path: Path, *, with_time: bool = True) -> None:
-    """Copy the cached sales project template into tmp_path/.marivo/.
+    """Copy the cached sales project template into tmp_path/.
 
     Faster than writing files individually per test.
     """
     src = sales_project_template(with_time=with_time)
-    shutil.copytree(src / ".marivo", tmp_path / ".marivo")
+    shutil.copytree(src / "marivo", tmp_path / "marivo")
+    shutil.copy2(src / "marivo.toml", tmp_path / "marivo.toml")
 
 
 # ---------------------------------------------------------------------------

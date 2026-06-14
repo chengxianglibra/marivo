@@ -66,7 +66,7 @@ def test_prepare_derived_metric_blocks_missing_component(
 
 
 def test_module_prepare_domain_uses_loaded_project(tmp_path, monkeypatch) -> None:
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales')\n",

@@ -43,9 +43,9 @@ def _bootstrap_project(
     time_field_data_type: str = "date",
 ) -> SemanticProject:
     """Write semantic model files on disk and return a loaded SemanticProject."""
-    semantic_dir = tmp_path / ".marivo" / "semantic" / model_name
+    semantic_dir = tmp_path / "marivo" / "semantic" / model_name
     semantic_dir.mkdir(parents=True, exist_ok=True)
-    datasource_dir = semantic_dir.parent.parent / "datasource"
+    datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / f"{datasource_name}.py").write_text(
         "import marivo.datasource as md\n"

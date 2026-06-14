@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     con.disconnect()
 
-    semantic_dir = root / ".marivo" / "semantic" / "sales"
+    semantic_dir = root / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "_domain.py").write_text(
         'import marivo.semantic as ms\nms.domain(name="sales")\n'
@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory() as tmp:
         md.register(md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)))
         from marivo.semantic.reader import SemanticProject
 
-        project = SemanticProject(root=root / ".marivo" / "semantic")
+        project = SemanticProject(root=root / "marivo" / "semantic")
         project.load()
 
         # prepare_entity resolves datasource backends internally
