@@ -53,7 +53,37 @@ class DatasourceLoaderContext:
 
 @dataclass(frozen=True, init=False)
 class DatasourceSpec:
-    """Validated project-level datasource configuration."""
+    """Validated project-level datasource configuration.
+
+    Sensitive fields (password, token, user, etc.) must not appear as
+    literals.  Use ``*_env`` kwargs (e.g. ``password_env="MY_VAR"``) to
+    reference an environment variable or ``~/.marivo/secrets.toml`` key.
+
+    When a ``*_env`` kwarg is not provided for a sensitive field, the
+    system automatically tries the conventional env var name
+    ``MARIVO_{NAME}_{STEM}`` (uppercased).  For example, a datasource
+    named ``"warehouse"`` will look for ``MARIVO_WAREHOUSE_PASSWORD``
+    and ``MARIVO_WAREHOUSE_USER`` at connection time without requiring
+    explicit ``password_env`` or ``user_env`` kwargs.
+
+    Args:
+        name: Datasource name (flat identifier, no dots).
+        backend_type: Backend type (e.g. ``"duckdb"``, ``"mysql"``).
+        description: Free-text description.
+        ai_context: Optional AI-facing context hints.
+        **fields: Connection fields.  Sensitive fields use ``*_env``
+            references; all other fields are stored as literals.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> spec = md.DatasourceSpec(
+        ...     name="warehouse",
+        ...     backend_type="mysql",
+        ...     host="db.example",
+        ...     database="sales",
+        ...     # password resolved from MARIVO_WAREHOUSE_PASSWORD by convention
+        ... )
+    """
 
     name: str
     backend_type: str

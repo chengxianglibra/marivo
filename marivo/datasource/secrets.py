@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import tempfile
 import tomllib
@@ -129,6 +130,31 @@ def default_chain() -> tuple[SecretProvider, ...]:
     return (EnvProvider(), LocalPlaintextCache.default())
 
 
+def conventional_env_var(datasource_name: str, field_stem: str) -> str:
+    """Return the conventional env var name for a datasource secret field.
+
+    Convention: ``MARIVO_{DATASOURCE_NAME}_{FIELD_STEM}`` (uppercased,
+    non-alphanumeric characters replaced with underscores).
+
+    Args:
+        datasource_name: The datasource identifier (e.g. ``"warehouse"``).
+        field_stem: The sensitive field stem (e.g. ``"password"``).
+
+    Returns:
+        The conventional env var name (e.g. ``"MARIVO_WAREHOUSE_PASSWORD"``).
+
+    Example:
+        >>> conventional_env_var("warehouse", "password")
+        'MARIVO_WAREHOUSE_PASSWORD'
+        >>> conventional_env_var("analytics_db", "token")
+        'MARIVO_ANALYTICS_DB_TOKEN'
+    """
+    sanitize = re.compile(r"[^0-9A-Za-z]+")
+    ds_part = sanitize.sub("_", datasource_name).upper()
+    field_part = sanitize.sub("_", field_stem).upper()
+    return f"MARIVO_{ds_part}_{field_part}"
+
+
 def resolve(
     name: str,
     *,
@@ -149,6 +175,24 @@ def resolve(
         ),
         details={"datasource": datasource or "", "field": field or "", "env_var": name},
     )
+
+
+def resolve_optional(
+    name: str,
+    *,
+    providers: tuple[SecretProvider, ...] | None = None,
+) -> ResolvedSecret | None:
+    """Try to resolve a secret, returning ``None`` if not found.
+
+    Like :func:`resolve` but returns ``None`` instead of raising when
+    no provider has the value.  Used for conventional env var fallbacks
+    where the absence of a value is not an error.
+    """
+    for provider in providers or default_chain():
+        value = provider.get(name)
+        if value is not None and value != "":
+            return ResolvedSecret(name=name, value=value, provider=provider)
+    return None
 
 
 def persist_env_sourced(resolved: tuple[ResolvedSecret, ...]) -> None:

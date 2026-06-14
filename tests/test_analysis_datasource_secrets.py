@@ -137,3 +137,50 @@ def test_persistence_disabled_by_ci_skips_writes_but_keeps_reads(
 
     assert path.read_text() == '"TRINO_PASSWORD" = "cached"\n'
     assert cache.get("TRINO_PASSWORD") == "cached"
+
+
+# ---------------------------------------------------------------------------
+# Conventional env var naming
+# ---------------------------------------------------------------------------
+
+
+def test_conventional_env_var_derives_name() -> None:
+    assert secrets.conventional_env_var("warehouse", "password") == "MARIVO_WAREHOUSE_PASSWORD"
+    assert secrets.conventional_env_var("analytics_db", "token") == "MARIVO_ANALYTICS_DB_TOKEN"
+    assert secrets.conventional_env_var("my-db", "user") == "MARIVO_MY_DB_USER"
+    assert secrets.conventional_env_var("db", "secret_key") == "MARIVO_DB_SECRET_KEY"
+
+
+def test_resolve_optional_returns_none_when_not_found(
+    fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MARIVO_WAREHOUSE_PASSWORD", raising=False)
+
+    result = secrets.resolve_optional("MARIVO_WAREHOUSE_PASSWORD")
+
+    assert result is None
+
+
+def test_resolve_optional_returns_value_when_env_set(
+    fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MARIVO_WAREHOUSE_PASSWORD", "s3cret")
+
+    result = secrets.resolve_optional("MARIVO_WAREHOUSE_PASSWORD")
+
+    assert result is not None
+    assert result.value == "s3cret"
+    assert isinstance(result.provider, secrets.EnvProvider)
+
+
+def test_resolve_optional_returns_value_from_cache(
+    fake_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MARIVO_WAREHOUSE_PASSWORD", raising=False)
+    _write_store(fake_home, '"MARIVO_WAREHOUSE_PASSWORD" = "cached"\n')
+
+    result = secrets.resolve_optional("MARIVO_WAREHOUSE_PASSWORD")
+
+    assert result is not None
+    assert result.value == "cached"
+    assert isinstance(result.provider, secrets.LocalPlaintextCache)

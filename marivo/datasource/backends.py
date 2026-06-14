@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from marivo.datasource import secrets
+from marivo.datasource.authoring import SENSITIVE_FIELD_STEMS
 from marivo.datasource.errors import (
     DatasourceBackendTypeUnsupportedError,
     DatasourceFieldInvalidError,
@@ -48,6 +49,17 @@ def _effective_kwargs(datasource: DatasourceIR) -> EffectiveDatasourceKwargs:
         resolved[stem] = resolved_secret.value
         if isinstance(resolved_secret.provider, secrets.EnvProvider):
             env_sourced.append(resolved_secret)
+    # Conventional env var fallback: for sensitive fields not already resolved,
+    # try the conventional name MARIVO_{DATASOURCE_NAME}_{FIELD_STEM}.
+    for stem in SENSITIVE_FIELD_STEMS:
+        if stem in resolved:
+            continue
+        conventional = secrets.conventional_env_var(datasource.name, stem)
+        conventional_secret = secrets.resolve_optional(conventional)
+        if conventional_secret is not None:
+            resolved[stem] = conventional_secret.value
+            if isinstance(conventional_secret.provider, secrets.EnvProvider):
+                env_sourced.append(conventional_secret)
     return EffectiveDatasourceKwargs(
         kwargs=resolved,
         env_sourced_secrets=tuple(env_sourced),
