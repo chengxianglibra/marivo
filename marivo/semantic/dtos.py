@@ -283,6 +283,40 @@ class EntityBrief(_BriefResult):
     def _repr_identity(self) -> str:
         return f"EntityBrief domain={self.domain} datasource={self.datasource} status={self.status}"
 
+    def render(self) -> str:
+        profile_rows = [
+            [p.column, p.data_type, str(p.distinct_count), str(p.null_count)]
+            for p in self.column_profiles[:8]
+        ]
+        parts: list[str] = [f"questions={len(self.questions)} issues={len(self.issues)}"]
+        if self.primary_key_candidates:
+            pk_desc = ", ".join(
+                "(" + ", ".join(c.columns) + f" distinct={c.distinct_ratio:.2f})"
+                for c in self.primary_key_candidates[:5]
+            )
+            parts.append(f"pk_candidates=[{pk_desc}]")
+        if self.time_like_columns:
+            parts.append(f"time_like=[{', '.join(self.time_like_columns[:8])}]")
+        vh = self.versioning_hints
+        vh_parts: list[str] = []
+        if vh.snapshot_partition:
+            vh_parts.append(f"snapshot={vh.snapshot_partition}")
+        if vh.cadence_estimate:
+            vh_parts.append(f"cadence={vh.cadence_estimate}")
+        if vh.validity_pair:
+            vh_parts.append(f"validity={vh.validity_pair[0]}/{vh.validity_pair[1]}")
+        if vh_parts:
+            parts.append(" ".join(vh_parts))
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=" ".join(parts),
+            columns=["column", "type", "distinct", "nulls"],
+            rows=profile_rows,
+            row_count=len(self.column_profiles),
+            preview_truncation_hint="inspect .column_profiles for all columns",
+            available=(".render()", ".show()"),
+        )
+
 
 @dataclass(frozen=True)
 class FormatCandidate:

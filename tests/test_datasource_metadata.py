@@ -1128,3 +1128,91 @@ def test_inspect_table_trino_short_name_is_not_rejected(
 
     assert metadata.table == "orders"
     assert backend.table_calls == [("orders", None)]
+
+
+# ---------------------------------------------------------------------------
+# TableMetadata render / show / repr
+# ---------------------------------------------------------------------------
+
+
+def _make_table_metadata(**overrides: object) -> TableMetadata:
+    defaults: dict[str, object] = {
+        "datasource": "wh",
+        "table": "orders",
+        "database": None,
+        "backend_type": "duckdb",
+        "comment": None,
+        "columns": (
+            ColumnMetadata(
+                name="order_id", type="int64", nullable=False, comment=None, ordinal_position=1
+            ),
+            ColumnMetadata(
+                name="amount", type="float64", nullable=True, comment="USD", ordinal_position=2
+            ),
+            ColumnMetadata(
+                name="region", type="varchar", nullable=True, comment=None, ordinal_position=3
+            ),
+        ),
+        "partitions": (),
+        "warnings": (),
+    }
+    defaults.update(overrides)
+    return TableMetadata(**defaults)
+
+
+def test_table_metadata_repr_is_bounded() -> None:
+    metadata = _make_table_metadata()
+    r = repr(metadata)
+    assert r.startswith("<TableMetadata ref=")
+    assert "call .show() to inspect>" in r
+
+
+def test_table_metadata_render_includes_column_table() -> None:
+    metadata = _make_table_metadata()
+    rendered = metadata.render()
+    assert rendered.startswith("TableMetadata ref=wh.orders backend=duckdb columns=3")
+    assert "order_id" in rendered
+    assert "int64" in rendered
+    assert "float64" in rendered
+    assert "available:" in rendered
+
+
+def test_table_metadata_render_shows_comment_and_view() -> None:
+    metadata = _make_table_metadata(
+        comment="One row per order",
+        is_view=True,
+        view_definition="SELECT * FROM raw_orders",
+    )
+    rendered = metadata.render()
+    assert "comment=One row per order" in rendered
+    assert "view=yes" in rendered
+
+
+def test_table_metadata_render_shows_partitions_and_warnings() -> None:
+    metadata = _make_table_metadata(
+        partitions=(PartitionMetadata(name="dt", type="date", transform="identity", comment=None),),
+        warnings=(MetadataWarning(kind="comments_unavailable", message="no comments"),),
+    )
+    rendered = metadata.render()
+    assert "partitions=1" in rendered
+    assert "warnings=1" in rendered
+
+
+def test_table_metadata_render_no_status_when_sparse() -> None:
+    metadata = _make_table_metadata()
+    rendered = metadata.render()
+    assert "status:" not in rendered
+
+
+def test_table_metadata_show_prints(capsys: pytest.CaptureFixture[str]) -> None:
+    metadata = _make_table_metadata()
+    metadata.show()
+    captured = capsys.readouterr()
+    assert captured.out.startswith("TableMetadata ref=wh.orders")
+
+
+def test_table_metadata_satisfies_agent_result_protocol() -> None:
+    from marivo.render import AgentResult
+
+    metadata = _make_table_metadata()
+    assert isinstance(metadata, AgentResult)

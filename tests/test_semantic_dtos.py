@@ -278,3 +278,174 @@ def test_verify_result_is_public_result_object() -> None:
     assert repr(result) == "<VerifyResult status=passed ref=sales.orders kind=entity>"
     assert "VerifyResult status=passed" in result.render()
     assert ms.VerifyResult is VerifyResult
+
+
+# ---------------------------------------------------------------------------
+# EntityBrief.render() — rich evidence display
+# ---------------------------------------------------------------------------
+
+
+def _make_entity_brief(**overrides: object) -> ms.EntityBrief:
+    from marivo.datasource.metadata import ColumnMetadata, TableMetadata
+    from marivo.datasource.scan import ColumnProfile, ScanReport
+    from marivo.semantic.dtos import EntityBrief, PrimaryKeyCandidate, VersioningHints
+
+    defaults: dict[str, object] = {
+        "status": "sufficient",
+        "datasource": "wh",
+        "source": TableSource(table="orders", database="sales"),
+        "domain": "sales",
+        "table": TableMetadata(
+            datasource="wh",
+            table="orders",
+            database="sales",
+            backend_type="duckdb",
+            comment=None,
+            columns=(
+                ColumnMetadata(
+                    name="order_id", type="int64", nullable=False, comment=None, ordinal_position=1
+                ),
+                ColumnMetadata(
+                    name="amount", type="float64", nullable=True, comment=None, ordinal_position=2
+                ),
+            ),
+            partitions=(),
+            warnings=(),
+        ),
+        "column_profiles": (
+            ColumnProfile(
+                column="order_id",
+                data_type="int64",
+                nullable=False,
+                comment=None,
+                null_count=0,
+                empty_count=0,
+                distinct_count=5000,
+                top_values=(),
+                sample_values=(),
+                min_value=1,
+                max_value=5000,
+            ),
+            ColumnProfile(
+                column="amount",
+                data_type="float64",
+                nullable=True,
+                comment=None,
+                null_count=3,
+                empty_count=0,
+                distinct_count=4800,
+                top_values=(),
+                sample_values=(),
+                min_value=0.01,
+                max_value=999.99,
+            ),
+        ),
+        "primary_key_candidates": (
+            PrimaryKeyCandidate(columns=("order_id",), sampled_unique=True, distinct_ratio=1.0),
+        ),
+        "versioning_hints": VersioningHints(
+            snapshot_partition="dt",
+            cadence_estimate="daily",
+            validity_pair=("valid_from", "valid_to"),
+        ),
+        "time_like_columns": ("created_at",),
+        "matches": (),
+        "questions": (),
+        "issues": (),
+        "scan": ScanReport(
+            partition_used=None,
+            partition_resolution="none",
+            rows_scanned=5000,
+            columns_scanned=("order_id", "amount"),
+            truncated=False,
+            elapsed_seconds=0.1,
+            warnings=(),
+        ),
+    }
+    defaults.update(overrides)
+    return EntityBrief(**defaults)  # type: ignore[arg-type]
+
+
+def test_entity_brief_render_includes_column_profiles() -> None:
+    brief = _make_entity_brief()
+    rendered = brief.render()
+    assert "order_id" in rendered
+    assert "int64" in rendered
+    assert "5000" in rendered
+    assert "column" in rendered
+    assert "type" in rendered
+    assert "distinct" in rendered
+    assert "nulls" in rendered
+
+
+def test_entity_brief_render_includes_pk_candidates() -> None:
+    brief = _make_entity_brief()
+    rendered = brief.render()
+    assert "pk_candidates=" in rendered
+    assert "order_id" in rendered
+    assert "distinct=1.00" in rendered
+
+
+def test_entity_brief_render_includes_time_like_columns() -> None:
+    brief = _make_entity_brief()
+    rendered = brief.render()
+    assert "time_like=" in rendered
+    assert "created_at" in rendered
+
+
+def test_entity_brief_render_includes_versioning_hints() -> None:
+    brief = _make_entity_brief()
+    rendered = brief.render()
+    assert "snapshot=dt" in rendered
+    assert "cadence=daily" in rendered
+    assert "validity=valid_from/valid_to" in rendered
+
+
+def test_entity_brief_render_omits_sparse_sections() -> None:
+    from marivo.semantic.dtos import VersioningHints
+
+    brief = _make_entity_brief(
+        column_profiles=(),
+        primary_key_candidates=(),
+        versioning_hints=VersioningHints(
+            snapshot_partition=None, cadence_estimate=None, validity_pair=None
+        ),
+        time_like_columns=(),
+    )
+    rendered = brief.render()
+    assert "pk_candidates=" not in rendered
+    assert "time_like=" not in rendered
+    assert "snapshot=" not in rendered
+    assert "cadence=" not in rendered
+    assert "validity=" not in rendered
+
+
+def test_entity_brief_render_truncation_hint_when_many_columns() -> None:
+    from marivo.datasource.scan import ColumnProfile
+
+    many_profiles = tuple(
+        ColumnProfile(
+            column=f"col_{i}",
+            data_type="varchar",
+            nullable=True,
+            comment=None,
+            null_count=0,
+            empty_count=0,
+            distinct_count=100,
+            top_values=(),
+            sample_values=(),
+            min_value=None,
+            max_value=None,
+        )
+        for i in range(10)
+    )
+    brief = _make_entity_brief(column_profiles=many_profiles)
+    rendered = brief.render()
+    assert "inspect .column_profiles for all columns" in rendered
+
+
+def test_entity_brief_satisfies_agent_result_protocol() -> None:
+    from marivo.render import AgentResult
+
+    brief = _make_entity_brief()
+    assert isinstance(brief, AgentResult)
