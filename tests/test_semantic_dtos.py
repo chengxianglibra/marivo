@@ -187,6 +187,52 @@ def test_authoring_assessment_status_uses_needs_input():
     assert assessment.status == "needs_input"
 
 
+def test_derive_brief_status_returns_sufficient_for_empty():
+    from marivo.semantic.dtos import derive_brief_status
+
+    assert derive_brief_status((), ()) == "sufficient"
+
+
+def test_derive_brief_status_blocked_on_blocker_issue():
+    from marivo.semantic.dtos import derive_brief_status
+
+    issue = AssessmentIssue(
+        kind="missing_column",
+        severity="blocker",
+        refs=("sales.revenue",),
+        message="x",
+        rule_id="r1",
+    )
+    assert derive_brief_status((issue,), ()) == "blocked"
+
+
+def test_derive_brief_status_blocked_on_blocking_question():
+    from marivo.semantic.dtos import derive_brief_status
+
+    q = AuthoringQuestion(
+        id="q1",
+        decision_kind="metric_provenance_status",
+        subject_refs=("sales.revenue",),
+        prompt="p",
+        reason="r",
+        readiness_effect="blocks",
+    )
+    assert derive_brief_status((), (q,)) == "blocked"
+
+
+def test_derive_brief_status_needs_input_on_missing_evidence():
+    from marivo.semantic.dtos import derive_brief_status
+
+    needs = AssessmentIssue(
+        kind="missing_evidence",
+        severity="warning",
+        refs=("sales.revenue",),
+        message="x",
+        rule_id="r1",
+    )
+    assert derive_brief_status((needs,), ()) == "needs_input"
+
+
 def test_authoring_assessment_is_frozen():
     assessment = AuthoringAssessment(status="supported", issues=(), questions=())
     with pytest.raises(AttributeError):

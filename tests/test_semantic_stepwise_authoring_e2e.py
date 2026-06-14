@@ -54,7 +54,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         domain="sales",
         scope=md.ScanScope(partition=None),
     )
-    assert entity_brief.status == "needs_input"
+    assert entity_brief.status == "sufficient"
 
     domain_file.write_text(
         "import marivo.semantic as ms\n"
@@ -74,7 +74,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         scope=md.ScanScope(partition=None),
     )
     assert len(dim_briefs) == 1
-    assert dim_briefs[0].status == "needs_input"
+    assert dim_briefs[0].status == "sufficient"
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8") + "@ms.dimension(entity=orders)\n"
@@ -92,7 +92,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         column="dt",
         scope=md.ScanScope(partition=None),
     )
-    assert time_brief.status == "needs_input"
+    assert time_brief.status == "sufficient"
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8")
@@ -112,7 +112,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         measure_columns=("amount",),
         scope=md.ScanScope(partition=None),
     )
-    assert metric_brief.status == "needs_input"
+    assert metric_brief.status == "sufficient"
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8")
