@@ -75,7 +75,7 @@ _SUMMARIES: dict[str, str] = {
     "file": "file source for ms.entity(source=...)",
     "help": "this introspection entry point",
     "help_text": "return semantic help text without printing",
-    "load": "load a semantic project and return a SemanticCatalog — the normal agent entrypoint",
+    "load": "load a semantic project and return a SemanticCatalog — accepts models to filter domains",
     "metric": "declare a dataset-backed aggregate metric",
     "prepare_cross_entity_metric": "prepare a cross-entity metric brief",
     "prepare_derived_metric": "prepare a derived metric brief from component metrics",

@@ -822,10 +822,32 @@ class SemanticCatalog:
         """Return the workspace directory path."""
         return self._project.workspace_dir
 
-    def load(self) -> None:
-        """Reload the semantic project from disk and refresh the catalog registry."""
-        models = list(self._project._filtered_domains) if self._project._filtered_domains else None
-        result = self._project.load(models=models)
+    def load(
+        self,
+        *,
+        models: str | Sequence[str] | None = None,
+    ) -> None:
+        """Reload the semantic project from disk and refresh the catalog registry.
+
+        Args:
+            models: When specified, only those model directories are loaded.
+                Pass a single model name as a string or a list of names.
+                When omitted, the previously active filter (if any) is reused.
+
+        Example:
+            >>> catalog.load(models="sales")
+            >>> catalog.load(models=["sales", "inventory"])
+        """
+        if isinstance(models, str):
+            models = [models]
+        resolved = (
+            models
+            if models is not None
+            else (
+                list(self._project._filtered_domains) if self._project._filtered_domains else None
+            )
+        )
+        result = self._project.load(models=resolved)
         self._reg = self._project._registry
         if result.status != "ready":
             raise SemanticLoadFailed(result.errors)
@@ -1246,12 +1268,17 @@ class SemanticCatalog:
 def load(
     *,
     workspace_dir: str | Path | None = None,
+    models: str | Sequence[str] | None = None,
 ) -> SemanticCatalog:
     """Load a semantic project and return a browseable SemanticCatalog.
 
     Args:
         workspace_dir: Path to the project root containing ``marivo.toml``.
             Defaults to the current working directory when omitted.
+        models: When specified, only those model directories are loaded.
+            Pass a single model name as a string or a list of names.
+            Cross-model references to filtered-out models produce warnings
+            instead of errors, so the registry remains usable.
 
     Returns:
         SemanticCatalog on success.
@@ -1259,6 +1286,8 @@ def load(
     Example:
         >>> import marivo.semantic as ms
         >>> catalog = ms.load()
+        >>> catalog.list().show()
+        >>> catalog = ms.load(models=["sales"])
         >>> catalog.list().show()
 
     Constraints:
@@ -1274,7 +1303,7 @@ def load(
         workspace_dir = env if env else Path.cwd()
 
     project = SemanticProject(workspace_dir=workspace_dir)
-    result = project.load()
+    result = project.load(models=models)
     if result.status != "ready":
         from marivo.semantic.errors import SemanticLoadFailed
 
