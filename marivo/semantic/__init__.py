@@ -5,6 +5,7 @@ Public surface::
     import marivo.semantic as ms
 
     catalog = ms.load()                # returns SemanticCatalog
+    catalog = ms.load(models=['sales'])  # filter to specific models
     catalog.list().show()
 
     ms.domain(name="sales", default=True)

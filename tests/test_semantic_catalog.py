@@ -1015,6 +1015,24 @@ def test_ms_load_catalog_can_list(tmp_path):
     assert len(result.objects) >= 1
 
 
+def test_ms_load_with_models_filters_domains(tmp_path):
+    """ms.load(models=...) filters to the specified model directories."""
+    _write_multi_domain_project(tmp_path)
+    catalog = ms.load(workspace_dir=tmp_path, models=["sales"])
+    refs = {obj.ref.ref for obj in catalog.list().objects}
+    assert "sales" in refs
+    assert "ops" not in refs
+
+
+def test_ms_load_with_models_string(tmp_path):
+    """ms.load(models='sales') accepts a single model name as a string."""
+    _write_multi_domain_project(tmp_path)
+    catalog = ms.load(workspace_dir=tmp_path, models="sales")
+    refs = {obj.ref.ref for obj in catalog.list().objects}
+    assert "sales" in refs
+    assert "ops" not in refs
+
+
 def test_catalog_lifecycle_properties_delegate_to_project(semantic_project_factory):
     project = semantic_project_factory(
         {
@@ -1100,6 +1118,31 @@ def test_catalog_load_preserves_filtered_model_scope(semantic_project_factory):
     refs = {obj.ref.ref for obj in catalog.list().objects}
     assert "sales" in refs
     assert "ops" not in refs
+
+
+def test_catalog_load_with_models_changes_filter(semantic_project_factory):
+    """catalog.load(models=...) changes the active model filter on reload."""
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+            "ops/_domain.py": "import marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
+            ),
+        },
+        load=False,
+    )
+    project.load("sales")
+    catalog = SemanticCatalog(project)
+
+    # Switch to ops model via catalog.load(models=...)
+    catalog.load(models="ops")
+
+    refs = {obj.ref.ref for obj in catalog.list().objects}
+    assert "ops" in refs
+    assert "sales" not in refs
 
 
 def test_catalog_access_after_failed_load_raises_semantic_load_failed(tmp_path):
@@ -1225,6 +1268,37 @@ def _write_minimal_project(tmp_path) -> None:
         "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
+    )
+
+
+def _write_multi_domain_project(tmp_path) -> None:
+    """Write a project with both 'sales' and 'ops' domains."""
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    ds = tmp_path / "marivo" / "datasources"
+    ds.mkdir(parents=True, exist_ok=True)
+    (ds / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    sales = tmp_path / "marivo" / "semantic" / "sales"
+    sales.mkdir(parents=True, exist_ok=True)
+    (sales / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
+    )
+    (sales / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
+        "def revenue(table):\n"
+        "    return table.amount.sum()\n"
+    )
+    ops = tmp_path / "marivo" / "semantic" / "ops"
+    ops.mkdir(parents=True, exist_ok=True)
+    (ops / "_domain.py").write_text("import marivo.semantic as ms\nms.domain(name='ops')\n")
+    (ops / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
     )
 
 
