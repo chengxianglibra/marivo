@@ -1370,6 +1370,63 @@ def test_catalog_verify_object_accepts_semantic_ref(semantic_project_factory):
     assert result.status == "passed"
 
 
+def test_catalog_verify_object_entity_level_metric_ref_suggests_domain_level(
+    semantic_project_factory,
+):
+    """verify_object with entity-level metric ref (domain.entity.metric) should
+    suggest the correct domain-level ref (domain.metric)."""
+    from marivo.semantic.dtos import VerifyResult
+
+    catalog = _make_catalog(semantic_project_factory)
+    # "sales.orders.revenue" is wrong — metrics are at domain level
+    result = catalog.verify_object("sales.orders.revenue")
+    assert isinstance(result, VerifyResult)
+    assert result.status == "failed"
+    assert result.kind == "entity"
+    msg = result.issues[0].message
+    assert "sales.revenue" in msg
+    assert "domain level" in msg
+
+
+def test_catalog_verify_object_unknown_ref_without_suggestion(semantic_project_factory):
+    """verify_object with a completely unknown ref returns a not-found message
+    without a level suggestion."""
+    from marivo.semantic.dtos import VerifyResult
+
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.verify_object("nonexistent.thing")
+    assert isinstance(result, VerifyResult)
+    assert result.status == "failed"
+    msg = result.issues[0].message
+    assert "nonexistent.thing" in msg
+    assert "domain level" not in msg
+
+
+def test_catalog_get_entity_level_metric_ref_suggests_domain_level(
+    semantic_project_factory,
+):
+    """catalog.get with entity-level metric ref should suggest the domain-level ref."""
+    catalog = _make_catalog(semantic_project_factory)
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.get("sales.orders.revenue")
+    msg = str(exc_info.value)
+    assert "sales.revenue" in msg
+    assert "domain level" in msg
+
+
+def test_catalog_get_domain_level_dimension_ref_suggests_entity_level(
+    semantic_project_factory,
+):
+    """catalog.get with domain-level dimension ref should suggest the entity-level ref."""
+    catalog = _make_catalog(semantic_project_factory)
+    # "sales.region" is wrong — dimensions are at entity level
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.get("sales.region")
+    msg = str(exc_info.value)
+    assert "sales.orders.region" in msg
+    assert "entity level" in msg
+
+
 # --- metric unit passthrough ---
 
 

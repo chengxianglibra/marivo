@@ -49,6 +49,8 @@ if TYPE_CHECKING:
     from marivo.semantic.resolver import SemanticResolver
     from marivo.semantic.validator import Registry
 
+from marivo.semantic.reader import _suggest_ref_level
+
 # list[SemanticObject] return annotations inside SemanticCatalog shadow the
 # built-in list type because the class has a method named list().  Use this
 # alias to avoid the name collision.
@@ -1035,12 +1037,20 @@ class SemanticCatalog:
         return None
 
     def _raise_not_found(self, ref_str: str) -> NoReturn:
+        reg = self._reg
+        suggestion = _suggest_ref_level(reg, ref_str) if reg is not None else None
+        if suggestion is not None:
+            message = f"Semantic object {ref_str!r} was not found. {suggestion}"
+        else:
+            message = (
+                f"Semantic object {ref_str!r} was not found. "
+                f"`catalog.get(...)` requires a full semantic ref such as 'sales.revenue'.\n"
+                f"Use catalog.list().show(), catalog.list('<domain>').show(), and then\n"
+                f"catalog.list('<domain.entity>').show() to browse object refs."
+            )
         _raise(
             ErrorKind.NOT_FOUND,
-            f"Semantic object {ref_str!r} was not found. "
-            f"`catalog.get(...)` requires a full semantic ref such as 'sales.revenue'.\n"
-            f"Use catalog.list().show(), catalog.list('<domain>').show(), and then\n"
-            f"catalog.list('<domain.entity>').show() to browse object refs.",
+            message,
             cls=SemanticRuntimeError,
             refs=(ref_str,),
         )

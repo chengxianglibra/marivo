@@ -150,6 +150,52 @@ def _entity_verified_fingerprint(entity_ir: EntityIR) -> str:
     )
 
 
+def _suggest_ref_level(registry: Registry, ref: str) -> str | None:
+    """Return an actionable suggestion when *ref* is not found in *registry*.
+
+    Detects the two most common wrong-level mistakes:
+
+    * Metric referenced at entity level (e.g. ``domain.entity.metric``
+      when the correct ref is ``domain.metric``).
+    * Dimension referenced at domain level (e.g. ``domain.dimension``
+      when the correct ref is ``domain.entity.dimension``).
+
+    Returns ``None`` when no plausible suggestion can be derived.
+    """
+    parts = ref.split(".")
+
+    # --- Metric referenced at entity level (3+ dots) ---
+    # e.g. "trino_query.query_info.total_elapsed_time" → "trino_query.total_elapsed_time"
+    if len(parts) >= 3:
+        domain = parts[0]
+        object_name = parts[-1]
+        domain_level_ref = f"{domain}.{object_name}"
+        if domain_level_ref in registry.metrics:
+            return (
+                f"Metrics are referenced at the domain level, not the entity level. "
+                f"Use {domain_level_ref!r} instead of {ref!r}."
+            )
+
+    # --- Dimension / time_dimension referenced at domain level (2 dots) ---
+    # e.g. "trino_query.cluster" → "trino_query.query_info.cluster"
+    if len(parts) == 2:
+        domain = parts[0]
+        object_name = parts[1]
+        matching_fields = [
+            f_id
+            for f_id, f_ir in registry.fields.items()
+            if f_ir.domain == domain and f_ir.name == object_name
+        ]
+        if matching_fields:
+            suggestions = ", ".join(repr(f) for f in matching_fields[:3])
+            return (
+                f"Dimensions and time dimensions are referenced at the entity level, "
+                f"not the domain level. Did you mean {suggestions}?"
+            )
+
+    return None
+
+
 class SemanticProject:
     """Primary reader for a loaded semantic project.
 
@@ -732,10 +778,14 @@ class SemanticProject:
         if kind in ("metric", "derived_metric"):
             return self._verify_metric(ref, kind)
 
-        # Unknown kind fallback
-        return self._failed_verify(
-            ref, "entity", "static_check_failed", "Verification is not implemented for this kind."
-        )
+        # Unknown kind fallback — check for common wrong-level refs before
+        # returning a generic message.
+        suggestion = _suggest_ref_level(self._registry, ref) if self._registry is not None else None
+        if suggestion is not None:
+            message = f"Semantic object {ref!r} was not found. {suggestion}"
+        else:
+            message = f"Semantic object {ref!r} was not found. Use catalog.list().show() to browse available refs."
+        return self._failed_verify(ref, "entity", "static_check_failed", message)
 
     def _kind_for_ref(self, ref: str) -> AuthoringObjectKind | Literal["unknown"]:
         """Determine the kind of a semantic ref from the registry."""
