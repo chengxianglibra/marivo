@@ -64,9 +64,9 @@ def _chdir(tmp_path, monkeypatch):
 
 def _bootstrap_schema_project(tmp_path):
     """Create a semantic project with a 'schema' dimension using bracket notation."""
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "analytics"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "analytics"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

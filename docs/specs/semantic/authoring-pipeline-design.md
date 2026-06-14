@@ -157,7 +157,7 @@ datasource references, datasets, fields, metrics, relationships, and derived
 metrics:
 
 ```python
-# .marivo/semantic/sales/_domain.py
+# marivo/semantic/sales/_domain.py
 import marivo.datasource as md
 import marivo.semantic as ms
 
@@ -380,7 +380,7 @@ to Phase 3 reduces N reloads (N = number of objects) to 1.
 ## File Organization Contract
 
 ```
-.marivo/semantic/<model>/
+marivo/semantic/<model>/
   _domain.py         # all semantic declarations for the model
 ```
 

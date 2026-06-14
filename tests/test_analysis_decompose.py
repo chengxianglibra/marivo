@@ -348,9 +348,9 @@ def test_decompose_stale_session_without_backend_raises():
 
 def _bootstrap_bandwidth_for_decompose(tmp_path):
     """Bootstrap a bandwidth semantic project for decompose gate tests."""
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = semantic_dir.parent.parent / "datasource"
+    datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

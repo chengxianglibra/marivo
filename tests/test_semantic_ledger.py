@@ -70,7 +70,7 @@ def test_decision_record_rejects_none_chosen() -> None:
 
 
 def test_ledger_store_read_object_reports_invalid_blast_radius_path(tmp_path) -> None:
-    path = tmp_path / "sales" / "_evidence" / "objects" / "sales.revenue.json"
+    path = tmp_path / "evidence" / "sales" / "objects" / "sales.revenue.json"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
@@ -169,8 +169,8 @@ def test_ledger_store_writes_and_reads_object_record(tmp_path):
     )
     store.write_object(obj)
 
-    # file lands under the model's _evidence/objects dir
-    path = tmp_path / "sales" / "_evidence" / "objects" / "sales.revenue.json"
+    # file lands under the evidence/<model>/objects dir
+    path = tmp_path / "evidence" / "sales" / "objects" / "sales.revenue.json"
     assert path.exists()
 
     loaded = store.read_object("sales.revenue")

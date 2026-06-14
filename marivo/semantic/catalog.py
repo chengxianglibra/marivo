@@ -814,7 +814,7 @@ class SemanticCatalog:
 
     @property
     def semantic_root(self) -> Path:
-        """Return the semantic root path (.marivo/semantic/)."""
+        """Return the semantic root path (marivo/semantic/)."""
         return self._project.semantic_root
 
     @property
@@ -1250,7 +1250,7 @@ def load(
     """Load a semantic project and return a browseable SemanticCatalog.
 
     Args:
-        workspace_dir: Path to the project root containing ``.marivo/``.
+        workspace_dir: Path to the project root containing ``marivo.toml``.
             Defaults to the current working directory when omitted.
 
     Returns:

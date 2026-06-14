@@ -6,7 +6,6 @@ in a single WAL-mode database at ``.marivo/analysis/session_store.db``.
 
 from __future__ import annotations
 
-import os
 import secrets
 import sqlite3
 from collections.abc import Iterator
@@ -16,9 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+from marivo.project import resolve_project_root
 from marivo.render import format_bounded_card, result_repr
-
-_DOT_MARIVO = ".marivo"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -74,39 +72,6 @@ CREATE TABLE IF NOT EXISTS reports (
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 """
-
-
-def resolve_project_root(start: Path | None = None) -> Path:
-    """Return nearest ancestor containing ``.marivo``, or the starting directory.
-
-    Args:
-        start: Optional directory to resolve from. When given, it takes
-            precedence over the environment.
-
-    Returns:
-        The explicit ``start`` ancestor containing ``.marivo`` (or ``start``
-        itself when none exists), else the ``MARIVO_PROJECT_ROOT`` env path,
-        else the nearest ancestor of the current directory containing
-        ``.marivo`` (or the current directory when none exists).
-
-    Example:
-        >>> from marivo.analysis.session._store import resolve_project_root
-        >>> root = resolve_project_root()
-
-    Constraints:
-        Purely filesystem/env based; never creates directories.
-    """
-    if start is None:
-        env = os.environ.get("MARIVO_PROJECT_ROOT")
-        if env:
-            return Path(env).resolve()
-        base = Path.cwd().resolve()
-    else:
-        base = Path(start).resolve()
-    for candidate in (base, *base.parents):
-        if (candidate / _DOT_MARIVO).is_dir():
-            return candidate
-    return base
 
 
 @dataclass(frozen=True, repr=False)

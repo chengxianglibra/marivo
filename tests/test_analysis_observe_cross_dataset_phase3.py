@@ -20,9 +20,9 @@ def _chdir(tmp_path, monkeypatch):
 
 
 def _bootstrap(tmp_path: Path) -> None:
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

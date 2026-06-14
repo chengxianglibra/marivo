@@ -768,9 +768,9 @@ def test_compare_component_aware_scalar_missing_component_ref_fails_closed(tmp_p
 
 
 def _bootstrap_unit_sales_project(tmp_path) -> None:
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

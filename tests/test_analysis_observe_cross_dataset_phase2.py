@@ -25,9 +25,9 @@ def _session(con):
 
 
 def _bootstrap_snapshot_as_of(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -165,9 +165,9 @@ def test_snapshot_as_of_root_time_partition_missing(tmp_path):
 
 def _bootstrap_snapshot_latest_no_root_time(tmp_path):
     """Fixture where orders has NO time field, so _derive_version_mode falls back to latest."""
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -271,9 +271,9 @@ def test_snapshot_latest_when_root_has_no_time_field(tmp_path, monkeypatch):
 
 
 def _bootstrap_validity(tmp_path, *, root_with_time: bool):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -403,9 +403,9 @@ def test_validity_as_of_root_time_closed_open_boundary(tmp_path):
 
 
 def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -497,9 +497,9 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
 
 
 def _bootstrap_derived_ratio(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -571,9 +571,9 @@ def test_derived_ratio_multi_dataset_components_with_country_dimension(tmp_path)
 
 
 def _bootstrap_axis_unreachable(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -659,9 +659,9 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
     # Build a metric where numerator uses as_of_root_time against
     # user_profile_daily and denominator (sessions, no time field) falls back
     # to latest. The mode difference should raise component-version-mismatch.
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -757,9 +757,9 @@ def test_derived_observe_registers_component_frames(tmp_path):
 
 def test_derived_components_can_span_datasources(tmp_path):
     """Cross-datasource derived metric: gmv on warehouse, session_count on analytics."""
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / ".marivo" / "datasource"
+    datasource_dir = tmp_path / "marivo" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

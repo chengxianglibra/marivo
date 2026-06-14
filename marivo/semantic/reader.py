@@ -124,7 +124,7 @@ class SemanticProject:
                 env = os.environ.get("MARIVO_PROJECT_ROOT")
                 workspace_dir = env if env else "."
             self._workspace_dir = Path(workspace_dir).resolve()
-            self._semantic_root = self._workspace_dir / ".marivo" / "semantic"
+            self._semantic_root = self._workspace_dir / "marivo" / "semantic"
         self._status: str = "unloaded"  # unloaded | ready | errored
         self._errors: tuple[SemanticError, ...] = ()
         self._warnings: tuple[StructuredWarning, ...] = ()
@@ -139,8 +139,13 @@ class SemanticProject:
 
     @property
     def semantic_root(self) -> Path:
-        """Return the semantic root path (.marivo/semantic/)."""
+        """Return the semantic root path (marivo/semantic/)."""
         return self._semantic_root
+
+    @property
+    def state_root(self) -> Path:
+        """Return the runtime state root path (.marivo/)."""
+        return self._workspace_dir / ".marivo"
 
     @property
     def workspace_dir(self) -> Path:

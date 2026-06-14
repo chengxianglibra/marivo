@@ -15,9 +15,8 @@ from marivo.analysis.session._store import SessionStore, SessionSummary
 
 @pytest.fixture()
 def project_root(tmp_path: Path) -> Path:
-    """Create a minimal project root with .marivo marker."""
-    marivo_dir = tmp_path / ".marivo"
-    marivo_dir.mkdir()
+    """Create a minimal project root with marivo.toml manifest."""
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     return tmp_path
 
 

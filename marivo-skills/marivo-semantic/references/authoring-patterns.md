@@ -1,6 +1,6 @@
 # marivo-semantic authoring patterns
 
-Use these patterns when writing `.marivo/semantic/<domain>/_domain.py`.
+Use these patterns when writing `marivo/semantic/<domain>/_domain.py`.
 
 ## Single domain file
 

@@ -30,9 +30,9 @@ def _seed(con):
 
 
 def _bootstrap_sales(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = semantic_dir.parent.parent / "datasource"
+    datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
@@ -122,9 +122,9 @@ def test_observe_panel_multi_dimension(tmp_path):
 
 
 def _bootstrap_failure_metrics(tmp_path):
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = semantic_dir.parent.parent / "datasource"
+    datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\n"

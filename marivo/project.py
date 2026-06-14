@@ -1,11 +1,11 @@
-"""Shared project-root resolution for the .marivo project layout."""
+"""Shared project-root resolution for the marivo project layout."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-_DOT_MARIVO = ".marivo"
+from marivo.config import PROJECT_MANIFEST
 
 
 def resolve_project_root(start: Path | None = None) -> Path:
@@ -16,10 +16,11 @@ def resolve_project_root(start: Path | None = None) -> Path:
             precedence over the environment.
 
     Returns:
-        The explicit ``start`` ancestor containing ``.marivo`` (or ``start``
-        itself when none exists), else the ``MARIVO_PROJECT_ROOT`` env path,
-        else the nearest ancestor of the current directory containing
-        ``.marivo`` (or the current directory when none exists).
+        The explicit ``start`` ancestor containing ``marivo.toml`` (or
+        ``start`` itself when none exists), else the
+        ``MARIVO_PROJECT_ROOT`` env path, else the nearest ancestor of
+        the current directory containing ``marivo.toml`` (or the current
+        directory when none exists).
 
     Example:
         >>> from marivo.project import resolve_project_root
@@ -36,6 +37,6 @@ def resolve_project_root(start: Path | None = None) -> Path:
     else:
         base = Path(start).resolve()
     for candidate in (base, *base.parents):
-        if (candidate / _DOT_MARIVO).is_dir():
+        if (candidate / PROJECT_MANIFEST).is_file():
             return candidate
     return base

@@ -34,7 +34,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
     )
 
     # Create the domain file so the semantic project has a starting point
-    semantic_dir = tmp_path / ".marivo" / "semantic" / "sales"
+    semantic_dir = tmp_path / "marivo" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     domain_file = semantic_dir / "_domain.py"
     domain_file.write_text(

@@ -16,7 +16,7 @@ from marivo.analysis.publish import (
 # dataset uses md.ref('warehouse') (the factory only auto-creates datasources for
 # quoted datasource='...' usages).
 SALES_FILES = {
-    "datasource/warehouse.py": (
+    "datasources/warehouse.py": (
         "import marivo.datasource as md\n"
         "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
         "md.datasource(warehouse)\n"
