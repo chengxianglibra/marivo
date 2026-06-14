@@ -97,7 +97,7 @@ def test_inspect_columns_profiles_selected_columns(tmp_path: Path) -> None:
     assert inspection.scan.rows_scanned == 2
     assert inspection.scan.columns_scanned == ("status", "amount")
     status = inspection.profiles[0]
-    assert status.column == "status"
+    assert status.name == "status"
     assert status.distinct_count == 1
     assert status.top_values == (("paid", 2),)
 

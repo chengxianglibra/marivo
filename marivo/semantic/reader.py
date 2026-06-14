@@ -533,6 +533,21 @@ class SemanticProject:
             scope = ScanScope()
         return prepare_dimensions(self, entity=entity, columns=columns, scope=scope)
 
+    def prepare_dimension(
+        self,
+        *,
+        entity: str,
+        column: str,
+        scope: ScanScope | None = None,
+    ) -> DimensionBrief:
+        """Prepare a dimension authoring brief for one entity column."""
+        self._require_entity_verified(entity, "prepare_dimension")
+        from marivo.semantic.prepare import prepare_dimension
+
+        if scope is None:
+            scope = ScanScope()
+        return prepare_dimension(self, entity=entity, column=column, scope=scope)
+
     def prepare_time_dimension(
         self,
         *,

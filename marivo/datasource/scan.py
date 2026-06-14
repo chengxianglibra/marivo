@@ -103,7 +103,7 @@ class ColumnProfile:
     """Statistical profile of a single column from a datasource scan.
 
     Attributes:
-        column: Column name.
+        name: Column name.
         data_type: Resolved data type label.
         nullable: Whether the column can contain nulls, if known.
         comment: Column comment from the catalog, if any.
@@ -116,7 +116,7 @@ class ColumnProfile:
         max_value: Maximum value (for orderable types).
     """
 
-    column: str
+    name: str
     data_type: str
     nullable: bool | None
     comment: str | None
@@ -151,7 +151,7 @@ class ColumnInspection:
     def render(self) -> str:
         return format_bounded_card(
             identity=self._repr_identity(),
-            columns=[profile.column for profile in self.profiles],
+            columns=[profile.name for profile in self.profiles],
             available=(".render()", ".show()"),
         )
 

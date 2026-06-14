@@ -42,7 +42,7 @@ For each step, call the matching `ms.prepare_*` API, branch on the returned
 Brief `status`, author one object, then `verify_object` before advancing. See
 `workflow.md` for the end-to-end loop.
 
-**Enforcement:** `prepare_dimensions`, `prepare_time_dimension`,
+**Enforcement:** `prepare_dimension`, `prepare_time_dimension`,
 `prepare_metric`, `prepare_relationship`, and `prepare_cross_entity_metric`
 require their entity arguments to have passed `verify_object`. Calling these
 without a prior `verify_object` raises `LadderOrderError` with a hint naming

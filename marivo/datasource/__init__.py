@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from marivo.datasource.authoring import DatasourceRef, DatasourceSpec, datasource, ref
+from marivo.datasource.catalog import DatasourceCatalog, load
 from marivo.datasource.help import help, help_text
 from marivo.datasource.ir import (
     AiContextIR,
@@ -51,6 +52,7 @@ __all__ = [
     "ColumnMetadata",
     "ColumnProfile",
     "DatasourceAiContextIR",
+    "DatasourceCatalog",
     "DatasourceConnectionService",
     "DatasourceDescription",
     "DatasourceIR",
@@ -79,6 +81,7 @@ __all__ = [
     "inspect_source",
     "inspect_table",
     "list",
+    "load",
     "preview",
     "probe_join_keys",
     "ref",

@@ -130,7 +130,7 @@ advancing past a failing `verify_object`.
 | API | Precondition |
 | --- | --- |
 | `prepare_entity` | `domain` ref loaded; datasource resolvable |
-| `prepare_dimensions` / `prepare_time_dimension` / `prepare_metric` | `entity` ref loaded |
+| `prepare_dimension` / `prepare_time_dimension` / `prepare_metric` | `entity` ref loaded |
 | `prepare_metric(filter_dimensions=…)` | every referenced dimension loaded |
 | `prepare_relationship` | both entity refs and all join-key dimension refs loaded |
 | `prepare_cross_entity_metric` | all entity refs loaded; a relationship path exists between root and every joined entity (missing path is a `blocked` issue naming the gap) |
@@ -513,10 +513,9 @@ columns whose sampled values match known time formats (semantic-side
 inference). Typical questions: row grain confirmation, primary key choice,
 snapshot vs event table.
 
-### `prepare_dimensions(*, entity, columns, scope=ScanScope()) -> tuple[DimensionBrief, ...]`
+### `prepare_dimension(*, entity, column, scope=ScanScope()) -> DimensionBrief`
 
-One scan for many columns, one Brief per column. Batch preparation is a scan
-economy; authoring remains one dimension at a time.
+One column, one Brief. Authoring is one dimension at a time.
 
 ```python
 @dataclass(frozen=True)
@@ -840,7 +839,7 @@ Breaking, no compatibility shims.
 | Module | Symbols |
 | --- | --- |
 | `marivo.datasource` | `ScanScope`, `ScanReport`, `PartitionInfo`, `PartitionValue`, `ColumnInspection`, `ColumnProfile` (moved), `JoinSide`, `JoinKeyProbe`, `probe_join_keys`, `table()` / `file()` constructors (with `ms.*` aliases retained) |
-| `marivo.semantic` | `prepare_domain`, `prepare_entity`, `prepare_dimensions`, `prepare_time_dimension`, `prepare_metric`, `prepare_relationship`, `prepare_cross_entity_metric`, `prepare_derived_metric`; `DomainBrief`, `EntityBrief`, `DimensionBrief`, `TimeDimensionBrief`, `MetricBrief`, `RelationshipBrief`, `CrossEntityMetricBrief`, `DerivedMetricBrief` and their fact DTOs; `RegisteredMatch`; `BriefStatus`; `verify_object` / `VerifyResult`; `ReadinessReport.abandoned`; ledger decision kind `authoring_abandoned` |
+| `marivo.semantic` | `prepare_domain`, `prepare_entity`, `prepare_dimension`, `prepare_time_dimension`, `prepare_metric`, `prepare_relationship`, `prepare_cross_entity_metric`, `prepare_derived_metric`; `DomainBrief`, `EntityBrief`, `DimensionBrief`, `TimeDimensionBrief`, `MetricBrief`, `RelationshipBrief`, `CrossEntityMetricBrief`, `DerivedMetricBrief` and their fact DTOs; `RegisteredMatch`; `BriefStatus`; `verify_object` / `VerifyResult`; `ReadinessReport.abandoned`; ledger decision kind `authoring_abandoned` |
 
 ### Kept
 

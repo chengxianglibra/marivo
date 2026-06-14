@@ -85,6 +85,14 @@ class TableMetadata:
     view_definition: str | None = None
 
     @property
+    def partition(self) -> PartitionMetadata | None:
+        """First partition, or None if no partitions.
+
+        For all partitions use ``.partitions``.
+        """
+        return self.partitions[0] if self.partitions else None
+
+    @property
     def ref(self) -> str:
         if self.database is None:
             return f"{self.datasource}.{self.table}"

@@ -651,7 +651,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "runtime",
         ("SemanticProject",),
         "Entities must be verified before downstream prepare calls.",
-        "prepare_dimensions, prepare_time_dimension, prepare_metric, prepare_relationship, and prepare_cross_entity_metric require their entity arguments to have passed verify_object first.",
+        "prepare_dimension, prepare_time_dimension, prepare_metric, prepare_relationship, and prepare_cross_entity_metric require their entity arguments to have passed verify_object first.",
         "Call project.verify_object('domain.entity') before calling prepare methods that depend on that entity.",
     ),
     ConstraintId.CATALOG_KIND_VALID: _constraint(

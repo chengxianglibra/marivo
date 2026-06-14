@@ -360,7 +360,7 @@ def _make_entity_brief(**overrides: object) -> ms.EntityBrief:
         ),
         "column_profiles": (
             ColumnProfile(
-                column="order_id",
+                name="order_id",
                 data_type="int64",
                 nullable=False,
                 comment=None,
@@ -373,7 +373,7 @@ def _make_entity_brief(**overrides: object) -> ms.EntityBrief:
                 max_value=5000,
             ),
             ColumnProfile(
-                column="amount",
+                name="amount",
                 data_type="float64",
                 nullable=True,
                 comment=None,
@@ -471,7 +471,7 @@ def test_entity_brief_render_truncation_hint_when_many_columns() -> None:
 
     many_profiles = tuple(
         ColumnProfile(
-            column=f"col_{i}",
+            name=f"col_{i}",
             data_type="varchar",
             nullable=True,
             comment=None,

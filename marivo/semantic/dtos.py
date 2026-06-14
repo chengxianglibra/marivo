@@ -309,7 +309,7 @@ class EntityBrief(_BriefResult):
 
     def render(self) -> str:
         profile_rows = [
-            [p.column, p.data_type, str(p.distinct_count), str(p.null_count)]
+            [p.name, p.data_type, str(p.distinct_count), str(p.null_count)]
             for p in self.column_profiles[:8]
         ]
         parts: list[str] = [f"questions={len(self.questions)} issues={len(self.issues)}"]

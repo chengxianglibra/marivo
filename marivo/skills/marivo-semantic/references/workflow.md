@@ -99,12 +99,12 @@ if verify.status == "failed":
 
 ## Rung 3: Dimensions
 
-Batch preparation for scan economy; author one dimension at a time.
+Prepare one dimension at a time, then author and verify.
 
 ```python
-dim_briefs = ms.prepare_dimensions(
+dim_brief = ms.prepare_dimension(
     entity="sales.orders",
-    columns=("region", "status"),
+    column="region",
     scope=md.ScanScope(),
 )
 ```

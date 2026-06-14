@@ -116,12 +116,12 @@ def test_prepare_entity_collects_metadata_profiles_and_matches(
 
     assert brief.status == "sufficient"
     assert brief.table.table == "orders"
-    assert [profile.column for profile in brief.column_profiles] == ["order_id", "dt"]
+    assert [profile.name for profile in brief.column_profiles] == ["order_id", "dt"]
     assert "dt" in brief.time_like_columns
     assert brief.scan.partition_resolution == "unpruned"
 
 
-def test_prepare_dimensions_blocks_unknown_column(tmp_path: Path, semantic_project_factory) -> None:
+def test_prepare_dimension_blocks_unknown_column(tmp_path: Path, semantic_project_factory) -> None:
     import ibis
 
     import marivo.datasource as md
@@ -149,17 +149,17 @@ def test_prepare_dimensions_blocks_unknown_column(tmp_path: Path, semantic_proje
 
     project.verify_object("sales.orders")
 
-    brief = project.prepare_dimensions(
+    brief = project.prepare_dimension(
         entity="sales.orders",
-        columns=("missing_col",),
+        column="missing_col",
         scope=md.ScanScope(partition=None),
-    )[0]
+    )
 
     assert brief.status == "blocked"
     assert brief.issues[0].kind == "missing_column"
 
 
-def test_prepare_dimensions_warns_on_shadowing_column(
+def test_prepare_dimension_warns_on_shadowing_column(
     tmp_path: Path, semantic_project_factory
 ) -> None:
     import ibis
@@ -191,14 +191,12 @@ def test_prepare_dimensions_warns_on_shadowing_column(
     project.load()
     project.verify_object("sales.orders")
 
-    briefs = project.prepare_dimensions(
+    # schema column should have a shadowing warning
+    schema_brief = project.prepare_dimension(
         entity="sales.orders",
-        columns=("schema", "region"),
+        column="schema",
         scope=md.ScanScope(partition=None),
     )
-
-    # schema column should have a shadowing warning
-    schema_brief = briefs[0]
     assert schema_brief.column == "schema"
     assert schema_brief.status == "sufficient"  # warning does not block
     shadow_issues = [i for i in schema_brief.issues if i.kind == "ibis_attribute_shadowing"]
@@ -207,7 +205,11 @@ def test_prepare_dimensions_warns_on_shadowing_column(
     assert 'table["schema"]' in shadow_issues[0].message
 
     # region column should have no shadowing warning
-    region_brief = briefs[1]
+    region_brief = project.prepare_dimension(
+        entity="sales.orders",
+        column="region",
+        scope=md.ScanScope(partition=None),
+    )
     assert region_brief.column == "region"
     assert region_brief.status == "sufficient"
     shadow_issues = [i for i in region_brief.issues if i.kind == "ibis_attribute_shadowing"]
