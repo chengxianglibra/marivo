@@ -58,6 +58,18 @@ business event represented by the column, such as order creation, payment,
 shipment, cancellation, or ledger posting. Preview values and cite metadata
 before making the dimension the default time axis for metrics or entities.
 
+## date_format vs required_prefix on hour-only time dimensions
+
+`date_format` and `required_prefix` are mutually exclusive on string/integer
+hour-granularity time dimensions. The decorator rejects both set together.
+
+Choose by column shape — single column with date+hour (e.g. `"2025061403"`)
+uses `date_format="%Y%m%d%H"`; separate day and hour columns use
+`required_prefix` on the hour dimension and omit `date_format`. When
+`required_prefix` is set, Marivo concatenates the prefix value with the hour
+column at query time, so a `date_format` would create conflicting
+interpretation paths. See authoring-patterns for the full code examples.
+
 ## Parsed partition dimension default
 
 Do not make cast/parse expressions the partition dimension default when a day/hour
