@@ -9,6 +9,7 @@ from marivo.datasource.authoring import DatasourceSpec
 from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.loader import load_datasources
+from marivo.datasource.secrets import conventional_env_var
 from marivo.project import resolve_project_root
 
 
@@ -33,7 +34,11 @@ def _write_datasource_file(
     path = datasource_path(spec.name, project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     kwargs = {"name": spec.name, "backend_type": spec.backend_type, **dict(spec.fields)}
-    kwargs.update({f"{key}_env": value for key, value in spec.env_refs.items()})
+    # Only write explicit *_env overrides; conventional names are implied.
+    for stem, env_var in spec.env_refs.items():
+        if env_var == conventional_env_var(spec.name, stem):
+            continue
+        kwargs[f"{stem}_env"] = env_var
     lines = ["import marivo.datasource as md", "", "datasource = md.DatasourceSpec("]
     if spec.description is not None:
         kwargs["description"] = spec.description

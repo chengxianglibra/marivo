@@ -301,3 +301,81 @@ def test_clickhouse_optional_fields_pass_through(
     assert captured["secure"] is True
     assert captured["compression"] == "lz4"
     assert captured["settings"] == {"max_execution_time": 60}
+
+
+# ---------------------------------------------------------------------------
+# Conventional env var fallback for _effective_kwargs
+# ---------------------------------------------------------------------------
+
+
+def test_effective_kwargs_falls_back_to_conventional_env_var(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When no explicit *_env is given, try MARIVO_{NAME}_{STEM} convention."""
+    monkeypatch.setenv("MARIVO_WAREHOUSE_PASSWORD", "conv-secret")
+    monkeypatch.delenv("TRINO_PASSWORD", raising=False)
+    # No password_env specified — convention should kick in.
+    datasource = datasource_store.save_one(
+        _spec("warehouse", backend_type="trino", host="h", catalog="c")
+    )
+    effective = datasource_backends._effective_kwargs(datasource)
+    assert effective.kwargs["password"] == "conv-secret"
+
+
+def test_conventional_fallback_silent_when_not_set(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When conventional env var is not set, no error — field just absent."""
+    monkeypatch.delenv("MARIVO_WAREHOUSE_PASSWORD", raising=False)
+    monkeypatch.delenv("MARIVO_WAREHOUSE_USER", raising=False)
+    datasource = datasource_store.save_one(
+        _spec("warehouse", backend_type="trino", host="h", catalog="c")
+    )
+    effective = datasource_backends._effective_kwargs(datasource)
+    assert "password" not in effective.kwargs
+    assert "user" not in effective.kwargs
+    # Non-sensitive fields still present.
+    assert effective.kwargs["host"] == "h"
+    assert effective.kwargs["catalog"] == "c"
+
+
+def test_explicit_env_ref_overrides_convention(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Explicit *_env takes precedence over conventional name."""
+    monkeypatch.setenv("CUSTOM_PASSWORD_VAR", "custom-secret")
+    monkeypatch.setenv("MARIVO_WAREHOUSE_PASSWORD", "conv-secret")
+    datasource = datasource_store.save_one(
+        _spec(
+            "warehouse",
+            backend_type="trino",
+            host="h",
+            catalog="c",
+            password_env="CUSTOM_PASSWORD_VAR",
+        )
+    )
+    effective = datasource_backends._effective_kwargs(datasource)
+    assert effective.kwargs["password"] == "custom-secret"
+
+
+def test_conventional_env_var_uses_cache(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Conventional fallback also resolves from secrets.toml cache."""
+    monkeypatch.delenv("MARIVO_WAREHOUSE_PASSWORD", raising=False)
+
+    class _CacheProvider:
+        def get(self, name: str) -> str | None:
+            return "cached-secret" if name == "MARIVO_WAREHOUSE_PASSWORD" else None
+
+    monkeypatch.setattr(
+        datasource_secrets,
+        "default_chain",
+        lambda: (_CacheProvider(),),
+    )
+    datasource = datasource_store.save_one(
+        _spec("warehouse", backend_type="trino", host="h", catalog="c")
+    )
+    effective = datasource_backends._effective_kwargs(datasource)
+    assert effective.kwargs["password"] == "cached-secret"
+    assert effective.env_sourced_secrets == ()
