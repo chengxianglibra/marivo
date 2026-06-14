@@ -76,7 +76,12 @@ def _execute_file(
 
 
 def load_datasources(root: Path) -> DatasourceLoadResult:
-    """Load datasource declarations from ``models/datasources/``."""
+    """Load datasource declarations from ``models/datasources/``.
+
+    Internal loader used by ``store.load_all()``.  Not part of the public
+    ``md.*`` surface — use ``md.list()`` or ``md.describe()`` to browse
+    configured datasources, and ``md.register()`` to create new ones.
+    """
     errors: list[Exception] = []
     if not root.exists():
         return DatasourceLoadResult(datasources=(), errors=())

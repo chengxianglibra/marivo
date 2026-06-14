@@ -10,7 +10,6 @@ from marivo.datasource.ir import (
     DatasourceIR,
     DatasourceSourceLocation,
 )
-from marivo.datasource.loader import load_datasources
 from marivo.datasource.manage import (
     DatasourceDescription,
     DatasourceSummary,
@@ -80,7 +79,6 @@ __all__ = [
     "inspect_source",
     "inspect_table",
     "list",
-    "load_datasources",
     "preview",
     "probe_join_keys",
     "ref",

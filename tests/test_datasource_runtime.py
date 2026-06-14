@@ -65,3 +65,24 @@ def test_session_backend_is_reused_until_close(
 
 def test_datasource_module_exposes_runtime_service() -> None:
     assert md.DatasourceConnectionService is runtime.DatasourceConnectionService
+
+
+def test_py_file_datasource_visible_via_list(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Datasources authored as .py files in models/datasources/ are
+    discoverable via md.list() without calling md.register()."""
+    (tmp_path / "marivo.toml").touch()
+    ds_dir = tmp_path / "models" / "datasources"
+    ds_dir.mkdir(parents=True)
+    (ds_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+
+    monkeypatch.setattr("marivo.project.Path.cwd", lambda: tmp_path)
+    monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
+
+    summaries = md.list()
+    names = [s.name for s in summaries]
+    assert "warehouse" in names
