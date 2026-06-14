@@ -158,7 +158,7 @@ def _dedupe(values: Iterable[str]) -> tuple[str, ...]:
 def _decision_record_summary(project: SemanticProject, refs: Iterable[str]) -> tuple[str, ...]:
     from marivo.semantic.ledger import LedgerStore
 
-    store = LedgerStore(project.semantic_root)
+    store = LedgerStore(project.state_root)
     records: list[str] = []
     for ref in refs:
         record = store.read_object(ref)
@@ -249,7 +249,7 @@ def _evidence_ledger_blockers(project: SemanticProject) -> list[ReadinessIssue]:
     Mapping: time_dimension -> time_dimension_identity, metric -> metric_decomposition."""
     from marivo.semantic.ledger import LedgerStore
 
-    store = LedgerStore(project.root)
+    store = LedgerStore(project.state_root)
     kinds, _objects = _object_maps(project)
     issues: list[ReadinessIssue] = []
     for semantic_id, kind in kinds.items():
@@ -415,7 +415,7 @@ def _decision_record_refs(project: SemanticProject) -> tuple[str, ...]:
     from marivo.semantic.ledger import LedgerStore
 
     refs: list[str] = []
-    for record in LedgerStore(project.root).iter_object_records():
+    for record in LedgerStore(project.state_root).iter_object_records():
         refs.extend(
             f"{record.semantic_id}:{decision.decision_kind}" for decision in record.decisions
         )
@@ -426,7 +426,7 @@ def _abandoned_candidates(project: SemanticProject) -> tuple[Any, ...]:
     """Return authoring-abandoned rejected candidates from the project ledger."""
     from marivo.semantic.ledger import LedgerStore
 
-    store = LedgerStore(project.semantic_root)
+    store = LedgerStore(project.state_root)
     return tuple(
         c for c in store.list_rejected_candidates() if c.decision_kind == "authoring_abandoned"
     )

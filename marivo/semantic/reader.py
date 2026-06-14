@@ -5,11 +5,14 @@ Agent-facing semantic reading goes through ``ms.load()`` and ``SemanticCatalog``
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from marivo.datasource.ir import DatasourceIR, EntitySourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
@@ -36,6 +39,8 @@ from marivo.semantic.errors import (
     _raise,
 )
 from marivo.semantic.ir import (
+    DimensionIR,
+    MetricIR,
     SymbolKind,
 )
 from marivo.semantic.loader import LoadResult, load_project
@@ -93,6 +98,42 @@ class _DepNode:
     semantic_id: str
     kind: SymbolKind
     children: tuple[_DepNode, ...]
+
+
+def _semantic_fingerprint(payload: dict[str, object]) -> str:
+    """Deterministic sha256 fingerprint for auto-recorded decision evidence."""
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _time_dimension_identity_fingerprint(field_ir: DimensionIR) -> str:
+    """Fingerprint for time_dimension_identity decisions over a DimensionIR."""
+    return _semantic_fingerprint(
+        {
+            "data_type": field_ir.data_type,
+            "granularity": field_ir.granularity,
+            "format": field_ir.format,
+            "timezone": field_ir.timezone,
+            "required_prefix": field_ir.required_prefix,
+            "is_default": field_ir.is_default,
+        }
+    )
+
+
+def _metric_decomposition_fingerprint(metric_ir: MetricIR) -> str:
+    """Fingerprint for metric_decomposition decisions over a MetricIR."""
+    time_fold_label = metric_ir.time_fold.label() if metric_ir.time_fold is not None else None
+    return _semantic_fingerprint(
+        {
+            "decomposition_kind": metric_ir.decomposition.kind,
+            "decomposition_components": dict(metric_ir.decomposition.components),
+            "additivity": metric_ir.additivity,
+            "is_derived": metric_ir.is_derived,
+            "time_fold": time_fold_label,
+        }
+    )
 
 
 class SemanticProject:
@@ -522,10 +563,12 @@ class SemanticProject:
     ) -> VerifyResult:
         """Verify a single authored semantic object is reachable and valid.
 
-        For domains and relationships this is a static-only check. For entities,
-        a scoped preview confirms the datasource is reachable and the expression
-        is valid. For dimensions, time dimensions, metrics, and derived metrics
-        the check is static-only for now.
+        For domains, relationships, and dimensions this is a static-only check.
+        For entities, a scoped preview confirms the datasource is reachable and
+        the expression is valid. For time dimensions, metrics, and derived
+        metrics, the check is static and auto-records a decision into the
+        evidence ledger (``time_dimension_identity`` or ``metric_decomposition``
+        respectively).
 
         Parameters
         ----------
@@ -621,6 +664,26 @@ class SemanticProject:
                 auto_recorded=(),
             )
         if kind == "time_dimension":
+            field_ir = self._registry.fields.get(ref) if self._registry is not None else None
+            if field_ir is None:
+                return self._failed_verify(
+                    ref, "time_dimension", "authored_object_invalid", "Object is not loaded."
+                )
+            fingerprint = _time_dimension_identity_fingerprint(field_ir)
+            chosen = f"{field_ir.data_type}/{field_ir.granularity}"
+            recorded = self._auto_record_decision(
+                ref,
+                "time_dimension_identity",
+                chosen,
+                fingerprint,
+                qualifying_sources=("semantic_declaration",),
+                blast_radius=self.blast_radius_of((ref,)),
+                cited_source={
+                    "data_type": field_ir.data_type,
+                    "granularity": field_ir.granularity,
+                },
+            )
+            auto_recorded = (recorded,)
             return VerifyResult(
                 status="passed",
                 ref=ref,
@@ -628,28 +691,10 @@ class SemanticProject:
                 issues=(),
                 warnings=(),
                 scan=None,
-                auto_recorded=(),
+                auto_recorded=auto_recorded,
             )
-        if kind == "metric":
-            return VerifyResult(
-                status="passed",
-                ref=ref,
-                kind="metric",
-                issues=(),
-                warnings=(),
-                scan=None,
-                auto_recorded=(),
-            )
-        if kind == "derived_metric":
-            return VerifyResult(
-                status="passed",
-                ref=ref,
-                kind="derived_metric",
-                issues=(),
-                warnings=(),
-                scan=None,
-                auto_recorded=(),
-            )
+        if kind in ("metric", "derived_metric"):
+            return self._verify_metric(ref, kind)
 
         # Unknown kind fallback
         return self._failed_verify(
@@ -668,7 +713,8 @@ class SemanticProject:
             field = self._registry.fields[ref]
             return "time_dimension" if field.is_time_dimension else "dimension"
         if ref in self._registry.metrics:
-            return "metric"
+            metric = self._registry.metrics[ref]
+            return "derived_metric" if metric.is_derived else "metric"
         if ref in self._registry.relationships:
             return "relationship"
         return "unknown"
@@ -699,3 +745,111 @@ class SemanticProject:
             scan=None,
             auto_recorded=(),
         )
+
+    def _verify_metric(self, ref: str, kind: str) -> VerifyResult:
+        """Verify a base or derived metric and auto-record metric_decomposition."""
+        # Narrow from str to AuthoringObjectKind — mypy cannot narrow
+        # AuthoringObjectKind | Literal["unknown"] through ``in`` checks.
+        assert kind in ("metric", "derived_metric")
+        narrow_kind = cast("AuthoringObjectKind", kind)
+        metric_ir = self._registry.metrics.get(ref) if self._registry is not None else None
+        if metric_ir is None:
+            return self._failed_verify(
+                ref, narrow_kind, "authored_object_invalid", "Object is not loaded."
+            )
+        fingerprint = _metric_decomposition_fingerprint(metric_ir)
+        chosen = metric_ir.decomposition.kind
+        cited_source: dict[str, object] = {
+            "decomposition": metric_ir.decomposition.kind,
+            "components": dict(metric_ir.decomposition.components),
+            "additivity": metric_ir.additivity,
+        }
+        if kind == "derived_metric":
+            cited_source["is_derived"] = True
+        recorded = self._auto_record_decision(
+            ref,
+            "metric_decomposition",
+            chosen,
+            fingerprint,
+            qualifying_sources=("semantic_declaration",),
+            blast_radius=self.blast_radius_of((ref,)),
+            cited_source=cited_source,
+        )
+        return VerifyResult(
+            status="passed",
+            ref=ref,
+            kind=narrow_kind,
+            issues=(),
+            warnings=(),
+            scan=None,
+            auto_recorded=(recorded,),
+        )
+
+    def _auto_record_decision(
+        self,
+        ref: str,
+        decision_kind: str,
+        chosen: str,
+        evidence_fingerprint: str,
+        qualifying_sources: tuple[str, ...],
+        blast_radius: int,
+        cited_source: dict[str, object] | None = None,
+        cited_columns: tuple[str, ...] = (),
+    ) -> str:
+        """Auto-record a decision into the evidence ledger, with idempotency.
+
+        If a decision with the same *decision_kind* already exists and its
+        *evidence_fingerprint* matches, the existing entry is kept and no new
+        record is written.
+
+        If a decision with the same *decision_kind* exists but the fingerprint
+        differs (the declaration changed), the old decision is replaced.
+
+        Returns the decision ref string ``"{ref}:{decision_kind}"``.
+        """
+        from marivo.semantic.ledger import DecisionRecord, LedgerStore, ObjectEvidence
+
+        decision_ref = f"{ref}:{decision_kind}"
+        store = LedgerStore(self.state_root)
+        obj = store.read_object(ref)
+
+        # Check for an existing decision with the same kind.
+        if obj is not None:
+            for _idx, d in enumerate(obj.decisions):
+                if d.decision_kind == decision_kind:
+                    if d.evidence_fingerprint == evidence_fingerprint:
+                        # Same fingerprint — nothing to do.
+                        return decision_ref
+                    # Fingerprint changed — replace the stale decision.
+                    break  # fall through to write below
+
+        record = DecisionRecord(
+            decision_kind=decision_kind,
+            chosen=chosen,
+            agreement_confidence="high",
+            qualifying_sources=qualifying_sources,
+            materiality="high" if blast_radius > 0 else "low",
+            blast_radius=blast_radius,
+            evidence_fingerprint=evidence_fingerprint,
+            question_id=None,
+            decided_at=datetime.now(UTC).isoformat(),
+            cited_source=cited_source,
+            cited_columns=cited_columns,
+        )
+
+        if obj is not None and any(d.decision_kind == decision_kind for d in obj.decisions):
+            # Replace the stale decision with the same kind.
+            updated_decisions = tuple(d for d in obj.decisions if d.decision_kind != decision_kind)
+            store.write_object(
+                ObjectEvidence(
+                    semantic_id=obj.semantic_id,
+                    authored_at=obj.authored_at,
+                    decisions=(*updated_decisions, record),
+                    rejected_candidates=obj.rejected_candidates,
+                )
+            )
+        else:
+            # No existing decision with this kind — append a new one.
+            store.record_decision(ref, record)
+
+        return decision_ref
