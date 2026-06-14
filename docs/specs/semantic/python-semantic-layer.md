@@ -159,8 +159,11 @@ import marivo.semantic as ms
 catalog = ms.load()
 catalog.list().show()
 catalog.list("sales", kind="metric").show()
+catalog.list(kind="metric").show()             # all metrics across every domain
+catalog.list(domain="sales", kind="metric").show()  # metrics in one domain
 revenue = catalog.get("sales.revenue")
-print(revenue.details())
+revenue.details().show()                       # bounded details card
+revenue.children                               # child SemanticRef values
 ```
 
 目标态 reader / introspection surface 以 catalog methods 为主：
@@ -168,7 +171,7 @@ print(revenue.details())
 | API | 语义 |
 | --- | --- |
 | `ms.load(workspace_dir=None)` | 加载当前项目并返回 `SemanticCatalog` |
-| `catalog.list(parent=None, kind=None)` | 浏览 domain、datasource、entity、dimension、time_dimension、metric、relationship |
+| `catalog.list(parent=None, kind=None, domain=None)` | 浏览 domain、datasource、entity、dimension、time_dimension、metric、relationship；`domain=` 按域缩小范围；顶层 `kind="metric"` 跨域搜索 |
 | `catalog.get(ref)` | 按完整 semantic ref 读取单个 `SemanticObject` |
 | `catalog.preview(ref, limit=..., context_columns=None)` | 对 entity / dimension / time_dimension / metric 做有界预览 |
 | `catalog.readiness(refs=None)` | 对 handoff refs 做结构 readiness gate |
@@ -187,9 +190,9 @@ API 形态。`ms.help()` 打印帮助文本并返回 None。
 
 `find_project()` 的 project 判定只要求 `models/semantic/` 目录存在。空目录也算语义项目：`SemanticProject` 可返回，load 后 registry 为 `ready`，`catalog.list().objects` 返回空 tuple。如果 `models/semantic/` 存在但不是目录，必须 fail closed。
 
-Use `catalog.list(...)` to browse by domain and kind, then `catalog.get(ref).details()` for structured object inspection. The catalog surface is deterministic and does not depend on fuzzy or embedding-based recall.
+Use `catalog.list(...)` to browse by domain and kind, then `catalog.get(ref).details()` for structured object inspection. The catalog surface is deterministic and does not depend on fuzzy or embedding-based recall. At the top level (no parent), `kind="metric"` searches across all domains; `domain="sales"` scopes to a single domain.
 
-`catalog.list(...)` 和 `catalog.get(...)` 不写 stdout。需要人类可读输出时显式调用 `.show()`；程序化消费使用 `SemanticObject.ref`、`.details()` 和 `SemanticObjectList.objects`。
+`catalog.list(...)` 和 `catalog.get(...)` 不写 stdout。需要人类可读输出时显式调用 `.show()`；程序化消费使用 `SemanticObject.ref`、`.details()`、`.children` 和 `SemanticObjectList.objects`。`details()` 返回的结构化 dataclass 也支持 `.render()` / `.show()` 用于 agent-facing bounded card 输出。
 
 `catalog.get(ref).details()` 返回结构化 dataclass，而不是只打印文本。最小字段按对象类型暴露 `ref`、`kind`、`domain`、`description`、`business_definition`、`guardrails`、`parity_status`、`source_sql`、`python_symbol`、`source_location` 和 `unit` 等可用信息。对于 metric 对象，`unit` 字段来自 `MetricIR.unit`（默认 `None`）。
 

@@ -557,6 +557,7 @@ _EXPECTED_RUNTIME_KINDS = {
     "ladder_order",
     "unsupported_kind",
     "unsupported_list_parent",
+    "conflicting_parameters",
 }
 
 _EXPECTED_PARITY_KINDS = {

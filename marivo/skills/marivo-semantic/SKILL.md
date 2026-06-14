@@ -41,8 +41,12 @@ catalog = ms.load()
 catalog.list().show()                         # top-level: models and datasources
 catalog.list("sales").show()                  # datasets and metrics under a model
 catalog.list("sales.orders").show()           # fields, time fields, relationships, filtered metrics
+catalog.list(kind="metric").show()            # all metrics across every domain
+catalog.list(domain="sales", kind="metric").show()  # metrics in one domain
 revenue = catalog.get("sales.revenue")
 revenue.details()                             # kind-specific details
+revenue.details().show()                      # bounded details card
+revenue.children                              # child refs (empty for leaf objects)
 ```
 
 Use `ms.help(ref)` for a bounded consumption briefing on any semantic ref.
