@@ -17,7 +17,7 @@ def test_scan_scope_defaults_are_agent_safe() -> None:
 
     assert scope.partition == "latest"
     assert scope.max_rows == 1000
-    assert scope.max_columns == 50
+    assert scope.max_columns == 100
     assert scope.timeout_seconds == 30
     with pytest.raises(FrozenInstanceError):
         scope.max_rows = 10  # type: ignore[misc]
@@ -128,3 +128,35 @@ def test_probe_join_keys_reports_match_and_cardinality(tmp_path: Path) -> None:
     assert probe.match_rate == 0.5
     assert probe.max_rows_per_key == 2
     assert probe.cardinality_estimate == "many_to_one"
+
+
+def test_inspect_columns_warns_on_column_truncation(tmp_path: Path) -> None:
+    db_path = tmp_path / "warehouse.duckdb"
+    import ibis
+
+    con = ibis.duckdb.connect(db_path)
+    # Create a wide table with 105 columns to exceed the default max_columns=100.
+    data: dict[str, list[int]] = {f"col_{i:03d}": [1, 2] for i in range(105)}
+    con.create_table("wide_table", data)
+    con.disconnect()
+    md.register(
+        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        project_root=tmp_path,
+    )
+
+    inspection = md.inspect_columns(
+        "warehouse",
+        md.table("wide_table"),
+        scope=md.ScanScope(partition=None, max_rows=2),
+        project_root=tmp_path,
+    )
+
+    # Only the first 100 columns are profiled.
+    assert len(inspection.profiles) == 100
+    # The scan report carries a truncation warning.
+    assert len(inspection.scan.warnings) >= 1
+    warning = inspection.scan.warnings[0]
+    assert "max_columns=100" in warning
+    assert "5 columns not profiled" in warning
+    assert "col_100" in warning  # first omitted column
+    assert "ScanScope(max_columns=105)" in warning
