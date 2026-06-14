@@ -62,7 +62,7 @@ def _constraint(
     )
 
 
-_DATASOURCE_DOC = "marivo-skills/marivo-semantic/references/datasource.md"
+_DATASOURCE_DOC = "marivo/skills/marivo-semantic/references/datasource.md"
 
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
     ConstraintId.DATASOURCE_NAME_GLOBAL: _constraint(

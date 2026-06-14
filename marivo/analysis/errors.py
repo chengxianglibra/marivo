@@ -130,7 +130,7 @@ class MetricNotFoundError(AnalysisError):
                 'session.observe(catalog.get("<registered_metric_id>"), '
                 'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
             ),
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -145,7 +145,7 @@ class WindowInvalidError(AnalysisError):
                 'session.observe(session.catalog.get("sales.revenue"), '
                 'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
             ),
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -179,7 +179,7 @@ class SemanticKindMismatchError(AnalysisError):
                     'region = session.catalog.get("sales.orders.region").ref\n'
                     "session.discover.driver_axes(delta, search_space=[region])"
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         got_semantic_shape = self.details.get("got_semantic_shape")
         expected_semantic_shape = self.details.get("expected_semantic_shape")
@@ -197,7 +197,7 @@ class SemanticKindMismatchError(AnalysisError):
                     f'if frame.semantic_shape == "{expected_semantic_shape}":\n'
                     f"    typed = frame.as_{expected_semantic_shape}()"
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         intent = self.details.get("intent")
         predicted_semantic_shape = self.details.get("predicted_semantic_shape")
@@ -216,7 +216,7 @@ class SemanticKindMismatchError(AnalysisError):
                 "fix_snippet": (
                     f'frame = session.{intent}(metric, expect_shape="{predicted_semantic_shape}")'
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         got_attribution_shape = self.details.get("got_attribution_shape")
         expected_attribution_shape = self.details.get("expected_attribution_shape")
@@ -234,7 +234,7 @@ class SemanticKindMismatchError(AnalysisError):
                     f'if frame.attribution_shape == "{expected_attribution_shape}":\n'
                     f"    typed = frame.as_{expected_attribution_shape}()"
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         got_shape = self.details.get("got_shape")
         expected_shape = self.details.get("expected_shape")
@@ -249,7 +249,7 @@ class SemanticKindMismatchError(AnalysisError):
                     'if cands.meta.shape == "' + str(expected_shape) + '":\n'
                     "    typed = cands.as_" + str(expected_shape) + "()"
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         row_count = self.details.get("row_count")
         requested_rank = self.details.get("requested_rank")
@@ -264,7 +264,7 @@ class SemanticKindMismatchError(AnalysisError):
                     "if cands.meta.row_count >= 1:\n"
                     '    value = cands.select(rank=1, attribute="...")'
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         shape = self.details.get("shape")
         attribute = self.details.get("attribute")
@@ -290,7 +290,7 @@ class SemanticKindMismatchError(AnalysisError):
                 "location": "CandidateSet.select attribute argument",
                 "cause": cause,
                 "fix_snippet": (f'value = cands.select(rank=1, attribute="{first_valid}")'),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         objective = self.details.get("objective")
         source_kind_value = self.details.get("source_kind")
@@ -313,7 +313,7 @@ class SemanticKindMismatchError(AnalysisError):
                     f"semantic_kind {semantic_kind_value!r} on a {source_kind_value}; "
                     f"allowed semantic_kinds: {expected_kind_str}."
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         if isinstance(objective, str) and isinstance(source_kind_value, str):
             return {
@@ -322,7 +322,7 @@ class SemanticKindMismatchError(AnalysisError):
                     f"discover objective {objective!r} does not accept source kind "
                     f"{source_kind_value!r}; allowed source kinds: {expected_kind_str}."
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         if expected_kind_raw == "implemented_objective":
             return {
@@ -342,7 +342,7 @@ class SemanticKindMismatchError(AnalysisError):
         ):
             return {
                 "cause": "Input frame kind or value shape does not match the requested analysis operation.",
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         if expected_kind == "candidate_set":
             return {
@@ -355,7 +355,7 @@ class SemanticKindMismatchError(AnalysisError):
                     "cands = session.discover.point_anomalies(metric)\n"
                     'window = cands.select(rank=1, attribute="window")'
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         if expected_kind == "metric":
             return {
@@ -368,7 +368,7 @@ class SemanticKindMismatchError(AnalysisError):
                     'session.observe(session.catalog.get("sales.revenue"), '
                     'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         if got_kind != "delta_frame" or expected_kind != "metric_frame":
             return {
@@ -376,7 +376,7 @@ class SemanticKindMismatchError(AnalysisError):
                     f"got kind {got_kind}, expected {expected_kind}; input frame kind does not "
                     "match the requested analysis operation."
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         return {
             "location": "session.compare call",
@@ -392,7 +392,7 @@ class SemanticKindMismatchError(AnalysisError):
                 'timescope={"start": "2025-07-01", "end": "2025-10-01"})\n'
                 'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
             ),
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -417,7 +417,7 @@ class DiscoverInsufficientDataError(AnalysisError):
                 'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))\n'
                 'session.discover.period_shifts(delta, value="delta")  # use a wider window'
             ),
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -438,7 +438,7 @@ class AlignmentPolicyValidationError(AnalysisError):
                     '                   calendar=mv.CalendarRef("cn_holidays"),\n'
                     '                   period="month")'
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         if case == "legacy_calendar_bucket":
             return {
@@ -448,7 +448,7 @@ class AlignmentPolicyValidationError(AnalysisError):
                     "for request-window bucket spine alignment."
                 ),
                 "fix_snippet": 'mv.AlignmentPolicy(kind="window_bucket")',
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         if case == "unexpected_calendar":
             return {
@@ -458,11 +458,11 @@ class AlignmentPolicyValidationError(AnalysisError):
                     "accept a calendar argument."
                 ),
                 "fix_snippet": 'mv.AlignmentPolicy(kind="window_bucket")  # no calendar argument',
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         return {
             "location": "mv.AlignmentPolicy(...)",
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -488,7 +488,7 @@ class PromotionFailedError(AnalysisError):
                 )
                 if missing_fields & {"metric", "measure_column", "semantic_model"}
                 else "Pass the missing typed ref or column name shown in error details.",
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         ambiguous = self.details.get("ambiguous")
         catalog_misses = [
@@ -508,12 +508,12 @@ class PromotionFailedError(AnalysisError):
                     "catalog = ms.load()\n"
                     'catalog.list(kind="metric").show()  # pick a defined metric id, then re-promote'
                 ),
-                "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         return {
             "location": f"session.promote_{target}",
             "cause": "promotion metadata is incomplete or ambiguous.",
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -528,7 +528,7 @@ class TestShapeNotTestableError(AnalysisError):
                 'base = session.observe(revenue, timescope={"start": "2025-07-01", "end": "2025-08-01"}, grain="day")\n'
                 "session.hypothesis_test(cur, base)"
             ),
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -538,7 +538,7 @@ class TestPolicyError(AnalysisError):
             "location": "session.hypothesis_test policy arguments",
             "cause": "test v1 only supports mean_changed, window_bucket alignment, and shape-compatible SamplingPolicy.pairing.",
             "fix_snippet": "session.hypothesis_test(cur, base, sampling=mv.SamplingPolicy(pairing='window_bucket'), alpha=0.05)",
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -548,7 +548,7 @@ class TestAlignmentError(AlignmentFailedError):
             "location": "session.hypothesis_test alignment",
             "cause": "the input frames did not produce any paired samples after alignment and null dropping.",
             "fix_snippet": "session.hypothesis_test(cur, base, alignment=mv.AlignmentPolicy(kind='window_bucket'))",
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -558,7 +558,7 @@ class ForecastShapeUnsupportedError(AnalysisError):
             "location": "session.forecast input frame",
             "cause": "forecast v1 accepts only MetricFrame time_series or panel shapes.",
             "fix_snippet": 'history = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")\nsession.forecast(history, horizon=30)',
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -568,7 +568,7 @@ class ForecastPolicyError(AnalysisError):
             "location": "session.forecast policy arguments",
             "cause": "horizon, interval_level, model, seasonality_period, or grain is outside the v1 supported contract.",
             "fix_snippet": "session.forecast(history, horizon=30, model='seasonal_naive', seasonality_period=7, interval_level=0.95)",
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -578,7 +578,7 @@ class ForecastInsufficientHistoryError(AnalysisError):
             "location": "session.forecast history",
             "cause": "the time_series input has fewer training points than the selected model requires.",
             "fix_snippet": 'history = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")',
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -588,7 +588,7 @@ class ForecastInputQualityError(AnalysisError):
             "location": "session.forecast history data",
             "cause": "forecast does not silently impute NaN values or fill missing time buckets.",
             "fix_snippet": "clean = session.transform.window(history, window={...})  # or impute upstream before forecasting",
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -598,7 +598,7 @@ class QualityShapeUnsupportedError(AnalysisError):
             "location": "session.assess_quality target",
             "cause": "assess_quality v1 only supports MetricFrame targets; other frame families are planned for v1.1+.",
             "fix_snippet": "report = session.assess_quality(metric_frame)",
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -651,12 +651,12 @@ class FrameReadError(AnalysisError):
                 "location": "frame.preview(limit=...)",
                 "cause": "preview limit must be between 1 and 100.",
                 "fix_snippet": "frame.preview(limit=10)",
-                "doc": "marivo-skills/marivo-analysis/references/cheatsheet.md",
+                "doc": "marivo/skills/marivo-analysis/references/cheatsheet.md",
             }
         return {
             "location": "frame preview/read method",
             "cause": "frame read arguments are invalid.",
-            "doc": "marivo-skills/marivo-analysis/references/cheatsheet.md",
+            "doc": "marivo/skills/marivo-analysis/references/cheatsheet.md",
         }
 
 
@@ -705,7 +705,7 @@ class NoBackendFactoryError(AnalysisError):
                     'backend_factory=lambda name: ibis.duckdb.connect(":memory:"), '
                     "use_datasources=False)"
                 ),
-                "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+                "doc": "marivo/skills/marivo-semantic/references/datasource.md",
             }
         return {
             "location": "analysis runtime datasource backend factory",
@@ -720,7 +720,7 @@ class NoBackendFactoryError(AnalysisError):
                 "\n"
                 'md.register(md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:"))\n'
             ),
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -782,7 +782,7 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                 'session.observe(catalog.get("sales.revenue"), '
                 'dimensions=[catalog.get("<existing_dimension>").ref])'
             ),
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -800,7 +800,7 @@ class AmbiguousDimensionError(SemanticKindMismatchError):
                 f"dimension {dim_ref!r} matches multiple datasets ({candidate_list}); "
                 "v1 requires unique dimension names across a metric's datasets."
             ),
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -813,7 +813,7 @@ class DimensionAcrossDatasetsError(SemanticKindMismatchError):
                 "all dimensions must resolve to the same dataset in v1; "
                 f"got dimensions_by_dataset={mapping!r}."
             ),
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -840,7 +840,7 @@ class AxisNotInPanelDimensionsError(SemanticKindMismatchError):
                 'axis = session.catalog.get("<domain.entity.dimension>").ref\n'
                 "session.decompose(delta, axis=axis)"
             ),
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 
@@ -874,7 +874,7 @@ class SegmentDimensionMismatchError(AlignmentFailedError):
                 "delta = session.compare(current, baseline, "
                 'alignment=mv.AlignmentPolicy(kind="window_bucket"))'
             ),
-            "doc": "marivo-skills/marivo-analysis/references/pitfalls.md",
+            "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
 

@@ -496,7 +496,7 @@ repository. The maintained design references start at [`docs/README.md`](docs/RE
 
 The maintained agent guidance lives in:
 
-- `marivo-skills/marivo-semantic`
-- `marivo-skills/marivo-analysis`
+- `marivo/skills/marivo-semantic`
+- `marivo/skills/marivo-analysis`
 
 Examples under each skill are executable and checked by `make examples-check`.

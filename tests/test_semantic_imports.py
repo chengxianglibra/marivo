@@ -477,7 +477,7 @@ def test_removed_component_body_constraints_absent() -> None:
 
 def test_semantic_skill_constraint_table_matches_catalog() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    reference = repo_root / "marivo-skills/marivo-semantic/references/authoring-patterns.md"
+    reference = repo_root / "marivo/skills/marivo-semantic/references/authoring-patterns.md"
     text = reference.read_text()
 
     rows = re.findall(r"^\| `([^`]+)` \| [^|]+ \| `([^`]+)` \|$", text, re.MULTILINE)

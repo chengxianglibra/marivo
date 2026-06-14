@@ -24,8 +24,8 @@ def _load_runner_module() -> ModuleType:
 
 
 def _make_skill_tree(root: Path, skill_name: str, *, skill_md: str = "# placeholder\n") -> Path:
-    """Create a minimal marivo-skills/<skill_name>/... layout under root."""
-    skill_dir = root / "marivo-skills" / skill_name
+    """Create a minimal marivo/skills/<skill_name>/... layout under root."""
+    skill_dir = root / "marivo/skills" / skill_name
     examples_dir = skill_dir / "references" / "examples"
     (examples_dir / "_fixtures").mkdir(parents=True)
     (examples_dir / "_fixtures" / "__init__.py").write_text("")

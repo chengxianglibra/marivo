@@ -81,7 +81,14 @@ marivo.yaml
 !.claude/skills/marivo-test-fixtures/SKILL.md
 !.claude/skills/commit-attribution/
 !.claude/skills/commit-attribution/SKILL.md
+!.claude/skills/marivo-semantic/
+!.claude/skills/marivo-analysis/
+!.claude/skills/marivo-py-semantic/
+!.claude/skills/marivo-py-analysis/
 .codex/
+!.codex/skills/
+!.codex/skills/marivo-semantic/
+!.codex/skills/marivo-analysis/
 .agents/
 
 # Plan

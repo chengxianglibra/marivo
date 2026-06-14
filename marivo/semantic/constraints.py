@@ -151,7 +151,7 @@ def _constraint(
     )
 
 
-_EXAMPLE_BASE = "marivo-skills/marivo-semantic/references/examples"
+_EXAMPLE_BASE = "marivo/skills/marivo-semantic/references/examples"
 
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
     ConstraintId.ACTIVE_LOADER_CONTEXT: _constraint(
@@ -198,7 +198,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Names must be unique within their kind scope. Dimensions and time dimensions are scoped to their entity.",
         "Duplicate semantic ids within the same kind make registry lookups ambiguous. Dimensions are entity-scoped; entities and metrics are domain-scoped within their own kind.",
         "Rename one object, move it to a different entity (for dimensions), or use a different domain namespace.",
-        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+        docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.REF_SHAPE: _constraint(
         ConstraintId.REF_SHAPE,
@@ -248,7 +248,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ai_context must use the supported schema.",
         "Agent-facing metadata is persisted in a stable IR shape.",
         "Use business_definition, guardrails, synonyms, examples, instructions, and owner_notes.",
-        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+        docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.AST_SINGLE_RETURN: _constraint(
         ConstraintId.AST_SINGLE_RETURN,
@@ -359,7 +359,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Hour-only string/integer time dimensions need a day-level required_prefix.",
         "A standalone hour value is not a complete time axis.",
         "Set required_prefix to a registered day-level time dimension.",
-        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+        docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME: _constraint(
         ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME,
@@ -369,7 +369,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Sub-day granularity requires a time-bearing data_type.",
         "A time dimension declaring hour/minute/second granularity on data_type='date' cannot carry time-of-day information; string/integer formats that lack hour/minute/second tokens likewise cannot.",
         "Use data_type='datetime'/'timestamp', or a time-bearing string/integer format like yyyymmddhhmm.",
-        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+        docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.TIME_DIMENSION_PARTITION_PUSHDOWN: _constraint(
         ConstraintId.TIME_DIMENSION_PARTITION_PUSHDOWN,
@@ -379,7 +379,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Partition time dimensions should preserve raw sortable encodings when possible.",
         "Raw day/hour partition comparisons are easier for SQL engines to push down than parsed or cast expressions.",
         "For day/hour partition columns such as dt, log_date, event_date, hh, or log_hour, prefer data_type='string' or 'integer' with date_format and a bare column body; keep cast/parse expressions only when business time semantics require them.",
-        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+        docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.TIME_DIMENSION_DTYPE_COMPAT: _constraint(
         ConstraintId.TIME_DIMENSION_DTYPE_COMPAT,
@@ -389,7 +389,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Time dimension data_type declarations must be compatible with the body expression's ibis dtype.",
         "A mismatch between declared data_type and the actual ibis expression dtype causes TypeError at execution.",
         "Ensure the .cast() target in the body matches the declared data_type: .cast('date') → data_type='date'; .cast('timestamp') or raw timestamp column → data_type='datetime' or 'timestamp'.",
-        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+        docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE: _constraint(
         ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE,
@@ -615,7 +615,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Unqualified name lookups must resolve to a single object kind.",
         "Cross-kind name matches make registry lookups ambiguous.",
         "Use catalog.list(parent, kind=...) to narrow candidates, then catalog.get(ref).",
-        docs_ref="marivo-skills/marivo-semantic/references/authoring-patterns.md",
+        docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.BACKEND_FACTORY_AVAILABLE: _constraint(
         ConstraintId.BACKEND_FACTORY_AVAILABLE,

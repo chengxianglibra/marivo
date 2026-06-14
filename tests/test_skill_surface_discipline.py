@@ -25,7 +25,7 @@ import marivo.datasource.errors as datasource_errors
 import marivo.semantic as ms
 import marivo.semantic.errors as semantic_errors
 
-_SKILLS_ROOT = Path(__file__).resolve().parent.parent / "marivo-skills"
+_SKILLS_ROOT = Path(__file__).resolve().parent.parent / "marivo/skills"
 
 # (relative_md_path, type_or_marker) pairs that are intentionally allowed.
 _ALLOWLIST: frozenset[tuple[str, str]] = frozenset()

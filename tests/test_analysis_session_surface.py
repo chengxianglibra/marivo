@@ -215,10 +215,10 @@ _EXCLUDED_FILES = {
 
 
 def _scan_paths() -> list[Path]:
-    """Return all .py and .md paths under marivo, marivo-skills, docs/specs, and tests."""
+    """Return all .py and .md paths under marivo/skills, docs/specs, and tests."""
     repo_root = Path(__file__).resolve().parent.parent
     hits: list[Path] = []
-    for prefix in ("marivo-skills", "docs/specs"):
+    for prefix in ("marivo/skills", "docs/specs"):
         base = repo_root / prefix
         if not base.is_dir():
             continue

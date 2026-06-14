@@ -182,8 +182,8 @@ def test_current_semantic_docs_do_not_reference_removed_project_read_surface() -
         REPO_ROOT / "docs" / "specs" / "semantic" / "authoring-pipeline-design.md",
         REPO_ROOT / "docs" / "specs" / "semantic" / "python-semantic-layer.md",
         REPO_ROOT / "docs" / "specs" / "semantic" / "stepwise-authoring-design.md",
-        REPO_ROOT / "marivo-skills" / "marivo-semantic" / "references" / "closeout.md",
-        REPO_ROOT / "marivo-skills" / "marivo-semantic" / "references" / "preview.md",
+        REPO_ROOT / "marivo/skills" / "marivo-semantic" / "references" / "closeout.md",
+        REPO_ROOT / "marivo/skills" / "marivo-semantic" / "references" / "preview.md",
         REPO_ROOT / "marivo" / "semantic" / "reader.py",
         REPO_ROOT / "marivo" / "semantic" / "constraints.py",
         REPO_ROOT / "marivo" / "semantic" / "catalog.py",
@@ -361,31 +361,31 @@ def test_semantic_spec_mentions_no_stdout_contract() -> None:
 
 
 def test_analysis_skill_teaches_show_not_print_summary() -> None:
-    skill = _read("marivo-skills/marivo-analysis/SKILL.md")
+    skill = _read("marivo/skills/marivo-analysis/SKILL.md")
     assert "print(frame.summary())" not in skill
     assert ".show()" in skill
 
 
 def test_semantic_skill_rejects_format_json_examples() -> None:
-    skill = _read("marivo-skills/marivo-semantic/SKILL.md")
+    skill = _read("marivo/skills/marivo-semantic/SKILL.md")
     assert "format='json'" not in skill
     assert 'format="json"' not in skill
 
 
 def test_analysis_skill_rejects_format_json_examples() -> None:
-    skill = _read("marivo-skills/marivo-analysis/SKILL.md")
+    skill = _read("marivo/skills/marivo-analysis/SKILL.md")
     assert "format='json'" not in skill
     assert 'format="json"' not in skill
 
 
 def test_analysis_skill_rejects_display_true_examples() -> None:
-    skill = _read("marivo-skills/marivo-analysis/SKILL.md")
+    skill = _read("marivo/skills/marivo-analysis/SKILL.md")
     assert "display=True" not in skill
     assert "display=False" not in skill
 
 
 def test_semantic_skill_teaches_mv_help_ref() -> None:
-    skill = _read("marivo-skills/marivo-semantic/SKILL.md")
+    skill = _read("marivo/skills/marivo-semantic/SKILL.md")
     assert "mv.help(" in skill
 
 

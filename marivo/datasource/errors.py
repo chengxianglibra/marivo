@@ -93,7 +93,7 @@ class DatasourceSecretInPlaintextError(DatasourceError):
                 "md.datasource(datasource)\n"
                 f'# e.g. export TRINO_{field_ref.upper()}="<your secret>"'
             ),
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -108,7 +108,7 @@ class DatasourceFieldInvalidError(DatasourceError):
         return {
             "location": f"marivo/datasources/ entry {ds_ref!r} field {field_ref!r}",
             "cause": reason_ref,
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -121,7 +121,7 @@ class DatasourceLoadError(DatasourceError):
         return {
             "location": path_ref,
             "cause": reason_ref,
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -132,7 +132,7 @@ class DatasourceDuplicateError(DatasourceError):
         return {
             "location": f"marivo/datasources/ entry {ds_ref!r}",
             "cause": "duplicate datasource name",
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -162,7 +162,7 @@ class DatasourceMissingError(DatasourceError):
                 ")\n"
                 "# Sensitive fields go via *_env on DatasourceSpec."
             ),
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -179,7 +179,7 @@ class DatasourceSecretStorePermissionsError(DatasourceError):
                 "the file must be readable and writable only by the current user."
             ),
             "fix_snippet": "chmod 600 ~/.marivo/secrets.toml",
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -203,7 +203,7 @@ class DatasourceEnvVarMissingError(DatasourceError):
                 f"import marivo.datasource as md\n"
                 f'md.test("{ds_ref}")  # remembers the secret after validation'
             ),
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -222,7 +222,7 @@ class DatasourceBackendTypeUnsupportedError(DatasourceError):
         return {
             "location": "md backend dispatch",
             "cause": f"backend_type={bt_ref!r} is not handled by datasource backend dispatch; {supported_line}",
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -240,7 +240,7 @@ class DatasourceSchemaVersionError(DatasourceError):
                 f"datasource registry schema_version={got_ref} is not supported by this "
                 f"version of marivo.analysis (expected {expected_ref})."
             ),
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -260,7 +260,7 @@ class DatasourceConnectionError(DatasourceError):
                 "import marivo.datasource as md\n"
                 f"md.test({ds_ref!r})"
             ),
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 
@@ -283,7 +283,7 @@ class DatasourceMetadataError(DatasourceError):
                 f"md.test({ds_ref!r})\n"
                 f"md.inspect_table({ds_ref!r}, table={table_ref!r})"
             ),
-            "doc": "marivo-skills/marivo-semantic/references/datasource.md",
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
 
 

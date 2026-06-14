@@ -81,10 +81,10 @@ _EXAMPLE_PARAMS = [
 
 
 def test_semantic_skill_points_to_standard_metadata_api() -> None:
-    skill = _read("marivo-skills/marivo-semantic/SKILL.md")
-    workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
-    datasource = _read("marivo-skills/marivo-semantic/references/datasource.md")
-    evidence = _read("marivo-skills/marivo-semantic/references/evidence-and-ledger.md")
+    skill = _read("marivo/skills/marivo-semantic/SKILL.md")
+    workflow = _read("marivo/skills/marivo-semantic/references/workflow.md")
+    datasource = _read("marivo/skills/marivo-semantic/references/datasource.md")
+    evidence = _read("marivo/skills/marivo-semantic/references/evidence-and-ledger.md")
 
     assert "md.inspect_table" in datasource
     assert "md.inspect_columns" in datasource
@@ -98,20 +98,20 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
 
 def test_semantic_skill_uses_assess_authoring_not_next_checks() -> None:
     public_paths = [
-        "marivo-skills/marivo-semantic/SKILL.md",
-        "marivo-skills/marivo-semantic/references/workflow.md",
-        "marivo-skills/marivo-semantic/references/evidence-and-ledger.md",
-        "marivo-skills/marivo-semantic/references/closeout.md",
-        "marivo-skills/marivo-semantic/references/pitfalls.md",
-        "marivo-skills/marivo-semantic/references/examples/02_source_evidence_to_check.py",
-        "marivo-skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py",
+        "marivo/skills/marivo-semantic/SKILL.md",
+        "marivo/skills/marivo-semantic/references/workflow.md",
+        "marivo/skills/marivo-semantic/references/evidence-and-ledger.md",
+        "marivo/skills/marivo-semantic/references/closeout.md",
+        "marivo/skills/marivo-semantic/references/pitfalls.md",
+        "marivo/skills/marivo-semantic/references/examples/02_source_evidence_to_check.py",
+        "marivo/skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py",
     ]
     combined = "\n".join(_read(path) for path in public_paths)
     closeout = "\n".join(
         _read(path)
         for path in [
-            "marivo-skills/marivo-semantic/references/closeout.md",
-            "marivo-skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py",
+            "marivo/skills/marivo-semantic/references/closeout.md",
+            "marivo/skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py",
         ]
     )
 
@@ -140,7 +140,7 @@ def test_superseded_specs_point_to_authoring_pipeline_design() -> None:
 
 
 def test_semantic_ai_context_help_describes_handoff_not_check_input() -> None:
-    evidence = _read("marivo-skills/marivo-semantic/references/evidence-and-ledger.md")
+    evidence = _read("marivo/skills/marivo-semantic/references/evidence-and-ledger.md")
     from marivo.introspection.surface import render as surface_render
 
     help_mod = __import__(ms.help.__module__, fromlist=["_surface"])
@@ -153,11 +153,11 @@ def test_semantic_ai_context_help_describes_handoff_not_check_input() -> None:
 
 
 def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
-    skill = _read("marivo-skills/marivo-semantic/SKILL.md")
-    workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
-    datasource = _read("marivo-skills/marivo-semantic/references/datasource.md")
-    authoring = _read("marivo-skills/marivo-semantic/references/authoring-patterns.md")
-    pitfalls = _read("marivo-skills/marivo-semantic/references/pitfalls.md")
+    skill = _read("marivo/skills/marivo-semantic/SKILL.md")
+    workflow = _read("marivo/skills/marivo-semantic/references/workflow.md")
+    datasource = _read("marivo/skills/marivo-semantic/references/datasource.md")
+    authoring = _read("marivo/skills/marivo-semantic/references/authoring-patterns.md")
+    pitfalls = _read("marivo/skills/marivo-semantic/references/pitfalls.md")
 
     combined = "\n".join((skill, workflow, datasource, authoring, pitfalls))
     assert 'backend_type="trino"' in combined
@@ -180,10 +180,10 @@ def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
 
 
 def test_semantic_skill_prefers_native_datasource_backends() -> None:
-    skill = _read("marivo-skills/marivo-semantic/SKILL.md")
-    workflow = _read("marivo-skills/marivo-semantic/references/workflow.md")
-    datasource = _read("marivo-skills/marivo-semantic/references/datasource.md")
-    pitfalls = _read("marivo-skills/marivo-semantic/references/pitfalls.md")
+    skill = _read("marivo/skills/marivo-semantic/SKILL.md")
+    workflow = _read("marivo/skills/marivo-semantic/references/workflow.md")
+    datasource = _read("marivo/skills/marivo-semantic/references/datasource.md")
+    pitfalls = _read("marivo/skills/marivo-semantic/references/pitfalls.md")
 
     combined = "\n".join((skill, workflow, datasource, pitfalls))
     assert "Choose the native backend first" in datasource
@@ -206,7 +206,7 @@ def test_design_spec_marks_remaining_phases_implemented() -> None:
 
 
 def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
-    examples_dir = REPO_ROOT / "marivo-skills" / "marivo-semantic" / "references" / "examples"
+    examples_dir = REPO_ROOT / "marivo/skills" / "marivo-semantic" / "references" / "examples"
     expected = {
         "01_single_domain_file.py",
         "02_source_evidence_to_check.py",
@@ -215,14 +215,14 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     names = {path.name for path in examples_dir.glob("*.py")}
     assert expected == names
 
-    single = _read("marivo-skills/marivo-semantic/references/examples/01_single_domain_file.py")
+    single = _read("marivo/skills/marivo-semantic/references/examples/01_single_domain_file.py")
     evidence = _read(
-        "marivo-skills/marivo-semantic/references/examples/02_source_evidence_to_check.py"
+        "marivo/skills/marivo-semantic/references/examples/02_source_evidence_to_check.py"
     )
-    closeout_ref = _read("marivo-skills/marivo-semantic/references/closeout.md")
-    preview_ref = _read("marivo-skills/marivo-semantic/references/preview.md")
+    closeout_ref = _read("marivo/skills/marivo-semantic/references/closeout.md")
+    preview_ref = _read("marivo/skills/marivo-semantic/references/preview.md")
     closeout = _read(
-        "marivo-skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py"
+        "marivo/skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py"
     )
 
     assert "partition time dimension" in single
@@ -255,12 +255,12 @@ def test_semantic_docs_and_skills_use_verification_mode() -> None:
     paths = [
         "docs/specs/semantic/python-semantic-layer.md",
         "docs/specs/semantic/agent-semantic-layer-authoring-design.md",
-        "marivo-skills/marivo-semantic/SKILL.md",
-        "marivo-skills/marivo-semantic/references/authoring-patterns.md",
-        "marivo-skills/marivo-semantic/references/evidence-and-ledger.md",
-        "marivo-skills/marivo-semantic/references/closeout.md",
-        "marivo-skills/marivo-semantic/references/pitfalls.md",
-        "marivo-skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py",
+        "marivo/skills/marivo-semantic/SKILL.md",
+        "marivo/skills/marivo-semantic/references/authoring-patterns.md",
+        "marivo/skills/marivo-semantic/references/evidence-and-ledger.md",
+        "marivo/skills/marivo-semantic/references/closeout.md",
+        "marivo/skills/marivo-semantic/references/pitfalls.md",
+        "marivo/skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py",
     ]
     combined = "\n".join(_read(path) for path in paths)
 
@@ -281,8 +281,8 @@ def test_agent_semantic_authoring_spec_uses_current_readiness_closeout_contract(
 
 
 def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
-    authoring = _read("marivo-skills/marivo-semantic/references/authoring-patterns.md")
-    pitfalls = _read("marivo-skills/marivo-semantic/references/pitfalls.md")
+    authoring = _read("marivo/skills/marivo-semantic/references/authoring-patterns.md")
+    pitfalls = _read("marivo/skills/marivo-semantic/references/pitfalls.md")
 
     assert 'data_type="string"' in authoring
     assert 'date_format="%Y%m%d"' in authoring
@@ -296,8 +296,8 @@ def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
 
 
 def test_skills_document_uniform_help_contract() -> None:
-    semantic_skill = _read("marivo-skills/marivo-semantic/SKILL.md")
-    analysis_skill = _read("marivo-skills/marivo-analysis/SKILL.md")
+    semantic_skill = _read("marivo/skills/marivo-semantic/SKILL.md")
+    analysis_skill = _read("marivo/skills/marivo-analysis/SKILL.md")
 
     combined = "\n".join((semantic_skill, analysis_skill))
     # New contract: mv.help() is canonical; no format= in examples
@@ -364,12 +364,12 @@ def test_superseded_semantic_docs_point_to_stepwise_design() -> None:
 
 def test_semantic_skill_uses_stepwise_ladder_contract() -> None:
     paths = [
-        "marivo-skills/marivo-semantic/SKILL.md",
-        "marivo-skills/marivo-semantic/references/workflow.md",
-        "marivo-skills/marivo-semantic/references/datasource.md",
-        "marivo-skills/marivo-semantic/references/evidence-and-ledger.md",
-        "marivo-skills/marivo-semantic/references/closeout.md",
-        "marivo-skills/marivo-semantic/references/pitfalls.md",
+        "marivo/skills/marivo-semantic/SKILL.md",
+        "marivo/skills/marivo-semantic/references/workflow.md",
+        "marivo/skills/marivo-semantic/references/datasource.md",
+        "marivo/skills/marivo-semantic/references/evidence-and-ledger.md",
+        "marivo/skills/marivo-semantic/references/closeout.md",
+        "marivo/skills/marivo-semantic/references/pitfalls.md",
     ]
     combined = "\n".join(Path(path).read_text(encoding="utf-8") for path in paths)
 

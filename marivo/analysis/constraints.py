@@ -66,10 +66,10 @@ def _constraint(
     )
 
 
-_EXAMPLE_BASE = "marivo-skills/marivo-analysis/references/examples"
-_PITFALLS = "marivo-skills/marivo-analysis/references/pitfalls.md"
-_CHEATSHEET = "marivo-skills/marivo-analysis/references/cheatsheet.md"
-_DATASOURCE_DOC = "marivo-skills/marivo-semantic/references/datasource.md"
+_EXAMPLE_BASE = "marivo/skills/marivo-analysis/references/examples"
+_PITFALLS = "marivo/skills/marivo-analysis/references/pitfalls.md"
+_CHEATSHEET = "marivo/skills/marivo-analysis/references/cheatsheet.md"
+_DATASOURCE_DOC = "marivo/skills/marivo-semantic/references/datasource.md"
 
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
     ConstraintId.METRIC_REF_REGISTERED: _constraint(

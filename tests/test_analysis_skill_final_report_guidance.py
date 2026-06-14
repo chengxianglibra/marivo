@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SKILL_PATH = REPO_ROOT / "marivo-skills/marivo-analysis/SKILL.md"
-FINAL_REPORT_PATH = REPO_ROOT / "marivo-skills/marivo-analysis/references/final-report.md"
+SKILL_PATH = REPO_ROOT / "marivo/skills/marivo-analysis/SKILL.md"
+FINAL_REPORT_PATH = REPO_ROOT / "marivo/skills/marivo-analysis/references/final-report.md"
 
 
 def test_analysis_skill_links_final_report_guidance() -> None:
@@ -77,7 +77,7 @@ def test_final_report_guidance_covers_cdn_review_patterns() -> None:
 
 
 def test_analysis_cheatsheet_points_to_runtime_help_contract() -> None:
-    cheatsheet = (REPO_ROOT / "marivo-skills/marivo-analysis/references/cheatsheet.md").read_text()
+    cheatsheet = (REPO_ROOT / "marivo/skills/marivo-analysis/references/cheatsheet.md").read_text()
 
     assert "mv.help('discover')" in cheatsheet
     assert "mv.help('alignment')" in cheatsheet
