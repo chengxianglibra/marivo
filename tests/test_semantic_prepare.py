@@ -114,7 +114,7 @@ def test_prepare_entity_collects_metadata_profiles_and_matches(
         scope=md.ScanScope(partition=None, max_rows=10),
     )
 
-    assert brief.status == "needs_input"
+    assert brief.status == "sufficient"
     assert brief.table.table == "orders"
     assert [profile.column for profile in brief.column_profiles] == ["order_id", "dt"]
     assert "dt" in brief.time_like_columns
@@ -209,7 +209,7 @@ def test_prepare_relationship_uses_join_probe(tmp_path: Path, semantic_project_f
         scope=md.ScanScope(partition=None),
     )
 
-    assert brief.status == "needs_input"
+    assert brief.status == "sufficient"
     assert brief.probe.sampled_key_count == 3
     assert brief.probe.matched_key_count == 2
 

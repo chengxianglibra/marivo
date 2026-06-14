@@ -143,6 +143,29 @@ def derive_status(
     return "supported"
 
 
+def derive_brief_status(
+    issues: tuple[AssessmentIssue, ...],
+    questions: tuple[AuthoringQuestion, ...],
+) -> BriefStatus:
+    """Derive BriefStatus from issues and questions.
+
+    Mirrors :func:`derive_status` but returns the ``BriefStatus``
+    vocabulary (``"sufficient"`` instead of ``"supported"``).
+    """
+    if any(issue.severity == "blocker" for issue in issues):
+        return "blocked"
+    if any(question.readiness_effect == "blocks" for question in questions):
+        return "blocked"
+    if any(
+        issue.kind in {"missing_evidence", "missing_source"} and issue.severity != "info"
+        for issue in issues
+    ):
+        return "needs_input"
+    if any(question.readiness_effect == "warns" for question in questions):
+        return "needs_input"
+    return "sufficient"
+
+
 # ---------------------------------------------------------------------------
 # Stepwise authoring: Brief DTOs and result objects
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ from marivo.datasource.scan import (
 )
 from marivo.semantic.dtos import (
     AssessmentIssue,
+    AuthoringQuestion,
     BriefStatus,
     ComponentFact,
     CrossEntityMetricBrief,
@@ -42,6 +43,7 @@ from marivo.semantic.dtos import (
     RelationshipBrief,
     TimeDimensionBrief,
     VersioningHints,
+    derive_brief_status,
 )
 from marivo.semantic.reader import SemanticProject, _require_registry
 
@@ -206,8 +208,10 @@ def prepare_entity(
     source_key = source_to_dict(source)
     matches = _entity_matches(project, datasource=datasource, source_key=source_key, domain=domain)
     time_like = tuple(profile.column for profile in inspection.profiles if _looks_temporal(profile))
+    issues: tuple[AssessmentIssue, ...] = ()
+    questions: tuple[AuthoringQuestion, ...] = ()
     return EntityBrief(
-        status="needs_input",
+        status=derive_brief_status(issues=issues, questions=questions),
         datasource=datasource,
         source=source,
         domain=domain,
@@ -219,8 +223,8 @@ def prepare_entity(
         ),
         time_like_columns=time_like,
         matches=matches,
-        questions=(),
-        issues=(),
+        questions=questions,
+        issues=issues,
         scan=inspection.scan,
     )
 
@@ -264,7 +268,7 @@ def prepare_dimensions(
         issues = _missing_column_issue(entity, column) if is_missing else ()
         briefs.append(
             DimensionBrief(
-                status="blocked" if issues else "needs_input",
+                status=derive_brief_status(issues=issues, questions=()),
                 entity=entity,
                 column=column,
                 profile=profile or _unknown_profile(column),
@@ -314,8 +318,10 @@ def prepare_time_dimension(
     profile = inspection.profiles[0] if inspection.profiles else _unknown_profile(column)
     detected = _detect_time_formats(profile) if profile.column == column else ()
     existing_time_dims = _existing_time_dimensions(project, entity)
+    issues: tuple[AssessmentIssue, ...] = ()
+    questions: tuple[AuthoringQuestion, ...] = ()
     return TimeDimensionBrief(
-        status="needs_input",
+        status=derive_brief_status(issues=issues, questions=questions),
         entity=entity,
         column=column,
         profile=profile,
@@ -325,8 +331,8 @@ def prepare_time_dimension(
         granularity_evidence=None,
         cadence_estimate=None,
         existing_time_dimensions=existing_time_dims,
-        questions=(),
-        issues=(),
+        questions=questions,
+        issues=issues,
         scan=inspection.scan,
     )
 
@@ -386,15 +392,17 @@ def prepare_metric(
         )
         for dim in filter_dimensions
     )
+    issues: tuple[AssessmentIssue, ...] = ()
+    questions: tuple[AuthoringQuestion, ...] = ()
     return MetricBrief(
-        status="needs_input",
+        status=derive_brief_status(issues=issues, questions=questions),
         entity=entity,
         measure_profiles=measure_profiles,
         filter_dimension_values=filter_values,
         time_dimensions=time_dimensions,
         matches=(),
-        questions=(),
-        issues=(),
+        questions=questions,
+        issues=issues,
         scan=scan,
     )
 
@@ -440,8 +448,10 @@ def prepare_relationship(
         scope=scope,
         project_root=project.workspace_dir,
     )
+    issues: tuple[AssessmentIssue, ...] = ()
+    questions: tuple[AuthoringQuestion, ...] = ()
     return RelationshipBrief(
-        status="needs_input",
+        status=derive_brief_status(issues=issues, questions=questions),
         from_entity=from_entity,
         to_entity=to_entity,
         from_dimensions=tuple(from_dimensions),
@@ -451,8 +461,8 @@ def prepare_relationship(
         matches=_relationship_matches(
             project, from_entity, to_entity, from_dimensions, to_dimensions
         ),
-        questions=(),
-        issues=(),
+        questions=questions,
+        issues=issues,
     )
 
 
@@ -517,7 +527,7 @@ def prepare_cross_entity_metric(
         )
     root_time_dims = _existing_time_dimensions(project, root_entity)
     return CrossEntityMetricBrief(
-        status="blocked" if issues else "needs_input",
+        status=derive_brief_status(issues=issues, questions=()),
         root_entity=root_entity,
         entities=tuple(entities),
         join_paths=paths,
