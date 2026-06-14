@@ -89,7 +89,7 @@ def region(table):
         "synonyms": ["sales", "gmv"],
         "examples": ["What was revenue by region last week?"],
     },
-verification_mode="python_native",)
+)
 def revenue(table):
     return table.amount.sum()
 """

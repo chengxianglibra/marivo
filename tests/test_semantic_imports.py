@@ -46,7 +46,6 @@ from marivo.semantic.ir import (
     SourceLocation,
     SymbolKind,
     TimeDimensionRef,
-    VerificationMode,
 )
 
 # ---------------------------------------------------------------------------
@@ -661,12 +660,6 @@ def test_symbol_kind_values() -> None:
 def test_parity_status_values() -> None:
     expected = {"verified", "unverified", "drifted"}
     actual = {k.value for k in ParityStatus}
-    assert actual == expected
-
-
-def test_verification_mode_values() -> None:
-    expected = {"sql_parity", "python_native"}
-    actual = {k.value for k in VerificationMode}
     assert actual == expected
 
 

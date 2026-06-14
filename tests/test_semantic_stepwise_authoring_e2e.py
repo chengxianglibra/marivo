@@ -117,7 +117,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8")
         + "@ms.metric(entities=[orders], additivity='additive', "
-        "decomposition=ms.sum(), verification_mode='python_native')\n"
+        "decomposition=ms.sum(), )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n",
         encoding="utf-8",

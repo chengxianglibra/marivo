@@ -66,7 +66,6 @@ def region(table):
     additivity="additive",
     decomposition=ms.sum(),
     name="revenue",
-    verification_mode="sql_parity",
     source_sql="SELECT SUM(amount) AS revenue FROM orders",
     source_dialect="duckdb",
     ai_context={

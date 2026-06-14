@@ -12,7 +12,7 @@ catalog = ms.load()
 
 `readiness(...)` is a pure structural check — no datasource connection
 required. It verifies load errors, unknown refs, evidence ledger blockers,
-cross-datasource unfederated metrics, raw SQL requirements, strict
+cross-datasource unfederated metrics, SQL parity unverified warnings, strict
 enrichment issues (missing `business_definition` / `guardrails`), and load
 warnings forwarding.
 

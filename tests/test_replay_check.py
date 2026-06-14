@@ -40,7 +40,7 @@ SALES_FILES = {
         "    return orders.region.upper()\n"
         "\n"
         "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), "
-        "name='revenue', verification_mode='python_native')\n"
+        "name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     ),

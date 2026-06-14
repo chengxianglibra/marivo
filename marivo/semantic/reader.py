@@ -450,7 +450,7 @@ class SemanticProject:
 
         Performs pure in-memory checks without datasource connectivity:
         load errors, unknown refs, evidence ledger blockers, cross-datasource
-        unfederated metrics, raw SQL requirements, strict enrichment issues,
+        unfederated metrics, SQL parity unverified warnings, strict enrichment issues,
         and load warnings forwarding. Use ``refs`` to scope which semantic
         objects to check; by default all loaded objects are checked.
 

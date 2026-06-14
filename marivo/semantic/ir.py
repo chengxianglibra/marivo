@@ -54,7 +54,6 @@ __all__ = [
     "TimeDimensionRef",
     "TimeFoldIR",
     "ValidityVersioningIR",
-    "VerificationMode",
     "_BaseRef",
     "source_from_dict",
     "source_label",
@@ -96,13 +95,6 @@ class ParityStatus(StrEnum):
     VERIFIED = "verified"
     UNVERIFIED = "unverified"
     DRIFTED = "drifted"
-
-
-class VerificationMode(StrEnum):
-    """Author-declared metric verification mode."""
-
-    SQL_PARITY = "sql_parity"
-    PYTHON_NATIVE = "python_native"
 
 
 class MetricAdditivity(StrEnum):
@@ -198,11 +190,20 @@ def source_label(source: EntitySourceIR) -> str:
 
 @dataclass(frozen=True)
 class ProvenanceIR:
-    """Source provenance and verification mode for expression-bearing objects."""
+    """Source provenance for expression-bearing objects.
+
+    verification_mode is inferred from source_sql presence:
+    - source_sql present -> "sql_parity" (SQL provided -> parity expected)
+    - source_sql absent  -> None (trust the semantic body, no verification)
+    """
 
     source_sql: str | None = None
     source_dialect: str | None = None
-    verification_mode: Literal["sql_parity", "python_native"] | None = None
+
+    @property
+    def verification_mode(self) -> Literal["sql_parity"] | None:
+        """Inferred verification mode: sql_parity when source_sql is present."""
+        return "sql_parity" if self.source_sql is not None else None
 
 
 @dataclass(frozen=True)

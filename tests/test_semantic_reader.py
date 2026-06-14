@@ -21,7 +21,6 @@ _OBJECTS_PY = textwrap.dedent("""\
         entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
-        verification_mode="python_native",
     )
     def revenue(table):
         return table.amount.sum()

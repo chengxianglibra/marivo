@@ -102,7 +102,7 @@ def _duckdb_project_with_time_dimension_and_metric(tmp_path: Path, semantic_proj
                 "def dt(orders):\n"
                 "    return orders.dt\n"
                 "@ms.metric(entities=[orders], additivity='additive', "
-                "decomposition=ms.sum(), verification_mode='python_native')\n"
+                "decomposition=ms.sum(), )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             )
@@ -296,7 +296,7 @@ def test_verify_derived_metric_auto_records_decomposition(
                 "orders = ms.entity(name='orders', datasource='warehouse', "
                 "source=ms.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', "
-                "decomposition=ms.sum(), verification_mode='python_native')\n"
+                "decomposition=ms.sum(), )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
                 "revenue_ratio = ms.derived_metric(\n"
@@ -351,7 +351,7 @@ def test_verify_clears_readiness_unresolved_clarification(
                 "def dt(orders):\n"
                 "    return orders.dt\n"
                 "@ms.metric(entities=[orders], additivity='additive', "
-                "decomposition=ms.sum(), verification_mode='python_native')\n"
+                "decomposition=ms.sum(), )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             )

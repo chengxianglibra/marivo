@@ -55,7 +55,6 @@ def _bootstrap(tmp_path: Path) -> None:
         "    decomposition=ms.sum(),\n"
         "    fanout_policy='aggregate_then_join',\n"
         "    name='gmv_by_category',\n"
-        "    verification_mode='python_native',\n"
         "    )\n"
         "def gmv_by_category(orders, order_items):\n"
         "    return orders.amount.sum()\n"

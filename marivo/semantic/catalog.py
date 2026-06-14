@@ -245,7 +245,7 @@ class MetricDetails:
     additivity: Literal["additive", "semi_additive", "non_additive"] | None
     fanout_policy: Literal["block", "aggregate_then_join"]
     unit: str | None
-    verification_mode: Literal["sql_parity", "python_native"] | None
+    verification_mode: Literal["sql_parity"] | None
     parity_status: ParityStatus
     source_sql: str | None
     source_dialect: str | None

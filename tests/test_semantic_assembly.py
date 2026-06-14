@@ -120,7 +120,7 @@ def _make_registry(**overrides: object) -> Registry:
         entities=("sales.orders",),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
-        provenance=ProvenanceIR(verification_mode="python_native"),
+        provenance=ProvenanceIR(),
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc123",
@@ -167,7 +167,7 @@ def test_missing_entity_ref_on_metric() -> None:
         entities=("sales.nonexistent",),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
-        provenance=ProvenanceIR(verification_mode="python_native"),
+        provenance=ProvenanceIR(),
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
@@ -709,7 +709,6 @@ def test_sql_parity_metric_without_source_dialect_errors() -> None:
         decomposition=DecompositionIR(kind="sum"),
         provenance=ProvenanceIR(
             source_sql="SELECT SUM(amount) FROM orders",
-            verification_mode="sql_parity",
         ),
         description=None,
         ai_context=AiContextIR(),
@@ -725,7 +724,8 @@ def test_sql_parity_metric_without_source_dialect_errors() -> None:
     assert warnings == []
 
 
-def test_python_native_provenance_no_warning() -> None:
+def test_no_source_sql_no_error() -> None:
+    """Metric without source_sql should not produce provenance errors."""
     registry = _make_registry()
     registry.metrics["sales.native_metric"] = MetricIR(
         semantic_id="sales.native_metric",
@@ -734,7 +734,7 @@ def test_python_native_provenance_no_warning() -> None:
         entities=("sales.orders",),
         is_derived=False,
         decomposition=DecompositionIR(kind="sum"),
-        provenance=ProvenanceIR(verification_mode="python_native"),
+        provenance=ProvenanceIR(),
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
@@ -748,11 +748,11 @@ def test_python_native_provenance_no_warning() -> None:
 
 
 def test_no_source_sql_no_warning() -> None:
-    """python_native metric without source_sql should not produce warnings."""
+    """Metric without source_sql should not produce warnings."""
     registry = _make_registry()
     registry.metrics["sales.revenue"] = dataclasses.replace(
         registry.metrics["sales.revenue"],
-        provenance=ProvenanceIR(verification_mode="python_native"),
+        provenance=ProvenanceIR(),
     )
     errors, warnings = assembly_validate(registry)
     assert not errors
@@ -824,7 +824,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=["sales.orders"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=["sales.orders"], additivity="additive", decomposition=ms.sum(), )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -879,7 +879,7 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=["sales.nonexistent"], additivity="additive", decomposition=ms.sum(), verification_mode="python_native",)
+        @ms.metric(entities=["sales.nonexistent"], additivity="additive", decomposition=ms.sum(), )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -928,7 +928,6 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
             entities=[orders],
             additivity='additive',
             decomposition=ms.sum(),
-            verification_mode="python_native",
         )
         def revenue(table):
             return table.amount.sum()

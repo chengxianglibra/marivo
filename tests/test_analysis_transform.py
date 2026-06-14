@@ -71,7 +71,7 @@ def _bootstrap_sales(tmp_path, *, with_country=False):
         "    return orders.order_date.cast('date')\n"
         "\n"
         f"{country_field}"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
         "def revenue(orders):\n"
         "    return orders.revenue.sum()\n"
     )
@@ -1544,7 +1544,6 @@ def _bootstrap_bandwidth_for_rollup(tmp_path):
         "    entities=[bandwidth_samples],\n"
         "    additivity='semi_additive',\n"
         "    decomposition=ms.sum(),\n"
-        "    verification_mode='python_native',\n"
         "    time_fold=('quantile', 0.95),\n"
         "    status_time_dimension=sample_ts,\n"
         ")\n"

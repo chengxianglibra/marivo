@@ -59,7 +59,6 @@ def _bootstrap_one_to_many(tmp_path: Path, *, fanout_policy: str = "block") -> N
         "    decomposition=ms.sum(),\n"
         f"    fanout_policy='{fanout_policy}',\n"
         "    name='gmv_with_items',\n"
-        "    verification_mode='python_native',\n"
         "    )\n"
         "def gmv_with_items(orders, order_items):\n"
         "    return orders.amount.sum()\n"

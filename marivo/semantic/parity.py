@@ -131,16 +131,7 @@ def parity_check(
             refs=(metric_id,),
         )
 
-    if metric_ir.provenance.verification_mode != "sql_parity":
-        _raise(
-            ErrorKind.SOURCE_SQL_MISSING,
-            f"Metric {metric_id!r} does not use verification_mode='sql_parity'. "
-            f"Only SQL parity metrics can run parity checks.",
-            cls=SemanticParityError,
-            refs=(metric_id,),
-        )
-
-    # Must have source_sql
+    # Must have source_sql (enables parity verification)
     if not metric_ir.provenance.source_sql:
         _raise(
             ErrorKind.SOURCE_SQL_MISSING,
@@ -281,12 +272,12 @@ def compute_self_status(
 
     This is Step 1 of the two-step status computation.
 
-    | verification_mode | last parity_check | self status |
-    |-------------------|-------------------|-------------|
-    | "python_native"   | any               | VERIFIED    |
-    | "sql_parity"      | no / not run      | UNVERIFIED  |
-    | "sql_parity"      | ok=True           | VERIFIED    |
-    | "sql_parity"      | ok=False          | DRIFTED     |
+    | source_sql | last parity_check | self status |
+    |------------|-------------------|-------------|
+    | absent     | any               | VERIFIED    |
+    | present    | no / not run      | UNVERIFIED  |
+    | present    | ok=True           | VERIFIED    |
+    | present    | ok=False          | DRIFTED     |
 
     Derived metrics do not have a self verification mode. Their status is
     determined by propagated component statuses.
@@ -297,10 +288,10 @@ def compute_self_status(
     if metric_ir.is_derived:
         return ParityStatus.UNVERIFIED
 
-    if prov.verification_mode == "python_native":
+    if prov.source_sql is None:
         return ParityStatus.VERIFIED
 
-    # SQL parity metrics compute status from the latest in-memory parity result.
+    # Metrics with source_sql compute status from the latest in-memory parity result.
     parity_result = project._parity_results.get(metric_id)
 
     if parity_result is None:

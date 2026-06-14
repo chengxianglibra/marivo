@@ -251,7 +251,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "ms.richness(" in closeout
 
 
-def test_semantic_docs_and_skills_use_verification_mode() -> None:
+def test_semantic_docs_and_skills_cover_parity_verification() -> None:
     paths = [
         "docs/specs/semantic/python-semantic-layer.md",
         "docs/specs/semantic/agent-semantic-layer-authoring-design.md",
@@ -264,7 +264,7 @@ def test_semantic_docs_and_skills_use_verification_mode() -> None:
     ]
     combined = "\n".join(_read(path) for path in paths)
 
-    assert "verification_mode" in combined
+    assert "source_sql" in combined
     assert "declared_status" not in combined
 
 

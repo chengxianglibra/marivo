@@ -55,7 +55,7 @@ def order_date(table):
         "business_definition": "Gross order amount.",
         "guardrails": ["Unverified until parity or source evidence is supplied."],
     },
-verification_mode="python_native",)
+)
 def unverified_revenue(table):
     return table.amount.sum()
 
@@ -64,7 +64,6 @@ def unverified_revenue(table):
     additivity="additive",
     decomposition=ms.sum(),
     name="drifted_revenue",
-    verification_mode="sql_parity",
     source_sql="SELECT 999.0 AS drifted_revenue",
     source_dialect="duckdb",
     ai_context={

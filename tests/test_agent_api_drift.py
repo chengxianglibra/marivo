@@ -54,7 +54,7 @@ _OBJECTS_PY = textwrap.dedent("""\
     def created_at(table):
         return table.created_at
 
-    @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native',)
+    @ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )
     def total_revenue(table):
         return table.amount.sum()
 """)

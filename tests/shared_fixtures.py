@@ -202,7 +202,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )

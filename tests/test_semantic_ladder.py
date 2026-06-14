@@ -44,7 +44,7 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
                 "def region(orders):\n"
                 "    return orders.region\n"
                 "@ms.metric(entities=[orders], additivity='additive', "
-                "decomposition=ms.sum(), verification_mode='python_native')\n"
+                "decomposition=ms.sum(), )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             )
