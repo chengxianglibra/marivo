@@ -250,7 +250,7 @@ The agent should use `marivo.semantic` decorators and builders:
 - `ms.entity(...)`
 - `@ms.dimension(...)`
 - `@ms.time_dimension(...)`
-- `@ms.metric(..., verification_mode="python_native",)`
+- `@ms.metric(...)`
 - `ms.derived_metric(...)`
 - `ms.relationship(...)`
 - `ms.sum()`
@@ -385,7 +385,7 @@ It maps to semantic authoring fields:
 - `ai_context.owner_notes`
 - `source_sql`
 - `source_dialect`
-- `verification_mode`
+- `verification_mode` (inferred from `source_sql` presence)
 
 ### Runtime Evidence
 
@@ -598,7 +598,6 @@ Base metrics read datasets:
     datasets=[orders],
     additivity="additive",
     decomposition=ms.sum(),
-    verification_mode="sql_parity",
     source_sql="select sum(amount) from orders where pay_status = 1",
     source_dialect="trino",
     ai_context={
@@ -629,11 +628,12 @@ Rules:
 - do not default to `ms.sum()` when decomposition is unclear
 - ratios and averages require explicit components
 - source SQL provenance should be preserved when available
-- no-source base metrics must use `verification_mode="python_native"`
-- SQL-backed base metrics must use `verification_mode="sql_parity"` with
-  `source_sql` and `source_dialect`; status stays `unverified` until parity succeeds
+- no-source base metrics are trusted as semantically expressed (no `verification_mode` needed)
+- base metrics with `source_sql` automatically enable SQL parity verification;
+  status stays `unverified` until parity succeeds; `source_dialect` is required when
+  `source_sql` is set
 - derived metric readiness inherits component status; derived metrics must omit
-  `verification_mode`, `source_sql`, and `source_dialect`
+  `source_sql` and `source_dialect`
 
 ### Relationship
 

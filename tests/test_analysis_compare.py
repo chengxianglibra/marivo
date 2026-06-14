@@ -795,7 +795,7 @@ def _bootstrap_unit_sales_project(tmp_path) -> None:
         "    return orders.created_at.cast('date')\n"
         "\n"
         "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), "
-        "name='revenue', verification_mode='python_native', unit='CNY')\n"
+        "name='revenue',  unit='CNY')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )

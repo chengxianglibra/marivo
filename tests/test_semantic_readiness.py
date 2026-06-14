@@ -50,7 +50,6 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
         entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
-        verification_mode="python_native",
         description="Total revenue",
         ai_context={"business_definition": "Sum of order amount."},
     )
@@ -250,7 +249,6 @@ _COMMENTLESS_DOMAIN_PY = textwrap.dedent("""\
         entities=[orders],
         additivity='additive',
         decomposition=ms.sum(),
-        verification_mode="python_native",
     )
     def total_amount(table):
         return table.amount.sum()
@@ -270,7 +268,8 @@ def _issue_kinds(issues):
     return {issue.kind for issue in issues}
 
 
-def test_readiness_requires_raw_sql_blocker(semantic_project_factory) -> None:
+def test_readiness_sql_parity_unverified_warning(semantic_project_factory) -> None:
+    """Metric with source_sql should get a warning, not a blocker."""
     domain_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
@@ -281,7 +280,6 @@ def test_readiness_requires_raw_sql_blocker(semantic_project_factory) -> None:
             entities=[orders],
             additivity="additive",
             decomposition=ms.sum(),
-            verification_mode="sql_parity",
             source_sql="SELECT SUM(amount) AS total_amount FROM orders",
             source_dialect="duckdb",
             description="Total amount",
@@ -298,7 +296,8 @@ def test_readiness_requires_raw_sql_blocker(semantic_project_factory) -> None:
     )
 
     report = project.readiness(refs=("sales.total_amount",))
-    assert "requires_raw_sql" in _issue_kinds(report.blockers)
+    assert "requires_raw_sql" not in _issue_kinds(report.blockers)
+    assert "sql_parity_unverified" in _issue_kinds(report.warnings)
 
 
 def test_readiness_cross_datasource_unfederated(semantic_project_factory) -> None:
@@ -315,7 +314,6 @@ def test_readiness_cross_datasource_unfederated(semantic_project_factory) -> Non
             root_entity=orders,
             additivity="additive",
             decomposition=ms.sum(),
-            verification_mode="python_native",
             description="Cross metric",
             ai_context={"business_definition": "Cross-datasource metric."},
         )
@@ -355,7 +353,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -384,7 +382,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -423,7 +421,7 @@ def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_proje
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
                 "    ai_context={'business_definition': 'One row per order.'})\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', \n"
                 "    ai_context={'business_definition': 'Sum of amount.'})\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
@@ -472,7 +470,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native')\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }

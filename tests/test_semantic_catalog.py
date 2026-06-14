@@ -303,7 +303,7 @@ def test_metric_details_fields():
         additivity="additive",
         fanout_policy="block",
         unit=None,
-        verification_mode="python_native",
+        verification_mode=None,
         parity_status=ParityStatus.UNVERIFIED,
         source_sql=None,
         source_dialect=None,
@@ -366,7 +366,7 @@ def _make_metric_obj() -> SemanticObject:
         additivity="additive",
         fanout_policy="block",
         unit=None,
-        verification_mode="python_native",
+        verification_mode=None,
         parity_status=ParityStatus.UNVERIFIED,
         source_sql=None,
         source_dialect=None,
@@ -501,7 +501,6 @@ _DATASETS_PY = textwrap.dedent("""\
         entities=[orders],
         additivity="additive",
         decomposition=ms.sum(),
-        verification_mode="python_native",
         description="Gross revenue.",
     )
     def revenue(table):
@@ -835,7 +834,6 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
                     entities=[orders],
                     additivity="additive",
                     decomposition=ms.sum(),
-                    verification_mode="python_native",
                     description="Gross revenue.",
                     ai_context={"business_definition": "All completed order amounts."},
                 )
@@ -903,10 +901,10 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
                 "def order_count(table):\n"
                 "    return table.order_id.nunique()\n"
                 "conversion = ms.derived_metric(\n"
@@ -1071,7 +1069,6 @@ def test_catalog_load_reloads_project(semantic_project_factory):
                 entities=[orders],
                 additivity="additive",
                 decomposition=ms.sum(),
-                verification_mode="python_native",
                 description="Gross revenue.",
             )
             def revenue(table):
@@ -1081,7 +1078,6 @@ def test_catalog_load_reloads_project(semantic_project_factory):
                 entities=[orders],
                 additivity="additive",
                 decomposition=ms.sum(),
-                verification_mode="python_native",
                 description="Gross profit.",
             )
             def profit(table):
@@ -1265,7 +1261,7 @@ def _write_minimal_project(tmp_path) -> None:
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )
@@ -1289,7 +1285,7 @@ def _write_multi_domain_project(tmp_path) -> None:
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), verification_mode='python_native')\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )
@@ -1439,7 +1435,7 @@ _UNIT_DATASETS_PY = (
     "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
     "\n"
     "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', "
-    "verification_mode='python_native', unit='CNY')\n"
+    " unit='CNY')\n"
     "def revenue(orders):\n"
     "    return orders.amount.sum()\n"
 )

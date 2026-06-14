@@ -90,7 +90,7 @@ def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -115,7 +115,7 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
                 "@ms.dimension(entity=users)\n"
                 "def tier(users):\n"
                 "    return users.tier\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -160,7 +160,7 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
                 "@ms.dimension(entity=users)\n"
                 "def tier(users):\n"
                 "    return users.tier\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -207,7 +207,7 @@ def test_field_ref_not_found_adds_ibis_hint_for_builtin_names(semantic_project_f
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -245,7 +245,7 @@ def test_unique_shortest_path_and_join_safety(semantic_project_factory):
                 "@ms.dimension(entity=users)\n"
                 "def user_id(users):\n"
                 "    return users.user_id\n"
-                "@ms.metric(entities=[orders, users], root_entity=orders, additivity='additive', decomposition=ms.sum(), name='revenue', verification_mode='python_native',)\n"
+                "@ms.metric(entities=[orders, users], root_entity=orders, additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
                 "def revenue(orders, users):\n"
                 "    return orders.amount.sum()\n"
             ),

@@ -393,7 +393,6 @@ def _bootstrap_bandwidth_for_decompose(tmp_path):
         "    entities=[bandwidth_samples],\n"
         "    additivity='semi_additive',\n"
         "    decomposition=ms.sum(),\n"
-        "    verification_mode='python_native',\n"
         "    time_fold=('quantile', 0.95),\n"
         "    status_time_dimension=sample_ts,\n"
         ")\n"

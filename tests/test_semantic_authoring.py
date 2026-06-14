@@ -910,7 +910,6 @@ def test_metric_provenance_fields() -> None:
         @ms.metric(
             entities=["sales.orders"],
             decomposition=ms.sum(),
-            verification_mode="sql_parity",
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="ansi",
         )

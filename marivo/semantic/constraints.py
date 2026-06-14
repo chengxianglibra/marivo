@@ -460,9 +460,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_verification_mode",
         "assembly",
         ("metric",),
-        "Base metrics must declare a valid verification mode.",
-        "verification_mode separates author intent from computed verification status.",
-        "Use verification_mode='sql_parity' with source_sql/source_dialect, or verification_mode='python_native' without SQL provenance.",
+        "Metric provenance must be consistent.",
+        "source_sql enables SQL parity verification; derived metrics must omit source_sql and source_dialect.",
+        "Base metrics: add source_dialect when source_sql is set. Derived metrics: remove source_sql and source_dialect.",
     ),
     ConstraintId.METRIC_ROOT_ONLY_AGGREGATE: _constraint(
         ConstraintId.METRIC_ROOT_ONLY_AGGREGATE,

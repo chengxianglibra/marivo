@@ -17,7 +17,7 @@ ReadinessIssueKind = Literal[
     "load_error",
     "unknown_ref",
     "cross_datasource_unfederated",
-    "requires_raw_sql",
+    "sql_parity_unverified",
     "fragile_string_ref",
     "time_dimension_pushdown_advisory",
     "unresolved_clarification",
@@ -187,32 +187,10 @@ def _issue(
     )
 
 
-def _derive_raw_sql_required_refs(
-    kinds: Mapping[str, _SemanticKind],
-    objects: Mapping[str, object],
-) -> tuple[str, ...]:
-    """Metrics/datasets whose logic lives in source_sql, not the semantic API.
-
-    These objects are flagged as blockers because their business logic cannot
-    be expressed or drilled into through the semantic layer. Previously this
-    blocker was inert (raw_sql_required_refs defaulted to empty and nobody
-    passed it); auto-derivation makes it active.
-    """
-    refs: list[str] = []
-    for semantic_id, kind in kinds.items():
-        if kind not in {_SemanticKind.METRIC, _SemanticKind.ENTITY}:
-            continue
-        obj = objects.get(semantic_id)
-        if obj is None:
-            continue
-        provenance = getattr(obj, "provenance", None)
-        if (
-            provenance is not None
-            and getattr(provenance, "source_sql", None) is not None
-            and getattr(provenance, "verification_mode", None) != "python_native"
-        ):
-            refs.append(semantic_id)
-    return tuple(refs)
+def _parity_passed(project: SemanticProject, ref: str) -> bool:
+    """Check whether a metric with source_sql has passed parity verification."""
+    parity_result = project._parity_results.get(ref)
+    return parity_result is not None and parity_result.ok
 
 
 def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], dict[str, object]]:
@@ -558,20 +536,26 @@ def build_structural_readiness_report(
                     )
                 )
 
-    # Raw SQL required refs.
-    scoped_raw_sql_required_refs = _dedupe(
-        ref for ref in _derive_raw_sql_required_refs(kinds, objects) if ref in checked_ref_set
-    )
-    for ref in scoped_raw_sql_required_refs:
-        blockers.append(
-            _issue(
-                "requires_raw_sql",
-                "blocker",
-                (ref,),
-                f"{ref} requires raw SQL to express the business logic.",
-                "Represent the logic upstream or extend the semantic API before handoff.",
+    # SQL parity unverified warnings.
+    for ref in checked_refs:
+        if kinds.get(ref) != _SemanticKind.METRIC:
+            continue
+        obj = objects.get(ref)
+        if obj is None:
+            continue
+        prov = getattr(obj, "provenance", None)
+        if prov is None or getattr(prov, "source_sql", None) is None:
+            continue
+        if not _parity_passed(project, ref):
+            warnings.append(
+                _issue(
+                    "sql_parity_unverified",
+                    "warning",
+                    (ref,),
+                    f"{ref} has source_sql but parity has not been confirmed.",
+                    f"Run ms.parity_check({ref!r}) to verify.",
+                )
             )
-        )
 
     # Forward load warnings as readiness warnings.
     for sw in project.warnings():

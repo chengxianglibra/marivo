@@ -189,7 +189,7 @@ def test_promotion_semantic_anchors_accept_semantic_object(semantic_project_fact
                 "def country(orders):\n"
                 "    return orders.country\n"
                 "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), "
-                "name='revenue', verification_mode='python_native')\n"
+                "name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
