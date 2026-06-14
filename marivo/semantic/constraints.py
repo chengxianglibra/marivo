@@ -80,6 +80,7 @@ class ConstraintId(StrEnum):
     PROJECT_LOADED_REQUIRED = "project_loaded_required"
     CATALOG_KIND_VALID = "catalog_kind_valid"
     CATALOG_PARENT_BROWSABLE = "catalog_parent_browsable"
+    CATALOG_PARAMETERS_COMPATIBLE = "catalog_parameters_compatible"
     SAMPLE_INTERVAL_VALID = "sample_interval_valid"
     TIME_FOLD_VALID = "time_fold_valid"
     TIME_FOLD_SEMI_ADDITIVE = "time_fold_requires_semi_additive"
@@ -671,6 +672,17 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Only domain, datasource, and entity refs can be used as catalog.list() parents.",
         "Metrics, dimensions, time dimensions, and relationships are leaf objects with no children to list.",
         "Use catalog.get(ref).details() to inspect a leaf object's dependencies.",
+    ),
+    ConstraintId.CATALOG_PARAMETERS_COMPATIBLE: _constraint(
+        ConstraintId.CATALOG_PARAMETERS_COMPATIBLE,
+        "conflicting_parameters",
+        "runtime",
+        ("SemanticCatalog",),
+        "catalog.list() 'parent' and 'domain' are mutually exclusive.",
+        "The 'domain' parameter is a convenience shortcut for listing under a specific domain, "
+        "so it cannot be combined with 'parent'.",
+        "Use catalog.list(domain=...) with an optional kind= filter, "
+        "or catalog.list(parent=...) for hierarchy browsing.",
     ),
     ConstraintId.SAMPLE_INTERVAL_VALID: _constraint(
         ConstraintId.SAMPLE_INTERVAL_VALID,

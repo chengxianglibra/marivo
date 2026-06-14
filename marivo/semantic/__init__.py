@@ -7,6 +7,8 @@ Public surface::
     catalog = ms.load()                # returns SemanticCatalog
     catalog = ms.load(models=['sales'])  # filter to specific models
     catalog.list().show()
+    catalog.list(kind="metric").show()              # all metrics across domains
+    catalog.list(domain="sales", kind="metric").show()  # metrics in one domain
 
     ms.domain(name="sales", default=True)
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))

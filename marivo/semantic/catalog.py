@@ -23,6 +23,7 @@ from marivo.preview import (
     validate_preview_limit,
 )
 from marivo.render import format_bounded_card, result_repr
+from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import DatasetSource
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
@@ -126,7 +127,24 @@ class SemanticRef:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+def _render_details_card(
+    *,
+    identity: str,
+    status: str | None = None,
+    extra_lines: tuple[str, ...] = (),
+) -> str:
+    """Return a bounded plain-text details card without a trailing newline."""
+    lines: list[str] = [identity]
+    if status:
+        lines.append(f"status: {status}")
+    for line in extra_lines:
+        lines.append(line)
+    lines.append("available:")
+    lines.append("- .show()")
+    return "\n".join(lines)
+
+
+@dataclass(frozen=True, repr=False)
 class DatasourceDetails:
     """Details for a datasource object."""
 
@@ -142,8 +160,24 @@ class DatasourceDetails:
     dependents: tuple[SemanticRef, ...]
     backend_type: str
 
+    def _repr_identity(self) -> str:
+        return f"DatasourceDetails ref={self.ref.ref}"
 
-@dataclass(frozen=True)
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def render(self) -> str:
+        return _render_details_card(
+            identity=self._repr_identity(),
+            status=self.description,
+            extra_lines=(f"backend_type: {self.backend_type}",),
+        )
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
 class DomainDetails:
     """Details for a domain object."""
 
@@ -158,8 +192,25 @@ class DomainDetails:
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
 
+    def _repr_identity(self) -> str:
+        return f"DomainDetails ref={self.ref.ref}"
 
-@dataclass(frozen=True)
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def render(self) -> str:
+        child_count = len(self.children)
+        return _render_details_card(
+            identity=self._repr_identity(),
+            status=self.description,
+            extra_lines=(f"children: {child_count} objects",),
+        )
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
 class EntityDetails:
     """Details for an entity object."""
 
@@ -178,8 +229,28 @@ class EntityDetails:
     primary_key: tuple[str, ...]
     versioning: DatasetVersioning | None
 
+    def _repr_identity(self) -> str:
+        return f"EntityDetails ref={self.ref.ref}"
 
-@dataclass(frozen=True)
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def render(self) -> str:
+        child_count = len(self.children)
+        return _render_details_card(
+            identity=self._repr_identity(),
+            status=self.description,
+            extra_lines=(
+                f"datasource: {self.datasource.ref}",
+                f"children: {child_count} objects",
+            ),
+        )
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
 class DimensionDetails:
     """Details for a dimension or measure field."""
 
@@ -196,8 +267,27 @@ class DimensionDetails:
     entity: SemanticRef
     dimension_kind: Literal["categorical", "measure"]
 
+    def _repr_identity(self) -> str:
+        return f"DimensionDetails ref={self.ref.ref}"
 
-@dataclass(frozen=True)
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def render(self) -> str:
+        return _render_details_card(
+            identity=self._repr_identity(),
+            status=self.description,
+            extra_lines=(
+                f"entity: {self.entity.ref}",
+                f"dimension_kind: {self.dimension_kind}",
+            ),
+        )
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
 class TimeDimensionDetails:
     """Details for a time dimension object."""
 
@@ -220,8 +310,27 @@ class TimeDimensionDetails:
     is_default: bool
     sample_interval: SampleIntervalIR | None
 
+    def _repr_identity(self) -> str:
+        return f"TimeDimensionDetails ref={self.ref.ref}"
 
-@dataclass(frozen=True)
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def render(self) -> str:
+        return _render_details_card(
+            identity=self._repr_identity(),
+            status=self.description,
+            extra_lines=(
+                f"entity: {self.entity.ref}",
+                f"granularity: {self.granularity}",
+            ),
+        )
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
 class MetricDetails:
     """Details for a metric (entity-backed, derived, or cross-entity)."""
 
@@ -253,8 +362,29 @@ class MetricDetails:
     time_fold: str | None
     status_time_dimension: str | None
 
+    def _repr_identity(self) -> str:
+        return f"MetricDetails ref={self.ref.ref}"
 
-@dataclass(frozen=True)
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def render(self) -> str:
+        extra = [f"decomposition: {self.decomposition}"]
+        if self.additivity:
+            extra.append(f"additivity: {self.additivity}")
+        if self.is_derived:
+            extra.append("is_derived: True")
+        return _render_details_card(
+            identity=self._repr_identity(),
+            status=self.description,
+            extra_lines=tuple(extra),
+        )
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
 class RelationshipDetails:
     """Details for a relationship between entities."""
 
@@ -272,6 +402,25 @@ class RelationshipDetails:
     to_entity: SemanticRef
     from_dimensions: tuple[str, ...]
     to_dimensions: tuple[str, ...]
+
+    def _repr_identity(self) -> str:
+        return f"RelationshipDetails ref={self.ref.ref}"
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def render(self) -> str:
+        return _render_details_card(
+            identity=self._repr_identity(),
+            status=self.description,
+            extra_lines=(
+                f"from: {self.from_entity.ref}",
+                f"to: {self.to_entity.ref}",
+            ),
+        )
+
+    def show(self) -> None:
+        print(self.render())
 
 
 SemanticObjectDetails = (
@@ -307,6 +456,7 @@ class SemanticObject:
         >>> revenue.description   # "Gross revenue."
         >>> revenue.context.business_definition
         >>> revenue.details().additivity
+        >>> revenue.children      # tuple[SemanticRef, ...]
 
     Constraints:
         ``description`` is a short display summary only. Business meaning and
@@ -323,6 +473,24 @@ class SemanticObject:
     source_location: SourceLocation
     python_symbol: str
     _details: SemanticObjectDetails
+
+    @property
+    def children(self) -> tuple[SemanticRef, ...]:
+        """Return the children refs for this object.
+
+        Returns:
+            Tuple of SemanticRef values for child objects. Non-container objects
+            (metrics, dimensions, relationships) return an empty tuple.
+
+        Example:
+            >>> domain = catalog.get("sales")
+            >>> domain.children  # (SemanticRef("sales.orders", ...), ...)
+
+        Constraints:
+            The returned refs are read-only; they cannot be used to modify
+            the semantic model.
+        """
+        return self._details.children
 
     def details(self) -> SemanticObjectDetails:
         """Return the typed kind-specific details for this object.
@@ -805,6 +973,8 @@ class SemanticCatalog:
         >>> catalog = ms.load()
         >>> catalog.list().show()
         >>> catalog.list("sales").show()
+        >>> catalog.list(kind="metric").show()          # all metrics across domains
+        >>> catalog.list(domain="sales", kind="metric").show()
         >>> revenue = catalog.get("sales.revenue")
         >>> revenue.details().additivity
 
@@ -875,6 +1045,7 @@ class SemanticCatalog:
         parent: SemanticRefInput | None = None,
         *,
         kind: SemanticKindInput | None = None,
+        domain: str | None = None,
     ) -> SemanticObjectList:
         """Browse the semantic hierarchy under the given parent ref.
 
@@ -887,6 +1058,12 @@ class SemanticCatalog:
                 relationships, and a filtered metric view.
             kind: Optional kind filter. Accepts SemanticKind values or strings
                 such as "metric", "dimension". Raises an error on unsupported values.
+                At the top level (no parent, no domain), leaf kinds such as
+                "metric" search across all domains.
+            domain: Optional domain name to scope results. Equivalent to using
+                ``parent`` with a domain ref, but can be combined with ``kind``
+                for filtered domain-level browsing. Mutually exclusive with
+                ``parent``.
 
         Returns:
             SemanticObjectList with .show(), .refs(), and .objects.
@@ -895,14 +1072,44 @@ class SemanticCatalog:
             >>> catalog.list().show()
             >>> catalog.list("sales").show()
             >>> catalog.list("sales.orders", kind="metric").show()
+            >>> catalog.list(kind="metric").show()             # all metrics
+            >>> catalog.list(domain="sales", kind="metric").show()  # metrics in one domain
 
         Constraints:
             Only full semantic refs are accepted as parents. Non-container refs
             (metric, field, time_field, relationship) raise an unsupported-parent error.
+            ``parent`` and ``domain`` are mutually exclusive.
         """
         reg = self._require_ready()
 
+        if parent is not None and domain is not None:
+            _raise(
+                ErrorKind.CONFLICTING_PARAMETERS,
+                "catalog.list() 'parent' and 'domain' are mutually exclusive. "
+                "Use catalog.list(domain=...) with an optional kind= filter, "
+                "or catalog.list(parent=...) for hierarchy browsing.",
+                cls=SemanticRuntimeError,
+                constraint_id=ConstraintId.CATALOG_PARAMETERS_COMPATIBLE,
+            )
+
         validated_kind = _validate_kind(kind) if kind is not None else None
+
+        # Domain shortcut: scope to a single domain
+        if domain is not None:
+            if domain not in reg.models:
+                available = sorted(reg.models.keys())
+                _raise(
+                    ErrorKind.NOT_FOUND,
+                    f"Domain {domain!r} was not found. Available domains: {available}.",
+                    cls=SemanticRuntimeError,
+                    refs=(domain,),
+                )
+            items = self._list_under_model(domain, reg, validated_kind)
+            return SemanticObjectList(
+                items=tuple(items),
+                parent_label=domain,
+                kind_filter=str(kind) if kind else None,
+            )
 
         if parent is None:
             items = self._list_top_level(reg, validated_kind)
@@ -955,6 +1162,23 @@ class SemanticCatalog:
             datasource_irs = self._project._datasource_irs or tuple(reg.datasources.values())
             for ds_ir in datasource_irs:
                 items.append(_build_datasource_object(ds_ir, reg))
+        if kind_filter == SemanticKind.ENTITY:
+            for entity_ir in reg.datasets.values():
+                items.append(_build_entity_object(entity_ir, reg))
+        if kind_filter == SemanticKind.DIMENSION:
+            for f_ir in reg.fields.values():
+                if not f_ir.is_time_dimension:
+                    items.append(_build_dimension_object(f_ir, reg))
+        if kind_filter == SemanticKind.TIME_DIMENSION:
+            for f_ir in reg.fields.values():
+                if f_ir.is_time_dimension:
+                    items.append(_build_dimension_object(f_ir, reg))
+        if kind_filter == SemanticKind.METRIC:
+            for m_ir in reg.metrics.values():
+                items.append(_build_metric_object(m_ir, reg, self._project))
+        if kind_filter == SemanticKind.RELATIONSHIP:
+            for r_ir in reg.relationships.values():
+                items.append(_build_relationship_object(r_ir, reg))
         return items
 
     def _list_under_model(

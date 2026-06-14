@@ -108,6 +108,7 @@ class ErrorKind(StrEnum):
     # catalog
     UNSUPPORTED_KIND = "unsupported_kind"
     UNSUPPORTED_LIST_PARENT = "unsupported_list_parent"
+    CONFLICTING_PARAMETERS = "conflicting_parameters"
 
     # parity
     SOURCE_SQL_MISSING = "source_sql_missing"
