@@ -112,7 +112,13 @@ dim_brief = ms.prepare_dimension(
 Author each dimension individually, then verify:
 
 ```python
-@ms.dimension(entity=orders, name="region")
+@ms.dimension(
+    entity=orders,
+    name="region",
+    ai_context={
+        "business_definition": "Sales reporting region.",
+    },
+)
 def region(table):
     return table.region
 ```
@@ -147,13 +153,17 @@ For day/hour partition columns, preserve the raw value and declare
     granularity="day",
     date_format="%Y%m%d",
     is_default=True,
+    ai_context={
+        "business_definition": "Partition date used for default order reporting windows.",
+    },
 )
 def log_date(table):
     return table.dt
 ```
 
-Reload so Marivo can auto-record `time_dimension_identity` decisions, then
-verify:
+`verify_object` automatically reloads the project from disk to pick up the
+newly authored object and auto-record a `time_dimension_identity` decision,
+then verifies:
 
 ```python
 verify = ms.verify_object("sales.orders.log_date")

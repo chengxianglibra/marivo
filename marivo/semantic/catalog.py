@@ -1134,6 +1134,9 @@ class SemanticCatalog:
     ) -> VerifyResult:
         """Verify a single authored semantic object is reachable and valid.
 
+        Automatically reloads the catalog from disk so that newly authored
+        objects are visible without a separate ``catalog.load()`` call.
+
         For domains, relationships, and dimensions this is a static-only check.
         For entities, a scoped preview confirms the datasource is reachable and
         the expression is valid. For time dimensions, metrics, and derived
@@ -1160,9 +1163,11 @@ class SemanticCatalog:
             cross-entity metrics raise ``LadderOrderError`` if the entity has
             not passed verification.
         """
-        self._require_ready()
+        self.load()
         ref_str = _to_ref_str(ref)
-        return self._project.verify_object(ref_str, scope=scope)
+        result = self._project.verify_object(ref_str, scope=scope)
+        self._reg = self._project._registry
+        return result
 
     def _resolver(
         self,
