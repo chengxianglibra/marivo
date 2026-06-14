@@ -37,13 +37,9 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         os.chdir(root)
         md.register(md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)))
-        from marivo.semantic.reader import SemanticProject
-
-        project = SemanticProject(root=root / "models" / "semantic")
-        project.load()
 
         # prepare_entity resolves datasource backends internally
-        brief = project.prepare_entity(
+        brief = ms.prepare_entity(
             datasource="warehouse",
             source=ms.table("orders"),
             domain="sales",
@@ -67,10 +63,8 @@ with tempfile.TemporaryDirectory() as tmp:
             ")\n"
         )
 
-        # Load and verify
-        project.load()
-        catalog = ms.load(workspace_dir=root)
-        verify = catalog.verify_object("sales.orders")
+        # Verify — ms.verify_object reloads the project automatically
+        verify = ms.verify_object("sales.orders")
         print("verify status:", verify.status)
     finally:
         os.chdir(previous)

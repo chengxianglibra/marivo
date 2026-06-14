@@ -40,7 +40,7 @@ prepare_<kind>(...) -> Brief
 ## Rung 1: Domain
 
 ```python
-brief = project.prepare_domain(name="sales")
+brief = ms.prepare_domain(name="sales")
 if brief.status == "blocked":
     brief.show()
     raise SystemExit("Fix blockers before authoring the domain.")
@@ -63,7 +63,7 @@ The physical-to-semantic bridge. `prepare_entity` calls `md.inspect_table` and
 column profiles, and primary-key candidates.
 
 ```python
-entity_brief = project.prepare_entity(
+entity_brief = ms.prepare_entity(
     datasource="warehouse",
     source=md.table("orders", database="sales_mart"),
     domain="sales",
@@ -91,8 +91,7 @@ orders = ms.entity(
 ```
 
 ```python
-project.load()
-verify = project.verify_object("sales.orders")
+verify = ms.verify_object("sales.orders")
 if verify.status == "failed":
     verify.show()
     raise SystemExit("Fix the authored object before continuing.")
@@ -103,7 +102,7 @@ if verify.status == "failed":
 Batch preparation for scan economy; author one dimension at a time.
 
 ```python
-dim_briefs = project.prepare_dimensions(
+dim_briefs = ms.prepare_dimensions(
     entity="sales.orders",
     columns=("region", "status"),
     scope=md.ScanScope(),
@@ -119,8 +118,7 @@ def region(table):
 ```
 
 ```python
-project.load()
-verify = project.verify_object("sales.orders.region")
+verify = ms.verify_object("sales.orders.region")
 if verify.status == "failed":
     verify.show()
     raise SystemExit("Fix the authored dimension before continuing.")
@@ -131,7 +129,7 @@ if verify.status == "failed":
 Single-column temporal probe with format inference and partition alignment.
 
 ```python
-td_brief = project.prepare_time_dimension(
+td_brief = ms.prepare_time_dimension(
     entity="sales.orders",
     column="dt",
     scope=md.ScanScope(),
@@ -158,8 +156,7 @@ Reload so Marivo can auto-record `time_dimension_identity` decisions, then
 verify:
 
 ```python
-project.load()
-verify = project.verify_object("sales.orders.log_date")
+verify = ms.verify_object("sales.orders.log_date")
 if verify.status == "failed":
     verify.show()
     raise SystemExit("Fix the authored time dimension before continuing.")
@@ -168,7 +165,7 @@ if verify.status == "failed":
 ## Rung 5: Metrics
 
 ```python
-metric_brief = project.prepare_metric(
+metric_brief = ms.prepare_metric(
     entity="sales.orders",
     measure_columns=("amount",),
     scope=md.ScanScope(),
@@ -196,8 +193,7 @@ def revenue(table):
 ```
 
 ```python
-project.load()
-verify = project.verify_object("sales.revenue")
+verify = ms.verify_object("sales.revenue")
 if verify.status == "failed":
     verify.show()
     raise SystemExit("Fix the authored metric before continuing.")
@@ -209,7 +205,7 @@ if verify.status == "failed":
 resolved from the two entity refs.
 
 ```python
-rel_brief = project.prepare_relationship(
+rel_brief = ms.prepare_relationship(
     from_entity="sales.orders",
     to_entity="sales.customers",
     from_dimensions=("sales.orders.customer_id",),
@@ -233,7 +229,7 @@ ms.relationship(
 ## Rung 7: Cross-Entity Base Metrics
 
 ```python
-cross_brief = project.prepare_cross_entity_metric(
+cross_brief = ms.prepare_cross_entity_metric(
     root_entity="sales.orders",
     entities=("sales.orders", "sales.customers"),
     measure_columns=("amount",),
@@ -246,7 +242,7 @@ cross_brief = project.prepare_cross_entity_metric(
 Registry-only; no datasource access needed.
 
 ```python
-derived_brief = project.prepare_derived_metric(
+derived_brief = ms.prepare_derived_metric(
     numerator="sales.revenue",
     denominator="sales.orders_count",
 )
@@ -254,10 +250,10 @@ derived_brief = project.prepare_derived_metric(
 
 ## Closeout
 
-After all objects pass `verify_object`, run `project.readiness(...)` once:
+After all objects pass `verify_object`, run `ms.readiness(...)` once:
 
 ```python
-report = project.readiness(refs=("sales.orders", "sales.revenue"))
+report = ms.readiness(refs=("sales.orders", "sales.revenue"))
 report.show()
 if report.status == "blocked":
     raise SystemExit("Semantic project is not ready for analysis handoff.")

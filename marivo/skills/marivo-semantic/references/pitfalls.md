@@ -18,7 +18,7 @@ Deep-dive a small set with `md.inspect_columns(...)`, then author directly.
 
 ## Skipping prepare before authoring
 
-Every semantic object must be preceded by the matching `project.prepare_*` call.
+Every semantic object must be preceded by the matching `ms.prepare_*` call.
 The prepare step collects datasource evidence and registry context, returning a
 Brief with `status`, `issues`, and `questions`. Skipping prepare means the agent
 authors without knowing whether the prerequisites are met, and `verify_object`
@@ -33,7 +33,7 @@ loop tight.
 
 ## Advancing past a failed verify_object
 
-After authoring, call `project.verify_object(ref)`. If it returns
+After authoring, call `ms.verify_object(ref)`. If it returns
 `status == "failed"`, fix the object and re-verify. The skill forbids advancing
 to the next ladder rung while a previous object fails verification.
 

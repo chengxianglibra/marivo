@@ -121,7 +121,7 @@ def test_semantic_skill_uses_assess_authoring_not_next_checks() -> None:
     assert "needs_evidence" not in combined
     assert "project.check_authoring_inputs(" not in combined
     assert "check_authoring_inputs" not in combined
-    assert "project.readiness(" in closeout
+    assert "ms.readiness(" in closeout
 
 
 def test_superseded_specs_point_to_authoring_pipeline_design() -> None:
@@ -232,23 +232,23 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "return table.dt" in single
     assert "return table.dt.cast" not in single
     assert 'required_prefix="log_date"' in single
-    assert "project.prepare_entity(" in evidence
+    assert "ms.prepare_entity(" in evidence
     assert "md.ScanScope()" in evidence
     assert "bind_datasource_access" not in evidence
     assert "ms.AuthoringSourceInput(" not in evidence
     assert "project.assess_authoring(" not in evidence
-    assert "catalog.verify_object(" in evidence
-    assert "project.readiness(" in closeout
+    assert "ms.verify_object(" in evidence
+    assert "ms.readiness(" in closeout
     assert "bind_datasource_access" not in closeout
     for text in (closeout_ref, preview_ref, closeout):
         assert "require_preview" not in text
         assert "require_evidence_ledger" not in text
         assert "strict_enrichment" not in text
         assert "project.readiness(backend_factory" not in text
-    assert "project.readiness(" in closeout_ref
-    assert "project.readiness(" in closeout
+    assert "ms.readiness(" in closeout_ref
+    assert "ms.readiness(" in closeout
     assert "project.collect_raw_preview(" not in closeout
-    assert "project.richness(" in closeout
+    assert "ms.richness(" in closeout
 
 
 def test_semantic_docs_and_skills_use_verification_mode() -> None:

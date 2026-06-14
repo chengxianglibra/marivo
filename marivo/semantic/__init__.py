@@ -96,15 +96,20 @@ from marivo.semantic.ir import (
     RelationshipRef,
     TimeDimensionRef,
 )
+from marivo.semantic.ledger import DecisionRecord
+from marivo.semantic.parity import ParityResult
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
     ReadinessReport,
 )
+from marivo.semantic.richness import DemandSignal, RichnessReport
 from marivo.semantic.typing import AiContext
 
 if TYPE_CHECKING:
     from marivo.datasource.ir import EntitySourceIR
+
+_AGENT_FINGERPRINT = "agent_recorded"
 
 
 def prepare_domain(*, name: str) -> DomainBrief:
@@ -298,7 +303,7 @@ def readiness(
 
     Performs pure in-memory checks without datasource connectivity.
     For runtime validation, use ``catalog.preview(...)``,
-    ``project.parity_check(...)``, and ``project.richness()``.
+    ``ms.parity_check(...)``, and ``ms.richness()``.
 
     Args:
         refs: Semantic refs to check. Resolves the full dependency closure
@@ -323,6 +328,165 @@ def readiness(
     return project.readiness(refs=refs)
 
 
+def richness(
+    *,
+    demand: DemandSignal | None = None,
+) -> RichnessReport:
+    """Return a demand-ranked advisory richness report.
+
+    Pure advisory: it never blocks and never mutates readiness. ``demand``
+    seeds coverage/depth ranking from example questions, analysis intents,
+    run-history refs, and the build purpose.
+
+    Args:
+        demand: Optional demand signal for ranking richness gaps.
+
+    Returns:
+        RichnessReport with demand-ranked coverage and depth gaps.
+
+    Example:
+        >>> import marivo.semantic as ms
+        >>> report = ms.richness()
+        >>> report.show()
+
+    Constraints:
+        Advisory only — does not block readiness or analysis handoff.
+    """
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject()
+    project.load()
+    return project.richness(demand=demand)
+
+
+def parity_check(
+    name: str,
+    *,
+    rel_tol: float | None = None,
+    abs_tol: float | None = None,
+    force: bool = False,
+) -> ParityResult:
+    """Run parity check for a metric against its source SQL.
+
+    Datasource backends are resolved internally via the connection service.
+
+    Args:
+        name: Fully qualified metric ref (e.g. ``"sales.revenue"``).
+        rel_tol: Relative tolerance for numeric comparison. None uses default.
+        abs_tol: Absolute tolerance for numeric comparison. None uses default.
+        force: If True, re-runs parity even if cached results exist.
+
+    Returns:
+        ParityResult with comparison details and pass/fail status.
+
+    Example:
+        >>> import marivo.semantic as ms
+        >>> result = ms.parity_check("sales.revenue")
+        >>> result.show()
+
+    Constraints:
+        Requires the metric to declare ``source_sql`` and ``source_dialect``.
+        Raises ``SemanticRuntimeError`` if the metric has no source SQL.
+    """
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject()
+    project.load()
+    return project.parity_check(name, rel_tol=rel_tol, abs_tol=abs_tol, force=force)
+
+
+def record_decision(
+    *,
+    subject: str,
+    decision_kind: str,
+    chosen: str,
+    agreement_confidence: str,
+    qualifying_sources: tuple[str, ...] | list[str],
+    blast_radius: int = 0,
+    cited_source: dict[str, object] | None = None,
+    cited_columns: tuple[str, ...] | list[str] = (),
+) -> None:
+    """Record an authoring decision into the evidence ledger.
+
+    Persists a ``DecisionRecord`` for the given semantic subject so that
+    subsequent ``verify_object`` and readiness checks can trace the
+    reasoning behind authored objects.
+
+    Args:
+        subject: Fully qualified semantic ref (e.g. ``"sales.orders"``).
+        decision_kind: Decision type (e.g. ``"entity_primary_key"``,
+            ``"authoring_abandoned"``).
+        chosen: The option chosen for this decision.
+        agreement_confidence: Confidence level (``"high"`` or ``"low"``).
+        qualifying_sources: Evidence sources supporting this decision
+            (e.g. ``("user_confirmation",)``).
+        blast_radius: Number of transitive dependents affected. Defaults to 0.
+        cited_source: Optional dict of source metadata backing the decision.
+        cited_columns: Optional columns cited as evidence.
+
+    Example:
+        >>> import marivo.semantic as ms
+        >>> ms.record_decision(
+        ...     subject="sales.orders",
+        ...     decision_kind="entity_primary_key",
+        ...     chosen="order_id",
+        ...     agreement_confidence="high",
+        ...     qualifying_sources=("user_confirmation",),
+        ... )
+
+    Constraints:
+        Decisions are idempotent by kind — recording the same
+        ``decision_kind`` for a subject replaces the prior entry.
+    """
+    from datetime import UTC, datetime
+
+    from marivo.semantic.ledger import DecisionRecord, LedgerStore, ObjectEvidence
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject()
+    project.load()
+
+    if isinstance(qualifying_sources, list):
+        qualifying_sources = tuple(qualifying_sources)
+    if isinstance(cited_columns, list):
+        cited_columns = tuple(cited_columns)
+
+    materiality = "high" if blast_radius > 0 else "low"
+
+    record = DecisionRecord(
+        decision_kind=decision_kind,
+        chosen=chosen,
+        agreement_confidence=agreement_confidence,
+        qualifying_sources=qualifying_sources,
+        materiality=materiality,
+        blast_radius=blast_radius,
+        evidence_fingerprint=_AGENT_FINGERPRINT,
+        question_id=None,
+        decided_at=datetime.now(UTC).isoformat(),
+        cited_source=cited_source,
+        cited_columns=cited_columns,
+    )
+
+    store = LedgerStore(project.state_root)
+    # Idempotent by kind: replace any existing decision with the same
+    # decision_kind.  This diverges from LedgerStore.record_decision, which
+    # always appends — the public wrapper is stricter to avoid duplicate
+    # entries when agents retry.
+    obj = store.read_object(subject)
+    if obj is not None and any(d.decision_kind == decision_kind for d in obj.decisions):
+        updated_decisions = tuple(d for d in obj.decisions if d.decision_kind != decision_kind)
+        store.write_object(
+            ObjectEvidence(
+                semantic_id=obj.semantic_id,
+                authored_at=obj.authored_at,
+                decisions=(*updated_decisions, record),
+                rejected_candidates=obj.rejected_candidates,
+            )
+        )
+    else:
+        store.record_decision(subject, record)
+
+
 __all__ = [
     "AiContext",
     "AiContextView",
@@ -334,6 +498,8 @@ __all__ = [
     "CrossEntityMetricBrief",
     "DatasetSource",
     "DatasourceDetails",
+    "DecisionRecord",
+    "DemandSignal",
     "DerivedMetricBrief",
     "DimensionBrief",
     "DimensionDetails",
@@ -353,6 +519,7 @@ __all__ = [
     "MetricBrief",
     "MetricDetails",
     "MetricRef",
+    "ParityResult",
     "PrimaryKeyCandidate",
     "ReadinessInputSummary",
     "ReadinessIssue",
@@ -361,6 +528,7 @@ __all__ = [
     "RelationshipBrief",
     "RelationshipDetails",
     "RelationshipRef",
+    "RichnessReport",
     "SemanticCatalog",
     "SemanticKind",
     "SemanticKindInput",
@@ -387,6 +555,7 @@ __all__ = [
     "help_text",
     "load",
     "metric",
+    "parity_check",
     "prepare_cross_entity_metric",
     "prepare_derived_metric",
     "prepare_dimensions",
@@ -397,8 +566,10 @@ __all__ = [
     "prepare_time_dimension",
     "ratio",
     "readiness",
+    "record_decision",
     "ref",
     "relationship",
+    "richness",
     "snapshot",
     "sum",
     "table",

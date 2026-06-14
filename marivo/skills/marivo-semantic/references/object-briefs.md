@@ -1,6 +1,6 @@
 # Brief Status Actions
 
-Each `project.prepare_*` API returns a typed Brief. The Brief's **fields** are
+Each `ms.prepare_*` API returns a typed Brief. The Brief's **fields** are
 the contract — read them from the library, not from this file:
 
 ```python
@@ -24,7 +24,7 @@ Every Brief carries `status`, `issues`, `questions`, and (for most kinds)
 | --- | --- |
 | `blocked` | Fix the blocker (access, scope, missing prerequisite) or abandon the candidate with `authoring_abandoned`. |
 | `needs_input` | Answer blocking `AuthoringQuestion`s from documented project knowledge, or ask the user; record the answer as a ledger confirmation. |
-| `sufficient` | Author exactly one semantic object, then call `project.verify_object(ref)`. |
+| `sufficient` | Author exactly one semantic object, then call `ms.verify_object(ref)`. |
 
 When `matches` is non-empty, the candidate may already be registered — reconcile
 before authoring a duplicate.
@@ -38,7 +38,7 @@ domain -> entity -> dimension -> time_dimension -> metric
        -> relationship -> cross-entity metric -> derived metric
 ```
 
-For each step, call the matching `project.prepare_*` API, branch on the returned
+For each step, call the matching `ms.prepare_*` API, branch on the returned
 Brief `status`, author one object, then `verify_object` before advancing. See
 `workflow.md` for the end-to-end loop.
 

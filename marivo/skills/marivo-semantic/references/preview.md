@@ -41,7 +41,7 @@ Raw previews help validate time formats, enum values, nulls, amount signs,
 amount units, JSON-like strings, and join-key shape. They do not prove that a
 column is the correct business concept.
 
-Normal closeout uses `project.readiness(...)`, which reruns the required
+Normal closeout uses `ms.readiness(...)`, which reruns the required
 previews against the internal connection service. No separate
 connection parameter is needed.
 

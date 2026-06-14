@@ -23,14 +23,14 @@ the project structure before authoring semantic objects.
 ## Ladder Rules
 
 - Follow the ladder: domain -> entity -> dimension -> time_dimension -> metric -> relationship -> cross-entity metric -> derived metric.
-- Before writing each object, call the matching `project.prepare_*` API and branch on the returned Brief status.
+- Before writing each object, call the matching `ms.prepare_*` API and branch on the returned Brief status.
 - Write exactly one semantic object per cycle in `models/semantic/<domain>/_domain.py`.
-- After writing one object, call `project.verify_object(ref)` and do not advance while it fails.
-- **`verify_object` is enforced:** `prepare_dimensions`, `prepare_time_dimension`, `prepare_metric`, `prepare_relationship`, and `prepare_cross_entity_metric` raise `LadderOrderError` if their entity arguments have not passed `verify_object`. You must verify the entity before these calls.
+- After writing one object, call `ms.verify_object(ref)` and do not advance while it fails.
+- **`verify_object` is enforced:** `ms.prepare_dimensions`, `ms.prepare_time_dimension`, `ms.prepare_metric`, `ms.prepare_relationship`, and `ms.prepare_cross_entity_metric` raise `LadderOrderError` if their entity arguments have not passed `ms.verify_object`. You must verify the entity before these calls.
 - Use `md.ScanScope()` by default. Passing `partition=None` is allowed only when the answer explicitly accepts an unpruned scan.
 - Ask users only for blocking `AuthoringQuestion`s that cannot be answered from documented project knowledge.
-- Record abandonment with `authoring_abandoned` when a candidate cannot be safely authored.
-- Run `project.readiness(...)` at closeout and do not hand off to analysis while readiness is blocked.
+- Record abandonment with `ms.record_decision(decision_kind="authoring_abandoned", ...)` when a candidate cannot be safely authored.
+- Run `ms.readiness(...)` at closeout and do not hand off to analysis while readiness is blocked.
 
 ## Inspecting semantic objects
 
