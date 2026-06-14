@@ -143,6 +143,15 @@ def test_readiness_blocks_unknown_requested_ref(semantic_project_factory) -> Non
     assert report.blockers[0].refs == ("sales.missing_metric",)
 
 
+def test_readiness_accepts_domain_ref(semantic_project_factory) -> None:
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
+
+    report = project.readiness(refs=("sales",))
+
+    assert "unknown_ref" not in _issue_kinds(report.blockers)
+    assert "sales" in report.input_summary.refs
+
+
 def test_readiness_maps_time_dimension_pushdown_advisory(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {

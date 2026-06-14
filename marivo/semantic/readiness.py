@@ -126,6 +126,8 @@ class ReadinessReport:
 
 
 class _SemanticKind(StrEnum):
+    DOMAIN = "domain"
+    DATASOURCE = "datasource"
     ENTITY = "entity"
     DIMENSION = "dimension"
     TIME_DIMENSION = "time_dimension"
@@ -234,6 +236,12 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
     for relationship in reg.relationships.values():
         kinds[relationship.semantic_id] = _SemanticKind.RELATIONSHIP
         objects[relationship.semantic_id] = relationship
+    for domain_ir in reg.models.values():
+        kinds[domain_ir.name] = _SemanticKind.DOMAIN
+        objects[domain_ir.name] = domain_ir
+    for ds_ir in project._datasource_irs or reg.datasources.values():
+        kinds[ds_ir.semantic_id] = _SemanticKind.DATASOURCE
+        objects[ds_ir.semantic_id] = ds_ir
 
     return kinds, objects
 
@@ -316,9 +324,14 @@ def _strict_enrichment_issues(
     return blockers, warnings
 
 
+_CONTAINER_KINDS = frozenset(
+    {_SemanticKind.RELATIONSHIP, _SemanticKind.DOMAIN, _SemanticKind.DATASOURCE}
+)
+
+
 def _default_checked_refs(kinds: Mapping[str, _SemanticKind]) -> tuple[str, ...]:
-    return tuple(ref for ref in kinds if kinds[ref] != _SemanticKind.RELATIONSHIP) + tuple(
-        ref for ref in kinds if kinds[ref] == _SemanticKind.RELATIONSHIP
+    return tuple(ref for ref in kinds if kinds[ref] not in _CONTAINER_KINDS) + tuple(
+        ref for ref in kinds if kinds[ref] in _CONTAINER_KINDS
     )
 
 
@@ -331,6 +344,19 @@ def _dependencies_for_ref(
     obj = objects.get(ref)
     if obj is None:
         return ()
+    if kind == _SemanticKind.DOMAIN:
+        return tuple(
+            obj_id
+            for obj_id, other in objects.items()
+            if kinds.get(obj_id) == _SemanticKind.ENTITY and getattr(other, "domain", None) == ref
+        )
+    if kind == _SemanticKind.DATASOURCE:
+        return tuple(
+            obj_id
+            for obj_id, other in objects.items()
+            if kinds.get(obj_id) == _SemanticKind.ENTITY
+            and getattr(other, "datasource", None) == ref
+        )
     if kind in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
         entity = getattr(obj, "entity", None)
         return (entity,) if isinstance(entity, str) else ()
