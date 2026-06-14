@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from marivo.datasource.ir import DatasourceIR, EntitySourceIR
+from marivo.datasource.ir import DatasourceIR, EntitySourceIR, source_to_dict
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.scan import ScanReport, ScanScope
 from marivo.semantic.dtos import (
@@ -32,6 +32,7 @@ from marivo.semantic.dtos import (
 )
 from marivo.semantic.errors import (
     ErrorKind,
+    LadderOrderError,
     SemanticError,
     SemanticLoadError,
     SemanticRuntimeError,
@@ -40,6 +41,7 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.ir import (
     DimensionIR,
+    EntityIR,
     MetricIR,
     SymbolKind,
 )
@@ -132,6 +134,17 @@ def _metric_decomposition_fingerprint(metric_ir: MetricIR) -> str:
             "additivity": metric_ir.additivity,
             "is_derived": metric_ir.is_derived,
             "time_fold": time_fold_label,
+        }
+    )
+
+
+def _entity_verified_fingerprint(entity_ir: EntityIR) -> str:
+    """Fingerprint for entity_verified decisions over an EntityIR."""
+    return _semantic_fingerprint(
+        {
+            "datasource": entity_ir.datasource,
+            "source": source_to_dict(entity_ir.source),
+            "primary_key": list(entity_ir.primary_key),
         }
     )
 
@@ -466,6 +479,7 @@ class SemanticProject:
         scope: ScanScope | None = None,
     ) -> tuple[DimensionBrief, ...]:
         """Prepare dimension authoring briefs for the given entity columns."""
+        self._require_entity_verified(entity, "prepare_dimensions")
         from marivo.semantic.prepare import prepare_dimensions
 
         if scope is None:
@@ -480,6 +494,7 @@ class SemanticProject:
         scope: ScanScope | None = None,
     ) -> TimeDimensionBrief:
         """Prepare a time dimension authoring brief with format detection."""
+        self._require_entity_verified(entity, "prepare_time_dimension")
         from marivo.semantic.prepare import prepare_time_dimension
 
         if scope is None:
@@ -495,6 +510,7 @@ class SemanticProject:
         scope: ScanScope | None = None,
     ) -> MetricBrief:
         """Prepare a metric authoring brief with measure evidence."""
+        self._require_entity_verified(entity, "prepare_metric")
         from marivo.semantic.prepare import prepare_metric
 
         if scope is None:
@@ -517,6 +533,8 @@ class SemanticProject:
         scope: ScanScope | None = None,
     ) -> RelationshipBrief:
         """Prepare a relationship authoring brief with join-key probe evidence."""
+        self._require_entity_verified(from_entity, "prepare_relationship")
+        self._require_entity_verified(to_entity, "prepare_relationship")
         from marivo.semantic.prepare import prepare_relationship
 
         if scope is None:
@@ -539,6 +557,9 @@ class SemanticProject:
         scope: ScanScope | None = None,
     ) -> CrossEntityMetricBrief:
         """Prepare a cross-entity metric brief with relationship path evidence."""
+        self._require_entity_verified(root_entity, "prepare_cross_entity_metric")
+        for entity_ref in entities:
+            self._require_entity_verified(entity_ref, "prepare_cross_entity_metric")
         from marivo.semantic.prepare import prepare_cross_entity_metric
 
         if scope is None:
@@ -626,6 +647,20 @@ class SemanticProject:
                         elapsed_seconds=scoped.scan.elapsed_seconds,
                         warnings=scoped.scan.warnings,
                     )
+                fingerprint = _entity_verified_fingerprint(entity)
+                recorded = self._auto_record_decision(
+                    ref,
+                    "entity_verified",
+                    "passed",
+                    fingerprint,
+                    qualifying_sources=("live_datasource_probe",),
+                    blast_radius=self.blast_radius_of((ref,)),
+                    cited_source={
+                        "datasource": entity.datasource,
+                        "source_kind": entity.source.kind,
+                        "rows_scanned": scan.rows_scanned,
+                    },
+                )
                 return VerifyResult(
                     status="passed",
                     ref=ref,
@@ -633,7 +668,7 @@ class SemanticProject:
                     issues=(),
                     warnings=(),
                     scan=scan,
-                    auto_recorded=(),
+                    auto_recorded=(recorded,),
                 )
             except Exception as exc:
                 issue = AssessmentIssue(
@@ -853,3 +888,39 @@ class SemanticProject:
             store.record_decision(ref, record)
 
         return decision_ref
+
+    # -- ladder guard rails --------------------------------------------------
+
+    def _is_entity_verified(self, ref: str) -> bool:
+        """Check whether ref has a current (non-stale) entity_verified decision in the ledger."""
+        if self._registry is None:
+            return False
+        entity_ir = self._registry.datasets.get(ref)
+        if entity_ir is None:
+            return False
+        from marivo.semantic.ledger import LedgerStore
+
+        store = LedgerStore(self.state_root)
+        obj = store.read_object(ref)
+        if obj is None:
+            return False
+        current_fp = _entity_verified_fingerprint(entity_ir)
+        for d in obj.decisions:
+            if d.decision_kind == "entity_verified":
+                return d.evidence_fingerprint == current_fp
+        return False
+
+    def _require_entity_verified(self, ref: str, caller: str) -> None:
+        """Raise LadderOrderError if ref has not passed verify_object."""
+        if (
+            self._registry is not None
+            and ref in self._registry.datasets
+            and not self._is_entity_verified(ref)
+        ):
+            _raise(
+                ErrorKind.LADDER_ORDER,
+                f"{caller} requires entity {ref!r} to pass verify_object first.",
+                cls=LadderOrderError,
+                refs=(ref,),
+                hint=f"Call project.verify_object({ref!r}) before {caller}.",
+            )

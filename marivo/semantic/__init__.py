@@ -87,6 +87,7 @@ from marivo.semantic.dtos import (
     VerifyResult,
     VersioningHints,
 )
+from marivo.semantic.errors import LadderOrderError
 from marivo.semantic.help import help, help_text
 from marivo.semantic.ir import (
     DimensionRef,
@@ -274,6 +275,7 @@ __all__ = [
     "FileSource",
     "FormatCandidate",
     "JoinPathFact",
+    "LadderOrderError",
     "MetricBrief",
     "MetricDetails",
     "MetricRef",

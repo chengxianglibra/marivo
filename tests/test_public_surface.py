@@ -36,6 +36,7 @@ SEMANTIC_PUBLIC = {
     "FileSource",
     "FormatCandidate",
     "JoinPathFact",
+    "LadderOrderError",
     "MetricBrief",
     "MetricDetails",
     "MetricRef",

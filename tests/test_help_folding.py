@@ -81,6 +81,7 @@ def test_semantic_fold_partition() -> None:
         "FileSource",
         "FormatCandidate",
         "JoinPathFact",
+        "LadderOrderError",
         "PrimaryKeyCandidate",
         "ReadinessInputSummary",
         "ReadinessIssue",
