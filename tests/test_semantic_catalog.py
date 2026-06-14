@@ -1336,6 +1336,40 @@ def test_catalog_readiness_no_stdout(semantic_project_factory, capsys):
     assert capsys.readouterr().out == ""
 
 
+# --- catalog.verify_object() ---
+
+
+def test_catalog_verify_object_static_domain_passes(semantic_project_factory):
+    from marivo.semantic.dtos import VerifyResult
+
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.verify_object("sales")
+    assert isinstance(result, VerifyResult)
+    assert result.status == "passed"
+    assert result.ref == "sales"
+    assert result.kind == "domain"
+
+
+def test_catalog_verify_object_static_dimension_passes(semantic_project_factory):
+    from marivo.semantic.dtos import VerifyResult
+
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.verify_object("sales.orders.region")
+    assert isinstance(result, VerifyResult)
+    assert result.status == "passed"
+    assert result.kind == "dimension"
+
+
+def test_catalog_verify_object_accepts_semantic_ref(semantic_project_factory):
+    from marivo.semantic.dtos import VerifyResult
+
+    catalog = _make_catalog(semantic_project_factory)
+    ref = SemanticRef(ref="sales", kind=SemanticKind.DOMAIN)
+    result = catalog.verify_object(ref)
+    assert isinstance(result, VerifyResult)
+    assert result.status == "passed"
+
+
 # --- metric unit passthrough ---
 
 

@@ -249,6 +249,80 @@ def prepare_cross_entity_metric(
     )
 
 
+def verify_object(
+    ref: str,
+    *,
+    scope: ScanScope | None = None,
+) -> VerifyResult:
+    """Verify a single authored semantic object is reachable and valid.
+
+    For domains, relationships, and dimensions this is a static-only check.
+    For entities, a scoped preview confirms the datasource is reachable and
+    the expression is valid. For time dimensions, metrics, and derived
+    metrics, the check is static and auto-records a decision into the
+    evidence ledger.
+
+    Args:
+        ref: Fully qualified semantic ref (e.g. ``"sales.orders"``).
+        scope: Scan scope controlling partition, max rows, and timeout.
+            Defaults to ``ScanScope()``.
+
+    Returns:
+        VerifyResult with status, issues, and optional scan report.
+
+    Example:
+        >>> import marivo.semantic as ms
+        >>> result = ms.verify_object("sales.orders")
+        >>> result.status
+
+    Constraints:
+        ``verify_object`` is enforced by the authoring ladder: prepare APIs
+        for dimensions, time dimensions, metrics, relationships, and
+        cross-entity metrics raise ``LadderOrderError`` if the entity has
+        not passed verification.
+    """
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject()
+    project.load()
+    if scope is None:
+        scope = ScanScope()
+    return project.verify_object(ref, scope=scope)
+
+
+def readiness(
+    *,
+    refs: tuple[str, ...] | list[str] | None = None,
+) -> ReadinessReport:
+    """Run structural readiness check for the given semantic refs.
+
+    Performs pure in-memory checks without datasource connectivity.
+    For runtime validation, use ``catalog.preview(...)``,
+    ``project.parity_check(...)``, and ``project.richness()``.
+
+    Args:
+        refs: Semantic refs to check. Resolves the full dependency closure
+            for each ref. None checks all loaded objects.
+
+    Returns:
+        ReadinessReport indicating whether analysis handoff is safe.
+
+    Example:
+        >>> import marivo.semantic as ms
+        >>> report = ms.readiness()
+        >>> if report.blocked:
+        ...     report.show()
+
+    Constraints:
+        This is the required semantic gate before passing refs to analysis APIs.
+    """
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject()
+    project.load()
+    return project.readiness(refs=refs)
+
+
 __all__ = [
     "AiContext",
     "AiContextView",
@@ -322,6 +396,7 @@ __all__ = [
     "prepare_relationship",
     "prepare_time_dimension",
     "ratio",
+    "readiness",
     "ref",
     "relationship",
     "snapshot",
@@ -330,5 +405,6 @@ __all__ = [
     "time_dimension",
     "typing",
     "validity",
+    "verify_object",
     "weighted_average",
 ]
