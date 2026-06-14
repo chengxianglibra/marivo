@@ -86,6 +86,7 @@ _SUMMARIES: dict[str, str] = {
     "prepare_relationship": "prepare a relationship brief with join-key evidence",
     "prepare_time_dimension": "prepare a time-dimension brief",
     "ratio": "derived metric helper (a/b)",
+    "readiness": "run structural readiness check for semantic refs",
     "ref": "refer to another metric by qualified name",
     "relationship": "declare a relationship between datasets",
     "snapshot": "declare snapshot versioning for a dataset",
@@ -95,6 +96,7 @@ _SUMMARIES: dict[str, str] = {
     "time_fold": "sampled semi-additive time folding for bandwidth-style metrics",
     "typing": "IbisBackend Protocol and AiContext TypedDict",
     "validity": "declare validity-window versioning for a dataset",
+    "verify_object": "verify a single authored semantic object is reachable and valid",
     "weighted_average": "weighted-average aggregation marker",
 }
 

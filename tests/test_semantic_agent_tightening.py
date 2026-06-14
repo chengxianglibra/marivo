@@ -237,7 +237,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "bind_datasource_access" not in evidence
     assert "ms.AuthoringSourceInput(" not in evidence
     assert "project.assess_authoring(" not in evidence
-    assert "project.verify_object(" in evidence
+    assert "catalog.verify_object(" in evidence
     assert "project.readiness(" in closeout
     assert "bind_datasource_access" not in closeout
     for text in (closeout_ref, preview_ref, closeout):

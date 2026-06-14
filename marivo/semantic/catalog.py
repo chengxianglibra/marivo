@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn
 
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.scan import ScanScope
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
@@ -42,6 +43,7 @@ from marivo.semantic.ir import (
 from marivo.semantic.parity import propagated_parity_status
 
 if TYPE_CHECKING:
+    from marivo.semantic.dtos import VerifyResult
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.readiness import ReadinessReport
     from marivo.semantic.resolver import SemanticResolver
@@ -794,7 +796,8 @@ class SemanticCatalog:
         project: A loaded SemanticProject instance (status must be 'ready').
 
     Returns:
-        SemanticCatalog with list(), get(), preview(), and readiness() methods.
+        SemanticCatalog with list(), get(), preview(), readiness(), and
+        verify_object() methods.
 
     Example:
         >>> catalog = ms.load()
@@ -1112,6 +1115,44 @@ class SemanticCatalog:
         self._require_ready()
         str_refs = [_to_ref_str(r) for r in refs] if refs is not None else None
         return self._project.readiness(refs=str_refs)
+
+    def verify_object(
+        self,
+        ref: SemanticRefInput,
+        *,
+        scope: ScanScope | None = None,
+    ) -> VerifyResult:
+        """Verify a single authored semantic object is reachable and valid.
+
+        For domains, relationships, and dimensions this is a static-only check.
+        For entities, a scoped preview confirms the datasource is reachable and
+        the expression is valid. For time dimensions, metrics, and derived
+        metrics, the check is static and auto-records a decision into the
+        evidence ledger (``time_dimension_identity`` or ``metric_decomposition``
+        respectively).
+
+        Args:
+            ref: Full semantic ref string or SemanticRef to verify.
+            scope: Scan scope controlling partition, max rows, and timeout.
+                Defaults to ``ScanScope()``.
+
+        Returns:
+            VerifyResult with status, issues, and optional scan report.
+
+        Example:
+            >>> result = catalog.verify_object("sales.orders")
+            >>> if result.status == "failed":
+            ...     result.show()
+
+        Constraints:
+            ``verify_object`` is enforced by the authoring ladder: prepare APIs
+            for dimensions, time dimensions, metrics, relationships, and
+            cross-entity metrics raise ``LadderOrderError`` if the entity has
+            not passed verification.
+        """
+        self._require_ready()
+        ref_str = _to_ref_str(ref)
+        return self._project.verify_object(ref_str, scope=scope)
 
     def _resolver(
         self,

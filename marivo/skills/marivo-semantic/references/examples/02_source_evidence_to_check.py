@@ -69,7 +69,8 @@ with tempfile.TemporaryDirectory() as tmp:
 
         # Load and verify
         project.load()
-        verify = project.verify_object("sales.orders")
+        catalog = ms.load(workspace_dir=root)
+        verify = catalog.verify_object("sales.orders")
         print("verify status:", verify.status)
     finally:
         os.chdir(previous)

@@ -83,6 +83,7 @@ SEMANTIC_PUBLIC = {
     "prepare_relationship",
     "prepare_time_dimension",
     "ratio",
+    "readiness",
     "ref",
     "relationship",
     "snapshot",
@@ -91,6 +92,7 @@ SEMANTIC_PUBLIC = {
     "time_dimension",
     "typing",
     "validity",
+    "verify_object",
     "weighted_average",
 }
 
