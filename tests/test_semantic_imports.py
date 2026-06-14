@@ -93,6 +93,7 @@ def test_all_list_matches_expected() -> None:
         "FileSource",
         "FormatCandidate",
         "JoinPathFact",
+        "LadderOrderError",
         "MetricBrief",
         "MetricDetails",
         "MetricRef",
@@ -548,6 +549,7 @@ _EXPECTED_RUNTIME_KINDS = {
     "backend_factory_required",
     "inspect_source_required",
     "project_not_loaded",
+    "ladder_order",
     "unsupported_kind",
     "unsupported_list_parent",
 }

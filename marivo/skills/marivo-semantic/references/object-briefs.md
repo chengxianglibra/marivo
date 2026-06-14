@@ -41,3 +41,10 @@ domain -> entity -> dimension -> time_dimension -> metric
 For each step, call the matching `project.prepare_*` API, branch on the returned
 Brief `status`, author one object, then `verify_object` before advancing. See
 `workflow.md` for the end-to-end loop.
+
+**Enforcement:** `prepare_dimensions`, `prepare_time_dimension`,
+`prepare_metric`, `prepare_relationship`, and `prepare_cross_entity_metric`
+require their entity arguments to have passed `verify_object`. Calling these
+without a prior `verify_object` raises `LadderOrderError` with a hint naming
+the missing prerequisite. This guard is fingerprint-based: if an entity's source
+changes after verification, the old verification is stale and must be re-run.

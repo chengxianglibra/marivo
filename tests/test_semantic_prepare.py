@@ -147,6 +147,8 @@ def test_prepare_dimensions_blocks_unknown_column(tmp_path: Path, semantic_proje
     )
     project.load()
 
+    project.verify_object("sales.orders")
+
     brief = project.prepare_dimensions(
         entity="sales.orders",
         columns=("missing_col",),
@@ -196,6 +198,9 @@ def test_prepare_relationship_uses_join_probe(tmp_path: Path, semantic_project_f
     )
     project.load()
 
+    project.verify_object("sales.orders")
+    project.verify_object("sales.customers")
+
     brief = project.prepare_relationship(
         from_entity="sales.orders",
         to_entity="sales.customers",
@@ -212,6 +217,20 @@ def test_prepare_relationship_uses_join_probe(tmp_path: Path, semantic_project_f
 def test_prepare_cross_entity_metric_blocks_unreachable_entity(
     tmp_path: Path, semantic_project_factory
 ) -> None:
+    import ibis
+
+    import marivo.datasource as md
+
+    db_path = tmp_path / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.create_table("orders", {"order_id": [1, 2]})
+    con.create_table("customers", {"customer_id": [1, 2]})
+    con.disconnect()
+
+    md.register(
+        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        project_root=tmp_path,
+    )
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
@@ -221,8 +240,12 @@ def test_prepare_cross_entity_metric_blocks_unreachable_entity(
                 "customers = ms.entity(name='customers', datasource='warehouse', source=ms.table('customers'))\n"
             )
         },
+        workspace_dir=tmp_path,
     )
     project.load()
+
+    project.verify_object("sales.orders")
+    project.verify_object("sales.customers")
 
     brief = project.prepare_cross_entity_metric(
         root_entity="sales.orders",

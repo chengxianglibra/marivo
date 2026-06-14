@@ -87,6 +87,7 @@ class ConstraintId(StrEnum):
     TIME_FOLD_MISSING = "missing_time_fold"
     STATUS_TIME_DIMENSION_REQUIRED = "status_time_dimension_required"
     STATUS_TIME_DIMENSION_INVALID = "invalid_status_time_dimension"
+    LADDER_ORDER_ENFORCED = "ladder_order_enforced"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -643,6 +644,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Project must be loaded before accessing semantic objects.",
         "Listing and lookup methods require a loaded registry.",
         "Call ms.load() to load the semantic project, then access metrics, entities, or dimensions.",
+    ),
+    ConstraintId.LADDER_ORDER_ENFORCED: _constraint(
+        ConstraintId.LADDER_ORDER_ENFORCED,
+        "ladder_order",
+        "runtime",
+        ("SemanticProject",),
+        "Entities must be verified before downstream prepare calls.",
+        "prepare_dimensions, prepare_time_dimension, prepare_metric, prepare_relationship, and prepare_cross_entity_metric require their entity arguments to have passed verify_object first.",
+        "Call project.verify_object('domain.entity') before calling prepare methods that depend on that entity.",
     ),
     ConstraintId.CATALOG_KIND_VALID: _constraint(
         ConstraintId.CATALOG_KIND_VALID,
