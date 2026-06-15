@@ -32,7 +32,7 @@ class ConstraintId(StrEnum):
     ACTIVE_DOMAIN_REQUIRED = "active_domain_required"
     UNIQUE_SEMANTIC_NAME = "unique_semantic_name"
     REF_SHAPE = "ref_shape"
-    DECOMPOSITION_SHAPE = "decomposition_shape"
+    COMPOSITION_SHAPE = "composition_shape"
     METRIC_DATASETS_REQUIRED = "metric_datasets_required"
     METRIC_COMPONENT_SCOPE = "metric_component_scope"
     AI_CONTEXT_SCHEMA = "ai_context_schema"
@@ -59,6 +59,8 @@ class ConstraintId(StrEnum):
     DIMENSION_EXISTS = "dimension_exists"
     SYMBOL_EXISTS = "symbol_exists"
     METRIC_ADDITIVITY_REQUIRED = "metric_additivity_required"
+    MEASURE_ADDITIVITY_REQUIRED = "measure_additivity_required"
+    MEASURE_AGGREGATION_VALID = "measure_aggregation_valid"
     METRIC_ROOT_DATASET_REQUIRED = "metric_root_dataset_required"
     METRIC_ROOT_DATASET_VALID = "metric_root_dataset_valid"
     METRIC_VERIFICATION_MODE_VALID = "metric_verification_mode_valid"
@@ -212,14 +214,14 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Use datasource names as strings and EntityRef/DimensionRef/MetricRef values returned by decorators.",
         example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
-    ConstraintId.DECOMPOSITION_SHAPE: _constraint(
-        ConstraintId.DECOMPOSITION_SHAPE,
-        "invalid_decomposition",
+    ConstraintId.COMPOSITION_SHAPE: _constraint(
+        ConstraintId.COMPOSITION_SHAPE,
+        "invalid_composition",
         "decorator",
         ("metric", "derived_metric", "sum", "ratio", "weighted_average"),
-        "Metrics need a supported decomposition builder.",
-        "Decomposition declares how metric values compose during drilldown and derived calculations.",
-        "Run ms.help('decomposition') to inspect supported builders; SQL aggregation belongs in the metric body.",
+        "Metrics need a supported composition builder.",
+        "Composition declares how metric values compose during drilldown and derived calculations.",
+        "Run ms.help('composition') to inspect supported builders; SQL aggregation belongs in the metric body.",
         example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.METRIC_DATASETS_REQUIRED: _constraint(
@@ -437,6 +439,24 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Base metrics must declare additivity.",
         "Additivity determines how metric values aggregate across dataset rows.",
         "Set additivity to 'additive', 'semi_additive', or 'non_additive' on @ms.metric().",
+    ),
+    ConstraintId.MEASURE_ADDITIVITY_REQUIRED: _constraint(
+        ConstraintId.MEASURE_ADDITIVITY_REQUIRED,
+        "missing_measure_additivity",
+        "assembly",
+        ("metric",),
+        "A measure dimension used by a tier-1 metric must declare additivity.",
+        "Add additivity= to the @ms.dimension(kind='measure', ...) declaration.",
+        "Set additivity to 'additive', 'semi_additive', or 'non_additive'.",
+    ),
+    ConstraintId.MEASURE_AGGREGATION_VALID: _constraint(
+        ConstraintId.MEASURE_AGGREGATION_VALID,
+        "invalid_measure_aggregation",
+        "assembly",
+        ("metric",),
+        "sum/count aggregations are invalid on non-additive measures.",
+        "Use mean/min/max, or model the metric as a ratio/derived composition.",
+        "Change the aggregation or the measure dimension additivity.",
     ),
     ConstraintId.METRIC_ROOT_DATASET_REQUIRED: _constraint(
         ConstraintId.METRIC_ROOT_DATASET_REQUIRED,

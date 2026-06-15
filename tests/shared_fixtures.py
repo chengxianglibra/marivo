@@ -311,7 +311,9 @@ def authoring_session(*, domain: str):
             @staticmethod
             def measure(*, entity: str, name: str, additivity: Any = None) -> Any:
                 """Declare a measure dimension and return its DimensionRef."""
-                decorator = authoring.dimension(kind="measure", entity=entity, name=name, additivity=additivity)
+                decorator = authoring.dimension(
+                    kind="measure", entity=entity, name=name, additivity=additivity
+                )
 
                 # Apply the decorator to a dummy function that returns an ibis-like expression.
                 def _dummy_body(table: Any) -> Any:
@@ -340,3 +342,47 @@ def authoring_session(*, domain: str):
         yield _Session()
     finally:
         _LOADER_CTX.set(None)
+
+
+# ---------------------------------------------------------------------------
+# Inline semantic project loader (metric-split resolution tests)
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def load_inline_semantic(
+    source: str,
+    *,
+    domain: str = "test",
+    expect_errors: bool = False,
+):
+    """Write an inline semantic source to a temp project and load it.
+
+    Creates a minimal project with a single domain file containing *source*,
+    plus a DuckDB datasource.  Returns the ``LoadResult`` from
+    ``load_project``.
+
+    When *expect_errors* is True, suppress the ``SemanticLoadError`` that
+    ``assembly_validate`` would raise and return the result with errors
+    attached instead.
+    """
+    from marivo.semantic.loader import load_project
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+        semantic_dir = tmp_path / "models" / "semantic" / domain
+        semantic_dir.mkdir(parents=True)
+        datasource_dir = tmp_path / "models" / "datasources"
+        datasource_dir.mkdir(parents=True)
+        (datasource_dir / "wh.py").write_text(
+            "import marivo.datasource as md\n"
+            "md.datasource(name='wh', backend_type='duckdb', path=':memory:')\n"
+        )
+        (semantic_dir / "__init__.py").write_text("")
+        (semantic_dir / "_domain.py").write_text(
+            f"import marivo.semantic as ms\nms.domain(name={domain!r}, default=True)\n"
+        )
+        (semantic_dir / "models.py").write_text(source)
+        result = load_project(semantic_dir.parent)
+        yield result

@@ -357,6 +357,24 @@ class LinearComposition:
 Composition = RatioComposition | WeightedAverageComposition | LinearComposition
 
 
+def additivity_bucket(
+    additivity: Additivity,
+) -> Literal["additive", "semi_additive", "non_additive"]:
+    """Collapse an Additivity value to its three-bucket summary for analysis/display."""
+    if isinstance(additivity, SemiAdditive):
+        return "semi_additive"
+    return additivity
+
+
+def composition_components(composition: Composition) -> dict[str, str]:
+    """Role-keyed component refs for a derived metric composition."""
+    if isinstance(composition, RatioComposition):
+        return {"numerator": composition.numerator, "denominator": composition.denominator}
+    if isinstance(composition, WeightedAverageComposition):
+        return {"value": composition.value, "weight": composition.weight}
+    return {f"term{i}": term.metric for i, term in enumerate(composition.terms)}
+
+
 # Temporary compat alias — removed when authoring.py's metric/derived_metric
 # are removed (Task 12).
 @dataclass(frozen=True)

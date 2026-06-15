@@ -123,7 +123,7 @@ def parity_check(
     metric_ir = _get_metric_or_raise(cache_project, metric_id)
 
     # Derived metrics don't support direct SQL parity
-    if metric_ir.is_derived:
+    if metric_ir.metric_type == "derived":
         _raise(
             ErrorKind.SOURCE_SQL_MISSING,
             f"Derived metric {metric_id!r} does not support direct SQL parity check. "
@@ -318,7 +318,7 @@ def compute_self_status(
     metric_ir = _get_metric_or_raise(project, metric_id)
     prov = metric_ir.provenance
 
-    if metric_ir.is_derived:
+    if metric_ir.metric_type == "derived":
         return ParityStatus.UNVERIFIED
 
     if prov.source_sql is None:
@@ -359,14 +359,17 @@ def propagated_parity_status(
     self_status = compute_self_status(project, metric_id)
 
     # Base metrics: just return self status
-    if not metric_ir.is_derived:
+    if metric_ir.metric_type != "derived":
         return self_status
 
     # Derived metrics: collect component statuses
     component_statuses: list[ParityStatus] = []
-    for comp_id in metric_ir.decomposition.components.values():
-        comp_status = propagated_parity_status(project, comp_id)
-        component_statuses.append(comp_status)
+    if metric_ir.composition is not None:
+        from marivo.semantic.ir import composition_components
+
+        for comp_id in composition_components(metric_ir.composition).values():
+            comp_status = propagated_parity_status(project, comp_id)
+            component_statuses.append(comp_status)
 
     if not component_statuses:
         return ParityStatus.UNVERIFIED
