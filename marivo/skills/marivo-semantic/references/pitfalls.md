@@ -141,17 +141,16 @@ orders = ms.entity(
 Use `backend.list_databases(catalog="hive")` to discover schemas and
 `backend.list_tables(database="sales_mart")` to verify table reachability.
 
-When an entity declares `database=` on its `ms.table(...)` source, `source_sql`
-in `@ms.metric` should use the **bare** table name — Marivo automatically
-qualifies unqualified table references before executing source SQL for parity
-checks. Do not duplicate the schema prefix inside `source_sql`:
+In `source_sql`, table references can be bare names or fully qualified.
+Marivo automatically qualifies bare table references before executing source
+SQL for parity checks, using the entity `source.database` when set, or falling
+back to the datasource's `database` field. Already-qualified table references
+are left unchanged.
 
 ```python
-# WRONG — duplicates the database qualifier in source_sql
-source_sql="SELECT SUM(amount) FROM sales_mart.orders"
-
-# CORRECT — use the bare table name; Marivo qualifies it from the entity
-source_sql="SELECT SUM(amount) FROM orders"
+# Both are valid — choose whichever matches the original SQL
+source_sql="SELECT SUM(amount) FROM orders"               # bare; auto-qualified
+source_sql="SELECT SUM(amount) FROM sales_mart.orders"     # fully qualified; unchanged
 ```
 
 ## Federated backend chosen by habit
