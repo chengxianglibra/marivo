@@ -734,6 +734,17 @@ def test_metric_ref() -> None:
     assert ref.kind == SymbolKind.METRIC
 
 
+def test_metric_ref_not_callable_raises_helpful_error() -> None:
+    """Calling a MetricRef (as if it were a decorator) raises a clear TypeError."""
+    ref = MetricRef("sales.aov")
+    with pytest.raises(TypeError, match="not callable"):
+        ref(lambda t: t.amount.sum())
+    # Also confirm the message mentions derived_metric and top-level call
+    with pytest.raises(TypeError, match="top-level call") as exc_info:
+        ref(lambda t: t.amount.sum())
+    assert "ms.derived_metric(" in str(exc_info.value)
+
+
 def test_relationship_ref() -> None:
     ref = RelationshipRef("sales.orders_to_items")
     assert ref.semantic_id == "sales.orders_to_items"

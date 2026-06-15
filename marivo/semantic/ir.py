@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 
 from marivo.datasource.ir import (
     AiContextIR,
@@ -463,6 +463,13 @@ class MetricRef(_BaseRef):
         if not separator or not model or not metric:
             raise ValueError(f"metric ref must be '<model>.<metric>', got {semantic_id!r}")
         super().__init__(normalized, SymbolKind.METRIC)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> NoReturn:
+        raise TypeError(
+            f"MetricRef({self.semantic_id!r}) is not callable. "
+            f"ms.derived_metric(...) is a top-level call, not a decorator. "
+            f"Use: ms.derived_metric(name='...', decomposition=ms.ratio(...))"
+        )
 
 
 class RelationshipRef(_BaseRef):

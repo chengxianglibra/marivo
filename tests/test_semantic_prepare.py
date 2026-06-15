@@ -63,6 +63,67 @@ def test_prepare_derived_metric_blocks_missing_component(
     assert brief.status == "blocked"
     assert brief.issues[0].kind == "missing_prerequisite"
     assert "sales.revenue" in brief.issues[0].refs
+    assert brief.authoring_template is not None
+    assert "ms.derived_metric(" in brief.authoring_template
+    assert "ms.ratio(" in brief.authoring_template
+
+
+def test_prepare_derived_metric_ratio_includes_authoring_template(
+    semantic_project_factory,
+) -> None:
+    model = (
+        "import marivo.semantic as ms\n"
+        "ms.domain(name='sales')\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum())\n"
+        "def revenue(t):\n"
+        "    return t.amount.sum()\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum())\n"
+        "def orders_count(t):\n"
+        "    return t.order_id.nunique()\n"
+    )
+    project = semantic_project_factory({"sales/_domain.py": model})
+    project.load()
+
+    brief = project.prepare_derived_metric(
+        numerator="sales.revenue", denominator="sales.orders_count"
+    )
+
+    assert brief.status == "sufficient"
+    assert brief.decomposition_kind == "ratio"
+    assert brief.authoring_template is not None
+    assert "ms.derived_metric(" in brief.authoring_template
+    assert "ms.ratio(" in brief.authoring_template
+    assert "sales.revenue" in brief.authoring_template
+    assert "sales.orders_count" in brief.authoring_template
+
+
+def test_prepare_derived_metric_weighted_average_includes_authoring_template(
+    semantic_project_factory,
+) -> None:
+    model = (
+        "import marivo.semantic as ms\n"
+        "ms.domain(name='sales')\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum())\n"
+        "def revenue(t):\n"
+        "    return t.amount.sum()\n"
+        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum())\n"
+        "def count_metric(t):\n"
+        "    return t.count()\n"
+    )
+    project = semantic_project_factory({"sales/_domain.py": model})
+    project.load()
+
+    brief = project.prepare_derived_metric(numerator="sales.revenue", weight="sales.count_metric")
+
+    assert brief.status == "sufficient"
+    assert brief.decomposition_kind == "weighted_average"
+    assert brief.authoring_template is not None
+    assert "ms.derived_metric(" in brief.authoring_template
+    assert "ms.weighted_average(" in brief.authoring_template
+    assert "sales.revenue" in brief.authoring_template
+    assert "sales.count_metric" in brief.authoring_template
 
 
 def test_module_prepare_domain_uses_loaded_project(tmp_path, monkeypatch) -> None:

@@ -525,9 +525,45 @@ class DerivedMetricBrief(_BriefResult):
     matches: tuple[RegisteredMatch, ...] = field(metadata={"description": _MATCHES_DOC})
     questions: tuple[AuthoringQuestion, ...] = field(metadata={"description": _QUESTIONS_DOC})
     issues: tuple[AssessmentIssue, ...] = field(metadata={"description": _ISSUES_DOC})
+    authoring_template: str | None = field(
+        default=None,
+        metadata={
+            "description": (
+                "Ready-to-use ms.derived_metric(...) call template derived from components. "
+                "Copy and fill in name= to declare the metric."
+            )
+        },
+    )
 
     def _repr_identity(self) -> str:
         return f"DerivedMetricBrief decomposition={self.decomposition_kind} status={self.status}"
+
+    def render(self) -> str:
+        parts: list[str] = []
+        if self.components:
+            comp_rows = [[c.ref, c.role, c.decomposition_kind] for c in self.components[:6]]
+            parts.append(
+                format_bounded_card(
+                    identity=self._repr_identity(),
+                    status=f"questions={len(self.questions)} issues={len(self.issues)}",
+                    columns=["ref", "role", "decomposition"],
+                    rows=comp_rows,
+                    row_count=len(self.components),
+                    preview_truncation_hint="inspect .components for all components",
+                    available=(".render()", ".show()"),
+                )
+            )
+        else:
+            parts.append(
+                format_bounded_card(
+                    identity=self._repr_identity(),
+                    status=f"questions={len(self.questions)} issues={len(self.issues)}",
+                    available=(".render()", ".show()"),
+                )
+            )
+        if self.authoring_template is not None:
+            parts.append(f"Template:\n{self.authoring_template}")
+        return "\n".join(parts)
 
 
 @dataclass(frozen=True)
