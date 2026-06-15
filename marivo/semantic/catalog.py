@@ -5,6 +5,7 @@ Public entrypoint: ms.load() -> SemanticCatalog
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -1387,7 +1388,11 @@ class SemanticCatalog:
             cross-entity metrics raise ``LadderOrderError`` if the entity has
             not passed verification.
         """
-        self.load()
+        with contextlib.suppress(SemanticLoadFailed):
+            # Project failed to load; let _project.verify_object handle it
+            # so we get a proper VerifyResult with the real load errors
+            # instead of an unhandled exception.
+            self.load()
         ref_str = _to_ref_str(ref)
         result = self._project.verify_object(ref_str, scope=scope)
         self._reg = self._project._registry

@@ -273,3 +273,71 @@ def test_unknown_entity_skips_guard(tmp_path: Path, semantic_project_factory) ->
 
     with pytest.raises(SemanticRuntimeError):
         project.prepare_dimension(entity="sales.nonexistent", column="x")
+
+
+# -- verify_object with project load failure ----------------------------------
+
+
+def test_verify_object_reports_project_load_failed(semantic_project_factory) -> None:
+    """When a file fails to load, verify_object returns project_load_failed
+    instead of the misleading 'was not found' with kind=entity."""
+    # Create a project whose metrics file calls a non-existent ms.max()
+    project = semantic_project_factory(
+        {
+            "cdn/_domain.py": ("import marivo.semantic as ms\nms.domain(name='cdn')\n"),
+            "cdn/broken.py": ("import marivo.semantic as ms\nms.max()  # does not exist\n"),
+        },
+        load=False,
+    )
+
+    result = project.verify_object("cdn.total_billing_bandwidth")
+
+    assert result.status == "failed"
+    # The kind defaults to "entity" when the registry is unavailable
+    assert result.kind == "entity"
+    assert len(result.issues) == 1
+    issue = result.issues[0]
+    assert issue.kind == "project_load_failed"
+    assert "project failed to load" in issue.message
+    # The message should surface the real error, not "was not found"
+    assert "was not found" not in issue.message
+    # The real error mentions the broken file
+    assert "broken.py" in issue.message
+
+
+def test_verify_object_reports_load_errors_for_metric_ref(semantic_project_factory) -> None:
+    """verify_object on a metric ref still gets project_load_failed when the
+    project cannot load — not the old static_check_failed / 'not found'."""
+    project = semantic_project_factory(
+        {
+            "cdn/_domain.py": ("import marivo.semantic as ms\nms.domain(name='cdn')\n"),
+            "cdn/bad.py": "raise RuntimeError('intentional load error')\n",
+        },
+        load=False,
+    )
+
+    result = project.verify_object("cdn.some_metric")
+
+    assert result.status == "failed"
+    assert result.issues[0].kind == "project_load_failed"
+    assert "intentional load error" in result.issues[0].message
+
+
+def test_verify_object_known_ref_still_not_found_when_loaded(
+    semantic_project_factory,
+) -> None:
+    """When the project loads successfully but the ref doesn't exist,
+    verify_object still uses static_check_failed (not project_load_failed)."""
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": ("import marivo.semantic as ms\nms.domain(name='sales')\n"),
+        },
+        load=True,
+    )
+    assert project.is_ready()
+
+    result = project.verify_object("sales.nonexistent_metric")
+
+    assert result.status == "failed"
+    assert result.issues[0].kind == "static_check_failed"
+    assert "was not found" in result.issues[0].message
