@@ -10,7 +10,7 @@ import re as _re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal
 
 from marivo.datasource.ir import (
     AiContextIR,
@@ -24,11 +24,13 @@ from marivo.datasource.ir import (
 )
 
 __all__ = [
+    "Additivity",
+    "AggKind",
     "AiContextIR",
+    "Composition",
     "DatasourceAiContextIR",
     "DatasourceIR",
     "DatasourceSourceLocation",
-    "DecompositionIR",
     "DimensionIR",
     "DimensionKind",
     "DimensionRef",
@@ -40,14 +42,18 @@ __all__ = [
     "EntitySourceIR",
     "EntityVersioningIR",
     "FileSourceIR",
+    "LinearComposition",
+    "LinearTerm",
     "MetricAdditivity",
     "MetricIR",
     "MetricRef",
     "ParityStatus",
     "ProvenanceIR",
+    "RatioComposition",
     "RelationshipIR",
     "RelationshipRef",
     "SampleIntervalIR",
+    "SemiAdditive",
     "SnapshotVersioningIR",
     "SourceLocation",
     "SymbolKind",
@@ -55,6 +61,7 @@ __all__ = [
     "TimeDimensionRef",
     "TimeFoldIR",
     "ValidityVersioningIR",
+    "WeightedAverageComposition",
     "_BaseRef",
     "is_time_bearing_format",
     "source_from_dict",
@@ -265,6 +272,23 @@ class TimeFoldIR:
         return self.kind
 
 
+AggKind = (
+    Literal["sum", "count", "count_distinct", "min", "max", "mean", "median"]
+    | tuple[Literal["percentile"], float]
+)
+
+
+@dataclass(frozen=True)
+class SemiAdditive:
+    """Semi-additive marker: additive on non-time axes, folded along ``over``."""
+
+    over: str  # status_time_dimension semantic id
+    fold: TimeFoldIR  # time-axis collapse op (never "sum"/"none")
+
+
+Additivity = Literal["additive", "non_additive"] | SemiAdditive
+
+
 @dataclass(frozen=True)
 class DimensionIR:
     """Dimension declaration (categorical or measure column)."""
@@ -286,6 +310,7 @@ class DimensionIR:
     timezone: str | None = None
     is_default: bool = False
     sample_interval: SampleIntervalIR | None = None
+    additivity: Additivity | None = None
 
     def __post_init__(self) -> None:
         if self.is_time_dimension != (self.kind == DimensionKind.TIME):
@@ -293,11 +318,50 @@ class DimensionIR:
                 f"DimensionIR {self.semantic_id!r}: is_time_dimension={self.is_time_dimension} "
                 f"inconsistent with kind={self.kind.value!r}"
             )
+        if self.additivity is not None and self.kind is not DimensionKind.MEASURE:
+            raise ValueError(
+                f"DimensionIR {self.semantic_id!r}: additivity is only valid on measure dimensions"
+            )
 
 
 @dataclass(frozen=True)
+class RatioComposition:
+    numerator: str
+    denominator: str
+    kind: Literal["ratio"] = "ratio"
+
+
+@dataclass(frozen=True)
+class WeightedAverageComposition:
+    value: str
+    weight: str
+    kind: Literal["weighted_average"] = "weighted_average"
+
+
+@dataclass(frozen=True)
+class LinearTerm:
+    sign: Literal["+", "-"]
+    metric: str
+
+
+@dataclass(frozen=True)
+class LinearComposition:
+    terms: tuple[LinearTerm, ...]
+    kind: Literal["linear"] = "linear"
+
+    def __post_init__(self) -> None:
+        if len(self.terms) < 2:
+            raise ValueError("LinearComposition requires at least two terms")
+
+
+Composition = RatioComposition | WeightedAverageComposition | LinearComposition
+
+
+# Temporary compat alias — removed when authoring.py's metric/derived_metric
+# are removed (Task 12).
+@dataclass(frozen=True)
 class DecompositionIR:
-    """Decomposition semantics for a metric."""
+    """Decomposition semantics for a metric (DEPRECATED: use Composition)."""
 
     kind: Literal["sum", "ratio", "weighted_average"]
     components: dict[str, str] = field(default_factory=dict)
@@ -305,26 +369,69 @@ class DecompositionIR:
 
 @dataclass(frozen=True)
 class MetricIR:
-    """Metric declaration with decomposition and provenance."""
+    """Metric declaration: simple (tier-1 aggregate / tier-2 body) or derived."""
 
     semantic_id: str
     domain: str
     name: str
+    metric_type: Literal["simple", "derived"]
     entities: tuple[str, ...]
-    is_derived: bool
-    decomposition: DecompositionIR
+    aggregation: AggKind | None
+    measure: str | None
+    composition: Composition | None
+    additivity: Additivity | None
     provenance: ProvenanceIR
     description: str | None
     ai_context: AiContextIR
     body_ast_hash: str
     python_symbol: str
     location: SourceLocation
-    additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
     root_entity: str | None = None
     fanout_policy: Literal["block", "aggregate_then_join"] = "block"
     unit: str | None = None
-    time_fold: TimeFoldIR | None = None
-    status_time_dimension: str | None = None
+    fold_override: TimeFoldIR | None = (
+        None  # tier-1 only: overrides the measure's semi-additive fold at load
+    )
+
+    def __post_init__(self) -> None:
+        if self.fold_override is not None and self.aggregation is None:
+            raise ValueError(
+                f"MetricIR {self.semantic_id!r}: fold_override is only valid on tier-1 aggregates"
+            )
+        if self.metric_type == "simple":
+            if not self.entities:
+                raise ValueError(f"MetricIR {self.semantic_id!r}: simple metric requires entities")
+            if self.composition is not None:
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: simple metric must not carry composition"
+                )
+            tier1 = self.aggregation is not None
+            if tier1 != (self.measure is not None):
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: aggregation and measure must both be set "
+                    "(tier-1) or both be None (tier-2 body)"
+                )
+            if not tier1 and self.additivity is None:
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: tier-2 simple metric must declare additivity"
+                )
+        elif self.metric_type == "derived":
+            if self.entities:
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: derived metric must not carry entities"
+                )
+            if self.composition is None:
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: derived metric requires composition"
+                )
+            if self.aggregation is not None or self.measure is not None:
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: derived metric must not carry aggregation/measure"
+                )
+        else:
+            raise ValueError(
+                f"MetricIR {self.semantic_id!r}: invalid metric_type {self.metric_type!r}"
+            )
 
 
 @dataclass(frozen=True)
@@ -367,6 +474,20 @@ class _BaseRef:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.semantic_id!r})"
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        # Deferred import avoids an ir <-> errors import cycle.
+        from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
+
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"{self.semantic_id!r} is a declared semantic object, not a decorator. "
+            "Body-free constructors (ms.ratio / ms.weighted_average / ms.linear / "
+            "ms.aggregate / ms.relationship) return a ref — assign it, e.g. "
+            "`loss_rate = ms.ratio(name=..., numerator=..., denominator=...)`. "
+            "They have no function body.",
+            cls=SemanticDecoratorError,
+        )
 
     def __str__(self) -> str:
         return self.semantic_id
@@ -453,10 +574,9 @@ class TimeDimensionRef(_BaseRef):
 
 
 class MetricRef(_BaseRef):
-    """Ref returned by ms.metric() and ms.derived_metric(). Not callable.
+    """Ref returned by ms.aggregate(), @ms.simple_metric(), and derived constructors.
 
-    Derived metrics compose refs through decomposition builders, not direct
-    metric calls.
+    Not callable as a decorator. _BaseRef.__call__ raises a teaching error.
     """
 
     def __init__(self, semantic_id: str) -> None:
@@ -465,13 +585,6 @@ class MetricRef(_BaseRef):
         if not separator or not model or not metric:
             raise ValueError(f"metric ref must be '<model>.<metric>', got {semantic_id!r}")
         super().__init__(normalized, SymbolKind.METRIC)
-
-    def __call__(self, *args: Any, **kwargs: Any) -> NoReturn:
-        raise TypeError(
-            f"MetricRef({self.semantic_id!r}) is not callable. "
-            f"ms.derived_metric(...) is a top-level call, not a decorator. "
-            f"Use: ms.derived_metric(name='...', decomposition=ms.ratio(...))"
-        )
 
 
 class RelationshipRef(_BaseRef):
