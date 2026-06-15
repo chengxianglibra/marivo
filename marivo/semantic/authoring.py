@@ -1,8 +1,8 @@
 """Authoring decorators and builders for marivo.semantic v1.1.
 
-All authoring symbols (domain, entity, dimension, time_dimension, metric,
-relationship, sum, ratio, weighted_average, ref, derived_metric) are
-defined here.
+All authoring symbols (domain, entity, dimension, time_dimension,
+aggregate, simple_metric, ratio, weighted_average, linear,
+semi_additive, relationship, ref) are defined here.
 """
 
 from __future__ import annotations
@@ -12,8 +12,6 @@ import hashlib
 import inspect
 import textwrap
 from collections.abc import Callable
-from dataclasses import dataclass
-from dataclasses import field as dc_field
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -24,8 +22,10 @@ from marivo.datasource.typing import _build_ai_context as _shared_build_ai_conte
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
+    Additivity,
+    AggKind,
     AiContextIR,
-    DecompositionIR,
+    Composition,
     DimensionIR,
     DimensionKind,
     DimensionRef,
@@ -35,18 +35,23 @@ from marivo.semantic.ir import (
     EntityRef,
     EntitySourceIR,
     FileSourceIR,
+    LinearComposition,
+    LinearTerm,
     MetricIR,
     MetricRef,
     ProvenanceIR,
+    RatioComposition,
     RelationshipIR,
     RelationshipRef,
     SampleIntervalIR,
+    SemiAdditive,
     SnapshotVersioningIR,
     SourceLocation,
     TableSourceIR,
     TimeDimensionRef,
     TimeFoldIR,
     ValidityVersioningIR,
+    WeightedAverageComposition,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 from marivo.semantic.time_format import normalize_strptime
@@ -54,37 +59,24 @@ from marivo.semantic.typing import AiContext
 from marivo.semantic.validator import validate_metric_body_ast
 
 __all__ = [
-    "DecompositionBuilder",
     "DomainRef",
-    "derived_metric",
+    "aggregate",
     "dimension",
     "domain",
     "entity",
     "file",
-    "metric",
+    "linear",
     "ratio",
     "ref",
     "relationship",
+    "semi_additive",
+    "simple_metric",
     "snapshot",
-    "sum",
     "table",
     "time_dimension",
     "validity",
     "weighted_average",
 ]
-
-
-# ---------------------------------------------------------------------------
-# DecompositionBuilder
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class DecompositionBuilder:
-    """Precursor to DecompositionIR, returned by ms.sum/ratio/weighted_average."""
-
-    kind: Literal["sum", "ratio", "weighted_average"]
-    components: dict[str, str] = dc_field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -169,14 +161,8 @@ def _compute_body_ast_hash(fn: Callable[..., Any]) -> str:
         return hashlib.sha256(b"<unavailable>").hexdigest()[:16]
 
 
-def _compute_decomposition_ast_hash(decomposition: DecompositionBuilder) -> str:
-    """Compute a stable hash from canonical derived metric structure."""
-    payload = repr(
-        {
-            "kind": decomposition.kind,
-            "components": tuple(sorted(decomposition.components.items())),
-        }
-    )
+def _compute_agg_hash(measure_id: str, agg: Any, fold: TimeFoldIR | None) -> str:
+    payload = repr({"measure": measure_id, "agg": agg, "fold": (fold.kind, fold.q) if fold else None})
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
@@ -292,6 +278,21 @@ def _normalize_time_fold(
             constraint_id=ConstraintId.TIME_FOLD_VALID,
         )
     return TimeFoldIR(kind="quantile", q=float(q))
+
+
+def _normalize_additivity(additivity: Additivity, *, semantic_id: str) -> Additivity:
+    """Validate an Additivity value (literal or SemiAdditive variant)."""
+    if isinstance(additivity, SemiAdditive):
+        return additivity
+    if additivity in ("additive", "non_additive"):
+        return additivity
+    _raise(
+        ErrorKind.INVALID_REF,
+        f"Metric {semantic_id!r}: additivity must be 'additive', 'non_additive', "
+        "or ms.semi_additive(over=..., fold=...).",
+        cls=SemanticDecoratorError,
+        constraint_id=ConstraintId.REF_SHAPE,
+    )
 
 
 def _caller_location() -> SourceLocation:
@@ -413,6 +414,132 @@ def domain(
     return DomainRef(semantic_id=name)
 
 
+def aggregate(
+    *,
+    measure: DimensionRef | str,
+    agg: AggKind,
+    fold: str | tuple[Literal["quantile"], float] | None = None,
+    name: str | None = None,
+    unit: str | None = None,
+    domain: DomainRef | None = None,
+    description: str | None = None,
+    ai_context: AiContext | dict[str, Any] | None = None,
+) -> MetricRef:
+    """Declare a tier-1 simple metric: an aggregation over a measure dimension.
+
+    The metric inherits its additivity nature from ``measure`` (resolved at load);
+    ``fold`` overrides the time-fold for semi-additive measures only. No function body.
+
+    Example:
+        >>> revenue = ms.aggregate(measure=amount, agg="sum")
+        >>> average_inventory = ms.aggregate(measure=quantity, agg="sum", fold="avg")
+    """
+    ctx = _require_ctx()
+    resolved_domain = _resolve_domain(domain, ctx)
+    measure_id = _resolve_ref_string(measure)
+    # measure dimension ids are entity-qualified: "<domain>.<entity>.<column>"
+    entity_id = measure_id.rsplit(".", 1)[0]
+    obj_name = name or measure_id.rsplit(".", 1)[-1]
+    semantic_id = f"{resolved_domain}.{obj_name}"
+    _check_duplicate(ctx, semantic_id, MetricIR)
+    _validate_unit(unit, semantic_id)
+    fold_ir = _normalize_time_fold(fold, semantic_id=semantic_id) if fold is not None else None
+    ai_ctx = _build_ai_context(ai_context)
+    location = _caller_location()
+    metric_ir = MetricIR(
+        semantic_id=semantic_id,
+        domain=resolved_domain,
+        name=obj_name,
+        metric_type="simple",
+        entities=(entity_id,),
+        aggregation=agg,
+        measure=measure_id,
+        composition=None,
+        additivity=None,  # resolved at load: downgrade(measure.additivity, agg) + fold override
+        provenance=_build_metric_provenance(source_sql=None, source_dialect=None),
+        description=description,
+        ai_context=ai_ctx,
+        body_ast_hash=_compute_agg_hash(measure_id, agg, fold_ir),
+        python_symbol=obj_name,
+        location=location,
+        root_entity=entity_id,
+        fold_override=fold_ir,
+    )
+    _push_ir(ctx, metric_ir, None)
+    return MetricRef(semantic_id)
+
+
+def simple_metric(
+    *,
+    name: str | None = None,
+    entities: list[EntityRef | str],
+    additivity: Additivity,
+    root_entity: EntityRef | str | None = None,
+    fanout_policy: Literal["block", "aggregate_then_join"] = "block",
+    unit: str | None = None,
+    source_sql: str | None = None,
+    source_dialect: str | None = None,
+    domain: DomainRef | None = None,
+    description: str | None = None,
+    ai_context: AiContext | dict[str, Any] | None = None,
+) -> Callable[[Callable[..., Any]], MetricRef]:
+    """Declare a tier-2 simple metric from an ibis body. Declares ``additivity`` directly.
+
+    Example:
+        >>> @ms.simple_metric(entities=[orders], additivity="additive")
+        ... def gmv(orders):
+        ...     return (orders.price * orders.qty).sum()
+    """
+    ctx = _require_ctx()
+    resolved_domain = _resolve_domain(domain, ctx)
+
+    def decorator(fn: Callable[..., Any]) -> MetricRef:
+        obj_name = name or fn.__name__
+        semantic_id = f"{resolved_domain}.{obj_name}"
+        _check_duplicate(ctx, semantic_id, MetricIR)
+        _validate_unit(unit, semantic_id)
+        ds_refs = _resolve_entity_refs(entities)
+        if len(ds_refs) == 0:
+            _raise(
+                ErrorKind.MISSING_DATASETS,
+                "@ms.simple_metric(...) requires non-empty entities.",
+                refs=(semantic_id,),
+                cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.METRIC_DATASETS_REQUIRED,
+            )
+        body_hash = validate_metric_body_ast(fn, "base")
+        ai_ctx = _build_ai_context(ai_context)
+        location = _caller_location()
+        prov_ir = _build_metric_provenance(source_sql=source_sql, source_dialect=source_dialect)
+        root_ref = _resolve_ref_string(root_entity) if root_entity is not None else None
+        if root_ref is None and len(ds_refs) == 1:
+            root_ref = ds_refs[0]
+        metric_ir = MetricIR(
+            semantic_id=semantic_id,
+            domain=resolved_domain,
+            name=obj_name,
+            metric_type="simple",
+            entities=ds_refs,
+            aggregation=None,
+            measure=None,
+            composition=None,
+            additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
+            provenance=prov_ir,
+            description=description,
+            ai_context=ai_ctx,
+            body_ast_hash=body_hash,
+            python_symbol=fn.__name__,
+            location=location,
+            root_entity=root_ref,
+            fanout_policy=fanout_policy,
+            unit=unit,
+        )
+        _push_ir(ctx, metric_ir, fn)
+        return MetricRef(semantic_id)
+
+    return decorator
+
+
 # ---------------------------------------------------------------------------
 # Decorators
 # ---------------------------------------------------------------------------
@@ -525,6 +652,7 @@ def dimension(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
     kind: Literal["categorical", "measure"] = "categorical",
+    additivity: Additivity | None = None,
 ) -> Callable[[Callable[..., Any]], DimensionRef]:
     """Declare a dimension whose body returns an ibis expression over its entity.
 
@@ -564,6 +692,13 @@ def dimension(
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
+    if additivity is not None and kind != "measure":
+        _raise(
+            ErrorKind.INVALID_REF,
+            "additivity is only valid on kind='measure' dimensions.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
 
     def decorator(fn: Callable[..., Any]) -> DimensionRef:
         obj_name = name or fn.__name__
@@ -599,6 +734,9 @@ def dimension(
             required_prefix=None,
             python_symbol=fn.__name__,
             location=location,
+            additivity=_normalize_additivity(additivity, semantic_id=semantic_id)
+            if additivity is not None
+            else None,
         )
         _push_ir(ctx, ir, fn)
 
@@ -784,247 +922,6 @@ def time_dimension(
         return ref
 
     return decorator
-
-
-def metric(
-    *,
-    name: str | None = None,
-    entities: list[EntityRef | str] | None = None,
-    root_entity: EntityRef | str | None = None,
-    additivity: Literal["additive", "semi_additive", "non_additive"] | None = None,
-    fanout_policy: Literal["block", "aggregate_then_join"] = "block",
-    unit: str | None = None,
-    decomposition: DecompositionBuilder,
-    time_fold: str | tuple[Literal["quantile"], float] | None = None,
-    status_time_dimension: TimeDimensionRef | str | None = None,
-    source_sql: str | None = None,
-    source_dialect: str | None = None,
-    domain: DomainRef | None = None,
-    description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
-) -> Callable[[Callable[..., Any]], MetricRef]:
-    """Declare an entity-backed base metric.
-
-    ``source_sql`` / ``source_dialect`` are persisted into ``Provenance``
-    on the IR.  When ``source_sql`` is provided, ``verification_mode`` is
-    automatically inferred as ``"sql_parity"`` and parity checks become
-    available; otherwise the metric is trusted as semantically expressed.
-
-    Args:
-        name: Metric name. Defaults to the function name.
-        entities: Non-empty list of ``EntityRef`` / qualified strings.
-        decomposition: ``ms.sum()`` / ``ms.ratio(numerator=..., denominator=...)``
-            / ``ms.weighted_average(...)`` builder.
-        source_sql: Original SQL definition, persisted to provenance.
-            When present, enables SQL parity verification.
-        source_dialect: SQL dialect tag for ``source_sql``. Required when
-            ``source_sql`` is set.
-        domain: Override the active domain namespace with a ``DomainRef`` returned
-            by ``ms.domain(...)``. Defaults to the file's default domain.
-        description: Free-text description.
-        ai_context: Optional ``AiContext`` with extra agent-facing hints.
-        unit: Optional UCUM case-sensitive unit code describing the values this
-            metric emits, exactly as emitted; no layer converts values based on
-            it. Examples: ``"CNY"`` (bare ISO 4217 code = currency), ``"%"``
-            (values are percentage points, e.g. 89.8), ``"1"`` (dimensionless
-            fraction, e.g. 0.898 — the native output of ratio decompositions),
-            ``"ms"``, ``"By"``, ``"{order}"`` (counted noun), ``"By/s"``.
-        time_fold: Sampled semi-additive fold kind (``"mean"``, ``"min"``,
-            ``"max"``, ``"first"``, ``"last"``, or ``("quantile", q)``).
-            Requires ``additivity="semi_additive"``. time_fold is a metric
-            definition choice, not an observe parameter.
-        status_time_dimension: The root entity time dimension that represents
-            this semi-additive metric's business status/as-of axis. Required for
-            base ``additivity="semi_additive"`` metrics. When that time
-            dimension declares ``sample_interval``, the metric must also declare
-            ``time_fold``.
-
-    Returns:
-        A decorator that returns a ``MetricRef``.
-
-    Raises:
-        SemanticDecoratorError: ``entities`` is empty, name collides, the body
-            violates the AST whitelist, or ``unit`` is not a valid printable ASCII token.
-
-    Example:
-        >>> @ms.metric(name="revenue", entities=[orders], decomposition=ms.sum())
-        ... def revenue(orders):
-        ...     return orders.amount.sum()
-    """
-    ctx = _require_ctx()
-    resolved_domain = _resolve_domain(domain, ctx)
-
-    def decorator(fn: Callable[..., Any]) -> MetricRef:
-        obj_name = name or fn.__name__
-        semantic_id = f"{resolved_domain}.{obj_name}"
-        _check_duplicate(ctx, semantic_id, MetricIR)
-        _validate_unit(unit, semantic_id)
-
-        ds_refs = _resolve_entity_refs(entities)
-        if len(ds_refs) == 0:
-            _raise(
-                ErrorKind.MISSING_DATASETS,
-                "@ms.metric(...) requires non-empty entities. "
-                "Use ms.derived_metric(...) for body-free derived metrics.",
-                refs=(semantic_id,),
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.METRIC_DATASETS_REQUIRED,
-            )
-        body_hash = validate_metric_body_ast(fn, "base")
-        ai_ctx = _build_ai_context(ai_context)
-        location = _caller_location()
-
-        decomp_ir = DecompositionIR(
-            kind=decomposition.kind,
-            components=dict(decomposition.components),
-        )
-        prov_ir = _build_metric_provenance(
-            source_sql=source_sql,
-            source_dialect=source_dialect,
-        )
-
-        root_ref = _resolve_ref_string(root_entity) if root_entity is not None else None
-        resolved_root_ref = root_ref
-        if resolved_root_ref is None and len(ds_refs) == 1:
-            resolved_root_ref = ds_refs[0]
-
-        ir = MetricIR(
-            semantic_id=semantic_id,
-            domain=resolved_domain,
-            name=obj_name,
-            entities=ds_refs,
-            is_derived=False,
-            decomposition=decomp_ir,
-            provenance=prov_ir,
-            description=description,
-            ai_context=ai_ctx,
-            body_ast_hash=body_hash,
-            python_symbol=fn.__name__,
-            location=location,
-            additivity=additivity,
-            root_entity=resolved_root_ref,
-            fanout_policy=fanout_policy,
-            unit=unit,
-            time_fold=_normalize_time_fold(time_fold, semantic_id=semantic_id),
-            status_time_dimension=(
-                _resolve_ref_string(status_time_dimension)
-                if status_time_dimension is not None
-                else None
-            ),
-        )
-
-        _push_ir(ctx, ir, fn)
-
-        return MetricRef(semantic_id)
-
-    return decorator
-
-
-def derived_metric(
-    *,
-    name: str,
-    decomposition: DecompositionBuilder,
-    additivity: Literal["additive", "semi_additive", "non_additive"] | None = None,
-    source_sql: str | None = None,
-    source_dialect: str | None = None,
-    domain: DomainRef | None = None,
-    description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
-    unit: str | None = None,
-) -> MetricRef:
-    """Declare a body-free derived metric from canonical decomposition structure.
-
-    Note:
-        ``ms.derived_metric(...)`` is a **top-level call**, not a decorator.
-        Do not write ``@ms.derived_metric(...)`` above a function body.
-        Derived metrics have no function body — they compose other metrics
-        through decomposition builders like ``ms.ratio(...)`` and
-        ``ms.weighted_average(...)``.
-
-    Args:
-        name: Metric name.
-        decomposition: ``ms.ratio(...)`` / ``ms.weighted_average(...)`` builder
-            with component references.
-        additivity: Must be omitted or ``"non_additive"``.
-        source_sql: Original SQL definition, persisted to provenance.
-            Derived metrics must not declare source_sql or source_dialect;
-            verify their component metrics instead.
-        source_dialect: SQL dialect tag for ``source_sql``.
-        domain: Override the active domain namespace with a ``DomainRef``.
-        description: Free-text description.
-        ai_context: Optional ``AiContext`` with extra agent-facing hints.
-        unit: Optional UCUM case-sensitive unit code describing the values this
-            metric emits, exactly as emitted; no layer converts values based on
-            it. Examples: ``"CNY"`` (bare ISO 4217 code = currency), ``"%"``
-            (values are percentage points, e.g. 89.8), ``"1"`` (dimensionless
-            fraction, e.g. 0.898 — the native output of ratio decompositions),
-            ``"ms"``, ``"By"``, ``"{order}"`` (counted noun), ``"By/s"``.
-
-    Returns:
-        A ``MetricRef`` for the derived metric.
-
-    Example:
-        >>> aov = ms.derived_metric(
-        ...     name="aov",
-        ...     decomposition=ms.ratio(numerator=revenue, denominator=orders_count),
-        ... )
-    """
-    ctx = _require_ctx()
-    resolved_domain = _resolve_domain(domain, ctx)
-    semantic_id = f"{resolved_domain}.{name}"
-    _check_duplicate(ctx, semantic_id, MetricIR)
-    _validate_unit(unit, semantic_id)
-
-    if decomposition.kind not in ("ratio", "weighted_average") or not decomposition.components:
-        _raise(
-            ErrorKind.INVALID_DECOMPOSITION,
-            "ms.derived_metric(...) requires a ratio or weighted_average decomposition with components.",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.DECOMPOSITION_SHAPE,
-        )
-    if additivity is not None and additivity != "non_additive":
-        _raise(
-            ErrorKind.INVALID_DECOMPOSITION,
-            "ms.derived_metric(...) additivity must be omitted or 'non_additive'.",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.DECOMPOSITION_SHAPE,
-        )
-
-    ai_ctx = _build_ai_context(ai_context)
-    location = _caller_location()
-    decomp_ir = DecompositionIR(
-        kind=decomposition.kind,
-        components=dict(decomposition.components),
-    )
-    prov_ir = _build_metric_provenance(
-        source_sql=source_sql,
-        source_dialect=source_dialect,
-    )
-
-    ir = MetricIR(
-        semantic_id=semantic_id,
-        domain=resolved_domain,
-        name=name,
-        entities=(),
-        is_derived=True,
-        decomposition=decomp_ir,
-        provenance=prov_ir,
-        description=description,
-        ai_context=ai_ctx,
-        body_ast_hash=_compute_decomposition_ast_hash(decomposition),
-        python_symbol=name,
-        location=location,
-        additivity=additivity,
-        root_entity=None,
-        fanout_policy="block",
-        unit=unit,
-    )
-    _push_ir(ctx, ir, None)
-
-    return MetricRef(semantic_id)
-
 
 def relationship(
     *,
@@ -1215,56 +1112,164 @@ def validity(
     )
 
 
-def sum() -> DecompositionBuilder:
-    """Sum decomposition: aggregate metric over its dataset row set.
+def semi_additive(
+    *,
+    over: TimeDimensionRef | str,
+    fold: str | tuple[Literal["quantile"], float],
+) -> SemiAdditive:
+    """Declare a semi-additive nature: additive off the ``over`` time axis, folded by ``fold``.
 
-    Pass to ``@ms.metric(decomposition=ms.sum())`` for aggregate metrics whose
-    body is a reduction (``orders.amount.sum()``).
+    Use as the ``additivity=`` value on a measure dimension or a tier-2 simple metric::
+
+        @ms.dimension(kind="measure", entity=inventory,
+                      additivity=ms.semi_additive(over=snapshot_date, fold="last"))
+        def quantity(inventory):
+            return inventory.qty
     """
-    return DecompositionBuilder(kind="sum")
+    over_id = _resolve_ref_string(over)
+    fold_ir = _normalize_time_fold(fold, semantic_id=over_id)
+    if fold_ir is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            "ms.semi_additive(...) requires a fold (e.g. 'last', 'max', ('quantile', 0.9)).",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    return SemiAdditive(over=over_id, fold=fold_ir)
+
+
+def _compute_composition_hash(composition: Composition) -> str:
+    if isinstance(composition, RatioComposition):
+        text = repr(("ratio", composition.numerator, composition.denominator))
+    elif isinstance(composition, WeightedAverageComposition):
+        text = repr(("weighted_average", composition.value, composition.weight))
+    else:  # LinearComposition
+        text = repr(("linear", tuple((t.sign, t.metric) for t in composition.terms)))
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def _derived(
+    *,
+    name: str,
+    composition: Composition,
+    unit: str | None,
+    domain: DomainRef | None,
+    description: str | None,
+    ai_context: AiContext | dict[str, Any] | None,
+) -> MetricRef:
+    ctx = _require_ctx()
+    resolved_domain = _resolve_domain(domain, ctx)
+    semantic_id = f"{resolved_domain}.{name}"
+    _check_duplicate(ctx, semantic_id, MetricIR)
+    _validate_unit(unit, semantic_id)
+    ai_ctx = _build_ai_context(ai_context)
+    location = _caller_location()
+    metric_ir = MetricIR(
+        semantic_id=semantic_id,
+        domain=resolved_domain,
+        name=name,
+        metric_type="derived",
+        entities=(),
+        aggregation=None,
+        measure=None,
+        composition=composition,
+        additivity=None,  # propagated at load from components
+        provenance=_build_metric_provenance(source_sql=None, source_dialect=None),
+        description=description,
+        ai_context=ai_ctx,
+        body_ast_hash=_compute_composition_hash(composition),
+        python_symbol=name,
+        location=location,
+    )
+    _push_ir(ctx, metric_ir, None)
+    return MetricRef(semantic_id)
 
 
 def ratio(
     *,
-    numerator: Any,
-    denominator: Any,
-) -> DecompositionBuilder:
-    """Ratio decomposition for body-free ``ms.derived_metric`` declarations.
+    name: str,
+    numerator: MetricRef | str,
+    denominator: MetricRef | str,
+    unit: str | None = None,
+    domain: DomainRef | None = None,
+    description: str | None = None,
+    ai_context: AiContext | dict[str, Any] | None = None,
+) -> MetricRef:
+    """Declare a derived ratio metric (no body). Example::
 
-    ``numerator`` and ``denominator`` are ``MetricRef`` / qualified string
-    references to other metrics. Pass the returned builder directly to
-    ``ms.derived_metric(...)``.
-
-    Example:
-        >>> ms.derived_metric(
-        ...     name="aov",
-        ...     decomposition=ms.ratio(numerator=revenue, denominator=orders_count),
-        ... )
+        loss_rate = ms.ratio(name="loss_rate", numerator=lost, denominator=total, unit="1")
     """
-    num_id = _resolve_ref_string(numerator) if not isinstance(numerator, str) else numerator
-    den_id = _resolve_ref_string(denominator) if not isinstance(denominator, str) else denominator
-    return DecompositionBuilder(
-        kind="ratio",
-        components={"numerator": num_id, "denominator": den_id},
+    return _derived(
+        name=name,
+        composition=RatioComposition(
+            numerator=_resolve_ref_string(numerator),
+            denominator=_resolve_ref_string(denominator),
+        ),
+        unit=unit,
+        domain=domain,
+        description=description,
+        ai_context=ai_context,
     )
 
 
 def weighted_average(
     *,
-    value: Any,
-    weight: Any,
-) -> DecompositionBuilder:
-    """Weighted-average decomposition for body-free derived metrics.
+    name: str,
+    value: MetricRef | str,
+    weight: MetricRef | str,
+    unit: str | None = None,
+    domain: DomainRef | None = None,
+    description: str | None = None,
+    ai_context: AiContext | dict[str, Any] | None = None,
+) -> MetricRef:
+    """Declare a derived weighted-average metric (no body). Roles are ``value`` / ``weight``."""
+    return _derived(
+        name=name,
+        composition=WeightedAverageComposition(
+            value=_resolve_ref_string(value),
+            weight=_resolve_ref_string(weight),
+        ),
+        unit=unit,
+        domain=domain,
+        description=description,
+        ai_context=ai_context,
+    )
 
-    Both ``value`` and ``weight`` are ``MetricRef`` / qualified string
-    references. Pass the returned builder directly to ``ms.derived_metric(...)``
-    when the underlying ratio needs to be averaged by an additive weight.
+
+def linear(
+    *,
+    name: str,
+    add: list[MetricRef | str],
+    subtract: list[MetricRef | str] | tuple[MetricRef | str, ...] = (),
+    unit: str | None = None,
+    domain: DomainRef | None = None,
+    description: str | None = None,
+    ai_context: AiContext | dict[str, Any] | None = None,
+) -> MetricRef:
+    """Declare a derived linear metric (no body): sum of ``add`` minus ``subtract``.
+
+    Example::
+
+        net_revenue = ms.linear(name="net_revenue", add=[gross], subtract=[refunds])
     """
-    num_id = _resolve_ref_string(value) if not isinstance(value, str) else value
-    weight_id = _resolve_ref_string(weight) if not isinstance(weight, str) else weight
-    return DecompositionBuilder(
-        kind="weighted_average",
-        components={"numerator": num_id, "weight": weight_id},
+    terms = tuple(LinearTerm("+", _resolve_ref_string(m)) for m in add) + tuple(
+        LinearTerm("-", _resolve_ref_string(m)) for m in subtract
+    )
+    if len(terms) < 2:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"ms.linear(name={name!r}) requires at least two metric terms.",
+            refs=(name,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    return _derived(
+        name=name,
+        composition=LinearComposition(terms=terms),
+        unit=unit,
+        domain=domain,
+        description=description,
+        ai_context=ai_context,
     )
 
 

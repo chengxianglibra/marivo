@@ -6,7 +6,7 @@ import os
 import secrets
 import shutil
 import tempfile
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -285,3 +285,58 @@ def seeded_time_series_metric_frame(
         },
         session=session,
     )
+
+
+# ---------------------------------------------------------------------------
+# Authoring session helper (metric-split foundation tests)
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def authoring_session(*, domain: str):
+    """Context manager that enters a LoaderContext with a default domain.
+
+    Exposes helpers for declaring measure dimensions and inspecting pending
+    metric IR objects. Used by tests/test_metric_split_foundation.py.
+    """
+    from marivo.semantic import authoring
+    from marivo.semantic.ir import MetricIR
+    from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+
+    ctx = LoaderContext(default_domain=domain)
+    _LOADER_CTX.set(ctx)
+    try:
+
+        class _Session:
+            @staticmethod
+            def measure(*, entity: str, name: str, additivity: Any = None) -> Any:
+                """Declare a measure dimension and return its DimensionRef."""
+                decorator = authoring.dimension(kind="measure", entity=entity, name=name, additivity=additivity)
+
+                # Apply the decorator to a dummy function that returns an ibis-like expression.
+                def _dummy_body(table: Any) -> Any:
+                    return getattr(table, name)
+
+                return decorator(_dummy_body)
+
+            @staticmethod
+            def pending_metric(semantic_id: str) -> MetricIR:
+                """Retrieve a pending MetricIR by semantic_id."""
+                for ir_obj, _ in ctx.pending_objects:
+                    if isinstance(ir_obj, MetricIR) and ir_obj.semantic_id == semantic_id:
+                        return ir_obj
+                raise KeyError(f"no pending MetricIR with semantic_id={semantic_id!r}")
+
+            @staticmethod
+            def pending_dimension(semantic_id: str) -> Any:
+                """Retrieve a pending DimensionIR by semantic_id."""
+                from marivo.semantic.ir import DimensionIR
+
+                for ir_obj, _ in ctx.pending_objects:
+                    if isinstance(ir_obj, DimensionIR) and ir_obj.semantic_id == semantic_id:
+                        return ir_obj
+                raise KeyError(f"no pending DimensionIR with semantic_id={semantic_id!r}")
+
+        yield _Session()
+    finally:
+        _LOADER_CTX.set(None)

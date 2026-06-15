@@ -12,9 +12,11 @@ Public surface::
 
     ms.domain(name="sales", default=True)
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
-    @ms.metric(name="revenue", entities=[orders], decomposition=ms.sum())
-    def revenue(orders):
-        return orders.amount.sum()
+    @ms.dimension(kind="measure", entity=orders, additivity="additive")
+    def amount(orders):
+        return orders.amount
+
+    revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
 """
 
 from __future__ import annotations
@@ -26,17 +28,18 @@ from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
     DomainRef,
-    derived_metric,
+    aggregate,
     dimension,
     domain,
     entity,
     file,
-    metric,
+    linear,
     ratio,
     ref,
     relationship,
+    semi_additive,
+    simple_metric,
     snapshot,
-    sum,
     table,
     time_dimension,
     validity,
@@ -564,7 +567,7 @@ __all__ = [
     "ValidityVersioning",
     "VerifyResult",
     "VersioningHints",
-    "derived_metric",
+    "aggregate",
     "dimension",
     "domain",
     "entity",
@@ -572,8 +575,8 @@ __all__ = [
     "file",
     "help",
     "help_text",
+    "linear",
     "load",
-    "metric",
     "parity_check",
     "prepare_cross_entity_metric",
     "prepare_derived_metric",
@@ -589,8 +592,9 @@ __all__ = [
     "ref",
     "relationship",
     "richness",
+    "semi_additive",
+    "simple_metric",
     "snapshot",
-    "sum",
     "table",
     "time_dimension",
     "typing",
