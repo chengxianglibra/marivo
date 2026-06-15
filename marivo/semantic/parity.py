@@ -10,6 +10,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from marivo.datasource.ir import TableSourceIR, qualify_source_sql
 from marivo.semantic.errors import ErrorKind, SemanticParityError, _raise
 from marivo.semantic.ir import MetricIR, ParityStatus
 
@@ -204,11 +205,30 @@ def parity_check(
             ),
         )
 
+    # Build table qualifiers from entity sources for automatic qualification.
+    table_qualifiers: dict[str, str] = {}
+    for ds_ref in metric_ir.entities:
+        ds_ir = reg.datasets.get(ds_ref)
+        if ds_ir is None:
+            continue
+        source = ds_ir.source
+        if isinstance(source, TableSourceIR) and source.database is not None:
+            db = source.database
+            if isinstance(db, tuple):
+                db = ".".join(db)
+            table_qualifiers[source.table] = f"{db}.{source.table}"
+
+    qualified_sql = qualify_source_sql(
+        metric_ir.provenance.source_sql,
+        table_qualifiers,
+        dialect=metric_ir.provenance.source_dialect,
+    )
+
     # Execute the source SQL -> single scalar
     try:
         service = cache_project._connection_service()
         with service.use_backend(datasource_id) as backend:
-            sql_result = backend.sql(metric_ir.provenance.source_sql)
+            sql_result = backend.sql(qualified_sql)
             sql_pandas = sql_result.to_pandas()
         expected_val = _extract_scalar(sql_pandas, metric_id, "Source SQL")
     except SemanticParityError:
