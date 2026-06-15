@@ -34,6 +34,7 @@ from marivo.semantic.ir import (
     RelationshipIR,
     SnapshotVersioningIR,
     ValidityVersioningIR,
+    composition_components,
 )
 
 __all__ = [
@@ -726,99 +727,24 @@ def _filtered_domain_ref_warning(
 
 
 def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]) -> None:
+    from marivo.semantic.ir import DimensionKind, SemiAdditive
+
     for metric_id, metric_ir in registry.metrics.items():
-        root = metric_ir.root_entity or (
-            metric_ir.entities[0] if len(metric_ir.entities) == 1 else None
-        )
-        if metric_ir.is_derived:
-            if metric_ir.time_fold is not None:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.TIME_FOLD_REQUIRES_SEMI_ADDITIVE,
-                        message=f"Derived metric {metric_id!r} cannot declare time_fold.",
-                        refs=(metric_id,),
-                        details={"metric": metric_id},
-                    )
-                )
+        add = metric_ir.additivity
+        if not isinstance(add, SemiAdditive):
             continue
-        if metric_ir.time_fold is not None and metric_ir.additivity != "semi_additive":
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.TIME_FOLD_REQUIRES_SEMI_ADDITIVE,
-                    message=f"Metric {metric_id!r} time_fold requires additivity='semi_additive'.",
-                    refs=(metric_id,),
-                    details={"metric": metric_id, "additivity": metric_ir.additivity},
-                )
-            )
-            continue
-        if metric_ir.additivity != "semi_additive":
-            continue
-
-        status_time_dimension = metric_ir.status_time_dimension
-        if status_time_dimension is None:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.MISSING_STATUS_TIME_DIMENSION,
-                    message=f"Semi-additive metric {metric_id!r} must declare status_time_dimension.",
-                    refs=(metric_id,),
-                    constraint_id=ConstraintId.STATUS_TIME_DIMENSION_REQUIRED,
-                    details={"metric": metric_id, "root_entity": root},
-                )
-            )
-            continue
-
-        status_field = registry.fields.get(status_time_dimension)
-        if (
-            status_field is None
-            or not status_field.is_time_dimension
-            or root is None
-            or status_field.entity != root
-        ):
+        field = registry.fields.get(add.over)
+        if field is None or field.kind is not DimensionKind.TIME:
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.INVALID_STATUS_TIME_DIMENSION,
                     message=(
-                        f"Metric {metric_id!r} status_time_dimension must reference a "
-                        "time dimension on its root entity."
+                        f"Metric {metric_id!r} is semi-additive over {add.over!r}, "
+                        "which is not a declared time dimension."
                     ),
-                    refs=(metric_id, status_time_dimension),
+                    refs=(metric_id, add.over),
                     constraint_id=ConstraintId.STATUS_TIME_DIMENSION_INVALID,
-                    details={
-                        "metric": metric_id,
-                        "root_entity": root,
-                        "status_time_dimension": status_time_dimension,
-                    },
-                )
-            )
-            continue
-
-        if status_field.sample_interval is not None and metric_ir.time_fold is None:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.MISSING_TIME_FOLD,
-                    message=f"Sampled semi-additive metric {metric_id!r} must declare time_fold.",
-                    refs=(metric_id, status_time_dimension),
-                    details={
-                        "metric": metric_id,
-                        "sampled_time_dimension": status_time_dimension,
-                    },
-                )
-            )
-            continue
-
-        if metric_ir.time_fold is not None and status_field.sample_interval is None:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.TIME_FOLD_REQUIRES_SAMPLED_TIME_FIELD,
-                    message=(
-                        f"Metric {metric_id!r} declares time_fold but its "
-                        "status_time_dimension is not sampled."
-                    ),
-                    refs=(metric_id, status_time_dimension),
-                    details={
-                        "metric": metric_id,
-                        "status_time_dimension": status_time_dimension,
-                    },
+                    details={"metric": metric_id, "over": add.over},
                 )
             )
 
@@ -909,19 +835,66 @@ def assembly_validate(
                         )
                     )
 
-    # -- Validate base metric additivity and root_entity -------------------
+    # -- Validate metric additivity + tier-1 measure resolution --------------
+    from marivo.semantic.ir import additivity_bucket as _bucket
+
     for m_id, m_ir in registry.metrics.items():
-        if m_ir.is_derived:
+        if m_ir.metric_type == "derived":
             continue
         if m_ir.additivity is None:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.MISSING_METRIC_ADDITIVITY,
-                    message=f"Base metric {m_id!r} must declare additivity.",
-                    refs=(m_id,),
-                    details={"metric": m_id},
+            # Resolution failed: diagnose the tier-1 cause precisely.
+            if m_ir.aggregation is not None:
+                measure = registry.fields.get(m_ir.measure or "")
+                if measure is None:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.UNKNOWN_MEASURE,
+                            message=f"Metric {m_id!r} references unknown measure {m_ir.measure!r}.",
+                            refs=(m_id, m_ir.measure or ""),
+                            details={
+                                "metric": m_id,
+                                "measure": m_ir.measure,
+                                "did_you_mean": did_you_mean(
+                                    m_ir.measure or "", sorted(registry.fields.keys())
+                                ),
+                            },
+                        )
+                    )
+                elif getattr(measure, "additivity", None) is None:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.MISSING_MEASURE_ADDITIVITY,
+                            message=f"Measure {m_ir.measure!r} used by {m_id!r} must declare additivity.",
+                            refs=(m_id, m_ir.measure or ""),
+                            constraint_id=ConstraintId.MEASURE_ADDITIVITY_REQUIRED,
+                            details={"metric": m_id, "measure": m_ir.measure},
+                        )
+                    )
+                else:
+                    agg = m_ir.aggregation
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.INVALID_MEASURE_AGGREGATION,
+                            message=(
+                                f"Metric {m_id!r} applies {agg!r} to non-additive measure "
+                                f"{m_ir.measure!r}; use mean/min/max or a ratio."
+                            ),
+                            refs=(m_id, m_ir.measure or ""),
+                            constraint_id=ConstraintId.MEASURE_AGGREGATION_VALID,
+                            details={"metric": m_id, "measure": m_ir.measure, "aggregation": agg},
+                        )
+                    )
+            else:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.MISSING_METRIC_ADDITIVITY,
+                        message=f"Simple metric {m_id!r} must declare additivity.",
+                        refs=(m_id,),
+                        constraint_id=ConstraintId.METRIC_ADDITIVITY_REQUIRED,
+                        details={"metric": m_id},
+                    )
                 )
-            )
+            continue
         if len(m_ir.entities) == 0:
             continue
         if len(m_ir.entities) == 1 and m_ir.root_entity is None:
@@ -969,7 +942,7 @@ def assembly_validate(
                 )
             )
             continue
-        if m_ir.is_derived and policy != "block":
+        if m_ir.metric_type == "derived" and policy != "block":
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.DERIVED_METRIC_FANOUT_POLICY,
@@ -984,8 +957,9 @@ def assembly_validate(
             continue
         if (
             policy == "aggregate_then_join"
-            and not m_ir.is_derived
-            and m_ir.additivity not in {"additive", "semi_additive"}
+            and m_ir.metric_type != "derived"
+            and m_ir.additivity is not None
+            and _bucket(m_ir.additivity) not in {"additive", "semi_additive"}
         ):
             errors.append(
                 SemanticLoadError(
@@ -1005,7 +979,7 @@ def assembly_validate(
 
     # -- Validate root-only aggregates for multi-entity base metrics ----------
     for m_id, m_ir in registry.metrics.items():
-        if m_ir.is_derived:
+        if m_ir.metric_type != "simple" or m_ir.aggregation is not None:
             continue
         if sidecar is not None and len(m_ir.entities) > 1 and m_ir.root_entity is not None:
             fn = sidecar.get(m_id)
@@ -1031,9 +1005,11 @@ def assembly_validate(
     # -- Validate sampled semi-additive time folds ---------------------------
     _validate_sampled_time_folds(registry, errors)
 
-    # -- Validate metric component refs in decomposition --------------------
+    # -- Validate metric component refs in composition --------------------
     for m_id, m_ir in registry.metrics.items():
-        for comp_key, comp_ref in m_ir.decomposition.components.items():
+        if m_ir.composition is None:
+            continue
+        for comp_key, comp_ref in composition_components(m_ir.composition).items():
             if comp_ref not in registry.metrics:
                 if _is_filtered_domain_ref(comp_ref, loaded_models):
                     warnings.append(
@@ -1043,7 +1019,7 @@ def assembly_validate(
                     errors.append(
                         SemanticLoadError(
                             kind=ErrorKind.MISSING_METRIC_REF,
-                            message=f"Metric {m_id!r} decomposition component "
+                            message=f"Metric {m_id!r} composition component "
                             f"{comp_key!r} references unknown metric "
                             f"{comp_ref!r}.",
                             refs=(m_id, comp_ref),
@@ -1201,7 +1177,7 @@ def assembly_validate(
     # - Derived metrics: must not carry source_sql or source_dialect
     for m_id, m_ir in registry.metrics.items():
         prov = m_ir.provenance
-        if m_ir.is_derived:
+        if m_ir.metric_type == "derived":
             if prov.source_sql is not None or prov.source_dialect is not None:
                 errors.append(
                     SemanticLoadError(
@@ -1280,14 +1256,15 @@ def _detect_metric_cycles(
     registry: Registry,
     errors: list[SemanticError],
 ) -> None:
-    """Detect circular references in metric decomposition components."""
+    """Detect circular references in metric composition components."""
     # Build adjacency: metric -> set of metrics it references via components
     adj: dict[str, set[str]] = {}
     for m_id, m_ir in registry.metrics.items():
         deps: set[str] = set()
-        for comp_ref in m_ir.decomposition.components.values():
-            if comp_ref in registry.metrics:
-                deps.add(comp_ref)
+        if m_ir.composition is not None:
+            for comp_ref in composition_components(m_ir.composition).values():
+                if comp_ref in registry.metrics:
+                    deps.add(comp_ref)
         adj[m_id] = deps
 
     # DFS-based cycle detection

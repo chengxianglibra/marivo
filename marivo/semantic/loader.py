@@ -30,7 +30,7 @@ from marivo.semantic.errors import (
     StructuredWarning,
     _raise,
 )
-from marivo.semantic.ir import DomainIR
+from marivo.semantic.ir import Additivity, DomainIR, MetricIR
 from marivo.semantic.validator import Registry, Sidecar, assembly_validate
 
 __all__ = [
@@ -317,6 +317,77 @@ def _load_model_dir(
     return ctx
 
 
+# ---------------------------------------------------------------------------
+# Metric additivity resolution (runs after _build_registry, before validation)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_tier1_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:
+    from marivo.semantic.ir import SemiAdditive
+
+    measure = registry.fields.get(metric.measure or "")
+    if measure is None or getattr(measure, "additivity", None) is None:
+        return None  # validator: UNKNOWN_MEASURE / MISSING_MEASURE_ADDITIVITY
+    agg = metric.aggregation
+    agg_name = agg[0] if isinstance(agg, tuple) else agg
+    if agg_name == "count":
+        return "additive"
+    if agg_name == "sum":
+        nature = measure.additivity
+        if nature == "additive":
+            return "additive"
+        if isinstance(nature, SemiAdditive):
+            if metric.fold_override is not None:
+                return SemiAdditive(over=nature.over, fold=metric.fold_override)
+            return nature
+        return None  # non_additive measure + sum -> validator: INVALID_MEASURE_AGGREGATION
+    return "non_additive"  # mean/median/percentile/count_distinct/min/max
+
+
+def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:
+    from marivo.semantic.ir import (
+        LinearComposition,
+        RatioComposition,
+        WeightedAverageComposition,
+        additivity_bucket,
+    )
+
+    comp = metric.composition
+    if isinstance(comp, (RatioComposition, WeightedAverageComposition)):
+        return "non_additive"
+    assert isinstance(comp, LinearComposition)
+    buckets: list[str] = []
+    for term in comp.terms:
+        dep = registry.metrics.get(term.metric)
+        if dep is None or dep.additivity is None:
+            return None  # dep not resolved yet (retry) or missing (validator reports)
+        buckets.append(additivity_bucket(dep.additivity))
+    return "additive" if all(b == "additive" for b in buckets) else "non_additive"
+
+
+def _resolve_metric_additivity(registry: Registry) -> None:
+    import dataclasses
+
+    # Phase A: tier-1 simple metrics resolve from their measure dimension.
+    for sid, m in list(registry.metrics.items()):
+        if m.metric_type == "simple" and m.aggregation is not None and m.additivity is None:
+            resolved = _resolve_tier1_additivity(m, registry)
+            if resolved is not None:
+                registry.metrics[sid] = dataclasses.replace(m, additivity=resolved)
+
+    # Phase B: derived metrics propagate from components (fixpoint over chains).
+    for _ in range(len(registry.metrics) + 1):
+        changed = False
+        for sid, m in list(registry.metrics.items()):
+            if m.metric_type == "derived" and m.additivity is None:
+                resolved = _resolve_derived_additivity(m, registry)
+                if resolved is not None:
+                    registry.metrics[sid] = dataclasses.replace(m, additivity=resolved)
+                    changed = True
+        if not changed:
+            break
+
+
 def _build_registry(
     all_contexts: list[LoaderContext],
     *,
@@ -387,6 +458,7 @@ def _build_registry(
             if isinstance(ref, (DimensionRef, TimeDimensionRef)):
                 ref._resolver = resolver
 
+    _resolve_metric_additivity(registry)
     return registry, sidecar
 
 
