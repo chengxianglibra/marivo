@@ -500,9 +500,9 @@ class CrossEntityMetricBrief(_BriefResult):
 @dataclass(frozen=True)
 class ComponentFact:
     ref: str
-    role: Literal["numerator", "denominator", "weight"]
+    role: Literal["numerator", "denominator", "value", "weight"]
     additivity: str
-    decomposition_kind: str
+    composition_kind: str
     verification_status: str
     unit: str | None
 
@@ -510,8 +510,8 @@ class ComponentFact:
 @dataclass(frozen=True, repr=False)
 class DerivedMetricBrief(_BriefResult):
     status: BriefStatus = field(metadata={"description": _STATUS_DOC})
-    decomposition_kind: Literal["ratio", "weighted_average"] = field(
-        metadata={"description": "Inferred decomposition type from the supplied components."}
+    composition_kind: Literal["ratio", "weighted_average", "linear"] = field(
+        metadata={"description": "Inferred composition type from the supplied components."}
     )
     components: tuple[ComponentFact, ...] = field(
         metadata={"description": "Component metrics with additivity and verification facts."}
@@ -529,24 +529,25 @@ class DerivedMetricBrief(_BriefResult):
         default=None,
         metadata={
             "description": (
-                "Ready-to-use ms.derived_metric(...) call template derived from components. "
+                "Ready-to-use ms.ratio(...)/ms.weighted_average(...)/ms.linear(...) "
+                "call template derived from components. "
                 "Copy and fill in name= to declare the metric."
             )
         },
     )
 
     def _repr_identity(self) -> str:
-        return f"DerivedMetricBrief decomposition={self.decomposition_kind} status={self.status}"
+        return f"DerivedMetricBrief composition={self.composition_kind} status={self.status}"
 
     def render(self) -> str:
         parts: list[str] = []
         if self.components:
-            comp_rows = [[c.ref, c.role, c.decomposition_kind] for c in self.components[:6]]
+            comp_rows = [[c.ref, c.role, c.composition_kind] for c in self.components[:6]]
             parts.append(
                 format_bounded_card(
                     identity=self._repr_identity(),
                     status=f"questions={len(self.questions)} issues={len(self.issues)}",
-                    columns=["ref", "role", "decomposition"],
+                    columns=["ref", "role", "composition"],
                     rows=comp_rows,
                     row_count=len(self.components),
                     preview_truncation_hint="inspect .components for all components",

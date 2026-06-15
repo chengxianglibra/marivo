@@ -125,16 +125,23 @@ def _time_dimension_identity_fingerprint(field_ir: DimensionIR) -> str:
     )
 
 
-def _metric_decomposition_fingerprint(metric_ir: MetricIR) -> str:
-    """Fingerprint for metric_decomposition decisions over a MetricIR."""
-    time_fold_label = metric_ir.time_fold.label() if metric_ir.time_fold is not None else None
+def _metric_composition_fingerprint(metric_ir: MetricIR) -> str:
+    """Fingerprint for metric_composition/additivity decisions over a MetricIR."""
+    from marivo.semantic.ir import SemiAdditive, additivity_bucket, composition_components
+
+    add = metric_ir.additivity
+    fold = add.fold.label() if isinstance(add, SemiAdditive) else None
     return _semantic_fingerprint(
         {
-            "decomposition_kind": metric_ir.decomposition.kind,
-            "decomposition_components": dict(metric_ir.decomposition.components),
-            "additivity": metric_ir.additivity,
-            "is_derived": metric_ir.is_derived,
-            "time_fold": time_fold_label,
+            "metric_type": metric_ir.metric_type,
+            "composition_kind": metric_ir.composition.kind if metric_ir.composition else None,
+            "composition_components": composition_components(metric_ir.composition)
+            if metric_ir.composition
+            else {},
+            "additivity": additivity_bucket(add) if add is not None else None,
+            "aggregation": metric_ir.aggregation,
+            "measure": metric_ir.measure,
+            "fold": fold,
         }
     )
 
@@ -357,15 +364,18 @@ class SemanticProject:
         )
 
     def _dependents_metric(self, name: str, reg: Registry) -> _DepNode:
+        from marivo.semantic.ir import composition_components
+
         metric_children: list[_DepNode] = []
         for m_id, m_ir in reg.metrics.items():
             if m_id == name:
                 continue
-            for comp_ref in m_ir.decomposition.components.values():
-                if comp_ref == name:
-                    metric_children.append(
-                        _DepNode(semantic_id=m_id, kind=SymbolKind.METRIC, children=())
-                    )
+            if m_ir.composition is not None:
+                for comp_ref in composition_components(m_ir.composition).values():
+                    if comp_ref == name:
+                        metric_children.append(
+                            _DepNode(semantic_id=m_id, kind=SymbolKind.METRIC, children=())
+                        )
         return _DepNode(
             semantic_id=name,
             kind=SymbolKind.METRIC,
@@ -837,7 +847,7 @@ class SemanticProject:
             return "time_dimension" if field.is_time_dimension else "dimension"
         if ref in self._registry.metrics:
             metric = self._registry.metrics[ref]
-            return "derived_metric" if metric.is_derived else "metric"
+            return "derived_metric" if metric.metric_type == "derived" else "metric"
         if ref in self._registry.relationships:
             return "relationship"
         return "unknown"
@@ -873,7 +883,9 @@ class SemanticProject:
         )
 
     def _verify_metric(self, ref: str, kind: str) -> VerifyResult:
-        """Verify a base or derived metric and auto-record metric_decomposition."""
+        """Verify a base or derived metric and auto-record metric_composition."""
+        from marivo.semantic.ir import composition_components
+
         # Narrow from str to AuthoringObjectKind — mypy cannot narrow
         # AuthoringObjectKind | Literal["unknown"] through ``in`` checks.
         assert kind in ("metric", "derived_metric")
@@ -883,18 +895,22 @@ class SemanticProject:
             return self._failed_verify(
                 ref, narrow_kind, "authored_object_invalid", "Object is not loaded."
             )
-        fingerprint = _metric_decomposition_fingerprint(metric_ir)
-        chosen = metric_ir.decomposition.kind
+        fingerprint = _metric_composition_fingerprint(metric_ir)
+        chosen = metric_ir.composition.kind if metric_ir.composition is not None else "simple"
         cited_source: dict[str, object] = {
-            "decomposition": metric_ir.decomposition.kind,
-            "components": dict(metric_ir.decomposition.components),
+            "composition": metric_ir.composition.kind
+            if metric_ir.composition is not None
+            else None,
+            "components": dict(composition_components(metric_ir.composition))
+            if metric_ir.composition is not None
+            else {},
             "additivity": metric_ir.additivity,
         }
         if kind == "derived_metric":
-            cited_source["is_derived"] = True
+            cited_source["metric_type"] = "derived"
         recorded = self._auto_record_decision(
             ref,
-            "metric_decomposition",
+            "metric_composition",
             chosen,
             fingerprint,
             qualifying_sources=("semantic_declaration",),

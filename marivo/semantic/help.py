@@ -17,7 +17,7 @@ _SUMMARIES: dict[str, str] = {
     "AuthoringAssessment": "issues, questions, and status for authoring readiness",
     "AuthoringQuestion": "an unresolved business decision raised by a check",
     "BriefStatus": "stepwise brief preparation status enum",
-    "ComponentFact": "metric component fact used in derived-metric decomposition",
+    "ComponentFact": "metric component fact used in derived-metric composition",
     "CrossEntityMetricBrief": "brief for a cross-entity metric authoring step",
     "DatasetSource": "type alias: TableSource | FileSource",
     "DatasourceDetails": "kind-specific details for a datasource including backend type",
@@ -36,7 +36,7 @@ _SUMMARIES: dict[str, str] = {
     "FormatCandidate": "date format candidate from time-dimension inspection",
     "JoinPathFact": "join path evidence fact from relationship probing",
     "MetricBrief": "brief for a single-entity metric authoring step",
-    "MetricDetails": "kind-specific details for a metric object including decomposition and parity",
+    "MetricDetails": "kind-specific details for a metric object including composition and parity",
     "MetricRef": "stable reference to a declared metric",
     "ParitySummary": "semantic parity evidence summary",
     "PreviewSummary": "raw preview evidence summary",
@@ -65,8 +65,9 @@ _SUMMARIES: dict[str, str] = {
     "ValidityVersioning": "validity-window versioning declaration for a dataset",
     "VerifyResult": "per-object verification result",
     "VersioningHints": "versioning strategy hints from entity inspection",
+    "additivity": "metric summability: additive / non_additive / semi_additive(over, fold)",
+    "composition": "derived-metric composition kinds (ratio/weighted_average/linear); distinct from the decompose analysis op",
     "constraints": "authoring and validation constraints",
-    "decomposition": "metric decomposition builders and aggregation boundary",
     "derived_metric": "declare a body-free canonical ratio or weighted-average metric",
     "dimension": "declare a non-aggregated dimension on an entity",
     "domain": "open a domain namespace for decorator registration",
@@ -89,11 +90,11 @@ _SUMMARIES: dict[str, str] = {
     "readiness": "run structural readiness check for semantic refs",
     "ref": "refer to another metric by qualified name",
     "relationship": "declare a relationship between datasets",
+    "simple_metric": "declare an entity-backed metric (ms.aggregate over a measure, or @ms.simple_metric body)",
     "snapshot": "declare snapshot versioning for a dataset",
     "sum": "sum aggregation marker",
     "table": "table source for ms.entity(source=...)",
     "time_dimension": "declare a time-aware dimension used as the calendar axis",
-    "time_fold": "sampled semi-additive time folding for bandwidth-style metrics",
     "typing": "IbisBackend Protocol and AiContext TypedDict",
     "validity": "declare validity-window versioning for a dataset",
     "verify_object": "verify a single authored semantic object is reachable and valid",
@@ -127,153 +128,192 @@ def _constraint_topic() -> Descriptor:
     )
 
 
-def _decomposition_content() -> dict[str, object]:
+def _composition_content() -> dict[str, object]:
     return {
         "summary": (
-            "Metric decomposition is not SQL aggregation. Decomposition declares how "
-            "metric values compose during drilldown, derived calculations, and "
-            "component-aware analysis."
+            "Derived-metric composition declares how a metric value is built from "
+            "other metrics. Distinct from the decompose analysis op that attributes "
+            "a delta."
         ),
-        "builders": [
+        "examples": [
             {
-                "name": "sum",
-                "call": "ms.sum()",
-                "use": "Aggregate metric over its dataset row set.",
-                "components": [],
+                "metric_shape": "ratio",
+                "constructor": "ms.ratio(name=..., numerator=..., denominator=...)",
             },
             {
-                "name": "ratio",
-                "call": "ms.ratio(numerator=..., denominator=...)",
-                "use": "Derived metric expressed as numerator / denominator.",
-                "components": ["numerator", "denominator"],
+                "metric_shape": "weighted average",
+                "constructor": "ms.weighted_average(name=..., value=..., weight=...)",
             },
             {
-                "name": "weighted_average",
-                "call": "ms.weighted_average(value=..., weight=...)",
-                "use": "Derived metric whose value is explained by additive value and weight components.",
-                "components": ["numerator", "weight"],
+                "metric_shape": "linear (a +/- b)",
+                "constructor": "ms.linear(name=..., add=[...], subtract=[...])",
             },
         ],
-        "guidance": [
-            {
-                "metric_shape": "additive_amount",
-                "body": ".sum() or another dataset-backed reduction",
-                "decomposition": "ms.sum()",
-            },
-            {
-                "metric_shape": "count",
-                "body": ".count() in the metric body",
-                "decomposition": "ms.sum()",
-            },
-            {
-                "metric_shape": "mean_or_average",
-                "body": "ms.derived_metric(..., decomposition=ms.ratio(...))",
-                "decomposition": "ms.ratio(...)",
-            },
-            {
-                "metric_shape": "weighted_average",
-                "body": "ms.derived_metric(..., decomposition=ms.weighted_average(...))",
-                "decomposition": "ms.weighted_average(...)",
-            },
-        ],
-        "anti_patterns": [
-            "Do not call ms.count(); count metrics use .count() in the metric body and ms.sum() decomposition.",
-            "Do not call ms.mean(); mean metrics should be modeled as ratio or weighted_average components.",
-            "Do not infer decomposition builders from common SQL aggregate names.",
-        ],
+        "boundary": "composition = how a metric is built; decompose = an analysis op that attributes a delta.",
         "related_help": [
-            "ms.help('metric')",
+            "ms.help('simple_metric')",
             "ms.help('derived_metric')",
+            "ms.help('additivity')",
             "ms.help('constraints')",
         ],
     }
 
 
-def _decomposition_text(content: dict[str, object]) -> str:
-    builders = cast("list[dict[str, object]]", content["builders"])
-    guidance = cast("list[dict[str, object]]", content["guidance"])
-    anti_patterns = cast("list[str]", content["anti_patterns"])
+def _composition_text(content: dict[str, object]) -> str:
+    examples = cast("list[dict[str, object]]", content["examples"])
     lines = [
-        "marivo.semantic decomposition",
+        "marivo.semantic composition",
         "",
         str(content["summary"]),
         "",
-        "Supported builders:",
+        "Composition kinds:",
     ]
-    for builder in builders:
-        lines.append(f"  - {builder['call']}: {builder['use']}")
-    lines.extend(("", "Guidance:"))
-    for guidance_item in guidance:
-        lines.append(
-            f"  - {guidance_item['metric_shape']}: body {guidance_item['body']}; decomposition {guidance_item['decomposition']}"
-        )
-    lines.extend(("", "Anti-patterns:"))
-    for anti_pattern in anti_patterns:
-        lines.append(f"  - {anti_pattern}")
+    for ex in examples:
+        lines.append(f"  - {ex['metric_shape']}: {ex['constructor']}")
+    lines.extend(("", "Boundary:"))
+    lines.append(f"  {content['boundary']}")
     lines.append("")
-    lines.append('Call ms.help("decomposition") for agent-readable data.')
+    lines.append('Call ms.help("composition") for agent-readable data.')
     return "\n".join(lines)
 
 
-def _decomposition_topic() -> Descriptor:
-    content = _decomposition_content()
+def _composition_topic() -> Descriptor:
+    content = _composition_content()
     return Descriptor(
         surface="marivo.semantic",
         kind="topic",
-        symbol="decomposition",
+        symbol="composition",
         summary=cast("str", content["summary"]),
         content=content,
-        doc=_decomposition_text(content),
+        doc=_composition_text(content),
         see_also=(
-            "ms.help('metric')",
+            "ms.help('simple_metric')",
             "ms.help('derived_metric')",
+            "ms.help('additivity')",
             "ms.help('constraints')",
         ),
     )
 
 
-def _time_fold_content() -> dict[str, object]:
+def _simple_metric_content() -> dict[str, object]:
     return {
-        "summary": "sampled semi-additive time folding for bandwidth-style metrics",
-        "folds": ["mean", "min", "max", "first", "last", "('quantile', q)"],
-        "rules": [
-            "time_fold requires additivity='semi_additive'",
-            "base semi_additive metrics require status_time_dimension to bind the business status/as-of axis",
-            "time_fold requires that status_time_dimension declares sample_interval",
-            "non-sampled semi_additive metrics omit time_fold but still declare status_time_dimension",
-            "fold is a metric definition choice, not an observe parameter",
+        "summary": (
+            "An entity-backed metric. Tier-1: ms.aggregate(measure, agg) with no body. "
+            "Tier-2: @ms.simple_metric(entities, additivity) with an ibis expression body."
+        ),
+        "tier1": "ms.aggregate(measure=<measure_ref>, agg='sum'|'count'|'mean'|'min'|'max')",
+        "tier2": "@ms.simple_metric(entities=[...], additivity='additive'|'non_additive'|ms.semi_additive(over, fold))",
+        "body_rule": "No body for tier-1 (call-form); body required for tier-2 (decorator-form).",
+        "related_help": [
+            "ms.help('composition')",
+            "ms.help('additivity')",
+            "ms.help('derived_metric')",
         ],
     }
 
 
-def _time_fold_text(content: dict[str, object]) -> str:
-    folds = cast("list[str]", content["folds"])
-    rules = cast("list[str]", content["rules"])
+def _simple_metric_text(content: dict[str, object]) -> str:
     lines = [
-        "marivo.semantic time_fold",
+        "marivo.semantic simple_metric",
         "",
         str(content["summary"]),
         "",
-        "Supported folds:",
+        "Tier-1 (call-form, no body):",
+        f"  {content['tier1']}",
+        "",
+        "Tier-2 (decorator-form, body required):",
+        f"  {content['tier2']}",
+        "",
+        str(content["body_rule"]),
     ]
-    for fold in folds:
-        lines.append(f"  - {fold}")
+    return "\n".join(lines)
+
+
+def _simple_metric_topic() -> Descriptor:
+    content = _simple_metric_content()
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="simple_metric",
+        summary=cast("str", content["summary"]),
+        content=content,
+        doc=_simple_metric_text(content),
+        see_also=(
+            "ms.help('composition')",
+            "ms.help('additivity')",
+            "ms.help('derived_metric')",
+        ),
+    )
+
+
+def _additivity_content() -> dict[str, object]:
+    return {
+        "summary": (
+            "Metric summability: additive, non_additive, or semi_additive. "
+            "Semi-additive metrics fold along a time axis via ms.semi_additive(over, fold)."
+        ),
+        "buckets": [
+            {
+                "kind": "additive",
+                "use": "Fully summable across all dimensions (e.g. revenue).",
+            },
+            {
+                "kind": "non_additive",
+                "use": "Not summable (e.g. ratio, rate). Derived metrics are typically non_additive.",
+            },
+            {
+                "kind": "semi_additive",
+                "use": "Summable except along a status time axis; requires fold and over.",
+            },
+        ],
+        "semi_additive_form": "ms.semi_additive(over=<time_dimension_ref>, fold='last'|'first'|'mean'|'min'|'max')",
+        "rules": [
+            "semi_additive requires over to be a declared time dimension",
+            "fold is a metric definition choice, not an observe parameter",
+            "non-sampled semi_additive metrics omit fold but still declare over",
+        ],
+        "related_help": [
+            "ms.help('simple_metric')",
+            "ms.help('composition')",
+            "ms.help('constraints')",
+        ],
+    }
+
+
+def _additivity_text(content: dict[str, object]) -> str:
+    buckets = cast("list[dict[str, object]]", content["buckets"])
+    rules = cast("list[str]", content["rules"])
+    lines = [
+        "marivo.semantic additivity",
+        "",
+        str(content["summary"]),
+        "",
+        "Buckets:",
+    ]
+    for bucket in buckets:
+        lines.append(f"  - {bucket['kind']}: {bucket['use']}")
+    lines.extend(("", "Semi-additive form:"))
+    lines.append(f"  {content['semi_additive_form']}")
     lines.extend(("", "Rules:"))
     for rule in rules:
         lines.append(f"  - {rule}")
     return "\n".join(lines)
 
 
-def _time_fold_topic() -> Descriptor:
-    content = _time_fold_content()
+def _additivity_topic() -> Descriptor:
+    content = _additivity_content()
     return Descriptor(
         surface="marivo.semantic",
         kind="topic",
-        symbol="time_fold",
+        symbol="additivity",
         summary=cast("str", content["summary"]),
         content=content,
-        doc=_time_fold_text(content),
-        see_also=("metric", "constraints"),
+        doc=_additivity_text(content),
+        see_also=(
+            "ms.help('simple_metric')",
+            "ms.help('composition')",
+            "ms.help('constraints')",
+        ),
     )
 
 
@@ -295,7 +335,9 @@ def _resolve(symbol: str) -> Any | None:
 def _surface() -> Surface:
     import marivo.semantic as ms
 
-    all_names = tuple(dict.fromkeys((*ms.__all__, "constraints", "decomposition", "time_fold")))
+    all_names = tuple(
+        dict.fromkeys((*ms.__all__, "constraints", "composition", "simple_metric", "additivity"))
+    )
     summaries = {name: _SUMMARIES.get(name, "") for name in all_names}
     catalog = {constraint.id: constraint for constraint in iter_constraints()}
     return Surface(
@@ -306,8 +348,9 @@ def _surface() -> Surface:
         catalog=catalog,
         topics={
             "constraints": _constraint_topic(),
-            "decomposition": _decomposition_topic(),
-            "time_fold": _time_fold_topic(),
+            "composition": _composition_topic(),
+            "simple_metric": _simple_metric_topic(),
+            "additivity": _additivity_topic(),
         },
         pinned_entries=("SemanticCatalog", "SemanticObject", "SemanticObjectList"),
     )
@@ -341,7 +384,7 @@ def help(
 
     Args:
         symbol: Symbol name, constraint id, or topic (e.g. "metric",
-            "derived_metric", "decomposition", "constraints"). None prints
+            "derived_metric", "composition", "constraints"). None prints
             the top-level surface listing.
 
     Returns:
@@ -353,8 +396,8 @@ def help(
 
     Example:
         >>> ms.help()
-        >>> ms.help("metric")
-        >>> ms.help("decomposition")
+        >>> ms.help("simple_metric")
+        >>> ms.help("composition")
     """
 
     normalized = None if symbol == "" else symbol
