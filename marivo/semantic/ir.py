@@ -6,6 +6,7 @@ stored in a sidecar map, not in the IR itself.
 
 from __future__ import annotations
 
+import re as _re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -55,6 +56,7 @@ __all__ = [
     "TimeFoldIR",
     "ValidityVersioningIR",
     "_BaseRef",
+    "is_time_bearing_format",
     "source_from_dict",
     "source_label",
     "source_name",
@@ -484,3 +486,53 @@ class DomainRef(_BaseRef):
 
     def __init__(self, semantic_id: str) -> None:
         super().__init__(semantic_id, SymbolKind.DOMAIN)
+
+
+# ---------------------------------------------------------------------------
+# Strptime format classification (shared by semantic and analysis)
+# ---------------------------------------------------------------------------
+
+_DATE_DIRECTIVES = frozenset({"%Y", "%y", "%m", "%d", "%j", "%U", "%W"})
+_HOUR_DIRECTIVES = frozenset({"%H", "%I", "%k", "%l"})
+_MINUTE_DIRECTIVES = frozenset({"%M"})
+_SECOND_DIRECTIVES = frozenset({"%S"})
+_SUBSECOND_DIRECTIVES = frozenset({"%f"})
+_AMPM_DIRECTIVES = frozenset({"%p", "%P"})
+
+
+def is_time_bearing_format(fmt: str | None) -> bool:
+    """Return True if a strptime format encodes time-of-day (not just day/hour-only).
+
+    A format is time-bearing when it contains time-of-day directives (hour,
+    minute, second) alongside a date directive.  Formats without a date
+    component (e.g. ``"%H"``, ``"%H%M"``) are partition encodings, not
+    timezone-relevant.
+
+    Args:
+        fmt: A strptime format string, or None.
+
+    Returns:
+        True if the format encodes time-of-day information.
+
+    Example:
+        >>> is_time_bearing_format("%Y%m%d")
+        False
+        >>> is_time_bearing_format("%Y-%m-%d %H:%M:%S")
+        True
+        >>> is_time_bearing_format("%H")
+        False
+        >>> is_time_bearing_format("%H%M")
+        False
+    """
+    if fmt is None or not fmt.startswith("%"):
+        return False
+    tokens = set(_re.findall(r"%[a-zA-Z]", fmt))
+    has_date = bool(_DATE_DIRECTIVES & tokens)
+    has_hour = bool((_HOUR_DIRECTIVES | _AMPM_DIRECTIVES) & tokens)
+    has_minute = bool(_MINUTE_DIRECTIVES & tokens)
+    has_second = bool(_SECOND_DIRECTIVES & tokens)
+    has_subsecond = bool(_SUBSECOND_DIRECTIVES & tokens)
+
+    # Without a date, any time-of-day component is a partition encoding,
+    # not a timezone-relevant timestamp.
+    return has_date and (has_subsecond or has_second or has_minute or has_hour)

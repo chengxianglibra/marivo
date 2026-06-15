@@ -327,13 +327,12 @@ def _declared_timezone(time_meta: Any) -> str | None:
 
 
 def _is_time_bearing_string_integer_meta(time_meta: Any) -> bool:
+    from marivo.semantic.ir import is_time_bearing_format
+
     data_type = time_meta.data_type
     if data_type not in {"string", "integer"}:
         return False
-    fmt = time_meta.format
-    if fmt is None or not fmt.startswith("%"):
-        return False
-    return _classify_strptime_format(fmt) not in {"day", "hour_only", "hour_only_minute"}
+    return is_time_bearing_format(time_meta.format)
 
 
 def _field_timezone(field_expr: Any) -> str | None:
@@ -932,7 +931,18 @@ def _local_bucket_expr(
     declared = _declared_timezone(time_meta)
     if data_type in {"datetime", "timestamp"}:
         ts_expr = raw
-        column_tz = zoneinfo_from_name(declared) if declared is not None else session_tz
+        if declared is not None:
+            column_tz = zoneinfo_from_name(declared)
+        else:
+            _logger.warning(
+                "Time dimension %r has no declared timezone for naive %r column; "
+                "assuming session timezone %s. Add timezone= to @ms.time_dimension "
+                "to avoid silent misalignment.",
+                getattr(time_meta, "semantic_id", "?"),
+                data_type,
+                getattr(session_tz, "key", str(session_tz)),
+            )
+            column_tz = session_tz
     else:
         raise WindowInvalidError(
             message=f"_local_bucket_expr only supports datetime/timestamp, "

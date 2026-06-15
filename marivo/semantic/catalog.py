@@ -324,6 +324,7 @@ class TimeDimensionDetails:
             extra_lines=(
                 f"entity: {self.entity.ref}",
                 f"granularity: {self.granularity}",
+                f"timezone: {self.timezone!r}",
             ),
         )
 
