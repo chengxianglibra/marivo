@@ -141,6 +141,19 @@ orders = ms.entity(
 Use `backend.list_databases(catalog="hive")` to discover schemas and
 `backend.list_tables(database="sales_mart")` to verify table reachability.
 
+When an entity declares `database=` on its `ms.table(...)` source, `source_sql`
+in `@ms.metric` should use the **bare** table name — Marivo automatically
+qualifies unqualified table references before executing source SQL for parity
+checks. Do not duplicate the schema prefix inside `source_sql`:
+
+```python
+# WRONG — duplicates the database qualifier in source_sql
+source_sql="SELECT SUM(amount) FROM sales_mart.orders"
+
+# CORRECT — use the bare table name; Marivo qualifies it from the entity
+source_sql="SELECT SUM(amount) FROM orders"
+```
+
 ## Federated backend chosen by habit
 
 Do not create a Trino datasource just because a Trino catalog could reach the

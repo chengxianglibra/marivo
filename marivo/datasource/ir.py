@@ -15,6 +15,7 @@ __all__ = [
     "EntitySourceIR",
     "FileSourceIR",
     "TableSourceIR",
+    "qualify_source_sql",
     "source_name",
     "source_to_dict",
 ]
@@ -136,3 +137,71 @@ def source_to_dict(source: EntitySourceIR) -> dict[str, object]:
         "format": source.format,
         "options": dict(source.options),
     }
+
+
+def qualify_source_sql(
+    source_sql: str,
+    table_qualifiers: dict[str, str],
+    *,
+    dialect: str | None = None,
+) -> str:
+    """Qualify unqualified table references in source_sql.
+
+    Rewrites bare table names that match keys in *table_qualifiers* to their
+    fully-qualified form (e.g. ``orders`` -> ``iceberg_inf.orders``).
+    Tables that are already qualified or that reference CTE aliases are left
+    unchanged.  If sqlglot cannot parse the SQL, the original string is
+    returned unchanged.
+
+    Args:
+        source_sql: Raw SQL string from metric provenance.
+        table_qualifiers: Mapping from bare table name to database-qualified
+            name (e.g. ``{"orders": "iceberg_inf.orders"}``).
+        dialect: Optional sqlglot dialect for parsing and generating.
+
+    Returns:
+        SQL string with unqualified table references replaced by qualified ones.
+    """
+    if not table_qualifiers:
+        return source_sql
+
+    import sqlglot
+    from sqlglot import exp
+
+    try:
+        parsed = sqlglot.parse_one(source_sql, dialect=dialect)
+    except sqlglot.errors.ParseError:
+        return source_sql
+
+    # Collect CTE alias names so we don't qualify CTE references.
+    cte_names: set[str] = set()
+    for cte in parsed.find_all(exp.CTE):
+        alias = cte.alias
+        cte_names.add(alias if isinstance(alias, str) else alias.sql(dialect=dialect))
+
+    for table_node in parsed.find_all(exp.Table):
+        # Skip CTE references.
+        if table_node.name in cte_names:
+            continue
+        # Skip tables that are already qualified.
+        if table_node.db:
+            continue
+        qualified = table_qualifiers.get(table_node.name)
+        if qualified is None:
+            continue
+        # Split qualified name into catalog/db/name parts.
+        # "db.table" -> db + table
+        # "catalog.db.table" -> catalog + db + table
+        parts = qualified.split(".")
+        if len(parts) == 2:
+            table_node.set("db", exp.to_identifier(parts[0]))
+            table_node.set("this", exp.to_identifier(parts[1]))
+        elif len(parts) == 3:
+            table_node.set("catalog", exp.to_identifier(parts[0]))
+            table_node.set("db", exp.to_identifier(parts[1]))
+            table_node.set("this", exp.to_identifier(parts[2]))
+        else:
+            # Can't map arbitrary multi-part names; skip.
+            continue
+
+    return str(parsed.sql(dialect=dialect))
