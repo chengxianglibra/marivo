@@ -672,6 +672,20 @@ class SemanticProject:
             scope = self._DEFAULT_SCOPE
 
         self.load(models=list(self._filtered_domains) if self._filtered_domains else None)
+
+        # If the project failed to load, report the load failure directly
+        # instead of falling through to the misleading "not found" path.
+        if self._status == "errored":
+            load_errors = self._errors
+            error_summary = "; ".join(str(e) for e in load_errors[:3])
+            if len(load_errors) > 3:
+                error_summary += f"; ... and {len(load_errors) - 3} more"
+            message = (
+                f"Cannot verify {ref!r}: project failed to load. "
+                f"Fix the following errors and try again: {error_summary}"
+            )
+            return self._failed_verify(ref, "entity", "project_load_failed", message)
+
         kind = self._kind_for_ref(ref)
 
         if kind == "domain" or kind == "relationship":
@@ -794,8 +808,16 @@ class SemanticProject:
             return self._verify_metric(ref, kind)
 
         # Unknown kind fallback — check for common wrong-level refs before
-        # returning a generic message.
-        suggestion = _suggest_ref_level(self._registry, ref) if self._registry is not None else None
+        # returning a generic message.  When the registry is unavailable,
+        # report a project-load failure (belt-and-suspenders; the early
+        # check above should normally prevent reaching this branch).
+        if self._registry is None:
+            message = (
+                f"Cannot verify {ref!r}: project registry is not available. "
+                f"Call ms.load() to check for errors."
+            )
+            return self._failed_verify(ref, "entity", "project_load_failed", message)
+        suggestion = _suggest_ref_level(self._registry, ref)
         if suggestion is not None:
             message = f"Semantic object {ref!r} was not found. {suggestion}"
         else:
@@ -825,7 +847,10 @@ class SemanticProject:
         ref: str,
         kind: AuthoringObjectKind,
         issue_kind: Literal[
-            "authored_object_invalid", "datasource_unreachable", "static_check_failed"
+            "authored_object_invalid",
+            "datasource_unreachable",
+            "static_check_failed",
+            "project_load_failed",
         ],
         message: str,
     ) -> VerifyResult:
