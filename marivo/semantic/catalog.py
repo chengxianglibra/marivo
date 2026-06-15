@@ -33,14 +33,18 @@ from marivo.semantic.ir import (
     DomainIR,
     EntityIR,
     EntityVersioningIR,
+    LinearComposition,
     MetricIR,
     ParityStatus,
     RelationshipIR,
     SampleIntervalIR,
+    SemiAdditive,
     SnapshotVersioningIR,
     SourceLocation,
     SymbolKind,
     ValidityVersioningIR,
+    additivity_bucket,
+    composition_components,
 )
 from marivo.semantic.parity import propagated_parity_status
 
@@ -348,12 +352,16 @@ class MetricDetails:
     dependents: tuple[SemanticRef, ...]
     entities: tuple[SemanticRef, ...]
     root_entity: SemanticRef | None
-    is_derived: bool
-    component_metrics: tuple[SemanticRef, ...]
+    metric_type: Literal["simple", "derived"]
+    aggregation: str | None
+    measure: SemanticRef | None
+    composition: Literal["ratio", "weighted_average", "linear"] | None
     components: tuple[tuple[str, SemanticRef], ...]
+    linear_terms: tuple[tuple[str, str], ...]
     required_relationships: tuple[SemanticRef, ...]
-    decomposition: Literal["sum", "ratio", "weighted_average"]
-    additivity: Literal["additive", "semi_additive", "non_additive"] | None
+    additivity: Literal["additive", "semi_additive", "non_additive"]
+    fold: str | None
+    status_time_dimension: str | None
     fanout_policy: Literal["block", "aggregate_then_join"]
     unit: str | None
     verification_mode: Literal["sql_parity"] | None
@@ -361,8 +369,6 @@ class MetricDetails:
     source_sql: str | None
     source_dialect: str | None
     python_symbol: str
-    time_fold: str | None
-    status_time_dimension: str | None
 
     def _repr_identity(self) -> str:
         return f"MetricDetails ref={self.ref.ref}"
@@ -371,11 +377,13 @@ class MetricDetails:
         return result_repr(self._repr_identity())
 
     def render(self) -> str:
-        extra = [f"decomposition: {self.decomposition}"]
-        if self.additivity:
-            extra.append(f"additivity: {self.additivity}")
-        if self.is_derived:
-            extra.append("is_derived: True")
+        extra = [f"type: {self.metric_type}", f"additivity: {self.additivity}"]
+        if self.metric_type == "simple" and self.aggregation is not None:
+            extra.append(f"aggregation: {self.aggregation}")
+        if self.composition is not None:
+            extra.append(f"composition: {self.composition}")
+        if self.fold is not None:
+            extra.append(f"fold: {self.fold} over {self.status_time_dimension}")
         if self.unit:
             extra.append(f"unit: {self.unit}")
         return _render_details_card(
@@ -853,19 +861,30 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
     )
 
 
+def _format_agg(agg: object) -> str | None:
+    if agg is None:
+        return None
+    if isinstance(agg, tuple):
+        return f"{agg[0]}({agg[1]})"
+    return str(agg)
+
+
 def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject) -> SemanticObject:
     ref = SemanticRef(ref=m_ir.semantic_id, kind=SemanticKind.METRIC)
     entity_refs = tuple(SemanticRef(ref=ds, kind=SemanticKind.ENTITY) for ds in m_ir.entities)
     root_entity_ref = (
         SemanticRef(ref=m_ir.root_entity, kind=SemanticKind.ENTITY) if m_ir.root_entity else None
     )
-    component_refs = tuple(
-        SemanticRef(ref=comp_ref, kind=SemanticKind.METRIC)
-        for comp_ref in m_ir.decomposition.components.values()
-    )
+    comp_map = composition_components(m_ir.composition) if m_ir.composition is not None else {}
     components = tuple(
         (role, SemanticRef(ref=comp_ref, kind=SemanticKind.METRIC))
-        for role, comp_ref in m_ir.decomposition.components.items()
+        for role, comp_ref in comp_map.items()
+    )
+    component_refs = tuple(r for _, r in components)
+    linear_terms = (
+        tuple((t.sign, t.metric) for t in m_ir.composition.terms)
+        if isinstance(m_ir.composition, LinearComposition)
+        else ()
     )
     required_rels: tuple[SemanticRef, ...] = ()
     if len(m_ir.entities) > 1:
@@ -880,9 +899,11 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
     dependents = tuple(
         SemanticRef(ref=m2.semantic_id, kind=SemanticKind.METRIC)
         for m2 in reg.metrics.values()
-        if m_ir.semantic_id in m2.decomposition.components.values()
+        if m2.composition is not None
+        and m_ir.semantic_id in composition_components(m2.composition).values()
     )
     parity_status = propagated_parity_status(project, m_ir.semantic_id)
+    add = m_ir.additivity
     details = MetricDetails(
         ref=ref,
         kind=SemanticKind.METRIC,
@@ -896,12 +917,18 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         dependents=dependents,
         entities=entity_refs,
         root_entity=root_entity_ref,
-        is_derived=m_ir.is_derived,
-        component_metrics=component_refs,
+        metric_type=m_ir.metric_type,
+        aggregation=_format_agg(m_ir.aggregation),
+        measure=SemanticRef(ref=m_ir.measure, kind=SemanticKind.DIMENSION)
+        if m_ir.measure
+        else None,
+        composition=m_ir.composition.kind if m_ir.composition is not None else None,
         components=components,
+        linear_terms=linear_terms,
         required_relationships=required_rels,
-        decomposition=m_ir.decomposition.kind,
-        additivity=m_ir.additivity,
+        additivity=additivity_bucket(add) if add is not None else "non_additive",
+        fold=add.fold.label() if isinstance(add, SemiAdditive) else None,
+        status_time_dimension=add.over if isinstance(add, SemiAdditive) else None,
         fanout_policy=m_ir.fanout_policy,
         unit=m_ir.unit,
         verification_mode=m_ir.provenance.verification_mode,
@@ -909,8 +936,6 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         source_sql=m_ir.provenance.source_sql,
         source_dialect=m_ir.provenance.source_dialect,
         python_symbol=m_ir.python_symbol,
-        time_fold=m_ir.time_fold.label() if m_ir.time_fold is not None else None,
-        status_time_dimension=m_ir.status_time_dimension,
     )
     return SemanticObject(
         ref=ref,
