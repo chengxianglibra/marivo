@@ -253,3 +253,119 @@ def test_parity_without_database_on_entity(
         result = project.parity_check("sales.total_amount")
 
     assert result.ok, f"Parity failed: expected={result.expected}, actual={result.actual}"
+
+
+# ---------------------------------------------------------------------------
+# Parity integration: datasource database fallback
+# ---------------------------------------------------------------------------
+
+
+_ENTITY_DATASOURCE_DB_FALLBACK_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+    ms.domain(name="sales", default=True)
+    orders = ms.entity(
+        name="orders",
+        datasource="warehouse",
+        source=ms.table("orders"),
+    )
+
+    @ms.dimension(entity=orders)
+    def amount(table):
+        return table.amount
+
+    @ms.metric(
+        entities=[orders],
+        additivity="additive",
+        decomposition=ms.sum(),
+        source_sql="SELECT SUM(amount) AS total_amount FROM orders",
+        source_dialect="duckdb",
+    )
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
+_DATASOURCE_WITH_DATABASE_PY = (
+    "import marivo.datasource as md\n"
+    "warehouse = md.DatasourceSpec("
+    "name='warehouse', backend_type='duckdb', path=':memory:', database='sales_mart')\n"
+    "md.datasource(warehouse)\n"
+)
+
+
+def test_parity_datasource_database_fallback(
+    semantic_project_factory,
+    _duckdb_with_schema,
+    _schema_backend_factory,
+) -> None:
+    """source_sql uses bare table name; entity has no database= but datasource
+    declares database="sales_mart". Parity qualifies bare refs from the
+    datasource database field and succeeds.
+
+    The DuckDB backend used for testing connects without a default schema,
+    so we create a view in the default schema that mirrors the qualified table
+    so that the ibis entity materialization (backend.table("orders"))
+    also works.
+    """
+    _duckdb_with_schema.con.execute("CREATE VIEW orders AS SELECT * FROM sales_mart.orders")
+    project = semantic_project_factory(
+        {
+            "datasources/warehouse.py": _DATASOURCE_WITH_DATABASE_PY,
+            "sales/_domain.py": _ENTITY_DATASOURCE_DB_FALLBACK_PY,
+        },
+    )
+
+    with _patch_project_backends(project, _schema_backend_factory):
+        result = project.parity_check("sales.total_amount")
+
+    assert result.ok, f"Parity failed: expected={result.expected}, actual={result.actual}"
+
+
+_ENTITY_DATASOURCE_DB_FULLY_QUALIFIED_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+    ms.domain(name="sales", default=True)
+    orders = ms.entity(
+        name="orders",
+        datasource="warehouse",
+        source=ms.table("orders"),
+    )
+
+    @ms.dimension(entity=orders)
+    def amount(table):
+        return table.amount
+
+    @ms.metric(
+        entities=[orders],
+        additivity="additive",
+        decomposition=ms.sum(),
+        source_sql="SELECT SUM(amount) AS total_amount FROM sales_mart.orders",
+        source_dialect="duckdb",
+    )
+    def total_amount(table):
+        return table.amount.sum()
+""")
+
+
+def test_parity_source_sql_already_qualified_no_double_qualify(
+    semantic_project_factory,
+    _duckdb_with_schema,
+    _schema_backend_factory,
+) -> None:
+    """source_sql uses a fully-qualified table name (sales_mart.orders); entity
+    has no database= but datasource declares database="sales_mart".
+
+    qualify_source_sql must leave already-qualified tables unchanged, so the
+    SQL executes correctly without double-qualification like
+    sales_mart.sales_mart.orders.
+    """
+    _duckdb_with_schema.con.execute("CREATE VIEW orders AS SELECT * FROM sales_mart.orders")
+    project = semantic_project_factory(
+        {
+            "datasources/warehouse.py": _DATASOURCE_WITH_DATABASE_PY,
+            "sales/_domain.py": _ENTITY_DATASOURCE_DB_FULLY_QUALIFIED_PY,
+        },
+    )
+
+    with _patch_project_backends(project, _schema_backend_factory):
+        result = project.parity_check("sales.total_amount")
+
+    assert result.ok, f"Parity failed: expected={result.expected}, actual={result.actual}"

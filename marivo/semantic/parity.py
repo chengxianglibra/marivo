@@ -206,14 +206,27 @@ def parity_check(
         )
 
     # Build table qualifiers from entity sources for automatic qualification.
+    # When source.database is set on the entity, use it directly.
+    # When source.database is absent, fall back to the datasource's database
+    # field (e.g. MySQL/ClickHouse datasources declare database at the
+    # connection level).
     table_qualifiers: dict[str, str] = {}
     for ds_ref in metric_ir.entities:
-        ds_ir = reg.datasets.get(ds_ref)
-        if ds_ir is None:
+        entity_ir = reg.datasets.get(ds_ref)
+        if entity_ir is None:
             continue
-        source = ds_ir.source
-        if isinstance(source, TableSourceIR) and source.database is not None:
-            db = source.database
+        source = entity_ir.source
+        if not isinstance(source, TableSourceIR):
+            continue
+        db: str | tuple[str, ...] | None = source.database
+        if db is None:
+            # Fall back to the datasource's database field.
+            datasource_ir = reg.datasources.get(entity_ir.datasource)
+            if datasource_ir is not None:
+                ds_db = datasource_ir.fields.get("database")
+                if isinstance(ds_db, str):
+                    db = ds_db
+        if db is not None:
             if isinstance(db, tuple):
                 db = ".".join(db)
             table_qualifiers[source.table] = f"{db}.{source.table}"
