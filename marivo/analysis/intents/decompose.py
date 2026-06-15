@@ -75,9 +75,18 @@ def _resolve_axis_column(frame: DeltaFrame, axis_id: str, columns: list[str]) ->
             if not isinstance(column, str) or column not in columns:
                 continue
             ref = axis_meta.get("ref")
+            time_dim = axis_meta.get("time_dimension")
             candidates = [str(axis_id), column]
             if isinstance(ref, str):
                 candidates.append(ref)
+            if isinstance(time_dim, str):
+                candidates.append(time_dim)
+                # Also match the leaf of a dotted requested axis
+                # against time_dimension (e.g. "sales.orders.created_at"
+                # matches time_dimension="created_at").
+                requested_leaf = requested.rsplit(".", 1)[-1]
+                if requested_leaf == time_dim:
+                    candidates.append(requested)
             if requested in candidates:
                 return column
 
@@ -96,7 +105,10 @@ def _effective_component_axis_column(
     if resolved is not None:
         return resolved
     axis_leaf = axis_id.rsplit(".", 1)[-1]
-    if frame.meta.semantic_kind == "time_series":
+    if frame.meta.semantic_kind == "time_series" and axis_leaf in (
+        "bucket_start",
+        "bucket_start_a",
+    ):
         if "bucket_start" in columns:
             return "bucket_start"
         if "bucket_start_a" in columns:

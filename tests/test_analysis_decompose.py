@@ -286,6 +286,55 @@ def test_decompose_rejects_missing_axis_column():
     assert exc_info.value.details["available_columns"] == ["delta"]
 
 
+def test_decompose_time_series_rejects_missing_non_bucket_dimension():
+    """Decompose on a time_series delta without the requested dimension should
+    raise, NOT silently fall back to bucket_start."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket_start": ["2026-07-01", "2026-07-02", "2026-07-03"],
+                "delta": [10.0, -2.0, 4.0],
+            }
+        ),
+        semantic_kind="time_series",
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        session.decompose(frame, axis=SemanticRef("cluster", kind=SemanticKind.DIMENSION))
+
+    assert exc_info.value.details["requested_axis"] == "cluster"
+    assert exc_info.value.details["normalized_axis"] == "cluster"
+    # Must NOT silently use bucket_start
+    assert "bucket_start" not in exc_info.value.details.get("available_columns", []) or (
+        exc_info.value.details["available_columns"].count("bucket_start") == 1
+    )
+
+
+def test_decompose_time_series_bucket_start_axis_still_works():
+    """Regression guard: decompose by the bucket column on a time_series delta
+    should still produce per-bucket attribution."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket_start": ["2026-07-01", "2026-07-02", "2026-07-03"],
+                "delta": [10.0, -2.0, 4.0],
+            }
+        ),
+        semantic_kind="time_series",
+    )
+
+    out = session.decompose(frame, axis=SemanticRef("bucket_start", kind=SemanticKind.DIMENSION))
+
+    assert isinstance(out, AttributionFrame)
+    assert out.meta.driver_field == "bucket_start"
+    df = out.to_pandas()
+    assert len(df) == 3
+
+
 def test_decompose_rejects_missing_delta_column():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "value": [1.0]}))

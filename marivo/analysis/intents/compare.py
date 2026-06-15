@@ -601,7 +601,7 @@ def compare(
         alignment_dump["coverage"] = window_info
     if segment_info is not None:
         alignment_dump["segment_info"] = segment_info
-    if current.meta.semantic_kind in {"segmented", "panel"}:
+    if current.meta.semantic_kind in {"segmented", "panel", "time_series"}:
         alignment_dump["axes"] = current.meta.axes
     params = {
         "source_current_ref": current.ref,
