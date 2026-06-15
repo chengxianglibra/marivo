@@ -152,6 +152,29 @@ def prepare_domain(project: SemanticProject, *, name: str) -> DomainBrief:
     )
 
 
+def _build_derived_metric_template(
+    *,
+    decomposition_kind: Literal["ratio", "weighted_average"],
+    numerator: str,
+    denominator: str | None,
+    weight: str | None,
+) -> str:
+    """Build a ready-to-use ms.derived_metric(...) call template."""
+    if decomposition_kind == "ratio":
+        return (
+            f"ms.derived_metric(\n"
+            f'    name="<name>",\n'
+            f"    decomposition=ms.ratio(numerator={numerator!r}, denominator={denominator!r}),\n"
+            f")"
+        )
+    return (
+        f"ms.derived_metric(\n"
+        f'    name="<name>",\n'
+        f"    decomposition=ms.weighted_average(value={numerator!r}, weight={weight!r}),\n"
+        f")"
+    )
+
+
 def prepare_derived_metric(
     project: SemanticProject,
     *,
@@ -196,12 +219,19 @@ def prepare_derived_metric(
         "ratio" if denominator is not None else "weighted_average"
     )
     status: BriefStatus = "blocked" if issues else "sufficient"
+    template = _build_derived_metric_template(
+        decomposition_kind=decomposition_kind,
+        numerator=numerator,
+        denominator=denominator,
+        weight=weight,
+    )
     return DerivedMetricBrief(
         status=status,
         decomposition_kind=decomposition_kind,
         components=components,
         propagated_verification="unverified",
         unit_hint=None,
+        authoring_template=template,
         matches=(),
         questions=(),
         issues=issues,

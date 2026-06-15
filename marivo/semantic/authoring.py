@@ -930,6 +930,13 @@ def derived_metric(
 ) -> MetricRef:
     """Declare a body-free derived metric from canonical decomposition structure.
 
+    Note:
+        ``ms.derived_metric(...)`` is a **top-level call**, not a decorator.
+        Do not write ``@ms.derived_metric(...)`` above a function body.
+        Derived metrics have no function body — they compose other metrics
+        through decomposition builders like ``ms.ratio(...)`` and
+        ``ms.weighted_average(...)``.
+
     Args:
         name: Metric name.
         decomposition: ``ms.ratio(...)`` / ``ms.weighted_average(...)`` builder
@@ -951,6 +958,12 @@ def derived_metric(
 
     Returns:
         A ``MetricRef`` for the derived metric.
+
+    Example:
+        >>> aov = ms.derived_metric(
+        ...     name="aov",
+        ...     decomposition=ms.ratio(numerator=revenue, denominator=orders_count),
+        ... )
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
