@@ -651,3 +651,167 @@ def test_semantic_check_main_prints_json(
     payload = json.loads(captured.out)
     assert "readiness" in payload
     assert payload["readiness"]["status"] in {"ready", "ready_with_warnings", "blocked"}
+
+
+# -- naive timezone blockers ---------------------------------------------------
+
+
+def _naive_tz_report(semantic_project_factory, time_dim_kwargs: str) -> object:
+    """Build a readiness report with a single time dimension using the given kwargs."""
+    domain_py = textwrap.dedent(f"""\
+        import marivo.semantic as ms
+
+        ms.domain(name="sales")
+
+        orders = ms.entity(
+            name="orders",
+            datasource="warehouse",
+            source=ms.table("orders"),
+            description="Orders",
+            ai_context={{"business_definition": "One row per order."}},
+        )
+
+        @ms.time_dimension(
+            entity=orders,
+            {time_dim_kwargs}
+        )
+        def created_at(table):
+            return table.created_at
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": domain_py,
+        }
+    )
+    return project.readiness()
+
+
+def test_naive_datetime_blocks_readiness(semantic_project_factory) -> None:
+    """time_dimension with data_type='datetime' and no timezone blocks readiness."""
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'data_type="datetime", granularity="day", '
+        'description="Created at", '
+        'ai_context={"business_definition": "When the order was created."}',
+    )
+    assert "naive_timezone_undetermined" in _issue_kinds(report.blockers)
+    naive_refs = {
+        ref
+        for issue in report.blockers
+        if issue.kind == "naive_timezone_undetermined"
+        for ref in issue.refs
+    }
+    assert "sales.orders.created_at" in naive_refs
+
+
+def test_naive_timestamp_blocks_readiness(semantic_project_factory) -> None:
+    """time_dimension with data_type='timestamp' and no timezone blocks readiness."""
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'data_type="timestamp", granularity="hour", '
+        'description="Updated at", '
+        'ai_context={"business_definition": "When the order was updated."}',
+    )
+    assert "naive_timezone_undetermined" in _issue_kinds(report.blockers)
+
+
+def test_declared_timezone_clears_blocker(semantic_project_factory) -> None:
+    """time_dimension with timezone='UTC' does NOT trigger naive_timezone_undetermined."""
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'data_type="datetime", granularity="day", timezone="UTC", '
+        'description="Created at", '
+        'ai_context={"business_definition": "When the order was created."}',
+    )
+    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
+
+
+def test_date_data_type_does_not_block(semantic_project_factory) -> None:
+    """data_type='date' has no timezone ambiguity; should not trigger blocker."""
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'data_type="date", granularity="day", '
+        'description="Order date", '
+        'ai_context={"business_definition": "Date of the order."}',
+    )
+    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
+
+
+def test_day_only_string_format_does_not_block(semantic_project_factory) -> None:
+    """string data_type with day-only date_format (e.g. %Y%m%d) has no TZ ambiguity."""
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'data_type="string", granularity="day", date_format="%Y%m%d", '
+        'description="Partition date", '
+        'ai_context={"business_definition": "Day partition key."}',
+    )
+    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
+
+
+def test_time_bearing_string_format_blocks(semantic_project_factory) -> None:
+    """string data_type with time-bearing date_format (e.g. %Y-%m-%d %H:%M:%S) blocks."""
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'data_type="string", granularity="hour", date_format="%Y-%m-%d %H:%M:%S", '
+        'description="Created at string", '
+        'ai_context={"business_definition": "Timestamp as string."}',
+    )
+    assert "naive_timezone_undetermined" in _issue_kinds(report.blockers)
+
+
+def test_time_bearing_integer_format_blocks(semantic_project_factory) -> None:
+    """integer data_type with time-bearing date_format also blocks."""
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'data_type="integer", granularity="hour", date_format="%Y%m%d%H%M%S", '
+        'description="Created at int", '
+        'ai_context={"business_definition": "Timestamp as integer."}',
+    )
+    assert "naive_timezone_undetermined" in _issue_kinds(report.blockers)
+
+
+def test_required_prefix_does_not_block(semantic_project_factory) -> None:
+    """Hour-only dimensions (required_prefix) are partition encodings, not TZ-relevant."""
+    report = _naive_tz_report(
+        semantic_project_factory,
+        'data_type="string", granularity="hour", required_prefix="20260101", '
+        'description="Hour partition", '
+        'ai_context={"business_definition": "Hour partition key."}',
+    )
+    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
+
+
+def test_naive_timezone_issue_kind_is_valid() -> None:
+    from typing import get_args
+
+    from marivo.semantic.readiness import ReadinessIssueKind
+
+    assert "naive_timezone_undetermined" in get_args(ReadinessIssueKind)
+
+
+# -- is_time_bearing_format unit tests -----------------------------------------
+
+
+def test_is_time_bearing_format_day_only() -> None:
+    from marivo.semantic.ir import is_time_bearing_format
+
+    assert not is_time_bearing_format(None)
+    assert not is_time_bearing_format("%Y%m%d")
+    assert not is_time_bearing_format("%Y-%m-%d")
+
+
+def test_is_time_bearing_format_hour_only_no_date() -> None:
+    from marivo.semantic.ir import is_time_bearing_format
+
+    assert not is_time_bearing_format("%H")
+    assert not is_time_bearing_format("%H%M")
+
+
+def test_is_time_bearing_format_time_bearing() -> None:
+    from marivo.semantic.ir import is_time_bearing_format
+
+    assert is_time_bearing_format("%Y-%m-%d %H:%M:%S")
+    assert is_time_bearing_format("%Y%m%d%H%M%S")
+    assert is_time_bearing_format("%Y-%m-%d %H")
+    assert is_time_bearing_format("%Y%m%d%H")

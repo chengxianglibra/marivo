@@ -651,7 +651,11 @@ def time_dimension(
             Marivo interprets source values in this timezone before converting
             them to the analysis session timezone for windowing and bucketing.
             Day partition encodings such as ``"%Y%m%d"`` should omit it so
-            predicates stay as raw partition comparisons.
+            predicates stay as raw partition comparisons. Omitting
+            ``timezone`` for ``data_type="datetime"`` or ``"timestamp"``
+            (or time-bearing string/integer formats) triggers a blocking
+            readiness issue — the agent must declare the data timezone
+            explicitly to avoid silently incorrect bucketing.
         is_default: Mark this dimension as the default time axis when multiple time dimensions
             exist on the entity. At most one time dimension per entity may carry
             is_default=True. When observe() is called without time_dimension=, the default
