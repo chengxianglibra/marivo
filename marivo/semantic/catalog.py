@@ -376,6 +376,8 @@ class MetricDetails:
             extra.append(f"additivity: {self.additivity}")
         if self.is_derived:
             extra.append("is_derived: True")
+        if self.unit:
+            extra.append(f"unit: {self.unit}")
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.description,
