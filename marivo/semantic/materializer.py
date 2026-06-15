@@ -291,7 +291,7 @@ class Materializer:
     def metric(self, semantic_id: str) -> ir.Value:
         """Materialize a metric, returning an ibis Value expression.
 
-        Handles both base and derived metrics.
+        Handles tier-1 (aggregate), tier-2 (body), and derived metrics.
         """
         if semantic_id in self._metric_cache:
             return self._metric_cache[semantic_id]
@@ -307,13 +307,69 @@ class Materializer:
                 refs=(semantic_id,),
             )
 
-        if metric_ir.is_derived:
+        if metric_ir.metric_type == "derived":
             value = self._materialize_derived_metric(semantic_id, metric_ir)
+        elif metric_ir.aggregation is not None:
+            value = self._materialize_tier1_metric(semantic_id, metric_ir, sidecar, registry)
         else:
             value = self._materialize_base_metric(semantic_id, metric_ir, sidecar, registry)
 
         self._metric_cache[semantic_id] = value
         return value
+
+    def _materialize_tier1_metric(
+        self,
+        semantic_id: str,
+        metric_ir: MetricIR,
+        sidecar: Sidecar,
+        registry: Registry,
+    ) -> ir.Value:
+        """Materialize a tier-1 metric: agg(measure_dimension_body(entity_table))."""
+        measure_id = metric_ir.measure
+        if measure_id is None or not metric_ir.entities:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Tier-1 metric {semantic_id!r} is missing measure/entity.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        self._check_single_datasource(metric_ir, registry)
+        table = self.entity(metric_ir.entities[0])
+        measure_callable = sidecar.get(measure_id)
+        if measure_callable is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Tier-1 metric {semantic_id!r} measure {measure_id!r} has no sidecar callable.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id, measure_id),
+            )
+        column = measure_callable(table)
+        return self._apply_agg(semantic_id, column, metric_ir.aggregation)
+
+    def _apply_agg(self, semantic_id: str, column: ir.Value, agg: Any) -> ir.Value:
+        agg_name = agg[0] if isinstance(agg, tuple) else agg
+        if agg_name == "sum":
+            return column.sum()
+        if agg_name == "count":
+            return column.count()
+        if agg_name == "count_distinct":
+            return column.nunique()
+        if agg_name == "min":
+            return column.min()
+        if agg_name == "max":
+            return column.max()
+        if agg_name == "mean":
+            return column.mean()
+        if agg_name == "median":
+            return column.median()
+        if agg_name == "percentile":
+            return column.quantile(agg[1])
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            f"Metric {semantic_id!r} has unsupported aggregation {agg!r}.",
+            cls=SemanticRuntimeError,
+            refs=(semantic_id,),
+        )
 
     def _materialize_base_metric(
         self,
@@ -322,7 +378,7 @@ class Materializer:
         sidecar: Sidecar,
         registry: Registry,
     ) -> ir.Value:
-        """Materialize a base (non-derived) metric."""
+        """Materialize a tier-2 body metric."""
         callable_ = sidecar.get(semantic_id)
         if callable_ is None:
             _raise(
@@ -344,7 +400,7 @@ class Materializer:
         return self._call_metric_callable(semantic_id, callable_, tuple(tables))
 
     def metric_on(self, semantic_id: str, *tables: ibis.Table) -> ir.Value:
-        """Apply a base metric callable to caller-supplied tables without caching."""
+        """Apply a simple metric callable to caller-supplied tables without caching."""
         registry, sidecar = self._get_registry_and_sidecar()
         metric_ir = registry.metrics.get(semantic_id)
         if metric_ir is None:
@@ -354,11 +410,11 @@ class Materializer:
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
-        if metric_ir.is_derived:
+        if metric_ir.metric_type == "derived":
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
                 f"Cannot apply derived metric {semantic_id!r} with metric_on(); "
-                "drive derived decomposition component-by-component.",
+                "drive its composition component-by-component.",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
@@ -374,6 +430,19 @@ class Materializer:
                     "got_tables": len(tables),
                 },
             )
+        if metric_ir.aggregation is not None:
+            # tier-1: apply agg over the measure body on the single caller table.
+            measure_id = metric_ir.measure
+            measure_callable = sidecar.get(measure_id) if measure_id else None
+            if measure_callable is None:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"Tier-1 metric {semantic_id!r} measure {measure_id!r} has no sidecar callable.",
+                    cls=SemanticRuntimeError,
+                    refs=(semantic_id,),
+                )
+            column = measure_callable(tables[0])
+            return self._apply_agg(semantic_id, column, metric_ir.aggregation)
         callable_ = sidecar.get(semantic_id)
         if callable_ is None:
             _raise(
@@ -428,36 +497,32 @@ class Materializer:
         semantic_id: str,
         metric_ir: MetricIR,
     ) -> ir.Value:
-        """Materialize a body-free derived metric from decomposition components."""
-        components = metric_ir.decomposition.components
-        if metric_ir.decomposition.kind == "ratio":
-            numerator = components.get("numerator")
-            denominator = components.get("denominator")
-            if numerator is None or denominator is None:
-                _raise(
-                    ErrorKind.MATERIALIZE_FAILED,
-                    f"Derived metric {semantic_id!r} ratio decomposition is missing components.",
-                    cls=SemanticRuntimeError,
-                    refs=(semantic_id,),
-                )
-            return self.metric(numerator) / self.metric(denominator)
+        """Materialize a body-free derived metric scalar from its composition."""
+        from marivo.semantic.ir import (
+            LinearComposition,
+            RatioComposition,
+            WeightedAverageComposition,
+        )
 
-        if metric_ir.decomposition.kind == "weighted_average":
-            numerator = components.get("numerator")
-            weight = components.get("weight")
-            if numerator is None or weight is None:
-                _raise(
-                    ErrorKind.MATERIALIZE_FAILED,
-                    f"Derived metric {semantic_id!r} weighted_average decomposition is missing components.",
-                    cls=SemanticRuntimeError,
-                    refs=(semantic_id,),
-                )
-            return self.metric(numerator) / self.metric(weight)
-
+        comp = metric_ir.composition
+        if isinstance(comp, RatioComposition):
+            return self.metric(comp.numerator) / self.metric(comp.denominator)
+        if isinstance(comp, WeightedAverageComposition):
+            # Scalar form is value/weight; the weighted mix is applied in the
+            # analysis component frame, not in the metric scalar.
+            return self.metric(comp.value) / self.metric(comp.weight)
+        if isinstance(comp, LinearComposition):
+            terms = list(comp.terms)
+            acc = self.metric(terms[0].metric)
+            if terms[0].sign == "-":
+                acc = -acc
+            for term in terms[1:]:
+                value = self.metric(term.metric)
+                acc = acc + value if term.sign == "+" else acc - value
+            return acc
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
-            f"Derived metric {semantic_id!r} has unsupported decomposition kind "
-            f"{metric_ir.decomposition.kind!r}.",
+            f"Derived metric {semantic_id!r} has unsupported composition {type(comp).__name__!r}.",
             cls=SemanticRuntimeError,
             refs=(semantic_id,),
         )
