@@ -61,6 +61,7 @@ class ConstraintId(StrEnum):
     METRIC_ADDITIVITY_REQUIRED = "metric_additivity_required"
     MEASURE_ADDITIVITY_REQUIRED = "measure_additivity_required"
     MEASURE_AGGREGATION_VALID = "measure_aggregation_valid"
+    LINEAR_UNIT_COMMENSURABLE = "linear_unit_commensurable"
     METRIC_ROOT_DATASET_REQUIRED = "metric_root_dataset_required"
     METRIC_ROOT_DATASET_VALID = "metric_root_dataset_valid"
     METRIC_VERIFICATION_MODE_VALID = "metric_verification_mode_valid"
@@ -458,6 +459,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "sum/count aggregations are invalid on non-additive measures.",
         "Use mean/min/max, or model the metric as a ratio/derived composition.",
         "Change the aggregation or the measure dimension additivity.",
+    ),
+    ConstraintId.LINEAR_UNIT_COMMENSURABLE: _constraint(
+        ConstraintId.LINEAR_UNIT_COMMENSURABLE,
+        "incommensurable_linear_units",
+        "assembly",
+        ("metric",),
+        "Linear metric terms must share one unit; differing units cannot be added.",
+        "Addition is only defined on commensurable quantities (CNY + {order} is undefined).",
+        "Align the component units, or remodel as a ratio/derived composition.",
     ),
     ConstraintId.METRIC_ROOT_DATASET_REQUIRED: _constraint(
         ConstraintId.METRIC_ROOT_DATASET_REQUIRED,

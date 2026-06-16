@@ -461,3 +461,47 @@ def test_prepare_cross_entity_metric_blocks_unreachable_entity(
     assert brief.status == "blocked"
     assert brief.unreachable_entities == ("sales.customers",)
     assert brief.issues[0].kind == "unreachable_entity"
+
+
+def test_prepare_derived_metric_ratio_unit_hint_is_one(
+    semantic_project_factory,
+) -> None:
+    model = (
+        "import marivo.semantic as ms\n"
+        "ms.domain(name='sales')\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', unit='CNY')\n"
+        "def revenue(t):\n"
+        "    return t.amount.sum()\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', unit='CNY')\n"
+        "def cost(t):\n"
+        "    return t.cost.sum()\n"
+    )
+    project = semantic_project_factory({"sales/_domain.py": model})
+    project.load()
+
+    brief = project.prepare_derived_metric(numerator="sales.revenue", denominator="sales.cost")
+
+    assert brief.unit_hint == "1"
+
+
+def test_prepare_derived_metric_weighted_average_unit_hint_keeps_value(
+    semantic_project_factory,
+) -> None:
+    model = (
+        "import marivo.semantic as ms\n"
+        "ms.domain(name='sales')\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', unit='CNY')\n"
+        "def price(t):\n"
+        "    return t.price.mean()\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive')\n"
+        "def qty(t):\n"
+        "    return t.qty.sum()\n"
+    )
+    project = semantic_project_factory({"sales/_domain.py": model})
+    project.load()
+
+    brief = project.prepare_derived_metric(numerator="sales.price", weight="sales.qty")
+
+    assert brief.unit_hint == "CNY"

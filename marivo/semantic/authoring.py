@@ -179,13 +179,13 @@ def _build_metric_provenance(
     )
 
 
-def _validate_unit(unit: str | None, semantic_id: str) -> None:
+def _validate_unit(unit: str | None, semantic_id: str, object_kind: str = "metric") -> None:
     if unit is None:
         return
     if unit == "" or any(not (0x21 <= ord(ch) <= 0x7E) for ch in unit):
         _raise(
             ErrorKind.INVALID_REF,
-            f"metric {semantic_id!r}: unit must be a non-empty token of printable "
+            f"{object_kind} {semantic_id!r}: unit must be a non-empty token of printable "
             f"ASCII without whitespace (UCUM case-sensitive code such as 'CNY', "
             f"'%', '1', 'ms', '{{order}}'); got {unit!r}.",
             refs=(semantic_id,),
@@ -432,6 +432,17 @@ def aggregate(
     The metric inherits its additivity nature from ``measure`` (resolved at load);
     ``fold`` overrides the time-fold for semi-additive measures only. No function body.
 
+    Args:
+        measure: Measure dimension to aggregate.
+        agg: Aggregation kind (``"sum"``, ``"mean"``, ``"count"``, etc.).
+        fold: Time-fold override for semi-additive measures.
+        name: Metric name. Defaults to the measure's column name.
+        unit: Override the unit derived from ``measure`` at load. Leave None to
+            inherit the measure's unit (count/count_distinct derive nothing).
+        domain: Override the active domain.
+        description: Free-text description.
+        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+
     Example:
         >>> revenue = ms.aggregate(measure=amount, agg="sum")
         >>> average_inventory = ms.aggregate(measure=quantity, agg="sum", fold="avg")
@@ -466,6 +477,7 @@ def aggregate(
         location=location,
         root_entity=entity_id,
         fold_override=fold_ir,
+        unit=unit,
     )
     _push_ir(ctx, metric_ir, None)
     return MetricRef(semantic_id)
@@ -486,6 +498,8 @@ def simple_metric(
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], MetricRef]:
     """Declare a tier-2 simple metric from an ibis body. Declares ``additivity`` directly.
+
+    Tier-2 metrics have no measure to derive from; declare unit directly.
 
     Example:
         >>> @ms.simple_metric(entities=[orders], additivity="additive")
@@ -655,6 +669,7 @@ def dimension(
     ai_context: AiContext | dict[str, Any] | None = None,
     kind: Literal["categorical", "measure"] = "categorical",
     additivity: Additivity | None = None,
+    unit: str | None = None,
 ) -> Callable[[Callable[..., Any]], DimensionRef]:
     """Declare a dimension whose body returns an ibis expression over its entity.
 
@@ -672,6 +687,8 @@ def dimension(
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
         kind: ``"categorical"`` for qualitative/grouping dimensions (default) or
             ``"measure"`` for quantitative/fact dimensions.
+        unit: UCUM unit token for a measure dimension (the authoritative declaration
+            site). Only valid when ``kind="measure"``.
 
     Returns:
         A decorator that returns a ``DimensionRef``.
@@ -701,6 +718,13 @@ def dimension(
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
+    if unit is not None and kind != "measure":
+        _raise(
+            ErrorKind.INVALID_REF,
+            "unit is only valid on kind='measure' dimensions.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
 
     def decorator(fn: Callable[..., Any]) -> DimensionRef:
         obj_name = name or fn.__name__
@@ -717,6 +741,7 @@ def dimension(
                 constraint_id=ConstraintId.REF_SHAPE,
             )
         _check_duplicate(ctx, semantic_id, DimensionIR)
+        _validate_unit(unit, semantic_id, "measure dimension")
 
         validate_metric_body_ast(fn, "base")
         ai_ctx = _build_ai_context(ai_context)
@@ -739,6 +764,7 @@ def dimension(
             additivity=_normalize_additivity(additivity, semantic_id=semantic_id)
             if additivity is not None
             else None,
+            unit=unit,
         )
         _push_ir(ctx, ir, fn)
 
@@ -1199,7 +1225,9 @@ def ratio(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> MetricRef:
-    """Declare a derived ratio metric (no body). Example::
+    """Declare a derived ratio metric (no body). Override the unit derived from the components at load.
+
+    Example::
 
     loss_rate = ms.ratio(name="loss_rate", numerator=lost, denominator=total, unit="1")
     """
@@ -1226,7 +1254,9 @@ def weighted_average(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> MetricRef:
-    """Declare a derived weighted-average metric (no body). Roles are ``value`` / ``weight``."""
+    """Declare a derived weighted-average metric (no body). Override the unit derived from the components at load.
+
+    Roles are ``value`` / ``weight``."""
     return _derived(
         name=name,
         composition=WeightedAverageComposition(
@@ -1250,7 +1280,7 @@ def linear(
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> MetricRef:
-    """Declare a derived linear metric (no body): sum of ``add`` minus ``subtract``.
+    """Declare a derived linear metric (no body): sum of ``add`` minus ``subtract``. Override the unit derived from the components at load.
 
     Example::
 

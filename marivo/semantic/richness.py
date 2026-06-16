@@ -104,7 +104,12 @@ def _detect_depth(reg: Registry) -> list[tuple[str, tuple[str, ...]]]:
             gaps.append(("missing_examples", ref))
     for metric in reg.metrics.values():
         if metric.unit is None:
-            gaps.append(("missing_unit", (metric.semantic_id,)))
+            agg = metric.aggregation
+            agg_name = agg[0] if isinstance(agg, tuple) else agg
+            if agg_name in ("count", "count_distinct"):
+                gaps.append(("missing_unit_count", (metric.semantic_id,)))
+            else:
+                gaps.append(("missing_unit", (metric.semantic_id,)))
     return gaps
 
 
@@ -223,7 +228,15 @@ _SUGGESTED_ACTION = {
     "missing_guardrails": "Add ai_context.guardrails to record usage constraints.",
     "missing_synonyms": "Add ai_context.synonyms for natural-language matching.",
     "missing_examples": "Add ai_context.examples (sample questions) to seed demand.",
-    "missing_unit": "Add unit (UCUM case-sensitive code, e.g. 'CNY', '%', '{order}') so analysis payloads and displays carry it.",
+    "missing_unit": (
+        "Add unit (UCUM case-sensitive code, e.g. 'CNY', '%', '{order}') so analysis "
+        "payloads and displays carry it. For a tier-1 metric, declare unit= on its "
+        "measure dimension so every aggregation over it inherits the unit."
+    ),
+    "missing_unit_count": (
+        "Count metric: declare a counted-noun annotation like '{order}' (UCUM "
+        "curly-brace count unit); the entity name is not singularized automatically."
+    ),
 }
 
 

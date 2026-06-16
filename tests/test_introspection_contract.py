@@ -210,7 +210,7 @@ def test_every_listed_name_resolves_to_descriptor(
         assert data["surface"] == surface_name
         assert data["kind"] != "unknown", name
         assert REQUIRED_BY_KIND[data["kind"]] <= set(data), name
-        assert _json_size(data) < 13_000, name
+        assert _json_size(data) < 14_000, name
 
 
 @pytest.mark.parametrize(("surface_name", "module", "catalog", "extra_names"), SURFACES)

@@ -376,6 +376,19 @@ def region(orders):
     return orders.region.upper()
 ```
 
+Measure dimensions carry a `unit` field — the authoritative declaration site for
+physical units. Tier-1 metrics inherit it at load; derived metrics propagate it
+through the composition algebra:
+
+```python
+@ms.dimension(
+    kind="measure", entity=orders, additivity="additive", unit="CNY",
+    description="Order amount in CNY.",
+)
+def amount(orders):
+    return orders.amount
+```
+
 time field 是特殊 field，显式承载时间轴元数据：
 
 ```python
@@ -481,9 +494,10 @@ Shape classification must fail closed:
 
 ### Metric unit (UCUM)
 
-`@ms.simple_metric` / `ms.ratio` / `ms.weighted_average` / `ms.linear` accept optional `unit: str | None` (default `None`).
-Values use the UCUM case-sensitive vocabulary, with one explicit extension: bare
-ISO 4217 uppercase three-letter codes represent currencies.
+`@ms.dimension(kind="measure")` / `@ms.simple_metric` / `ms.aggregate` /
+`ms.ratio` / `ms.weighted_average` / `ms.linear` accept optional `unit: str | None`
+(default `None`). Values use the UCUM case-sensitive vocabulary, with one explicit
+extension: bare ISO 4217 uppercase three-letter codes represent currencies.
 
 | Category | Notation | Examples |
 |---|---|---|
@@ -495,12 +509,42 @@ ISO 4217 uppercase three-letter codes represent currencies.
 | Compound / ratio | UCUM `/` combination | `By/s`, `{order}/d`, `CNY/{user}` |
 | Currency (explicit extension) | Bare ISO 4217 uppercase code | `CNY`, `USD` |
 
+**Authoritative declaration site:** declare `unit=` on the measure dimension.
+Tier-1 and derived metrics inherit it automatically at load; pass `unit=` on a
+metric only to override the derived value. For tier-2 (`simple_metric`), there
+is no measure to derive from, so `unit=` is the direct declaration.
+
+**Tier-1 derivation (from measure):**
+
+| aggregation | unit result |
+|---|---|
+| `sum` / `min` / `max` / `mean` / `median` / `percentile` | `measure.unit` (preserved) |
+| `count` / `count_distinct` | `None` (counted noun is content-specific; author declares `{order}` explicitly) |
+
+**Derived derivation (from components):**
+
+| composition | rule | on failure |
+|---|---|---|
+| `ratio(num, denom)` | both units known and equal → `"1"` (dimensionless) | `None` (no compound unit constructed) |
+| `weighted_average(value, weight)` | `value.unit` | `None` if value unit missing |
+| `linear(terms)` | all terms known and equal → that unit | `None` if any `None`; **error** if ≥2 distinct known units |
+
+Author override always wins: if `unit=` is declared on a metric, the loader does
+not replace it. `unit` stays optional everywhere — it never affects computed values,
+only metadata.
+
+**Linear commensurability:** adding incommensurable units (e.g. `CNY + {order}`)
+is a dimensional error. The validator raises `INCOMMENSURABLE_LINEAR_UNITS` /
+constraint `linear_unit_commensurable` for linear metrics whose terms carry ≥2
+distinct known units. An author override on the linear metric does not suppress
+this error — the physics of addition is independent of labelling.
+
 Iron rules: unit precisely describes the metric's emitted values; no layer may
 convert values based on unit; `None` is always valid (richness advisory only, not
 a readiness blocker). Validation at authoring time is lightweight: non-empty,
-every character falls within `0x21–0x7E`. Full UCUM grammar validation, derived
-metric unit inference, and cross-metric consistency checks are non-goals. Design
-doc: `docs/superpowers/specs/2026-06-11-metric-unit-design.md`.
+every character falls within `0x21–0x7E`. Full UCUM grammar validation is a
+non-goal. Design docs: `docs/superpowers/specs/2026-06-11-metric-unit-design.md`,
+`docs/superpowers/specs/2026-06-16-metric-unit-measure-propagation-design.md`.
 
 ### Base Metric Grain And Additivity
 

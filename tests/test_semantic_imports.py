@@ -506,6 +506,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "unverified_provenance",
     "source_sql_missing",
     "invalid_measure_aggregation",
+    "incommensurable_linear_units",
     "missing_measure_additivity",
     "unknown_measure",
 }

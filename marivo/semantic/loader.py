@@ -388,6 +388,72 @@ def _resolve_metric_additivity(registry: Registry) -> None:
             break
 
 
+def _resolve_tier1_unit(metric: MetricIR, registry: Registry) -> str | None:
+    from marivo.semantic.unit_algebra import tier1_unit
+
+    measure = registry.fields.get(metric.measure or "")
+    if measure is None:
+        return None  # validator: UNKNOWN_MEASURE (existing rule)
+    agg = metric.aggregation
+    agg_name = agg[0] if isinstance(agg, tuple) else agg
+    return tier1_unit(agg_name or "", getattr(measure, "unit", None))
+
+
+def _resolve_derived_unit(metric: MetricIR, registry: Registry) -> str | None:
+    from marivo.semantic.ir import (
+        LinearComposition,
+        RatioComposition,
+        WeightedAverageComposition,
+    )
+    from marivo.semantic.unit_algebra import (
+        linear_unit,
+        ratio_unit,
+        weighted_average_unit,
+    )
+
+    comp = metric.composition
+    if isinstance(comp, RatioComposition):
+        num = registry.metrics.get(comp.numerator)
+        den = registry.metrics.get(comp.denominator)
+        if num is None or den is None:
+            return None
+        return ratio_unit(num.unit, den.unit)
+    if isinstance(comp, WeightedAverageComposition):
+        value = registry.metrics.get(comp.value)
+        return weighted_average_unit(value.unit) if value is not None else None
+    assert isinstance(comp, LinearComposition)
+    units: list[str | None] = []
+    for term in comp.terms:
+        dep = registry.metrics.get(term.metric)
+        if dep is None:
+            return None
+        units.append(dep.unit)
+    return linear_unit(units)
+
+
+def _resolve_metric_unit(registry: Registry) -> None:
+    import dataclasses
+
+    # Phase A: tier-1 simple metrics resolve from their measure dimension.
+    for sid, m in list(registry.metrics.items()):
+        if m.metric_type == "simple" and m.aggregation is not None and m.unit is None:
+            resolved = _resolve_tier1_unit(m, registry)
+            if resolved is not None:
+                registry.metrics[sid] = dataclasses.replace(m, unit=resolved)
+
+    # Phase B: derived metrics propagate from components (fixpoint over chains).
+    for _ in range(len(registry.metrics) + 1):
+        changed = False
+        for sid, m in list(registry.metrics.items()):
+            if m.metric_type == "derived" and m.unit is None:
+                resolved = _resolve_derived_unit(m, registry)
+                if resolved is not None:
+                    registry.metrics[sid] = dataclasses.replace(m, unit=resolved)
+                    changed = True
+        if not changed:
+            break
+
+
 def _build_registry(
     all_contexts: list[LoaderContext],
     *,
@@ -459,6 +525,7 @@ def _build_registry(
                 ref._resolver = resolver
 
     _resolve_metric_additivity(registry)
+    _resolve_metric_unit(registry)
     return registry, sidecar
 
 

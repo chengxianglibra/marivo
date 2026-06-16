@@ -1481,6 +1481,7 @@ def test_catalog_details_cover_required_ir_fields() -> None:
             "python_symbol",
             "semantic_id",
             "additivity",
+            "unit",
         },
     }
 

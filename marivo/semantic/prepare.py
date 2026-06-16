@@ -178,6 +178,36 @@ def _build_derived_metric_template(
     return f"{name_hint} = ms.linear(\n    name={name_hint!r},\n    add=[...], subtract=[...],\n)"
 
 
+def _preview_unit_hint(
+    reg: object,
+    composition_kind: str,
+    numerator: str | None,
+    denominator: str | None,
+    weight: str | None,
+    missing: tuple[str, ...],
+) -> str | None:
+    """Preview the unit the loader will derive, for the brief's representable shapes.
+
+    Only ratio and weighted_average are previewable — the brief API has no linear
+    term list, so linear previews as None (the loader still derives it at load).
+    """
+    from marivo.semantic.unit_algebra import ratio_unit, weighted_average_unit
+
+    if reg is None or missing:
+        return None
+    metrics = reg.metrics  # type: ignore[attr-defined]
+    if composition_kind == "ratio" and numerator is not None and denominator is not None:
+        num = metrics.get(numerator)
+        den = metrics.get(denominator)
+        if num is None or den is None:
+            return None
+        return ratio_unit(num.unit, den.unit)
+    if composition_kind == "weighted_average" and numerator is not None:
+        value = metrics.get(numerator)
+        return weighted_average_unit(value.unit) if value is not None else None
+    return None
+
+
 def prepare_derived_metric(
     project: SemanticProject,
     *,
@@ -252,12 +282,13 @@ def prepare_derived_metric(
         denominator=denominator,
         weight=weight,
     )
+    unit_hint = _preview_unit_hint(reg, composition_kind, numerator, denominator, weight, missing)
     return DerivedMetricBrief(
         status=status,
         composition_kind=composition_kind,
         components=components,
         propagated_verification="unverified",
-        unit_hint=None,
+        unit_hint=unit_hint,
         authoring_template=template,
         matches=(),
         questions=(),
