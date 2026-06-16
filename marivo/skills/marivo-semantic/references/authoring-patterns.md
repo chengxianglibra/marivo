@@ -358,9 +358,17 @@ def on_hand_units(inventory_daily):
 
 ## Metric unit authoring
 
-`@ms.simple_metric` / `ms.ratio` / `ms.weighted_average` / `ms.linear` accept
-optional `unit` (UCUM case-sensitive code; bare ISO 4217 uppercase code =
-currency). The unit describes emitted values exactly; nothing converts based on it.
+`@ms.dimension(kind="measure")` / `@ms.simple_metric` / `ms.aggregate` /
+`ms.ratio` / `ms.weighted_average` / `ms.linear` accept optional `unit`
+(UCUM case-sensitive code; bare ISO 4217 uppercase code = currency). The unit
+describes emitted values exactly; nothing converts based on it.
+
+**Declaration strategy:** declare `unit=` on the measure dimension
+(authoritative site). Tier-1 and derived metrics inherit it automatically at
+load; pass `unit=` on a metric only to override the derived value. For tier-2
+(`simple_metric`), there is no measure to derive from, so `unit=` is the direct
+declaration. Count/count_distinct metrics do not derive a unit from their
+measure — declare an explicit counted-noun annotation like `{order}`.
 
 Fill `unit` only from explicit evidence:
 
@@ -368,7 +376,8 @@ Fill `unit` only from explicit evidence:
 - Column comments stating the unit (from `md.inspect_table` / `md.inspect_columns` results).
 - `source_sql` conversion traces (e.g. `/100` on a cents column).
 - Count metrics: the counted entity noun, singular, in braces — `{order}`.
-- Ratio / weighted_average derived metrics: declare `"1"` (they emit fractions).
+- Ratio derived metrics: same-unit ratios cancel to `"1"` automatically; declare `%`
+  only when the metric emits percentage points rather than fractions.
 
 Leave `unit=None` and raise the existing `amount_unit` AuthoringQuestion when
 evidence is ambiguous:

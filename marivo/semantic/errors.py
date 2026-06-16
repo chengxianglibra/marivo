@@ -78,6 +78,7 @@ class ErrorKind(StrEnum):
     UNKNOWN_MEASURE = "unknown_measure"
     MISSING_MEASURE_ADDITIVITY = "missing_measure_additivity"
     INVALID_MEASURE_AGGREGATION = "invalid_measure_aggregation"
+    INCOMMENSURABLE_LINEAR_UNITS = "incommensurable_linear_units"
     INVALID_VERIFICATION_MODE = "invalid_verification_mode"
     INVALID_ENTITY_VERSIONING = "invalid_entity_versioning"
     NON_ROOT_METRIC_AGGREGATE = "non_root_metric_aggregate"

@@ -328,3 +328,25 @@ def test_richness_types_are_public():
     for name in ("DemandSignal", "RichnessReport"):
         assert name in ms.__all__
     assert "RichnessGap" not in ms.__all__
+
+
+def test_detect_depth_count_metric_gets_count_hint(semantic_project_factory):
+    from marivo.semantic.richness import _SUGGESTED_ACTION, _detect_depth
+
+    files = {
+        "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+        "sales/objects.py": (
+            "import marivo.semantic as ms\n"
+            "orders = ms.entity(name='orders', datasource='warehouse', "
+            "source=ms.table('orders'))\n"
+            "@ms.dimension(kind='measure', entity=orders, additivity='additive')\n"
+            "def amount(orders):\n"
+            "    return orders.amount\n"
+            "order_count = ms.aggregate(measure=amount, agg='count', name='order_count')\n"
+        ),
+    }
+    project = semantic_project_factory(files)
+    gaps = {(kind, refs[0]) for kind, refs in _detect_depth(project._registry)}
+    assert ("missing_unit_count", "sales.order_count") in gaps
+    assert ("missing_unit", "sales.order_count") not in gaps
+    assert "missing_unit_count" in _SUGGESTED_ACTION

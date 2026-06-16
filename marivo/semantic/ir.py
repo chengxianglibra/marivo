@@ -311,6 +311,7 @@ class DimensionIR:
     is_default: bool = False
     sample_interval: SampleIntervalIR | None = None
     additivity: Additivity | None = None
+    unit: str | None = None
 
     def __post_init__(self) -> None:
         if self.is_time_dimension != (self.kind == DimensionKind.TIME):
@@ -321,6 +322,10 @@ class DimensionIR:
         if self.additivity is not None and self.kind is not DimensionKind.MEASURE:
             raise ValueError(
                 f"DimensionIR {self.semantic_id!r}: additivity is only valid on measure dimensions"
+            )
+        if self.unit is not None and self.kind is not DimensionKind.MEASURE:
+            raise ValueError(
+                f"DimensionIR {self.semantic_id!r}: unit is only valid on measure dimensions"
             )
 
 

@@ -30,6 +30,7 @@ from marivo.semantic.ir import (
     DimensionIR,
     DomainIR,
     EntityIR,
+    LinearComposition,
     MetricIR,
     RelationshipIR,
     SnapshotVersioningIR,
@@ -1031,6 +1032,36 @@ def assembly_validate(
                             },
                         )
                     )
+
+        if isinstance(m_ir.composition, LinearComposition):
+            from marivo.semantic.unit_algebra import linear_units_conflict
+
+            term_units = [
+                registry.metrics[t.metric].unit
+                for t in m_ir.composition.terms
+                if t.metric in registry.metrics
+            ]
+            if linear_units_conflict(term_units):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INCOMMENSURABLE_LINEAR_UNITS,
+                        message=(
+                            f"Metric {m_id!r} adds incommensurable units "
+                            f"{sorted(u for u in term_units if u is not None)!r}; "
+                            "linear terms must share one unit."
+                        ),
+                        refs=(m_id,),
+                        constraint_id=ConstraintId.LINEAR_UNIT_COMMENSURABLE,
+                        details={
+                            "metric": m_id,
+                            "units": {
+                                t.metric: registry.metrics[t.metric].unit
+                                for t in m_ir.composition.terms
+                                if t.metric in registry.metrics
+                            },
+                        },
+                    )
+                )
 
     # -- Validate dimension refs in relationships -----------------------------
     for r_id, r_ir in registry.relationships.items():
