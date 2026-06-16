@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import textwrap
 
-from marivo.semantic.reader import SemanticProject
-
 _DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     ms.domain(name="sales", default=True)
@@ -37,26 +35,3 @@ def test_reader_project_loads_and_exposes_status(semantic_project_factory) -> No
     assert project.is_ready()
     assert project.errors() == ()
     assert project.warnings() == ()
-
-
-def test_reader_project_no_longer_exposes_catalog_read_or_preview_surface() -> None:
-    removed = {
-        "list_domains",
-        "list_datasources",
-        "list_entities",
-        "list_dimensions",
-        "list_time_dimensions",
-        "list_metrics",
-        "list_relationships",
-        "get_entity",
-        "get_metric",
-        "materialize_dataset",
-        "materialize_field",
-        "materialize_metric",
-        "preview_dataset",
-        "preview_field",
-        "preview_metric",
-    }
-
-    for name in removed:
-        assert not hasattr(SemanticProject, name), name

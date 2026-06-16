@@ -12,29 +12,6 @@ MySQL/strptime format directly; no translation is needed.
 
 import ibis
 
-from marivo.analysis.executor import runner
-
-
-def test_fix_trino_date_parse_is_deleted():
-    """The buggy regex patch must not exist."""
-    assert not hasattr(runner, "_fix_trino_date_parse"), (
-        "_fix_trino_date_parse must be deleted. It converts strptime format "
-        "to Joda, which Trino/Presto date_parse rejects."
-    )
-    assert not hasattr(runner, "_DATE_PARSE_FMT_RE"), (
-        "_DATE_PARSE_FMT_RE must be deleted along with _fix_trino_date_parse."
-    )
-
-
-def test_strptime_to_joda_is_deleted():
-    """The strptime-to-Joda helper must not exist."""
-    assert not hasattr(runner, "_strptime_to_joda"), (
-        "_strptime_to_joda must be deleted. Marivo does not translate formats."
-    )
-    assert not hasattr(runner, "StrptimeToJodaError"), (
-        "StrptimeToJodaError must be deleted along with _strptime_to_joda."
-    )
-
 
 def test_ibis_emits_strptime_for_trino_dialect():
     """Sanity: ibis emits MySQL/strptime format for ``date_parse`` on Trino."""

@@ -10,12 +10,6 @@ def test_decompose_signature_has_no_triggered_by():
     assert "_triggered_by" not in params
 
 
-def test_decompose_signature_has_no_measure_column():
-    # Phase 3 removed measure_column; guard against regressions.
-    params = inspect.signature(decompose).parameters
-    assert "measure_column" not in params
-
-
 def test_decompose_signature_is_frame_axis_session_only():
     params = list(inspect.signature(decompose).parameters)
     assert params == ["frame", "axis", "session"]

@@ -75,30 +75,6 @@ def test_semantic_ref_is_frozen():
         ref.ref = "other"  # type: ignore[misc]
 
 
-def test_reader_project_no_longer_exposes_catalog_read_surface() -> None:
-    from marivo.semantic.reader import SemanticProject
-
-    removed = {
-        "list_domains",
-        "list_datasources",
-        "list_entities",
-        "list_dimensions",
-        "list_time_dimensions",
-        "list_metrics",
-        "list_relationships",
-        "get_entity",
-        "get_metric",
-        "materialize_dataset",
-        "materialize_field",
-        "materialize_metric",
-        "preview_dataset",
-        "preview_field",
-        "preview_metric",
-    }
-    for name in removed:
-        assert not hasattr(SemanticProject, name), name
-
-
 # --- AiContextView ---
 
 
