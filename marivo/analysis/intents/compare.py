@@ -114,11 +114,11 @@ def _require_metric_frame(label: str, frame: object) -> MetricFrame:
 # ---------------------------------------------------------------------------
 
 
-def _component_decomposition_kind(frame: MetricFrame) -> str | None:
-    """Return the decomposition kind if the frame is component-aware, else None."""
-    decomp = frame.meta.decomposition
-    if isinstance(decomp, dict) and decomp.get("kind"):
-        return str(decomp["kind"])
+def _component_composition_kind(frame: MetricFrame) -> str | None:
+    """Return the composition kind if the frame is component-aware, else None."""
+    comp = frame.meta.composition
+    if isinstance(comp, dict) and comp.get("kind"):
+        return str(comp["kind"])
     return None
 
 
@@ -178,16 +178,16 @@ def _require_compatible_components(
     baseline_parent: MetricFrame,
 ) -> None:
     """Validate that two component frames are compatible for delta computation."""
-    if current_comp.meta.decomposition_kind != baseline_comp.meta.decomposition_kind:
+    if current_comp.meta.composition_kind != baseline_comp.meta.composition_kind:
         raise ComponentFrameMismatchError(
             message=(
                 "compare inputs have incompatible decomposition kinds: "
-                f"{current_comp.meta.decomposition_kind!r} vs "
-                f"{baseline_comp.meta.decomposition_kind!r}"
+                f"{current_comp.meta.composition_kind!r} vs "
+                f"{baseline_comp.meta.composition_kind!r}"
             ),
             details={
-                "current_kind": current_comp.meta.decomposition_kind,
-                "baseline_kind": baseline_comp.meta.decomposition_kind,
+                "current_kind": current_comp.meta.composition_kind,
+                "baseline_kind": baseline_comp.meta.composition_kind,
             },
         )
     if current_comp.meta.components != baseline_comp.meta.components:
@@ -268,7 +268,7 @@ def _component_role_metric_frame(
             "measure": {"name": role_column},
             "semantic_kind": component.meta.semantic_kind,
             "component_ref": None,
-            "decomposition": None,
+            "composition": None,
         }
     )
     return MetricFrame(_df=df, meta=meta)
@@ -451,8 +451,9 @@ def _persist_delta_component_frame(
         parent_ref=parent_ref,
         parent_kind="delta_frame",
         metric_id=source_component.meta.metric_id,
-        decomposition_kind=source_component.meta.decomposition_kind,
+        composition_kind=source_component.meta.composition_kind,
         components=source_component.meta.components,
+        linear_terms=source_component.meta.linear_terms,
         axes=source_component.meta.axes,
         semantic_kind=source_component.meta.semantic_kind,
         semantic_model=source_component.meta.semantic_model,
@@ -495,8 +496,8 @@ def compare(
     raise_first(validate_compare(current, baseline, alignment=alignment))
 
     # --- Component-aware validation ---
-    current_decomp_kind = _component_decomposition_kind(current)
-    baseline_decomp_kind = _component_decomposition_kind(baseline)
+    current_decomp_kind = _component_composition_kind(current)
+    baseline_decomp_kind = _component_composition_kind(baseline)
     current_component: ComponentFrame | None = None
     baseline_component: ComponentFrame | None = None
     if current_decomp_kind is not None or baseline_decomp_kind is not None:
@@ -648,7 +649,7 @@ def compare(
         semantic_kind=current.meta.semantic_kind,
         semantic_model=current.meta.semantic_model,
         unit=current.meta.unit,
-        decomposition=current.meta.decomposition if current_component is not None else None,
+        composition=current.meta.composition if current_component is not None else None,
         fold=getattr(current.meta, "fold", None),
         component_folds=_component_fold_payload(current, session=session),
     )

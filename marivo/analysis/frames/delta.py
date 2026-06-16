@@ -27,7 +27,7 @@ class DeltaFrameMeta(BaseFrameMeta):
     semantic_model: str
     normalization: dict[str, Any] | None = None
     component_ref: str | None = None
-    decomposition: dict[str, Any] | None = None
+    composition: dict[str, Any] | None = None
     fold: dict[str, Any] | None = None
     component_folds: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -95,6 +95,6 @@ class DeltaFrame(BaseFrame):
             project_root=self.meta.project_root,
             artifact_id=self.meta.artifact_id,
             component_ref=self.meta.component_ref,
-            decomposition=self.meta.decomposition,
+            composition=self.meta.composition,
             advice="re-run compare() to regenerate it",
         )

@@ -11,7 +11,7 @@ from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 
 
 def resolve_role_column_name(components: dict[str, str], role: str) -> str:
-    """Resolve a decomposition role to its DataFrame column name.
+    """Resolve a composition role to its DataFrame column name.
 
     Uses the component metric's short name (part after the last dot). Falls
     back to the role name when two components share the same short name.
@@ -24,7 +24,7 @@ def resolve_role_column_name(components: dict[str, str], role: str) -> str:
 
 
 def resolve_role_columns(components: dict[str, str]) -> list[str]:
-    """Resolve all decomposition roles to their DataFrame column names."""
+    """Resolve all composition roles to their DataFrame column names."""
     return [resolve_role_column_name(components, role) for role in components]
 
 
@@ -35,8 +35,9 @@ class ComponentFrameMeta(BaseFrameMeta):
     parent_ref: str
     parent_kind: Literal["metric_frame", "delta_frame"]
     metric_id: str
-    decomposition_kind: Literal["ratio", "weighted_average"]
+    composition_kind: Literal["ratio", "weighted_average", "linear"]
     components: dict[str, str]
+    linear_terms: tuple[tuple[str, str], ...] = ()
     axes: dict[str, Any]
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str

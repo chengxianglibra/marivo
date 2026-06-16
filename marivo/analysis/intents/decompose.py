@@ -149,24 +149,39 @@ def _component_role_column_name(component: ComponentFrame, role: str) -> str:
 
 
 def _component_measure_role(component: ComponentFrame) -> str:
-    if component.meta.decomposition_kind == "ratio":
+    if component.meta.composition_kind == "ratio":
         return _component_role_column_name(component, "denominator")
-    if component.meta.decomposition_kind == "weighted_average":
+    if component.meta.composition_kind == "weighted_average":
         return _component_role_column_name(component, "weight")
     raise ComponentDecompositionError(
-        message="unsupported component decomposition kind",
-        details={"decomposition_kind": component.meta.decomposition_kind},
+        message="unsupported component composition kind",
+        details={"composition_kind": component.meta.composition_kind},
+    )
+
+
+def _component_value_role(component: ComponentFrame) -> str:
+    """Return the value-role column name for the mix math.
+
+    ratio uses 'numerator', weighted_average uses 'value'.
+    """
+    if component.meta.composition_kind == "ratio":
+        return "numerator"
+    if component.meta.composition_kind == "weighted_average":
+        return "value"
+    raise ComponentDecompositionError(
+        message="unsupported component composition kind for value role",
+        details={"composition_kind": component.meta.composition_kind},
     )
 
 
 def _component_method(component: ComponentFrame) -> str:
-    if component.meta.decomposition_kind == "ratio":
+    if component.meta.composition_kind == "ratio":
         return "ratio_mix"
-    if component.meta.decomposition_kind == "weighted_average":
+    if component.meta.composition_kind == "weighted_average":
         return "weighted_mix"
     raise ComponentDecompositionError(
-        message="unsupported component decomposition kind",
-        details={"decomposition_kind": component.meta.decomposition_kind},
+        message="unsupported component composition kind",
+        details={"composition_kind": component.meta.composition_kind},
     )
 
 
@@ -204,7 +219,7 @@ def _component_mix_output_for_df(
     axis_column: str,
 ) -> pd.DataFrame:
     share_role = _component_measure_role(component)
-    numerator_name = _component_role_column_name(component, "numerator")
+    numerator_name = _component_role_column_name(component, _component_value_role(component))
     value_name = _infer_delta_value_column_name(component)
     required = [
         axis_column,
@@ -274,6 +289,59 @@ def _component_mix_output_for_df(
             f"baseline_{value_name}",
             "current_share",
             "baseline_share",
+            "rank",
+        ]
+    ]
+
+
+def _component_linear_output_for_df(
+    *,
+    df: pd.DataFrame,
+    component: ComponentFrame,
+    axis_column: str,
+) -> pd.DataFrame:
+    """Additive attribution: each component term contributes sign*(current-baseline)."""
+    out = df[[axis_column]].copy()
+    total = pd.Series(0.0, index=df.index)
+    for sign, ref_id in component.meta.linear_terms:
+        role = next(
+            (r for r, cid in component.meta.components.items() if cid == ref_id),
+            None,
+        )
+        if role is None:
+            continue
+        col = _component_role_column_name(component, role)
+        cur_key = f"current_{col}"
+        base_key = f"baseline_{col}"
+        if cur_key not in df.columns or base_key not in df.columns:
+            continue
+        cur = pd.to_numeric(df[cur_key], errors="coerce")
+        base = pd.to_numeric(df[base_key], errors="coerce")
+        contrib = (cur - base) * (1.0 if sign == "+" else -1.0)
+        total = total.add(contrib, fill_value=0.0)
+    out["contribution"] = total
+    out["value_effect"] = total  # additive: all contribution is value-effect
+    out["mix_effect"] = 0.0
+    out["residual"] = 0.0
+    valid = out["contribution"].notna()
+    total_val = float(out.loc[valid, "contribution"].sum()) if valid.any() else 0.0
+    out["pct_contribution"] = np.where(
+        valid & (total_val != 0),
+        out["contribution"] / total_val,
+        np.nan,
+    )
+    out = out.reindex(out["contribution"].abs().sort_values(ascending=False).index).reset_index(
+        drop=True
+    )
+    out["rank"] = range(1, len(out) + 1)
+    return out[
+        [
+            axis_column,
+            "contribution",
+            "pct_contribution",
+            "value_effect",
+            "mix_effect",
+            "residual",
             "rank",
         ]
     ]
@@ -361,7 +429,7 @@ def decompose(
 
     assert axis_column is not None  # validated above; needed for type narrowing
 
-    # Component-aware path: ratio/weighted mix attribution.
+    # Component-aware path: ratio/weighted mix or linear additive attribution.
     component = _load_delta_component_frame(frame, session=session)
     if component is not None:
         component_columns = [str(column) for column in component.to_pandas().columns]
@@ -376,13 +444,21 @@ def decompose(
                     message="component-aware panel decompose requires a bucket column",
                     details={"delta_ref": frame.ref, "component_ref": component.ref},
                 )
-        output = _component_mix_output(
-            component=component,
-            axis_column=component_axis_column,
-            bucket_column=bucket_column,
-        )
+        if component.meta.composition_kind == "linear":
+            output = _component_linear_output_for_df(
+                df=component.to_pandas(),
+                component=component,
+                axis_column=component_axis_column,
+            )
+            method = "sum"
+        else:
+            output = _component_mix_output(
+                component=component,
+                axis_column=component_axis_column,
+                bucket_column=bucket_column,
+            )
+            method = _component_method(component)
         axis_column = component_axis_column
-        method = _component_method(component)
         params = {
             "source_ref": frame.ref,
             "component_ref": component.ref,

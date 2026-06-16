@@ -1953,7 +1953,7 @@ def _persist_transform_frame(
     )
     # Transforms change data shape; component links from the parent no longer apply.
     meta_payload["component_ref"] = None
-    meta_payload["decomposition"] = None
+    meta_payload["composition"] = None
     if semantic_kind is not None:
         meta_payload["semantic_kind"] = semantic_kind
     if where_scope is not None and isinstance(parent, MetricFrame):
