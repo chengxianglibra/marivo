@@ -14,10 +14,11 @@ from typing import Any, Literal
 
 from marivo.datasource.ir import (
     AiContextIR,
+    CsvSourceIR,
     DatasourceIR,
     DatasourceSourceLocation,
     EntitySourceIR,
-    FileSourceIR,
+    ParquetSourceIR,
     TableSourceIR,
     source_name,
     source_to_dict,
@@ -28,9 +29,12 @@ __all__ = [
     "AggKind",
     "AiContextIR",
     "Composition",
+    "CsvSourceIR",
     "DatasourceAiContextIR",
     "DatasourceIR",
     "DatasourceSourceLocation",
+    "DateParse",
+    "DatetimeParse",
     "DimensionIR",
     "DimensionKind",
     "DimensionRef",
@@ -41,25 +45,32 @@ __all__ = [
     "EntityRef",
     "EntitySourceIR",
     "EntityVersioningIR",
-    "FileSourceIR",
+    "HourPrefixParse",
+    "JoinKey",
     "LinearComposition",
     "LinearTerm",
+    "MeasureIR",
+    "MeasureRef",
     "MetricAdditivity",
     "MetricIR",
     "MetricRef",
     "ParityStatus",
-    "ProvenanceIR",
+    "ParquetSourceIR",
     "RatioComposition",
     "RelationshipIR",
     "RelationshipRef",
     "SampleIntervalIR",
+    "SemanticParse",
     "SemiAdditive",
     "SnapshotVersioningIR",
     "SourceLocation",
+    "SqlProvenance",
+    "StrptimeParse",
     "SymbolKind",
     "TableSourceIR",
     "TimeDimensionRef",
     "TimeFoldIR",
+    "TimestampParse",
     "ValidityVersioningIR",
     "WeightedAverageComposition",
     "_BaseRef",
@@ -85,16 +96,16 @@ class SymbolKind(StrEnum):
     DATASOURCE = "datasource"
     ENTITY = "entity"
     DIMENSION = "dimension"
+    MEASURE = "measure"
     TIME_DIMENSION = "time_dimension"
     METRIC = "metric"
     RELATIONSHIP = "relationship"
 
 
 class DimensionKind(StrEnum):
-    """Kind of dimension: categorical, measure, or time."""
+    """Kind of dimension: categorical or time."""
 
     CATEGORICAL = "categorical"
-    MEASURE = "measure"
     TIME = "time"
 
 
@@ -107,7 +118,7 @@ class ParityStatus(StrEnum):
 
 
 class MetricAdditivity(StrEnum):
-    """Metric summability relative to its dataset row grain."""
+    """Metric summability relative to its entity row grain."""
 
     ADDITIVE = "additive"
     SEMI_ADDITIVE = "semi_additive"
@@ -153,7 +164,7 @@ class ValidityVersioningIR:
     valid_from: str
     valid_to: str
     interval: Literal["closed_open", "closed_closed"]
-    open_end: tuple[Any, ...]
+    open_end: tuple[str | None, ...]
     timezone: str | None = None
 
 
@@ -172,16 +183,22 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
         else:
             database = str(raw_database)
         return TableSourceIR(table=str(data["table"]), database=database)
-    if kind == "file":
-        raw_options = data.get("options", {})
-        options = dict(raw_options) if isinstance(raw_options, Mapping) else {}
-        format_value = str(data["format"])
-        if format_value not in {"parquet", "csv", "json"}:
-            raise ValueError(f"unsupported file source format: {format_value!r}")
-        return FileSourceIR(
+    if kind == "parquet":
+        raw_columns = data.get("columns")
+        columns = tuple(str(col) for col in raw_columns) if isinstance(raw_columns, list) else None
+        return ParquetSourceIR(
             path=str(data["path"]),
-            format=format_value,  # type: ignore[arg-type]
-            options=options,
+            hive_partitioning=bool(data.get("hive_partitioning", False)),
+            columns=columns,
+        )
+    if kind == "csv":
+        raw_columns = data.get("columns")
+        columns = tuple(str(col) for col in raw_columns) if isinstance(raw_columns, list) else None
+        return CsvSourceIR(
+            path=str(data["path"]),
+            header=bool(data.get("header", True)),
+            delimiter=str(data.get("delimiter", ",")),
+            columns=columns,
         )
     raise ValueError(f"unsupported entity source kind: {kind!r}")
 
@@ -195,24 +212,6 @@ def source_label(source: EntitySourceIR) -> str:
         )
         return f"{database}.{source.table}"
     return source.path
-
-
-@dataclass(frozen=True)
-class ProvenanceIR:
-    """Source provenance for expression-bearing objects.
-
-    verification_mode is inferred from source_sql presence:
-    - source_sql present -> "sql_parity" (SQL provided -> parity expected)
-    - source_sql absent  -> None (trust the semantic body, no verification)
-    """
-
-    source_sql: str | None = None
-    source_dialect: str | None = None
-
-    @property
-    def verification_mode(self) -> Literal["sql_parity"] | None:
-        """Inferred verification mode: sql_parity when source_sql is present."""
-        return "sql_parity" if self.source_sql is not None else None
 
 
 @dataclass(frozen=True)
@@ -254,6 +253,77 @@ class SampleIntervalIR:
         return f"{self.count}{self.unit}"
 
 
+# ---------------------------------------------------------------------------
+# Time parse value objects (closed variants)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DateParse:
+    kind: Literal["date"] = "date"
+
+
+@dataclass(frozen=True)
+class DatetimeParse:
+    timezone: str
+    sample_interval: SampleIntervalIR | None = None
+    kind: Literal["datetime"] = "datetime"
+
+
+@dataclass(frozen=True)
+class TimestampParse:
+    timezone: str
+    sample_interval: SampleIntervalIR | None = None
+    kind: Literal["timestamp"] = "timestamp"
+
+
+@dataclass(frozen=True)
+class StrptimeParse:
+    format: str
+    data_type: Literal["string", "integer"]
+    timezone: str | None = None
+    kind: Literal["strptime"] = "strptime"
+
+
+@dataclass(frozen=True)
+class HourPrefixParse:
+    prefix: str
+    data_type: Literal["string", "integer"]
+    kind: Literal["hour_prefix"] = "hour_prefix"
+
+
+SemanticParse = DateParse | DatetimeParse | TimestampParse | StrptimeParse | HourPrefixParse
+
+
+# ---------------------------------------------------------------------------
+# Provenance and join-key value objects
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SqlProvenance:
+    """SQL parity provenance for a Python-authored metric body."""
+
+    sql: str
+    dialect: str
+    kind: Literal["from_sql"] = "from_sql"
+
+    @property
+    def verification_mode(self) -> Literal["sql_parity"]:
+        return "sql_parity"
+
+
+@dataclass(frozen=True)
+class JoinKey:
+    """One left/right relationship key pair."""
+
+    from_key: str
+    to_key: str
+
+    def to_tuple(self) -> tuple[str, str]:
+        return (self.from_key, self.to_key)
+
+
 @dataclass(frozen=True)
 class TimeFoldIR:
     """Time folding declaration for sampled semi-additive metrics."""
@@ -291,7 +361,7 @@ Additivity = Literal["additive", "non_additive"] | SemiAdditive
 
 @dataclass(frozen=True)
 class DimensionIR:
-    """Dimension declaration (categorical or measure column)."""
+    """Categorical or time dimension declaration."""
 
     semantic_id: str
     domain: str
@@ -301,17 +371,11 @@ class DimensionIR:
     ai_context: AiContextIR
     is_time_dimension: bool
     kind: DimensionKind
-    data_type: str | None
-    granularity: str | None
-    required_prefix: str | None
     python_symbol: str
     location: SourceLocation
-    format: str | None = None
-    timezone: str | None = None
+    granularity: str | None = None
+    parse: SemanticParse | None = None
     is_default: bool = False
-    sample_interval: SampleIntervalIR | None = None
-    additivity: Additivity | None = None
-    unit: str | None = None
 
     def __post_init__(self) -> None:
         if self.is_time_dimension != (self.kind == DimensionKind.TIME):
@@ -319,14 +383,29 @@ class DimensionIR:
                 f"DimensionIR {self.semantic_id!r}: is_time_dimension={self.is_time_dimension} "
                 f"inconsistent with kind={self.kind.value!r}"
             )
-        if self.additivity is not None and self.kind is not DimensionKind.MEASURE:
+        if self.kind == DimensionKind.TIME and self.parse is None:
+            raise ValueError(f"DimensionIR {self.semantic_id!r}: time dimension requires parse")
+        if self.kind == DimensionKind.CATEGORICAL and self.parse is not None:
             raise ValueError(
-                f"DimensionIR {self.semantic_id!r}: additivity is only valid on measure dimensions"
+                f"DimensionIR {self.semantic_id!r}: categorical dimension must not carry parse"
             )
-        if self.unit is not None and self.kind is not DimensionKind.MEASURE:
-            raise ValueError(
-                f"DimensionIR {self.semantic_id!r}: unit is only valid on measure dimensions"
-            )
+
+
+@dataclass(frozen=True)
+class MeasureIR:
+    """Row-level quantitative declaration that metrics aggregate."""
+
+    semantic_id: str
+    domain: str
+    entity: str
+    name: str
+    description: str | None
+    ai_context: AiContextIR
+    additivity: Additivity
+    unit: str | None
+    python_symbol: str
+    location: SourceLocation
+    kind: SymbolKind = SymbolKind.MEASURE
 
 
 @dataclass(frozen=True)
@@ -403,7 +482,7 @@ class MetricIR:
     measure: str | None
     composition: Composition | None
     additivity: Additivity | None
-    provenance: ProvenanceIR
+    provenance: SqlProvenance | None
     description: str | None
     ai_context: AiContextIR
     body_ast_hash: str
@@ -482,8 +561,7 @@ class RelationshipIR:
     name: str
     from_entity: str
     to_entity: str
-    from_dimensions: tuple[str, ...]
-    to_dimensions: tuple[str, ...]
+    keys: tuple[JoinKey, ...]
     description: str | None
     ai_context: AiContextIR
     location: SourceLocation
@@ -612,8 +690,26 @@ class TimeDimensionRef(_BaseRef):
         return self._resolver(self.semantic_id, parent_table)
 
 
+class MeasureRef(_BaseRef):
+    """Ref returned by ms.measure(). Callable like DimensionRef."""
+
+    _resolver: Callable[[str, Any], Any] | None
+
+    def __init__(self, semantic_id: str) -> None:
+        super().__init__(semantic_id, SymbolKind.MEASURE)
+        self._resolver = None
+
+    def __call__(self, parent_table: Any) -> Any:
+        if self._resolver is None:
+            raise RuntimeError(
+                f"MeasureRef({self.semantic_id!r}) has no resolver. "
+                "MeasureRefs can only be called inside a loaded semantic project."
+            )
+        return self._resolver(self.semantic_id, parent_table)
+
+
 class MetricRef(_BaseRef):
-    """Ref returned by ms.aggregate(), @ms.simple_metric(), and derived constructors.
+    """Ref returned by ms.aggregate(), @ms.metric(), and derived constructors.
 
     Not callable as a decorator. _BaseRef.__call__ raises a teaching error.
     """

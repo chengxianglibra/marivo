@@ -247,7 +247,7 @@ def test_time_dimension_details_fields():
         data_type="timestamp",
         granularity="day",
         format=None,
-        timezone=None,
+        timezone="UTC",
         required_prefix=None,
         is_default=True,
         sample_interval=None,
@@ -473,11 +473,11 @@ _DATASETS_PY = textwrap.dedent("""\
     def region(table):
         return table.region
 
-    @ms.time_dimension(entity=orders, data_type="timestamp", granularity="day")
+    @ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
     def created_at(table):
         return table.created_at
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
         description="Gross revenue.",
@@ -589,8 +589,7 @@ def test_catalog_list_domain_relationships(semantic_project_factory):
                 "    name='orders_to_users',\n"
                 "    from_entity=orders,\n"
                 "    to_entity=users,\n"
-                "    from_dimensions=[user_id],\n"
-                "    to_dimensions=[id],\n"
+                "    keys=[ms.join_on(user_id, id)],\n"
                 ")\n"
             ),
         }
@@ -809,7 +808,7 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
                 import marivo.semantic as ms
                 orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-                @ms.simple_metric(
+                @ms.metric(
                     entities=[orders],
                     additivity="additive",
                     description="Gross revenue.",
@@ -879,10 +878,10 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
+                "@ms.metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
-                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
+                "@ms.metric(entities=[orders], additivity='additive', )\n"
                 "def order_count(table):\n"
                 "    return table.order_id.nunique()\n"
                 "conversion = ms.ratio(\n"
@@ -912,9 +911,8 @@ def test_catalog_time_dimension_details_include_sample_interval(semantic_project
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
                 "@ms.time_dimension(\n"
                 "    entity=orders,\n"
-                "    data_type='timestamp',\n"
                 "    granularity='minute',\n"
-                "    sample_interval=(5, 'minute'),\n"
+                "    parse=ms.timestamp(timezone='UTC', sample_interval=(5, 'minute')),\n"
                 ")\n"
                 "def sampled_at(table):\n"
                 "    return table.created_at\n"
@@ -1039,11 +1037,11 @@ def test_catalog_load_reloads_project(semantic_project_factory):
             def region(table):
                 return table.region
 
-            @ms.time_dimension(entity=orders, data_type="timestamp", granularity="day")
+            @ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
             def created_at(table):
                 return table.created_at
 
-            @ms.simple_metric(
+            @ms.metric(
                 entities=[orders],
                 additivity="additive",
                 description="Gross revenue.",
@@ -1051,7 +1049,7 @@ def test_catalog_load_reloads_project(semantic_project_factory):
             def revenue(table):
                 return table.amount.sum()
 
-            @ms.simple_metric(
+            @ms.metric(
                 entities=[orders],
                 additivity="additive",
                 description="Gross profit.",
@@ -1237,7 +1235,7 @@ def _write_minimal_project(tmp_path) -> None:
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
+        "@ms.metric(entities=[orders], additivity='additive', )\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )
@@ -1261,7 +1259,7 @@ def _write_multi_domain_project(tmp_path) -> None:
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
+        "@ms.metric(entities=[orders], additivity='additive', )\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )
@@ -1410,7 +1408,7 @@ _UNIT_DATASETS_PY = (
     "\n"
     "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
     "\n"
-    "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', "
+    "@ms.metric(entities=[orders], additivity='additive', name='revenue', "
     " unit='CNY')\n"
     "def revenue(orders):\n"
     "    return orders.amount.sum()\n"
@@ -1480,8 +1478,7 @@ def test_catalog_details_cover_required_ir_fields() -> None:
             "kind",
             "python_symbol",
             "semantic_id",
-            "additivity",
-            "unit",
+            "parse",
         },
     }
 

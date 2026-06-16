@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
 __all__ = [
     "AiContextIR",
+    "CsvSourceIR",
     "DatasourceAiContextIR",
     "DatasourceIR",
     "DatasourceSourceLocation",
     "EntitySourceIR",
-    "FileSourceIR",
+    "ParquetSourceIR",
     "TableSourceIR",
     "qualify_source_sql",
     "source_name",
@@ -83,27 +84,50 @@ class TableSourceIR:
 
 
 @dataclass(frozen=True)
-class FileSourceIR:
-    """Physical file source for a dataset."""
+class ParquetSourceIR:
+    """Physical parquet source for an entity."""
 
     path: str
-    format: Literal["parquet", "csv", "json"]
-    options: dict[str, Any] = field(default_factory=dict)
-    kind: Literal["file"] = "file"
+    hive_partitioning: bool = False
+    columns: tuple[str, ...] | None = None
+    kind: Literal["parquet"] = "parquet"
 
     def to_dict(self) -> dict[str, object]:
         return {
             "kind": self.kind,
             "path": self.path,
-            "format": self.format,
-            "options": dict(self.options),
+            "hive_partitioning": self.hive_partitioning,
+            "columns": list(self.columns) if self.columns is not None else None,
         }
 
-    def to_ir(self) -> FileSourceIR:
+    def to_ir(self) -> ParquetSourceIR:
         return self
 
 
-EntitySourceIR = TableSourceIR | FileSourceIR
+@dataclass(frozen=True)
+class CsvSourceIR:
+    """Physical CSV source for an entity."""
+
+    path: str
+    header: bool = True
+    delimiter: str = ","
+    columns: tuple[str, ...] | None = None
+    kind: Literal["csv"] = "csv"
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "path": self.path,
+            "header": self.header,
+            "delimiter": self.delimiter,
+            "columns": list(self.columns) if self.columns is not None else None,
+        }
+
+    def to_ir(self) -> CsvSourceIR:
+        return self
+
+
+EntitySourceIR = TableSourceIR | ParquetSourceIR | CsvSourceIR
 
 _GLOB_CHARS = re.compile(r"[*?\\[]")
 _SOURCE_NAME_CHARS = re.compile(r"[^0-9A-Za-z_]+")
@@ -131,12 +155,7 @@ def source_to_dict(source: EntitySourceIR) -> dict[str, object]:
             list(source.database) if isinstance(source.database, tuple) else source.database
         )
         return {"kind": "table", "table": source.table, "database": database}
-    return {
-        "kind": "file",
-        "path": source.path,
-        "format": source.format,
-        "options": dict(source.options),
-    }
+    return source.to_dict()
 
 
 def qualify_source_sql(

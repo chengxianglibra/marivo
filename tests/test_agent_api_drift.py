@@ -49,11 +49,11 @@ _OBJECTS_PY = textwrap.dedent("""\
     def region(table):
         return table.region
 
-    @ms.time_dimension(entity=orders, data_type="timestamp", granularity="day")
+    @ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
     def created_at(table):
         return table.created_at
 
-    @ms.simple_metric(entities=[orders], additivity='additive', )
+    @ms.metric(entities=[orders], additivity='additive', )
     def total_revenue(table):
         return table.amount.sum()
 """)

@@ -185,12 +185,14 @@ metric_brief = ms.prepare_metric(
 Author and verify:
 
 ```python
-@ms.simple_metric(
+@ms.metric(
     entities=[orders],
     additivity="additive",
     name="revenue",
-    source_sql="SELECT SUM(amount) AS revenue FROM orders",
-    source_dialect="duckdb",
+    provenance=ms.from_sql(
+        sql="SELECT SUM(amount) AS revenue FROM orders",
+        dialect="duckdb",
+    ),
     ai_context={
         "business_definition": "Gross order amount before refunds.",
         "guardrails": ["Validate refund exclusions before using as net revenue."],
@@ -216,8 +218,7 @@ resolved from the two entity refs.
 rel_brief = ms.prepare_relationship(
     from_entity="sales.orders",
     to_entity="sales.customers",
-    from_dimensions=("sales.orders.customer_id",),
-    to_dimensions=("sales.customers.customer_id",),
+    keys=[ms.join_on("sales.orders.customer_id", "sales.customers.customer_id")],
     scope=md.ScanScope(),
 )
 ```
@@ -229,8 +230,7 @@ ms.relationship(
     name="orders_to_customers",
     from_entity=orders,
     to_entity=customers,
-    from_dimensions=[order_customer_id],
-    to_dimensions=[customer_id],
+    keys=[ms.join_on(order_customer_id, customer_id)],
 )
 ```
 

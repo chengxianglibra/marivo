@@ -104,6 +104,14 @@ def normalize_dimension_input(
 ) -> str:
     """Return a dimension/time-dimension semantic id from a catalog object/ref."""
     ref, kind = _require_catalog_input(dimension, argument=argument, expected_kind="dimension")
+    if kind == SemanticKind.MEASURE:
+        raise SemanticKindMismatchError(
+            message=(
+                f"{ref!r} is a measure, which is aggregated, not a group-by axis; "
+                "slice by a categorical dimension or aggregate it into a metric."
+            ),
+            details={"ref": ref, "actual_kind": "measure", "expected_kind": "dimension"},
+        )
     if kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
         _reject_kind(ref=ref, actual_kind=str(kind), expected_kind="dimension", argument=argument)
     try:
@@ -154,6 +162,18 @@ def normalize_dimension_boundary(
     available_ids = _available_dimension_ids(catalog)
     if not available_ids:
         if isinstance(dimension, SemanticObject):
+            if dimension.kind == SemanticKind.MEASURE:
+                raise SemanticKindMismatchError(
+                    message=(
+                        f"{dimension.ref.ref!r} is a measure, which is aggregated, not a group-by axis; "
+                        "slice by a categorical dimension or aggregate it into a metric."
+                    ),
+                    details={
+                        "ref": dimension.ref.ref,
+                        "actual_kind": "measure",
+                        "expected_kind": "dimension",
+                    },
+                )
             if dimension.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
                 _reject_kind(
                     ref=dimension.ref.ref,

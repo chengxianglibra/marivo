@@ -11,7 +11,13 @@ from typing import Any, Literal
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
 from marivo.datasource.errors import DatasourceMetadataError
-from marivo.datasource.ir import EntitySourceIR, FileSourceIR, TableSourceIR, source_name
+from marivo.datasource.ir import (
+    CsvSourceIR,
+    EntitySourceIR,
+    ParquetSourceIR,
+    TableSourceIR,
+    source_name,
+)
 from marivo.render import format_bounded_card, result_repr
 
 MetadataWarningKind = Literal[
@@ -1062,7 +1068,7 @@ def inspect_source(
             include_partitions=include_partitions,
             project_root=project_root,
         )
-    if not isinstance(source, FileSourceIR):
+    if not isinstance(source, (ParquetSourceIR, CsvSourceIR)):
         raise DatasourceMetadataError(
             message=f"unsupported datasource source kind {getattr(source, 'kind', None)!r}",
             details={"datasource": datasource, "source_kind": getattr(source, "kind", None)},
@@ -1076,18 +1082,35 @@ def inspect_source(
         )
     try:
         backend = _backends.build_backend(datasource_ir)
-        reader_name = "read_parquet" if source.format == "parquet" else "read_csv"
-        reader = getattr(backend, reader_name, None)
-        if reader is None:
-            raise AttributeError(f"backend has no {reader_name}()")
-        table_expr = reader(source.path, **source.options)
+        if isinstance(source, ParquetSourceIR):
+            reader = getattr(backend, "read_parquet", None)
+            if reader is None:
+                raise AttributeError("backend has no read_parquet()")
+            kwargs: dict[str, object] = {}
+            if source.hive_partitioning:
+                kwargs["hive_partitioning"] = source.hive_partitioning
+            if source.columns is not None:
+                kwargs["columns"] = list(source.columns)
+            table_expr = reader(source.path, **kwargs)
+        else:  # CsvSourceIR
+            reader = getattr(backend, "read_csv", None)
+            if reader is None:
+                raise AttributeError("backend has no read_csv()")
+            kwargs = {}
+            if not source.header:
+                kwargs["header"] = source.header
+            if source.delimiter != ",":
+                kwargs["delimiter"] = source.delimiter
+            if source.columns is not None:
+                kwargs["columns"] = list(source.columns)
+            table_expr = reader(source.path, **kwargs)
     except Exception as exc:
         raise DatasourceMetadataError(
             message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
             details={
                 "datasource": datasource,
                 "path": source.path,
-                "format": source.format,
+                "source_kind": source.kind,
                 "cause": str(exc),
             },
         ) from exc

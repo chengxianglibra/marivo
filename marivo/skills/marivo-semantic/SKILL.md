@@ -1,12 +1,12 @@
 ---
 name: marivo-semantic
-description: Use for any Marivo datasource definition or semantic-layer authoring task: datasource declarations/refs, datasets, fields, time fields, metrics, relationships, evidence, readiness, and analysis handoff.
+description: Use for any Marivo datasource definition or semantic-layer authoring task: datasource declarations/refs, entities, dimensions, time dimensions, measures, metrics, relationships, evidence, readiness, and analysis handoff.
 ---
 
 # marivo-semantic
 
 Use this skill when defining project datasources or building reusable semantic
-objects. For metric-centered analysis on an already-ready model, use
+objects. For metric-centered analysis on an already-ready domain, use
 `marivo-analysis`.
 
 ## Runtime Assumptions
@@ -25,6 +25,7 @@ the project structure before authoring semantic objects.
 - Follow the ladder: domain -> entity -> dimension -> time_dimension -> metric -> relationship -> cross-entity metric -> derived metric.
 - Before writing each object, call the matching `ms.prepare_*` API and branch on the returned Brief status.
 - Write exactly one semantic object per cycle in `models/semantic/<domain>/_domain.py`.
+- Use `ms.from_sql(sql=..., dialect=...)` for SQL provenance, not `source_sql`/`source_dialect` kwargs.
 - After writing one object, call `ms.verify_object(ref)` and do not advance while it fails.
 - **`verify_object` is enforced:** `ms.prepare_dimension`, `ms.prepare_time_dimension`, `ms.prepare_metric`, `ms.prepare_relationship`, and `ms.prepare_cross_entity_metric` raise `LadderOrderError` if their entity arguments have not passed `ms.verify_object`. You must verify the entity before these calls.
 - Use `md.ScanScope()` by default. Passing `partition=None` is allowed only when the answer explicitly accepts an unpruned scan.
@@ -38,9 +39,9 @@ Use `ms.load()` to obtain a `SemanticCatalog`, then browse and inspect:
 
 ```python
 catalog = ms.load()
-catalog.list().show()                         # top-level: models and datasources
-catalog.list("sales").show()                  # datasets and metrics under a model
-catalog.list("sales.orders").show()           # fields, time fields, relationships, filtered metrics
+catalog.list().show()                         # top-level: domains and datasources
+catalog.list("sales").show()                  # entities and metrics under a domain
+catalog.list("sales.orders").show()           # dimensions, time dimensions, relationships, filtered metrics
 catalog.list(kind="metric").show()            # all metrics across every domain
 catalog.list(domain="sales", kind="metric").show()  # metrics in one domain
 revenue = catalog.get("sales.revenue")
@@ -57,7 +58,7 @@ mv.help(revenue)                    # bounded consumption context
 mv.help(revenue, project=project)   # explicit project when not in CWD
 ```
 
-Read `_domain.py` only when you need to modify the semantic model, inspect
+Read `_domain.py` only when you need to modify the semantic domain, inspect
 implementation expressions, or debug authoring behavior.
 
 ## Reference Routing

@@ -148,7 +148,7 @@ def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factor
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
+                "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),

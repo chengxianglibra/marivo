@@ -420,7 +420,7 @@ def test_inspect_source_file_derives_table_name_from_path(
 
     metadata = md.inspect_source(
         "duck_wh",
-        source=ms.file("/data/orders/*.parquet", format="parquet", hive_partitioning=True),
+        source=ms.parquet("/data/orders/*.parquet", hive_partitioning=True),
     )
 
     assert metadata.table == "orders"

@@ -329,10 +329,10 @@ def test_semantic_catalog_descriptor_lists_agent_workflow_methods() -> None:
 
 
 def test_semantic_metric_descriptor_uses_l1_constraint_summaries() -> None:
-    result = _json_help(ms, "simple_metric")
+    result = _json_help(ms, "metric")
 
     assert result["kind"] == "topic"
-    assert result["symbol"] == "simple_metric"
+    assert result["symbol"] == "metric"
     assert result["doc"]
     content = cast("dict[str, Any]", result["content"])
     assert "tier1" in content

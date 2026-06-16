@@ -30,13 +30,14 @@ from marivo.semantic.errors import (
     StructuredWarning,
     _raise,
 )
-from marivo.semantic.ir import Additivity, DomainIR, MetricIR
+from marivo.semantic.ir import Additivity, DimensionIR, DomainIR, MeasureIR, MetricIR
 from marivo.semantic.validator import Registry, Sidecar, assembly_validate
 
 __all__ = [
     "LoadResult",
     "LoaderContext",
     "find_project",
+    "loader_context",
 ]
 
 
@@ -48,6 +49,8 @@ class LoaderContext:
     this to enforce outside-loader-context guards.
     """
 
+    model_name: str | None = None
+    file_path: str | None = None
     current_model_file: str | None = None
     default_domain: str | None = None
     pending_objects: list[Any] = field(default_factory=list)
@@ -60,6 +63,34 @@ _LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(
     "_LOADER_CTX",
     default=None,
 )
+
+
+class LoaderContextManager:
+    """Context manager that sets/resets the loader context for test use.
+
+    Usage::
+
+        ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
+        with LoaderContextManager(ctx):
+            sales = ms.domain(name="sales", default=True)
+            ...
+    """
+
+    def __init__(self, ctx: LoaderContext) -> None:
+        self._ctx = ctx
+        self._token: Any = None
+
+    def __enter__(self) -> LoaderContext:
+        self._token = _LOADER_CTX.set(self._ctx)
+        return self._ctx
+
+    def __exit__(self, *args: object) -> None:
+        if self._token is not None:
+            _LOADER_CTX.reset(self._token)
+
+
+# Alias for convenient use at the call site
+loader_context = LoaderContextManager
 
 
 def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
@@ -325,15 +356,24 @@ def _load_model_dir(
 def _resolve_tier1_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:
     from marivo.semantic.ir import SemiAdditive
 
-    measure = registry.fields.get(metric.measure or "")
-    if measure is None or getattr(measure, "additivity", None) is None:
+    measure = registry.dimensions.get(metric.measure or "")
+    measure_ir = (
+        registry.measures.get(metric.measure or "") if hasattr(registry, "measures") else None
+    )
+    if measure is None and measure_ir is None:
         return None  # validator: UNKNOWN_MEASURE / MISSING_MEASURE_ADDITIVITY
+    if measure_ir is None and getattr(measure, "additivity", None) is None:
+        return None  # validator: MISSING_MEASURE_ADDITIVITY
     agg = metric.aggregation
     agg_name = agg[0] if isinstance(agg, tuple) else agg
     if agg_name == "count":
         return "additive"
     if agg_name == "sum":
-        nature = measure.additivity
+        nature = (
+            measure_ir.additivity
+            if measure_ir is not None
+            else getattr(measure, "additivity", None)
+        )
         if nature == "additive":
             return "additive"
         if isinstance(nature, SemiAdditive):
@@ -391,12 +431,14 @@ def _resolve_metric_additivity(registry: Registry) -> None:
 def _resolve_tier1_unit(metric: MetricIR, registry: Registry) -> str | None:
     from marivo.semantic.unit_algebra import tier1_unit
 
-    measure = registry.fields.get(metric.measure or "")
-    if measure is None:
+    measure_ir: MeasureIR | DimensionIR | None = registry.measures.get(metric.measure or "")
+    if measure_ir is None:
+        measure_ir = registry.dimensions.get(metric.measure or "")
+    if measure_ir is None:
         return None  # validator: UNKNOWN_MEASURE (existing rule)
     agg = metric.aggregation
     agg_name = agg[0] if isinstance(agg, tuple) else agg
-    return tier1_unit(agg_name or "", getattr(measure, "unit", None))
+    return tier1_unit(agg_name or "", getattr(measure_ir, "unit", None))
 
 
 def _resolve_derived_unit(metric: MetricIR, registry: Registry) -> str | None:
@@ -482,17 +524,21 @@ def _build_registry(
             if not hasattr(ir, "semantic_id"):
                 # DomainIR doesn't have semantic_id
                 if isinstance(ir, DomainIR):
-                    registry.models[ir.name] = ir
+                    registry.domains[ir.name] = ir
                 continue
 
             sid = ir.semantic_id
 
             if isinstance(ir, EntityIR):
-                registry.datasets[sid] = ir
+                registry.entities[sid] = ir
                 if callable_ is not None:
                     sidecar[sid] = callable_
             elif isinstance(ir, DimensionIR):
-                registry.fields[sid] = ir
+                registry.dimensions[sid] = ir
+                if callable_ is not None:
+                    sidecar[sid] = callable_
+            elif isinstance(ir, MeasureIR):
+                registry.measures[sid] = ir
                 if callable_ is not None:
                     sidecar[sid] = callable_
             elif isinstance(ir, MetricIR):

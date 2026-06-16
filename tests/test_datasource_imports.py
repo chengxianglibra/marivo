@@ -105,6 +105,10 @@ def test_datasource_public_exports() -> None:
         "JoinKeyProbe",
         "load",
         "table",
-        "file",
+        "parquet",
+        "csv",
     ):
         assert hasattr(md, name), f"marivo.datasource missing export: {name}"
+
+    # md.file has been removed from the public surface
+    assert not hasattr(md, "file")

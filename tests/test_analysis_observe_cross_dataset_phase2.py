@@ -48,7 +48,7 @@ def _bootstrap_snapshot_as_of(tmp_path):
         "    primary_key=['user_id', 'dt'],\n"
         "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='UTC', format='%Y%m%d'),\n"
         ")\n"
-        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "@ms.dimension(entity=orders)\n"
@@ -63,7 +63,7 @@ def _bootstrap_snapshot_as_of(tmp_path):
         "@ms.dimension(entity=user_profile_daily)\n"
         "def tier(user_profile_daily):\n"
         "    return user_profile_daily.tier\n"
-        "@ms.simple_metric(\n"
+        "@ms.metric(\n"
         "    entities=[orders, user_profile_daily],\n"
         "    root_entity=orders,\n"
         "    additivity='additive',\n"
@@ -79,8 +79,7 @@ def _bootstrap_snapshot_as_of(tmp_path):
         "    name='orders_to_profile',\n"
         "    from_entity=orders,\n"
         "    to_entity=user_profile_daily,\n"
-        "    from_dimensions=[order_user_id],\n"
-        "    to_dimensions=[user_id],\n"
+        "    keys=[ms.join_on(order_user_id, user_id)],\n"
         ")\n"
     )
 
@@ -199,7 +198,7 @@ def _bootstrap_snapshot_latest_no_root_time(tmp_path):
         "@ms.dimension(entity=user_profile_daily)\n"
         "def tier(user_profile_daily):\n"
         "    return user_profile_daily.tier\n"
-        "@ms.simple_metric(\n"
+        "@ms.metric(\n"
         "    entities=[orders, user_profile_daily],\n"
         "    root_entity=orders,\n"
         "    additivity='additive',\n"
@@ -215,8 +214,7 @@ def _bootstrap_snapshot_latest_no_root_time(tmp_path):
         "    name='orders_to_profile',\n"
         "    from_entity=orders,\n"
         "    to_entity=user_profile_daily,\n"
-        "    from_dimensions=[order_user_id],\n"
-        "    to_dimensions=[user_id],\n"
+        "    keys=[ms.join_on(order_user_id, user_id)],\n"
         ")\n"
     )
 
@@ -281,7 +279,7 @@ def _bootstrap_validity(tmp_path, *, root_with_time: bool):
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     time_dimension = (
-        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         if root_with_time
@@ -311,7 +309,7 @@ def _bootstrap_validity(tmp_path, *, root_with_time: bool):
         "@ms.dimension(entity=user_history)\n"
         "def tier(user_history):\n"
         "    return user_history.tier\n"
-        "@ms.simple_metric(\n"
+        "@ms.metric(\n"
         "    entities=[orders, user_history],\n"
         "    root_entity=orders,\n"
         "    additivity='additive',\n"
@@ -327,8 +325,7 @@ def _bootstrap_validity(tmp_path, *, root_with_time: bool):
         "    name='orders_to_history',\n"
         "    from_entity=orders,\n"
         "    to_entity=user_history,\n"
-        "    from_dimensions=[order_user_id],\n"
-        "    to_dimensions=[user_id],\n"
+        "    keys=[ms.join_on(order_user_id, user_id)],\n"
         ")\n"
     )
 
@@ -420,7 +417,7 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
         "    primary_key=['user_id', 'valid_from'],\n"
         "    versioning=ms.validity(valid_from='sales.user_history.valid_from', valid_to='sales.user_history.valid_to', interval='closed_closed', open_end=(None,)),\n"
         ")\n"
-        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "@ms.dimension(entity=orders)\n"
@@ -438,7 +435,7 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
         "@ms.dimension(entity=user_history)\n"
         "def tier(user_history):\n"
         "    return user_history.tier\n"
-        "@ms.simple_metric(\n"
+        "@ms.metric(\n"
         "    entities=[orders, user_history],\n"
         "    root_entity=orders,\n"
         "    additivity='additive',\n"
@@ -454,8 +451,7 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
         "    name='orders_to_history',\n"
         "    from_entity=orders,\n"
         "    to_entity=user_history,\n"
-        "    from_dimensions=[order_user_id],\n"
-        "    to_dimensions=[user_id],\n"
+        "    keys=[ms.join_on(order_user_id, user_id)],\n"
         ")\n"
     )
 
@@ -519,10 +515,10 @@ def _bootstrap_derived_ratio(tmp_path):
         "@ms.dimension(entity=users)\n"
         "def country(users):\n"
         "    return users.country\n"
-        "@ms.simple_metric(entities=[orders, users], root_entity=orders, additivity='additive', name='gmv', )\n"
+        "@ms.metric(entities=[orders, users], root_entity=orders, additivity='additive', name='gmv', )\n"
         "def gmv(orders, users):\n"
         "    return orders.amount.sum()\n"
-        "@ms.simple_metric(entities=[sessions, users], root_entity=sessions, additivity='additive', name='session_count', )\n"
+        "@ms.metric(entities=[sessions, users], root_entity=sessions, additivity='additive', name='session_count', )\n"
         "def session_count(sessions, users):\n"
         "    return sessions.session_id.count()\n"
         "ms.ratio(\n"
@@ -534,8 +530,8 @@ def _bootstrap_derived_ratio(tmp_path):
     (semantic_dir / "relationships.py").write_text(
         "import marivo.semantic as ms\n"
         "from .datasets import orders, sessions, users, order_user_id, session_user_id, user_id\n"
-        "ms.relationship(name='orders_to_users', from_entity=orders, to_entity=users, from_dimensions=[order_user_id], to_dimensions=[user_id])\n"
-        "ms.relationship(name='sessions_to_users', from_entity=sessions, to_entity=users, from_dimensions=[session_user_id], to_dimensions=[user_id])\n"
+        "ms.relationship(name='orders_to_users', from_entity=orders, to_entity=users, keys=[ms.join_on(order_user_id, user_id)])\n"
+        "ms.relationship(name='sessions_to_users', from_entity=sessions, to_entity=users, keys=[ms.join_on(session_user_id, user_id)])\n"
     )
 
 
@@ -591,10 +587,10 @@ def _bootstrap_axis_unreachable(tmp_path):
         "@ms.dimension(entity=users)\n"
         "def country(users):\n"
         "    return users.country\n"
-        "@ms.simple_metric(entities=[orders, users], root_entity=orders, additivity='additive', name='gmv', )\n"
+        "@ms.metric(entities=[orders, users], root_entity=orders, additivity='additive', name='gmv', )\n"
         "def gmv(orders, users):\n"
         "    return orders.amount.sum()\n"
-        "@ms.simple_metric(entities=[sessions], additivity='additive', name='session_count', )\n"
+        "@ms.metric(entities=[sessions], additivity='additive', name='session_count', )\n"
         "def session_count(sessions):\n"
         "    return sessions.session_id.count()\n"
         "ms.ratio(\n"
@@ -606,7 +602,7 @@ def _bootstrap_axis_unreachable(tmp_path):
     (semantic_dir / "relationships.py").write_text(
         "import marivo.semantic as ms\n"
         "from .datasets import orders, users, order_user_id, user_id\n"
-        "ms.relationship(name='orders_to_users', from_entity=orders, to_entity=users, from_dimensions=[order_user_id], to_dimensions=[user_id])\n"
+        "ms.relationship(name='orders_to_users', from_entity=orders, to_entity=users, keys=[ms.join_on(order_user_id, user_id)])\n"
     )
 
 
@@ -677,7 +673,7 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
         "    primary_key=['user_id', 'dt'],\n"
         "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='UTC', format='%Y%m%d'),\n"
         ")\n"
-        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "@ms.dimension(entity=orders)\n"
@@ -695,10 +691,10 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
         "@ms.dimension(entity=user_profile_daily)\n"
         "def tier(user_profile_daily):\n"
         "    return user_profile_daily.tier\n"
-        "@ms.simple_metric(entities=[orders, user_profile_daily], root_entity=orders, additivity='additive', name='gmv_by_tier', )\n"
+        "@ms.metric(entities=[orders, user_profile_daily], root_entity=orders, additivity='additive', name='gmv_by_tier', )\n"
         "def gmv_by_tier(orders, user_profile_daily):\n"
         "    return orders.amount.sum()\n"
-        "@ms.simple_metric(entities=[sessions, user_profile_daily], root_entity=sessions, additivity='additive', name='sessions_by_tier', )\n"
+        "@ms.metric(entities=[sessions, user_profile_daily], root_entity=sessions, additivity='additive', name='sessions_by_tier', )\n"
         "def sessions_by_tier(sessions, user_profile_daily):\n"
         "    return sessions.session_id.count()\n"
         "ms.ratio(\n"
@@ -710,8 +706,8 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
     (semantic_dir / "relationships.py").write_text(
         "import marivo.semantic as ms\n"
         "from .datasets import orders, sessions, user_profile_daily, order_user_id, session_user_id, profile_user_id\n"
-        "ms.relationship(name='orders_to_profile', from_entity=orders, to_entity=user_profile_daily, from_dimensions=[order_user_id], to_dimensions=[profile_user_id])\n"
-        "ms.relationship(name='sessions_to_profile', from_entity=sessions, to_entity=user_profile_daily, from_dimensions=[session_user_id], to_dimensions=[profile_user_id])\n"
+        "ms.relationship(name='orders_to_profile', from_entity=orders, to_entity=user_profile_daily, keys=[ms.join_on(order_user_id, profile_user_id)])\n"
+        "ms.relationship(name='sessions_to_profile', from_entity=sessions, to_entity=user_profile_daily, keys=[ms.join_on(session_user_id, profile_user_id)])\n"
     )
 
     con = ibis.duckdb.connect(":memory:")
@@ -774,10 +770,10 @@ def test_derived_components_can_span_datasources(tmp_path):
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
         "sessions = ms.entity(name='sessions', datasource='analytics', primary_key=['session_id'], source=ms.table('sessions'))\n"
-        "@ms.simple_metric(entities=[orders], additivity='additive', name='gmv', )\n"
+        "@ms.metric(entities=[orders], additivity='additive', name='gmv', )\n"
         "def gmv(orders):\n"
         "    return orders.amount.sum()\n"
-        "@ms.simple_metric(entities=[sessions], additivity='additive', name='session_count', )\n"
+        "@ms.metric(entities=[sessions], additivity='additive', name='session_count', )\n"
         "def session_count(sessions):\n"
         "    return sessions.session_id.count()\n"
         "ms.ratio(\n"

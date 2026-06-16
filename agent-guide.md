@@ -45,8 +45,9 @@ Rules for this surface:
   provenance metadata such as `source_sql`.
 - Decorator function bodies stay restricted by
   `marivo/semantic/validator.py`.
-- Expression-bearing semantic decorators keep provenance kwargs such as
-  `source_sql` and `source_definition`.
+- Expression-bearing semantic decorators keep SQL provenance in value objects
+  such as `provenance=ms.from_sql(sql=..., dialect=...)`; SQL text is metadata
+  only, never an executable expression body.
 - New exceptions subclass `SemanticError` or `AnalysisError`, carry structured
   fields, and render through the shared template style.
 - Top-level Frame APIs remain immutable. Only `frame.to_pandas()` returns an

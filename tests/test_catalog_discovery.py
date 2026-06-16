@@ -45,11 +45,11 @@ _DATASETS_PY = textwrap.dedent("""\
     def region(table):
         return table.region
 
-    @ms.time_dimension(entity=orders, data_type="timestamp", granularity="day")
+    @ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
     def created_at(table):
         return table.created_at
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
         description="Gross revenue.",
@@ -78,7 +78,7 @@ def _make_multi_domain_catalog(semantic_project_factory) -> SemanticCatalog:
             "ops/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
-                "@ms.simple_metric(entities=[events], additivity='additive', )\n"
+                "@ms.metric(entities=[events], additivity='additive', )\n"
                 "def event_count(table):\n"
                 "    return table.id.nunique()\n"
             ),
@@ -174,8 +174,7 @@ def test_discovery_list_kind_relationship_returns_relationships(semantic_project
                 "    name='orders_to_users',\n"
                 "    from_entity=orders,\n"
                 "    to_entity=users,\n"
-                "    from_dimensions=[user_id],\n"
-                "    to_dimensions=[id],\n"
+                "    keys=[ms.join_on(user_id, id)],\n"
                 ")\n"
             ),
         }
@@ -463,7 +462,7 @@ def test_discovery_time_dimension_details_render():
         data_type="timestamp",
         granularity="day",
         format=None,
-        timezone=None,
+        timezone="UTC",
         required_prefix=None,
         is_default=True,
         sample_interval=None,

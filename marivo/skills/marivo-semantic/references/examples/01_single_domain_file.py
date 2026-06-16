@@ -28,9 +28,8 @@ orders = ms.entity(
 @ms.time_dimension(
     entity=orders,
     name="log_date",
-    data_type="string",
     granularity="day",
-    date_format="%Y%m%d",
+    parse=ms.strptime("%Y%m%d", data_type="string"),
     is_default=True,
     ai_context={
         "business_definition": "Partition time dimension for order reporting windows.",
@@ -43,9 +42,8 @@ def log_date(table):
 @ms.time_dimension(
     entity=orders,
     name="log_hour",
-    data_type="string",
     granularity="hour",
-    required_prefix="log_date",
+    parse=ms.hour_prefix("log_date", data_type="string"),
     ai_context={
         "business_definition": "Hour partition used with log_date for hourly reporting windows.",
         "guardrails": ["Use full event timestamp only when source evidence defines that axis."],
@@ -57,8 +55,8 @@ def log_hour(table):
 @ms.time_dimension(
     entity=orders,
     name="event_ts",
-    data_type="timestamp",
     granularity="minute",
+    parse=ms.timestamp(timezone="UTC"),
     ai_context={
         "business_definition": "Minute-grain event timestamp for sub-day time-series analysis.",
         "guardrails": ["Use only when the analysis requires sub-day granularity (e.g. 5-minute buckets)."],
@@ -78,7 +76,7 @@ def event_ts(table):
 def region(table):
     return table.region
 
-@ms.simple_metric(
+@ms.metric(
     entities=[orders],
     additivity="additive",
     name="revenue",

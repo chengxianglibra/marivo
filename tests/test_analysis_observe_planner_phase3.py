@@ -40,7 +40,7 @@ def _bootstrap_one_to_many(tmp_path: Path, *, fanout_policy: str = "block") -> N
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
         "order_items = ms.entity(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
-        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "@ms.dimension(entity=orders)\n"
@@ -52,7 +52,7 @@ def _bootstrap_one_to_many(tmp_path: Path, *, fanout_policy: str = "block") -> N
         "@ms.dimension(entity=order_items)\n"
         "def qty(order_items):\n"
         "    return order_items.qty\n"
-        f"@ms.simple_metric(\n"
+        f"@ms.metric(\n"
         "    entities=[orders, order_items],\n"
         "    root_entity=orders,\n"
         "    additivity='additive',\n"
@@ -69,8 +69,7 @@ def _bootstrap_one_to_many(tmp_path: Path, *, fanout_policy: str = "block") -> N
         "    name='orders_to_order_items',\n"
         "    from_entity=orders,\n"
         "    to_entity=order_items,\n"
-        "    from_dimensions=[order_id],\n"
-        "    to_dimensions=[item_order_id],\n"
+        "    keys=[ms.join_on(order_id, item_order_id)],\n"
         ")\n"
     )
 
@@ -179,8 +178,7 @@ def test_relationship_does_not_accept_fanout_kwargs():
             name="orders_to_order_items",
             from_entity="sales.orders",
             to_entity="sales.order_items",
-            from_dimensions=[],
-            to_dimensions=[],
+            keys=[],
             fanout_policy="aggregate_then_join",
         )
 

@@ -36,13 +36,13 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
             "sales/model.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.dimension(entity=orders, kind='categorical')\n"
+                "@ms.dimension(entity=orders)\n"
                 "def country(table):\n"
                 "    return table.country\n"
-                "@ms.time_dimension(entity=orders, data_type='date', granularity='day', is_default=True)\n"
+                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date(), is_default=True)\n"
                 "def ds(table):\n"
                 "    return table.ds\n"
-                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
+                "@ms.metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
             ),
@@ -201,3 +201,20 @@ def test_normalize_where_inputs_unknown_key_raises_analysis_error(
     assert exc.value.details["actual_kind"] == "not_found"
     assert "sales.orders.country" in exc.value.details["available_ids"]
     assert "sales.orders.ds" in exc.value.details["available_ids"]
+
+
+def test_measure_ref_is_rejected_as_dimension_axis(semantic_project_factory) -> None:
+    from marivo.analysis.semantic_inputs import normalize_dimension_input
+
+    catalog = _catalog(semantic_project_factory)
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        normalize_dimension_input(
+            catalog,
+            SemanticRef("sales.orders.amount", kind=SemanticKind.MEASURE),
+        )
+
+    message = str(exc_info.value)
+    assert "measure" in message
+    assert "group-by axis" in message
+    assert "categorical dimension" in message

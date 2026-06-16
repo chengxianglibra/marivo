@@ -9,7 +9,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.ir import FileSourceIR, TableSourceIR
+from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
 
 
 def test_scan_scope_defaults_are_agent_safe() -> None:
@@ -25,12 +25,15 @@ def test_scan_scope_defaults_are_agent_safe() -> None:
 
 def test_datasource_source_constructors_match_semantic_aliases() -> None:
     table = md.table("orders", database="sales_mart")
-    csv_file = md.file("/tmp/orders.csv", format="csv", delimiter=",")
+    csv_file = md.csv("/tmp/orders.csv", delimiter=",")
+    parquet_file = md.parquet("/tmp/orders.parquet", hive_partitioning=True)
 
     assert isinstance(table, TableSourceIR)
     assert table == ms.table("orders", database="sales_mart")
-    assert isinstance(csv_file, FileSourceIR)
-    assert csv_file == ms.file("/tmp/orders.csv", format="csv", delimiter=",")
+    assert isinstance(csv_file, CsvSourceIR)
+    assert csv_file == ms.csv("/tmp/orders.csv", delimiter=",")
+    assert isinstance(parquet_file, ParquetSourceIR)
+    assert parquet_file == ms.parquet("/tmp/orders.parquet", hive_partitioning=True)
 
 
 def test_scan_report_render_is_bounded() -> None:

@@ -32,7 +32,7 @@ _SUMMARIES: dict[str, str] = {
     "EntityBrief": "brief for an entity authoring step",
     "EntityDetails": "kind-specific details for an entity object",
     "EntityRef": "stable reference to a declared entity",
-    "FileSource": "physical file source (path + format: parquet/csv/json)",
+    "FileSource": "physical file source (ParquetSourceIR | CsvSourceIR)",
     "FormatCandidate": "date format candidate from time-dimension inspection",
     "JoinPathFact": "join path evidence fact from relationship probing",
     "MetricBrief": "brief for a single-entity metric authoring step",
@@ -46,7 +46,7 @@ _SUMMARIES: dict[str, str] = {
     "ReadinessReport": "semantic readiness report",
     "RegisteredMatch": "explainable registered-object reuse fact",
     "RelationshipBrief": "brief for a relationship authoring step",
-    "RelationshipDetails": "kind-specific details for a relationship between datasets",
+    "RelationshipDetails": "kind-specific details for a relationship between entities",
     "RelationshipRef": "stable reference to a declared relationship",
     "RichnessSummary": "semantic readiness richness gap summary",
     "SemanticCatalog": "read-only object graph over a loaded semantic project — returned by ms.load()",
@@ -57,12 +57,12 @@ _SUMMARIES: dict[str, str] = {
     "SemanticObjectList": "browsing result from catalog.list() — has .show(), .refs(), .objects",
     "SemanticRef": "stable semantic identifier passable directly to analysis APIs",
     "SemanticRefInput": "input type accepted where a SemanticRef value is expected",
-    "SnapshotVersioning": "snapshot versioning declaration for a dataset",
+    "SnapshotVersioning": "snapshot versioning declaration for an entity",
     "TableSource": "physical table source (table name, optional database)",
     "TimeDimensionBrief": "brief for a time-dimension authoring step",
     "TimeDimensionDetails": "kind-specific details for a time dimension including granularity and format",
     "TimeDimensionRef": "stable reference to a declared time dimension",
-    "ValidityVersioning": "validity-window versioning declaration for a dataset",
+    "ValidityVersioning": "validity-window versioning declaration for an entity",
     "VerifyResult": "per-object verification result",
     "VersioningHints": "versioning strategy hints from entity inspection",
     "additivity": "metric summability: additive / non_additive / semi_additive(over, fold)",
@@ -70,14 +70,18 @@ _SUMMARIES: dict[str, str] = {
     "constraints": "authoring and validation constraints",
     "derived_metric": "declare a body-free canonical ratio or weighted-average metric",
     "dimension": "declare a non-aggregated dimension on an entity",
+    "from_sql": "declare SQL parity provenance for a metric body",
+    "join_on": "build a relationship key pair for ms.relationship(keys=[...])",
+    "measure": "declare a row-level quantitative measure on an entity",
     "domain": "open a domain namespace for decorator registration",
     "entity": "declare an entity over a structured source",
     "errors": "SemanticError hierarchy and ErrorKind enum",
-    "file": "file source for ms.entity(source=...)",
     "help": "this introspection entry point",
     "help_text": "return semantic help text without printing",
     "load": "load a semantic project and return a SemanticCatalog — accepts models to filter domains",
-    "metric": "declare a dataset-backed aggregate metric",
+    "metric": "declare an entity-backed aggregate metric from an ibis body",
+    "parquet": "parquet file source for ms.entity(source=ms.parquet(...))",
+    "csv": "csv file source for ms.entity(source=ms.csv(...))",
     "prepare_cross_entity_metric": "prepare a cross-entity metric brief",
     "prepare_derived_metric": "prepare a derived metric brief from component metrics",
     "prepare_dimension": "prepare a dimension brief for one entity column",
@@ -89,14 +93,13 @@ _SUMMARIES: dict[str, str] = {
     "ratio": "derived metric helper (a/b)",
     "readiness": "run structural readiness check for semantic refs",
     "ref": "refer to another metric by qualified name",
-    "relationship": "declare a relationship between datasets",
-    "simple_metric": "declare an entity-backed metric (ms.aggregate over a measure, or @ms.simple_metric body)",
-    "snapshot": "declare snapshot versioning for a dataset",
+    "relationship": "declare a relationship between entities",
+    "snapshot": "declare snapshot versioning for an entity",
     "sum": "sum aggregation marker",
     "table": "table source for ms.entity(source=...)",
     "time_dimension": "declare a time-aware dimension used as the calendar axis",
     "typing": "IbisBackend Protocol and AiContext TypedDict",
-    "validity": "declare validity-window versioning for a dataset",
+    "validity": "declare validity-window versioning for an entity",
     "verify_object": "verify a single authored semantic object is reachable and valid",
     "weighted_average": "weighted-average aggregation marker",
 }
@@ -151,7 +154,7 @@ def _composition_content() -> dict[str, object]:
         ],
         "boundary": "composition = how a metric is built; decompose = an analysis op that attributes a delta.",
         "related_help": [
-            "ms.help('simple_metric')",
+            "ms.help('metric')",
             "ms.help('derived_metric')",
             "ms.help('additivity')",
             "ms.help('constraints')",
@@ -187,7 +190,7 @@ def _composition_topic() -> Descriptor:
         content=content,
         doc=_composition_text(content),
         see_also=(
-            "ms.help('simple_metric')",
+            "ms.help('metric')",
             "ms.help('derived_metric')",
             "ms.help('additivity')",
             "ms.help('constraints')",
@@ -195,26 +198,28 @@ def _composition_topic() -> Descriptor:
     )
 
 
-def _simple_metric_content() -> dict[str, object]:
+def _metric_content() -> dict[str, object]:
     return {
         "summary": (
-            "An entity-backed metric. Tier-1: ms.aggregate(measure, agg) with no body. "
-            "Tier-2: @ms.simple_metric(entities, additivity) with an ibis expression body."
+            "declare a body metric with @ms.metric(entities=..., additivity=..., "
+            "provenance=ms.from_sql(...) optional)"
         ),
-        "tier1": "ms.aggregate(measure=<measure_ref>, agg='sum'|'count'|'mean'|'min'|'max')",
-        "tier2": "@ms.simple_metric(entities=[...], additivity='additive'|'non_additive'|ms.semi_additive(over, fold))",
+        "tier1": "ms.aggregate(name=..., measure=<measure_ref>, agg='sum'|'count'|'mean'|'min'|'max')",
+        "tier2": "@ms.metric(entities=[...], additivity='additive'|'non_additive'|ms.semi_additive(over, fold))",
         "body_rule": "No body for tier-1 (call-form); body required for tier-2 (decorator-form).",
         "related_help": [
             "ms.help('composition')",
             "ms.help('additivity')",
             "ms.help('derived_metric')",
+            "ms.help('measure')",
+            "ms.help('from_sql')",
         ],
     }
 
 
-def _simple_metric_text(content: dict[str, object]) -> str:
+def _metric_text(content: dict[str, object]) -> str:
     lines = [
-        "marivo.semantic simple_metric",
+        "marivo.semantic metric",
         "",
         str(content["summary"]),
         "",
@@ -229,19 +234,21 @@ def _simple_metric_text(content: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _simple_metric_topic() -> Descriptor:
-    content = _simple_metric_content()
+def _metric_topic() -> Descriptor:
+    content = _metric_content()
     return Descriptor(
         surface="marivo.semantic",
         kind="topic",
-        symbol="simple_metric",
+        symbol="metric",
         summary=cast("str", content["summary"]),
         content=content,
-        doc=_simple_metric_text(content),
+        doc=_metric_text(content),
         see_also=(
             "ms.help('composition')",
             "ms.help('additivity')",
             "ms.help('derived_metric')",
+            "ms.help('measure')",
+            "ms.help('from_sql')",
         ),
     )
 
@@ -273,7 +280,7 @@ def _additivity_content() -> dict[str, object]:
             "non-sampled semi_additive metrics omit fold but still declare over",
         ],
         "related_help": [
-            "ms.help('simple_metric')",
+            "ms.help('metric')",
             "ms.help('composition')",
             "ms.help('constraints')",
         ],
@@ -310,10 +317,276 @@ def _additivity_topic() -> Descriptor:
         content=content,
         doc=_additivity_text(content),
         see_also=(
-            "ms.help('simple_metric')",
+            "ms.help('metric')",
             "ms.help('composition')",
             "ms.help('constraints')",
         ),
+    )
+
+
+def _measure_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="measure",
+        summary=(
+            "declare a row-level quantity with @ms.measure(entity=..., additivity=..., unit=...) "
+            "for ms.aggregate(...)"
+        ),
+        content={
+            "form": "@ms.measure(entity=<entity_ref>, additivity='additive'|'non_additive', unit='USD')",
+            "usage": "Measures are row-level quantities that become aggregatable via ms.aggregate().",
+            "related_help": [
+                "ms.help('metric')",
+                "ms.help('aggregate')",
+            ],
+        },
+        doc=(
+            "marivo.semantic measure\n"
+            "\n"
+            "declare a row-level quantity with @ms.measure(entity=..., additivity=..., unit=...) "
+            "for ms.aggregate(...)\n"
+            "\n"
+            "Form:\n"
+            "  @ms.measure(entity=<entity_ref>, additivity='additive'|'non_additive', unit='USD')\n"
+            "\n"
+            "Measures are row-level quantities that become aggregatable via ms.aggregate()."
+        ),
+        see_also=(
+            "ms.help('metric')",
+            "ms.help('aggregate')",
+        ),
+    )
+
+
+def _from_sql_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="from_sql",
+        summary="declare SQL parity provenance for a metric body",
+        content={
+            "form": "ms.from_sql(sql='SELECT ...', dialect='duckdb')",
+            "usage": "Pass as provenance= kwarg to @ms.metric for SQL parity verification.",
+            "related_help": [
+                "ms.help('metric')",
+            ],
+        },
+        doc=(
+            "marivo.semantic from_sql\n"
+            "\n"
+            "declare SQL parity provenance for a metric body\n"
+            "\n"
+            "Form:\n"
+            "  ms.from_sql(sql='SELECT ...', dialect='duckdb')\n"
+            "\n"
+            "Pass as provenance= kwarg to @ms.metric for SQL parity verification."
+        ),
+        see_also=("ms.help('metric')",),
+    )
+
+
+def _join_on_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="join_on",
+        summary="build a relationship key pair for ms.relationship(keys=[...])",
+        content={
+            "form": "ms.join_on(<from_dimension_ref>, <to_dimension_ref>)",
+            "usage": "Each join_on call creates a (from_key, to_key) pair for relationship keys.",
+            "related_help": [
+                "ms.help('relationship')",
+            ],
+        },
+        doc=(
+            "marivo.semantic join_on\n"
+            "\n"
+            "build a relationship key pair for ms.relationship(keys=[...])\n"
+            "\n"
+            "Form:\n"
+            "  ms.join_on(<from_dimension_ref>, <to_dimension_ref>)\n"
+            "\n"
+            "Each join_on call creates a (from_key, to_key) pair for relationship keys."
+        ),
+        see_also=("ms.help('relationship')",),
+    )
+
+
+def _parquet_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="parquet",
+        summary="parquet file source for ms.entity(source=ms.parquet(...))",
+        content={
+            "form": "ms.parquet(path, hive_partitioning=False, columns=None)",
+            "usage": "Declares a Parquet file source for an entity.",
+            "related_help": [
+                "ms.help('entity')",
+                "ms.help('csv')",
+            ],
+        },
+        doc=(
+            "marivo.semantic parquet\n"
+            "\n"
+            "parquet file source for ms.entity(source=ms.parquet(...))\n"
+            "\n"
+            "Form:\n"
+            "  ms.parquet(path, hive_partitioning=False, columns=None)"
+        ),
+        see_also=("ms.help('entity')", "ms.help('csv')"),
+    )
+
+
+def _csv_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="csv",
+        summary="csv file source for ms.entity(source=ms.csv(...))",
+        content={
+            "form": "ms.csv(path, header=True, delimiter=',', columns=None)",
+            "usage": "Declares a CSV file source for an entity.",
+            "related_help": [
+                "ms.help('entity')",
+                "ms.help('parquet')",
+            ],
+        },
+        doc=(
+            "marivo.semantic csv\n"
+            "\n"
+            "csv file source for ms.entity(source=ms.csv(...))\n"
+            "\n"
+            "Form:\n"
+            "  ms.csv(path, header=True, delimiter=',', columns=None)"
+        ),
+        see_also=("ms.help('entity')", "ms.help('parquet')"),
+    )
+
+
+def _date_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="date",
+        summary="date-only parse variant for ms.time_dimension(parse=ms.date())",
+        content={
+            "form": "ms.date()",
+            "usage": "No timezone or format arguments — date-only columns.",
+            "related_help": [
+                "ms.help('time_dimension')",
+            ],
+        },
+        doc=(
+            "marivo.semantic date\n"
+            "\n"
+            "date-only parse variant for ms.time_dimension(parse=ms.date())\n"
+            "\n"
+            "Form:\n"
+            "  ms.date()"
+        ),
+        see_also=("ms.help('time_dimension')",),
+    )
+
+
+def _datetime_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="datetime",
+        summary="datetime parse variant with required timezone for ms.time_dimension(parse=ms.datetime(tz))",
+        content={
+            "form": "ms.datetime(timezone='UTC')",
+            "usage": "Requires timezone argument for datetime columns with zone info.",
+            "related_help": [
+                "ms.help('time_dimension')",
+            ],
+        },
+        doc=(
+            "marivo.semantic datetime\n"
+            "\n"
+            "datetime parse variant with required timezone for ms.time_dimension(parse=ms.datetime(tz))\n"
+            "\n"
+            "Form:\n"
+            "  ms.datetime(timezone='UTC')"
+        ),
+        see_also=("ms.help('time_dimension')",),
+    )
+
+
+def _timestamp_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="timestamp",
+        summary="timestamp parse variant with timezone and sample interval",
+        content={
+            "form": "ms.timestamp(timezone='UTC', sample_interval=None)",
+            "usage": "For sub-day timestamp columns. Requires timezone; sample_interval is optional.",
+            "related_help": [
+                "ms.help('time_dimension')",
+            ],
+        },
+        doc=(
+            "marivo.semantic timestamp\n"
+            "\n"
+            "timestamp parse variant with timezone and sample interval\n"
+            "\n"
+            "Form:\n"
+            "  ms.timestamp(timezone='UTC', sample_interval=None)"
+        ),
+        see_also=("ms.help('time_dimension')",),
+    )
+
+
+def _strptime_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="strptime",
+        summary="strptime parse variant with format and data_type",
+        content={
+            "form": "ms.strptime(format='%Y%m%d', data_type='string')",
+            "usage": "For columns needing explicit format parsing. Requires format and data_type.",
+            "related_help": [
+                "ms.help('time_dimension')",
+            ],
+        },
+        doc=(
+            "marivo.semantic strptime\n"
+            "\n"
+            "strptime parse variant with format and data_type\n"
+            "\n"
+            "Form:\n"
+            "  ms.strptime(format='%Y%m%d', data_type='string')"
+        ),
+        see_also=("ms.help('time_dimension')",),
+    )
+
+
+def _hour_prefix_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="hour_prefix",
+        summary="hour-prefix parse variant for partitioned hourly time dimensions",
+        content={
+            "form": "ms.hour_prefix(prefix='dt', data_type='string')",
+            "usage": "For hour-granularity partitioned columns. Requires hour granularity on the time dimension.",
+            "related_help": [
+                "ms.help('time_dimension')",
+            ],
+        },
+        doc=(
+            "marivo.semantic hour_prefix\n"
+            "\n"
+            "hour-prefix parse variant for partitioned hourly time dimensions\n"
+            "\n"
+            "Form:\n"
+            "  ms.hour_prefix(prefix='dt', data_type='string')"
+        ),
+        see_also=("ms.help('time_dimension')",),
     )
 
 
@@ -336,7 +609,25 @@ def _surface() -> Surface:
     import marivo.semantic as ms
 
     all_names = tuple(
-        dict.fromkeys((*ms.__all__, "constraints", "composition", "simple_metric", "additivity"))
+        dict.fromkeys(
+            (
+                *ms.__all__,
+                "constraints",
+                "composition",
+                "metric",
+                "measure",
+                "from_sql",
+                "join_on",
+                "parquet",
+                "csv",
+                "date",
+                "datetime",
+                "timestamp",
+                "strptime",
+                "hour_prefix",
+                "additivity",
+            )
+        )
     )
     summaries = {name: _SUMMARIES.get(name, "") for name in all_names}
     catalog = {constraint.id: constraint for constraint in iter_constraints()}
@@ -349,7 +640,17 @@ def _surface() -> Surface:
         topics={
             "constraints": _constraint_topic(),
             "composition": _composition_topic(),
-            "simple_metric": _simple_metric_topic(),
+            "metric": _metric_topic(),
+            "measure": _measure_topic(),
+            "from_sql": _from_sql_topic(),
+            "join_on": _join_on_topic(),
+            "parquet": _parquet_topic(),
+            "csv": _csv_topic(),
+            "date": _date_topic(),
+            "datetime": _datetime_topic(),
+            "timestamp": _timestamp_topic(),
+            "strptime": _strptime_topic(),
+            "hour_prefix": _hour_prefix_topic(),
             "additivity": _additivity_topic(),
         },
         pinned_entries=("SemanticCatalog", "SemanticObject", "SemanticObjectList"),
@@ -396,7 +697,7 @@ def help(
 
     Example:
         >>> ms.help()
-        >>> ms.help("simple_metric")
+        >>> ms.help("metric")
         >>> ms.help("composition")
     """
 

@@ -15,7 +15,7 @@ from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
 from marivo.datasource.authoring import DatasourceSpec
 from marivo.datasource.errors import DatasourceMissingError, DatasourcePreviewError
-from marivo.datasource.ir import EntitySourceIR, FileSourceIR, TableSourceIR
+from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.metadata import TableMetadata
 from marivo.datasource.metadata import inspect_source as _inspect_source
 from marivo.datasource.runtime import DatasourceConnectionService
@@ -447,7 +447,7 @@ def inspect_table(
 
     Args:
         datasource: Name of the project datasource.
-        source: An ``EntitySourceIR`` (from ``md.table()`` or ``md.file()``).
+        source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, or ``md.csv()``).
             Pass either ``source`` or ``table``, not both.
         table: Table name within the datasource (alternative to ``source``).
         database: Optional database/catalog path.
@@ -523,7 +523,7 @@ def inspect_columns(
 
     Args:
         datasource: Name of the project datasource.
-        source: An ``EntitySourceIR`` (from ``md.table()`` or ``md.file()``).
+        source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, or ``md.csv()``).
         columns: Column names to profile; ``None`` profiles all columns
             (capped by ``scope.max_columns``).
         scope: Bounded scan configuration; defaults to ``ScanScope()``.
@@ -661,7 +661,7 @@ def inspect_columns(
     return ColumnInspection(
         datasource=datasource,
         source=source
-        if isinstance(source, (TableSourceIR, FileSourceIR))
+        if isinstance(source, (TableSourceIR, ParquetSourceIR, CsvSourceIR))
         else TableSourceIR(table=str(source)),
         profiles=tuple(profiles),
         scan=scan_report,
@@ -685,14 +685,22 @@ def _execute_scoped_sample(
                 expr = backend.table(source.table)
             else:
                 expr = backend.table(source.table, database=source.database)
-        elif isinstance(source, FileSourceIR):
-            reader_name = {
-                "parquet": "read_parquet",
-                "csv": "read_csv",
-                "json": "read_json",
-            }[source.format]
-            reader = getattr(backend, reader_name)
-            expr = reader(source.path, **source.options)
+        elif isinstance(source, ParquetSourceIR):
+            pq_kwargs: dict[str, object] = {}
+            if source.hive_partitioning:
+                pq_kwargs["hive_partitioning"] = source.hive_partitioning
+            if source.columns is not None:
+                pq_kwargs["columns"] = builtins.list(source.columns)
+            expr = backend.read_parquet(source.path, **pq_kwargs)
+        elif isinstance(source, CsvSourceIR):
+            csv_kwargs: dict[str, object] = {}
+            if not source.header:
+                csv_kwargs["header"] = source.header
+            if source.delimiter != ",":
+                csv_kwargs["delimiter"] = source.delimiter
+            if source.columns is not None:
+                csv_kwargs["columns"] = builtins.list(source.columns)
+            expr = backend.read_csv(source.path, **csv_kwargs)
         else:
             raise TypeError(f"unsupported source type: {type(source).__name__}")
 

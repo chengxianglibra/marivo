@@ -7,9 +7,11 @@ from marivo.datasource.catalog import DatasourceCatalog, load
 from marivo.datasource.help import help, help_text
 from marivo.datasource.ir import (
     AiContextIR,
+    CsvSourceIR,
     DatasourceAiContextIR,
     DatasourceIR,
     DatasourceSourceLocation,
+    ParquetSourceIR,
 )
 from marivo.datasource.manage import (
     DatasourceDescription,
@@ -41,7 +43,8 @@ from marivo.datasource.scan import (
     JoinSide,
     ScanReport,
     ScanScope,
-    file,
+    csv,
+    parquet,
     table,
 )
 from marivo.preview import PreviewResult, PreviewSamplePolicy, PreviewWarning
@@ -51,6 +54,7 @@ __all__ = [
     "ColumnInspection",
     "ColumnMetadata",
     "ColumnProfile",
+    "CsvSourceIR",
     "DatasourceAiContextIR",
     "DatasourceCatalog",
     "DatasourceConnectionService",
@@ -64,6 +68,7 @@ __all__ = [
     "JoinKeyProbe",
     "JoinSide",
     "MetadataWarning",
+    "ParquetSourceIR",
     "PartitionMetadata",
     "PreviewResult",
     "PreviewSamplePolicy",
@@ -72,9 +77,9 @@ __all__ = [
     "ScanScope",
     "TableMetadata",
     "connect",
+    "csv",
     "datasource",
     "describe",
-    "file",
     "help",
     "help_text",
     "inspect_columns",
@@ -82,6 +87,7 @@ __all__ = [
     "inspect_table",
     "list",
     "load",
+    "parquet",
     "preview",
     "probe_join_keys",
     "ref",

@@ -58,10 +58,10 @@ import marivo.datasource as md
 wh = md.ref("wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive")
+@ms.measure(entity=orders, additivity="additive")
 def amount(orders): return orders.amount
 
-@ms.dimension(kind="measure", entity=orders, additivity="non_additive")
+@ms.measure(entity=orders, additivity="non_additive")
 def unit_price(orders): return orders.unit_price
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
@@ -96,7 +96,7 @@ snap = ms.entity(name="snap", datasource=wh, source=ms.table("snap"))
 @ms.dimension(entity=snap)
 def region(snap): return snap.region
 
-@ms.dimension(kind="measure", entity=snap, additivity=ms.semi_additive(over="test.snap.region", fold="last"))
+@ms.measure(entity=snap, additivity=ms.semi_additive(over="test.snap.region", fold="last"))
 def quantity(snap): return snap.qty
 
 ending = ms.aggregate(measure=quantity, agg="sum", name="ending")
@@ -120,7 +120,7 @@ import marivo.datasource as md
 wh = md.ref("wh")
 o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
 
-@ms.dimension(kind="measure", entity=o, additivity="non_additive")
+@ms.measure(entity=o, additivity="non_additive")
 def unit_price(o): return o.unit_price
 
 bad = ms.aggregate(measure=unit_price, agg="sum", name="bad")
@@ -144,7 +144,7 @@ import marivo.datasource as md
 wh = md.ref("wh")
 o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
 
-@ms.dimension(kind="measure", entity=o, additivity="additive")
+@ms.measure(entity=o, additivity="additive")
 def amount(o): return o.amount
 
 rev = ms.aggregate(measure=amount, agg="sum", name="rev")
@@ -164,7 +164,7 @@ import marivo.datasource as md
 wh = md.ref("wh")
 o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
 
-@ms.dimension(kind="measure", entity=o, additivity="additive")
+@ms.measure(entity=o, additivity="additive")
 def amount(o): return o.amount
 
 base = ms.aggregate(measure=amount, agg="sum", name="base")

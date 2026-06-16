@@ -85,7 +85,7 @@ partition value.
 Do not cast a Trino VARCHAR datetime directly to DATE:
 
 ```python
-@ms.time_dimension(entity=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
 def order_date(table):
     return table.order_time.cast("date")
 ```
@@ -93,7 +93,7 @@ def order_date(table):
 Parse through timestamp first:
 
 ```python
-@ms.time_dimension(entity=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
@@ -115,12 +115,12 @@ to the wrong code path and raises TypeError (e.g., DateColumn + interval).
 
 ```python
 # WRONG - data_type="datetime" with .cast("date") body
-@ms.time_dimension(entity=orders, data_type="datetime", granularity="day")
+@ms.time_dimension(entity=orders, granularity="day", parse=ms.datetime(timezone="UTC"))
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 
 # CORRECT - data_type="date" with .cast("date") body
-@ms.time_dimension(entity=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
@@ -141,16 +141,16 @@ orders = ms.entity(
 Use `backend.list_databases(catalog="hive")` to discover schemas and
 `backend.list_tables(database="sales_mart")` to verify table reachability.
 
-In `source_sql`, table references can be bare names or fully qualified.
-Marivo automatically qualifies bare table references before executing source
+In `provenance=ms.from_sql(...)`, table references can be bare names or fully qualified.
+Marivo automatically qualifies bare table references before executing provenance
 SQL for parity checks, using the entity `source.database` when set, or falling
 back to the datasource's `database` field. Already-qualified table references
 are left unchanged.
 
 ```python
 # Both are valid — choose whichever matches the original SQL
-source_sql="SELECT SUM(amount) FROM orders"               # bare; auto-qualified
-source_sql="SELECT SUM(amount) FROM sales_mart.orders"     # fully qualified; unchanged
+provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="duckdb")               # bare; auto-qualified
+provenance=ms.from_sql(sql="SELECT SUM(amount) FROM sales_mart.orders", dialect="duckdb")     # fully qualified; unchanged
 ```
 
 ## Federated backend chosen by habit

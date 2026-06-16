@@ -164,7 +164,7 @@ def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
     assert "client_tags" in combined
     assert "user_env" in combined
     assert 'source=ms.table("orders", database="sales_mart")' in combined
-    assert 'source=ms.file("/data/orders/*.parquet", format="parquet")' in combined
+    assert 'source=ms.parquet("/data/orders/*.parquet")' in combined
     assert 'database="sales_mart"' in combined
     assert "backend.list_databases(catalog=" in combined
     assert "backend.list_tables(database=" in combined
@@ -193,8 +193,8 @@ def test_semantic_skill_prefers_native_datasource_backends() -> None:
     assert 'backend_type="mysql"' in combined
     assert 'backend_type="duckdb"' in combined
     assert "Hive or Iceberg lakehouse table" in datasource
-    assert "JSON files" in datasource
-    assert 'ms.file("/data/orders.json", format="json")' not in combined
+    assert "Local Parquet or CSV files" in datasource
+    assert "ms.parquet(" in combined
 
 
 def test_design_spec_marks_remaining_phases_implemented() -> None:
@@ -226,12 +226,10 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     )
 
     assert "partition time dimension" in single
-    assert 'data_type="string"' in single
-    assert 'date_format="%Y%m%d"' in single
-    assert 'date_format="HH"' not in single
+    assert 'parse=ms.strptime("%Y%m%d"' in single
     assert "return table.dt" in single
     assert "return table.dt.cast" not in single
-    assert 'required_prefix="log_date"' in single
+    assert 'parse=ms.hour_prefix("log_date"' in single
     assert "ms.prepare_entity(" in evidence
     assert "md.ScanScope()" in evidence
     assert "bind_datasource_access" not in evidence
@@ -284,10 +282,8 @@ def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
     authoring = _read("marivo/skills/marivo-semantic/references/authoring-patterns.md")
     pitfalls = _read("marivo/skills/marivo-semantic/references/pitfalls.md")
 
-    assert 'data_type="string"' in authoring
-    assert 'date_format="%Y%m%d"' in authoring
-    assert 'date_format="HH"' not in authoring
-    assert 'required_prefix="log_date"' in authoring
+    assert 'ms.strptime("%Y%m%d"' in authoring
+    assert 'ms.hour_prefix("log_date"' in authoring
     assert "return table.dt" in authoring
     assert "return table.dt.cast" not in authoring
     assert "predicate pushdown" in authoring

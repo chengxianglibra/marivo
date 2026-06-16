@@ -35,7 +35,7 @@ _MINIMAL_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.simple_metric(entities=[orders], additivity='additive', )
+    @ms.metric(entities=[orders], additivity='additive', )
     def revenue(table):
         return table.amount.sum()
 """)
@@ -44,7 +44,7 @@ _SHARED_DATASOURCE_MODEL_A = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.simple_metric(entities=[orders], additivity='additive', )
+    @ms.metric(entities=[orders], additivity='additive', )
     def revenue(orders):
         return orders.amount.sum()
 """)
@@ -54,7 +54,7 @@ _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""\
 
     refunds = ms.entity(name="refunds", datasource="warehouse", source=ms.table("refunds"))
 
-    @ms.simple_metric(entities=[refunds], additivity='additive', )
+    @ms.metric(entities=[refunds], additivity='additive', )
     def refunds_total(refunds):
         return refunds.amount.sum()
 """)
@@ -364,7 +364,7 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.simple_metric(entities=["sales.orders"], additivity="additive", )
+        @ms.metric(entities=["sales.orders"], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -456,7 +456,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.simple_metric(entities=["sales.orders"], additivity="additive", )
+        @ms.metric(entities=["sales.orders"], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -470,7 +470,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     assert project.is_ready()
     reg = project._registry
     assert reg is not None
-    assert "sales.orders" in reg.datasets
+    assert "sales.orders" in reg.entities
     assert "sales.revenue" in reg.metrics
 
 
@@ -485,7 +485,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
         import marivo.semantic as ms
         from .dataset import query_info
 
-        @ms.simple_metric(entities=[query_info], additivity="additive", )
+        @ms.metric(entities=[query_info], additivity="additive", )
         def total_query_count(table):
             return table.query_count.sum()
     """)
@@ -499,7 +499,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
     assert project.is_ready()
     reg = project._registry
     assert reg is not None
-    assert "sales.query_info" in reg.datasets
+    assert "sales.query_info" in reg.entities
     assert "sales.total_query_count" in reg.metrics
 
 
@@ -514,7 +514,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
         import marivo.semantic as ms
         from .dataset import query_info
 
-        @ms.simple_metric(entities=[query_info], additivity="additive", )
+        @ms.metric(entities=[query_info], additivity="additive", )
         def total_query_count(table):
             return table.query_count.sum()
     """)
@@ -546,7 +546,7 @@ def test_cross_file_missing_entity_ref(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.simple_metric(entities=["sales.nonexistent"], additivity="additive", )
+        @ms.metric(entities=["sales.nonexistent"], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -580,30 +580,14 @@ def test_load_result_has_warnings_field(semantic_project_factory) -> None:
 
 
 def test_sql_parity_metric_missing_source_dialect_errors(semantic_project_factory) -> None:
-    from marivo.semantic.errors import ErrorKind
+    """ms.from_sql() requires both sql and dialect, so it is impossible to
+    create a provenance with source_sql but no source_dialect at the
+    authoring level. This test verifies that ms.from_sql() enforces both."""
+    import marivo.semantic as ms
 
-    metrics_py = textwrap.dedent("""\
-        import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
-
-        @ms.simple_metric(
-            entities=[orders],
-            additivity="additive",
-            source_sql="SELECT SUM(amount) FROM orders",
-        )
-        def revenue(table):
-            return table.amount.sum()
-    """)
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/metrics.py": metrics_py,
-        },
-        load=False,
-    )
-    result = project.load()
-    assert not project.is_ready()
-    assert any(error.kind == ErrorKind.SOURCE_SQL_MISSING for error in result.errors)
+    # ms.from_sql() requires dialect, so this is enforced by construction
+    with pytest.raises(TypeError):
+        ms.from_sql(sql="SELECT 1")  # type: ignore[call-arg]
 
 
 def test_derived_metric_with_source_sql_errors(semantic_project_factory) -> None:
@@ -620,7 +604,7 @@ def test_derived_metric_with_source_sql_errors(semantic_project_factory) -> None
                 name="ratio",
                 numerator="sales.revenue",
                 denominator="sales.revenue",
-                source_sql="SELECT 1",
+                source_sql="SELECT 1",  # type: ignore[call-arg]
             )
 
 
@@ -639,9 +623,9 @@ def test_registry_accessible_after_load(semantic_project_factory) -> None:
     )
     reg = project._registry
     assert reg is not None
-    assert "sales" in reg.models
+    assert "sales" in reg.domains
     assert "warehouse" in reg.datasources
-    assert "sales.orders" in reg.datasets
+    assert "sales.orders" in reg.entities
     assert "sales.revenue" in reg.metrics
 
 
@@ -703,7 +687,7 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.simple_metric(entities=["sales.orders"], additivity="additive", )
+        @ms.metric(entities=["sales.orders"], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -723,7 +707,7 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
     reg = project._registry
     assert reg is not None
     assert "sales.revenue" in reg.metrics
-    assert "sales.orders" in reg.datasets
+    assert "sales.orders" in reg.entities
 
 
 # ---------------------------------------------------------------------------
@@ -758,8 +742,7 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
             name="orders_to_items",
             from_entity="sales.orders",
             to_entity="sales.items",
-            from_dimensions=["sales.orders.order_id"],
-            to_dimensions=["sales.items.item_order_id"],
+            keys=[ms.join_on("sales.orders.order_id", "sales.items.item_order_id")],
         )
     """)
     project = semantic_project_factory(
@@ -777,12 +760,12 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     rel = reg.relationships["sales.orders_to_items"]
     assert rel.from_entity == "sales.orders"
     assert rel.to_entity == "sales.items"
-    assert rel.from_dimensions == ("sales.orders.order_id",)
-    assert rel.to_dimensions == ("sales.items.item_order_id",)
+    assert rel.keys[0].from_key == "sales.orders.order_id"
+    assert rel.keys[0].to_key == "sales.items.item_order_id"
 
 
-def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) -> None:
-    """Relationship with mismatched field arity should fail via loader."""
+def test_relationship_empty_keys_rejected_via_loader(semantic_project_factory) -> None:
+    """Relationship with empty keys should fail at decorator-time."""
     rels_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
@@ -792,16 +775,11 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
         def order_id(table):
             return table.order_id
 
-        @ms.dimension(entity=orders)
-        def other_id(table):
-            return table.other_id
-
         ms.relationship(
-            name="bad_arity",
+            name="bad_rel",
             from_entity="sales.orders",
             to_entity="sales.orders",
-            from_dimensions=["sales.order_id", "sales.other_id"],
-            to_dimensions=["sales.order_id"],
+            keys=[],
         )
     """)
     project = semantic_project_factory(
@@ -812,7 +790,7 @@ def test_relationship_field_arity_mismatch_via_loader(semantic_project_factory) 
     )
     assert not project.is_ready()
     errors = project.errors()
-    assert any(e.kind == ErrorKind.MISSING_DIMENSION_REF for e in errors)
+    assert any(e.kind == ErrorKind.INVALID_REF for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -1179,7 +1157,7 @@ _FINANCE_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     refunds = ms.entity(name="refunds", datasource="warehouse", source=ms.table("refunds"))
 
-    @ms.simple_metric(entities=[refunds], additivity='additive', )
+    @ms.metric(entities=[refunds], additivity='additive', )
     def refunds_total(refunds):
         return refunds.amount.sum()
 """)
@@ -1198,8 +1176,8 @@ def test_load_models_parameter_loads_only_specified(semantic_project_factory) ->
     result = project.load(models=["sales"])
     assert project.is_ready()
     assert project._registry is not None
-    assert "sales" in project._registry.models
-    assert "finance" not in project._registry.models
+    assert "sales" in project._registry.domains
+    assert "finance" not in project._registry.domains
     assert result.filtered_models == ("sales",)
 
 
@@ -1213,8 +1191,8 @@ def test_load_models_none_loads_all(semantic_project_factory) -> None:
     )
     result = project.load()
     assert project.is_ready()
-    assert "sales" in project._registry.models
-    assert "finance" in project._registry.models
+    assert "sales" in project._registry.domains
+    assert "finance" in project._registry.domains
     assert result.filtered_models == ()
 
 
@@ -1227,7 +1205,7 @@ def test_load_models_with_nonexistent_name(semantic_project_factory) -> None:
     )
     result = project.load(models=["sales", "nonexistent"])
     assert project.is_ready()
-    assert "sales" in project._registry.models
+    assert "sales" in project._registry.domains
     filtered_warnings = [w for w in result.warnings if w.kind == "filtered_domain_ref"]
     assert any("nonexistent" in w.message for w in filtered_warnings)
 
@@ -1247,7 +1225,7 @@ def test_load_models_skips_bad_model(semantic_project_factory) -> None:
     result = project.load(models=["sales"])
     assert project.is_ready()
     assert project._registry is not None
-    assert "sales" in project._registry.models
+    assert "sales" in project._registry.domains
 
 
 def test_load_models_intra_model_error_still_blocks(semantic_project_factory) -> None:
@@ -1279,8 +1257,7 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
             name="orders_to_refunds",
             from_entity=orders,
             to_entity="finance.refunds",
-            from_dimensions=["sales.orders.amount"],
-            to_dimensions=["finance.refunds.refunds_total"],
+            keys=[ms.join_on("sales.orders.amount", "finance.refunds.refunds_total")],
         )
     """)
     project = semantic_project_factory(
@@ -1308,11 +1285,11 @@ def test_load_without_models_loads_all(semantic_project_factory) -> None:
         load=False,
     )
     project.load(models=["sales"])
-    assert "sales" in project._registry.models
-    assert "finance" not in project._registry.models
+    assert "sales" in project._registry.domains
+    assert "finance" not in project._registry.domains
     project.load()
-    assert "sales" in project._registry.models
-    assert "finance" in project._registry.models
+    assert "sales" in project._registry.domains
+    assert "finance" in project._registry.domains
 
 
 def test_load_can_change_filter(semantic_project_factory) -> None:
@@ -1324,7 +1301,7 @@ def test_load_can_change_filter(semantic_project_factory) -> None:
         load=False,
     )
     project.load(models=["sales"])
-    assert "finance" not in project._registry.models
+    assert "finance" not in project._registry.domains
     project.load(models=["sales", "finance"])
-    assert "sales" in project._registry.models
-    assert "finance" in project._registry.models
+    assert "sales" in project._registry.domains
+    assert "finance" in project._registry.domains

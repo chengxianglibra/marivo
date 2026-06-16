@@ -397,6 +397,9 @@ def test_decompose_stale_session_without_backend_raises():
 
 def _bootstrap_bandwidth_for_decompose(tmp_path):
     """Bootstrap a bandwidth semantic project for decompose gate tests."""
+    from marivo.analysis.timezone import resolve_system_timezone
+
+    session_tz_name = resolve_system_timezone().name
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
@@ -419,16 +422,15 @@ def _bootstrap_bandwidth_for_decompose(tmp_path):
         "    source=ms.table('bandwidth_samples'),\n"
         ")\n"
         "\n"
-        "@ms.time_dimension(entity=bandwidth_samples, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=bandwidth_samples, granularity='day', parse=ms.date())\n"
         "def dt(bandwidth_samples):\n"
         "    return bandwidth_samples.dt.cast('date')\n"
         "\n"
         "@ms.time_dimension(\n"
         "    name='sample_ts',\n"
         "    entity=bandwidth_samples,\n"
-        "    data_type='datetime',\n"
         "    granularity='minute',\n"
-        "    sample_interval=(5, 'minute'),\n"
+        f"    parse=ms.datetime(timezone='{session_tz_name}', sample_interval=(5, 'minute')),\n"
         ")\n"
         "def sample_ts(bandwidth_samples):\n"
         "    return bandwidth_samples.sample_ts\n"
@@ -437,7 +439,7 @@ def _bootstrap_bandwidth_for_decompose(tmp_path):
         "def province(bandwidth_samples):\n"
         "    return bandwidth_samples.province\n"
         "\n"
-        "@ms.simple_metric(\n"
+        "@ms.metric(\n"
         "    name='upstream_bw_p95',\n"
         "    entities=[bandwidth_samples],\n"
         "    additivity=ms.semi_additive(over=sample_ts, fold=('quantile', 0.95)),\n"

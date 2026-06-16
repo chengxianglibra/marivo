@@ -17,7 +17,7 @@ __all__ = [
 
 
 class IbisBackend(Protocol):
-    """Protocol for ibis backend objects used by dataset functions."""
+    """Protocol for ibis backend objects used by entity functions."""
 
     def table(
         self,

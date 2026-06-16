@@ -90,7 +90,12 @@ def _checked_at() -> str:
 
 def _detect_depth(reg: Registry) -> list[tuple[str, tuple[str, ...]]]:
     gaps: list[tuple[str, tuple[str, ...]]] = []
-    objects = list(reg.datasets.values()) + list(reg.fields.values()) + list(reg.metrics.values())
+    objects = (
+        list(reg.entities.values())
+        + list(reg.dimensions.values())
+        + list(reg.measures.values())
+        + list(reg.metrics.values())
+    )
     for obj in objects:
         ai = obj.ai_context
         ref = (obj.semantic_id,)
@@ -121,10 +126,10 @@ def _detect_coverage(reg: Registry) -> list[tuple[str, tuple[str, ...]]]:
         metric_datasets.update(metric.entities)
 
     fields_by_dataset: dict[str, list[DimensionIR]] = {}
-    for field_obj in reg.fields.values():
+    for field_obj in reg.dimensions.values():
         fields_by_dataset.setdefault(field_obj.entity, []).append(field_obj)
 
-    for dataset in reg.datasets.values():
+    for dataset in reg.entities.values():
         if dataset.semantic_id in metric_datasets:
             continue
         primary_key = set(dataset.primary_key)
@@ -138,7 +143,7 @@ def _detect_coverage(reg: Registry) -> list[tuple[str, tuple[str, ...]]]:
     related_pairs = {
         frozenset((rel.from_entity, rel.to_entity)) for rel in reg.relationships.values()
     }
-    datasets = list(reg.datasets.values())
+    datasets = list(reg.entities.values())
     for i in range(len(datasets)):
         for j in range(i + 1, len(datasets)):
             left, right = datasets[i], datasets[j]
@@ -249,9 +254,9 @@ def build_richness_report(
     if reg is None:
         return RichnessReport(gaps=(), checked_at=_checked_at())
 
-    objects: dict[str, object] = {**reg.datasets, **reg.fields, **reg.metrics}
+    objects: dict[str, object] = {**reg.entities, **reg.dimensions, **reg.metrics}
     fields_by_dataset: dict[str, list[DimensionIR]] = {}
-    for field_obj in reg.fields.values():
+    for field_obj in reg.dimensions.values():
         fields_by_dataset.setdefault(field_obj.entity, []).append(field_obj)
 
     gaps: list[RichnessGap] = []

@@ -15,7 +15,7 @@ def test_base_metric_requires_additivity(semantic_project_factory):
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "@ms.simple_metric(entities=[orders], name='revenue', )\n"
+                "@ms.metric(entities=[orders], name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -36,7 +36,7 @@ def test_single_dataset_metric_defaults_root_dataset(semantic_project_factory):
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "@ms.simple_metric(\n"
+                "@ms.metric(\n"
                 "    entities=[orders],\n"
                 "    additivity='additive',\n"
                 "    name='revenue',\n"
@@ -62,7 +62,7 @@ def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_fa
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-                "@ms.simple_metric(\n"
+                "@ms.metric(\n"
                 "    entities=[orders, users],\n"
                 "    additivity='additive',\n"
                 "    name='revenue',\n"
@@ -77,8 +77,8 @@ def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_fa
         SemanticCatalog(project).get("sales.revenue")
 
     error = exc_info.value.errors[0]
-    assert error.kind == "missing_metric_root_dataset"
-    assert error.details == {"metric": "sales.revenue", "entities": ["sales.orders", "sales.users"]}
+    assert error.kind == "missing_metric_root_entity"
+    assert error.constraint_id == "metric_root_entity_required"
 
 
 def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory):
@@ -89,7 +89,7 @@ def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory)
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-                "@ms.simple_metric(\n"
+                "@ms.metric(\n"
                 "    entities=[orders, users],\n"
                 "    root_entity=orders,\n"
                 "    additivity='additive',\n"
@@ -115,7 +115,7 @@ def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_proje
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
                 "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
-                "@ms.simple_metric(\n"
+                "@ms.metric(\n"
                 "    entities=[orders, users],\n"
                 "    root_entity=orders,\n"
                 "    additivity='additive',\n"

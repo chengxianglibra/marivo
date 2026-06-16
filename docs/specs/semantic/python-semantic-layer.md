@@ -11,10 +11,10 @@
 目标态满足以下要求：
 
 - Python 文件是语义定义的 source of truth。agent 修改业务口径时应改 Python authoring 文件，而不是编辑生成物或运行时存储。
-- Datasource 是项目级可分享配置，定义在 `models/datasources/*.py`；semantic model 只通过全局 datasource name 引用它。
-- 语义对象必须可被通用 agent 静态阅读：dataset、field、time field、metric、relationship、decomposition 和 provenance 都有显式 Python 声明。
-- 业务口径不能靠字段名、表名或自然语言自动猜测。agent 必须通过 decorated refs、函数签名、source_sql` / `source_dialect`、parity result 和结构化错误来收敛。
-- 归属、依赖和项目边界必须来自显式声明或显式 default model。model 不能由文件路径猜测，metric 不能由函数参数名推断 dataset，reader 不能靠 thread-local active project 隐式选项目。
+- Datasource 是项目级可分享配置，定义在 `models/datasources/*.py`；semantic domain 只通过全局 datasource name 引用它。
+- 语义对象必须可被通用 agent 静态阅读：entity、dimension、time_dimension、metric、relationship、decomposition 和 provenance 都有显式 Python 声明。
+- 业务口径不能靠字段名、表名或自然语言自动猜测。agent 必须通过 decorated refs、函数签名、`provenance=ms.from_sql(...)`、parity result 和结构化错误来收敛。
+- 归属、依赖和项目边界必须来自显式声明或显式 default domain。domain 不能由文件路径猜测，metric 不能由函数参数名推断 entity，reader 不能靠 thread-local active project 隐式选项目。
 - Ibis 是 Python 语义层唯一表达计算口径的执行表达式层。SQL 可以作为 provenance 和 parity oracle 保留，但不作为主要 authoring 语言。
 - `analysis`、后续 operator、skill 或脚本只消费稳定 semantic refs 和 materialized Ibis 表达式，不直接依赖用户项目内的 Python 文件布局细节。
 - 失败语义 fail closed。装饰、加载、组装、物化、parity 任一阶段无法证明契约成立时，应给出结构化错误，而不是降级为 best-effort 猜测。
@@ -28,9 +28,9 @@ The stepwise authoring workflow for agents is defined in
 prepare/verify/readiness lifecycle and replaces the earlier three-phase
 authoring pipeline.
 
-目标态标准 stepwise authoring workflow 使用每个 model 一个
+目标态标准 stepwise authoring workflow 使用每个 domain 一个
 `models/semantic/<model>/_domain.py` 文件。agent 应在
-`models/semantic/sales/_domain.py` 中完成从 dataset 到 metric 的声明；项目
+`models/semantic/sales/_domain.py` 中完成从 entity 到 metric 的声明；项目
 datasource 单独放在 `models/datasources/warehouse.py`。底层 loader 仍可执行
 同目录 sibling `.py` 文件，但这是更低层能力，不是当前正常 agent-authored
 文件组织建议。
@@ -67,17 +67,18 @@ orders = ms.entity(
     },
 )
 
-@ms.dimension(dataset=orders, description="Paid order flag.")
+@ms.dimension(entity=orders, description="Paid order flag.")
 def is_paid(orders):
     return orders.pay_status == 1
 
-@ms.simple_metric(
-    datasets=[orders],
+@ms.metric(
+    entities=[orders],
     additivity="additive",
-
     description="Paid revenue.",
-    source_sql="select sum(amount) as value from orders where pay_status = 1",
-    source_dialect="duckdb",
+    provenance=ms.from_sql(
+        sql="select sum(amount) as value from orders where pay_status = 1",
+        dialect="duckdb",
+    ),
     ai_context={
         "business_definition": "Total order amount for paid orders only.",
         "guardrails": ["Excludes unpaid orders.", "Does not net out refunds."],
@@ -97,9 +98,9 @@ def revenue(order_rows):
 - `name=` 省略时，Python 变量名或函数名作为 fallback identity。
 - Python 符号名只是 local alias，不参与 semantic id。
 - `description=` 是短标签或一行说明；`ai_context.business_definition` 是完整业务定义，可多行，agent 用它判断对象是否匹配用户意图。
-- `ai_context` schema 适用于 model、project datasource、dataset、dimension、time_dimension、metric 和 relationship 所有对象。所有字段可选，缺失时 `describe` 返回 `null` 或空列表。
+- `ai_context` schema 适用于 domain、project datasource、entity、dimension、time_dimension、metric 和 relationship 所有对象。所有字段可选，缺失时 `describe` 返回 `null` 或空列表。
 - `ai_context` 固定字段是 `business_definition: str | None`、`guardrails: list[str]`、`synonyms: list[str]`、`examples: list[str]`、`instructions: str | None`、`owner_notes: str | None`。
-- `business_definition` 和 `guardrails` 对 dataset 与 metric 最重要；跨 model 引用前，agent 应优先读取这两个字段判断是否可复用。
+- `business_definition` 和 `guardrails` 对 entity 与 metric 最重要；跨 domain 引用前，agent 应优先读取这两个字段判断是否可复用。
 - `examples` 只放自然语言示例问法，不放 SQL、Ibis snippet 或 expected values。
 - 未知 `ai_context` 字段 fail closed，避免 agent 把不可消费内容塞进语义契约。
 
@@ -117,27 +118,27 @@ semantic/
 ```
 
 `docs/specs/semantic/stepwise-authoring-design.md` 定义的 stepwise
-authoring workflow 只使用每个 model 的 `_domain.py` 单文件。Loader 仍可以
+authoring workflow 只使用每个 domain 的 `_domain.py` 单文件。Loader 仍可以
 执行同目录 sibling `.py` 文件，但那是底层 loader 能力，不是当前标准
 authoring pipeline 的组织建议。
 
 目标态 loader 规则是：
 
 - 每个 model 必须在 `<root>/<model>/_domain.py` 中调用一次 `ms.domain(name="<model>", ...)`。
-- `_domain.py` 是该 model 的 entrypoint，可以只声明 model metadata，也可以承载 single-file 快速路径中的 datasource、dataset、field、metric 和 relationship；但不能声明多个 model，也不能用与目录名不同的 `name`。
-- `ms.domain(default=...)` 缺省为 `True`。默认场景下，同目录 sibling files 里的对象可以省略重复 `model=`（`DomainRef`）；如果项目希望 review 时强制每个对象显式写 `model=`，可在 `_domain.py` 里传 `default=False`。
-- default model 作用域仅限当前 model 目录的顶层 sibling files，不向子目录传播。`sales/subdomain/*.py` 不继承 `sales/_domain.py` 的 default；子目录若要被加载，应作为独立 model 域或由项目明确扩展 loader 规则。
-- default model 是 loader 在加载该 model 目录时的上下文，不随 `from x import *` 或普通 Python import 跨 module boundary 传播。decorator 在 loader context 外执行仍然 fail closed。
-- 显式 `model=other_ref` 永远覆盖 default，并触发组织校验；对象不会因为文件移动而静默改名。
-- 文件系统路径只用于发现候选 Python 文件和做组织校验；对象身份只来自显式 `model=`（`DomainRef`）或显式 default model。
+- `_domain.py` 是该 domain 的 entrypoint，可以只声明 domain metadata，也可以承载 single-file 快速路径中的 datasource、entity、dimension、metric 和 relationship；但不能声明多个 domain，也不能用与目录名不同的 `name`。
+- `ms.domain(default=...)` 缺省为 `True`。默认场景下，同目录 sibling files 里的对象可以省略重复 `domain=`（`DomainRef`）；如果项目希望 review 时强制每个对象显式写 `domain=`，可在 `_domain.py` 里传 `default=False`。
+- default domain 作用域仅限当前 domain 目录的顶层 sibling files，不向子目录传播。`sales/subdomain/*.py` 不继承 `sales/_domain.py` 的 default；子目录若要被加载，应作为独立 domain 域或由项目明确扩展 loader 规则。
+- default domain 是 loader 在加载该 domain 目录时的上下文，不随 `from x import *` 或普通 Python import 跨 module boundary 传播。decorator 在 loader context 外执行仍然 fail closed。
+- 显式 `domain=other_ref` 永远覆盖 default，并触发组织校验；对象不会因为文件移动而静默改名。
+- 文件系统路径只用于发现候选 Python 文件和做组织校验；对象身份只来自显式 `domain=`（`DomainRef`）或显式 default domain。
 - loader 采用 two-pass 语义：第一阶段 collect 所有声明，第二阶段 resolve refs 和校验依赖。文件名和 sibling sort order 不应影响合法模型是否能加载。
 - Python 文件是受信任本地代码，不做 sandbox。
 - 成功加载后 registry 进入 `ready`；失败时清空部分模型，进入 `errored`，并记录结构化 `load_errors`。
 
 文件组织应优先服务 agent 的增量修改。当前标准 stepwise authoring workflow 选择
-把一个 model 的声明集中在 `_domain.py`，按依赖顺序维护 dataset、field、time
-field、metric、relationship 和 derived metric。底层 loader 支持 sibling files，
-但多文件 authoring 需要单独说明 import order、default model scope 和 review
+把一个 domain 的声明集中在 `_domain.py`，按依赖顺序维护 entity、dimension、time
+dimension、metric、relationship 和 derived metric。底层 loader 支持 sibling files，
+但多文件 authoring 需要单独说明 import order、default domain scope 和 review
 边界，不能作为默认 agent 工作流。
 
 For agent-authored models, the normal authoring contract is one file:
@@ -194,7 +195,7 @@ Use `catalog.list(...)` to browse by domain and kind, then `catalog.get(ref).det
 
 `catalog.list(...)` 和 `catalog.get(...)` 不写 stdout。需要人类可读输出时显式调用 `.show()`；程序化消费使用 `SemanticObject.ref`、`.details()`、`.children` 和 `SemanticObjectList.objects`。`details()` 返回的结构化 dataclass 也支持 `.render()` / `.show()` 用于 agent-facing bounded card 输出。
 
-`catalog.get(ref).details()` 返回结构化 dataclass，而不是只打印文本。最小字段按对象类型暴露 `ref`、`kind`、`domain`、`description`、`business_definition`、`guardrails`、`parity_status`、`source_sql`、`python_symbol`、`source_location` 和 `unit` 等可用信息。对于 metric 对象，`unit` 字段来自 `MetricIR.unit`（默认 `None`）。
+`catalog.get(ref).details()` 返回结构化 dataclass，而不是只打印文本。最小字段按对象类型暴露 `ref`、`kind`、`domain`、`description`、`business_definition`、`guardrails`、`parity_status`、`provenance`、`python_symbol`、`source_location` 和 `unit` 等可用信息。对于 metric 对象，`unit` 字段来自 `MetricIR.unit`（默认 `None`）。
 
 free function 形态只允许作为 REPL 糖保留；如果没有显式 active project，必须 fail closed，不能 silent fallback 到 CWD 推断。
 
@@ -224,7 +225,7 @@ preview.show()
 
 目标态上，materialization 不作为 `SemanticProject` 公共 API 暴露。需要表达式的 semantic internals 使用 resolver / private registry primitives；analysis 通过 session-owned catalog 和 datasource connection runtime 执行。
 
-`describe(..., compile_sql=True)` 应能在不执行查询的情况下返回 Ibis repr、backend-compiled SQL、`source_sql` 和 parity status，帮助 agent 调试口径差异。编译契约：
+`describe(..., compile_sql=True)` 应能在不执行查询的情况下返回 Ibis repr、backend-compiled SQL、`provenance` SQL 和 parity status，帮助 agent 调试口径差异。编译契约：
 
 - compile target 默认来自 metric 依赖 datasource 的 `backend_type`。
 - 系统通过内部 datasource 连接服务获取 backend；实际 backend dialect 必须与声明的 `backend_type` 一致，否则 fail closed。
@@ -246,18 +247,18 @@ project = SemanticProject(root="/path/to/marivo/semantic")
 
 它拥有独立 registry 和加载锁。目标态上，一个 `analysis` session 应显式绑定到项目 root 下的语义项目，避免在不同 CWD 或不同 checkout 间误读模型。
 
-### Model
+### Domain
 
-model 是业务域边界，例如 `sales`、`marketing`、`subscription`。model 名称参与下游 semantic id，例如 `sales.revenue`。agent 不应用自然语言近似匹配替代 model id；如果不确定，应先 `catalog.list()` / `catalog.get(...)`。
+domain 是业务域边界，例如 `sales`、`marketing`、`subscription`。domain 名称参与下游 semantic id，例如 `sales.revenue`。agent 不应用自然语言近似匹配替代 domain id；如果不确定，应先 `catalog.list()` / `catalog.get(...)`。
 
-当前标准 authoring pipeline 不要求 `_exports.py`。跨 model 或前向引用无法自然使用
+当前标准 authoring pipeline 不要求 `_exports.py`。跨 domain 或前向引用无法自然使用
 decorated Python ref 时，使用当前实现格式的字符串 ref，例如
 `ms.ref("marketing.sessions")` 或 `ms.ref("sales.orders.user_id")`。已有项目若维护
 `_exports.py`，它属于多文件 loader 工作流的边界文件，不是本管线的默认组织要求。
 
 ### Datasource
 
-Datasource 是项目级配置，不属于任何 semantic model。它定义在 `models/datasources/*.py`，可随 `models/semantic/` 一起复制到其他分析项目复用。
+Datasource 是项目级配置，不属于任何 semantic domain。它定义在 `models/datasources/*.py`，可随 `models/semantic/` 一起复制到其他分析项目复用。
 
 ```python
 import marivo.datasource as md
@@ -278,21 +279,18 @@ md.datasource(warehouse)
 
 设计约束：
 
-- datasource name 是全局 key，禁止使用 `<model>.<datasource>`。
-- semantic model 不调用 `ms.datasource(...)`，优先用 `md.ref("warehouse")` 在 `ms.entity(datasource=warehouse, source=...)` 中引用全局 datasource name。
-- 非机密连接字段写在 datasource 文件里；`user`、`password`、`auth`、`token`、`api_key`、`secret`、`private_key` 等机密字段只能通过 `<field>_env` 引用环境变量。
+- datasource name 是全局 key，禁止使用 `<domain>.<datasource>`。
+- semantic domain 不调用 `ms.datasource(...)`，优先用 `md.ref("warehouse")` 在 `ms.entity(datasource=warehouse, source=...)` 中引用全局 datasource name。
+- 非机密连接字段写在 datasource 文件里；`user`、`password`、`auth`、`token`、`api_key`、`secret`、`private_key` 等机密字段只能通过 `*_env` 引用环境变量。
 - Trino `catalog` 是连接目标；`schema` 只是可选默认 schema，也可以在 `ms.table("orders", database="sales_mart")` 中显式传入。
-- datasource 是 dataset 的执行来源，不是 metric 的业务口径。
+- datasource 是 entity 的执行来源，不是 metric 的业务口径。
 
 ### Dataset
 
-dataset 是业务实体或事实表的逻辑视图：
+entity 是业务实体或事实表的逻辑视图：
 
 ```python
-sales_ref = ms.domain(name="sales", description="Sales analytics")
-
 orders = ms.entity(
-    model=sales_ref,
     name="orders",
     datasource=warehouse,
     source=ms.table("orders"),
@@ -301,14 +299,14 @@ orders = ms.entity(
 )
 ```
 
-dataset 通过结构化 source 指向物理来源。`ms.table(...)` 表达后端表，
-`ms.file(...)` 表达 DuckDB/Ibis 可读取的文件来源；不应把 metric 聚合逻辑塞进 dataset。
+entity 通过结构化 source 指向物理来源。`ms.table(...)` 表达后端表；
+不应把 metric 聚合逻辑塞进 entity。
 
-dataset 不再接受 Python body，因此不支持在 semantic layer 内用 `backend.sql(...)`
+entity 不再接受 Python body，因此不支持在 semantic layer 内用 `backend.sql(...)`
 内嵌 SQL view。若 SQL view 已在后端持久化为表/视图，应通过
-`source=ms.table(...)` 暴露；一次性 SQL 转换不属于 dataset source v1 的 authoring surface。
+`source=ms.table(...)` 暴露；一次性 SQL 转换不属于 entity source v1 的 authoring surface。
 
-Snapshot dataset declarations expose their partition key through
+Snapshot entity declarations expose their partition key through
 `versioning=ms.snapshot(...)`. Use this for daily/weekly snapshot tables that
 should be observed at the latest available partition by default:
 
@@ -327,16 +325,16 @@ user_profile_daily = ms.entity(
 )
 ```
 
-`partition_field` is the dataset field name that carries the snapshot key.
+`partition_field` is the entity dimension name that carries the snapshot key.
 `grain` declares the snapshot cadence (currently `day`). `timezone` resolves
 "latest" relative to the requested observe window using a real calendar.
 `format` describes the on-disk partition encoding (e.g. `%Y%m%d` for VARCHAR
 keys, omitted when the column is already a date). Analysis joins against a
-snapshot dataset use the partition that matches the observe window end.
+snapshot entity use the partition that matches the observe window end.
 
 ## Validity Versioning
 
-Datasets representing day-grain SCD2 history may declare validity-interval
+Entities representing day-grain SCD2 history may declare validity-interval
 versioning. Phase 2 supports the `valid_from` / `valid_to` + `interval` +
 `open_end` dialect; `current_flag` is not yet supported.
 
@@ -357,26 +355,26 @@ user_history = ms.entity(
 ```
 
 `valid_from` must be part of `primary_key`. Both `valid_from` and `valid_to`
-must reference declared fields on the same dataset. `open_end` is the tuple
+must reference declared dimensions on the same entity. `open_end` is the tuple
 of values that mean "the row is still current" (typically `(None,)` or
 `(None, "9999-12-31")`).
 
 The planner subtracts both `valid_from` and `valid_to` from the effective
 key when computing relationship safety, so a relationship from a fact
-dataset to a validity dataset can resolve as many-to-one once the validity
+entity to a validity entity can resolve as many-to-one once the validity
 table is collapsed to one row per `(key, anchor)`.
 
-### Field 和 Time Field
+### Dimension 和 Time Dimension
 
-field 是 row-level 属性，供过滤、分组、relationship 或 metric 表达式复用：
+dimension 是 row-level 属性，供过滤、分组、relationship 或 metric 表达式复用：
 
 ```python
-@ms.dimension(model=sales_ref, dataset=orders, description="Normalized region.")
+@ms.dimension(entity=orders, description="Normalized region.")
 def region(orders):
     return orders.region.upper()
 ```
 
-Measure dimensions carry a `unit` field — the authoritative declaration site for
+Measure dimensions carry a `unit` dimension — the authoritative declaration site for
 physical units. Tier-1 metrics inherit it at load; derived metrics propagate it
 through the composition algebra:
 
@@ -387,20 +385,28 @@ through the composition algebra:
 )
 def amount(orders):
     return orders.amount
+
+@ms.aggregate(name="revenue", measure=amount, agg="sum")
 ```
 
-time field 是特殊 field，显式承载时间轴元数据：
+time dimension 是特殊 dimension，显式承载时间轴元数据：
 
 ```python
 @ms.time_dimension(
-    model=sales_ref,
-    dataset=orders,
-    data_type="date",
+    entity=orders,
     granularity="day",
-    description="Order creation date.",
+    parse=ms.strptime("%Y%m%d", data_type="string"),
 )
-def order_date(orders):
-    return orders.created_at.cast("date")
+def dt(orders):
+    return orders.dt
+
+@ms.time_dimension(
+    entity=orders,
+    granularity="hour",
+    parse=ms.hour_prefix("dt", data_type="string"),
+)
+def hh(orders):
+    return orders.hh
 ```
 
 设计约束：
@@ -413,11 +419,11 @@ def order_date(orders):
 - `data_type` 必须与 body 返回的 ibis dtype 兼容：`.cast("date")` → `data_type="date"`；`.cast("timestamp")` 或原始 timestamp 列 → `data_type="datetime"` 或 `"timestamp"`。不匹配时执行器 TypeError。
 - hour-only 字段（例如 `data_type="string"` 或 `data_type="integer"`，且列只存小时数值）必须显式声明 `required_prefix` 且不得声明 `date_format`；timestamp/datetime hour 字段或单列完整 hour 格式不需要。
 - 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `dimension` / `time_dimension`，再在 metric 中引用。
-- `@ms.dimension` / `@ms.time_dimension` 不要求 provenance status。它们的可信度来自所属 dataset、row-level 表达式可读性和 materialization 校验。`source_sql` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。
-- `is_default` (optional, default `False`): Mark this field as the default time axis
-  when the dataset has multiple time fields. When `observe()` is called without an
-  explicit `time_dimension=` argument, the `is_default=True` field is used automatically.
-  At most one time field per dataset may carry `is_default=True`; declaring two or
+- `@ms.dimension` / `@ms.time_dimension` 不要求 provenance status。它们的可信度来自所属 entity、row-level 表达式可读性和 materialization 校验。`provenance` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。
+- `is_default` (optional, default `False`): Mark this dimension as the default time axis
+  when the entity has multiple time dimensions. When `observe()` is called without an
+  explicit `time_dimension=` argument, the `is_default=True` dimension is used automatically.
+  At most one time dimension per entity may carry `is_default=True`; declaring two or
   more raises `SemanticLoadError` with kind `duplicate_default_time_dimension` at assembly
   time.
 
@@ -434,7 +440,7 @@ specifiers, which agree with Python strptime on most common tokens
 | `%i` | (not used) | Minutes (00..59) |
 | `%c` | Locale-dependent datetime | Month, numeric (1..12) |
 
-For minute-granularity string fields on Trino/Presto backends, write
+For minute-granularity string dimensions on Trino/Presto backends, write
 `%i` for minutes, not `%M`. Example: `date_format="%Y-%m-%d %H:%i:%S"`.
 
 Marivo does not translate Python strptime to MySQL format. The contract
@@ -448,26 +454,26 @@ error; Marivo does not pre-validate against backend support.
 
 ### Metric
 
-`@ms.simple_metric(...)` only declares dataset-backed base metrics. Base metrics require
-non-empty `datasets=[...]` and a single-return Ibis reduction body. When
-`source_sql` is provided, SQL parity verification is automatically enabled.
+`@ms.metric(...)` only declares entity-backed base metrics. Base metrics require
+non-empty `entities=[...]` and a single-return Ibis reduction body. When
+`provenance=ms.from_sql(...)` is provided, SQL parity verification is automatically enabled.
 
 ```python
-@ms.simple_metric(
-    model=sales_ref,
-    datasets=[orders],
+@ms.metric(
+    entities=[orders],
     additivity="additive",
-
     description="Total revenue from paid orders.",
     unit="CNY",
-    source_sql="select sum(amount) as value from orders where pay_status = 1",
-    source_dialect="duckdb",
+    provenance=ms.from_sql(
+        sql="select sum(amount) as value from orders where pay_status = 1",
+        dialect="duckdb",
+    ),
 )
 def revenue(order_rows):
     return order_rows.filter(is_paid(order_rows)).amount.sum()
 ```
 
-base metric 使用 `datasets=[...]` 显式声明依赖。函数 body 的参数只是局部 alias，按 `datasets` 顺序注入 materialized table；参数名不能决定 dataset identity。
+base metric 使用 `entities=[...]` 显式声明依赖。函数 body 的参数只是局部 alias，按 `entities` 顺序注入 materialized table；参数名不能决定 entity identity。
 
 Derived metrics are direct calls, not decorators. They combine already
 registered metrics through a canonical composition and have no Python body:
@@ -487,14 +493,14 @@ avg_execution_time = ms.ratio(
 
 Shape classification must fail closed:
 
-- `entities=[...]` non-empty, body uses dataset aliases: simple metric (`@ms.simple_metric`).
+- `entities=[...]` non-empty, body uses entity aliases: simple metric (`@ms.metric`).
 - `ms.ratio(...)` / `ms.weighted_average(...)` / `ms.linear(...)`: derived metric (body-free).
-- `@ms.simple_metric(...)` with an empty entities list: error.
+- `@ms.metric(...)` with an empty entities list: error.
 - No `entities` and no composition components: error.
 
 ### Metric unit (UCUM)
 
-`@ms.dimension(kind="measure")` / `@ms.simple_metric` / `ms.aggregate` /
+`@ms.dimension(kind="measure")` / `@ms.metric` / `ms.aggregate` /
 `ms.ratio` / `ms.weighted_average` / `ms.linear` accept optional `unit: str | None`
 (default `None`). Values use the UCUM case-sensitive vocabulary, with one explicit
 extension: bare ISO 4217 uppercase three-letter codes represent currencies.
@@ -511,7 +517,7 @@ extension: bare ISO 4217 uppercase three-letter codes represent currencies.
 
 **Authoritative declaration site:** declare `unit=` on the measure dimension.
 Tier-1 and derived metrics inherit it automatically at load; pass `unit=` on a
-metric only to override the derived value. For tier-2 (`simple_metric`), there
+metric only to override the derived value. For tier-2 (`@ms.metric`), there
 is no measure to derive from, so `unit=` is the direct declaration.
 
 **Tier-1 derivation (from measure):**
@@ -548,45 +554,43 @@ non-goal. Design docs: `docs/superpowers/specs/2026-06-11-metric-unit-design.md`
 
 ### Base Metric Grain And Additivity
 
-Every base metric must declare `additivity`. Single-dataset base metrics may
-omit `root_dataset`; Marivo resolves it to the only dataset. Multi-dataset base
-metrics must declare `root_dataset` explicitly. The root dataset defines the
+Every base metric must declare `additivity`. Single-entity base metrics may
+omit `root_entity`; Marivo resolves it to the only entity. Multi-entity base
+metrics must declare `root_entity` explicitly. The root entity defines the
 preserved row set, join anchor, and observe time axis.
 
 ```python
-@ms.simple_metric(
-    datasets=[orders, users],
-    root_dataset=orders,
+@ms.metric(
+    entities=[orders, users],
+    root_entity=orders,
     additivity="additive",
-
 )
 def revenue(orders, users):
     return orders.amount.sum()
 ```
 
-Joined datasets may provide dimensions and filters, but aggregate receivers in
-a base metric body must belong to the root dataset.
+Joined entities may provide dimensions and filters, but aggregate receivers in
+a base metric body must belong to the root entity.
 
 ### Base Metric Fan-Out Policy
 
-`@ms.simple_metric(...)` accepts an optional kwarg:
+`@ms.metric(...)` accepts an optional kwarg:
 
 - `fanout_policy: Literal["block", "aggregate_then_join"] = "block"` — fan-out
   policy on the metric. `"block"` (default) rejects unsafe one-to-many edges
   with an `unsafe-fanout` repair payload that names both `set_metric_root` and
   `set_fanout_policy` as candidate fixes. `"aggregate_then_join"` reduces the
-  unsafe-side dataset to the merge grain (root primary key plus the requested
+  unsafe-side entity to the merge grain (root primary key plus the requested
   non-root dimensions/filters that target that side) before the join. Requires
   `additivity in {"additive", "semi_additive"}` and is rejected on derived
-  metrics; the kwarg is authored only on `@ms.simple_metric` (relationships, datasets,
+  metrics; the kwarg is authored only on `@ms.metric` (relationships, entities,
   and `observe(...)` reject it).
 
 ```python
-@ms.simple_metric(
-    datasets=[orders, order_items],
-    root_dataset=orders,
+@ms.metric(
+    entities=[orders, order_items],
+    root_entity=orders,
     additivity="additive",
-
     fanout_policy="aggregate_then_join",
 )
 def gmv_with_items(orders, order_items):
@@ -608,12 +612,11 @@ Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inven
 def sample_ts(bw_samples):
     return bw_samples.sample_ts
 
-@ms.simple_metric(
+@ms.metric(
     entities=[bw_samples],
     additivity="semi_additive",
     time_fold="mean",
     status_time_dimension=sample_ts,
-
     unit="kbit/s",
 )
 def upstream_bw(bw_samples):
@@ -646,19 +649,17 @@ inventory_daily = ms.entity(
 @ms.time_dimension(
     entity=inventory_daily,
     name="snapshot_date",
-    data_type="string",
     granularity="day",
-    date_format="%Y%m%d",
+    parse=ms.strptime("%Y%m%d", data_type="string"),
     is_default=True,
 )
 def snapshot_date(inventory_daily):
     return inventory_daily.dt
 
-@ms.simple_metric(
+@ms.metric(
     entities=[inventory_daily],
     additivity="semi_additive",
     status_time_dimension=snapshot_date,
-
 )
 def on_hand_units(inventory_daily):
     return inventory_daily.on_hand_units.sum()
@@ -666,13 +667,13 @@ def on_hand_units(inventory_daily):
 
 `status_time_dimension` must be the business time at which the metric value is
 valid, such as `snapshot_date`, `as_of_date`, or `state_date`. Do not use
-`created_at`, `updated_at`, or `ingest_time` unless that field is truly the
+`created_at`, `updated_at`, or `ingest_time` unless that dimension is truly the
 business as-of time for the status fact; technical write times make historical
 as-of queries drift when data is backfilled or reprocessed.
 
 ### Relationship
 
-relationship 描述 dataset 之间的连接路径：
+relationship 描述 entity 之间的连接路径：
 
 ```python
 # models/semantic/sales/_domain.py
@@ -684,14 +685,13 @@ ms.domain(name="sales")
 # in this _domain.py.
 ms.relationship(
     name="orders_to_customers",
-    from_dataset=orders,
-    to_dataset=customers,
-    from_fields=[order_customer_id],
-    to_fields=[customer_id],
+    from_entity=orders,
+    to_entity=customers,
+    keys=[ms.join_on(order_customer_id, customer_id)],
 )
 ```
 
-目标态 relationship 是纯 metadata 顶级调用。连接键必须使用 `dimension` / `time_dimension` 的 ref 引用，不能使用裸字符串物理列名。`from_columns` / `to_columns` 不应作为 alias 继续保留；目标态只接受 `from_fields` / `to_fields`，值为 decorated dimension refs 或当前实现格式的 semantic id，例如 `ms.ref("sales.orders.order_user_id")`。
+目标态 relationship 是纯 metadata 顶级调用。连接键必须使用 `dimension` / `time_dimension` 的 ref 引用，不能使用裸字符串物理列名。`from_columns` / `to_columns` / `from_fields` / `to_fields` 不应作为 alias 继续保留；目标态只接受 `keys=[ms.join_on(...)]`，值为 decorated dimension refs。
 
 ### Decomposition
 
@@ -723,31 +723,31 @@ derived decomposition.
 
 If a derived calculation needs dimension/time_dimension or row-level intermediate values,
 first package those values as base metrics. Derived metrics cannot directly
-reference datasets, fields, or time fields.
+reference entities, dimensions, or time dimensions.
 
 ### Provenance
 
-Metric provenance kwargs are `source_sql` and `source_dialect`.
-`verification_mode` is inferred automatically: when `source_sql` is present,
+Metric provenance is declared as `provenance=ms.from_sql(sql=..., dialect=...)`.
+`verification_mode` is inferred automatically: when `provenance` is present,
 the metric enables SQL parity verification (`"sql_parity"`); when absent,
 the metric is trusted as semantically expressed (no verification needed).
 
 | Provenance | Meaning |
 | --- | --- |
-| `source_sql` + `source_dialect` | Migrated from SQL/BI/knowledge base; parity verification enabled |
-| (no `source_sql`) | Python/Ibis is the sole business source; trusted as verified |
+| `provenance=ms.from_sql(...)` | Migrated from SQL/BI/knowledge base; parity verification enabled |
+| (no `provenance`) | Python/Ibis is the sole business source; trusted as verified |
 
-`source_sql` is single-dialect provenance. If a metric needs multi-dialect
+`provenance` is single-dialect. If a metric needs multi-dialect
 verification, use fixture-based parity tests instead of stuffing multiple SQL
 statements into the decorator.
 
-When `source_sql` is provided, the metric's parity status starts as `unverified`
+When `provenance` is provided, the metric's parity status starts as `unverified`
 and becomes `verified` once `parity_check()` succeeds, or `drifted` if values
-mismatch. When no `source_sql` is provided, the metric is immediately `verified`
+mismatch. When no `provenance` is provided, the metric is immediately `verified`
 (trust the semantic body). Agents and downstream analysis frames can inspect
 the computed parity status (`verified`, `unverified`, or `drifted`).
 
-Derived metrics must omit `source_sql` and `source_dialect`. A derived metric
+Derived metrics must omit `provenance`. A derived metric
 cannot be directly parity-checked; its effective verification status propagates
 from component metrics.
 
@@ -778,7 +778,7 @@ if result.errors:
 - 使用 fresh interpreter 加载项目，避免 namespace package 和模块缓存影响修复循环。
 - 打印所有 decorator / load / assembly errors，包含结构化 kind、refs、location、hint 和人类可读摘要。
 - 非零退出码表示存在未解决错误。
-- 可选 `--parity` 对所有声明了 `source_sql` 的 metric 运行 parity。
+- 可选 `--parity` 对所有声明了 `provenance` 的 metric 运行 parity。
 - 可选 `--strict-provenance` 将任何 `unverified` metric 视为非零退出。检查 metric 自身 provenance status 和 derived metric 的传播 status；任一非 `verified` / `python_native` 都触发。例如 derived metric 自身已 `python_native` 但某个 component 仍 `unverified` 时同样退出，避免 agent 误以为"提升自己就够了"。
 - 默认列出所有字符串 refs 和 unverified metrics，作为 agent 需要复核的 warning。
 - 支持 `.venv/bin/python -m marivo.semantic.check --format=json --readiness` 输出结构化 errors / warnings / readiness report / parity summary，便于 agent 稳定解析。
@@ -787,7 +787,7 @@ if result.errors:
 
 ### 2. 声明最小业务对象
 
-新增 metric 时的最小 happy path 是 datasource、dataset、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `md.inspect_source(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
+新增 metric 时的最小 happy path 是 datasource、entity、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `md.inspect_source(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
 
 新建 metric 可以省略 provenance 并自动进入 `unverified`，但 agent 不能把它当作完成状态。若同一 PR 新增多个 unverified metrics，应停下来确认业务来源；CI 可用 `--strict-provenance` 禁止 unverified metric 合入。
 
@@ -816,7 +816,7 @@ print(frame.summary())
 | 问题 | 选择 |
 | --- | --- |
 | 每一行都能计算出来，例如国家、平台、订单日期 | `@ms.dimension` 或 `@ms.time_dimension` |
-| 需要跨行聚合，例如 revenue、DAU、conversion rate | `@ms.simple_metric` or `ms.aggregate` |
+| 需要跨行聚合，例如 revenue、DAU、conversion rate | `@ms.metric` or `ms.aggregate` |
 | 只是 metric 内部的一段条件表达式，不需要下游引用 | 可直接写在 metric Ibis 表达式内 |
 | 会被多个 metric、filter、relationship 或分析 slice 复用 | 提升为 dimension/time_dimension |
 
@@ -834,7 +834,7 @@ print(frame.summary())
 
 ### 什么时候使用 ref
 
-目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。字符串 `ms.ref(...)` 只用于无法自然 import 的前向引用、跨 model 引用或工具生成场景。
+目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。字符串 `ms.ref(...)` 只用于无法自然 import 的前向引用、跨 domain 引用或工具生成场景。
 
 ```python
 sessions_per_user = ms.ratio(
@@ -850,7 +850,7 @@ sessions_per_user = ms.ratio(
 - `ms.ref("sales.orders.user_id")`
 - `ms.ref("marketing.sessions_daily")`
 
-跨 model refs 允许，但必须在 resolve 阶段做存在性、cycle 和 contract 检查；不能退回到 SQL provenance 里复制另一个 model 的定义。
+跨 domain refs 允许，但必须在 resolve 阶段做存在性、cycle 和 contract 检查；不能退回到 SQL provenance 里复制另一个 domain 的定义。
 
 因为字符串 ref 是重构风险，`check` 默认应列出所有字符串 refs，并标记为 `potentially_fragile_reference`。目标态还应提供结构化重命名 helper，让 agent 优先通过工具修改 semantic refs，而不是手工 grep。
 
@@ -863,8 +863,8 @@ project.refactor.rename("dimension", "sales.orders.old_user_id", "sales.orders.u
 
 - 缺省 dry-run，输出 unified diff 和变更文件列表；只有 `--write` 才落盘。
 - 输入是 `<kind> <old-fqn> <new-fqn>`，`kind` 至少覆盖 `domain`、`datasource`、`entity`、`dimension`、`time_dimension`、`metric`、`relationship`。
-- 覆盖范围包括 decorator / metadata call 的 `name=`、`model=` 必要改动、`ms.ref(...)` 字符串、relationship endpoint refs、`from_fields` / `to_fields`、decomposition component refs、`_exports.py` re-export。
-- 不修改 `source_sql` 或自然语言 prose；这些字段需要人工 review。
+- 覆盖范围包括 decorator / metadata call 的 `name=`、`domain=` 必要改动、`ms.ref(...)` 字符串、relationship endpoint refs、`keys` / `ms.join_on(...)`、decomposition component refs、`_exports.py` re-export。
+- 不修改 `provenance` 中的 SQL 或自然语言 prose；这些字段需要人工 review。
 
 ## 验证与失败语义
 
@@ -874,12 +874,12 @@ Python 语义层使用多层 fail-closed 验证。
 
 decorator 执行时检查局部声明是否自洽：
 
-- model/datasource/dataset/field/metric 重名。
+- domain/datasource/entity/dimension/metric 重名。
 - decorated ref 类型错误。
-- 跨 model / 跨 dataset ref 不合法。
-- expression-bearing decorator 缺少显式 `model=`，且所在加载上下文没有显式 default model。此错误只在 `_domain.py` 显式 `default=False`，或对象声明在 model 目录之外的文件中时触发；缺省 `default=True` 场景下，同目录对象自然继承 model，不会进入此错误路径。
-- base metric 缺少 `datasets=[...]`。
-- derived metric 带 dataset 参数、缺少 decomposition components 或在 body 中读取 dataset table。
+- 跨 domain / 跨 entity ref 不合法。
+- expression-bearing decorator 缺少显式 `domain=`，且所在加载上下文没有显式 default domain。此错误只在 `_domain.py` 显式 `default=False`，或对象声明在 domain 目录之外的文件中时触发；缺省 `default=True` 场景下，同目录对象自然继承 domain，不会进入此错误路径。
+- base metric 缺少 `entities=[...]`。
+- derived metric 带 entity 参数、缺少 decomposition components 或在 body 中读取 entity table。
 - decorator / metadata call 出现在 semantic loader context 之外。
 - metric 函数体不满足单 return 表达式约束。
 - metric body 调用 decorated metric 函数、legacy component-body calls, or Ibis SQL escape hatches.
@@ -890,28 +890,28 @@ decorator 执行时检查局部声明是否自洽：
 
 | Error kind | Agent action |
 | --- | --- |
-| `duplicate_name` | 检查同一 model 内是否重复声明；删除旧声明或改 `name=`，再运行 check |
-| `missing_model` | 在 `<root>/<model>/_domain.py` 增加 `ms.domain(name=...)`，或在对象声明上补 `model=ms.domain(name=...)` 的返回值 |
-| `missing_dataset_ref` | 确认 dataset 已声明；若跨文件前向引用，改用 decorated ref 或 `ms.ref(...)` |
+| `duplicate_name` | 检查同一 domain 内是否重复声明；删除旧声明或改 `name=`，再运行 check |
+| `missing_domain` | 在 `<root>/<domain>/_domain.py` 增加 `ms.domain(name=...)`，或在对象声明上补 `domain=ms.domain(name=...)` 的返回值 |
+| `missing_entity_ref` | 确认 entity 已声明；若跨文件前向引用，改用 decorated ref 或 `ms.ref(...)` |
 | `cross_model_reference` | 优先通过 `_exports.py` 导入；没有 `_exports.py` 时可直接 import sibling file 或使用显式 `ms.ref(...)` |
 | `invalid_decomposition` | 检查 `ms.ratio(...)` / `ms.weighted_average(...)` 的 components 是否都指向已注册 metric |
 | `invalid_component_body` | Remove ms.component() from metric body; use `ms.ratio`/`ms.weighted_average`/`ms.linear` instead |
 | `outside_loader_context` | 把定义移到 `<root>/models/semantic/<model>/<file>.py`；notebook 探索改用 scratch Ibis 表达式 |
-| `unverified_provenance` | 若要进入 strict workflow，补 `source_sql` triple、改为 `python_native`，或先停止并确认业务口径 |
+| `unverified_provenance` | 若要进入 strict workflow，补 `provenance=ms.from_sql(...)` triple、改为 `python_native`，或先停止并确认业务口径 |
 | `sql_escape_hatch` | 把 raw SQL 移到后端持久视图并通过 `ms.table(...)` 暴露；metric body 保持 Ibis expression |
 
 ### Load / Assembly-time
 
 loader 执行项目文件后，assembly validation 检查跨对象关系：
 
-- `_domain.py` 缺失或 model 注册不匹配目录。
-- `ms.domain(...)` 出现在非 `<root>/<model>/_domain.py` 文件，或一个 `_domain.py` 声明多个 model。
-- dataset 引用不存在的 datasource。
-- metric 引用不存在的 dataset 或 decomposition component。
-- cross-model `ms.ref(...)` 不存在、对象类型不匹配或形成循环依赖。
-- `datasets=[...]` 注入顺序与 metric 函数参数数量不一致。
-- hour time field 缺少 required prefix。
-- relationship endpoint、join field refs、field dataset membership 或 arity 不合法。
+- `_domain.py` 缺失或 domain 注册不匹配目录。
+- `ms.domain(...)` 出现在非 `<root>/<domain>/_domain.py` 文件，或一个 `_domain.py` 声明多个 domain。
+- entity 引用不存在的 datasource。
+- metric 引用不存在的 entity 或 decomposition component。
+- cross-domain `ms.ref(...)` 不存在、对象类型不匹配或形成循环依赖。
+- `entities=[...]` 注入顺序与 metric 函数参数数量不一致。
+- hour time dimension 缺少 required prefix。
+- relationship endpoint、join dimension refs、dimension entity membership 或 arity 不合法。
 
 失败后 registry 进入 `errored`，并保留 `load_errors`。agent 应修复所有结构化错误后重新加载。
 
@@ -939,13 +939,13 @@ parity 失败时，agent 应先定位语义差异，不应直接调大 tolerance
 
 目标态还应有不依赖数据执行的静态 policy 检查：
 
-- dataset primary key metadata 可选开启 sample uniqueness check；默认不阻塞加载，但 check 输出应把未验证 PK 标为 warning。
+- entity primary key metadata 可选开启 sample uniqueness check；默认不阻塞加载，但 check 输出应把未验证 PK 标为 warning。
 - metric body 禁止 `backend.sql(...)`、Ibis raw SQL escape hatch 或 dialect-specific SQL snippets。跨 dialect 的 vendor 差异应通过 datasource/backend compilation 和 parity 暴露，而不是藏在 metric body。
 - SQL escape hatch 检查在 materialize-time 扫描 Ibis expression tree 中的 raw SQL node；decorator-time 只做显式 `backend.sql(...)`、`.raw_sql(...)` 等明显方法名的早期拒绝，避免仅靠 AST 误伤普通列名。
 
 ## 与历史 schema 参考的关系
 
-旧 schema 设计提供了语义参考：semantic model、dataset、field、relationship、metric、time granularity、AI context 和 MARIVO decomposition extensions。Python 语义层借鉴这些对象边界，但不被旧链路约束。
+旧 schema 设计提供了语义参考：semantic domain、entity、dimension、relationship、metric、time granularity、AI context 和 MARIVO decomposition extensions。Python 语义层借鉴这些对象边界，但不被旧链路约束。
 
 本文档采用以下边界：
 
@@ -960,7 +960,7 @@ parity 失败时，agent 应先定位语义差异，不应直接调大 tolerance
 `semantic` 和 `analysis` 是 Python-native Marivo 的两段式架构：
 
 ```text
-semantic:  datasource / dataset / field / metric / relationship
+semantic:  datasource / entity / dimension / metric / relationship
       ↓
 Ibis materialization + typed semantic refs
       ↓
@@ -972,7 +972,7 @@ typed frames + session persistence + lineage
 设计边界：
 
 - `semantic` 不产出 `MetricFrame`、`DeltaFrame` 或 attribution artifact。
-- `analysis` 不重新定义 metric 口径，不猜 dataset/time field，不绕过 semantic registry 直接读表。
+- `analysis` 不重新定义 metric 口径，不猜 entity/time dimension，不绕过 semantic registry 直接读表。
 - backend ownership 位于 profile/session/execution 层；semantic object 只声明
   datasource 名称引用，不声明 backend type 或连接字段。
 - 下游 analysis operator 应通过 semantic refs 读取对象，例如 `sales.revenue`，并通过 materialization 获得 Ibis expression。
@@ -986,32 +986,32 @@ typed frames + session persistence + lineage
 - `SemanticProject`、project-scoped registry、context-local active registry。
 - decorators：`domain`、`datasource`、`entity`、`dimension`、`time_dimension`、`metric`、`relationship`。
 - builders：`sum`、`ratio`、`weighted_average`、`ref`。
-- loader：model 目录扫描、`_domain.py` 优先执行、sibling files 排序执行、re-load 清理项目模块。
+- loader：domain 目录扫描、`_domain.py` 优先执行、sibling files 排序执行、re-load 清理项目模块。
 - reader/introspection：`ms.load()` 返回 `SemanticCatalog`；`catalog.list(...)`、`catalog.get(...)`、`catalog.preview(...)`、`catalog.readiness(...)` 是 agent-facing read/handoff surface。
-- materialization：dataset、field、metric 到 Ibis object 是 semantic internals / analysis runtime 的实现细节。
+- materialization：entity、dimension、metric 到 Ibis object 是 semantic internals / analysis runtime 的实现细节。
 - validation：metric body AST 约束、missing refs、time prefix、relationship endpoint/columns/arity。
-- SQL provenance：`source_sql`、`source_dialect`。
-- parity helper：`compare_metric_to_source_sql` 和 `ParityResult`。
+- SQL provenance：`provenance=ms.from_sql(...)`。
+- parity helper：`compare_metric_to_provenance` 和 `ParityResult`。
 - structured errors：decorator、assembly、runtime、parity、load errors。
 
-当前 v1 仍保留若干 agent footguns：model 归属部分依赖 loader 上下文，metric dataset 依赖来自函数参数名，datasource / relationship 是 decorator body 形态，reader 主要是 free functions，provenance 不是必填状态，loader 行为仍暴露 sibling file sort order。这些是目标态要移除的兼容负担，不应继续固化为长期设计。
+当前 v1 仍保留若干 agent footguns：domain 归属部分依赖 loader 上下文，metric entity 依赖来自函数参数名，datasource / relationship 是 decorator body 形态，reader 主要是 free functions，provenance 不是必填状态，loader 行为仍暴露 sibling file sort order。这些是目标态要移除的兼容负担，不应继续固化为长期设计。
 
 ## v1.1 Breaking 目标
 
 以下目标应作为下一轮实现的破坏性契约调整，而不是长期后续愿望：
 
-- 所有语义对象使用显式 `model=` 或显式 default model；文件位置只做 discovery 和组织校验。
-- `ms.domain(...)` 只能出现在 `<root>/<model>/_domain.py`，且 `name` 必须等于目录名；`default` 缺省为 `True`，允许同目录对象省略重复 `model=`。
+- 所有语义对象使用显式 `domain=` 或显式 default domain；文件位置只做 discovery 和组织校验。
+- `ms.domain(...)` 只能出现在 `<root>/<domain>/_domain.py`，且 `name` 必须等于目录名；`default` 缺省为 `True`，允许同目录对象省略重复 `domain=`。
 - 标准 agent authoring pipeline 使用 `_domain.py` 单文件；对象变多时仍按依赖顺序在
   `_domain.py` 内维护。feature-oriented sibling files 只能作为另行设计的多文件
   authoring 模式。
-- Metric 显式 `datasets=[...]`；函数参数名只做局部 alias。
-- Base metric uses `@ms.simple_metric(...)`; derived metric uses body-free `ms.ratio(...)` / `ms.weighted_average(...)` / `ms.linear(...)`, relying on composition components.
+- Metric 显式 `entities=[...]`；函数参数名只做局部 alias。
+- Base metric uses `@ms.metric(...)`; derived metric uses body-free `ms.ratio(...)` / `ms.weighted_average(...)` / `ms.linear(...)`, relying on composition components.
 - Composition component roles come from `ms.ratio(...)` and `ms.weighted_average(...)` and `ms.linear(...)` builders.
 - Derived metrics do not have Python bodies; custom derived arithmetic must be expressed through base component metrics.
 - Derived metric 的有效 parity status 从自身 provenance 和 components status 中取更弱者。
 - Datasource 和 relationship 改为顶级 metadata call，不再要求无意义 function body。
-- Relationship join keys 改为 dimension/time_dimension refs；裸字符串 `from_columns` / `to_columns` 不再是目标态契约。
+- Relationship join keys 改为 `keys=[ms.join_on(...)]`，值为 dimension/time_dimension refs；裸字符串 `from_columns` / `to_columns` 和旧 `from_fields` / `to_fields` 不再是目标态契约。
 - Reader 主 API 迁移到 `SemanticCatalog`；free functions 只保留为有显式 active project 的 REPL sugar。
 - Metric provenance status 始终存在；authoring-time 缺省为 `unverified`，promotion / strict CI / analysis consumption 前必须提升为 SQL triple 或 `python_native`。
 - Parity status 成为 metric / frame / describe 的可见属性。
@@ -1032,8 +1032,8 @@ typed frames + session persistence + lineage
 
 以下是 v1.1 之后的方向：
 
-- 更完整的 relationship-aware materialization 和 cross-dataset filter resolution。
-- dataset primary / unique key 的可配置 sample validation。
+- 更完整的 relationship-aware materialization 和 cross-entity filter resolution。
+- entity primary / unique key 的可配置 sample validation。
 - 更丰富的 generated SQL diff 和 parity fixture lifecycle。
 - 明确 Ibis 跨 dialect 表达式失败的分类：普通 Ibis 表达式编译失败、raw SQL escape、backend capability gap 应返回不同 structured error。
 - 面向 agent 的例子库和 skill 文档，与 public API drift check 绑定。

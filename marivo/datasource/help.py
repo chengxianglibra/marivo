@@ -40,7 +40,6 @@ _SUMMARIES: dict[str, str] = {
     "connect": "open a live ibis backend for a datasource; caller disconnects",
     "datasource": "declare one project-level datasource",
     "describe": "show literal fields and env refs for one datasource",
-    "file": "file source for datasource inspection",
     "help": "this introspection entry point",
     "help_text": "return datasource help text without printing",
     "inspect_columns": "profile selected columns from a datasource source with bounded scan",

@@ -153,7 +153,7 @@ class DatasourceCatalog:
         Args:
             datasource: Name of the project datasource.
             table: Table name within the datasource (alternative to source).
-            source: An ``EntitySourceIR`` (from ``md.table()`` or ``md.file()``).
+            source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, or ``md.csv()``).
             database: Optional database/catalog path.
             include_partitions: Whether to include partition hints.
 
@@ -184,7 +184,7 @@ class DatasourceCatalog:
 
         Args:
             datasource: Name of the project datasource.
-            source: An ``EntitySourceIR`` (from ``md.table()`` or ``md.file()``).
+            source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, or ``md.csv()``).
             columns: Column names to profile; None profiles all.
             scope: Bounded scan configuration; defaults to ScanScope().
 
