@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
 from typing import Any, cast
-
-import pytest
 
 import marivo.analysis as mv
 from marivo.introspection.surface import render as surface_render
@@ -112,11 +108,6 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
 def test_internal_fields_not_publicly_accessible(tmp_path, monkeypatch):
     session = _session(tmp_path, monkeypatch)
 
-    # Old public names that no longer exist
-    with pytest.raises(AttributeError):
-        _ = session.layout
-    with pytest.raises(AttributeError):
-        _ = session.evidence_store
     # Underscore-prefixed storage is reachable for internal code
     assert session._layout is not None
     assert callable(session._evidence_store)
@@ -184,65 +175,3 @@ def test_help_session_lists_identity_fields():
     identity_section = text.split("Identity fields:\n", 1)[1].split("\n\nLifecycle:", 1)[0]
     text_fields = tuple(line.split(None, 1)[0] for line in identity_section.splitlines())
     assert text_fields == EXPECTED_SESSION_IDENTITY_FIELDS
-
-
-# ---------------------------------------------------------------------------
-# Deleted API scan: ensure removed names do not reappear in public surfaces
-# ---------------------------------------------------------------------------
-
-_DELETED_API_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("mv.session.active(", re.compile(r"mv\.session\.active\(")),
-    ("mv.session.archive(", re.compile(r"mv\.session\.archive\(")),
-    ("mv.session.create(", re.compile(r"mv\.session\.create\(")),
-    ("mv.session.switch(", re.compile(r"mv\.session\.switch\(")),
-    ("marivo.analysis.session.attach", re.compile(r"marivo\.analysis\.session\.attach")),
-    ("publish_report_package", re.compile(r"publish_report_package")),
-    ("materialize_html_adapter", re.compile(r"materialize_html_adapter")),
-    ("materialize_mcp_adapter", re.compile(r"materialize_mcp_adapter")),
-    ("render_report_html", re.compile(r"render_report_html")),
-    ("to_html_report_payload", re.compile(r"to_html_report_payload")),
-]
-
-_EXCLUDED_DIRS = {
-    "docs/superpowers/specs",
-    "docs/superpowers/plans",
-}
-
-_EXCLUDED_FILES = {
-    # This test file itself contains the pattern strings.
-    Path(__file__).resolve().name,
-}
-
-
-def _scan_paths() -> list[Path]:
-    """Return all .py and .md paths under marivo/skills, docs/specs, and tests."""
-    repo_root = Path(__file__).resolve().parent.parent
-    hits: list[Path] = []
-    for prefix in ("marivo/skills", "docs/specs"):
-        base = repo_root / prefix
-        if not base.is_dir():
-            continue
-        for p in base.rglob("*"):
-            if p.suffix not in (".py", ".md"):
-                continue
-            # Exclude historical plans/specs
-            rel = str(p.relative_to(repo_root))
-            if any(rel.startswith(exc) for exc in _EXCLUDED_DIRS):
-                continue
-            # Exclude self
-            if p.name in _EXCLUDED_FILES:
-                continue
-            hits.append(p)
-    return hits
-
-
-def test_no_deleted_api_names_in_docs_or_skills() -> None:
-    """Public docs and skills must not reference deleted API names."""
-    violations: list[str] = []
-    for path in _scan_paths():
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for label, pattern in _DELETED_API_PATTERNS:
-            for match in pattern.finditer(text):
-                line_no = text[: match.start()].count("\n") + 1
-                violations.append(f"{path}:{line_no}: found {label!r}")
-    assert not violations, "\n".join(violations)

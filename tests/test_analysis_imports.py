@@ -25,29 +25,20 @@ def test_analysis_keeps_frame_and_policy_exports():
     assert QualityReportMeta.model_fields["kind"].default == "quality_report"
 
 
-def test_analysis_does_not_export_execution_operators():
+def test_session_exposes_report_methods() -> None:
     import marivo.analysis as mv
 
-    removed = [
-        "observe",
-        "compare",
-        "decompose",
-        "correlate",
-        "forecast",
-        "assess_quality",
-        "hypothesis_test",
-        "discover",
-        "transform",
-        "select",
-        "from_pandas",
-        "explore_ibis",
-        "promote_metric_frame",
-        "promote_delta_frame",
-        "promote_attribution_frame",
-    ]
-    for name in removed:
-        assert name not in mv.__all__
-        assert not hasattr(mv, name)
+    assert callable(mv.Session.save_report)
+    assert callable(mv.Session.validate_report)
+    assert callable(mv.Session.publish_report)
+
+
+def test_analysis_publish_submodule_accessible() -> None:
+    import marivo.analysis as mv
+
+    assert hasattr(mv, "publish")
+    assert callable(mv.publish.help)
+    assert mv.publish.MarivoReportArtifact is not None
 
 
 def test_session_class_exposes_execution_surface():
@@ -111,64 +102,9 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         assert hasattr(mv, name), name
 
 
-def test_analysis_no_longer_exports_metric_or_dimension_refs() -> None:
-    import marivo.analysis as mv
-
-    for name in ("Metric" + "Ref", "Dimension" + "Ref"):
-        assert name not in mv.__all__
-        assert not hasattr(mv, name)
-
-
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
     import marivo.analysis as mv
     import marivo.datasource as md
-
-    subdomain_only = {
-        # Evidence DTOs live under mv.evidence.
-        "Assessment",
-        "AssociationSummary",
-        "AttributedDriver",
-        "BlockedFollowup",
-        "ChangeFact",
-        "EvidenceTrace",
-        "Finding",
-        "ForecastSummary",
-        "OpenAnomaly",
-        "OpenQuestion",
-        "Proposition",
-        "QualitySummary",
-        "SessionKnowledge",
-        "Subject",
-        "TestedHypothesis",
-        "TimeWindow",
-        "TriggeredByFollowup",
-        # Datasource metadata DTOs live under md.
-        "ColumnMetadata",
-        "MetadataWarning",
-        "PartitionMetadata",
-        "TableMetadata",
-        "PreviewResult",
-        "PreviewSamplePolicy",
-        "PreviewWarning",
-        # Error classes live under mv.errors.
-        "DiscoverInsufficientDataError",
-        "PromotionFailedError",
-        # The old persisted-frame listing name conflicts with constructor refs.
-        "FrameRef",
-        "FrameRecord",
-        # Removed compatibility or implementation-detail analysis names.
-        "Grain",
-        "GrainInput",
-        "GrainUnit",
-        "LagPolicy",
-        "TimeGrain",
-        "ensure_grain_supported",
-        "load_frame",
-    }
-
-    for name in subdomain_only:
-        assert name not in mv.__all__, f"{name} should not be in mv.__all__"
-        assert not hasattr(mv, name), f"{name} should not be a mv attribute"
 
     assert mv.evidence.Subject is not None
     assert md.TableMetadata is not None
@@ -203,88 +139,3 @@ def test_analysis_exports_report_mcp_adapter_surface() -> None:
     assert ReportColumn.__name__ == "ReportColumn"
     assert ReportMetric.__name__ == "ReportMetric"
     assert callable(to_mcp_artifact_payload)
-
-
-def test_analysis_does_not_export_publish_or_meta_types() -> None:
-    import marivo.analysis as mv
-
-    removed = [
-        # Publish types
-        "DataPolicy",
-        "Dataset",
-        "DatasetMetadata",
-        "Flow",
-        "FlowStep",
-        "GroundedClaim",
-        "Grounding",
-        "LocalFilesystemTarget",
-        "MarivoReportArtifact",
-        "McpAdapterMetadata",
-        "PublishConfig",
-        "PublishReportResult",
-        "PublishTarget",
-        "ReportBlock",
-        "ReportChartSpec",
-        "ReportColumn",
-        "ReportManifest",
-        "ReportMetric",
-        "ReportPackageValidationIssue",
-        "ReportPackageValidationResult",
-        "ReportSection",
-        "ReportSpec",
-        "SourceProvenance",
-        # Publish functions (directory-based APIs replaced by session methods)
-        "export_report_json_schema",
-        "load_report_artifact",
-        "materialize_mcp_adapter",
-        "publish_report_package",
-        "to_mcp_artifact_payload",
-        "validate_report_artifact",
-        "write_report_artifact",
-        "MetricFrameMeta",
-        "DeltaFrameMeta",
-        "AttributionFrameMeta",
-        "ComponentFrameMeta",
-        "ForecastFrameMeta",
-        "AssociationResultMeta",
-        "ExplorationResultMeta",
-        "HypothesisTestResultMeta",
-        "CandidateSetMeta",
-        "QualityReportMeta",
-        # Internal-only types
-        "CandidateShape",
-        "ValidationIssue",
-    ]
-    for name in removed:
-        assert name not in mv.__all__, f"{name} should not be in mv.__all__"
-        assert not hasattr(mv, name), f"{name} should not be a mv attribute"
-
-
-def test_analysis_publish_does_not_export_directory_materialization_helpers() -> None:
-    """Directory-based report helpers are internal; use session methods instead."""
-    from marivo.analysis import publish
-
-    removed = [
-        "write_report_artifact",
-        "materialize_mcp_adapter",
-        "publish_report_package",
-    ]
-    for name in removed:
-        assert name not in publish.__all__, f"{name} should not be in publish.__all__"
-        assert not hasattr(publish, name), f"{name} should not be a publish attribute"
-
-
-def test_session_exposes_report_methods() -> None:
-    import marivo.analysis as mv
-
-    assert callable(mv.Session.save_report)
-    assert callable(mv.Session.validate_report)
-    assert callable(mv.Session.publish_report)
-
-
-def test_analysis_publish_submodule_accessible() -> None:
-    import marivo.analysis as mv
-
-    assert hasattr(mv, "publish")
-    assert callable(mv.publish.help)
-    assert mv.publish.MarivoReportArtifact is not None

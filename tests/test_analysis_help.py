@@ -291,35 +291,6 @@ def test_help_json_frame_method_descriptor() -> None:
     assert "Load the linked ComponentFrame" in cast("str", result["doc"])
 
 
-def test_help_rejects_format_kwarg() -> None:
-    """format= is no longer accepted by mv.help()."""
-    try:
-        mv.help(format="json")  # type: ignore[call-arg]
-    except TypeError:
-        pass
-    else:
-        raise AssertionError("mv.help should reject format= keyword argument")
-
-
-# --- format= removal ---
-
-
-def test_mv_help_rejects_format_kwarg():
-    import pytest
-
-    with pytest.raises(TypeError):
-        mv.help("observe", format="json")  # type: ignore[call-arg]
-
-
-def test_ms_help_rejects_format_kwarg():
-    import pytest
-
-    import marivo.semantic as ms
-
-    with pytest.raises(TypeError):
-        ms.help("metric", format="json")  # type: ignore[call-arg]
-
-
 # --- return type is always None ---
 
 

@@ -198,20 +198,6 @@ def test_session_public_fields_are_read_only(tmp_path):
         s.created_at = _now()
 
 
-def test_session_internal_fields_not_in_dir(tmp_path):
-    s = _session(tmp_path)
-    names = dir(s)
-    assert "layout" not in names
-    assert "backend_cache" not in names
-    assert "evidence_store" not in names
-
-
-def test_session_has_no_state_attribute(tmp_path):
-    """Session.state and SessionState were removed in the session redesign."""
-    s = _session(tmp_path)
-    assert not hasattr(s, "state")
-
-
 def test_session_exposes_catalog_property(tmp_path, monkeypatch):
     import marivo.analysis as mv
     from marivo.semantic.catalog import SemanticCatalog

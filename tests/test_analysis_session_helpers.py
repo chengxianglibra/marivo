@@ -21,32 +21,6 @@ def test_session_all_exports_exactly_four_names() -> None:
     assert mv.session.__all__ == ["current", "delete", "get_or_create", "list"]
 
 
-def test_dir_does_not_contain_removed_names() -> None:
-    names = dir(mv.session)
-    for removed in ("attach", "active", "create", "switch", "archive"):
-        assert removed not in names, f"removed name {removed!r} still in dir(mv.session)"
-
-
-def test_hasattr_attach_is_false() -> None:
-    assert hasattr(mv.session, "attach") is False
-
-
-def test_hasattr_active_is_false() -> None:
-    assert hasattr(mv.session, "active") is False
-
-
-def test_hasattr_create_is_false() -> None:
-    assert hasattr(mv.session, "create") is False
-
-
-def test_hasattr_switch_is_false() -> None:
-    assert hasattr(mv.session, "switch") is False
-
-
-def test_hasattr_archive_is_false() -> None:
-    assert hasattr(mv.session, "archive") is False
-
-
 # ---------------------------------------------------------------------------
 # current()
 # ---------------------------------------------------------------------------

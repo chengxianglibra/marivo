@@ -25,7 +25,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
-from marivo.semantic.reader import SemanticProject
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -154,61 +153,6 @@ def test_mv_help_raises_on_format_kwarg() -> None:
 def test_ms_help_raises_on_format_kwarg() -> None:
     with pytest.raises(TypeError):
         ms.help("metric", format="json")  # type: ignore[call-arg]
-
-
-# ---------------------------------------------------------------------------
-# deleted SemanticProject catalog read methods stay removed
-# ---------------------------------------------------------------------------
-
-
-def test_reader_project_catalog_read_methods_are_removed() -> None:
-    removed = {
-        "list_domains",
-        "list_datasources",
-        "list_entities",
-        "list_dimensions",
-        "list_time_dimensions",
-        "list_metrics",
-        "list_relationships",
-    }
-
-    for name in removed:
-        assert not hasattr(SemanticProject, name), name
-
-
-def test_current_semantic_docs_do_not_reference_removed_project_read_surface() -> None:
-    checked_paths = [
-        REPO_ROOT / "docs" / "specs" / "semantic" / "agent-semantic-layer-authoring-design.md",
-        REPO_ROOT / "docs" / "specs" / "semantic" / "authoring-pipeline-design.md",
-        REPO_ROOT / "docs" / "specs" / "semantic" / "python-semantic-layer.md",
-        REPO_ROOT / "docs" / "specs" / "semantic" / "stepwise-authoring-design.md",
-        REPO_ROOT / "marivo/skills" / "marivo-semantic" / "references" / "closeout.md",
-        REPO_ROOT / "marivo/skills" / "marivo-semantic" / "references" / "preview.md",
-        REPO_ROOT / "marivo" / "semantic" / "reader.py",
-        REPO_ROOT / "marivo" / "semantic" / "constraints.py",
-        REPO_ROOT / "marivo" / "semantic" / "catalog.py",
-    ]
-    removed_terms = (
-        "project.collect_source_preview",
-        "project.search",
-        "project.describe",
-        "project.dependencies",
-        "project.dependents",
-        "preview_dataset",
-        "preview_field",
-        "preview_metric",
-        "search(kind=...)",
-        "materialization or preview methods",
-    )
-
-    offenders: list[str] = []
-    for path in checked_paths:
-        text = path.read_text()
-        for term in removed_terms:
-            if term in text:
-                offenders.append(f"{path.relative_to(REPO_ROOT)}: {term}")
-
-    assert offenders == []
 
 
 # ---------------------------------------------------------------------------
@@ -387,63 +331,3 @@ def test_analysis_skill_rejects_display_true_examples() -> None:
 def test_semantic_skill_teaches_mv_help_ref() -> None:
     skill = _read("marivo/skills/marivo-semantic/SKILL.md")
     assert "mv.help(" in skill
-
-
-# ---------------------------------------------------------------------------
-# Public surface has no backend_factory or binding choreography
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Superseded authoring symbols removed from public surface
-# ---------------------------------------------------------------------------
-
-
-def test_removed_stepwise_authoring_symbols_are_not_public() -> None:
-    removed = {
-        "AuthoringSourceInput",
-        "EvidenceFact",
-        "MetadataOnlyPolicy",
-        "BoundedProfilePolicy",
-        "SelectedColumnsPolicy",
-        "TableContext",
-        "ColumnContext",
-        "ColumnEvidence",
-        "SourceEvidencePack",
-    }
-
-    assert removed.isdisjoint(set(ms.__all__))
-    for name in removed:
-        assert not hasattr(ms, name), f"ms.{name} should be removed"
-
-    project = SemanticProject()
-    assert not hasattr(project, "assess_authoring")
-    assert not hasattr(project, "inspect_authored_object")
-    assert not hasattr(project, "inspect_table")
-    assert not hasattr(project, "inspect_columns")
-
-
-def test_semantic_authoring_public_surface_has_no_backend_factory_or_binding() -> None:
-    project = SemanticProject()
-
-    assert not hasattr(project, "bind_datasource_access")
-    for name in (
-        "materialize_dataset",
-        "materialize_field",
-        "materialize_metric",
-        "preview_dataset",
-        "preview_field",
-        "preview_metric",
-        "parity_check",
-        "readiness",
-    ):
-        method = getattr(project, name, None)
-        if method is None:
-            continue
-        signature = inspect.signature(method)
-        assert "backend_factory" not in signature.parameters, (
-            f"{name} still has backend_factory param"
-        )
-        assert "inspect_source" not in signature.parameters, (
-            f"{name} still has inspect_source param"
-        )

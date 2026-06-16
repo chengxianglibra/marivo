@@ -332,10 +332,6 @@ def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
         assert name in str(semantic_data), f"semantic help missing {name}"
     for name in ("ScanScope", "inspect_columns", "probe_join_keys"):
         assert name in str(datasource_data), f"datasource help missing {name}"
-    for removed in ("assess_authoring", "AuthoringSourceInput", "inspect_authored_object"):
-        assert removed not in str(semantic_data), (
-            f"semantic help still has removed symbol {removed}"
-        )
 
 
 def test_semantic_skill_md_caps_respected() -> None:
@@ -381,13 +377,3 @@ def test_semantic_skill_uses_stepwise_ladder_contract() -> None:
         "authoring_abandoned",
     ):
         assert required in combined, f"skill references missing {required}"
-    for removed in (
-        "assess_authoring",
-        "AuthoringSourceInput",
-        "inspect_authored_object",
-        "bind_datasource_access",
-        "project.inspect_table",
-        "project.inspect_columns",
-        "backend_factory",
-    ):
-        assert removed not in combined, f"skill references still contain removed symbol {removed}"

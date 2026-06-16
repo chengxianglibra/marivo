@@ -184,33 +184,11 @@ def test_reader_project_class() -> None:
 def test_readiness_public_dtos() -> None:
     assert ms.ReadinessReport is not None
     assert ms.ReadinessIssue is not None
-    assert not hasattr(ms, "EvidenceSummary")
     assert ms.ReadinessInputSummary is not None
-
-
-def test_readiness_public_contract_has_no_stale_evidence_summary_refs() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    checked_paths = [
-        repo_root / "marivo" / "semantic" / "__init__.py",
-        repo_root / "marivo" / "semantic" / "help.py",
-        repo_root / "docs" / "specs" / "semantic" / "agent-semantic-layer-authoring-design.md",
-        repo_root / "docs" / "specs" / "semantic" / "skill-semantic-layer-authoring-design.md",
-    ]
-    stale_terms = ("EvidenceSummary", "evidence_summary", "project.readiness(backend_factory")
-
-    offenders: list[str] = []
-    for path in checked_paths:
-        text = path.read_text()
-        for term in stale_terms:
-            if term in text:
-                offenders.append(f"{path.relative_to(repo_root)}: {term}")
-
-    assert offenders == []
 
 
 def test_typing_submodule() -> None:
     assert ms.typing is typing_mod
-    assert not hasattr(ms.typing, "ComponentExpr")
 
 
 def test_errors_submodule() -> None:

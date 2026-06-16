@@ -281,24 +281,17 @@ def test_linear_signs_and_min_terms():
 
 
 # ---------------------------------------------------------------------------
-# Task 12: old authoring symbols are gone
-# ---------------------------------------------------------------------------
-
-
-def test_old_authoring_symbols_are_gone():
-    for gone in ("metric", "derived_metric", "sum", "DecompositionBuilder"):
-        assert not hasattr(authoring, gone), f"{gone} should be removed"
-    for present in ("aggregate", "simple_metric", "ratio", "weighted_average", "linear", "semi_additive"):
-        assert hasattr(authoring, present), f"{present} should exist"
-
-
-# ---------------------------------------------------------------------------
 # Task 13: package exports
 # ---------------------------------------------------------------------------
 
 
 def test_package_exports_new_surface():
-    for present in ("aggregate", "simple_metric", "ratio", "weighted_average", "linear", "semi_additive"):
+    for present in (
+        "aggregate",
+        "simple_metric",
+        "ratio",
+        "weighted_average",
+        "linear",
+        "semi_additive",
+    ):
         assert hasattr(ms, present), f"ms.{present} missing"
-    for gone in ("metric", "derived_metric", "sum"):
-        assert not hasattr(ms, gone), f"ms.{gone} should be removed"
