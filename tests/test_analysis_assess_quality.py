@@ -142,7 +142,7 @@ def test_non_metric_frame_raises(tmp_path):
             session_id=session.id,
             project_root=str(session.project_root),
             produced_by_job=None,
-            created_at=pd.Timestamp.utcnow().to_pydatetime(),
+            created_at=pd.Timestamp.now("UTC").to_pydatetime(),
             row_count=1,
             byte_size=0,
             lineage=Lineage(),
